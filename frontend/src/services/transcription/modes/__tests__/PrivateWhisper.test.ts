@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
 vi.unmock('../PrivateWhisper');
 
-import PrivateWhisper, { buildPrivateTimingSummary } from '../PrivateWhisper';
+import PrivateWhisper, { buildPrivateTimingSummary, collapseTranscriptRepetitionLoops } from '../PrivateWhisper';
 import { Result } from '../types';
 import { MicStream } from '../../utils/types';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE } from '../../sttConstants';
@@ -1116,6 +1116,58 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
         vi.useRealTimers();
+    });
+});
+
+describe('collapseTranscriptRepetitionLoops (Private saved-transcript duplication, verdict A)', () => {
+    it('collapses an immediately-repeated phrase loop (>=3x) to one instance', () => {
+        expect(collapseTranscriptRepetitionLoops('we should wait we should wait we should wait'))
+            .toBe('we should wait');
+    });
+
+    it('collapses a repeated full sentence (the Whisper-loop signature)', () => {
+        const looped = 'Um. Basically, we should literally, like, wait. '
+            + 'Um. Basically, we should literally, like, wait. '
+            + 'Um. Basically, we should literally, like, wait.';
+        expect(collapseTranscriptRepetitionLoops(looped))
+            .toBe('Um. Basically, we should literally, like, wait.');
+    });
+
+    it('collapses an exact verbatim whole-text doubling', () => {
+        expect(collapseTranscriptRepetitionLoops('alpha beta gamma delta alpha beta gamma delta'))
+            .toBe('alpha beta gamma delta');
+    });
+
+    it('does NOT touch a normal transcript with no contiguous loop', () => {
+        const normal = 'The quick brown fox jumps over the lazy dog and then it runs away.';
+        expect(collapseTranscriptRepetitionLoops(normal)).toBe(normal);
+    });
+
+    it('preserves a 2x phrase repeat (not a clear loop)', () => {
+        expect(collapseTranscriptRepetitionLoops('I think I think therefore I am'))
+            .toBe('I think I think therefore I am');
+    });
+
+    it('preserves single-word repeats like "no no no"', () => {
+        expect(collapseTranscriptRepetitionLoops('no no no')).toBe('no no no');
+        expect(collapseTranscriptRepetitionLoops('that is very very good')).toBe('that is very very good');
+    });
+
+    it('collapses a loop embedded mid-transcript but keeps the surrounding text', () => {
+        expect(collapseTranscriptRepetitionLoops('intro words then the same then the same then the same outro words'))
+            .toBe('intro words then the same outro words');
+    });
+
+    it('leaves a short single-word repeat (3-5x) alone but collapses a long stutter', () => {
+        expect(collapseTranscriptRepetitionLoops('it was so so so good')).toBe('it was so so so good');
+        // A 6x single-word stutter reduces to a 2-word floor (still conservative, removes the loop).
+        expect(collapseTranscriptRepetitionLoops('start here go go go go go go end here'))
+            .toBe('start here go go end here');
+    });
+
+    it('handles empty / short input safely', () => {
+        expect(collapseTranscriptRepetitionLoops('')).toBe('');
+        expect(collapseTranscriptRepetitionLoops('hi there')).toBe('hi there');
     });
 });
 
