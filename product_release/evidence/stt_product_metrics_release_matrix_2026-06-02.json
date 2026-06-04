@@ -1,11 +1,11 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:26:00Z",
+  "lastUpdatedAt": "2026-06-04T15:28:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
-      "status": "closest_to_release_green_baseline_only",
-      "reason": "Cloud baseline is near corrected AssemblyAI target and is the paid quality path. Standard-filler keyterms work is stopped by product decision.",
-      "next": "test-release-agent: run current-head Cloud baseline app-path proof with __CLOUD_STT_TIMELINE__, tail/readability, and save/history/detail after higher-priority Native/Private fixes."
+      "status": "closest_to_release_green_baseline_only_lower_priority_than_native_private",
+      "reason": "Cloud baseline is near corrected AssemblyAI target and is the paid quality path. Current-head deployed smoke passed; standard-filler keyterms work is stopped by product decision.",
+      "next": "Pause further Cloud work until Native/Private blockers move, unless product explicitly requests a richer baseline metrics proof."
     },
     "private_v2": {
       "status": "not_release_green",
@@ -193,7 +193,7 @@
     "caveat": "This automated sweep does not replace human real-mic Private/Native proofs. Known human-found STT blockers remain open with dev: Native detail/readability/trust spacing and Private substitution/detail/live progress."
   },
   "latestCloudBaselineProof": {
-    "status": "local_contract_verified_live_app_path_credential_gated",
+    "status": "local_contract_verified_deployed_smoke_passed_full_metrics_deferred",
     "owner": "test-release-agent / Codex",
     "policy": "Cloud baseline only for launch; no standard-filler keyterms work.",
     "localContractProof": {
@@ -208,9 +208,26 @@
       ]
     },
     "liveAppPathGate": {
-      "command": "pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=line --output=/private/tmp/speaksharp-cloud-baseline-live-gate",
-      "result": "skipped",
-      "reason": "Missing deployed BASE_URL/Pro credentials and no real ASSEMBLYAI_API_KEY in local environment."
+      "command": "gh workflow run live-release-matrix.yml -f suite=cloud-artifact",
+      "runId": "26960691857",
+      "jobId": "79549905302",
+      "commit": "4216b2d1",
+      "artifactId": "7415247192",
+      "result": "passed",
+      "testsPassed": 1,
+      "duration": "46.2s",
+      "verified": [
+        "deployed Pro auth reached session",
+        "Cloud mode started with AssemblyAI token HTTP 200",
+        "provider emitted partial, final, and terminated events",
+        "stop selected result transcriptLength=362",
+        "recording duration=25.062s",
+        "final wordCount=67",
+        "fillerCount=6",
+        "willSave=true",
+        "analytics history rendered"
+      ],
+      "newFinding": "Visible transcript evidence included glued trust-copy text: Draft transcriptText may change..., so shared transcript-panel/test-extraction cleanup affects Cloud evidence too."
     },
     "stillRequiredForGreen": [
       "__CLOUD_STT_TIMELINE__",
@@ -220,7 +237,8 @@
       "WER/accuracy",
       "filler recall and false filler insertion",
       "punctuation/readability metrics",
-      "save/history/detail equality"
+      "save/history/detail equality",
+      "clean transcript-only evidence without trust-label glue"
     ]
   },
   "latestReportBacklogHygiene": {

@@ -1,13 +1,13 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T13:26Z
+**Updated:** 2026-06-04T15:28Z
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
 
 | STT | Status | Why | Next owner/action |
 | --- | --- | --- | --- |
-| Cloud baseline | Closest to release-green | Baseline is near corrected AssemblyAI target and is the paid quality path. Keyterms are stopped for standard fillers. | test-release-agent / Codex: current-head baseline app-path proof with timeline, tail, readability, save/history/detail. |
+| Cloud baseline | Closest to release-green, lower release priority than Native/Private | Baseline is near corrected AssemblyAI target and is the paid quality path. Current-head deployed smoke passed; keyterms are stopped for standard fillers. | Pause further Cloud work until Native/Private blockers move, except richer baseline metrics if explicitly requested. |
 | Private v2 | Not release-green | Human proof after explicit setup consent produced `56.36%` accuracy, missed `um`, substituted `main idea/every transcript` with `memory transcript`, and detail transcript was empty. | @dev-agent: fix content loss/substitution, first-visible draft gating, and detail boundary. |
 | Private v4 | Not 24h path | Browser worker/runtime has not produced a scoreable non-empty save candidate in prior runs. | Hold unless product reopens v4 runtime work. |
 | Native Chrome | Not release-green | Real mic proof captured/saved full 55-word transcript and formatter ran fast, but detail was empty and truecasing/readability still failed (`Starts Now`). | @dev-agent: fix detail boundary and general truecasing/readability; test reruns real mic. |
@@ -22,7 +22,7 @@
 | Private decode A/B | `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth` | h1_6 baseline `75.00%`; anti-hallucination decode options `0.00%`. Candidate rejected; keep current defaults. |
 | Session → Analytics coherence | targeted Vitest + Playwright | Analytics dashboard/page/score math `66/66`; user-facing regression `9/9`; analytics suite/truth `13/13`. Score caveats, transcript quality, filler/readability signals, detail navigation, reload/export, and session-to-analytics parity are currently covered by automated proof. |
 | Browser UX bug hunt | Playwright full-suite subset | Primary journeys, user features, custom filler words, goals, and error states `19/19`. No new automated UX bug surfaced; human STT quality/detail/trust findings remain the controlling blockers. |
-| Cloud baseline local contract | Vitest + live gate check | Local contract/timing stack `44/44`; live Cloud app-path spec skipped because this environment lacks deployed `BASE_URL`/Pro credentials and a real `ASSEMBLYAI_API_KEY`. Cloud remains closest, but not fully green. |
+| Cloud baseline local + deployed smoke | Vitest + GitHub Actions live proof | Local contract/timing stack `44/44`; deployed app-path smoke run `26960691857` passed (`1/1`, `46.2s`) with provider partial/final/terminated events, save, and analytics history. This is smoke evidence, not full WER/tail/readability green. |
 
 ## Release Metrics Required Per STT
 
@@ -47,7 +47,7 @@
 
 | Owner | Work |
 | --- | --- |
-| @dev-agent | Native detail empty; Native truecasing/readability; Native trust-label spacing; Private accuracy/substitution; Private detail empty; Private first-visible draft gating. |
+| @dev-agent | Native detail empty; Native truecasing/readability; shared Native/Cloud trust-label spacing; Private accuracy/substitution; Private detail empty; Private first-visible draft gating. |
 | test-release-agent / Codex | Own tasks #1-#7 below: Private decode-parameter A/B; Native formatter verification; Private VAD test plan; Session-to-Analytics coherence; browser UX bug hunt; Cloud baseline proof; report/backlog hygiene. |
 | product | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
 
@@ -60,7 +60,7 @@
 | 3 | Private VAD prototype test plan | Plan complete; execution waits for named dev VAD prototype flag |
 | 4 | Session-to-Analytics coherence pass | Complete: `66/66` targeted Vitest, `9/9` user-facing browser regressions, `13/13` analytics suite/truth |
 | 5 | Browser UX bug hunt | Complete: `19/19` Playwright across primary journey, user features, filler words, goals, and error states; no new automated UX bug found |
-| 6 | Cloud baseline proof | Local contract complete: `44/44`; live app-path proof credential-gated and still required before green |
+| 6 | Cloud baseline proof | Local contract complete: `44/44`; current-head deployed smoke passed `1/1`; full metric proof deferred behind Native/Private |
 | 7 | Report/backlog hygiene | Complete: stale backlog/report signals pruned; active reports retain current blockers, owners, artifacts, and proof gates |
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file with the merge commit. Do not leave release fixes stranded on long-lived branches.
