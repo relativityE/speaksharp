@@ -1,6 +1,6 @@
 # Native STT Release Evidence — Current
 
-**Updated:** 2026-06-04T12:44Z  
+**Updated:** 2026-06-04T13:06Z  
 **Scope:** Chrome Web Speech Native STT, real human mic, formatter, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -43,6 +43,27 @@ Speak sharp microphone proof Starts Now basically I want to make one simple poin
 | P1 | Formatter quality still weak | Formatter returned quickly and word-preserving, but transcript still has bad truecasing (`Starts Now`) and weak punctuation. Do not special-case this phrase. | @dev-agent |
 | P1 | Trust-label spacing bug | Extracted banner text glues words: `Draft transcriptText may change...`. | @dev-agent |
 
+## Latest Test-Release Result — Formatter Plumbing
+
+Owner: **test-release-agent / Codex**  
+Automated checks:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/services/transcription/__tests__/nativeAsyncFormatter.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeGeminiFormatter.test.ts
+
+pnpm test:edge
+```
+
+| Layer | Result | Meaning |
+| --- | --- | --- |
+| Frontend Native formatter suites | `35/35` passed | Raw-first async update, 4s timeout fallback, word-preservation guard, `__NATIVE_FORMATTER_LAST__`, and Private privacy guard are wired. |
+| Edge functions | `73/73` steps passed | `format-transcript` validates auth, engine, quota, word preservation, errors, and no transcript text in logs. |
+
+Conclusion: formatter plumbing is verified. Native is still **not release-green** because the current human proof showed weak formatter output (`Starts Now`) and empty detail. The remaining work is dev-owned quality/detail behavior, not missing formatter test coverage.
+
 ## Trust-Copy Contract
 
 Native and Cloud must use generic trust language only.
@@ -62,7 +83,7 @@ Additional **test-release-agent / Codex** owned work that can proceed without ta
 
 | # | Task |
 | --- | --- |
-| 2 | Native raw-first async formatter verification with raw-save timing, formatter-complete timing, formatted detail text, `wordPreserving`, latency, and general truecasing. |
+| 2 | Native raw-first async formatter plumbing verified by automated tests; browser/human proof still required after dev fixes detail and truecasing quality. |
 | 4 | Session-to-Analytics coherence for Native-derived score/quality signals. |
 | 5 | Browser UX bug hunt covering Native session flow, save/history/detail, conversion funnel, and generic trust copy. |
 | 7 | Keep this report pruned to current artifacts, owners, and proof requirements. |
