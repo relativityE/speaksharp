@@ -23,10 +23,12 @@ type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-err
 let fakeWorkerMode: FakeWorkerMode = 'ready';
 const fakeWorkerInstances: FakeWorker[] = [];
 
+type FakeWorkerMessage = { id: number; type: string; audio?: Float32Array; decodeOptions?: Record<string, unknown> };
+
 class FakeWorker {
     onmessage: ((event: MessageEvent) => void) | null = null;
     onerror: ((event: ErrorEvent) => void) | null = null;
-    postMessage = vi.fn((message: { id: number; type: string }) => {
+    postMessage = vi.fn((message: FakeWorkerMessage) => {
         if (fakeWorkerMode === 'silent') return;
 
         queueMicrotask(() => {
@@ -139,6 +141,35 @@ describe('TransformersJSEngine worker message contract', () => {
         }));
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'transcribe', audio: expect.any(Float32Array) }),
+            expect.any(Array),
+        );
+
+        await engine.destroy();
+    });
+
+    it('contract: sends sanitized decode-option overrides from the browser proof hook', async () => {
+        fakeWorkerMode = 'transcribe-result';
+        window.__PRIVATE_STT_DECODE_OPTIONS__ = {
+            condition_on_previous_text: false,
+            compression_ratio_threshold: 2.4,
+            unsafe_option: 'ignored',
+        };
+        const { TransformersJSEngine } = await import('../TransformersJSEngine');
+        const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+
+        const init = await engine.init();
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(init.isOk).toBe(true);
+        expect(result.isOk).toBe(true);
+        expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'transcribe',
+                decodeOptions: {
+                    condition_on_previous_text: false,
+                    compression_ratio_threshold: 2.4,
+                },
+            }),
             expect.any(Array),
         );
 
