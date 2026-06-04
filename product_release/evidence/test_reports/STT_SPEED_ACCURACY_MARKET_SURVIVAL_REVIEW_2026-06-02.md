@@ -40,6 +40,8 @@ Cloud is the strongest quality path, but product strategy prioritizes getting Na
 | Private | @dev-agent investigates content loss/substitution, first-visible draft gate, and detail-empty; test reruns same human script. |
 | Cloud | Keep baseline only; run current-head app-path tail/readability/timeline proof after higher-priority Native/Private work. |
 
+Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the relevant report/backlog entry with the merge commit. Do not leave release fixes stranded on long-lived branches.
+
 ## Formatter Strategy
 
 | Engine | Formatter rule |
