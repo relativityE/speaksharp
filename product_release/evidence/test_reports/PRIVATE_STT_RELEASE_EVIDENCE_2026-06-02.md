@@ -49,6 +49,41 @@ no Cloud fallback
 - **DEV dev-half finding (testing-only):** `@huggingface/transformers` is declared at the root package (`^4.2.0`) but not in `frontend/package.json` (which only declares `@xenova/transformers ^2.17.2`). The v4 worker does `await import('@huggingface/transformers')`, so the containment proof should capture the resolved browser-worker version/package path. Per product, do **not** promote v4 as a release dependency unless the browser decode path succeeds.
 - **@test-agent records the classification (your call):** if the decode fails as expected, freeze it verbatim — *"Private v4 browser path: confirmed non-release-candidate. Browser lifecycle reaches model-ready/recording, but decode fails with an ONNX Runtime tensor/data-location error and produces no saved transcript. Keep off by default. Do not include in release A/B. Resume only as Phase 3 runtime/model upgrade work after the dependency is pinned and decode succeeds."*
 
+## DEV → TEST: STT-P5 named VAD candidate ready (2026-06-04, owner: dev-agent)
+
+The named VAD prototype flag + onset-gate engine is built and unit-verified on
+`dev/private-vad-silero-engine@10ba21ca` (base `01933f91`). **Test the branch pre-merge**
+(do not wait for a `main` merge). This satisfies the `## Test-Release Plan — VAD Prototype
+Gate` below — run that gate against this branch.
+
+**Enable:** `?privateVad=1` **or** `window.__PRIVATE_VAD_PROTOTYPE__ = true`. Off by default.
+
+**What changed (flag ON only):** Silero VAD speech-probability replaces the RMS energy gate
+at the Private **onset** decision; the RMS path is byte-identical when off (PrivateWhisper
+43/43, tsc clean). Silence/end-gate VAD is a deliberate **fast-follow** (this iteration is
+onset-only). Runtime = **`onnxruntime-web@1.14.0` reused** (NOT `@ricky0123/vad-web`) — no
+second ORT, deliberately avoiding the v4 `invalid data location` duplicate-runtime class.
+
+**Browser pre-reqs (must do before the A/B can exercise VAD):**
+1. Place `silero_vad.onnx` (~1.8 MB, Silero v5) in `frontend/public/models/`.
+2. Declare `onnxruntime-web@1.14.0` in `frontend/package.json` (pins the same version
+   `@xenova` already resolves — no new runtime, just a direct import path).
+If either is missing, `createSileroVad()` returns null → **automatic RMS fallback**
+(telemetry `vadFellBackToRms: true`); the app never breaks.
+
+**Telemetry to capture (`window.__PRIVATE_VAD_TELEMETRY__`):**
+`vadEnabled`, `vadModel` (`silero-vad`), `vadRuntime` (`onnxruntime-web`),
+`vadRuntimeVersion`, `vadOnsetMs`, `vadMeanSpeechProb`, `vadFellBackToRms`. Plus the usual
+`__PRIVATE_TIMING__` (`speechStartOffsetMs`, `retainedPrerollMs`, `peakBufferedSeconds`,
+`firstProvisionalAtMs`, `finalizeDecodeMs`).
+
+**Pass/fail (per the bar):** RMS-vs-VAD on the same audio (h1_2/6/8/10, washington_01,
+human script, one silence-leading, one low-energy-tail). VAD must **improve or hold**
+onset/soft-speech capture + WER + filler recall with **no onset clipping / tail loss** and
+no >10% first-progress/finalize regression. Report **app-vs-drop-in** and
+**app-vs-Native-baseline** deltas. Do not green VAD on timing alone. `vadFellBackToRms:true`
+means the model didn't load — fix the pre-reqs, not the verdict.
+
 ## Latest Test-Release Result — CI Private Browser Benchmark
 
 Owner: **test-release-agent / Codex**  
