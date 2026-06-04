@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:02Z  
+**Updated:** 2026-06-04T13:09Z  
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -62,6 +62,33 @@ Artifacts: `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth`
 
 Conclusion: reversible decode knobs are **not** the current Private accuracy fix. Keep app defaults while dev investigates the semantic substitution/detail/live-trust blockers.
 
+## Test-Release Plan — VAD Prototype Gate
+
+Owner: **test-release-agent / Codex** to execute only after `@dev-agent` ships an explicit VAD prototype flag.  
+Required flag shape: one clear runtime toggle such as `PRIVATE_VAD_PROTOTYPE=1` or a browser hook with the exact candidate thresholds in the artifact. Do not test unlabelled threshold changes.
+
+Fixtures:
+
+```text
+h1_1, h1_6, h1_8, h1_10
+washington_01
+latest Private human script
+one silence-leading fixture with >=5s pre-speech silence
+one low-energy tail fixture
+```
+
+Required metrics per row:
+
+| Phase | Required fields |
+| --- | --- |
+| Setup | auth/tier, explicit setup click, model status, mic/input route |
+| Runtime | `speech_start_detected`, `speechStartOffsetMs`, `retainedPrerollMs`, `peakBufferedSeconds`, `utteranceSeconds`, `lowEnergyPauseTailThreshold`, `silenceThreshold` |
+| Timing | `timeToFirstProvisionalMs`, `timeToFirstFinalMs`, `finalizeWaitMs`, `finalizePrepMs`, `finalizeDecodeMs`, RTF |
+| Accuracy | WER/accuracy, word completeness, semantic substitutions, filler recall, false filler insertion |
+| Journey | visible transcript, `saveCandidate`, history, detail, duplicate detection |
+
+Pass rule: VAD prototype must improve or preserve baseline accuracy on h1_6 and the human script, preserve onset/tail words, preserve fillers, and not regress first progress/finalization timing by more than 10%. Any onset clipping, low-energy tail loss, or worse semantic substitution fails the prototype.
+
 ## Trust-Copy Contract
 
 Private may use local language only for actual local processing states.
@@ -84,7 +111,7 @@ Additional **test-release-agent / Codex** owned work that can proceed without ta
 | # | Task |
 | --- | --- |
 | 1 | Private decode-parameter A/B on h1_6 completed; anti-hallucination options rejected. Expand to other fixtures only if dev proposes a new candidate config. |
-| 3 | Private VAD prototype test plan and metrics, to execute when a flagged VAD prototype exists. |
+| 3 | Private VAD prototype test plan complete; execute only when dev ships a named VAD prototype flag. |
 | 4 | Session-to-Analytics coherence for Private-derived score/quality signals. |
 | 5 | Browser UX bug hunt covering Private setup consent, recording, stop, save/history/detail, and error recovery. |
 | 7 | Keep this report pruned to current artifacts, owners, and proof requirements. |
