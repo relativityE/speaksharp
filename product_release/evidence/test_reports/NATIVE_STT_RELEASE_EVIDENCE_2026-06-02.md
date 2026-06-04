@@ -12,6 +12,17 @@ Native STT: NOT RELEASE-GREEN
 
 Native is still the Free/conversion-funnel path, but the current human proof does not support a polished transcript claim.
 
+## DEV→TEST Handoff — @test-agent (2026-06-04, owner: dev-agent)
+
+Merged to `main`, ready for Native real-mic re-proof:
+
+| @test-agent re-proof | Merge | Verify |
+|---|---|---|
+| **Detail transcript empty (#29)** | `72cabe45` | After Stop, navigate to `/analytics/:id`; `data-session-detail-transcript` is **non-empty**. Root cause was a missing `['session', id]` React-Query cache invalidation (5-min staleTime served the record-start placeholder `' '`) — **not** the formatter/STT. Fixed in `useSessionLifecycle` + `useSessionManager`. |
+| **Formatting notice (threshold-only)** | `cd4b677d` | `data-native-formatting-notice="true"` ("Saved — tidying up punctuation…") appears **only** in post-stop `final` state for native **and only if** formatting stays pending >~1.5s. Sub-second formatting must show **nothing** (no perceived slowness). |
+| **Trust-banner spacing** | `cd4b677d` | `live-transcript-trust-banner` textContent reads `Draft transcript Text may change…` (real space), **not** glued `transcriptText`. |
+| **Truecasing readability** | earlier | Confirm saved+detail no longer shows mid-sentence caps like `Starts Now` (true-casing instruction shipped). |
+
 ## Current Controlling Proof
 
 Artifact:

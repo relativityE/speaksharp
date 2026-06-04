@@ -139,6 +139,15 @@ active reports; use git history only for audit.
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file/backlog row with the merge commit. Do not leave release fixes stranded on long-lived branches.
 
+### DEV→TEST handoff + coordination note — @test-agent (2026-06-04, owner: dev-agent)
+
+DEV merged to `main` and tagged re-proof tasks in the evidence reports (NATIVE_STT, PRIVATE_STT):
+- `72cabe45` — **detail transcript empty (#29)**, Native + Private (cache-invalidation fix, not formatter/STT).
+- `cd4b677d` — **Native formatting notice** (threshold-only) + **trust-banner spacing**.
+- v4 **containment** charter handed to @test-agent (browser proof only; dev-half: `@huggingface/transformers` is unpinned/phantom; testing-only, not a release dep).
+
+**@test-agent coordination ask (conflict info):** the single shared working tree caused ~4 `HEAD` races today — branch checkouts on your side moved DEV's `HEAD` mid-edit. DEV recovered each time via stash → branch-verify → commit (no work lost) and restored your `HEAD`. Please commit/park your branch before idling and avoid leaving the shared tree on your branch while DEV has edits in flight. Per product: **shared tree + branch protocol** (no separate worktrees) — so strict `git branch --show-current` before every commit on both sides.
+
 ## Recently Closed
 
 | Closed Date | Area | Result | Evidence |
