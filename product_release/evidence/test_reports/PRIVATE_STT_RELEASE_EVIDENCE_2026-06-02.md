@@ -241,14 +241,39 @@ Saved transcript:
 Speak sharp microphone proof starts now. Basically, I want to make one simple point before we move on. Like, the memory transcript should still keep prior sentences, or the final words. Next step is to see or explain's quality.
 ```
 
+## Latest Diagnostic — Private `conv_01` Injected Mic
+
+Owner: **test-release-agent / Codex**
+Artifact: `/private/tmp/private-corpus-conv01-f9b21005.json`
+Environment: `localhost:5174`, real auth, `releaseProofEligible=true`; injected mic audio, so this buys down risk but does **not** replace human release proof.
+
+| Field | Result |
+| --- | --- |
+| Fixture | `conv_01`: `Um. Basically, we should literally like, wait.` |
+| First useful text | `2826ms`; first text `Um, basically.` |
+| Visible at Stop | `Um, basically. Umm, basically, we should literally like. wait.` |
+| Final / saveCandidate | `Umm, basically, we should literally like, wait.` |
+| Accuracy / WER | `85.71%` / `14.29%` |
+| Stop finalization | `1983ms`; model decode `1515.5ms`; drain wait `383.6ms` |
+| Runtime | `transformers-js`, `wasm-singlethread`, `wasmThreadCount=1`, no Cloud fallback |
+| Save/history/detail | pass: `sessionPersisted=true`, `historyVisible=true`, `detailVisible=true`; detail matches selected save transcript |
+| Trust UI | `Draft transcript` visible during live draft; `Processing speech locally…` visible while stopping; final state cleared |
+| Filler metric | fail: expected `um/basically/literally/like`; observed `um:0`, `basically:1`, `literally:1`, `like:1` because final text used `Umm` |
+
+Actionable findings:
+
+1. **@dev-agent / Private live draft quality:** live draft still repeats provisional content before Stop (`Um, basically. Umm, basically...`). Final save is cleaner, so this is live-view trust quality, not saved-data loss in this artifact.
+2. **@dev-agent / filler normalization:** `Umm` should count as the user-perceived filler `um` or downgrade transcript-confidence/filler-confidence. Current metric reports `um:0`, which would under-coach a spoken filler.
+3. **test-release-agent / Codex:** rerun the same human Private script on current main. This diagnostic suggests #29 detail is fixed in the app path, but only a human proof can close the release gate.
+
 ## Open Blockers
 
 | Priority | Blocker | Evidence | Owner |
 | --- | --- | --- | --- |
 | P0 | Accuracy/parity failure | Expected `the main idea is that every transcript...`; saved `the memory transcript...`. This is semantic STT error, not punctuation. | @dev-agent |
 | P0 | Re-proof detail transcript empty (#29) | Prior human proof had `detailTranscript=""`, but current `main` includes cache-invalidation fix `72cabe45`. Verify `/analytics/:id` `data-session-detail-transcript` is non-empty and matches `saveCandidate`. | test-release-agent / Codex |
-| P1 | Filler recall below product need | `um` missed; filler recall `66.67%`. | @dev-agent / product confidence |
-| P1 | Live trust/progress suspect | Chunks decoded every ~1.4-2.1s, but logs repeatedly showed `Holding first transcript until it has speech-like substance`; useful text appeared at Stop. | @dev-agent |
+| P1 | Filler recall below product need | Human proof missed `um`; diagnostic final text used `Umm` and filler counter still reported `um:0`. | @dev-agent / product confidence |
+| P1 | Live trust/progress suspect | Human proof had weak live progress; diagnostic live draft repeated provisional content before a cleaner final save. | @dev-agent |
 
 ## Product Decisions — Implementation Policy
 

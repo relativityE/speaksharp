@@ -27,6 +27,7 @@
     "nativeHuman": "/private/tmp/speaksharp-native-human-20260604-rerun2.json",
     "privateHuman": "/private/tmp/speaksharp-private-human-20260604-rerun.json",
     "privateHumanJsonl": "/private/tmp/speaksharp-private-human-20260604-rerun.jsonl",
+    "privateInjectedConv01Diagnostic": "/private/tmp/private-corpus-conv01-f9b21005.json",
     "privateDecodeParamAb": "/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth"
   },
   "latestNativeHumanProof": {
@@ -84,6 +85,59 @@
     },
     "detailTranscriptEmpty": true,
     "duplicateSentenceDetected": false
+  },
+  "latestPrivateInjectedConv01Diagnostic": {
+    "status": "diagnostic_fail_filler_normalization_live_draft_quality",
+    "releaseProofEligibleEnvironment": true,
+    "humanProofReplacement": false,
+    "artifact": "/private/tmp/private-corpus-conv01-f9b21005.json",
+    "fixture": "conv_01",
+    "truth": "Um. Basically, we should literally like, wait.",
+    "firstUsefulTextMs": 2826,
+    "visibleAtStopTranscript": "Um, basically. Umm, basically, we should literally like. wait.",
+    "selectedForSave": "Umm, basically, we should literally like, wait.",
+    "accuracy": 0.8571,
+    "wer": 0.1429,
+    "stopFinalizationMs": 1983,
+    "decodeMs": 1515.5,
+    "drainWaitMs": 383.6,
+    "runtime": {
+      "provider": "transformers-js",
+      "runtime": "wasm-singlethread",
+      "wasmThreadCount": 1,
+      "cloudFallbackAttempted": false
+    },
+    "journey": {
+      "sessionPersisted": true,
+      "historyVisible": true,
+      "detailVisible": true,
+      "detailMatchesSelectedForSave": true
+    },
+    "trustUi": {
+      "draftVisibleDuringLive": true,
+      "processingSpeechLocallyShownWhileStopping": true,
+      "finalStateClearedBanners": true
+    },
+    "fillerMetric": {
+      "expected": {
+        "um": 1,
+        "basically": 1,
+        "literally": 1,
+        "like": 1
+      },
+      "observed": {
+        "um": 0,
+        "basically": 1,
+        "literally": 1,
+        "like": 1
+      },
+      "finding": "Final text used Umm; filler metric treated it as non-um and would under-coach a user-perceived filler."
+    },
+    "findings": [
+      "Live draft repeated provisional text before Stop, while final save was cleaner.",
+      "Filler normalization missed Umm as um.",
+      "Save/history/detail passed in this diagnostic, suggesting #29 detail fix works in this path but still needs human re-proof."
+    ]
   },
   "latestPrivateDecodeParameterAb": {
     "status": "candidate_rejected",
