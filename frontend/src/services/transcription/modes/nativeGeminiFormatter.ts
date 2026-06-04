@@ -77,8 +77,10 @@ async function extractEdgeError(error: unknown): Promise<{ code: string | null; 
  * deployed) edge function and tests share one source of truth.
  */
 export const NATIVE_FORMATTER_INSTRUCTION = [
-  'Restore sentence punctuation and sentence-start capitalization only.',
-  'Do NOT add, remove, reorder, summarize, translate, or correct any words.',
+  'Restore sentence punctuation and fix capitalization (true-casing).',
+  'Capitalize the first word of each sentence, proper nouns, and the word "I".',
+  'LOWERCASE any other word that is capitalized in the middle of a sentence and is not a proper noun.',
+  'Do NOT add, remove, reorder, summarize, translate, or correct any words; change punctuation and letter case only.',
   'Preserve filler words exactly as spoken: um, uh, like, you know, basically, literally.',
   'Return only the reformatted transcript text.',
 ].join(' ');

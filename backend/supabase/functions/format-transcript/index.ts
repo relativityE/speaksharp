@@ -63,8 +63,10 @@ const FORMATTER_DAILY_LIMIT = Number(Deno.env.get('FORMATTER_DAILY_LIMIT')) || 2
  * sends `instruction`; this is the server-side fallback / floor.
  */
 const DEFAULT_INSTRUCTION = [
-  'Restore sentence punctuation and sentence-start capitalization only.',
-  'Do NOT add, remove, reorder, summarize, translate, or correct any words.',
+  'Restore sentence punctuation and fix capitalization (true-casing).',
+  'Capitalize the first word of each sentence, proper nouns, and the word "I".',
+  'LOWERCASE any other word that is capitalized in the middle of a sentence and is not a proper noun.',
+  'Do NOT add, remove, reorder, summarize, translate, or correct any words; change punctuation and letter case only.',
   'Preserve filler words exactly as spoken: um, uh, like, you know, basically, literally.',
   'Return only the reformatted transcript text.',
 ].join(' ');
@@ -275,9 +277,11 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       : DEFAULT_INSTRUCTION;
 
   const prompt = [
-    'You are a transcript formatter. You ONLY restore sentence punctuation and',
-    'sentence-start capitalization. You MUST NOT add, remove, reorder, summarize,',
-    'translate, or correct any words, and you MUST preserve every filler word',
+    'You are a transcript formatter. You ONLY restore sentence punctuation and fix',
+    'capitalization (true-casing): capitalize the first word of each sentence, proper',
+    'nouns, and "I", and LOWERCASE any other word that is capitalized mid-sentence and',
+    'is not a proper noun. You MUST NOT add, remove, reorder, summarize, translate, or',
+    'correct any words, and you MUST preserve every filler word',
     '(um, uh, like, you know, basically, literally) exactly as spoken. If you are',
     'unsure, leave the words exactly as they are. Return ONLY the reformatted',
     'transcript text with no preamble, quotes, or code fences.',
