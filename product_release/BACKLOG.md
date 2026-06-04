@@ -94,6 +94,81 @@ Current 48-hour wider-use gates:
 
 This section captures the review request that should guide the next product UX pass. It is not a separate release status file; it is the working backlog home for reviewer questions and resulting tasks.
 
+## Reviewer Incident Packet — Manual Test Environment Mislaunch (2026-06-04)
+
+### Executive Summary
+
+Manual Native/Private STT proof was blocked before speech testing because the app was launched on the wrong local mode/port. The operator started a Vite server directly on `5173`, which is reserved for mocked E2E diagnostics (`pnpm dev:test`). The real manual-testing app must be launched only with `pnpm dev`, which delegates to `pnpm dev:real` and runs on `5174`.
+
+The product guard correctly prevented a fake-auth runtime from looking like a valid manual-test app:
+
+```text
+Invalid local environment
+Mode development must run on port 5174, but this app is on 5173.
+Use pnpm dev for real manual testing on port 5174.
+Use pnpm dev:test only for mocked E2E diagnostics on port 5173.
+A real-looking app must never boot with fake credentials.
+```
+
+The guard behavior is good and should remain strict. The failure was process/tooling: the release agent bypassed the sanctioned launcher and wasted scarce human-mic testing time.
+
+### What Happened
+
+| Step | Expected | Actual | Impact |
+|---|---|---|---|
+| Launch manual STT proof | Run `pnpm dev` from repo root. App runs on `http://localhost:5174` with real auth. | A direct Vite command was used on `5173`, initially with `.env.test` in the sourced environment. | App booted in an invalid local environment and hit mock-auth/runtime guards. |
+| Browser target | Chrome should open `http://localhost:5174/session` or `/auth/signup`. | Chrome was opened to `http://localhost:5173/session`. | User saw a broken/blocked app instead of the manual proof path. |
+| Console monitoring | CDP should attach to the same real manual-test tab. | CDP initially attached to stale `5173`, not the user’s real `5174` tab. | Early console capture proved the wrong-mode failure but did not capture the active manual proof. |
+| Human proof | Fresh signup -> Native mic -> Private mic. | Human proof was delayed by launch/auth confusion. | Lost tester time and trust in the test process. |
+
+### Root Cause
+
+The launch workflow allowed direct low-level commands (`pnpm exec vite`, manual env sourcing, arbitrary port selection) during release proof. That bypassed the repo’s own guardrails:
+
+- `pnpm dev` / `pnpm dev:real` is the only valid manual-testing entry point.
+- `pnpm dev:test` / port `5173` is for mocked E2E diagnostics only.
+- `.env.test` must never be sourced for real human STT/manual signup testing.
+
+### Severity
+
+| Dimension | Rating | Reason |
+|---|---|---|
+| Product correctness | P0 process blocker | Blocks release proof before STT can be tested. |
+| User-facing release risk | High if unguarded | A real-looking app with fake credentials would invalidate all STT evidence. |
+| Current app behavior | Positive guard | The app blocked the invalid environment instead of silently proceeding. |
+| Agent/process behavior | Failing | The sanctioned launcher was bypassed. |
+
+### Prevention Rules
+
+| Rule | Requirement |
+|---|---|
+| Manual proof launch | Use only `pnpm dev` from repo root. Never call `vite` directly for human/manual release proof. |
+| Port contract | `5174` = real manual testing. `5173` = mocked E2E diagnostics. `4173` = preview/build checks. |
+| Env contract | Real manual proof may load real `.env` / `.env.local`, but must not load `.env.test`. |
+| Browser target | Manual proof opens only `http://localhost:5174/...`. |
+| CDP target | Console capture must attach to the same `5174` tab before recording starts. |
+| Evidence validity | Any artifact from `5173` is invalid for real human STT proof unless explicitly labeled mocked E2E diagnostic. |
+
+### Requested Reviewer Recommendation
+
+Please review whether the current guard and process are sufficient, or whether we should add stronger enforcement:
+
+1. Should direct `vite` launches be blocked or loudly warned when they use release-proof routes?
+2. Should `pnpm dev` automatically open `http://localhost:5174/auth/signup` for manual tester flows?
+3. Should CDP/browser proof tooling refuse to proceed unless the active page URL is `localhost:5174` and the app reports real-auth mode?
+4. Should release artifacts include a required `environmentProof` block: URL, port, mode, auth mode, and launch command?
+5. Should `product_release/CURRENT_WORK.md` require every human proof row to state the launcher and port before recording begins?
+
+### Acceptance Criteria
+
+| Check | Pass Condition |
+|---|---|
+| Guard retained | `5173` real-manual attempt is blocked with clear copy. |
+| Correct launch documented | `pnpm dev` on `5174` is listed in current work/proof instructions. |
+| Proof metadata captured | Human STT evidence records `launchCommand=pnpm dev`, `url=http://localhost:5174`, and `authMode=real`. |
+| CDP attached | Future proofs include a CDP log from the same `5174` tab or explicitly state why not. |
+| No fake-auth artifacts | Any STT proof with mock auth or `5173` is rejected as release evidence. |
+
 ### Journey To Review
 
 | Step | Current product intent | What the user should understand | Current evidence / observation | Reviewer question |
