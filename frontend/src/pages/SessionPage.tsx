@@ -40,6 +40,7 @@ export const SessionPage: React.FC = () => {
     const setRecoveredChunks = useSessionStore(state => state.setChunks);
     const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
+    const nativeFormatting = useSessionStore(state => state.nativeFormatting);
 
     const {
         isListening,
@@ -224,6 +225,7 @@ export const SessionPage: React.FC = () => {
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
                                     isFinalizing={isTranscriptFinalizing}
+                                    nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"
                                 />
                             </LocalErrorBoundary>

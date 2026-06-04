@@ -2046,6 +2046,10 @@ export class SpeechRuntimeController {
                             // transcript only on word-preserving success — Stop/save/history/detail
                             // never wait on the network formatter. Private/Cloud are unaffected.
                             if ((modeForFinalization ?? stopEntryMode) === 'native') {
+                                // Threshold-only "tidying up punctuation…" notice: mark pending now;
+                                // the panel surfaces copy ONLY if this stays pending past ~1.5s, so the
+                                // common sub-second case is silent (no perceived slowness).
+                                useSessionStore.getState().setNativeFormatting({ status: 'pending', startedAt: Date.now() });
                                 void formatNativeSessionInBackground({
                                     sessionId,
                                     rawTranscript: finalTranscript,
@@ -2057,6 +2061,13 @@ export class SpeechRuntimeController {
                                             liveStore.updateTranscript(formatted, '');
                                         }
                                     },
+                                }).then((formattingState) => {
+                                    useSessionStore.getState().setNativeFormatting({
+                                        status: formattingState.status === 'failed' ? 'failed' : 'complete',
+                                        startedAt: null,
+                                    });
+                                }).catch(() => {
+                                    useSessionStore.getState().setNativeFormatting({ status: 'failed', startedAt: null });
                                 });
                             }
                             if (token.cancelled) {
