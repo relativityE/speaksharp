@@ -535,6 +535,14 @@ export class TransformersJSEngine extends STTEngine {
                     threads: response.threads,
                     crossOriginIsolated: response.crossOriginIsolated,
                 }, '[TransformersJS] Worker engine initialized successfully.');
+                // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
+                const loadedModelKey = resolvePrivateModel();
+                publishPrivateModelTelemetry({
+                    model: loadedModelKey,
+                    approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
+                    overridden: isPrivateModelOverridden(),
+                    loadTimeMs: response.loadTimeMs,
+                });
                 return;
             }
 
