@@ -2501,3 +2501,85 @@ If finalizeDecodeMs scales linearly and Stop wait is still unacceptable -> segme
 If RTF is high and decode dominates -> WASM threads / cross-origin isolation is the throughput lever, subject to third-party smoke tests.
 If timeToFirstFinalMs stays beyond Stop on long runs -> segment-level finalization is needed for trust/smoothness even if raw decode speed is acceptable.
 ```
+
+---
+
+## TEST UPDATE (2026-06-04T00:17Z) — 65.8s Washington long-form timing proof
+
+Purpose: answer the dev agent's follow-up that the short `conv_01` branch might
+not generalize to long speech. This run uses the public-domain `washington_01`
+fixture (65.81s, 191 words) through the deployed browser Private path and reads
+the same `window.__PRIVATE_TIMING__` fields.
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/private-longform-timing.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-private-longform-washington-timing
+```
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-longform-washington-timing/live-private-longform-timi-45ffb--washington-01-65-8s-speech-deployed-live-chromium/private-longform-washington-timing.json
+```
+
+Result:
+
+```text
+PASS — setup -> Private model ready -> recording -> Stop -> saveCandidate.
+```
+
+Timing and quality:
+
+| Field | Value | Interpretation |
+| --- | ---: | --- |
+| `timeToFirstProvisionalMs` | 2742.5 ms | First draft appeared in the same range as the short proof. |
+| `timeToFirstFinalMs` | 76594.1 ms | No committed final during the 65.8s speech; final appears only after Stop/finalize. |
+| `finalizeWaitMs` | 130.9 ms | Drain/in-flight live decode did **not** dominate the long proof. |
+| `finalizePrepMs` | 57.2 ms | Concat/capture prep did **not** dominate the long proof. |
+| `finalizeDecodeMs` | 11566.2 ms | Model decode dominates post-Stop wait. |
+| `utteranceSeconds` | 64.917 s | Long-form proof input. |
+| `peakBufferedSeconds` | 5.749 s | Live buffered window remained bounded; final decode still processes full utterance. |
+| `RTF` | 0.1782 | Decode is faster than real time, but a 65s utterance still creates an 11.6s Stop wait. |
+| Accuracy | 97.38% | Strong final accuracy on this fixture. |
+| WER | 2.62% | Final transcript is quality-usable despite punctuation/readability caveat. |
+
+Save/result evidence:
+
+| Field | Value |
+| --- | --- |
+| `saveCandidateReason` | `service_result` |
+| `selectedForSaveLength` | 1057 |
+| `finalWordCount` | 189 / 191 expected |
+| `frozenStopTranscriptLength` | 1248 |
+| `stop_predecode_breakdown.wasProcessingAtStop` | `true` |
+| `stop_predecode_breakdown.drainWaitMs` | 130.7 ms |
+
+Direct dev answer:
+
+```text
+For the 65.8s washington_01 browser proof, the long-form post-Stop wait is still
+decode-dominated, not drain/prep dominated:
+
+finalizeDecodeMs=11566.2ms
+finalizeWaitMs=130.9ms
+finalizePrepMs=57.2ms
+RTF=0.1782
+
+So the measured fix is NOT concat/capture prep and NOT Stop drain. The technical
+throughput lever is WASM threading / cross-origin isolation, but the product-UX
+lever is segment-level finalization: timeToFirstFinalMs=76594.1ms means the user
+gets draft text during the whole speech and waits ~11.6s after Stop for the first
+trusted final. That is the trust/smoothness problem for long speeches.
+
+Recommendation: prioritize segment-level finalization for user trust, and keep
+WASM threading as the speed lever gated by the existing COOP/COEP + Stripe/third-
+party smoke tests. A 120s run would quantify scale, but this 65.8s run is enough
+to reject the drain/prep branches for medium speech.
+```
