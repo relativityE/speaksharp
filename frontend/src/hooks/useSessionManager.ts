@@ -52,6 +52,9 @@ export const useSessionManager = (): UseSessionManager => {
         if (success) {
           logger.info({ sessionId: sessionData.id }, '[useSessionManager] ✅ Session updated successfully');
           await queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+          // Refresh the single-session detail cache (['session', id]) so the detail view
+          // does not keep serving a stale row after an update.
+          await queryClient.invalidateQueries({ queryKey: ['session'] });
           return { session: sessionData as PracticeSession, usageExceeded: false };
         }
         logger.error({ error }, '[useSessionManager] ⚠️ Session update failed');
@@ -70,6 +73,8 @@ export const useSessionManager = (): UseSessionManager => {
 
         // CRITICAL: Invalidate session history cache so analytics page shows new data
         await queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        // Also refresh the single-session detail cache (['session', id]).
+        await queryClient.invalidateQueries({ queryKey: ['session'] });
         logger.debug('[useSessionManager] 🔄 Session history cache invalidated');
 
         return { session: newSession, usageExceeded: usageExceeded || false };
