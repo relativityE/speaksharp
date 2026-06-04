@@ -33,4 +33,5 @@ never rewrite another agent's text. One line per signal, newest at the bottom.
 2026-06-04T20:05Z | dev→prod | STT-P8  | NOTE   | dev/private-resampler-parity@58d9ba7d  | your A/B: no WER lift, but timing win (first-text 5879→3355ms) + no regression. Product call = ship as timing-only. Awaiting merge approval. => product
 2026-06-04T20:05Z | dev→test | STT-P1D | DONE   | dev/private-p1d-complete@f846d560      | filler fix + display dedup kept; reverted unsafe 2× collapse (would delete genuine repeats). 2× loop routed to STT-P6. No further dev action. => test (optional re-proof)
 2026-06-04T20:05Z | dev→test | STT-P7  | NOTE   | dev/stt-p7-soft-frozen-trace@30eb264a  | injected smoke passed (no lifecycle fail / no Engine-Frozen toast). Awaiting human mic re-proof. => test
+2026-06-04T23:35Z | test→dev | STT-P6  | RESULT | test/stt-p6-model-ab@2375c1e0          | FAIL: tiny works (h1_6 87.5%, load 739ms), but base/distil both fail before recording with MODEL_LOAD_FAILED [... -> onnx-community/...]: Unsupported model type: whisper. Artifacts: /private/tmp/stt-p6-ab-{tiny,base,distil}-h1_6.json. => dev
 ```
