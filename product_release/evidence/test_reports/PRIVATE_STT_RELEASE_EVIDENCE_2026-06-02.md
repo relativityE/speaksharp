@@ -75,14 +75,8 @@ second ORT, deliberately avoiding the v4 `invalid data location` duplicate-runti
 If either is missing, `createSileroVad()` returns null → **automatic RMS fallback**
 (telemetry `vadFellBackToRms: true`); the app never breaks.
 
-Test-agent prep update: focused P5 unit/static proof passes (`PrivateWhisper` + `privateVadFlag` =
-49/49; frontend typecheck clean). Browser A/B is still blocked by missing
-`frontend/public/models/silero_vad.onnx`; the current models directory only contains Whisper assets.
-
-**Current next action — @dev-agent:** stage/provide `frontend/public/models/silero_vad.onnx`
-and preserve a single `onnxruntime-web@1.14.0` runtime path (no duplicate ORT). After that,
-@test-release-agent runs the browser RMS-vs-VAD A/B below. Until the asset is present, the
-browser path falls back to RMS and cannot prove the VAD candidate.
+Test-agent update: the asset/dependency staging issue is superseded by the browser proof below.
+The current blocker is ONNX Runtime WASM loading in the browser, not the missing Silero model file.
 
 **Telemetry to capture (`window.__PRIVATE_VAD_TELEMETRY__`):**
 `vadEnabled`, `vadModel` (`silero-vad`), `vadRuntime` (`onnxruntime-web`),
@@ -96,6 +90,54 @@ onset/soft-speech capture + WER + filler recall with **no onset clipping / tail 
 no >10% first-progress/finalize regression. Report **app-vs-drop-in** and
 **app-vs-Native-baseline** deltas. Do not green VAD on timing alone. `vadFellBackToRms:true`
 means the model didn't load — fix the pre-reqs, not the verdict.
+
+## TEST → DEV: STT-P5 browser VAD fallback proof (2026-06-04, owner: dev-agent)
+
+Test branch: `test/stt-p5-current-main@f8abfe96` (`main@63509d0a` +
+`dev/private-vad-silero-main` stack). The proof harness now accepts `STT_PRIVATE_VAD=1` and
+captures `window.__PRIVATE_VAD_TELEMETRY__`.
+
+Focused static proof passed before browser testing:
+
+- `PrivateWhisper.test.ts` + `privateVadFlag.test.ts`: `49/49`
+- `pnpm --dir frontend exec tsc --noEmit`: clean
+
+Browser A/B on `h1_6`:
+
+| Run | Artifact | Accuracy | WER | Transcript | Stop finalization | VAD telemetry |
+|---|---|---:|---:|---|---:|---|
+| RMS baseline | `/private/tmp/stt-p5-rms-h1_6.json` | `87.5%` | `0.125` | `Day, Like, Told Wild Tales to Frighten Him.` | `2706 ms` | n/a |
+| `STT_PRIVATE_VAD=1` | `/private/tmp/stt-p5-vad-h1_6.json` | `87.5%` | `0.125` | `Day, Like, Told Wild Tales to Frighten Him.` | `1983 ms` | `vadFellBackToRms:true`; `vadRuntimeVersion:null`; `vadSpeechSegments:[]`; `vadMeanSpeechProb:null`; `vadOnsetMs:196.6` |
+
+Conclusion: this was **not** a valid Silero-vs-RMS A/B. The flag was set, but the browser path
+fell back to RMS. The equal accuracy result only proves the fallback path is safe.
+
+Browser console evidence in the VAD artifact:
+
+```text
+wasm streaming compile failed: TypeError: Failed to execute 'compile' on 'WebAssembly':
+Incorrect response MIME type. Expected 'application/wasm'.
+
+failed to asynchronously prepare wasm: CompileError: WebAssembly.instantiate():
+expected magic word 00 61 73 6d, found 3c 21 64 6f @+0
+
+Aborted(CompileError: WebAssembly.instantiate(): expected magic word 00 61 73 6d,
+found 3c 21 64 6f @+0)
+```
+
+**Next action for @dev-agent:** fix the ONNX Runtime WASM asset serving/path/MIME for
+`onnxruntime-web@1.14.0` before requesting more VAD A/B. The next proof should first confirm:
+
+```text
+window.__PRIVATE_VAD_TELEMETRY__.vadFellBackToRms === false
+window.__PRIVATE_VAD_TELEMETRY__.vadRuntimeVersion is non-null
+window.__PRIVATE_VAD_TELEMETRY__.vadSpeechSegments has entries or speech probability data is populated
+```
+
+Likely fix surface: set `ort.env.wasm.wasmPaths` to a public path with the required ORT WASM
+binaries, or copy the exact `onnxruntime-web@1.14.0` WASM files into `frontend/public` and verify
+Vite serves them with `application/wasm`. Do not classify P5 quality until this telemetry proves
+Silero actually ran.
 
 ## DEV → TEST: STT-P6 model-eval candidate ready (2026-06-04, owner: dev-agent)
 

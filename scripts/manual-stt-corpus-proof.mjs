@@ -52,6 +52,7 @@ const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now(
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
 const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
+const PRIVATE_VAD = (process.env.STT_PRIVATE_VAD || '').trim();
 const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
@@ -898,6 +899,9 @@ async function collectTraceSnapshot(page, mode) {
     privateMicConstraintsDebug: currentMode === 'private'
       ? window.__PRIVATE_MIC_CONSTRAINTS_DEBUG__ ?? null
       : undefined,
+    privateVadTelemetry: currentMode === 'private'
+      ? window.__PRIVATE_VAD_TELEMETRY__ ?? null
+      : undefined,
     privateResamplerTelemetry: currentMode === 'private'
       ? window.__PRIVATE_RESAMPLER_TELEMETRY__ ?? null
       : undefined,
@@ -1158,6 +1162,9 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_MIC_CONSTRAINTS) {
     sessionUrl.searchParams.set('privateMicConstraints', PRIVATE_MIC_CONSTRAINTS);
   }
+  if (mode === 'private' && PRIVATE_VAD) {
+    sessionUrl.searchParams.set('privateVad', PRIVATE_VAD);
+  }
   if (mode === 'private' && PRIVATE_RESAMPLER) {
     sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
   }
@@ -1304,6 +1311,7 @@ async function runFixture(page, mode, fixture) {
     savePayloadTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
     speechRuntimeDebug: traceSnapshot.speechRuntimeDebug,
     privateRuntimeDuringRecording,
+    privateVadTelemetry: traceSnapshot.privateVadTelemetry,
     privateResamplerTelemetry: traceSnapshot.privateResamplerTelemetry,
     privateRuntimePath: privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath,
     privateRuntime: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.runtime ?? null,
@@ -1413,6 +1421,7 @@ const evidence = {
   clearPrivateCache: CLEAR_PRIVATE_CACHE,
   privateEngine: PRIVATE_ENGINE || 'default',
   privateMicConstraints: PRIVATE_MIC_CONSTRAINTS || 'default-product',
+  privateVad: PRIVATE_VAD || 'default-rms',
   privateResampler: PRIVATE_RESAMPLER || 'default-box',
   nativeConfig: {
     continuous: NATIVE_CONTINUOUS || 'default',
