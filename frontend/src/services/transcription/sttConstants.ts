@@ -91,6 +91,32 @@ export const PRIV_STT = {
   DEFAULT_MODEL_DOWNLOAD_MB: 40,
 } as const;
 
+/**
+ * Private VAD prototype (Phase 2 — neural voice-activity detection), behind a flag.
+ * Replaces RMS energy gating with Silero VAD speech probability at the two decision
+ * points (speech onset + silence/end). OFF BY DEFAULT: the RMS path is byte-identical
+ * unless explicitly enabled via `window.__PRIVATE_VAD_PROTOTYPE__ === true` or
+ * `?privateVad=1`. The Silero runtime (`@ricky0123/vad-web`) is lazy-loaded ONLY when
+ * enabled, so default download/bundle/perf are unaffected.
+ *
+ * Thresholds are explicit and reported in the RMS-vs-VAD A/B (no unlabelled tuning).
+ */
+export const PRIV_STT_VAD = {
+  // Silero speech-probability for a frame to count as speech (0..1).
+  SPEECH_PROB_THRESHOLD: 0.5,
+  // Silero operates on 512-sample frames (~32ms @ 16kHz).
+  FRAME_SAMPLES: 512,
+  // Minimum continuous speech to confirm onset (debounce false triggers).
+  MIN_SPEECH_MS: 250,
+  // Hangover: trailing silence required before declaring utterance end.
+  MIN_SILENCE_MS: 300,
+  // Audio retained before confirmed onset so soft starts are not clipped.
+  PREROLL_MS: 300,
+  // Runtime metadata surfaced to the proof report.
+  MODEL: 'silero-vad',
+  RUNTIME: '@ricky0123/vad-web',
+} as const;
+
 export const PRIV_STT_V4 = {
   ENGINE_KEY: 'transformers-js-v4',
   MODEL_ID: 'onnx-community/whisper-tiny.en',
