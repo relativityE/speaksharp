@@ -381,3 +381,38 @@ filler rows via data-filler-word/data-filler-count
 ```
 
 Pass only if setup remains explicit, visible draft text is useful/cumulative before Stop, saved transcript is near drop-in/customer expectation, `um` is not silently missed without confidence downgrade, and detail text matches the authoritative save candidate.
+
+---
+
+## DEV → TEST: STT-P1D live-draft repetition + stale filler count fixed (2026-06-04, owner: dev-agent)
+
+**Branch:** `dev/private-live-draft-dedup@5d7d7f89`  **Base:** `main@7152c5c8`  **Status:** ready for human re-proof. Behavior-changing (display + scoring) → do not merge before test/product approval.
+
+**What the `conv_01` diagnostic showed (both symptoms, one root cause):**
+The Private live view doubled the just-committed tail — `Um, basically. Umm, basically, we should literally like. wait.` — and the saved session reported `um:0` even though the saved text contained `Umm`. Root cause: overlapping live provisional decodes (sliding window) re-state the committed tail with different filler spelling.
+
+**Fix 1 — filler count (`um:0` → real count).** Confirmed your code clue. The save/score path (`SpeechRuntimeController`) was passing the live `store.fillerData` (accumulated incrementally, stale across the restatement) into `calculateCoreSessionMetrics`, which *prefers a supplied count over re-counting* (that preference is intentional and is kept — see existing test `uses supplied live filler counts…`). The fix is in the **caller**: it now omits `fillerData` so the persisted/scored count is derived from the **authoritative final transcript** via `countFillerWords`, whose UM regex already normalizes `umm/ummm/uhm → um`. No change to `calculateCoreSessionMetrics` itself.
+
+**Fix 2 — live-draft repetition.** New `dedupeLiveDraftRestatement(committed, interim)` in `liveTranscriptUtils.ts`, applied at the `LiveTranscriptPanel` display projection. Conservative: requires a **≥2-word** overlap within a bounded window, normalizes case/punctuation and filler spelling so `Umm`↔`Um` match, strips the re-stated leading words of the interim, and returns `''` on a full restatement (preserving the prior exact-match dedup). **Display only — the saved whole-utterance final decode is untouched.**
+
+**Files touched:** `SpeechRuntimeController.ts` (filler), `components/session/liveTranscriptUtils.ts` (+helper), `components/session/LiveTranscriptPanel.tsx` (apply), `+` 2 test files.
+**Tests run:** frontend `tsc --noEmit` clean; `LiveTranscriptPanel.component.test.tsx` + `sessionAnalysis.test.ts` = **48/48** (added +5 `dedupeLiveDraftRestatement` cases incl. the exact `Um,basically.`/`Umm,basically…` case → `we should literally like. wait.`, and +1 `sessionAnalysis` regression: omitted `fillerData` re-counts `Umm` as `um:1`).
+**Rollback:** revert `5d7d7f89` (5 files); no schema/flag/migration.
+
+**Proof recipe (human Private on `localhost:5174`, real auth — re-run the `conv_01` flow):**
+
+```text
+1. Pull main, check out dev/private-live-draft-dedup, serve via canonical `pnpm dev` (5174).
+   Preflight: window.__APP_RUNTIME_CONFIG__.releaseProofEligible === true.
+2. Private → model setup → record conv_01 → watch the LIVE view before Stop:
+   PASS = no "Um, basically. Umm, basically…" doubling; the re-stated prefix is gone,
+          the genuinely-new continuation remains.
+3. Stop → Save → read the saved session filler rows:
+   PASS = saved text containing "Umm" reports um >= 1 (data-filler-word="um" / data-filler-count),
+          NOT um:0.
+4. Confirm no regression to the existing fields:
+   __SPEECH_RUNTIME_DEBUG__().saveCandidate, data-session-detail-transcript equality,
+   first-text latency, final accuracy ~ prior run (this change does not touch decode).
+```
+
+Expect **no** change to saved transcript text or accuracy (display + count-source only). If the live view still doubles, capture the exact committed vs interim strings (`__SS_TRANSCRIPT_TRACE__`) — that would indicate the restatement lives inside a single committed string rather than at the committed/interim boundary, which is a different (commit-path) fix.
