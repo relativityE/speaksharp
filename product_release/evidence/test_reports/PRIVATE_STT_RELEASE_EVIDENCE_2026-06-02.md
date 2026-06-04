@@ -696,9 +696,8 @@ box ≠ linear contrast; block-size invariance; 44.1 kHz non-integer ratio safe)
 - `frontend/src/services/transcription/utils/__tests__`: **72/72 pass**.
 - Frontend `tsc --noEmit`: **clean**.
 
-**Harness note:** `scripts/manual-stt-corpus-proof.mjs` was temporarily extended locally to pass
-`STT_PRIVATE_RESAMPLER=box|linear` through `?privateResampler=` and, for h1_6, surface
-`privateResamplerTelemetry` in the result. That proof hook was not merged to `main`.
+**Harness note:** `scripts/manual-stt-corpus-proof.mjs` now supports
+`STT_PRIVATE_RESAMPLER=box|linear` on `main` and surfaces `privateResamplerTelemetry` in the result.
 
 **Artifacts:**
 - `/private/tmp/stt-p8-box-conv01.json`
@@ -735,6 +734,36 @@ Next useful paths are:
 1. Extend P8 A/B to the originally requested human script / harder rows with in-result telemetry.
 2. Let @dev-agent continue unblocking P5/P6 so VAD/model A/B can run.
 3. If P8 remains timing-only, classify it as possible timing polish rather than the P0 accuracy fix.
+
+## TEST → DEV: STT-P8 extended A/B (2026-06-04, owner: dev-agent)
+
+Test branch: `test/stt-p8-extended@3341ee32` (`main@4292022a` +
+`dev/private-resampler-parity`). Focused proof still passes:
+
+- `transcription/utils` suite: `72/72`
+- `pnpm --dir frontend exec tsc --noEmit`: clean
+
+Extended browser A/B on additional guard rows:
+
+| Fixture | Resampler | Artifact | Accuracy | WER | Transcript | Stop finalization | Journey/detail |
+|---|---|---|---:|---:|---|---:|---|
+| `h1_8` | box | `/private/tmp/stt-p8-box-h1_8.json` | `100%` | `0` | `The puppy, like, chewed up the new shoes.` | `2383 ms` | pass |
+| `h1_8` | linear | `/private/tmp/stt-p8-linear-h1_8.json` | `100%` | `0` | `The puppy, like, chewed up the new shoes.` | `2363 ms` | pass |
+| `h1_10` | box | `/private/tmp/stt-p8-box-h1_10.json` | `100%` | `0` | `Basically, the quick brown fox jumps over the lazy dog.` | `2802 ms` | pass |
+| `h1_10` | linear | `/private/tmp/stt-p8-linear-h1_10.json` | `100%` | `0` | `Basically, the quick brown fox jumps over the lazy dog.` | `2833 ms` | pass |
+
+Telemetry confirmed the flag toggled:
+
+- box: `privateResamplerTelemetry={ resampleMode:"box", overridden:false }`
+- linear: `privateResamplerTelemetry={ resampleMode:"linear", overridden:true }`
+
+Conclusion: linear resampling is **safe on the tested rows** and does not break
+save/history/detail, but it is **still not proven as an accuracy lift**. The added guard rows were
+too easy because both modes scored perfectly. Do not merge P8 as an accuracy fix on this evidence
+alone.
+
+**Next useful proof:** run the human script, Washington/long script, or the original low-parity
+exact buffer where box actually fails. Re-running h1_8/h1_10 will not answer the product question.
 
 ## TEST → DEV: STT-P1D complete proof (2026-06-04, owner: test-release-agent / Codex)
 
