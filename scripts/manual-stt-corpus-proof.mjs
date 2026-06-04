@@ -52,6 +52,7 @@ const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now(
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
 const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
+const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
@@ -897,6 +898,9 @@ async function collectTraceSnapshot(page, mode) {
     privateMicConstraintsDebug: currentMode === 'private'
       ? window.__PRIVATE_MIC_CONSTRAINTS_DEBUG__ ?? null
       : undefined,
+    privateResamplerTelemetry: currentMode === 'private'
+      ? window.__PRIVATE_RESAMPLER_TELEMETRY__ ?? null
+      : undefined,
     transcriptLifecycleTrace: window.__SS_TRANSCRIPT_TRACE__ ?? [],
     nativeTrace: currentMode === 'native' ? window.__NATIVE_BROWSER_TRACE__ ?? [] : undefined,
     nativeParallelCapture: currentMode === 'native' ? (window.__NATIVE_PARALLEL_CAPTURE__ ?? []).map((capture) => ({
@@ -1154,6 +1158,9 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_MIC_CONSTRAINTS) {
     sessionUrl.searchParams.set('privateMicConstraints', PRIVATE_MIC_CONSTRAINTS);
   }
+  if (mode === 'private' && PRIVATE_RESAMPLER) {
+    sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
+  }
   if (mode === 'native') {
     if (NATIVE_CONTINUOUS) {
       sessionUrl.searchParams.set('nativeContinuous', NATIVE_CONTINUOUS);
@@ -1238,7 +1245,11 @@ async function runFixture(page, mode, fixture) {
 
   const traceSnapshot = await collectTraceSnapshot(page, mode);
   const transcriptLifecycleSummary = summarizeTranscriptLifecycle(traceSnapshot.transcriptLifecycleTrace);
-  const selectedForSaveTranscript = transcriptLifecycleSummary.saveCandidateSelectedTranscript || postStopTranscript || visibleAtStopTranscript;
+  const debugSelectedForSave = traceSnapshot.speechRuntimeDebug?.saveCandidate?.selectedForSave;
+  const selectedForSaveTranscript = compact(typeof debugSelectedForSave === 'string' ? debugSelectedForSave : '')
+    || transcriptLifecycleSummary.saveCandidateSelectedTranscript
+    || postStopTranscript
+    || visibleAtStopTranscript;
   const visibleAtStopMetric = buildWerMetric(fixture.transcript, visibleAtStopTranscript);
   const postStopMetric = buildWerMetric(fixture.transcript, postStopTranscript);
   const selectedForSaveMetric = buildWerMetric(fixture.transcript, selectedForSaveTranscript);
@@ -1293,6 +1304,7 @@ async function runFixture(page, mode, fixture) {
     savePayloadTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
     speechRuntimeDebug: traceSnapshot.speechRuntimeDebug,
     privateRuntimeDuringRecording,
+    privateResamplerTelemetry: traceSnapshot.privateResamplerTelemetry,
     privateRuntimePath: privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath,
     privateRuntime: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.runtime ?? null,
     privateProvider: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.provider ?? null,
@@ -1401,6 +1413,7 @@ const evidence = {
   clearPrivateCache: CLEAR_PRIVATE_CACHE,
   privateEngine: PRIVATE_ENGINE || 'default',
   privateMicConstraints: PRIVATE_MIC_CONSTRAINTS || 'default-product',
+  privateResampler: PRIVATE_RESAMPLER || 'default-box',
   nativeConfig: {
     continuous: NATIVE_CONTINUOUS || 'default',
     interimResults: NATIVE_INTERIM_RESULTS || 'default',
