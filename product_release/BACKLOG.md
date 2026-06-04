@@ -27,6 +27,27 @@ Native and Private are the trust-building front door.
 Cloud is the paid quality accelerator, not the first-impression crutch.
 ```
 
+Reviewer/product framing update (2026-06-03):
+
+```text
+STT is infrastructure.
+SpeakSharp is the coach.
+```
+
+This does not lower the STT bar. It clarifies why STT matters: the
+transcript is the evidence layer that feeds coaching, score, analytics, and
+user trust. Release work should therefore optimize the full feedback loop:
+
+```text
+Try -> Trust -> Improve -> Save -> Compare -> Upgrade
+```
+
+The product promise under review:
+
+```text
+Practice privately, get trustworthy feedback, improve one thing at a time.
+```
+
 The product should ship only if at least one non-Cloud path is trust-preserving.
 Native and Private do not need to equal Cloud, but any visible path must avoid
 embarrassing first-run behavior: blank panels, unstable trust labels, duplicate
@@ -48,6 +69,17 @@ Current 24-hour gates:
 | Private trust proof | Test/release; dev fixes concrete boundaries | Setup consent honored; live text cumulative; Draft/Processing locally/Final states correct; no duplication/truncation in `saveCandidate`; short/medium scripts at or near drop-in parity. |
 | Cloud baseline proof | Test/release; dev only for provider/request/tail bug | Baseline app path preserves tail, passes save/history/detail, has strong readability/filler metrics, and exports `__CLOUD_STT_TIMELINE__`. No default keyterms work. |
 | Score/Analytics trust | Dev + test | Weak transcript quality lowers confidence/copy, not necessarily the numeric formula; Analytics exposes Transcript Quality as a first-class guardrail. |
+
+Test/release validation standard from reviewer:
+
+| Question | Evidence required before wider release |
+|---|---|
+| Can a new user understand the value quickly? | Homepage/signup/session screenshots and copy review: user can tell they are starting a speaking-coach practice, not choosing an STT benchmark. |
+| Can they complete a short practice? | Browser journey proof: signup/login -> session -> record -> stop -> save -> history/detail. |
+| Can they distinguish draft from final? | Native and Private proofs capture trust banners/states, `__SS_TRUST_TRACE__`, visible transcript before Stop, final transcript after Stop, and screenshots/video. |
+| Does the score explain confidence? | Session score card and Analytics must show transcript-quality caveat/confidence when STT readability, filler recall, duplication, or truncation is weak. |
+| Does Analytics tell them what to do next? | Each Analytics focus should answer a user question and end in a next-practice implication, not only raw charts. |
+| Does mode copy set correct expectations? | Native = instant/browser-dependent; Private = local/privacy with setup and local processing; Cloud = paid quality accelerator. No mode should borrow another mode's trust copy. |
 
 Current 48-hour wider-use gates:
 
@@ -75,14 +107,14 @@ This section captures the review request that should guide the next product UX p
 
 ### Analytics Focus Definitions Shown To Users
 
-| Focus | Current user-facing meaning | Primary concern for review |
+| Focus | User question it should answer | Current user-facing meaning | Primary concern for review |
 |---|---|---|
-| Delivery Control | Shows whether pace, pauses, and filler habits make the speaker easy to follow. | Does it map cleanly to what users expect from "delivery"? |
-| Message Clarity | Connects transcript quality, clarity, and coaching notes to whether the point lands. | Does "transcript quality" inside this focus confuse message quality with STT quality? |
-| Habit Progress | Turns practice volume and repeated patterns into a habit loop. | Does it feel motivating enough to bring users back? |
-| Session Proof | Prioritizes before/after comparison and reports the user can revisit or share. | Does this satisfy the user's need to prove improvement, or does it need score movement/PDF framing? |
-| Transcript Quality | Separates speaking performance from transcription reliability. | Is this prominent enough for Native/Private caveats, especially when punctuation/readability are weak? |
-| Custom Toolkit | Lets users inspect specific tools outside a predefined group. | Does custom selection preserve interpretation, or does it dump users back into metric soup? |
+| Delivery Control | "Was I easy to follow?" | Shows whether pace, pauses, and filler habits make the speaker easy to follow. | Does it map cleanly to what users expect from "delivery"? |
+| Message Clarity | "Did my point land?" | Connects transcript quality, clarity, and coaching notes to whether the point lands. | Does "transcript quality" inside this focus confuse message quality with STT quality? |
+| Habit Progress | "Am I getting better over time?" | Turns practice volume and repeated patterns into a habit loop. | Does it feel motivating enough to bring users back? |
+| Session Proof | "Can I compare this attempt to prior attempts?" | Prioritizes before/after comparison and reports the user can revisit or share. | Does this satisfy the user's need to prove improvement, or does it need score movement/PDF framing? |
+| Transcript Quality | "Can I trust this feedback?" | Separates speaking performance from transcription reliability. | Is this prominent enough for Native/Private caveats, especially when punctuation/readability are weak? |
+| Custom Toolkit | "Am I improving against my own target words?" | Lets users inspect specific tools outside a predefined group. | Does custom selection preserve interpretation, or does it dump users back into metric soup? |
 
 ### Open UX/Product Tasks From This Review
 
