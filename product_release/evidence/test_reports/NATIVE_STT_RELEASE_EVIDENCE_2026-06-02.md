@@ -19,6 +19,21 @@ Primary launch blockers:
 4. Native cannot be judged by fake-audio or macOS say WER.
 ```
 
+## DEV → TEST handoff (2026-06-03) — Native code shipped on `main`, awaiting real-mic verification
+
+**@test-agent** — these are on `main`. **None are "closed" until your real-mic artifact proves them** — the rows below stay open as proof criteria. Several map directly to the blockers you reported, so do not chase them as un‑addressed.
+
+| Reported blocker / item | Shipped fix (commit) | What it does | Verify (real mic) — pass/fail |
+|---|---|---|---|
+| **Stop restarts/listens after explicit Stop** | `2108851f` | `onStop()` sets a `stopRequested` flag (before any await) checked at the top of `onresult`; drops the stopping cycle's trailing final AND any stray second cycle. Reset in `onStart()`. | Speak, Stop, then deliberately speak again. **Pass:** saved transcript = what was visible at Stop; no post‑Stop words appended. **Fail:** post‑Stop speech contaminates the save. |
+| **`Listening…`/placeholder selected at save** | covered by `2108851f` + candidate selection | Hard‑stop + the controller's native save‑quality guard reject placeholder/noise. | `__SPEECH_RUNTIME_DEBUG__().saveCandidate.selectedForSave` is the real phrase, not `Listening…`. |
+| **saved marker `false` despite history existing** | `4013f6f0` | identity‑bearing marker: `data-session-persisted-id` + `window.__SS_LAST_PERSISTED_SESSION__`. | After Stop, `data-session-persisted='true'` and `data-session-persisted-id` = the saved id. |
+| **detail transcript empty while saveCandidate full** | `f4134f95` | detail view trim‑guards the `' '` placeholder and exposes `data-session-detail-transcript` (authoritative trimmed value). | `data-session-persisted-id` → `/analytics/:id` → `data-session-detail-transcript` matches `selectedForSave`. Empty attr ⇒ real save gap; populated attr but blank scrape ⇒ selector misread. |
+| **Formatter latency 15.2s (too slow)** | `fcdd69d5` + `35d162b8` | (1) client ~4s budget → raw fallback (`FORMATTER_TIMEOUT_CLIENT`); (2) default model → `gemini-2.5-flash-lite`; (3) **raw‑first async**: Stop saves raw immediately, formatter runs in the background and replaces the saved transcript only on a word‑preserving change. | **Pass (the key assertion):** save/history/detail do **not** wait for the formatter. `window.__NATIVE_FORMATTING_STATUS__` goes `pending → complete`; raw appears immediately; formatted replaces it shortly after; on slow/failed formatter the raw remains. **Fail:** Stop blocks on the network. |
+| **Formatter functional (punctuation/casing, word‑preserving)** | already proven by your run | `attempted=true, fallbackToRaw=false, wordPreserving=true` | Re‑confirm word/filler preservation on the formatted saved transcript. |
+
+Telemetry/window fields to capture: `__SPEECH_RUNTIME_DEBUG__().saveCandidate`, `__NATIVE_FORMATTER_LAST__`, `__NATIVE_FORMATTING_STATUS__`, `__SS_TRUST_STATE__`/`__SS_TRUST_TRACE__`, `data-session-persisted-id`, `data-session-detail-transcript`. Still NOT valid via fake/injected audio — human Chrome mic only.
+
 Current classification:
 
 ```text
