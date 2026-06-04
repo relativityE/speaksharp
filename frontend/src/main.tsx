@@ -17,6 +17,7 @@ import App from './App';
 import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
 import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
+import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
 
 declare global {
   interface Window {
@@ -25,6 +26,11 @@ declare global {
     __e2e_e2e_msw_ready_fired__?: boolean;
   }
 }
+
+// STT release-proof config-discipline: publish the canonical runtime environment
+// (port/mode/auth/releaseProofEligible) so the test-agent proof preflight can validate it
+// before recording. releaseProofEligible is true only for manual mode on 5174 with real auth.
+publishAppRuntimeConfig();
 
 // 🛡️ INITIAL BOOT BARRIER: Set to false before any rendering logic starts.
 if (typeof document !== 'undefined') {
