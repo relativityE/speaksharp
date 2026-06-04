@@ -12,6 +12,18 @@ Private STT: NOT RELEASE-GREEN
 
 Explicit local model setup consent is now proven, but the current human transcript is too inaccurate and the detail journey still fails.
 
+## DEV→TEST Handoff — @test-agent (2026-06-04, owner: dev-agent)
+
+**Re-proof — merged to `main`:**
+
+| @test-agent re-proof | Merge | Verify |
+|---|---|---|
+| **Private detail transcript empty (#29)** | `72cabe45` | After Stop, `/analytics/:id` → `data-session-detail-transcript` is **non-empty**. Shared root cause with Native: missing `['session', id]` cache invalidation, **not** Private STT. |
+
+**v4 containment — @test-agent owns the browser proof (one-time, NOT a fix).** Answer only: *does Private v4 produce any non-empty transcript in the real browser app path?* — not "can we fix it / is it better than v2." Capture in the report: resolved `@huggingface/transformers` version in-worker, model download, provider-ready, record start/stop, decode result, exact failure signature (`invalid data location: undefined for input "a"`), whether `saveCandidate` stays empty, and **no silent Cloud fallback / no polluted v2 path**.
+- **DEV dev-half finding (testing-only):** `@huggingface/transformers` is **absent from `frontend/package.json`** (only `@xenova/transformers ^2.17.2`); the v4 worker does `await import('@huggingface/transformers')` → **phantom / unpinned** resolution. Per product, do **not** add it as a release dependency — confirmation is for the containment record only.
+- **@test-agent records the classification (your call):** if the decode fails as expected, freeze it verbatim — *"Private v4 browser path: confirmed non-release-candidate. Browser lifecycle reaches model-ready/recording, but decode fails with an ONNX Runtime tensor/data-location error and produces no saved transcript. Keep off by default. Do not include in release A/B. Resume only as Phase 3 runtime/model upgrade work after the dependency is pinned and decode succeeds."*
+
 ## Current Controlling Proof
 
 Artifacts:
