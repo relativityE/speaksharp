@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:06:00Z",
+  "lastUpdatedAt": "2026-06-04T13:09:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -108,6 +108,46 @@
     },
     "conclusion": "Do not ship this anti-hallucination decode configuration. It worsened h1_6; keep current defaults unless dev proposes a new candidate."
   },
+  "privateVadPrototypeGate": {
+    "status": "test_plan_complete_execution_waits_for_dev_flag",
+    "owner": "test-release-agent / Codex",
+    "requiredFlag": "A named runtime flag such as PRIVATE_VAD_PROTOTYPE=1, with candidate thresholds recorded in artifacts.",
+    "fixtures": [
+      "h1_1",
+      "h1_6",
+      "h1_8",
+      "h1_10",
+      "washington_01",
+      "latest Private human script",
+      "silence-leading fixture >=5s pre-speech silence",
+      "low-energy tail fixture"
+    ],
+    "requiredMetrics": [
+      "speech_start_detected",
+      "speechStartOffsetMs",
+      "retainedPrerollMs",
+      "peakBufferedSeconds",
+      "utteranceSeconds",
+      "lowEnergyPauseTailThreshold",
+      "silenceThreshold",
+      "timeToFirstProvisionalMs",
+      "timeToFirstFinalMs",
+      "finalizeWaitMs",
+      "finalizePrepMs",
+      "finalizeDecodeMs",
+      "RTF",
+      "WER/accuracy",
+      "word completeness",
+      "semantic substitutions",
+      "filler recall",
+      "false filler insertion",
+      "visible transcript",
+      "saveCandidate",
+      "history/detail",
+      "duplicate detection"
+    ],
+    "passRule": "Improve or preserve baseline accuracy on h1_6 and the human script, preserve onset/tail words and fillers, and avoid >10% timing regression. Onset clipping, tail loss, or worse semantic substitution fails."
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -130,6 +170,7 @@
     "testReleaseAgent": [
       "Private decode-parameter A/B h1_6 completed; expand only for a new candidate config",
       "Native raw-first async formatter plumbing verified; rerun human proof after dev fixes quality/detail",
+      "Private VAD prototype test plan complete; execute after dev ships a named VAD flag",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
