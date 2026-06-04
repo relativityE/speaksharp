@@ -174,7 +174,13 @@ this path; this branch fixes it.
   watchdogStartedAt, driftMs, thresholdMs, hasValidHeartbeat, tripped, at }`.
 
 **Requirements:** 1 ✓ regression (6 cases) · 2 ✓ · 3 ✓ real death intact · 4 ✓ no global silence ·
-5 ✓ timeouts unchanged · 6 ✓ trace · 7 → unit done; **injected-audio smoke is yours**.
+5 ✓ timeouts unchanged · 6 ✓ trace · 7 → unit done; **injected-audio smoke still open**.
+
+Test-agent note: focused branch proof was re-run (`watchdog.test.ts` +
+`heartbeatTrace.test.ts` = 10/10; frontend typecheck clean). The first browser smoke attempt is
+**invalid evidence** because it launched direct Vite on `5178` and `/auth/signup` returned blank
+404. Valid P7 browser proof must serve this branch through canonical `pnpm dev` on
+`localhost:5174`.
 
 **Proof (test-agent):** injected Private-start smoke + next human Private proof must show
 **no `RECORDING_LIFECYCLE_FAIL` AND no "Engine Frozen" toast**, and `__PRIVATE_HEARTBEAT_TRACE__`
