@@ -132,16 +132,11 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
             });
         }
     } catch (loadError) {
-        // Fail-fast, NAMED error so the harness/mic isn't left hanging ~180s on a bad model id
-        // or a missing remote asset. Includes the key + remote id for the proof artifact.
+        // Fail-fast with a NAMED, attributable error so the harness/mic isn't left hanging
+        // ~180s on a bad model id or missing remote asset. The worker's onmessage handler
+        // catches this and posts a single type:'error', which the engine rejects on immediately.
         const detail = loadError instanceof Error ? loadError.message : String(loadError);
-        post({
-            id,
-            type: 'error',
-            errorName: 'MODEL_LOAD_FAILED',
-            errorMessage: `MODEL_LOAD_FAILED [${loadedModelKey} -> ${remoteModelId}]: ${detail}`,
-        });
-        throw loadError;
+        throw new Error(`MODEL_LOAD_FAILED [${loadedModelKey} -> ${remoteModelId}]: ${detail}`);
     }
 
     post({
