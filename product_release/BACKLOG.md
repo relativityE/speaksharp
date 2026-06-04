@@ -131,6 +131,8 @@ This section captures the review request that should guide the next product UX p
 This is the current owner split. Old proof chatter has been removed from the
 active reports; use git history only for audit.
 
+**Tree status:** FREE for @dev-agent Phase B as of `main` `0915a34e`; test-release docs branch is merged and deleted.
+
 | Owner | Current tasks |
 |---|---|
 | **@dev-agent** | #30 Private setup CTA; return-timestamps audit; named VAD prototype flag; Private content loss/substitution; Private first-visible draft gating; any Fix-A-v2/VAD/model candidate must be named, flagged, and browser-proven. |
