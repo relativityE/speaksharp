@@ -2,10 +2,11 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
+type WhisperDecodeOptions = Record<string, unknown>;
 
 type WorkerRequest =
     | { id: number; type: 'init'; isE2E: boolean }
-    | { id: number; type: 'transcribe'; audio: Float32Array }
+    | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
     | { id: number; type: 'destroy' };
 
 type WorkerResponse =
@@ -128,7 +129,7 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     post({ id, type: 'ready' });
 }
 
-async function transcribe(id: number, audio: Float32Array): Promise<void> {
+async function transcribe(id: number, audio: Float32Array, decodeOptions?: WhisperDecodeOptions): Promise<void> {
     if (!transcriber) {
         throw new Error('TransformersJS worker engine not initialized. Call init() first.');
     }
@@ -140,6 +141,7 @@ async function transcribe(id: number, audio: Float32Array): Promise<void> {
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
         return_timestamps: true,
     };
+    Object.assign(options, decodeOptions);
 
     const result = await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
     const transcript = typeof result === 'string'
@@ -165,7 +167,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
                     await init(request.id, request.isE2E);
                     break;
                 case 'transcribe':
-                    await transcribe(request.id, request.audio);
+                    await transcribe(request.id, request.audio, request.decodeOptions);
                     break;
                 case 'destroy':
                     transcriber = null;

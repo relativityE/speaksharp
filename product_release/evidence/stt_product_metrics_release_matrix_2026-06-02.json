@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T11:45:00Z",
+  "lastUpdatedAt": "2026-06-04T13:02:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -26,7 +26,8 @@
   "currentArtifacts": {
     "nativeHuman": "/private/tmp/speaksharp-native-human-20260604-rerun2.json",
     "privateHuman": "/private/tmp/speaksharp-private-human-20260604-rerun.json",
-    "privateHumanJsonl": "/private/tmp/speaksharp-private-human-20260604-rerun.jsonl"
+    "privateHumanJsonl": "/private/tmp/speaksharp-private-human-20260604-rerun.jsonl",
+    "privateDecodeParamAb": "/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth"
   },
   "latestNativeHumanProof": {
     "status": "fail_detail_and_readability",
@@ -59,6 +60,29 @@
     "detailTranscriptEmpty": true,
     "duplicateSentenceDetected": false
   },
+  "latestPrivateDecodeParameterAb": {
+    "status": "candidate_rejected",
+    "fixture": "h1_6",
+    "browserWorkerProof": true,
+    "baseline": {
+      "accuracy": 0.75,
+      "wer": 0.25,
+      "selectedForSave": "A. Like. Told Wild Tales to Frighten."
+    },
+    "antiHallucinationCandidate": {
+      "decodeOptions": {
+        "return_timestamps": true,
+        "condition_on_previous_text": false,
+        "compression_ratio_threshold": 2.4,
+        "no_repeat_ngram_size": 3,
+        "temperature": [0, 0.2, 0.4]
+      },
+      "accuracy": 0,
+      "wer": 1,
+      "selectedForSave": "They, like, told Wild Tales to Fridonham, they, like. Told Wild Tales To Fridinham."
+    },
+    "conclusion": "Do not ship this anti-hallucination decode configuration. It worsened h1_6; keep current defaults unless dev proposes a new candidate."
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -79,6 +103,7 @@
       "Private first-visible draft gating"
     ],
     "testReleaseAgent": [
+      "Private decode-parameter A/B h1_6 completed; expand only for a new candidate config",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
