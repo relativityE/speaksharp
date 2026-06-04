@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T12:44Z  
+**Updated:** 2026-06-04T13:02Z  
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -49,6 +49,19 @@ Speak sharp microphone proof starts now. Basically, I want to make one simple po
 | P1 | Filler recall below product need | `um` missed; filler recall `66.67%`. | @dev-agent / product confidence |
 | P1 | Live trust/progress suspect | Chunks decoded every ~1.4-2.1s, but logs repeatedly showed `Holding first transcript until it has speech-like substance`; useful text appeared at Stop. | @dev-agent |
 
+## Latest Test-Release Result — Decode-Parameter A/B
+
+Owner: **test-release-agent / Codex**  
+Branch/proof: `test/private-decode-param-ab-hook`, h1_6 browser worker proof, fake-audio fixture  
+Artifacts: `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth`
+
+| Variant | Decode options | Saved text | Accuracy / WER | Result |
+| --- | --- | --- | --- | --- |
+| Baseline | current app defaults | `A. Like. Told Wild Tales to Frighten.` | `75.00%` / `25.00%` | Best of this A/B, but still not parity-green. |
+| Anti-hallucination | `return_timestamps:true`, `condition_on_previous_text:false`, `compression_ratio_threshold:2.4`, `no_repeat_ngram_size:3`, `temperature:[0,0.2,0.4]` | `They, like, told Wild Tales to Fridonham, they, like. Told Wild Tales To Fridinham.` | `0.00%` / `100.00%` | Rejected. It worsened h1_6 with repetition/substitution. |
+
+Conclusion: reversible decode knobs are **not** the current Private accuracy fix. Keep app defaults while dev investigates the semantic substitution/detail/live-trust blockers.
+
 ## Trust-Copy Contract
 
 Private may use local language only for actual local processing states.
@@ -70,7 +83,7 @@ Additional **test-release-agent / Codex** owned work that can proceed without ta
 
 | # | Task |
 | --- | --- |
-| 1 | Private decode-parameter A/B on current browser worker config vs reversible anti-hallucination/long-form config. |
+| 1 | Private decode-parameter A/B on h1_6 completed; anti-hallucination options rejected. Expand to other fixtures only if dev proposes a new candidate config. |
 | 3 | Private VAD prototype test plan and metrics, to execute when a flagged VAD prototype exists. |
 | 4 | Session-to-Analytics coherence for Private-derived score/quality signals. |
 | 5 | Browser UX bug hunt covering Private setup consent, recording, stop, save/history/detail, and error recovery. |
