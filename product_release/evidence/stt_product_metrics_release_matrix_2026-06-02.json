@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:20:00Z",
+  "lastUpdatedAt": "2026-06-04T13:23:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -192,6 +192,37 @@
     "bugsFound": [],
     "caveat": "This automated sweep does not replace human real-mic Private/Native proofs. Known human-found STT blockers remain open with dev: Native detail/readability/trust spacing and Private substitution/detail/live progress."
   },
+  "latestCloudBaselineProof": {
+    "status": "local_contract_verified_live_app_path_credential_gated",
+    "owner": "test-release-agent / Codex",
+    "policy": "Cloud baseline only for launch; no standard-filler keyterms work.",
+    "localContractProof": {
+      "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false tests/private/sttTiming.test.ts tests/cloud/assemblyaiAbUrl.test.ts frontend/src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts frontend/src/services/transcription/providers/cloud/__tests__/AssemblyAICloudProvider.test.ts",
+      "testFilesPassed": 4,
+      "testsPassed": 44,
+      "verified": [
+        "baseline URL has no prompt/keyterms",
+        "AssemblyAI provider parses Begin/Turn/Termination/Error messages",
+        "Cloud stop awaits deterministic shutdown/tail termination",
+        "Cloud trace reader derives first partial/final and stop-to-termination timing"
+      ]
+    },
+    "liveAppPathGate": {
+      "command": "pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=line --output=/private/tmp/speaksharp-cloud-baseline-live-gate",
+      "result": "skipped",
+      "reason": "Missing deployed BASE_URL/Pro credentials and no real ASSEMBLYAI_API_KEY in local environment."
+    },
+    "stillRequiredForGreen": [
+      "__CLOUD_STT_TIMELINE__",
+      "stopToTerminationMs",
+      "first partial/final timing",
+      "tail words preserved",
+      "WER/accuracy",
+      "filler recall and false filler insertion",
+      "punctuation/readability metrics",
+      "save/history/detail equality"
+    ]
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -217,6 +248,7 @@
       "Private VAD prototype test plan complete; execute after dev ships a named VAD flag",
       "Session-to-Analytics coherence complete under targeted automated proof",
       "Browser UX bug hunt complete under automated proof; rerun after dev lands STT blockers",
+      "Cloud baseline local contract complete; credentialed app-path proof still required",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
