@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T13:02Z  
+**Updated:** 2026-06-04T13:06Z  
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -17,6 +17,7 @@
 | Engine | Artifact | Result |
 | --- | --- | --- |
 | Native | `/private/tmp/speaksharp-native-human-20260604-rerun2.json` | Full capture/save/history/analytics, formatter `853ms`, but detail empty and readability/truecasing failed. |
+| Native formatter plumbing | automated Vitest + edge tests | Frontend formatter suites `35/35`; edge functions `73/73`. Plumbing verified; quality/detail still not green. |
 | Private | `/private/tmp/speaksharp-private-human-20260604-rerun.json` | Setup consent proven, but 56.36% accuracy, `um` missed, detail empty, live progress suspect. |
 | Private decode A/B | `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth` | h1_6 baseline `75.00%`; anti-hallucination decode options `0.00%`. Candidate rejected; keep current defaults. |
 
@@ -52,7 +53,7 @@
 | # | Task | Status |
 | --- | --- | --- |
 | 1 | Private decode-parameter A/B | h1_6 complete: anti-hallucination candidate rejected; expand only for a new dev-proposed candidate |
-| 2 | Native raw-first async formatter verification | Assigned to test-release-agent / Codex |
+| 2 | Native raw-first async formatter verification | Automated plumbing verified; human/browser rerun still needed after dev fixes quality/detail |
 | 3 | Private VAD prototype test plan | Assigned to test-release-agent / Codex |
 | 4 | Session-to-Analytics coherence pass | Assigned to test-release-agent / Codex |
 | 5 | Browser UX bug hunt | Assigned to test-release-agent / Codex |

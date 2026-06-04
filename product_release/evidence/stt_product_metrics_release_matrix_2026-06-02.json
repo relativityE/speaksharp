@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:02:00Z",
+  "lastUpdatedAt": "2026-06-04T13:06:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -43,6 +43,31 @@
     },
     "badTruecasing": ["Starts Now"],
     "trustLabelSpacingBug": "Draft transcriptText may change before the final transcript is saved."
+  },
+  "latestNativeFormatterPlumbingProof": {
+    "status": "automated_plumbing_verified_quality_still_open",
+    "frontendFormatterTests": {
+      "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/services/transcription/__tests__/nativeAsyncFormatter.test.ts frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts frontend/src/services/transcription/modes/__tests__/nativeGeminiFormatter.test.ts",
+      "testFilesPassed": 3,
+      "testsPassed": 35
+    },
+    "edgeFunctionTests": {
+      "command": "pnpm test:edge",
+      "testsPassed": 11,
+      "stepsPassed": 73
+    },
+    "verified": [
+      "raw-first async saved-transcript update",
+      "4s client timeout fallback to raw",
+      "word-preservation guard",
+      "__NATIVE_FORMATTER_LAST__ telemetry",
+      "Private privacy guard",
+      "format-transcript auth/engine/quota/error/no-log coverage"
+    ],
+    "notClosed": [
+      "human proof still needs detail transcript non-empty",
+      "human proof still needs general truecasing/readability improvement for Starts Now-style casing"
+    ]
   },
   "latestPrivateHumanProof": {
     "status": "fail_accuracy_detail_live_trust",
@@ -104,6 +129,7 @@
     ],
     "testReleaseAgent": [
       "Private decode-parameter A/B h1_6 completed; expand only for a new candidate config",
+      "Native raw-first async formatter plumbing verified; rerun human proof after dev fixes quality/detail",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
