@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T13:18Z  
+**Updated:** 2026-06-04T13:20Z  
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -21,6 +21,7 @@
 | Private | `/private/tmp/speaksharp-private-human-20260604-rerun.json` | Setup consent proven, but 56.36% accuracy, `um` missed, detail empty, live progress suspect. |
 | Private decode A/B | `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth` | h1_6 baseline `75.00%`; anti-hallucination decode options `0.00%`. Candidate rejected; keep current defaults. |
 | Session → Analytics coherence | targeted Vitest + Playwright | Analytics dashboard/page/score math `66/66`; user-facing regression `9/9`; analytics suite/truth `13/13`. Score caveats, transcript quality, filler/readability signals, detail navigation, reload/export, and session-to-analytics parity are currently covered by automated proof. |
+| Browser UX bug hunt | Playwright full-suite subset | Primary journeys, user features, custom filler words, goals, and error states `19/19`. No new automated UX bug surfaced; human STT quality/detail/trust findings remain the controlling blockers. |
 
 ## Release Metrics Required Per STT
 
@@ -57,7 +58,7 @@
 | 2 | Native raw-first async formatter verification | Automated plumbing verified; human/browser rerun still needed after dev fixes quality/detail |
 | 3 | Private VAD prototype test plan | Plan complete; execution waits for named dev VAD prototype flag |
 | 4 | Session-to-Analytics coherence pass | Complete: `66/66` targeted Vitest, `9/9` user-facing browser regressions, `13/13` analytics suite/truth |
-| 5 | Browser UX bug hunt | Assigned to test-release-agent / Codex |
+| 5 | Browser UX bug hunt | Complete: `19/19` Playwright across primary journey, user features, filler words, goals, and error states; no new automated UX bug found |
 | 6 | Cloud baseline proof | Assigned to test-release-agent / Codex |
 | 7 | Report/backlog hygiene | Assigned to test-release-agent / Codex |
 
