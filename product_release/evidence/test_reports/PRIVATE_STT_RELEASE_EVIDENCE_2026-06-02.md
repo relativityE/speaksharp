@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:26Z
+**Updated:** 2026-06-04T15:50Z
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -10,7 +10,31 @@
 Private STT: NOT RELEASE-GREEN
 ```
 
-Explicit local model setup consent is now proven, but the current human transcript is too inaccurate and the detail journey still fails.
+Explicit local model setup consent is now proven, but the current human transcript is too inaccurate and the detail journey still fails. Product has clarified a stricter bar: Private is not allowed to be "private but worse"; it must become a credible front-door STT path.
+
+## Product Bar — Private Must Be Credible
+
+Private STT must meet or beat the better of:
+
+```text
+1. same-model/drop-in Private equivalent
+2. Native human Chrome mic baseline
+```
+
+Do not classify Private green unless both comparisons are addressed. Privacy copy and trust labels can explain local processing, but they cannot excuse materially worse transcript quality.
+
+Required comparison fields for every Private accuracy/timing change:
+
+```text
+app vs drop-in delta
+app vs Native baseline delta
+WER / accuracy
+filler recall and false filler insertion
+readability
+firstProgressMs / firstDraftMs / finalAtMs / stopFinalizationMs
+save/history/detail equality
+no Cloud fallback
+```
 
 ## DEV→TEST Handoff — @test-agent (2026-06-04, owner: dev-agent)
 
@@ -57,9 +81,20 @@ Speak sharp microphone proof starts now. Basically, I want to make one simple po
 | Priority | Blocker | Evidence | Owner |
 | --- | --- | --- | --- |
 | P0 | Accuracy/parity failure | Expected `the main idea is that every transcript...`; saved `the memory transcript...`. This is semantic STT error, not punctuation. | @dev-agent |
-| P0 | Detail transcript empty | `detailTranscript=""`, `detailContainsSelected=false`, session `8e578cdf-c4d3-4e42-815a-d9a3c1ba3e78`. | @dev-agent |
+| P0 | Re-proof detail transcript empty (#29) | Prior human proof had `detailTranscript=""`, but current `main` includes cache-invalidation fix `72cabe45`. Verify `/analytics/:id` `data-session-detail-transcript` is non-empty and matches `saveCandidate`. | test-release-agent / Codex |
 | P1 | Filler recall below product need | `um` missed; filler recall `66.67%`. | @dev-agent / product confidence |
 | P1 | Live trust/progress suspect | Chunks decoded every ~1.4-2.1s, but logs repeatedly showed `Holding first transcript until it has speech-like substance`; useful text appeared at Stop. | @dev-agent |
+
+## Product Decisions — Implementation Policy
+
+| Topic | Decision |
+| --- | --- |
+| Fix-A-v2 | Interim RMS/threshold patch only. It may ship only if focused browser proof improves current proof rows and does not regress h1 guard rows or the human-like script. |
+| VAD | Intended architecture direction, but prototype behind a named flag first. Do not replace RMS gating without RMS-vs-VAD browser proof. |
+| Segment-level trust | Do not ship cosmetic-only segment trust. Segment work must move toward real segment-level finalization and saved transcript integrity. |
+| Private formatter | Deferred for release. No Gemini/server formatter for Private. No second local punctuation model before release unless product separately approves it. Use transcript/readability confidence caveat for now. |
+| Model policy | `whisper-tiny.en` remains acceptable only if it meets the product bar. Larger/local models require browser proof of accuracy, timing, download, memory, and setup cost. |
+| Setup CTA | Show model size; do not show estimated setup time. CTA should explain that the local speech model is downloaded for in-browser Private transcription and may need setup again if site storage is cleared. |
 
 ## Latest Test-Release Result — Decode-Parameter A/B
 
@@ -114,16 +149,16 @@ Private may use local language only for actual local processing states.
 | Final accepted | normal final transcript styling |
 | Forbidden | Gemini/server formatter by default; punctuation cleanup that hides semantic substitutions |
 
-## Next Test After Dev Fix
+## Next Test On Current Main / After Private Candidate
 
-Owner: **test-release-agent / Codex** after `@dev-agent` lands a fix.
+Owner: **test-release-agent / Codex**.
 
 Completed **test-release-agent / Codex** work is recorded in the canonical matrix: decode-parameter A/B, VAD prototype proof plan, session-to-analytics coherence, browser UX sweep, and report hygiene.
 
-Current **test-release-agent / Codex** action after `@dev-agent` lands fixes:
+Current **test-release-agent / Codex** action:
 
 ```text
-Rerun the same Private human script and capture the fields below.
+Rerun the same Private human script on current main to verify #29 detail fix and current Fix-A-v2 behavior, then rerun again after any named VAD/model candidate.
 If dev ships a named VAD prototype flag or a new decode candidate, run the predeclared proof gates from the canonical matrix.
 ```
 
