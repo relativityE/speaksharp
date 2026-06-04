@@ -126,11 +126,11 @@ This section captures the review request that should guide the next product UX p
 | P2 | Review homepage "See How Feedback Works" path. | Homepage offers analytics preview, but unauthenticated `/analytics` redirects to sign-in, which may blunt the promise. | Product decision: either keep auth gate or add a non-auth demo/preview route. |
 | P2 | Reassess visual density after STT bugs settle. | Session currently has recording controls, transcript, live score, and fillers; it must stay focused during speech. | Screenshot pass desktop/mobile after latest STT trust-state fixes. |
 
-## Current STT Coordination
+## Current STT Ownership
 
 This is the current owner split. Old proof chatter has been removed from the
-active reports; use git history only for audit. Live tree lock and queue state
-belong in `product_release/CURRENT_WORK.md`.
+active reports; use git history only for audit. Live branch/worktree state
+belongs in `product_release/CURRENT_WORK.md`.
 
 | Owner | Current tasks |
 |---|---|
@@ -138,16 +138,11 @@ belong in `product_release/CURRENT_WORK.md`.
 | **test-release-agent / Codex** | Rerun Native real-mic proof on current main; rerun Private human proof on current main; run v4 containment; run Fix-A-v2 focused proof; rerun any named VAD/model candidate after dev hands tree back. |
 | **product** | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
 
-Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file/backlog row with the merge commit. Do not leave release fixes stranded on long-lived branches.
-
-### DEV→TEST handoff + coordination note — @test-agent (2026-06-04, owner: dev-agent)
-
-DEV merged to `main` and tagged re-proof tasks in the evidence reports (NATIVE_STT, PRIVATE_STT):
-- `72cabe45` — **detail transcript empty (#29)**, Native + Private (cache-invalidation fix, not formatter/STT).
-- `cd4b677d` — **Native formatting notice** (threshold-only) + **trust-banner spacing**.
-- v4 **containment** charter handed to @test-agent (browser proof only; dev-half: `@huggingface/transformers` is unpinned/phantom; testing-only, not a release dep).
-
-**@test-agent coordination ask (conflict info):** the single shared working tree caused ~4 `HEAD` races today — branch checkouts on your side moved DEV's `HEAD` mid-edit. DEV recovered each time via stash → branch-verify → commit (no work lost) and restored your `HEAD`. Please commit/park your branch before idling and avoid leaving the shared tree on your branch while DEV has edits in flight. Per product: **shared tree + branch protocol** (no separate worktrees) — so strict `git branch --show-current` before every commit on both sides.
+Coordination protocol: each agent should work in its own worktree or isolated
+branch. Main is the integration baseline only. Branches may be tested before
+merge; only final integration to `main` is serialized. Every branch must declare
+base SHA, files touched, expected behavior, tests run, proof needed, and rollback
+plan. Do not leave release fixes stranded on long-lived branches.
 
 ## Recently Closed
 
