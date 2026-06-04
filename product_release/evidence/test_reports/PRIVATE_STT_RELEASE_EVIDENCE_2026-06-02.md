@@ -632,6 +632,68 @@ Next useful paths are:
 2. Let @dev-agent continue unblocking P5/P6 so VAD/model A/B can run.
 3. If P8 remains timing-only, classify it as possible timing polish rather than the P0 accuracy fix.
 
+## TEST → DEV: STT-P1D complete proof (2026-06-04, owner: test-release-agent / Codex)
+
+**Branch tested:** `test/private-p1d-complete-proof@f094f23e` = current
+`main@63509d0a` + cherry-pick `dev/private-p1d-complete@e77b544c`.
+
+**Static proof:**
+- `PrivateWhisper.test.ts`: **45/45 pass**.
+- Frontend `tsc --noEmit`: **clean**.
+
+**Browser proof:** `BASE_URL=http://127.0.0.1:5174`, canonical manual real-auth environment,
+Playwright fake-audio `conv_01`. Artifact trace:
+`/private/tmp/stt-p1d-complete-private-smoke/live-tester-b-private-nati-a0965-1-audio-and-detects-fillers-deployed-live-chromium/trace.zip`.
+
+**Result:** partial improvement, still not release-ready.
+
+Truth:
+
+```text
+Um. Basically, we should literally like, wait.
+```
+
+Saved / clean transcript:
+
+```text
+Basically, we should literally like, "Wait, um, basically."
+```
+
+What improved:
+- The prior long doubled phrase (`...wait, um, basically, we should literally like, wait, um, basically`) is reduced.
+- Filler rows are no longer `um:0`: `um=3`, `basically=3`, `like=2`, `literally=2`.
+- The browser spec passed its loose required-word and filler-row assertions.
+
+What still fails:
+- The opening `Um` is lost/moved.
+- Extra `um, basically` remains at the end.
+- The saved transcript still does not match the user/customer expectation for the simple fixture.
+
+Save boundary:
+
+```json
+{
+  "saveCandidateReason": "service_result",
+  "selectedForSave": "Basically, we should literally like, \"Wait, um, basically.\"",
+  "selectedForSaveLength": 59,
+  "finalWordCount": 8,
+  "resultTranscriptLength": 59,
+  "frozenStopTranscriptLength": 106,
+  "candidateLengths": [
+    {"source":"service_result","length":59},
+    {"source":"committed_final","length":59},
+    {"source":"visible_snapshot","length":106},
+    {"source":"best_meaningful_partial","length":106},
+    {"source":"store_visible_snapshot","length":59}
+  ]
+}
+```
+
+**Conclusion for @dev-agent:** do **not** merge `dev/private-p1d-complete` as green. It is
+a useful partial improvement, but the final candidate remains order/content-wrong. Either refine
+the post-decode collapse so it preserves the earliest occurrence/order, or treat this as an engine
+decode error and let P5/P6/model/VAD carry the accuracy work.
+
 ---
 
 ## DEV → TEST: STT-P1D repetition-collapse + STT-P5/P6 current-main branches (2026-06-04, owner: dev-agent)
