@@ -23,6 +23,7 @@ import { TrendChart } from './analytics/TrendChart';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { getTranscriptQualityCaveat } from '@/utils/speakingScore';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -693,6 +694,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
         [targetSession]
     );
+    // Transcript-quality caveat for the saved session — same signal as the live
+    // SpeakSharp Score confidence, so a weak-transcript session in history is never
+    // presented as a precise grade without the "directional" explanation (Option 2).
+    const targetSessionQuality = useMemo(
+        () => targetSession
+            ? getTranscriptQualityCaveat(targetSession.transcript ?? '', targetSession.engine ?? undefined)
+            : null,
+        [targetSession]
+    );
 
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
@@ -703,6 +713,19 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : targetSession && targetSessionMetrics ? (
                 /* Session Detail View */
                 <div className="space-y-6">
+                    {/* Transcript-quality caveat: keep weak/uncertain saved transcripts from
+                        reading as a precise grade. Visible (not a hidden detail) when untrusted. */}
+                    {targetSessionQuality && !targetSessionQuality.trusted && targetSessionQuality.qualityNote && (
+                        <div
+                            className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold leading-snug text-amber-900"
+                            data-testid="session-detail-quality-caveat"
+                            role="note"
+                        >
+                            <Eye className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>{targetSessionQuality.qualityNote}</span>
+                        </div>
+                    )}
+
                     {/* Session Metrics Summary */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <StatCard
