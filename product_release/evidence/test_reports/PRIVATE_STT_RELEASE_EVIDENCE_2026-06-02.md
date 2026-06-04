@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T15:50Z
+**Updated:** 2026-06-04T16:25Z
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -43,10 +43,25 @@ no Cloud fallback
 | @test-agent re-proof | Merge | Verify |
 |---|---|---|
 | **Private detail transcript empty (#29)** | `72cabe45` | After Stop, `/analytics/:id` → `data-session-detail-transcript` is **non-empty**. Shared root cause with Native: missing `['session', id]` cache invalidation, **not** Private STT. |
+| **Private setup CTA size copy (#30)** | `82be4993` | Verify first-time Private setup shows the local model download size, not estimated setup time, and still requires explicit user click before download. |
 
 **v4 containment — @test-agent owns the browser proof (one-time, NOT a fix).** Answer only: *does Private v4 produce any non-empty transcript in the real browser app path?* — not "can we fix it / is it better than v2." Capture in the report: resolved `@huggingface/transformers` version in-worker, model download, provider-ready, record start/stop, decode result, exact failure signature (`invalid data location: undefined for input "a"`), whether `saveCandidate` stays empty, and **no silent Cloud fallback / no polluted v2 path**.
 - **DEV dev-half finding (testing-only):** `@huggingface/transformers` is **absent from `frontend/package.json`** (only `@xenova/transformers ^2.17.2`); the v4 worker does `await import('@huggingface/transformers')` → **phantom / unpinned** resolution. Per product, do **not** add it as a release dependency — confirmation is for the containment record only.
 - **@test-agent records the classification (your call):** if the decode fails as expected, freeze it verbatim — *"Private v4 browser path: confirmed non-release-candidate. Browser lifecycle reaches model-ready/recording, but decode fails with an ONNX Runtime tensor/data-location error and produces no saved transcript. Keep off by default. Do not include in release A/B. Resume only as Phase 3 runtime/model upgrade work after the dependency is pinned and decode succeeds."*
+
+## Latest Test-Release Result — Current-Main Non-Human Validation
+
+Owner: **test-release-agent / Codex**
+Head: `82be4993`
+
+| Check | Result | Meaning |
+| --- | --- | --- |
+| `pnpm typecheck` | passed | Current #30/setup CTA + STT code type-checks. |
+| `LiveRecordingCard` + `ModelManager` | `29/29` passed | Setup CTA and model-size source of truth are wired. |
+| `LiveRecordingCard` + `StatusNotificationBar` + `privateRuntimePath` | `36/36` passed | Setup/status copy remains private/local only where appropriate. |
+| Private timing/service/merge tests | `87/87` passed | `__PRIVATE_TIMING__`, merge/provisional, `PrivateWhisper`, `TranscriptionService`, and session lifecycle contracts remain green. |
+
+This does **not** close the human proof gate. It only clears the current-main non-human smoke before the next Private human/browser proof.
 
 ## Current Controlling Proof
 
