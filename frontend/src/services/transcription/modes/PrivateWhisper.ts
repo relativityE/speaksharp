@@ -756,7 +756,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private firstTranscriptAgreementRounds: number = 0;
   private utteranceAudioChunks: Float32Array[] = [];
   private utteranceSampleCount: number = 0;
-  private utteranceTrailingSilentSamples: number = 0;
+  // Sample offset of the END of the last real-speech frame in the utterance buffer.
+  // Used to trim ONLY trailing silence at finalize (Fix A intent) without dropping
+  // mid-utterance soft speech.
+  private utteranceLastRealSpeechSamples: number = 0;
   private wholeUtteranceTranscript: string = '';
   // Timing anchors (diagnostics only) for explaining first-text / final-decode
   // latency. performance.now() ms; null until set this recording.
@@ -878,7 +881,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
-    this.utteranceTrailingSilentSamples = 0;
+    this.utteranceLastRealSpeechSamples = 0;
     this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
     this.lastHeartbeat = Date.now();
@@ -997,7 +1000,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
-    this.utteranceTrailingSilentSamples = 0;
+    this.utteranceLastRealSpeechSamples = 0;
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
     this.pendingFirstTranscript = null;
@@ -2153,38 +2156,17 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     frame: Float32Array,
     energy: ReturnType<typeof summarizeAudioEnergy>,
   ): void {
-    // Fix A (final-buffer bound): "real speech" for the purpose of resetting the
-    // trailing-tail counter uses the app's existing partial-speech bar
-    // (FIRST_TRANSCRIPT_PARTIAL_MIN_RMS), NOT the silence floor. The old code reset
-    // on anything >= SILENCE_RMS_THRESHOLD (0.01), so low-energy post-speech
-    // "chatter" (e.g. rms 0.02-0.09) kept resetting the cap and the whole-utterance
-    // buffer grew unbounded (h1_6: committed 10.75s for ~7s of speech, degrading the
-    // final decode). This bar is an existing product threshold, not an h1_6-tuned
-    // value. Frames below it still get the bounded tail allowance so genuinely quiet
-    // endings are preserved up to UTTERANCE_SILENCE_TAIL_SAMPLES.
-    const isRealSpeech = energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS;
-    if (isRealSpeech) {
-      this.utteranceTrailingSilentSamples = 0;
-      this.appendUtteranceAudio([frame]);
-      return;
-    }
-
-    this.utteranceTrailingSilentSamples += frame.length;
-    if (this.utteranceTrailingSilentSamples <= UTTERANCE_SILENCE_TAIL_SAMPLES) {
-      this.appendUtteranceAudio([frame]);
-      return;
-    }
-
-    if (this.utteranceTrailingSilentSamples === UTTERANCE_SILENCE_TAIL_SAMPLES + frame.length) {
-      pushPrivateTimeline('whole_utterance_silence_tail_capped', {
-        serviceId: this.serviceId,
-        runId: this.instanceId,
-        retainedTailSamples: UTTERANCE_SILENCE_TAIL_SAMPLES,
-        retainedTailSeconds: PRIV_STT.UTTERANCE_SILENCE_TAIL_SECONDS,
-        tailResetThresholdRms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS,
-        currentUtteranceSamples: this.utteranceSampleCount,
-        currentUtteranceSeconds: Number(samplesToSeconds(this.utteranceSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
-      });
+    // Fix A v2 (trailing-silence bound, applied at FINALIZE — see
+    // commitWholeUtteranceTranscript). ALWAYS keep the frame here so that
+    // mid-utterance soft speech is never dropped: the previous per-frame drop
+    // deleted any continuous sub-FIRST_TRANSCRIPT_PARTIAL_MIN_RMS run longer than
+    // UTTERANCE_SILENCE_TAIL, so a softly-spoken second half of a sentence was lost
+    // from the buffer (-> content loss / Whisper hallucinating the gap). Instead we
+    // only record where the last REAL-speech frame ends; only the silence AFTER that
+    // (the genuine trailing tail / h1_6 chatter) is trimmed when the buffer is decoded.
+    this.appendUtteranceAudio([frame]);
+    if (energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS) {
+      this.utteranceLastRealSpeechSamples = this.utteranceSampleCount;
     }
   }
 
@@ -2200,7 +2182,26 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       return;
     }
 
-    const audio = concatenateFloat32Arrays(this.utteranceAudioChunks);
+    // Fix A v2: trim ONLY the trailing silence after the last real-speech frame
+    // (genuine end-of-utterance quiet / h1_6 chatter). Mid-utterance soft speech is
+    // already fully retained (appendFrameToUtteranceAudio no longer drops it).
+    const fullUtteranceAudio = concatenateFloat32Arrays(this.utteranceAudioChunks);
+    const trailingCap = this.utteranceLastRealSpeechSamples > 0
+      ? Math.min(fullUtteranceAudio.length, this.utteranceLastRealSpeechSamples + UTTERANCE_SILENCE_TAIL_SAMPLES)
+      : fullUtteranceAudio.length;
+    const audio = trailingCap < fullUtteranceAudio.length
+      ? fullUtteranceAudio.slice(0, trailingCap)
+      : fullUtteranceAudio;
+    if (audio.length < fullUtteranceAudio.length) {
+      pushPrivateTimeline('whole_utterance_trailing_silence_trimmed', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        fullSamples: fullUtteranceAudio.length,
+        keptSamples: audio.length,
+        trimmedSamples: fullUtteranceAudio.length - audio.length,
+        lastRealSpeechSamples: this.utteranceLastRealSpeechSamples,
+      });
+    }
     const energy = summarizeAudioEnergy(audio);
     const speechStartOffsetMs = this.streamStartAtMs == null || this.speechStartAtMs == null
       ? null
