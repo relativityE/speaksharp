@@ -66,6 +66,8 @@ Private may use local language only for actual local processing states.
 
 Owner: **test-release-agent / Codex** after `@dev-agent` lands a fix.
 
+Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
+
 Rerun the same human script and capture:
 
 ```text

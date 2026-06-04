@@ -45,3 +45,5 @@
 | @dev-agent | Native detail empty; Native truecasing/readability; Native trust-label spacing; Private accuracy/substitution; Private detail empty; Private first-visible draft gating. |
 | test-release-agent / Codex | Rerun Native real mic and Private human proof after dev fixes; run Cloud baseline current-head proof after higher-priority Native/Private blockers. |
 | product | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
+
+Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file with the merge commit. Do not leave release fixes stranded on long-lived branches.

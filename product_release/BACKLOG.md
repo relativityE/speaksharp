@@ -138,6 +138,8 @@ active reports; use git history only for audit.
 | **test-release-agent / Codex** | Rerun Native real-mic proof after dev fixes; rerun Private human proof after dev fixes; run Cloud baseline app-path proof after the higher-priority Native/Private fixes. |
 | **product** | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
 
+Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file/backlog row with the merge commit. Do not leave release fixes stranded on long-lived branches.
+
 ## Recently Closed
 
 | Closed Date | Area | Result | Evidence |
