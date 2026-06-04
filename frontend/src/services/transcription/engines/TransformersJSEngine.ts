@@ -28,6 +28,11 @@ import workerUrl from './transformers-js.worker.ts?worker&url';
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type UnknownRecord = Record<string, unknown>;
+type WhisperDecodeOptions = Record<string, unknown>;
+type WorkerRequest =
+    | { type: 'init'; isE2E: boolean }
+    | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
+    | { type: 'destroy' };
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
@@ -47,11 +52,49 @@ interface TranscriptionResult {
     transcript?: string;
 }
 
+declare global {
+    interface Window {
+        /**
+         * Test/release proof hook only. Lets browser proofs A/B supported Whisper
+         * generation options without changing product defaults. Ignored unless set.
+         */
+        __PRIVATE_STT_DECODE_OPTIONS__?: UnknownRecord;
+    }
+}
+
 const isPrivateTranscriptTraceEnabled = () =>
     typeof window !== 'undefined' &&
     Boolean((window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__);
 
 export const TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS = 120_000;
+
+const ALLOWED_DECODE_OPTIONS = new Set([
+    'return_timestamps',
+    'condition_on_previous_text',
+    'compression_ratio_threshold',
+    'logprob_threshold',
+    'no_speech_threshold',
+    'no_repeat_ngram_size',
+    'temperature',
+]);
+
+function readPrivateDecodeOptionsOverride(): WhisperDecodeOptions | undefined {
+    if (typeof window === 'undefined') return undefined;
+    const source = window.__PRIVATE_STT_DECODE_OPTIONS__;
+    if (!source || typeof source !== 'object') return undefined;
+
+    const out: WhisperDecodeOptions = {};
+    for (const [key, value] of Object.entries(source)) {
+        if (!ALLOWED_DECODE_OPTIONS.has(key)) continue;
+        if (typeof value === 'boolean' || typeof value === 'number') {
+            out[key] = value;
+        } else if (Array.isArray(value) && value.every((item) => typeof item === 'number')) {
+            out[key] = value;
+        }
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function summarizeRawResult(result: unknown): UnknownRecord {
     if (typeof result === 'string') {
@@ -358,8 +401,9 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
+                const decodeOptions = readPrivateDecodeOptionsOverride();
                 const response = await this.sendWorkerRequest(
-                    { type: 'transcribe', audio: workerAudio },
+                    { type: 'transcribe', audio: workerAudio, decodeOptions },
                     [workerAudio.buffer],
                 );
                 if (response.type !== 'result') {
@@ -408,6 +452,7 @@ export class TransformersJSEngine extends STTEngine {
                 stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
                 return_timestamps: true,
             };
+            Object.assign(options, readPrivateDecodeOptionsOverride());
             if (!isEnglishOnly) {
                 options.task = 'transcribe';
                 options.language = 'english';
@@ -519,7 +564,7 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
+        request: WorkerRequest,
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {

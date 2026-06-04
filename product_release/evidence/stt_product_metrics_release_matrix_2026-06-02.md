@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T12:44Z  
+**Updated:** 2026-06-04T13:02Z  
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -18,6 +18,7 @@
 | --- | --- | --- |
 | Native | `/private/tmp/speaksharp-native-human-20260604-rerun2.json` | Full capture/save/history/analytics, formatter `853ms`, but detail empty and readability/truecasing failed. |
 | Private | `/private/tmp/speaksharp-private-human-20260604-rerun.json` | Setup consent proven, but 56.36% accuracy, `um` missed, detail empty, live progress suspect. |
+| Private decode A/B | `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth` | h1_6 baseline `75.00%`; anti-hallucination decode options `0.00%`. Candidate rejected; keep current defaults. |
 
 ## Release Metrics Required Per STT
 
@@ -50,7 +51,7 @@
 
 | # | Task | Status |
 | --- | --- | --- |
-| 1 | Private decode-parameter A/B | Assigned to test-release-agent / Codex |
+| 1 | Private decode-parameter A/B | h1_6 complete: anti-hallucination candidate rejected; expand only for a new dev-proposed candidate |
 | 2 | Native raw-first async formatter verification | Assigned to test-release-agent / Codex |
 | 3 | Private VAD prototype test plan | Assigned to test-release-agent / Codex |
 | 4 | Session-to-Analytics coherence pass | Assigned to test-release-agent / Codex |
