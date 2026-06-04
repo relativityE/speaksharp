@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, expect, it } from 'vitest';
+import { act } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { splitSettledActiveTranscript } from '@/components/session/liveTranscriptUtils';
 import { TEST_IDS } from '@/constants/testIds';
@@ -487,5 +488,64 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'final');
         expect(screen.queryByTestId('live-transcript-finalizing')).not.toBeInTheDocument();
         expect(screen.queryByTestId('live-transcript-trust-banner')).not.toBeInTheDocument();
+    });
+
+    describe('native formatting notice (threshold-only)', () => {
+        beforeEach(() => { vi.useFakeTimers(); });
+        afterEach(() => { vi.useRealTimers(); });
+
+        const renderFinalNative = (nativeFormatting: { status: 'idle' | 'pending' | 'complete' | 'failed'; startedAt: number | null }) =>
+            render(
+                <LiveTranscriptPanel
+                    transcript="hello world"
+                    isListening={false}
+                    sttMode="native"
+                    nativeFormatting={nativeFormatting}
+                />
+            );
+
+        it('stays silent before the ~1.5s threshold, then shows the notice while pending', () => {
+            renderFinalNative({ status: 'pending', startedAt: Date.now() });
+            // Fast path: nothing yet (no perceived slowness).
+            expect(screen.queryByText(/tidying up punctuation/i)).not.toBeInTheDocument();
+            act(() => { vi.advanceTimersByTime(1500); });
+            expect(screen.getByText(/tidying up punctuation/i)).toBeInTheDocument();
+        });
+
+        it('never shows the notice on the fast path (idle/complete)', () => {
+            renderFinalNative({ status: 'idle', startedAt: null });
+            act(() => { vi.advanceTimersByTime(3000); });
+            expect(screen.queryByText(/tidying up punctuation/i)).not.toBeInTheDocument();
+        });
+
+        it('never shows the notice for non-native modes even while pending', () => {
+            render(
+                <LiveTranscriptPanel
+                    transcript="hello world"
+                    isListening={false}
+                    sttMode="private"
+                    nativeFormatting={{ status: 'pending', startedAt: Date.now() }}
+                />
+            );
+            act(() => { vi.advanceTimersByTime(3000); });
+            expect(screen.queryByText(/tidying up punctuation/i)).not.toBeInTheDocument();
+        });
+    });
+
+    describe('trust banner spacing', () => {
+        it('separates the draft label and disclaimer so extracted text is not glued', () => {
+            render(
+                <LiveTranscriptPanel
+                    transcript=""
+                    interimTranscript="speaking now"
+                    isListening
+                    sttMode="native"
+                />
+            );
+            const banner = screen.getByTestId('live-transcript-trust-banner');
+            // Regression: previously textContent read "Draft transcriptText may change…".
+            expect(banner).toHaveTextContent('Draft transcript Text may change before the final transcript is saved.');
+            expect(banner.textContent).not.toContain('transcriptText');
+        });
     });
 });

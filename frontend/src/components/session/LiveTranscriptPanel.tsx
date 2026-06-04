@@ -32,6 +32,12 @@ interface LiveTranscriptPanelProps {
      * stale/low-confidence draft text during multi-second CPU finalization.
      */
     isFinalizing?: boolean;
+    /**
+     * Native raw-first async formatting status (post-stop). Drives the threshold-only
+     * "tidying up punctuation…" notice; defaults to idle (no notice). Only ever surfaces
+     * in the `final` state for native mode, and only if formatting stays pending > ~1.5s.
+     */
+    nativeFormatting?: { status: 'idle' | 'pending' | 'complete' | 'failed'; startedAt: number | null };
 }
 
 /** Discrete UI state for the live transcript, exposed via data-transcript-state. */
@@ -73,6 +79,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     className = "",
     history = [],
     isFinalizing = false,
+    nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
     const hasTranscript = transcript.trim() !== '';
@@ -110,6 +117,24 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const listeningEmptyText = isPrivateMode
         ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
         : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
+
+    // Threshold-only Native formatting notice: post-stop, the raw transcript is already
+    // saved+shown; punctuation/casing is polished in the background. We surface a notice
+    // ONLY if that polish is still pending past ~1.5s, so the common sub-second case stays
+    // silent and the UI never feels slow. Idle/complete/failed → no notice.
+    const NATIVE_FORMATTING_NOTICE_DELAY_MS = 1500;
+    const isNativeMode = normalizedSttMode === 'native';
+    const [showFormattingNotice, setShowFormattingNotice] = React.useState(false);
+    React.useEffect(() => {
+        if (uiState !== 'final' || !isNativeMode || nativeFormatting.status !== 'pending') {
+            setShowFormattingNotice(false);
+            return;
+        }
+        const elapsed = nativeFormatting.startedAt ? Date.now() - nativeFormatting.startedAt : 0;
+        const remaining = Math.max(0, NATIVE_FORMATTING_NOTICE_DELAY_MS - elapsed);
+        const timerId = window.setTimeout(() => setShowFormattingNotice(true), remaining);
+        return () => window.clearTimeout(timerId);
+    }, [uiState, isNativeMode, nativeFormatting.status, nativeFormatting.startedAt]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || !visibleTranscript) return;
@@ -225,6 +250,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         aria-label="Draft transcript notice"
                     >
                         <span className="font-semibold text-primary">Draft transcript</span>
+                        {/* Real whitespace text node so extracted/AT text reads
+                            "Draft transcript Text may change…" not glued "transcriptText". */}
+                        {' '}
                         <span className="ml-2 text-xs text-foreground/60">Text may change before the final transcript is saved.</span>
                     </div>
                 )}
@@ -329,6 +357,15 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 {(hasTranscript || hasSettledDraft) ? ' ' : ''}
                                 {draftLineText}
                             </span>
+                        )}
+                        {showFormattingNotice && (
+                            <div
+                                className="mt-2 text-xs font-medium text-foreground/55"
+                                data-native-formatting-notice="true"
+                                aria-live="polite"
+                            >
+                                Saved — tidying up punctuation…
+                            </div>
                         )}
                     </div>
                 ) : isFinalizing ? (

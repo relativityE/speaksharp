@@ -16,6 +16,15 @@ interface TranscriptState {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 
+export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
+
+export interface NativeFormattingUiState {
+    status: NativeFormattingUiStatus;
+    /** Epoch ms when post-stop formatting began; null when idle/terminal. Drives the
+     *  threshold-only "tidying up punctuation…" notice (shown only if pending > ~1.5s). */
+    startedAt: number | null;
+}
+
 export interface SessionState {
     runtimeState: RuntimeState;
     isLockHeldByOther: boolean;
@@ -36,6 +45,7 @@ export interface SessionState {
     isTranscriptFinalizing: boolean;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
+    nativeFormatting: NativeFormattingUiState;
     sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
     isBooting: boolean;
 }
@@ -66,6 +76,7 @@ interface SessionActions {
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
+    setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
@@ -103,6 +114,7 @@ const initialState: SessionState = {
         extendedPauses: 0,
     },
     sessionSaved: false,
+    nativeFormatting: { status: 'idle', startedAt: null },
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
 };
@@ -291,6 +303,9 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     resetSession: () =>
         set(initialState),
+
+    setNativeFormatting: (nativeFormatting) =>
+        set({ nativeFormatting }),
 
     addChunk: (chunk) =>
         set((state) => ({
