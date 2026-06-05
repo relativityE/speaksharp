@@ -112,6 +112,11 @@ function readInvalidRcEvidence() {
     return null;
 }
 
+function clearStaleInvalidRcEvidence() {
+    const invalidArtifactPath = path.join(rootDir, 'test-results', 'sandbox-eperm-preview-bind.json');
+    fs.rmSync(invalidArtifactPath, { force: true });
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
@@ -498,6 +503,8 @@ async function main() {
             await runReport(startTime);
             return;
         }
+
+        clearStaleInvalidRcEvidence();
 
         console.log(renderBox("SpeakSharp CI Orchestrator"));
 
