@@ -1189,6 +1189,11 @@ async function runFixture(page, mode, fixture) {
   if (INJECT_MIC_AUDIO && mode !== 'native') {
     await installInjectedMicAudio(page, fixture.audioPath);
   }
+  if (mode === 'private' && PRIVATE_MODEL) {
+    await page.addInitScript((model) => {
+      window.__PRIVATE_MODEL__ = model;
+    }, PRIVATE_MODEL);
+  }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await assertModePreflight(page, mode);
