@@ -1,0 +1,62 @@
+{
+  "id": "stt-p6-human-rc-base-selector",
+  "createdAt": "2026-06-05T12:43:00Z",
+  "purpose": "Verify dev/private-model-eval-rc@d4558159 honors ?privateModel=whisper-base.en and exposes correct telemetry/detail evidence.",
+  "codeUnderTest": {
+    "testBranch": "test/stt-p6-human-rc",
+    "sourceBranch": "dev/private-model-eval-rc@d4558159",
+    "mainMergedThrough": "6458c362",
+    "note": "Branch used only for proof. It was not merged to main."
+  },
+  "focusedTests": {
+    "command": "pnpm exec vitest run --config frontend/vitest.config.mjs frontend/src/services/transcription/utils/__tests__/privateModelFlag.test.ts frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts --reporter=dot --coverage=false",
+    "status": "pass",
+    "passed": 53,
+    "failed": 0
+  },
+  "browserProof": {
+    "artifact": "/private/tmp/stt-p6-human-rc-base-h1_6.json",
+    "environmentProof": {
+      "url": "http://localhost:5174/session",
+      "port": 5174,
+      "authMode": "real",
+      "mockAuth": false,
+      "releaseProofEligible": true,
+      "cdpSameTab": true,
+      "invalidReasons": []
+    },
+    "fixture": "h1_6",
+    "truth": "They, like, told wild tales to frighten him.",
+    "transcript": "They, like, told wild tales to frighten him.",
+    "wer": 0,
+    "accuracyPct": 100,
+    "firstTextMs": 7162,
+    "stopFinalizationMs": 5434,
+    "detailTranscript": "They, like, told wild tales to frighten him.",
+    "detailWer": 0,
+    "journeyPass": true,
+    "privateModelTelemetry": {
+      "model": "whisper-base.en",
+      "runtime": "transformers-js",
+      "approxMB": 145,
+      "overridden": true,
+      "selectionSource": "window",
+      "loadTimeMs": 1911,
+      "fallbackPath": "remote-only",
+      "cloudFallbackAttempted": false
+    },
+    "detailRecordedWithLabel": "Private (whisper-tiny.en, transformers-js, browser)"
+  },
+  "result": {
+    "verdict": "partial_fail",
+    "passes": [
+      "The base model selector is honored by runtime telemetry.",
+      "The selected base model produced a 100% h1_6 transcript in this injected proof.",
+      "Save/detail transcript is non-empty and matches the base transcript."
+    ],
+    "fails": [
+      "The session detail page still displays Recorded with Private (whisper-tiny.en, transformers-js, browser), even though privateModelTelemetry.model is whisper-base.en."
+    ],
+    "nextDevAsk": "Persist/display the selected private model identity so detail/history/export/analytics show whisper-base.en when base was used. Do not mark the human/base proof green until detail and telemetry agree."
+  }
+}
