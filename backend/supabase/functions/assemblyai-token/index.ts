@@ -160,7 +160,6 @@ export async function handler(
       return new Response(
         JSON.stringify({
           error: "Failed to generate AssemblyAI token",
-          details: errData,
         }),
         {
           status: resp.status,
