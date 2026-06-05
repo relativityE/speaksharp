@@ -149,7 +149,7 @@ export const PRIV_STT_MODELS = {
   // captures the real downloaded size.
   CANDIDATES: {
     'whisper-tiny.en': { localId: 'whisper-tiny.en', remoteId: 'Xenova/whisper-tiny.en', approxMB: 40 },
-    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'Xenova/whisper-base.en', approxMB: 145 },
+    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'Xenova/whisper-base.en', approxMB: 80 },
     'whisper-small.en': { localId: 'whisper-small.en', remoteId: 'Xenova/whisper-small.en', approxMB: 244 },
   },
 } as const;
