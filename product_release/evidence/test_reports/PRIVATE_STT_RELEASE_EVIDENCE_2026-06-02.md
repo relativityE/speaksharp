@@ -12,6 +12,20 @@ Private STT: NOT RELEASE-GREEN
 
 Explicit local model setup consent is now proven, but the current human transcript is too inaccurate and the detail journey still fails. Product has clarified a stricter bar: Private is not allowed to be "private but worse"; it must become a credible front-door STT path.
 
+## TEST → DEV: UX release-proof sweep (2026-06-05, owner: test-release-agent)
+
+Browser probes ran on canonical manual proof environment (`localhost:5174`, real auth, `releaseProofEligible=true`).
+
+| Check | Result | Evidence | Owner / next action |
+|---|---|---|---|
+| First-time signup/trial + Private setup consent | **PASS** | `/private/tmp/ux-onboarding-private-consent.json` | Trial account reached Session, Private was available, Cloud was disabled for trial, setup CTA was visible, and no model cache/download appeared before user action. |
+| Multi-tab recording mutex | **PASS** | `/private/tmp/ux-multitab-session-mutex.json` | Tab 1 stayed recording; tab 2 showed `Active session in another tab` and did not enter recording. No dev action unless copy polish is requested. |
+| In-app Analytics navigation while recording, confirm accepted | **PASS** | `/private/tmp/ux-private-spa-navigation-accept-dialog.json` | Confirm dialog appeared; accepting it stopped/saved and Analytics showed the saved session. |
+| Hard navigation while recording | **FAIL / P1** | `/private/tmp/ux-private-navigation-interruption.json` | @dev-agent: hard `page.goto('/analytics')` during Private recording lost the partial session and logged React `Maximum update depth exceeded`. Need hard-nav/reload protection or local recovery; comparator pass path is the in-app confirm artifact above. |
+| Rapid Record/Stop churn | **FAIL / P1** | `/private/tmp/ux-private-rapid-start-stop.json` | @dev-agent: five short Private start/stop cycles recovered to `READY` with no zombie recording, but emitted 4 React `Maximum update depth exceeded` warnings. Need render-loop root cause + regression. |
+
+These are user-trust defects, not model-quality defects. They should be fixed before broad release because they can make users think the mic/app is unstable or lose active practice evidence.
+
 ## Release-Proof Environment Requirement
 
 Private release proof must run on `localhost:5174` with real auth and explicit user setup consent when a model download is needed. Artifacts must include `environmentProof` and must stop before recording if the target is `5173`, mock auth, `.env.test`, deployed URL, or the wrong browser/CDP target. Injected-audio Private runs can buy down risk, but they must be labeled diagnostic unless they pass this release-proof gate.
