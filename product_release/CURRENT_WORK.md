@@ -12,7 +12,7 @@ Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in th
 ```text
 INTEGRATION_MAIN: origin/main (latest pushed integration baseline; exact SHA via `git rev-parse --short origin/main`)
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-05T05:15Z
+UPDATED_AT: 2026-06-05T05:31Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -40,6 +40,8 @@ Branch/proof rows keep exact base or artifact SHAs where they matter.
 | UX-MUTEX-1 | P1 | test-release-agent | `test/ux-release-proof-sweep@1784adfd` | `main@1784adfd` | passed | Browser multi-tab session mutex proof. | PASS: tab1 stayed recording; tab2 attempt showed `Active session in another tab`, `data-recording=false`, no page errors. Artifact `/private/tmp/ux-multitab-session-mutex.json`. No dev action unless later user-facing copy polish is requested. |
 | UX-ENTITLEMENT-1 | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Trial/free/pro entitlement and STT policy proof. | PASS: focused Vitest entitlement proof passed 5 files / 76 tests across subscription tiers, transcription policy, session lifecycle, LiveRecordingCard, and free-plan support. Trial/private and Cloud gating logic are covered. |
 | UX-DAST-LOCAL | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Local DAST release gate. | PASS: `pnpm run rc:dast:local` built test mode and passed 18/18 Playwright checks covering primary journey, user features/PDF, entitlement, error states, and analytics truth. Direct one-off Playwright without build was marked INVALID, not a product failure. |
+| RC-LIVE-ENV | P0 | product/ops → test-release-agent | `main@21c5abd7` | `main@21c5abd7` | blocked / missing env | Live DAST production proof. | `pnpm run rc:dast:live` stopped at preflight before browser execution because required live proof inputs are absent: `BASE_URL`, Supabase URL/anon/service-role keys, Free/Pro test credentials, and `STRIPE_WEBHOOK_SECRET`. This is not app-path proof; open-beta live release evidence remains blocked until env is supplied. |
+| RC-LH-1 | P1 | @dev-agent | TBD | `main@21c5abd7` | new / dev-needed | Product gate Lighthouse cannot paint the test preview. | `pnpm run rc:gate:1:product` ran full `ci:local`: code quality passed, E2E passed 33/33, CI report recorded no unit failure names and 100% passing rate, but final status failed because Lighthouse returned `NO_FCP`. Reproduction on `pnpm exec vite preview --port 4173` showed loader stuck, `data-app-visible-ready=false`, and console error `Mock auth is not available from the runtime app...`. **Next @dev-agent:** make the Lighthouse/product gate use the centralized E2E harness/mock-auth bridge or a valid preview route so the app paints without weakening environment discipline. |
 
 ## Assignment Notification Protocol
 

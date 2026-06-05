@@ -201,6 +201,13 @@ Please review whether the current guard and process are sufficient, or whether w
 | P2 | Review homepage "See How Feedback Works" path. | Homepage offers analytics preview, but unauthenticated `/analytics` redirects to sign-in, which may blunt the promise. | Product decision: either keep auth gate or add a non-auth demo/preview route. |
 | P2 | Reassess visual density after STT bugs settle. | Session currently has recording controls, transcript, live score, and fillers; it must stay focused during speech. | Screenshot pass desktop/mobile after latest STT trust-state fixes. |
 
+## Open Beta Closeout Gate Findings (2026-06-05)
+
+| ID | Priority | Owner | Finding | Required action |
+|---|---|---|---|---|
+| RC-LH-1 | P1 | @dev-agent | `pnpm run rc:gate:1:product` runs local CI through code quality and E2E (`33/33`), then fails because Lighthouse returns `NO_FCP`. Reproduction on `127.0.0.1:4173` shows the built test-mode app stays on the loader and throws `Mock auth is not available from the runtime app...`. | Make the Lighthouse/product gate use the centralized E2E harness/mock-auth bridge or another valid preview route that paints without weakening environment discipline. |
+| RC-LIVE-ENV | P0 | product/ops | `pnpm run rc:dast:live` correctly stops before browser execution because live proof inputs are absent (`BASE_URL`, Supabase URL/anon/service-role, Free/Pro test creds, Stripe webhook secret). | Supply live proof env/secrets before counting live DAST as release evidence. |
+
 ## Current STT Ownership
 
 This is the current owner split. Old proof chatter has been removed from the
