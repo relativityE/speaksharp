@@ -1,0 +1,49 @@
+{
+  "id": "RC-LH-1",
+  "testedAt": "2026-06-05T12:51:00Z",
+  "branch": "test/rc-lh-2f58eacb",
+  "sourceBranch": "dev/rc-gates-fix@2f58eacb",
+  "baseMain": "main@4aa6f213",
+  "command": "pnpm run rc:gate:1:product",
+  "status": "INVALID_NOT_EVIDENCE",
+  "invalidReason": "sandbox_eperm_preview_bind",
+  "countsAsReleaseEvidence": false,
+  "summary": "The product gate reached and passed the code-quality scanner, 33/33 Playwright E2E tests, and Lighthouse scoring, but the generated CI audit marks the artifact INVALID because the local sandbox blocked preview server bind. Re-run in a normal terminal or GitHub Actions for release-equivalent evidence.",
+  "results": {
+    "codeQuality": "passed",
+    "unitTests": {
+      "passed": 1194,
+      "failed": 0,
+      "total": 1195,
+      "failureNames": []
+    },
+    "e2e": {
+      "passed": 33,
+      "failed": 0,
+      "flaky": 0,
+      "total": 33,
+      "failureNames": []
+    },
+    "lighthouse": {
+      "performance": 98,
+      "accessibility": 100,
+      "bestPractices": 100,
+      "seo": 100
+    },
+    "qualityScore": 97,
+    "coverageLinesPercent": 73.89,
+    "runtimeSeconds": 418.19
+  },
+  "sandboxEvidence": {
+    "host": "127.0.0.1",
+    "port": 4173,
+    "error": "listen EPERM: operation not permitted 127.0.0.1:4173",
+    "generatedAt": "2026-06-05T05:50:14.950Z"
+  },
+  "artifacts": {
+    "ciAudit": "test-results/ci-audit.md",
+    "metrics": "test-results/metrics.json",
+    "sandboxInvalidation": "test-results/sandbox-eperm-preview-bind.json"
+  },
+  "nextAction": "Run the same gate in a normal terminal or GitHub Actions. If it reproduces these functional results without sandbox invalidation, RC-LH-1 can close. Do not count this local sandbox artifact as release evidence."
+}

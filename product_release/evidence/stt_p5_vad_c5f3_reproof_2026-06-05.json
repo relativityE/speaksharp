@@ -1,0 +1,73 @@
+{
+  "id": "stt-p5-vad-c5f3-reproof",
+  "createdAt": "2026-06-05T12:39:00Z",
+  "purpose": "Verify dev/private-vad-silero-main@c5f3e77c alias fix: VAD should not fall back to RMS and should not request the 1.26-dev .jsep runtime.",
+  "codeUnderTest": {
+    "testBranch": "test/stt-p5-vad-c5f3e77c",
+    "sourceBranch": "dev/private-vad-silero-main@c5f3e77c",
+    "mainMergedThrough": "154e421e",
+    "note": "Branch used only for proof. It was not merged to main."
+  },
+  "focusedTests": {
+    "command": "pnpm exec vitest run --config frontend/vitest.config.mjs frontend/src/services/transcription/utils/__tests__/privateVadFlag.test.ts frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts --reporter=dot --coverage=false",
+    "status": "pass",
+    "passed": 49,
+    "failed": 0
+  },
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true,
+    "invalidReasons": []
+  },
+  "fixture": {
+    "id": "h1_6",
+    "truth": "They, like, told wild tales to frighten him."
+  },
+  "runs": {
+    "rms": {
+      "artifact": "/private/tmp/stt-p5-c5f3-rms-h1_6.json",
+      "transcript": "Day. Like, told Wild Tales to frighten him.",
+      "wer": 0.125,
+      "accuracyPct": 87.5,
+      "firstTextMs": 8428,
+      "stopFinalizationMs": 4625,
+      "detailTranscript": "Day. Like, told Wild Tales to frighten him.",
+      "journeyPass": true
+    },
+    "vad": {
+      "artifact": "/private/tmp/stt-p5-c5f3-vad-h1_6.json",
+      "transcript": "Day, Like, Told Wild Tales to Frighten Him.",
+      "wer": 0.125,
+      "accuracyPct": 87.5,
+      "firstTextMs": 2832,
+      "stopFinalizationMs": 2392,
+      "detailTranscript": "Day, Like, Told Wild Tales to Frighten Him.",
+      "journeyPass": true,
+      "privateVadTelemetry": {
+        "vadEnabled": true,
+        "vadModel": "silero-vad",
+        "vadRuntime": "onnxruntime-web",
+        "vadRuntimeVersion": null,
+        "vadOnsetMs": 192.4,
+        "vadMeanSpeechProb": null,
+        "vadSpeechSegments": [],
+        "vadFellBackToRms": true
+      },
+      "failedRuntimeRequest": "http://localhost:5174/onnxruntime/ort-wasm-simd-threaded.jsep.mjs?import"
+    }
+  },
+  "deltas": {
+    "vadMinusRmsFirstTextMs": -5596,
+    "vadMinusRmsStopFinalizationMs": -2233,
+    "vadMinusRmsAccuracyPct": 0
+  },
+  "result": {
+    "verdict": "fail",
+    "why": "The browser proof improved timing but still did not prove Silero VAD. Telemetry reports vadFellBackToRms=true, vadRuntimeVersion=null, no speech probabilities, no speech segments, and the browser still requested the old .jsep runtime file.",
+    "nextDevAsk": "The alias fix is not taking effect in the real browser bundle or the telemetry is wired to the wrong runtime path. Prove the browser imports the stable ORT module and exposes non-null runtime version/probabilities before asking for another RMS-vs-VAD A/B."
+  }
+}
