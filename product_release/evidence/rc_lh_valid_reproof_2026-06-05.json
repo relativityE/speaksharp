@@ -4,7 +4,7 @@
   "countsAsReleaseEvidence": true,
   "generatedAt": "2026-06-05T13:42:21Z",
   "branch": "test/rc-lh-valid-2f58eacb",
-  "testedCommit": "853faaff",
+  "testedCommit": "d0dd9e1f",
   "base": {
     "localMain": "1bf43c6c",
     "originMainAtCapture": "1cdccc95"
