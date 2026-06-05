@@ -1,0 +1,13 @@
+{
+  "id": "rc-sca-1-reproof",
+  "createdAt": "2026-06-05T06:40:00Z",
+  "branch": "test/rc-gates-fix-reproof@2c99911b",
+  "command": "pnpm run rc:gate:4:sca",
+  "exitCode": 0,
+  "result": "PASS",
+  "summary": "pnpm audit --audit-level critical exited 0. It reported 82 vulnerabilities total and one critical ignored by pnpm.auditConfig.ignoreGhsas per product_release/SCA_EXCEPTIONS.md.",
+  "stdoutKeyLines": [
+    "82 vulnerabilities found",
+    "Severity: 5 low | 35 moderate | 41 high | 1 critical (1 ignored)"
+  ]
+}
