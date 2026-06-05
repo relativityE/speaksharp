@@ -734,8 +734,24 @@ async function main() {
         // Stage 4: Lighthouse (Requires Production Build)
         if (!isInfraMode && !process.argv.includes('--skip-lighthouse')) {
             await runStage(4, "Lighthouse Audit", async () => {
-                // Ensure fresh production-ready build for accurate performance metrics
-                await runCommand('pnpm', ['build:test'], { label: 'BUILD' });
+                // Lighthouse must serve a build that actually BOOTS and paints. `build:test`
+                // (--mode test) bakes in mock auth, which the runtime guard in supabaseClient.ts
+                // deliberately rejects outside VITEST ("Mock auth is not available from the runtime
+                // app") — so the preview stayed loader-only and Lighthouse reported NO_FCP (RC-LH-1).
+                // The production build (--mode production) uses real Supabase config and no mock
+                // auth, so the app renders. Provide a present Stripe publishable key so the
+                // REQUIRED_ENV_VARS presence check passes and the real app renders instead of
+                // ConfigurationNeededPage (Vite gives an existing env var priority over .env files);
+                // Lighthouse never performs checkout, so the public Stripe sample key is correct
+                // and keeps this robust even when .env.production ships the key empty (fail-closed).
+                await runCommand('pnpm', ['build'], {
+                    label: 'BUILD',
+                    env: {
+                        ...process.env,
+                        VITE_STRIPE_PUBLISHABLE_KEY:
+                            process.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_TYooMQauvdEDq54NiTphI7jx',
+                    },
+                });
 
                 await runCommand('pnpm', ['exec', 'node', 'scripts/generate-lhci-config.js'], { label: 'LH-CFG' });
                 await runCommand('pnpm', ['exec', 'lhci', 'autorun', '--config=lighthouserc.json'], { label: 'LH-RUN' });

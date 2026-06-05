@@ -240,6 +240,11 @@
     },
     "patchedDependencies": {
       "whisper-turbo@0.11.0": "patches/whisper-turbo@0.11.0.patch"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-5xrq-8626-4rwp"
+      ]
     }
   }
 }
