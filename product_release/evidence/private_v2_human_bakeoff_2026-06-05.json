@@ -1,0 +1,103 @@
+{
+  "id": "private-v2-human-bakeoff-2026-06-05",
+  "createdAt": "2026-06-05T06:28:00Z",
+  "purpose": "Human evidence for Private v2 tiny/default versus larger/base model accuracy claims.",
+  "environmentProof": {
+    "target": "https://speaksharp-public.vercel.app",
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "supabase": "real-production-project",
+    "source": "window.__APP_RUNTIME_CONFIG__ captured through Chrome CDP"
+  },
+  "modelSizeComparison": {
+    "currentDefault": {
+      "model": "whisper-tiny.en",
+      "approxDownloadMB": 40
+    },
+    "largerCandidate": {
+      "model": "whisper-base.en",
+      "approxDownloadMB": 145
+    },
+    "ratioBaseToTiny": 3.6,
+    "additionalDownloadMB": 105,
+    "note": "Sizes from the STT-P6 run spec / report. Base is roughly 3.6x current tiny and adds about 105 MB of one-time setup/cache friction."
+  },
+  "script": "Um. Basically, we should literally like, wait. SpeakSharp private model proof starts now. The main idea is that every transcript should stay readable, keep prior sentences, and preserve the final words. Next step is to save this session, open the detail page, and confirm the score explains transcript quality.",
+  "runs": [
+    {
+      "id": "A",
+      "requestedModel": "default",
+      "confirmedRecordedWith": "Private (whisper-tiny.en, transformers-js, browser)",
+      "modelTelemetry": null,
+      "artifact": "/private/tmp/private-v2-human-bakeoff-A-small.json",
+      "selectedTranscript": "Basically, we should literally like wait. Speak sharp private model proof starts now. The main idea is that every transcript should stay readable, keep prior sentences, and preserve the final words. Next step is to save this session, open the detail page, and confirm the score explains transcript quality.",
+      "metric": {
+        "wer": 0.0612,
+        "accuracyPct": 93.88,
+        "refWords": 49,
+        "hypWords": 49
+      },
+      "timing": {
+        "timeToFirstProvisionalMs": 6677.4,
+        "timeToFirstFinalMs": 40347.2,
+        "finalizeDecodeMs": 4385.2,
+        "finalizeWaitMs": 1463.6,
+        "finalizePrepMs": 9.9,
+        "utteranceSeconds": 34.943,
+        "peakBufferedSeconds": 4
+      },
+      "journey": {
+        "saved": true,
+        "historyVisible": true,
+        "detailTranscriptNonEmpty": true
+      },
+      "notableErrors": [
+        "Missed leading 'Um.'",
+        "Transcribed brand casing as 'Speak sharp'."
+      ]
+    },
+    {
+      "id": "B",
+      "requestedModel": "whisper-base.en",
+      "requestedUrl": "https://speaksharp-public.vercel.app/session?privateModel=whisper-base.en",
+      "confirmedRecordedWith": "Private (whisper-tiny.en, transformers-js, browser)",
+      "modelTelemetry": null,
+      "artifact": "/private/tmp/private-v2-human-bakeoff-current-cdp.json",
+      "beforeStopVisibleTranscript": "Um, basically... we should literally like wait. like weight. Speak sharp. private, model, pr-- roof starts now. uh, the main idea is that every transcript should state readable, keep prior sentence. and preserve the final words. Next step is to save. this session. the detail page. and confirm the score explains transcript.",
+      "selectedTranscript": "Basically, we should literally like wait. Speak sharp, private, model proof starts now. The main idea is that every transcript should stay readable, keep prior sentences and preserve the final words. Next step is to save the session, open the detail page, and confirm the score explains transcript quality.",
+      "approxMetric": {
+        "wer": 0.04,
+        "accuracyPct": 96,
+        "refWords": 50,
+        "hypWords": 49,
+        "note": "Local normalized word-distance estimate for the human observation. Not a valid base-vs-tiny result because the saved detail confirmed tiny."
+      },
+      "timing": {
+        "timeToFirstProvisionalMs": 2660.6,
+        "timeToFirstFinalMs": 42083.9,
+        "finalizeDecodeMs": 3793.8,
+        "finalizeWaitMs": 1328.3,
+        "finalizePrepMs": 4.9,
+        "utteranceSeconds": 37.105,
+        "peakBufferedSeconds": 3
+      },
+      "journey": {
+        "saved": true,
+        "detailTranscriptNonEmpty": true,
+        "recordedWithLabelProvesTiny": true
+      },
+      "notableErrors": [
+        "Leading fillers/intro were cleaned from final output: leading 'Um' absent.",
+        "The pre-stop live draft was rough and misheard 'stay readable' as 'state readable'.",
+        "The URL requested base, but production recorded with whisper-tiny.en."
+      ]
+    }
+  ],
+  "conclusion": {
+    "productionBaseProofStatus": "invalid-not-base",
+    "summary": "Both human production runs are useful Private tiny/default evidence. Neither backs a larger v2/base accuracy claim because production/main preserves the privateModel=whisper-base.en URL while still recording and saving as whisper-tiny.en.",
+    "devAsk": "Provide a release-proofable base-model path: merge/expose the model-eval selector with visible telemetry, or make production reject unsupported privateModel values instead of silently falling back to tiny.",
+    "nextTest": "Run human or injected base proof only on a build where window.__PRIVATE_MODEL_TELEMETRY__.model and the saved detail label both confirm whisper-base.en."
+  }
+}
