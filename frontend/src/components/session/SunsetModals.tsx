@@ -34,7 +34,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                         <AlertDialogTitle className="text-2xl text-center">Daily Target Crushed! 👏</AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-lg pt-2">
                             {isPro
-                                ? "You've maximize your 2-hour Pro training window today. Your brain needs time to absorb all that progress!"
+                                ? "You've maximized your 2-hour Pro training window today. Your brain needs time to absorb all that progress!"
                                 : "You've maximized your 1-hour Free training window today. Great focus!"
                             }
                         </AlertDialogDescription>

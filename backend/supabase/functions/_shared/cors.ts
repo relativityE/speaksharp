@@ -62,7 +62,7 @@ export const corsHeaders = (req?: Request) => {
 
 function originalMatches(origin: string): boolean {
   return (
-    origin.endsWith(".vercel.app") ||
+    /^https:\/\/(?:speaksharp(?:-[a-z0-9-]+)?)\.vercel\.app$/.test(origin) ||
     origin.endsWith("speaksharp.ai") ||
     CONFIGURED_ALLOWED_ORIGINS.includes(origin)
   );
