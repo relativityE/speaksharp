@@ -1958,7 +1958,13 @@ export class SpeechRuntimeController {
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,
-                                fillerData: getFillerTotal(store.fillerData) > 0 ? store.fillerData : undefined,
+                                // STT-P1: derive the saved/scored filler count from the FINAL
+                                // transcript, NOT the live store.fillerData — the live count is
+                                // accumulated incrementally and can be stale/undercount (e.g. a
+                                // saved "Umm" reported um:0). calculateCoreSessionMetrics re-counts
+                                // via countFillerWords when fillerData is omitted, so the count
+                                // matches the authoritative saved transcript ("Umm" -> "um").
+                                fillerData: undefined,
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;
