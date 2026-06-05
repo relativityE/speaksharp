@@ -1,10 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
+import { issueReportService } from '@/services/issueReportService';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 // Mock modules
 vi.mock('../../contexts/AuthProvider');
+vi.mock('@/services/issueReportService', async () => {
+    const actual = await vi.importActual<typeof import('@/services/issueReportService')>('@/services/issueReportService');
+    return {
+        ...actual,
+        issueReportService: {
+            submit: vi.fn().mockResolvedValue({ id: 'report-1' }),
+        },
+    };
+});
 
 // Mock useUserProfile hook to avoid QueryClient dependency
 vi.mock('../../hooks/useUserProfile', () => ({
@@ -27,6 +38,7 @@ describe('Navigation', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        useSessionStore.getState().resetSession();
     });
 
     const renderNavigation = (initialRoute = '/') => {
@@ -91,6 +103,73 @@ describe('Navigation', () => {
             fireEvent.click(signOutButton);
 
             expect(mockSignOut).toHaveBeenCalled();
+        });
+    });
+
+    describe('Issue Reporting', () => {
+        it('submits a backend issue report with metadata and no transcript by default', async () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user', email: 'user@example.com' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            useSessionStore.getState().setSTTMode('private');
+            useSessionStore.getState().updateTranscript('Sensitive transcript should require opt-in', '');
+
+            renderNavigation('/session');
+
+            fireEvent.click(screen.getByTestId('nav-report-issue-button'));
+            fireEvent.change(screen.getByTestId('issue-report-title'), {
+                target: { value: 'Private mic failed' },
+            });
+            fireEvent.change(screen.getByTestId('issue-report-description'), {
+                target: { value: 'Clicking the microphone did not start the recording.' },
+            });
+            fireEvent.click(screen.getByTestId('issue-report-submit'));
+
+            await waitFor(() => {
+                expect(issueReportService.submit).toHaveBeenCalled();
+            });
+            expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
+                userId: 'test-user',
+                category: 'stt',
+                pageUrl: expect.any(String),
+                includeTranscript: false,
+                transcriptExcerpt: null,
+                includeAudio: false,
+                audioAttachmentNote: null,
+                metadata: expect.objectContaining({
+                    route: '/session',
+                    sttMode: 'private',
+                }),
+            }));
+        });
+
+        it('includes transcript only after explicit opt-in', async () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user', email: 'user@example.com' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            useSessionStore.getState().updateTranscript('User chose to include this transcript', '');
+
+            renderNavigation('/session');
+
+            fireEvent.click(screen.getByTestId('nav-report-issue-button'));
+            fireEvent.change(screen.getByTestId('issue-report-title'), {
+                target: { value: 'Transcript issue' },
+            });
+            fireEvent.change(screen.getByTestId('issue-report-description'), {
+                target: { value: 'The transcript changed after I clicked stop.' },
+            });
+            fireEvent.click(screen.getByTestId('issue-report-include-transcript'));
+            fireEvent.click(screen.getByTestId('issue-report-submit'));
+
+            await waitFor(() => {
+                expect(issueReportService.submit).toHaveBeenCalled();
+            });
+            expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
+                includeTranscript: true,
+                transcriptExcerpt: 'User chose to include this transcript',
+            }));
         });
     });
 
