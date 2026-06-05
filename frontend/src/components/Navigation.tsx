@@ -15,6 +15,8 @@ import {
   trackConversionCtaClicked,
   trackConversionCtaViewed,
 } from "@/services/conversionFunnel";
+import { IssueReportDialog } from "@/components/IssueReportDialog";
+import { useSessionStore } from "@/stores/useSessionStore";
 
 const Navigation = () => {
   const location = useLocation();
@@ -22,6 +24,9 @@ const Navigation = () => {
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
   const { data: usageLimit } = useUsageLimit();
+  const reportTranscript = useSessionStore(state => state.transcript.transcript);
+  const reportSttMode = useSessionStore(state => state.sttMode);
+  const reportRuntimeState = useSessionStore(state => state.runtimeState);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
   const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
@@ -184,6 +189,13 @@ const Navigation = () => {
                       PRO
                     </Badge>
                   )}
+                  <IssueReportDialog
+                    userId={session.user.id}
+                    plan={effectiveSubscriptionStatus}
+                    sttMode={reportSttMode}
+                    runtimeState={reportRuntimeState}
+                    transcript={reportTranscript}
+                  />
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
                   </span>
