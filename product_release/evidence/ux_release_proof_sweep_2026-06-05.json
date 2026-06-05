@@ -113,6 +113,44 @@
       "status": "pass",
       "sha": "da09b2c6",
       "summary": "pnpm run rc:gate:5:ux passed current main 14/14 after a valid unsandboxed E2E server start. The sandboxed preview-bind attempt failed with EPERM and was rejected as invalid evidence, not a product failure."
+    },
+    {
+      "id": "PROD-CONFIG-1",
+      "area": "vercel_production_runtime_config",
+      "status": "fail",
+      "priority": "P0",
+      "sha": "1ca658a1",
+      "summary": "Live Vercel probe on https://speaksharp-public.vercel.app returned HTTP 200 and booted with real Supabase auth: authMode=real, mockAuth=false, releaseProofEligible=true, Supabase host yxlapjuovrsvjswkwnrk.supabase.co. It did not expose release SHA/build commit, and current production window.__APP_RUNTIME_CONFIG__ does not expose stripeKeyClass. Production bundle asset: /assets/main-B_f09iBZ-1780638351825.js; last-modified Fri, 05 Jun 2026 05:46:41 GMT; x-vercel-id iad1::btrrl-1780639542825-f5cc74bcb64b."
+    },
+    {
+      "id": "BETA-STRIPE-1",
+      "area": "stripe_key_class_runtime_proof",
+      "status": "blocked",
+      "priority": "P0",
+      "sha": "1ca658a1",
+      "summary": "Current live production cannot prove Stripe key class because stripeKeyClass is absent from window.__APP_RUNTIME_CONFIG__ and absent from the served production bundle. Dev branch dev/beta-closeout@a8067a4b adds classifyStripeKey plus tests, but this is deploy-pending and not yet live evidence."
+    },
+    {
+      "id": "PRIVACY-OBS-1",
+      "area": "sentry_posthog_privacy",
+      "status": "pass",
+      "sha": "1ca658a1",
+      "summary": "Production runtime and bundle checks show Sentry initializes with sendDefaultPii=false and console breadcrumbs scrubbed, while PostHog initializes with autocapture=false, capture_pageview=false, capture_performance=false, and disable_session_recording=true. Edge/static hardening also passed in RC-GATE2-SAST. Caveat: production still serves the pre-BETA-MSGLEAK user-facing raw background-toast string; branch dev/beta-closeout masks that toast, but it is not deployed."
+    },
+    {
+      "id": "STT-EVIDENCE-1",
+      "area": "stt_release_evidence_closeout",
+      "status": "partial",
+      "sha": "1ca658a1",
+      "summary": "Private base-vs-tiny evidence is complete for STT-P6: base improves h1_6 87.5%→100% but does not fix the human-failure proxy conv_01 (85.71%, misses leading Um) and is too slow for default long-form CPU use, so tiny remains the recommended default and base is opt-in only. Native real-mic proof remains pending. Cloud baseline has local contract plus deployed smoke evidence, but richer WER/tail/readability proof is deferred behind Native/Private."
+    },
+    {
+      "id": "FEEDBACK-1",
+      "area": "tester_feedback_path",
+      "status": "partial",
+      "priority": "P1",
+      "sha": "1ca658a1",
+      "summary": "No in-app issue-report submit path was found in production. The GitHub tester-feedback fallback template exists and this verification branch adds required URL, release/build identifier, browser/device, plan, STT mode, session/Sentry optional fields, and explicit transcript/audio opt-in. This makes controlled tester fallback stronger, but product still needs to decide whether beta requires an in-app feedback entry point."
     }
   ],
   "devRequests": [
@@ -135,6 +173,16 @@
       "id": "RC-SCA-1",
       "owner": "@dev-agent",
       "request": "Resolve the critical Vitest advisory in pnpm audit by upgrading/pinning the Vitest stack to a patched version or removing/isolating vulnerable Vitest UI exposure; rerun pnpm run rc:gate:4:sca and the relevant unit/front-end suites."
+    },
+    {
+      "id": "PROD-CONFIG-1",
+      "owner": "@dev-agent / product-ops",
+      "request": "Expose release SHA/build identifier in the production runtime proof and deploy the stripeKeyClass runtime field from dev/beta-closeout; live beta is blocked until production proves release SHA and stripeKeyClass=live."
+    },
+    {
+      "id": "FEEDBACK-1",
+      "owner": "@dev-agent / product",
+      "request": "Decide whether the strengthened GitHub tester-feedback template is enough for controlled beta. If not, add an in-app Report issue path that submits required metadata and keeps transcript/audio opt-in only."
     }
   ]
 }

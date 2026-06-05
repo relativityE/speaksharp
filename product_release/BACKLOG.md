@@ -61,6 +61,15 @@ Score/Analytics from weak transcripts.
 | Cloud | Pro quality accelerator | Best quality path for longer sessions, exports, AI coaching, and polished reports | Baseline only is the launch candidate. Cloud keyterms/prompt variants are backlog/custom-word experiments unless explicitly reopened. |
 | Score/Analytics | Trust interpretation layer | Converts transcript/session signals into coaching and trends | Score must stay directional/confidence-gated when transcript quality is weak. Analytics must make Transcript Quality prominent enough to distinguish speaking issues from STT capture issues. |
 
+## Open Beta Closeout Findings (2026-06-05)
+
+| Priority | ID | Finding | Status / evidence | Owner / next action |
+|---|---|---|---|---|
+| P0 | PROD-CONFIG-1 | Vercel production config cannot yet prove release SHA or Stripe key class. | Live probe of `https://speaksharp-public.vercel.app` returned HTTP 200, real Supabase auth, `mockAuth=false`, and `releaseProofEligible=true`, but `window.__APP_RUNTIME_CONFIG__` does not include a release/build SHA and current production does not expose `stripeKeyClass`. | @dev-agent/product-ops: deploy the `stripeKeyClass` runtime field from `dev/beta-closeout`, add a release/build identifier to runtime proof, then test asserts `stripeKeyClass === "live"`. |
+| P1 | PRIVACY-OBS-1 | Sentry/PostHog privacy posture is mostly good, but current production still predates the raw-message masking branch. | Production has Sentry `sendDefaultPii=false`, console breadcrumbs scrubbed, and PostHog `autocapture=false`, `capture_pageview=false`, `capture_performance=false`, `disable_session_recording=true`; SAST/Edge privacy tests passed. Current production bundle still contains the older raw background-toast string. | @dev-agent: merge/deploy `dev/beta-closeout` masking; test-release-agent re-proofs live bundle and user-facing toasts. |
+| P1 | FEEDBACK-1 | Feedback fallback exists, but production does not expose an in-app issue-report flow. | GitHub tester-feedback template exists. Test-release-agent strengthened it with required URL, release/build identifier, browser/device, plan, STT mode, optional session/Sentry IDs, and explicit transcript/audio opt-in fields. | product/@dev-agent: decide whether this GitHub fallback is sufficient for controlled beta; if not, add an in-app Report issue path with the same metadata and opt-in boundaries. |
+| P0 | STT-EVIDENCE-1 | STT release evidence is partial. | Private STT-P6 base-vs-tiny evidence is complete: base helps guard rows but does not fix `conv_01` and is too slow as default. Native human mic proof is still pending. Cloud baseline smoke is complete; richer metrics are deferred behind Native/Private. | test-release-agent owns Native human proof and any Cloud richer metrics after Native/Private; product decides Private base opt-in vs tiny default. |
+
 Current 24-hour gates:
 
 | Gate | Owner | Pass condition |
