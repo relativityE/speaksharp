@@ -91,6 +91,28 @@
       "priority": "P1",
       "sha": "21c5abd7",
       "summary": "Lighthouse failed with NO_FCP. Manual preview reproduction at http://127.0.0.1:4173 showed the built test-mode app never painted: loader stayed visible, data-app-visible-ready=false, and console threw 'Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow.' The release gate's Lighthouse path is incompatible with current test-mode preview/mock-auth guard."
+    },
+    {
+      "id": "RC-GATE2-SAST",
+      "area": "static_security_and_hardening_gate",
+      "status": "pass",
+      "sha": "da09b2c6",
+      "summary": "pnpm run rc:gate:2:sast passed on current main. It completed quality/lint/typecheck/no-eslint-disable, frontend provider-secret scan, production-hardening scan, Edge tests 11 files / 73 steps, and focused Vitest 8 files / 78 tests."
+    },
+    {
+      "id": "RC-SCA-1",
+      "area": "dependency_audit_gate",
+      "status": "fail",
+      "priority": "P1",
+      "sha": "da09b2c6",
+      "summary": "pnpm run rc:gate:4:sca fails current main on critical vitest <4.1.0 advisory GHSA-5xrq-8626-4rwp: 'When Vitest UI server is listening, arbitrary file can be read and executed.' Audit reports 82 findings total: 5 low, 35 moderate, 41 high, 1 critical."
+    },
+    {
+      "id": "RC-UX-SMOKE",
+      "area": "current_main_ux_smoke_gate",
+      "status": "pass",
+      "sha": "da09b2c6",
+      "summary": "pnpm run rc:gate:5:ux passed current main 14/14 after a valid unsandboxed E2E server start. The sandboxed preview-bind attempt failed with EPERM and was rejected as invalid evidence, not a product failure."
     }
   ],
   "devRequests": [
@@ -108,6 +130,11 @@
       "id": "RC-LH-1",
       "owner": "@dev-agent",
       "request": "Fix the Lighthouse/product-gate preview path so rc:gate:1 can paint and audit the app without bypassing environment discipline. Either serve through the centralized E2E harness/mock-auth bridge or make the LHCI config use a valid preview route that does not throw before first paint."
+    },
+    {
+      "id": "RC-SCA-1",
+      "owner": "@dev-agent",
+      "request": "Resolve the critical Vitest advisory in pnpm audit by upgrading/pinning the Vitest stack to a patched version or removing/isolating vulnerable Vitest UI exposure; rerun pnpm run rc:gate:4:sca and the relevant unit/front-end suites."
     }
   ]
 }
