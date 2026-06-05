@@ -1,0 +1,1805 @@
+{
+  "ok": true,
+  "account": {
+    "email": "ux-rapid-1780680070265@speaksharp.app",
+    "password": "SpeakSharp-Rapid-1780680070265!"
+  },
+  "before": {
+    "label": "before-rapid-cycles",
+    "url": "http://localhost:5174/session",
+    "runtimeState": "READY",
+    "appReady": "true",
+    "sttReady": "false",
+    "modelStatus": "ready",
+    "sessionPersisted": null,
+    "startButtonDisabled": false,
+    "startButtonRecording": "false",
+    "buttonLabel": "Start Recording",
+    "transcriptTextOnly": "",
+    "transcriptVisible": "Start recording and your words will appear here.",
+    "toastText": "Private is ready. Nothing leaves your browser. | Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | Private ready. Nothing leaves your browser.Trial access: 59m 58s left for Private/Vault Mode.Private ModelComplete100%",
+    "bodyHasFrozenError": false,
+    "runtime": {
+      "controllerState": "READY",
+      "policy": {
+        "allowNative": true,
+        "allowCloud": false,
+        "allowPrivate": true,
+        "preferredMode": "private",
+        "allowFallback": false,
+        "executionIntent": "prod-pro-private"
+      },
+      "controllerPreferredMode": "private",
+      "serviceMode": "private",
+      "serviceState": "READY",
+      "sessionId": null,
+      "lifecycleVersion": 0,
+      "transcriptLength": 0,
+      "saveCandidate": null,
+      "selectedTranscriptForSave": null,
+      "selectedTranscriptSource": null
+    },
+    "environmentProof": {
+      "url": "http://localhost:5174/auth/signup",
+      "port": 5174,
+      "viteMode": "development",
+      "authMode": "real",
+      "mockAuth": false,
+      "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+      "releaseProofEligible": true
+    }
+  },
+  "cycles": [
+    {
+      "i": 0,
+      "before": {
+        "label": "cycle-0-before",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "false",
+        "modelStatus": "ready",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Private is ready. Nothing leaves your browser. | Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | Private ready. Nothing leaves your browser.Trial access: 59m 58s left for Private/Vault Mode.Private ModelComplete100%",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "READY",
+          "sessionId": null,
+          "lifecycleVersion": 0,
+          "transcriptLength": 0,
+          "saveCandidate": null,
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStartClick": {
+        "label": "cycle-0-after-start-click",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "ENGINE_INITIALIZING",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "ready",
+        "sessionPersisted": null,
+        "startButtonDisabled": true,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Private is ready. Nothing leaves your browser. | Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | Private ready. Nothing leaves your browser.Trial access: 59m 58s left for Private/Vault Mode.Private ModelComplete100%",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "ENGINE_INITIALIZING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "READY",
+          "sessionId": null,
+          "lifecycleVersion": 0,
+          "transcriptLength": 0,
+          "saveCandidate": null,
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStop": {
+        "label": "cycle-0-after-stop",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (0s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "712aa74b-cc82-4d3b-ab10-41be6cd38edb",
+          "lifecycleVersion": 1,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "712aa74b-cc82-4d3b-ab10-41be6cd38edb",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680085124
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      }
+    },
+    {
+      "i": 1,
+      "before": {
+        "label": "cycle-1-before",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (0s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "712aa74b-cc82-4d3b-ab10-41be6cd38edb",
+          "lifecycleVersion": 1,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "712aa74b-cc82-4d3b-ab10-41be6cd38edb",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680085124
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStartClick": {
+        "label": "cycle-1-after-start-click",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "ENGINE_INITIALIZING",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "loading",
+        "sessionPersisted": null,
+        "startButtonDisabled": true,
+        "startButtonRecording": "true",
+        "buttonLabel": "Stop Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+        "toastText": "Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | Processing speech locally… | Private is ready. Nothing leaves your browser. | Downloading private model... 34%Trial access: 59m 58s left for Private/Vault Mode.Private ModelDownloading...34%",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "RECORDING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "ENGINE_INITIALIZING",
+          "sessionId": "712aa74b-cc82-4d3b-ab10-41be6cd38edb",
+          "lifecycleVersion": 1,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "712aa74b-cc82-4d3b-ab10-41be6cd38edb",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680085124
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStop": {
+        "label": "cycle-1-after-stop",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | ⚠️Session too short (2s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "302ae106-826d-49dd-8bf1-d7eeac949b9b",
+          "lifecycleVersion": 2,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "302ae106-826d-49dd-8bf1-d7eeac949b9b",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680090755
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      }
+    },
+    {
+      "i": 2,
+      "before": {
+        "label": "cycle-2-before",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (2s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "302ae106-826d-49dd-8bf1-d7eeac949b9b",
+          "lifecycleVersion": 2,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "302ae106-826d-49dd-8bf1-d7eeac949b9b",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680090755
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStartClick": {
+        "label": "cycle-2-after-start-click",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "ENGINE_INITIALIZING",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "loading",
+        "sessionPersisted": null,
+        "startButtonDisabled": true,
+        "startButtonRecording": "true",
+        "buttonLabel": "Stop Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+        "toastText": "Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | Processing speech locally… | Private is ready. Nothing leaves your browser. | Download complete. Preparing Private model...Trial access: 59m 58s left for Private/Vault Mode.Private ModelComplete100%",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "RECORDING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "ENGINE_INITIALIZING",
+          "sessionId": "302ae106-826d-49dd-8bf1-d7eeac949b9b",
+          "lifecycleVersion": 2,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "302ae106-826d-49dd-8bf1-d7eeac949b9b",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680090755
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStop": {
+        "label": "cycle-2-after-stop",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | ⚠️Session too short (2s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "4e3ebbec-8250-4812-b962-0039fa8a4f71",
+          "lifecycleVersion": 3,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "4e3ebbec-8250-4812-b962-0039fa8a4f71",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680096438
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      }
+    },
+    {
+      "i": 3,
+      "before": {
+        "label": "cycle-3-before",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (2s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "4e3ebbec-8250-4812-b962-0039fa8a4f71",
+          "lifecycleVersion": 3,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "4e3ebbec-8250-4812-b962-0039fa8a4f71",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680096438
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStartClick": {
+        "label": "cycle-3-after-start-click",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "ENGINE_INITIALIZING",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "loading",
+        "sessionPersisted": null,
+        "startButtonDisabled": true,
+        "startButtonRecording": "true",
+        "buttonLabel": "Stop Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+        "toastText": "Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | Processing speech locally… | Private is ready. Nothing leaves your browser. | Downloading private model... 66%Trial access: 59m 58s left for Private/Vault Mode.Private ModelDownloading...66%",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "RECORDING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "ENGINE_INITIALIZING",
+          "sessionId": "4e3ebbec-8250-4812-b962-0039fa8a4f71",
+          "lifecycleVersion": 3,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "4e3ebbec-8250-4812-b962-0039fa8a4f71",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680096438
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStop": {
+        "label": "cycle-3-after-stop",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (3s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "1eb80fbc-7614-41b5-800a-23679804826d",
+          "lifecycleVersion": 4,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "1eb80fbc-7614-41b5-800a-23679804826d",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680102825
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      }
+    },
+    {
+      "i": 4,
+      "before": {
+        "label": "cycle-4-before",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (3s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "1eb80fbc-7614-41b5-800a-23679804826d",
+          "lifecycleVersion": 4,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "1eb80fbc-7614-41b5-800a-23679804826d",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680102825
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStartClick": {
+        "label": "cycle-4-after-start-click",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "ENGINE_INITIALIZING",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "loading",
+        "sessionPersisted": null,
+        "startButtonDisabled": true,
+        "startButtonRecording": "true",
+        "buttonLabel": "Stop Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | Downloading private model... 0%Trial access: 59m 58s left for Private/Vault Mode.Private ModelDownloading...0%",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "RECORDING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "ENGINE_INITIALIZING",
+          "sessionId": "1eb80fbc-7614-41b5-800a-23679804826d",
+          "lifecycleVersion": 4,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "1eb80fbc-7614-41b5-800a-23679804826d",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680102825
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      },
+      "afterStop": {
+        "label": "cycle-4-after-stop",
+        "url": "http://localhost:5174/session",
+        "runtimeState": "READY",
+        "appReady": "true",
+        "sttReady": "true",
+        "modelStatus": "idle",
+        "sessionPersisted": null,
+        "startButtonDisabled": false,
+        "startButtonRecording": "false",
+        "buttonLabel": "Start Recording",
+        "transcriptTextOnly": "",
+        "transcriptVisible": "Start recording and your words will appear here.",
+        "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. | ⚠️Session too short (3s). Minimum 5s required.",
+        "bodyHasFrozenError": false,
+        "runtime": {
+          "controllerState": "READY",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": null,
+          "serviceState": null,
+          "sessionId": "2b3b5fb2-4057-4e74-8409-2230309b5ef3",
+          "lifecycleVersion": 5,
+          "transcriptLength": 0,
+          "saveCandidate": {
+            "sessionId": "2b3b5fb2-4057-4e74-8409-2230309b5ef3",
+            "saveCandidateReason": "empty",
+            "selectedForSave": "",
+            "selectedForSaveLength": 0,
+            "finalWordCount": 0,
+            "meaningfulWordCount": 0,
+            "resultTranscriptLength": 0,
+            "chunkTranscriptLength": 0,
+            "storeTranscriptLength": 0,
+            "storePartialTranscriptLength": 0,
+            "visibleStoreTranscriptLength": 0,
+            "frozenStopTranscriptLength": 0,
+            "candidateLengths": [],
+            "capturedAt": 1780680109139
+          },
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": "empty"
+        },
+        "environmentProof": {
+          "url": "http://localhost:5174/auth/signup",
+          "port": 5174,
+          "viteMode": "development",
+          "authMode": "real",
+          "mockAuth": false,
+          "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+          "releaseProofEligible": true
+        }
+      }
+    }
+  ],
+  "finalSnapshot": {
+    "label": "final",
+    "url": "http://localhost:5174/session",
+    "runtimeState": "READY",
+    "appReady": "true",
+    "sttReady": "true",
+    "modelStatus": "idle",
+    "sessionPersisted": null,
+    "startButtonDisabled": false,
+    "startButtonRecording": "false",
+    "buttonLabel": "Start Recording",
+    "transcriptTextOnly": "",
+    "transcriptVisible": "Start recording and your words will appear here.",
+    "toastText": "Processing speech locally… | Private is ready. Nothing leaves your browser. | ⚠️Session too short (3s). Minimum 5s required.",
+    "bodyHasFrozenError": false,
+    "runtime": {
+      "controllerState": "READY",
+      "policy": {
+        "allowNative": true,
+        "allowCloud": false,
+        "allowPrivate": true,
+        "preferredMode": "private",
+        "allowFallback": false,
+        "executionIntent": "prod-pro-private"
+      },
+      "controllerPreferredMode": "private",
+      "serviceMode": null,
+      "serviceState": null,
+      "sessionId": "2b3b5fb2-4057-4e74-8409-2230309b5ef3",
+      "lifecycleVersion": 5,
+      "transcriptLength": 0,
+      "saveCandidate": {
+        "sessionId": "2b3b5fb2-4057-4e74-8409-2230309b5ef3",
+        "saveCandidateReason": "empty",
+        "selectedForSave": "",
+        "selectedForSaveLength": 0,
+        "finalWordCount": 0,
+        "meaningfulWordCount": 0,
+        "resultTranscriptLength": 0,
+        "chunkTranscriptLength": 0,
+        "storeTranscriptLength": 0,
+        "storePartialTranscriptLength": 0,
+        "visibleStoreTranscriptLength": 0,
+        "frozenStopTranscriptLength": 0,
+        "candidateLengths": [],
+        "capturedAt": 1780680109139
+      },
+      "selectedTranscriptForSave": null,
+      "selectedTranscriptSource": "empty"
+    },
+    "environmentProof": {
+      "url": "http://localhost:5174/auth/signup",
+      "port": 5174,
+      "viteMode": "development",
+      "authMode": "real",
+      "mockAuth": false,
+      "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+      "releaseProofEligible": true
+    }
+  },
+  "badStates": [],
+  "maxDepthLogs": [],
+  "startErrors": [],
+  "errors": [],
+  "consoleTail": [
+    {
+      "type": "info",
+      "text": "{policyId: prod-free, userPref: private, policyPref: native, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680103899
+    },
+    {
+      "type": "info",
+      "text": "{mode: native, isMock: false} [STTNegotiator] Decision",
+      "ts": 1780680103899
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: IDLE --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING",
+      "ts": 1780680103911
+    },
+    {
+      "type": "info",
+      "text": "{type: native-browser, instanceId: sous2g, serviceId: bahs5} [STTEngine] Initializing native-browser...",
+      "ts": 1780680103911
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown, eId: sous2g, browserFamily: chrome, compatibilityMode: verified} [NativeBrowser] Recognition configured",
+      "ts": 1780680103912
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown, eId: sous2g} [NativeBrowser] Init complete.",
+      "ts": 1780680103912
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: native} [TranscriptionService] Strategy initialized. Transitioning to READY.",
+      "ts": 1780680103914
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY",
+      "ts": 1780680103915
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: ENGINE_INITIALIZING} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680103923
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: RECORDING} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680103933
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680103935
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-free, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated",
+      "ts": 1780680103935
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680103935
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode",
+      "ts": 1780680103935
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision",
+      "ts": 1780680103935
+    },
+    {
+      "type": "info",
+      "text": "{micConstraintsMode: raw, requestedConstraints: Object, actualTrackSettings: Object} [MicStream] getUserMedia constraints applied",
+      "ts": 1780680104067
+    },
+    {
+      "type": "info",
+      "text": "{serviceId: bahs5, runId: fjple0z, mode: private} [TranscriptionService] 🚀 Start requested",
+      "ts": 1780680104115
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown, eId: sous2g} [NativeBrowser] 🛑 Nuclear termination requested",
+      "ts": 1780680104115
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown, eId: vudjn} [PrivateWhisper] Initialized (dual-engine facade).",
+      "ts": 1780680104115
+    },
+    {
+      "type": "info",
+      "text": "{engineType: transformers-js, cacheName: transformers-cache, keyCount: 7} [ModelManager] Required model assets detected in cache",
+      "ts": 1780680104130
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING",
+      "ts": 1780680104130
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: vudjn, serviceId: bahs5} [STTEngine] Initializing transformers-js...",
+      "ts": 1780680104130
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn} [PrivateWhisper] 🔄 init() START - Dual-Engine Mode",
+      "ts": 1780680104130
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: f7kmqq, serviceId: unknown} [STTEngine] Initializing transformers-js...",
+      "ts": 1780680104131
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown} [PrivateSTT] 🚀 Privacy-first engine selection started...",
+      "ts": 1780680104131
+    },
+    {
+      "type": "info",
+      "text": "{engineType: whisper-turbo, dbName: models, hasModel: false, hasAvailableModel: false} [ModelManager] Whisper Turbo model missing from IndexedDB",
+      "ts": 1780680104145
+    },
+    {
+      "type": "warning",
+      "text": "No available adapters.",
+      "ts": 1780680104166
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown, runtimeDecision: Object, configured: transformers-js} [PrivateSTT] Resolved private runtime decision",
+      "ts": 1780680104168
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown, provider: transformers-js, configured: transformers-js, source: auto} [PrivateSTT] Initializing auto-selected private provider",
+      "ts": 1780680104168
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown} [PrivateSTT] 📦 Loading production TransformersJS module...",
+      "ts": 1780680104168
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: p23zal, serviceId: unknown} [STTEngine] Initializing transformers-js...",
+      "ts": 1780680104168
+    },
+    {
+      "type": "info",
+      "text": "{sId: unknown, rId: unknown, eId: p23zal} [TransformersJS] Initializing engine...",
+      "ts": 1780680104168
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.797699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_16_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104800
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.798800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Shape_4_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104800
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.811399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104812
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.811600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104812
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.812000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_10_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104812
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.812100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_11_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104813
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.812199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104813
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.812399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_12_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104813
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.812500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/Constant_9_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104813
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104861
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104861
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104861
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104861
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104862
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104862
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.860899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104862
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104863
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.861899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104866
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.862500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104867
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104874
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104874
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104875
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104875
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104875
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104875
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104875
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.873899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104876
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104876
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104876
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104876
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104876
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104876
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.874899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104877
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104878
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.875899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.876899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104879
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877100 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877600 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:21:44.877699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680104880
+    },
+    {
+      "type": "info",
+      "text": "{sId: unknown, rId: unknown, eId: p23zal, event: model_loaded, model: whisper-tiny.en} [TransformersJS] Worker engine initialized successfully.",
+      "ts": 1780680104942
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn, engineType: transformers-js} [PrivateWhisper] ✅ Engine initialized",
+      "ts": 1780680106949
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn} [PrivateWhisper] Model ready! Using CPU mode.",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{runId: fjple0z, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY.",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{runId: fjple0z, engine: transformers-js, strategyObj: PrivateWhisper} [TranscriptionService] 🚦 Executing strategy start...",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn} [PrivateWhisper] start() called.",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn} [PrivateWhisper] Streaming started.",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: RECORDING, event: ENGINE_STARTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_STARTED)--> RECORDING",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "{runId: fjple0z} [TranscriptionService] Strategy started successfully",
+      "ts": 1780680106956
+    },
+    {
+      "type": "info",
+      "text": "[FORENSIC] syncSessionPersisted: false",
+      "ts": 1780680106978
+    },
+    {
+      "type": "info",
+      "text": "{userId: fcae96b8-4c17-496f-8950-10fc03e7cc63, duration: 0, engineType: private, idempotencyKey: 09821d62-940e-40b9-9d3e-6afb9c203997} [Supabase DB] 💾 Saving session via RPC",
+      "ts": 1780680106979
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: STOPPING} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680107526
+    },
+    {
+      "type": "info",
+      "text": "{wasRecording: true, state: STOPPING, sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3} [DEBUG-STOP] state-check",
+      "ts": 1780680107534
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: fjple0z, mode: private, fsmState: RECORDING, hasStrategy: true} [DEBUG-STOP] TranscriptionService.stopTranscription entry",
+      "ts": 1780680107534
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: STOPPING, event: STOP_REQUESTED, error: undefined} [FSM] ⚡ Transition: RECORDING --(STOP_REQUESTED)--> STOPPING",
+      "ts": 1780680107534
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: unknown} [PrivateWhisper] 🛑 Stopping engine...",
+      "ts": 1780680107534
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn, samples: 9302, expectedDurationSec: 0.581375} [PrivateWhisper] 🎤 Processing chunk",
+      "ts": 1780680107537
+    },
+    {
+      "type": "info",
+      "text": "{sId: unknown, rId: unknown, eId: p23zal, event: inference_complete, latency_ms: 1592} [TransformersJS] Worker transcription complete.",
+      "ts": 1780680109137
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn, preview: Object, wordCount: 1, rms: 0.12811} [PrivateWhisper] Holding first transcript until it has speech-like substance",
+      "ts": 1780680109137
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: fjple0z, mode: private, strategyTranscriptLength: 0, currentTranscriptLength: 0} [DEBUG-STOP] TranscriptionService.stopTranscription transcript selected",
+      "ts": 1780680109137
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: fjple0z, mode: private, duration: 2.182, transcriptLength: 0} [DEBUG-STOP] TranscriptionService.stopTranscription returning result",
+      "ts": 1780680109137
+    },
+    {
+      "type": "info",
+      "text": "{from: STOPPING, to: READY, event: STOP_COMPLETED, error: undefined} [FSM] ⚡ Transition: STOPPING --(STOP_COMPLETED)--> READY",
+      "ts": 1780680109137
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3, hasResult: true, resultSuccess: true, resultTranscriptLength: 0} [DEBUG-STOP] after service.stopTranscription",
+      "ts": 1780680109139
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3, hasResult: true, willEnterFinalizationBranch: true, reasonIfNot: null} [DEBUG-STOP] before result/session branch",
+      "ts": 1780680109139
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3, mode: private, duration: 2.189, resultSuccess: true, resultTranscriptLength: 0} [DEBUG-STOP] finalization transcript decision",
+      "ts": 1780680109140
+    },
+    {
+      "type": "warning",
+      "text": "{sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3, transcriptLength: 0, duration: 2.189, mode: private, meaningfulWordCount: 0} [SESSION_SAVE_GUARD] Empty, low-quality, or non-speech session discarded",
+      "ts": 1780680109140
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3, finalTranscriptLength: 0, meaningfulWordCount: 0} [DEBUG-STOP] completeSession failed-status starting",
+      "ts": 1780680109140
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: 2b3b5fb2-4057-4e74-8409-2230309b5ef3} [DEBUG-STOP] completeSession failed-status done",
+      "ts": 1780680109269
+    },
+    {
+      "type": "info",
+      "text": "[FORENSIC] syncSessionPersisted: false",
+      "ts": 1780680109271
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, state: READY} [TranscriptionService] destroy() invoked",
+      "ts": 1780680109271
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: CLEANING_UP, event: TERMINATE_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(TERMINATE_REQUESTED)--> CLEANING_UP",
+      "ts": 1780680109271
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: vudjn} [STTEngine] 🛑 Nuclear termination requested for transformers-js",
+      "ts": 1780680109279
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, rId: vudjn} [PrivateWhisper] Terminating service...",
+      "ts": 1780680109279
+    },
+    {
+      "type": "info",
+      "text": "{sId: unknown, rId: unknown, eId: p23zal} [TransformersJS] Destroying engine resources...",
+      "ts": 1780680109279
+    },
+    {
+      "type": "info",
+      "text": "{from: CLEANING_UP, to: TERMINATED, event: TERMINATE_COMPLETED, error: undefined} [FSM] ⚡ Transition: CLEANING_UP --(TERMINATE_COMPLETED)--> TERMINATED",
+      "ts": 1780680109283
+    },
+    {
+      "type": "info",
+      "text": "[DistributedLock] 🔓 Lock released",
+      "ts": 1780680109283
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5, targetState: TERMINATED} [TranscriptionService] ☢️ NUCLEAR RESET: Clearing all async state and buffers",
+      "ts": 1780680109283
+    },
+    {
+      "type": "info",
+      "text": "{from: TERMINATED, to: TERMINATED} [FSM] Forcing state",
+      "ts": 1780680109284
+    },
+    {
+      "type": "info",
+      "text": "{sId: bahs5} [TranscriptionService] ✅ destroy() complete, lock released",
+      "ts": 1780680109284
+    },
+    {
+      "type": "info",
+      "text": "[DEBUG-STOP] transition READY starting",
+      "ts": 1780680109285
+    },
+    {
+      "type": "info",
+      "text": "{from: STOPPING, to: READY} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680109285
+    },
+    {
+      "type": "info",
+      "text": "[DEBUG-STOP] transition READY done",
+      "ts": 1780680109294
+    }
+  ]
+}
