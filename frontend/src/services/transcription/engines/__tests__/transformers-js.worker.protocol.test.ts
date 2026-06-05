@@ -87,10 +87,11 @@ describe('transformers-js.worker protocol contract', () => {
                 expect.objectContaining({
                     id: 6,
                     type: 'error',
-                    errorMessage: 'model artifact unavailable',
+                    errorMessage: expect.stringContaining('MODEL_LOAD_FAILED'),
                 }),
             ]);
         });
+        expect(postedMessages[0]?.errorMessage).toContain('model artifact unavailable');
         expect(pipeline).toHaveBeenCalledTimes(2);
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 6, type: 'ready' }));
     });
