@@ -1,0 +1,67 @@
+{
+  "runId": "ux_release_proof_sweep_2026-06-05",
+  "sha": "1784adfd",
+  "environment": {
+    "url": "http://localhost:5174",
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true
+  },
+  "results": [
+    {
+      "id": "UX-ONBOARD-1",
+      "area": "signup_trial_private_setup_consent",
+      "status": "pass",
+      "artifact": "/private/tmp/ux-onboarding-private-consent.json",
+      "summary": "Fresh signup reached Session with trial access. Private was available, Cloud was disabled for trial, setup CTA was visible, and no model cache/download appeared before user action."
+    },
+    {
+      "id": "UX-MUTEX-1",
+      "area": "multi_tab_session_mutex",
+      "status": "pass",
+      "artifact": "/private/tmp/ux-multitab-session-mutex.json",
+      "summary": "Tab 1 stayed recording. Tab 2 showed Active session in another tab and stayed data-recording=false."
+    },
+    {
+      "id": "UX-NAV-1A",
+      "area": "in_app_navigation_while_recording",
+      "status": "pass",
+      "artifact": "/private/tmp/ux-private-spa-navigation-accept-dialog.json",
+      "summary": "In-app Analytics navigation showed a confirmation dialog; accepting it stopped/saved and showed the saved session in Analytics."
+    },
+    {
+      "id": "UX-NAV-1",
+      "area": "hard_navigation_while_recording",
+      "status": "fail",
+      "priority": "P1",
+      "artifact": "/private/tmp/ux-private-navigation-interruption.json",
+      "summary": "Hard navigation to /analytics during Private recording lost the partial session and logged React Maximum update depth exceeded."
+    },
+    {
+      "id": "UX-FSM-1",
+      "area": "rapid_record_stop",
+      "status": "fail",
+      "priority": "P1",
+      "artifact": "/private/tmp/ux-private-rapid-start-stop.json",
+      "summary": "Five short Private Record/Stop cycles recovered to READY with no zombie recording, but emitted four React Maximum update depth exceeded warnings."
+    },
+    {
+      "id": "HARDEN",
+      "area": "release_audit_hardening",
+      "status": "pass",
+      "summary": "pnpm test:edge passed 11 files / 73 steps. Focused frontend hardening suite passed 72/72 across PDF, LiveRecordingCard, SignUpPage, AuthProvider, and SessionPage rendering/UI."
+    }
+  ],
+  "devRequests": [
+    {
+      "id": "UX-NAV-1",
+      "owner": "@dev-agent",
+      "request": "Fix hard-navigation/reload behavior while recording so users either cannot leave, or their partial recording is saved/recovered, with no React max-depth warning."
+    },
+    {
+      "id": "UX-FSM-1",
+      "owner": "@dev-agent",
+      "request": "Root-cause rapid Private start/stop render-loop warnings and add a regression for five short cycles with zero max-depth warnings and no zombie recording state."
+    }
+  ]
+}
