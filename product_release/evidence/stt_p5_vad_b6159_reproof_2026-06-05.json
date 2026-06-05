@@ -1,0 +1,17 @@
+{
+  "id": "stt-p5-vad-b6159-reproof",
+  "createdAt": "2026-06-05T06:54:00Z",
+  "branch": "test/stt-p5-vad-b6159-reproof@b6159d0c",
+  "focusedTests": "PASS 49/49 with frontend vitest config and coverage disabled",
+  "browserProof": "BLOCKED before VAD",
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true
+  },
+  "artifact": "/private/tmp/stt-p5-vad-b6159-h1_6.json",
+  "blocker": "Private setup CTA resolved as download-model-button-inline but click timed out because html[data-model-status=download-required] intercepted pointer events for 30s.",
+  "nextDevAsk": "Fix setup CTA clickability or proof-harness setup click path, then rerun VAD A/B. Current run never reached recording, so no vadFellBackToRms conclusion."
+}
