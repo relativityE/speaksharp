@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
-import { PRIV_STT } from '@/services/transcription/sttConstants';
+import { PRIV_STT_MODELS } from '@/services/transcription/sttConstants';
+import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 
 
 export type RecordingMode = 'cloud' | 'native' | 'private' | 'mock';
@@ -131,7 +132,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     className="mt-1 text-[11px] font-medium leading-snug text-foreground/60"
                                     data-testid="private-model-size-note"
                                 >
-                                    {`Download the local speech model (about ${PRIV_STT.DEFAULT_MODEL_DOWNLOAD_MB} MB) so Private mode can transcribe in your browser. If site storage is cleared, setup may be required again.`}
+                                    {`One-time download of the on-device speech model (about ${PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
                                 </p>
                             )}
                             {isPrivateDownloadRequired && (

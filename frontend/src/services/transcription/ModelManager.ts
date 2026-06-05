@@ -1,5 +1,6 @@
 import logger from '@/lib/logger';
-import { PRIV_STT, PRIV_STT_V4 } from './sttConstants';
+import { PRIV_STT_V4, PRIV_STT_MODELS } from './sttConstants';
+import { resolvePrivateModel } from './utils/privateModelFlag';
 
 /**
  * ModelManager
@@ -12,7 +13,14 @@ import { PRIV_STT, PRIV_STT_V4 } from './sttConstants';
  */
 export class ModelManager {
     private static readonly TRANSFORMERS_CACHE = 'transformers-cache';
-    private static readonly TRANSFORMERS_MODEL_PATH = 'whisper-tiny.en';
+    // Model-aware: track the SELECTED Private model (default tiny.en, or an opt-in candidate
+    // like base.en via ?privateModel=) so cache-detection + size gate the download/ready UX on
+    // what will actually load. The no-flag default path resolves to tiny.en (bundled, ~40MB, no
+    // download wall); base.en opt-in resolves to its own remote ~145MB path. (resolvePrivateModel
+    // is side-effect-free and total — returns the default when no flag is set.)
+    private static get TRANSFORMERS_MODEL_PATH(): string {
+        return PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].localId;
+    }
     private static readonly TRANSFORMERS_V4_MODEL_PATH = 'onnx-community/whisper-tiny.en';
     private static readonly TRANSFORMERS_REQUIRED_CACHE_FILES = [
         'config.json',
@@ -62,9 +70,13 @@ export class ModelManager {
      * Get estimated download size for an engine
      */
     public static getModelSizeMB(engineType: 'transformers-js' | 'transformers-js-v4' | 'whisper-turbo'): number {
-        // Sizes are based on whisper-tiny (~40MB transformers, ~75MB turbo WASM+Weights)
+        // Sizes: turbo ~75MB WASM+Weights. transformers-js is model-aware — report the SELECTED
+        // model's size (default tiny.en ~40MB, or base.en ~145MB when opted in) so the download
+        // consent CTA shows the accurate size for what will actually download.
         if (engineType === 'transformers-js-v4') return PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB;
-        return engineType === 'transformers-js' ? PRIV_STT.DEFAULT_MODEL_DOWNLOAD_MB : 75;
+        return engineType === 'transformers-js'
+            ? PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB
+            : 75;
     }
 
     private static async isTransformersModelDownloaded(): Promise<boolean> {

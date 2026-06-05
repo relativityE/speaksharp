@@ -776,7 +776,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <CardContent className="space-y-4">
                                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-foreground/70">
                                     <span className="uppercase tracking-wider">Recorded with</span>
-                                    <span className="rounded-md border border-[hsl(var(--border))] bg-muted px-2 py-1 text-foreground" data-testid="session-engine-metadata">
+                                    <span
+                                        className="rounded-md border border-[hsl(var(--border))] bg-muted px-2 py-1 text-foreground"
+                                        data-testid="session-engine-metadata"
+                                        data-model={targetSession.model_name ?? ''}
+                                        data-engine-version={targetSession.engine_version ?? ''}
+                                        data-device-type={targetSession.device_type ?? ''}
+                                    >
                                         {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>

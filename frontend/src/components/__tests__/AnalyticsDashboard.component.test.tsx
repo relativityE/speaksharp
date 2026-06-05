@@ -353,9 +353,14 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'Private (whisper-tiny.en, transformers-js-2.17, cpu)'
-        );
+        // item-8: user-facing copy shows ONLY the friendly mode (no model names); the exact
+        // technical identity is preserved on data-* attributes for tests/telemetry.
+        const engineMetadata = screen.getByTestId('session-engine-metadata');
+        expect(engineMetadata).toHaveTextContent('Private');
+        expect(engineMetadata).not.toHaveTextContent('whisper-tiny.en');
+        expect(engineMetadata).toHaveAttribute('data-model', 'whisper-tiny.en');
+        expect(engineMetadata).toHaveAttribute('data-engine-version', 'transformers-js-2.17');
+        expect(engineMetadata).toHaveAttribute('data-device-type', 'cpu');
     });
 
     it('normalizes native metadata and hides placeholder details in detail view', () => {
