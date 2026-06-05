@@ -12,6 +12,9 @@ declare const __APP_MODE_META__:
   | { command: string; viteMode: string; port: number; authMode: string; releaseProofEligible: boolean }
   | undefined;
 
+/** Build/release id injected by Vite `define` — the git commit SHA in production (PROD-CONFIG-1). */
+declare const __BUILD_ID__: string | undefined;
+
 export interface AppModeMeta {
   viteMode: string;
   port: number;
@@ -45,6 +48,8 @@ export interface AppRuntimeConfig {
   releaseProofEligible: boolean;
   /** Observable proof of the Stripe key class in the live runtime (see classifyStripeKey). */
   stripeKeyClass: StripeKeyClass;
+  /** Build/release id — the git commit SHA in production; lets ops/test pin a report to a build (PROD-CONFIG-1). */
+  release: string;
 }
 
 declare global {
@@ -64,8 +69,9 @@ export function computeAppRuntimeConfig(input: {
   actualPort: number;
   url: string;
   stripeKey?: string;
+  release?: string;
 }): AppRuntimeConfig {
-  const { meta, supabaseUrl, envAuthMode, useMockAuthEnv, actualPort, url, stripeKey } = input;
+  const { meta, supabaseUrl, envAuthMode, useMockAuthEnv, actualPort, url, stripeKey, release } = input;
   const authMode = envAuthMode || meta.authMode;
   const usesRealSupabase = USES_REAL_SUPABASE.test(supabaseUrl);
   const mockAuth =
@@ -90,6 +96,7 @@ export function computeAppRuntimeConfig(input: {
     supabaseUrl,
     releaseProofEligible,
     stripeKeyClass: classifyStripeKey(stripeKey),
+    release: (release ?? '').trim() || 'unknown',
   };
 }
 
@@ -114,6 +121,7 @@ export function publishAppRuntimeConfig(): AppRuntimeConfig {
       typeof window !== 'undefined' && window.location.port ? Number(window.location.port) : meta.port,
     url: typeof window !== 'undefined' ? window.location.href : '',
     stripeKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
+    release: typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : undefined,
   });
   if (typeof window !== 'undefined') {
     window.__APP_RUNTIME_CONFIG__ = cfg;

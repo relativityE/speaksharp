@@ -61,6 +61,13 @@ describe('computeAppRuntimeConfig — STT release-proof eligibility (config disc
     // No stripeKey provided → fail-closed "missing" (the neutralized .env.production case).
     expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual }).stripeKeyClass).toBe('missing');
   });
+
+  it('surfaces the release id (commit SHA) for production proof, defaulting to "unknown"', () => {
+    expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual, release: 'abc1234' }).release).toBe('abc1234');
+    // Unset/blank → "unknown" so the field is always present and never empty.
+    expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual }).release).toBe('unknown');
+    expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual, release: '   ' }).release).toBe('unknown');
+  });
 });
 
 describe('classifyStripeKey', () => {

@@ -155,7 +155,15 @@ export default defineConfig(({ mode }) => {
       // We only need to override specific values here
 
       'global': 'globalThis',
-      '__BUILD_ID__': JSON.stringify(process.env.BUILD_ID ?? new Date().toISOString()),
+      // Release id surfaced at runtime via window.__APP_RUNTIME_CONFIG__.release (PROD-CONFIG-1).
+      // Prefer an explicit BUILD_ID, then the platform commit SHA (Vercel/GitHub set these at build),
+      // falling back to a timestamp for local dev so the field is always populated.
+      '__BUILD_ID__': JSON.stringify(
+        process.env.BUILD_ID
+        ?? process.env.VERCEL_GIT_COMMIT_SHA
+        ?? process.env.GITHUB_SHA
+        ?? new Date().toISOString()
+      ),
       // STT release-proof config-discipline: inject the canonical mode meta (single source
       // of truth = APP_MODES in build.config.js). The app reads this to publish
       // window.__APP_RUNTIME_CONFIG__, which the test-agent proof preflight validates against.
