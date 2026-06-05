@@ -22,8 +22,7 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
-import { resolvePrivateModel, isPrivateModelOverridden, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 
 // Lazy-load transformers.js to avoid bundle bloat
@@ -31,7 +30,7 @@ type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeli
 type UnknownRecord = Record<string, unknown>;
 type WhisperDecodeOptions = Record<string, unknown>;
 type WorkerRequest =
-    | { type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
+    | { type: 'init'; isE2E: boolean }
     | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
     | { type: 'destroy' };
 type WorkerResponse =
@@ -558,21 +557,7 @@ export class TransformersJSEngine extends STTEngine {
             this.pendingWorkerRequests.clear();
         };
 
-        // Model-eval flag (OFF by default => production whisper-tiny.en, byte-identical).
-        // A flag-selected candidate is resolved on the main thread and passed to the worker.
-        const selectedModel = resolvePrivateModel();
-        const modelCfg = PRIV_STT_MODELS.CANDIDATES[selectedModel];
-        publishPrivateModelTelemetry({
-            model: selectedModel,
-            approxMB: modelCfg.approxMB,
-            overridden: isPrivateModelOverridden(),
-            loadTimeMs: null,
-        });
-        const response = await this.sendWorkerRequest({
-            type: 'init',
-            isE2E: Boolean(isMock),
-            model: { key: selectedModel, localId: modelCfg.localId, remoteId: modelCfg.remoteId },
-        });
+        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock) });
         if (response.type !== 'ready') {
             throw new Error(`Unexpected TransformersJS worker init response: ${response.type}`);
         }
