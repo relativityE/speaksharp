@@ -96,3 +96,25 @@ detail, then compare WER / filler recall / firstDraft / finalization / load time
 
 `onnx-community/whisper-tiny.en` (parity) → `whisper-base.en` (accuracy) → distil-small.en (efficient)
 → WebGPU variants (speed).
+
+## Phase 0/2 RESULT (2026-06-05, dev Node isolator) — failure is onnxruntime-web, NOT the model
+
+`scripts/v4-node-decode-smoke.mjs` ran `@huggingface/transformers@4.2.0` on the jfk WAV across
+the dtype matrix under **onnxruntime-NODE**:
+
+| enc | dec | result |
+|---|---|---|
+| fp32 | q8 | ✅ correct JFK transcript |
+| q8 | q8 | ✅ correct |
+| fp32 | q4 | ✅ correct (even q4 decodes) |
+
+**Conclusion:** the model, all dtypes (incl. q4), and the graph are fine. The browser
+`invalid data location` is **specific to `onnxruntime-web`** (the WASM runtime, the 1.26.0-dev
+build that v4 pins). Most likely cause: the **threaded/proxy** wasm path (needs SharedArrayBuffer
+/ cross-origin isolation, which this app does NOT have). The probe now defaults to
+`ort.env.backends.onnx.wasm` **numThreads=1, proxy=false** (override `?threads=N&proxy=1`).
+
+**Next @test-agent (browser, dev/v4-recovery@6f5f028b):** run `/v4-decode-probe.html?wav=<16k-wav>&decoder=q8&device=wasm`
+(default single-thread/no-proxy). If it decodes → the threaded/proxy path was the bug. If it still
+errors → capture `__V4_PROBE_RESULT__.error` + `meta.ortVersions`; next dev step is pinning a
+**stable** onnxruntime-web release instead of the dev build.
