@@ -130,7 +130,7 @@ describe('Navigation', () => {
                 expect(issueReportService.submit).toHaveBeenCalled();
             });
             expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
-                userId: 'test-user',
+                userId: null,
                 category: 'stt',
                 pageUrl: expect.any(String),
                 includeTranscript: false,
@@ -161,6 +161,9 @@ describe('Navigation', () => {
                 target: { value: 'The transcript changed after I clicked stop.' },
             });
             fireEvent.click(screen.getByTestId('issue-report-include-transcript'));
+            fireEvent.change(screen.getByTestId('issue-report-transcript-snippet'), {
+                target: { value: 'User chose to include this transcript' },
+            });
             fireEvent.click(screen.getByTestId('issue-report-submit'));
 
             await waitFor(() => {
