@@ -3,6 +3,7 @@ import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState,
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
+import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -1483,7 +1484,7 @@ export class SpeechRuntimeController {
                     const idempotencyKey = recordingId;
                     const metadata = service.getMetadata?.() || (
                         mode === 'private'
-                            ? { engineVersion: 'transformers-js', modelName: 'whisper-tiny.en', deviceType: 'browser' }
+                            ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
                             : mode === 'cloud'
                                 ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
                                 : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
@@ -1740,7 +1741,7 @@ export class SpeechRuntimeController {
                             const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
                             const metadata = service.getMetadata?.() || (
                                 mode === 'private'
-                                    ? { engineVersion: 'transformers-js', modelName: 'whisper-tiny.en', deviceType: 'browser' }
+                                    ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
                                     : mode === 'cloud'
                                         ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
                                         : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
