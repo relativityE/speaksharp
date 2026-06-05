@@ -1,0 +1,892 @@
+{
+  "ok": true,
+  "account": {
+    "email": "ux-hardnav-1780680159600@speaksharp.app",
+    "password": "SpeakSharp-HardNav-1780680159600!"
+  },
+  "beforeStart": {
+    "label": "before-start",
+    "url": "http://localhost:5174/session",
+    "runtimeState": "READY",
+    "appReady": "true",
+    "sttReady": "false",
+    "modelStatus": "ready",
+    "sessionPersisted": null,
+    "startButtonRecording": "false",
+    "transcriptTextOnly": "",
+    "transcriptVisible": "Start recording and your words will appear here.",
+    "bodyText": "Skip to content Private is ready. Nothing leaves your browser. Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@speaksharp.app Sign Out Practice Session Record, review, and track your speaking patterns Private ready. Nothing leaves your browser. Trial access: 59m 59s left for Private/Vault Mode. Private Model Complete 100% Runs locally after model setup. All audio processing remains local. • Private 00:00 PRIVATE READY. NOTHING LEAVES YOUR BROWSER. Live Transcript Start recording and your words will appear here. LIVE COACHING SpeakSharp Score* The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact. Improve the ingredients, then come back and try to lift the score. Speak a little more to get a useful score. -- SCOR",
+    "draft": null,
+    "draftRawLength": 0,
+    "environmentProof": {
+      "url": "http://localhost:5174/auth/signup",
+      "port": 5174,
+      "viteMode": "development",
+      "authMode": "real",
+      "mockAuth": false,
+      "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+      "releaseProofEligible": true
+    }
+  },
+  "beforeNav": {
+    "label": "before-hard-nav",
+    "url": "http://localhost:5174/session",
+    "runtimeState": "RECORDING",
+    "appReady": "true",
+    "sttReady": "true",
+    "modelStatus": "ready",
+    "sessionPersisted": null,
+    "startButtonRecording": "true",
+    "transcriptTextOnly": "Basically.",
+    "transcriptVisible": "Draft transcript Text may change before the final transcript is saved.Basically.",
+    "bodyText": "Skip to content Private is ready. Nothing leaves your browser. SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@speaksharp.app Sign Out Practice Session Record, review, and track your speaking patterns Recording active Trial access: 59m 59s left for Private/Vault Mode. Private Model Complete 100% Runs locally after model setup. All audio processing remains local. • Private 00:03 RECORDING ACTIVE MIN 5S REQUIRED Basically. Live Transcript Live text Draft transcript Text may change before the final transcript is saved. Basically. LIVE COACHING SpeakSharp Score* The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact. Improve the ingredients, then come back and try to lift the score. Speak a little more to get a useful score. -- SCORE SOON Confidence: Building Getting Started Warming up Try this now Start with one complet",
+    "draft": null,
+    "draftRawLength": 0,
+    "environmentProof": {
+      "url": "http://localhost:5174/auth/signup",
+      "port": 5174,
+      "viteMode": "development",
+      "authMode": "real",
+      "mockAuth": false,
+      "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+      "releaseProofEligible": true
+    }
+  },
+  "afterNav": {
+    "label": "after-hard-nav",
+    "url": "http://localhost:5174/analytics",
+    "runtimeState": "READY",
+    "appReady": "true",
+    "sttReady": "false",
+    "modelStatus": "idle",
+    "sessionPersisted": null,
+    "startButtonRecording": null,
+    "transcriptTextOnly": "",
+    "transcriptVisible": "",
+    "bodyText": "Skip to content SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@speaksharp.app Sign Out Your Analytics Track your speaking progress and improvements Pro active Your trends start after one saved session Save a practice session to see pace, filler words, clarity, PDF reports, and progress history here. Start Practice Session",
+    "draft": {
+      "sessionId": "unsaved-1780680170250",
+      "userId": null,
+      "transcript": "Basically.",
+      "durationSeconds": 3,
+      "mode": "private",
+      "savedAt": "2026-06-05T17:22:50.250Z"
+    },
+    "draftRawLength": 151,
+    "environmentProof": {
+      "url": "http://localhost:5174/analytics",
+      "port": 5174,
+      "viteMode": "development",
+      "authMode": "real",
+      "mockAuth": false,
+      "supabaseUrl": "https://yxlapjuovrsvjswkwnrk.supabase.co",
+      "releaseProofEligible": true
+    }
+  },
+  "draftExists": true,
+  "draftHasUsefulState": true,
+  "maxDepthLogs": [],
+  "errors": [],
+  "consoleTail": [
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.547899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163550
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.548000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163550
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.548000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163550
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.548099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/activation_fn/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163550
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.548199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/activation_fn/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163550
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.548199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/activation_fn/Constant_2_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163550
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.559699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163561
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163562
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163562
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163562
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163562
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560599 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163562
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163563
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163563
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.560899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163563
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561599 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163564
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561599 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561599 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.561899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562599 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163565
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.562899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.3/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563300 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563399 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163566
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563500 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/final_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563599 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563699 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/encoder_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563800 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.563899 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/encoder_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.564000 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.2/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.564099 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.0/self_attn_layer_norm/Constant_1_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "warning",
+      "text": "2026-06-05 13:22:43.564199 [W:onnxruntime:, graph.cc:3490 CleanUnusedInitializersAndNodeArgs] Removing initializer '/model/decoder/layers.1/self_attn_layer_norm/Constant_output_0'. It is not used by any node and should be removed from the model.",
+      "ts": 1780680163567
+    },
+    {
+      "type": "info",
+      "text": "{sId: unknown, rId: unknown, eId: nrom3i, event: model_loaded, model: whisper-tiny.en} [TransformersJS] Worker engine initialized successfully.",
+      "ts": 1780680163624
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz, engineType: transformers-js} [PrivateWhisper] ✅ Engine initialized",
+      "ts": 1780680165557
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz} [PrivateWhisper] Model ready! Using CPU mode.",
+      "ts": 1780680165557
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY.",
+      "ts": 1780680165557
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY",
+      "ts": 1780680165557
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: INITIATING} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680165660
+    },
+    {
+      "type": "info",
+      "text": "[ReadinessStore] App State Transition: SERVICE_READY -> READY",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: lh2sbz, serviceId: qejksh} [STTEngine] Initializing transformers-js...",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz} [PrivateWhisper] Already idle, skipping init.",
+      "ts": 1780680165663
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY.",
+      "ts": 1780680165664
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY",
+      "ts": 1780680165664
+    },
+    {
+      "type": "info",
+      "text": "{from: INITIATING, to: ENGINE_INITIALIZING} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680165665
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680165667
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680165667
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode",
+      "ts": 1780680165667
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision",
+      "ts": 1780680165667
+    },
+    {
+      "type": "info",
+      "text": "{micConstraintsMode: raw, requestedConstraints: Object, actualTrackSettings: Object} [MicStream] getUserMedia constraints applied",
+      "ts": 1780680166555
+    },
+    {
+      "type": "info",
+      "text": "{serviceId: qejksh, runId: xrl7f5, mode: private} [TranscriptionService] 🚀 Start requested",
+      "ts": 1780680166611
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING",
+      "ts": 1780680166611
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: lh2sbz, serviceId: qejksh} [STTEngine] Initializing transformers-js...",
+      "ts": 1780680166611
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz} [PrivateWhisper] Already idle, skipping init.",
+      "ts": 1780680166611
+    },
+    {
+      "type": "info",
+      "text": "{runId: xrl7f5, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY.",
+      "ts": 1780680166613
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY",
+      "ts": 1780680166613
+    },
+    {
+      "type": "info",
+      "text": "{runId: xrl7f5, engine: transformers-js, strategyObj: PrivateWhisper} [TranscriptionService] 🚦 Executing strategy start...",
+      "ts": 1780680166615
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz} [PrivateWhisper] start() called.",
+      "ts": 1780680166615
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz} [PrivateWhisper] Streaming started.",
+      "ts": 1780680166615
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: RECORDING, event: ENGINE_STARTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_STARTED)--> RECORDING",
+      "ts": 1780680166616
+    },
+    {
+      "type": "info",
+      "text": "{runId: xrl7f5} [TranscriptionService] Strategy started successfully",
+      "ts": 1780680166616
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: RECORDING} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680166618
+    },
+    {
+      "type": "info",
+      "text": "[FORENSIC] syncSessionPersisted: false",
+      "ts": 1780680166721
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0, duration: 0, engineType: private, idempotencyKey: 333fd93c-fd31-4571-b240-fca1b66ddc87} [Supabase DB] 💾 Saving session via RPC",
+      "ts": 1780680166721
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz, samples: 19456, expectedDurationSec: 1.216} [PrivateWhisper] 🎤 Processing chunk",
+      "ts": 1780680167869
+    },
+    {
+      "type": "info",
+      "text": "{sId: unknown, rId: unknown, eId: nrom3i, event: inference_complete, latency_ms: 1950} [TransformersJS] Worker transcription complete.",
+      "ts": 1780680169825
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz, preview: Object, wordCount: 1, rms: 0.119194} [PrivateWhisper] Holding first transcript until it has speech-like substance",
+      "ts": 1780680169825
+    },
+    {
+      "type": "info",
+      "text": "{sId: qejksh, rId: lh2sbz, samples: 51456, expectedDurationSec: 3.216} [PrivateWhisper] 🎤 Processing chunk",
+      "ts": 1780680169869
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connecting...",
+      "ts": 1780680170312
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected.",
+      "ts": 1780680170328
+    },
+    {
+      "type": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "ts": 1780680170379
+    },
+    {
+      "type": "warning",
+      "text": "[STORE-IDENTITY] SessionStore Instance Created: [6s7b3]",
+      "ts": 1780680170383
+    },
+    {
+      "type": "info",
+      "text": "[React Query] ✅ QueryClient initialized",
+      "ts": 1780680170402
+    },
+    {
+      "type": "info",
+      "text": "{isTestMode: false, sentryDSN: https://0e1eabd5a795fe0080d87e3a4d2929de@o4509834735190016.ingest.us.sentry.io/4509834753540096, skipSentry: false} [main.tsx] Sentry Initialization Check",
+      "ts": 1780680170402
+    },
+    {
+      "type": "info",
+      "text": "[Sentry] Initialized successfully (early init)",
+      "ts": 1780680170405
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] Initialize started",
+      "ts": 1780680170405
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: msw",
+      "ts": 1780680170405
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] Starting app render...",
+      "ts": 1780680170405
+    },
+    {
+      "type": "info",
+      "text": "{appExists: true} [E2E DIAGNOSTIC] ./App imported successfully",
+      "ts": 1780680170405
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: app",
+      "ts": 1780680170405
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object}",
+      "ts": 1780680170409
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] Persistence loaded localStorage+cookie {distinct_id: 019e98ce-f598-7cc3-bc93-bf4465ef5689, $initialization_time: 2026-06-05T17:22:40.661Z, $configured_session_timeout_ms: 1800000, $device_id: 019e98ce-f598-7cc3-bc93-bf4465ef5689, $user_state: anonymous}",
+      "ts": 1780680170409
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 0}",
+      "ts": 1780680170410
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] Initializing extensions synchronously",
+      "ts": 1780680170410
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] Starting in debug mode {this: _Mo, config: Object, thisC: Object, p: Object, s: Object}",
+      "ts": 1780680170410
+    },
+    {
+      "type": "info",
+      "text": "[PostHog] Initialized successfully",
+      "ts": 1780680170417
+    },
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected",
+      "ts": 1780680170419
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: layout",
+      "ts": 1780680170455
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Router readiness reset (navigation initiated)",
+      "ts": 1780680170455
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: auth",
+      "ts": 1780680170456
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0} [AuthProvider] ✅ Auth Ready Signal",
+      "ts": 1780680170456
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: layout",
+      "ts": 1780680170456
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Router readiness reset (navigation initiated)",
+      "ts": 1780680170456
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: auth",
+      "ts": 1780680170456
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0} [AuthProvider] ✅ Auth Ready Signal",
+      "ts": 1780680170457
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0, expiresAt: 1780683761, timestamp: 2026-06-05T17:22:50.458Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN",
+      "ts": 1780680170459
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0} [AuthProvider] User signed in",
+      "ts": 1780680170459
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: auth",
+      "ts": 1780680170463
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0} [AuthProvider] ✅ Auth Ready Signal",
+      "ts": 1780680170463
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] Persistence loaded sessionStorage {$sdk_debug_extensions_init_method: synchronous, $sdk_debug_extensions_init_time_ms: 0}",
+      "ts": 1780680170463
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] set_config {config: Object, oldConfig: Object, newConfig: Object}",
+      "ts": 1780680170463
+    },
+    {
+      "type": "warning",
+      "text": "[PostHog.js] [Surveys] Flags not loaded yet. Not loading surveys.",
+      "ts": 1780680170464
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] [WebExperiments] Refusing to render web experiment since the viewer is a likely bot []",
+      "ts": 1780680170464
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started",
+      "ts": 1780680170464
+    },
+    {
+      "type": "info",
+      "text": "[SessionManager] 🏗️ Creating new authoritative session service",
+      "ts": 1780680170464
+    },
+    {
+      "type": "info",
+      "text": "[ReadinessStore] App State Transition: BOOTING -> SERVICE_READY",
+      "ts": 1780680170464
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition",
+      "ts": 1780680170464
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt",
+      "ts": 1780680170464
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)",
+      "ts": 1780680170465
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready",
+      "ts": 1780680170466
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0, expiresAt: 1780683761, timestamp: 2026-06-05T17:22:50.465Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION",
+      "ts": 1780680170466
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: auth",
+      "ts": 1780680170466
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0} [AuthProvider] ✅ Auth Ready Signal",
+      "ts": 1780680170466
+    },
+    {
+      "type": "log",
+      "text": "[PostHog.js] [RemoteConfig] __preview_remote_config is disabled. Logging config instead {analytics: Object, autocaptureExceptions: false, autocapture_opt_out: false, captureDeadClicks: false, capturePerformance: Object}",
+      "ts": 1780680170473
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e-5ec3-4eb5-afd7-5f0aece8a8d0, durationMs: 70} [useUserProfile] Profile fetched successfully",
+      "ts": 1780680170524
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: profile",
+      "ts": 1780680170530
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: router",
+      "ts": 1780680170536
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: router",
+      "ts": 1780680170536
+    },
+    {
+      "type": "info",
+      "text": "{userId: ba7c0b9e...} [Supabase DB] 📥 Fetching sessions",
+      "ts": 1780680170943
+    },
+    {
+      "type": "info",
+      "text": "{requestUrl: https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions} [Supabase DB] Request URL",
+      "ts": 1780680170943
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: null, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy",
+      "ts": 1780680170943
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: null, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy",
+      "ts": 1780680170943
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:",
+      "ts": 1780680170943
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-free, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated",
+      "ts": 1780680170944
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready",
+      "ts": 1780680170944
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready",
+      "ts": 1780680170944
+    },
+    {
+      "type": "info",
+      "text": "{sessionCount: 0} [Supabase DB] ✅ Sessions fetched",
+      "ts": 1780680171046
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: analytics",
+      "ts": 1780680171048
+    },
+    {
+      "type": "info",
+      "text": "{isLoading: false, hasError: false} [useAnalytics] ✅ Analytics Ready Signal",
+      "ts": 1780680171048
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: analytics",
+      "ts": 1780680171048
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: router",
+      "ts": 1780680171051
+    }
+  ]
+}
