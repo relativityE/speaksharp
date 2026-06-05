@@ -1,0 +1,70 @@
+# Private v4 Recovery — separate engineering track (NOT release path)
+
+**Goal (first milestone):** make the modern `@huggingface/transformers` (v4) + onnx-community
+Whisper path decode **ONE WAV in the browser to a non-empty transcript** — i.e. eliminate
+`invalid data location: undefined for input "a"`. This is an infrastructure/runtime project,
+**not** an STT candidate, until it produces one valid transcript.
+
+**Non-goals / guardrails:**
+- v4 is **not** a release candidate while it returns empty transcripts. Stay on v2 for release.
+- Do **not** run WER comparisons before a successful decode.
+- Do **not** mix v4 runtime debugging with Private UX bugs.
+- Do **not** assume WebGPU fixes a WASM/runtime binding error — get **WASM** decode first.
+
+Branch: `dev/v4-recovery`. Owner: dev-agent (build) → test-release-agent (browser run).
+
+## Phase 0 — reproducibility (done; record corrected)
+
+The earlier "phantom/unpinned" framing was **partly wrong**:
+- `@huggingface/transformers@4.2.0` **is** declared in the **root** `package.json` (the real
+  install source — `frontend/package.json` is the minimal, non-installed one), **installed**,
+  and **locked**. Now pinned `^4.2.0` → exact `4.2.0`.
+- The genuine reproducibility risk is the **transitive ONNX Runtime**: v4 pins
+  `onnxruntime-web@1.26.0-dev.20260416-b7804b056c` (a **dev build**), while v2 uses
+  `onnxruntime-web@1.14.0`. **Two ORT runtimes** in the tree; v4 runs on the dev build. A
+  mismatched/dev ORT is the classic cause of `invalid data location`.
+- The existing v4 worker (`transformers-js-v4.worker.ts`) loads `dtype { encoder fp32,
+  decoder q4 }` and sets **no `wasmPaths` / threads** — prime suspects.
+
+The probe **reports the resolved ORT version + dtype + wasmPaths at runtime**, so each run is
+interpretable.
+
+## Phase 1 — minimal standalone decode (built; needs browser run)
+
+`/v4-decode-probe.html` + `src/benchmark/v4-decode-probe.ts` — imports
+`@huggingface/transformers` directly, decodes one WAV, **no app code** (no session, controller,
+store, save, analytics, lifecycle). Output → `window.__V4_PROBE_RESULT__` (transcript OR exact
+error + meta).
+
+Run (served via the app dev server so resolution matches the build):
+```text
+pnpm dev   # 5174
+open /v4-decode-probe.html?wav=<harvard-wav-url>&encoder=fp32&decoder=q8&device=wasm
+# or open the page and pick a local WAV
+```
+**Pass gate:** one WAV → **non-empty transcript** (`__V4_PROBE_RESULT__.ok === true`).
+
+## Phase 2 — dtype/backend matrix (run via the same probe, vary params)
+
+Start with WASM + **q8 decoder** (q4 split is the current fragile/failing config). Do NOT
+start with WebGPU.
+
+| device | encoder | decoder | URL params | expectation |
+|---|---|---|---|---|
+| wasm | fp32 | q8 | `?...&encoder=fp32&decoder=q8&device=wasm` | likely safest — try first |
+| wasm | q8 | q8 | `&encoder=q8&decoder=q8&device=wasm` | possible |
+| wasm | fp32 | q4 | `&encoder=fp32&decoder=q4&device=wasm` | current/fragile (repro the failure) |
+| webgpu | fp32 | q4/q8 | `&device=webgpu` | later, only after WASM works |
+
+For each cell capture `window.__V4_PROBE_RESULT__`: `ok`, `transcript` or `error{name,message}`,
+`meta.ortVersions`, `meta.wasmPathsSet`, `meta.loadMs/decodeMs`.
+
+## Phase 3 — app integration (only after standalone decode works)
+
+Wire the working config into `TransformersJSV4Engine` → `PrivateSTT` → session → save/history/
+detail, then compare WER / filler recall / firstDraft / finalization / load time / size / memory.
+
+## Phase 4 — model ladder (only after Phase 3)
+
+`onnx-community/whisper-tiny.en` (parity) → `whisper-base.en` (accuracy) → distil-small.en (efficient)
+→ WebGPU variants (speed).
