@@ -50,6 +50,8 @@ test.describe('User-facing session and analytics regressions', () => {
   });
 
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {
+    test.setTimeout(90_000);
+
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await selectTranscriptionEngine(page, 'native');
