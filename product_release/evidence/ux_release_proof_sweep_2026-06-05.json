@@ -50,6 +50,24 @@
       "area": "release_audit_hardening",
       "status": "pass",
       "summary": "pnpm test:edge passed 11 files / 73 steps. Focused frontend hardening suite passed 72/72 across PDF, LiveRecordingCard, SignUpPage, AuthProvider, and SessionPage rendering/UI."
+    },
+    {
+      "id": "UX-ENTITLEMENT-1",
+      "area": "entitlement_and_trial_policy",
+      "status": "pass",
+      "summary": "Focused Vitest entitlement proof passed 5 files / 76 tests across subscription tiers, transcription policy, session lifecycle, LiveRecordingCard, and free-plan support. Trial/private and Cloud gating logic are covered at unit/integration level."
+    },
+    {
+      "id": "UX-DAST-LOCAL",
+      "area": "local_dast_gate",
+      "status": "pass",
+      "summary": "pnpm run rc:dast:local built the test bundle and passed 18/18 Playwright checks covering primary journey, user features/PDF, entitlement, error states, and analytics truth."
+    },
+    {
+      "id": "UX-E2E-DIRECT-INVALID",
+      "area": "direct_playwright_invocation",
+      "status": "invalid",
+      "summary": "A direct user-features Playwright command was excluded from product verdict because it did not build/serve frontend/dist first and failed with ENOENT for frontend/dist/index.html. Correct gate is pnpm run rc:dast:local, which passed."
     }
   ],
   "devRequests": [
