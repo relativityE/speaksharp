@@ -100,7 +100,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     const remoteModelId = model?.remoteId ?? 'Xenova/whisper-tiny.en';
     const loadedModelKey = model?.key ?? 'whisper-tiny.en';
     // Only the default whisper-tiny.en is bundled in public/models/. Candidate models
-    // (whisper-base.en, whisper-small.en) are NOT on disk, so a local-first attempt fetches
+    // (whisper-base.en, distil-small.en) are NOT on disk, so a local-first attempt fetches
     // /models/<id>/... which the SPA dev server answers with index.html (HTTP 200, not 404)
     // → the "Unexpected token <" model-load failure the STT-P6 A/B hit. So: the default loads
     // local-first then remote (unchanged / byte-identical); candidates load REMOTE-ONLY.

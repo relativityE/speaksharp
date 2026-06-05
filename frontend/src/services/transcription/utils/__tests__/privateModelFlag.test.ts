@@ -38,8 +38,8 @@ describe('privateModelFlag', () => {
     });
 
     it('honors a valid window override', () => {
-      w.__PRIVATE_MODEL__ = 'whisper-small.en';
-      expect(resolvePrivateModel()).toBe('whisper-small.en');
+      w.__PRIVATE_MODEL__ = 'distil-small.en';
+      expect(resolvePrivateModel()).toBe('distil-small.en');
       expect(isPrivateModelOverridden()).toBe(true);
     });
 
@@ -60,8 +60,8 @@ describe('privateModelFlag', () => {
   describe('publishPrivateModelTelemetry', () => {
     it('publishes the snapshot to window.__PRIVATE_MODEL_TELEMETRY__', () => {
       const snapshot: PrivateModelTelemetry = {
-        model: 'whisper-small.en',
-        approxMB: PRIV_STT_MODELS.CANDIDATES['whisper-small.en'].approxMB,
+        model: 'distil-small.en',
+        approxMB: PRIV_STT_MODELS.CANDIDATES['distil-small.en'].approxMB,
         overridden: true,
         loadTimeMs: 1820,
       };
