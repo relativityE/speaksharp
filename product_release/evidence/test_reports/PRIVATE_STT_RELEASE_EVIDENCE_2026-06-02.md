@@ -955,3 +955,65 @@ is rejected as `whisper`.
 current loader/runtime, or intentionally change the loader/runtime with a focused compatibility
 proof. Also surface the named `MODEL_LOAD_FAILED` immediately to the harness/user; the current UI
 still waits until the 180s proof timeout even though the console has a clear init failure.
+
+## TEST → PRODUCT: STT-P6 model A/B result (2026-06-05, owner: product)
+
+Test branch: `test/stt-p6-model-ab-2-clean@70e8c0d5` (`main@6355be34` +
+`dev/private-model-eval-main@6defae00`). Dev's Xenova v2-native candidate fix succeeded:
+candidate models now load and transcribe in-browser.
+
+Static proof:
+
+- `privateModelFlag.test.ts` + `PrivateSTT.test.ts` + `PrivateWhisper.test.ts`: `63/63`
+- `pnpm --dir frontend exec tsc --noEmit`: clean
+
+Browser proof artifacts:
+
+- `/private/tmp/stt-p6-v2ids-tiny-h1_6.json`
+- `/private/tmp/stt-p6-v2ids-base-h1_6.json`
+- `/private/tmp/stt-p6-v2ids-small-h1_6.json`
+- `/private/tmp/stt-p6-v2ids-tiny-guards.json`
+- `/private/tmp/stt-p6-v2ids-base-guards.json`
+- `/private/tmp/stt-p6-v2ids-tiny-washington.json`
+- `/private/tmp/stt-p6-v2ids-base-washington.json`
+
+Results:
+
+| Fixture(s) | Tiny | Base | Small | Verdict |
+|---|---:|---:|---:|---|
+| `h1_6` | `87.5%`, finalize `2211 ms` | **`100%`**, finalize `4604 ms` | `87.5%`, bad first word `Bay`, finalize `46728 ms` | **Base improves; small rejected.** |
+| `h1_2`, `h1_8`, `h1_10` | all `100%` | all `100%` | not run after h1_6 failure | Base does not regress guard rows; rows are too easy to show lift. |
+| `washington_01` | `98.95%`, first text `2815 ms`, finalize `11281 ms` | `99.48%`, first text `7922 ms`, finalize `21960 ms` | not run after h1_6 failure | Base is slightly more accurate but materially slower. |
+
+Telemetry highlights:
+
+- Tiny: `approxMB:40`, `overridden:false`, h1_6 load `702 ms`
+- Base: `approxMB:145`, `overridden:true`, h1_6 load `1613 ms`
+- Small: `approxMB:244`, `overridden:true`, h1_6 load `4078 ms`, but finalization `46728 ms`
+
+Conclusion:
+
+1. **`whisper-base.en` is the only viable accuracy candidate from this A/B.**
+   It fixes h1_6 on the tested injected route and does not regress the easy guard rows.
+2. **`whisper-small.en` should not ship.**
+   It is larger, slower, and worse than base on h1_6.
+3. **Base has a real UX tradeoff.**
+   On Washington it improves accuracy only slightly (`+0.53 pts`) while first text and finalization
+   are substantially slower. If product chooses base, the setup must honestly present the larger
+   local download and slower finalization profile.
+
+Product decision needed:
+
+```text
+Option A: make whisper-base.en the Private accuracy candidate with explicit setup copy and
+trust/progress states for slower local processing.
+
+Option B: keep whisper-tiny.en as default quick Private and offer base as "Higher accuracy Private
+model" for users who accept a larger local download and slower finalization.
+
+Option C: if this timing tradeoff is unacceptable, keep tiny caveated and do not pursue small.
+```
+
+Remaining proof gap before green: run the latest human Private failure script on base, because the
+current A/B used injected fixtures plus Washington. Base is promising but not green until it fixes
+the actual human-script failure without unacceptable wait.
