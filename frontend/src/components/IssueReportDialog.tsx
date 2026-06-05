@@ -22,12 +22,14 @@ import {
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface IssueReportDialogProps {
-  userId: string;
+  /** Optional — omit for an anonymous report (Option C). When absent, no identity is stored. */
+  userId?: string | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
-  transcript?: string;
 }
+
+const MAX_TRANSCRIPT_SNIPPET = 4000;
 
 const CATEGORIES: IssueReportCategory[] = ['stt', 'analytics', 'billing', 'account', 'privacy', 'performance', 'general'];
 const SEVERITIES: IssueReportSeverity[] = ['medium', 'high', 'critical', 'low'];
@@ -37,7 +39,6 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   plan,
   sttMode,
   runtimeState,
-  transcript = '',
 }) => {
   const location = useLocation();
   const params = useParams();
@@ -47,11 +48,13 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [includeTranscript, setIncludeTranscript] = React.useState(false);
+  // Option C: the user pastes only the exact snippet they believe is the problem — we never
+  // auto-capture the full session transcript. Default empty; opt-in via the checkbox.
+  const [transcriptSnippet, setTranscriptSnippet] = React.useState('');
   const [includeAudio, setIncludeAudio] = React.useState(false);
   const [audioAttachmentNote, setAudioAttachmentNote] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const currentTranscript = transcript.trim();
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
 
   const reset = () => {
@@ -60,6 +63,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
     setTitle('');
     setDescription('');
     setIncludeTranscript(false);
+    setTranscriptSnippet('');
     setIncludeAudio(false);
     setAudioAttachmentNote('');
   };
@@ -75,8 +79,10 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         sttMode,
         runtimeState,
       });
+      const snippet = transcriptSnippet.trim().slice(0, MAX_TRANSCRIPT_SNIPPET);
+      const includeSnippet = includeTranscript && snippet.length > 0;
       await issueReportService.submit({
-        userId,
+        userId: userId ?? null,
         sessionId: params.sessionId ?? null,
         category,
         severity,
@@ -84,8 +90,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         description,
         pageUrl,
         metadata,
-        includeTranscript,
-        transcriptExcerpt: includeTranscript ? currentTranscript.slice(0, 4000) : null,
+        includeTranscript: includeSnippet,
+        transcriptExcerpt: includeSnippet ? snippet : null,
         includeAudio,
         audioAttachmentNote: includeAudio ? audioAttachmentNote : null,
       });
@@ -171,7 +177,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           </label>
 
           <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-            Automatically included: URL, route, browser, viewport, timezone, release-proof config, plan, STT mode, and last Sentry event id when available.
+            Anonymous report — we do not collect your name, email, or account id. Automatically
+            included: URL, route, browser, viewport, timezone, release-proof config, plan, STT mode,
+            and the last Sentry event id when available (used only to correlate with our logs).
           </div>
 
           <label className="flex items-start gap-2 text-sm">
@@ -181,11 +189,22 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
               onChange={(event) => setIncludeTranscript(event.target.checked)}
               data-testid="issue-report-include-transcript"
             />
-            <span>
-              Include the current transcript excerpt
-              {currentTranscript ? ` (${Math.min(currentTranscript.length, 4000)} chars)` : ' (none available)'}
-            </span>
+            <span>Include a transcript snippet I paste below (optional)</span>
           </label>
+
+          {includeTranscript && (
+            <label className="space-y-1 text-sm font-medium">
+              Transcript snippet
+              <textarea
+                className="min-h-20 w-full rounded-md border border-input bg-muted/60 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={transcriptSnippet}
+                onChange={(event) => setTranscriptSnippet(event.target.value.slice(0, MAX_TRANSCRIPT_SNIPPET))}
+                maxLength={MAX_TRANSCRIPT_SNIPPET}
+                placeholder="Paste only the words you want to share — not your whole session. Nothing is sent unless you paste it here."
+                data-testid="issue-report-transcript-snippet"
+              />
+            </label>
+          )}
 
           <label className="flex items-start gap-2 text-sm">
             <input
