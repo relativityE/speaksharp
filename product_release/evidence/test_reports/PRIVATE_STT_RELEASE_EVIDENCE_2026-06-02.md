@@ -1017,3 +1017,76 @@ Option C: if this timing tradeoff is unacceptable, keep tiny caveated and do not
 Remaining proof gap before green: run the latest human Private failure script on base, because the
 current A/B used injected fixtures plus Washington. Base is promising but not green until it fixes
 the actual human-script failure without unacceptable wait.
+
+## TEST → PRODUCT/DEV: STT-P6 enriched `base.en` RC proof (2026-06-05, owner: product + dev-agent)
+
+Test branch: `test/stt-p6-enriched-rc@4105f475` (`dev/private-model-eval-main` Lane B telemetry).
+This proof used 5174 real-auth manual mode with injected mic audio and environment proof valid:
+`port=5174`, `authMode=real`, `mockAuth=false`, `releaseProofEligible=true`, `cdpSameTab=true`.
+
+Static proof:
+
+- `pnpm --dir frontend exec tsc --noEmit`: clean
+- `privateModelFlag.test.ts`: `6/6` with coverage disabled for the focused file run
+
+Harness correction made during proof:
+
+- Main already passed `?privateModel=...` and collected `privateModelTelemetry`, but the first
+  attempted rerun showed why telemetry must be treated as the source of truth: without seeing
+  `privateModelTelemetry.model`, a "base" proof can be indistinguishable from default tiny.
+- The harness now also sets `window.__PRIVATE_MODEL__` before `/session` loads when
+  `STT_PRIVATE_MODEL` is provided. Future model proofs must reject any artifact missing:
+  `privateModelTelemetry.model`, `selectionSource`, `fallbackPath`, and
+  `cloudFallbackAttempted:false`.
+
+Artifacts:
+
+- `/private/tmp/stt-p6-enriched-tiny-conv_01.json`
+- `/private/tmp/stt-p6-enriched-base-conv_01-telemetry.json`
+- `/private/tmp/stt-p6-enriched-tiny-harvard.json`
+- `/private/tmp/stt-p6-enriched-base-harvard.json`
+- `/private/tmp/stt-p6-enriched-tiny-washington_01.json`
+- `/private/tmp/stt-p6-enriched-base-washington_01.json`
+
+Results:
+
+| Fixture(s) | Tiny/default | Base (`whisper-base.en`) | Verdict |
+|---|---:|---:|---|
+| `conv_01` filler script | `85.71%`; output `Umm...`; `um=0`; first text `5703 ms`; finalize `2459 ms` | `85.71%`; output dropped leading `Um`; `um=0`; first text `5691 ms`; finalize `5347 ms` | **Base does not fix the filler/human-proxy failure.** |
+| `h1_2`, `h1_8`, `h1_10` | all `100%`; first text `2818-3079 ms`; finalize `2170-2651 ms` | all `100%`; first text `4578-4834 ms`; finalize `3838-5441 ms` | Base holds easy guard rows but is slower. |
+| `h1_6` | `87.5%`; transcript `Day. Like...` | **`100%`**; transcript exact | Base fixes the known guard row. |
+| `washington_01` | `99.48%`; first text `2822 ms`; finalize field `12614 ms`; trace decode `12328 ms` | `99.48%`; first text `8277 ms`; finalize field `123159 ms`; trace drain `10115 ms` + decode `48020 ms` | **No accuracy gain; severe long-form UX regression.** |
+
+Base telemetry on the verified run:
+
+```json
+{
+  "model": "whisper-base.en",
+  "runtime": "transformers-js",
+  "approxMB": 145,
+  "overridden": true,
+  "selectionSource": "window",
+  "fallbackPath": "remote-only",
+  "cloudFallbackAttempted": false,
+  "runtimePath": "wasm-singlethread",
+  "wasmThreadCount": 1
+}
+```
+
+Release recommendation:
+
+1. **Do not make `whisper-base.en` the default Private release model on CPU.**
+   It fixes `h1_6`, but it does not fix `conv_01` filler recall / leading-filler loss, and it
+   introduces unacceptable long-form stop latency in the Washington proof.
+2. **Keep `whisper-tiny.en` as the default quick Private model unless/until a faster runtime
+   lever lands.**
+3. **If base remains in scope, position it as an explicit opt-in "higher accuracy / slower local
+   model" only after human-script proof, setup copy, and long-form progress/trust UX are accepted.**
+4. **Do not pursue `whisper-small.en` for launch.** It was already rejected by the prior A/B.
+
+Dev-facing action:
+
+- No model-code bug is proven by this proof. The telemetry works and confirms no Cloud fallback.
+- The actionable issue is product/UX: base is too slow on long-form CPU. If product still wants
+  base, dev should implement it only behind explicit user choice and progress copy, not as a blind
+  replacement for tiny.

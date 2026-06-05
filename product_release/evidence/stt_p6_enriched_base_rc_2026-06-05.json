@@ -1,0 +1,129 @@
+{
+  "id": "STT-P6",
+  "capturedAt": "2026-06-05T04:39:00Z",
+  "testedBranch": "test/stt-p6-enriched-rc@4105f475",
+  "candidateBranch": "dev/private-model-eval-main@4105f475",
+  "baseMain": "main@0100b582",
+  "environmentProof": {
+    "url": "http://127.0.0.1:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true,
+    "invalidReasons": []
+  },
+  "staticProof": {
+    "typecheck": "pass",
+    "privateModelFlagFocusedTests": "6/6 pass"
+  },
+  "rawArtifacts": [
+    "/private/tmp/stt-p6-enriched-tiny-conv_01.json",
+    "/private/tmp/stt-p6-enriched-base-conv_01-telemetry.json",
+    "/private/tmp/stt-p6-enriched-tiny-harvard.json",
+    "/private/tmp/stt-p6-enriched-base-harvard.json",
+    "/private/tmp/stt-p6-enriched-tiny-washington_01.json",
+    "/private/tmp/stt-p6-enriched-base-washington_01.json"
+  ],
+  "modelTelemetryRequiredFields": [
+    "model",
+    "selectionSource",
+    "fallbackPath",
+    "cloudFallbackAttempted"
+  ],
+  "results": [
+    {
+      "fixture": "conv_01",
+      "truth": "Um. Basically, we should literally like, wait.",
+      "tiny": {
+        "model": "whisper-tiny.en",
+        "accuracyPct": 85.71,
+        "wer": 0.14285714285714285,
+        "firstTextMs": 5703,
+        "stopFinalizationMs": 2459,
+        "transcript": "Umm, basically, we should literally like, wait.",
+        "observedFillers": {
+          "um": 0,
+          "basically": 1,
+          "literally": 1,
+          "like": 1
+        },
+        "journeyPass": true,
+        "detailVisible": true,
+        "cloudFallbackAttempted": false
+      },
+      "base": {
+        "model": "whisper-base.en",
+        "selectionSource": "window",
+        "fallbackPath": "remote-only",
+        "approxMB": 145,
+        "loadTimeMs": 1665,
+        "accuracyPct": 85.71,
+        "wer": 0.14285714285714285,
+        "firstTextMs": 5691,
+        "stopFinalizationMs": 5347,
+        "transcript": "Basically, we should literally like, wait.",
+        "observedFillers": {
+          "um": 0,
+          "basically": 1,
+          "literally": 1,
+          "like": 1
+        },
+        "journeyPass": true,
+        "detailVisible": true,
+        "cloudFallbackAttempted": false
+      },
+      "verdict": "base_does_not_fix_filler_or_human_proxy"
+    },
+    {
+      "fixture": "h1_6",
+      "tiny": {
+        "accuracyPct": 87.5,
+        "wer": 0.125,
+        "firstTextMs": 3073,
+        "stopFinalizationMs": 2166
+      },
+      "base": {
+        "model": "whisper-base.en",
+        "selectionSource": "window",
+        "fallbackPath": "remote-only",
+        "accuracyPct": 100,
+        "wer": 0,
+        "firstTextMs": 5133,
+        "stopFinalizationMs": 5121,
+        "cloudFallbackAttempted": false
+      },
+      "verdict": "base_fixes_guard_row"
+    },
+    {
+      "fixture": "h1_2_h1_8_h1_10",
+      "tinyAccuracyPct": [100, 100, 100],
+      "baseAccuracyPct": [100, 100, 100],
+      "verdict": "base_holds_easy_guard_rows_but_slower"
+    },
+    {
+      "fixture": "washington_01",
+      "tiny": {
+        "accuracyPct": 99.48,
+        "wer": 0.005235602094240838,
+        "firstTextMs": 2822,
+        "stopFinalizationMs": 12614,
+        "traceDecodeMs": 12328
+      },
+      "base": {
+        "model": "whisper-base.en",
+        "selectionSource": "window",
+        "fallbackPath": "remote-only",
+        "accuracyPct": 99.48,
+        "wer": 0.005235602094240838,
+        "firstTextMs": 8277,
+        "stopFinalizationMs": 123159,
+        "traceDrainWaitMs": 10115,
+        "traceDecodeMs": 48020,
+        "cloudFallbackAttempted": false
+      },
+      "verdict": "base_has_no_accuracy_gain_and_unacceptable_long_form_latency"
+    }
+  ],
+  "releaseRecommendation": "Do not make whisper-base.en the default Private CPU release model. Keep whisper-tiny.en as quick default; consider base only as explicit opt-in higher-accuracy/slower local model after human-script proof and UX copy."
+}
