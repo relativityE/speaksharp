@@ -1,0 +1,44 @@
+{
+  "id": "STT-V4R-REALBROWSER",
+  "capturedBy": "dev-agent (Claude preview browser, live)",
+  "capturedAt": "2026-06-05",
+  "browser": "Chrome 146 / Electron 41 on macOS Apple Silicon",
+  "webgpuAdapter": { "vendor": "apple", "architecture": "metal-3", "acquired": true },
+  "harness": "frontend/v4-decode-probe.html (standalone @huggingface/transformers@4.2.0 pipeline; NO SpeakSharp app/worker/lifecycle)",
+  "modelId": "onnx-community/whisper-tiny.en",
+  "fixture": "h1_6.wav (truth: 'They, like, told wild tales to frighten him.')",
+  "transformersVersion": "4.2.0",
+  "onnxRuntimeVersion": "1.26.0-dev.20260416-b7804b056c (bundled JS loader)",
+  "matrix": [
+    { "device": "webgpu", "encoder": "fp32", "decoder": "fp32", "ortWasm": "stable-1.26.0-wasmPaths", "ok": true, "loadMs": 4102, "decodeMs": 1828, "transcript": "day. Like, told Wild Tales to frighten him." },
+    { "device": "wasm",   "encoder": "fp32", "decoder": "fp32", "ortWasm": "stable-1.26.0-wasmPaths", "ok": true, "loadMs": 4609, "decodeMs": 4937, "transcript": "day. Like, told Wild Tales to frighten him." },
+    { "device": "wasm",   "encoder": "fp32", "decoder": "fp32", "ortWasm": "bundled-dev", "ok": true, "transcript": "day. Like, told Wild Tales to frighten him." },
+    { "device": "webgpu", "encoder": "fp32", "decoder": "q4",   "ortWasm": "bundled-dev", "ok": true, "loadMs": 4142, "decodeMs": 1624, "transcript": "day. Like, told Wild Tales to frighten him." }
+  ],
+  "v2BaseDropin": {
+    "harness": "frontend/private-dropin.html (REAL TransformersJSEngine + worker) + getUserMedia WAV injection",
+    "model": "whisper-base.en",
+    "capturedSamples": 330411,
+    "transcript": "A. Like. Told Wild Tales to frightened him.",
+    "truth": "They, like, told wild tales to frighten him.",
+    "note": "Real engine, real injected audio. Non-empty transcript. Shares the leading-word onset glitch with v4 ('They' -> 'A.'/'day.')."
+  },
+  "findings": [
+    "v4 (whisper-tiny.en) decodes to NON-EMPTY transcript in a real browser on WebGPU (fp32 AND q4) and on WASM (stable + bundled-dev).",
+    "Reverses prior headless verdict (test stt_v4r_fp32_lifecycle: WASM 'invalid data location: undefined for input a'). That regression is HEADLESS/ENV-specific, not universal.",
+    "WebGPU + q4 decoder is the practical config: small + fastest decode (1624ms), bypasses #28306 missing-scale entirely.",
+    "v2 base.en decodes through the REAL app engine (TransformersJSEngine+worker) with injected audio: non-empty transcript."
+  ],
+  "verificationLadder": {
+    "L1_model_runtime_probe": "v4 PASS (webgpu fp32+q4); v2 base PASS",
+    "L2_real_engine_dropin": "v2 base PASS (real TransformersJSEngine+worker); v4 NOT DONE (no v4 dropin)",
+    "L3_full_authenticated_app": "v2 base PASS (test agent, 100% h1_6, mockAuth=false); v4 NOT DONE",
+    "L4_release_mode": "pending"
+  },
+  "caveats": [
+    "v4 is probe-level (L1) only; app engine (L2) and full authenticated app (L3) NOT yet proven.",
+    "One browser (Apple Silicon). WASM-on-full-browser != WASM-on-headless. WebGPU is the robust lever.",
+    "One fixture (h1_6). No multi-fixture WER/latency matrix for v4 yet."
+  ],
+  "nextProof": "Test agent: run FULL AUTHENTICATED v4 WebGPU lifecycle (load->record->transcript->stop/save->detail) with the PROOF-HARDEN audio-validity gate; reconcile headless env."
+}
