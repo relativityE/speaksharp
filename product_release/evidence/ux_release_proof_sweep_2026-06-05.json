@@ -68,6 +68,29 @@
       "area": "direct_playwright_invocation",
       "status": "invalid",
       "summary": "A direct user-features Playwright command was excluded from product verdict because it did not build/serve frontend/dist first and failed with ENOENT for frontend/dist/index.html. Correct gate is pnpm run rc:dast:local, which passed."
+    },
+    {
+      "id": "RC-LIVE-ENV",
+      "area": "live_dast_preflight",
+      "status": "blocked",
+      "sha": "21c5abd7",
+      "summary": "pnpm run rc:dast:live stopped before browser execution because required live proof inputs were absent: BASE_URL, Supabase URL/anon/service-role keys, Free/Pro test credentials, and STRIPE_WEBHOOK_SECRET. This is not app-path proof and cannot count as live release evidence until env is supplied."
+    },
+    {
+      "id": "RC-GATE1-PRODUCT",
+      "area": "product_gate_local_ci",
+      "status": "fail",
+      "priority": "P1",
+      "sha": "21c5abd7",
+      "summary": "pnpm run rc:gate:1:product ran full ci:local. Code quality passed, E2E passed 33/33, CI report recorded no unit failure names and 100% passing rate, but final status failed because Lighthouse returned NO_FCP."
+    },
+    {
+      "id": "RC-LH-1",
+      "area": "lighthouse_no_fcp",
+      "status": "fail",
+      "priority": "P1",
+      "sha": "21c5abd7",
+      "summary": "Lighthouse failed with NO_FCP. Manual preview reproduction at http://127.0.0.1:4173 showed the built test-mode app never painted: loader stayed visible, data-app-visible-ready=false, and console threw 'Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow.' The release gate's Lighthouse path is incompatible with current test-mode preview/mock-auth guard."
     }
   ],
   "devRequests": [
@@ -80,6 +103,11 @@
       "id": "UX-FSM-1",
       "owner": "@dev-agent",
       "request": "Root-cause rapid Private start/stop render-loop warnings and add a regression for five short cycles with zero max-depth warnings and no zombie recording state."
+    },
+    {
+      "id": "RC-LH-1",
+      "owner": "@dev-agent",
+      "request": "Fix the Lighthouse/product-gate preview path so rc:gate:1 can paint and audit the app without bypassing environment discipline. Either serve through the centralized E2E harness/mock-auth bridge or make the LHCI config use a valid preview route that does not throw before first paint."
     }
   ]
 }
