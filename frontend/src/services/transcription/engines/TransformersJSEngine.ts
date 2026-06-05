@@ -22,7 +22,8 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
+import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 
 // Lazy-load transformers.js to avoid bundle bloat
@@ -30,7 +31,7 @@ type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeli
 type UnknownRecord = Record<string, unknown>;
 type WhisperDecodeOptions = Record<string, unknown>;
 type WorkerRequest =
-    | { type: 'init'; isE2E: boolean }
+    | { type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
     | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
     | { type: 'destroy' };
 type WorkerResponse =
@@ -513,6 +514,10 @@ export class TransformersJSEngine extends STTEngine {
 
     private async initWorker(isMock?: boolean): Promise<void> {
         const options = (this.options || {}) as TranscriptionModeOptions;
+        // STT-P6-HUMAN: reject an explicitly-requested-but-unsupported `?privateModel=` flag here,
+        // before any worker/model load, instead of silently running tiny (which made invalid model
+        // requests look honored). No flag or a valid candidate → no-op (default path unchanged).
+        assertValidPrivateModelSelection();
         this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
@@ -534,6 +539,20 @@ export class TransformersJSEngine extends STTEngine {
                     threads: response.threads,
                     crossOriginIsolated: response.crossOriginIsolated,
                 }, '[TransformersJS] Worker engine initialized successfully.');
+                // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
+                const loadedModelKey = resolvePrivateModel();
+                publishPrivateModelTelemetry({
+                    model: loadedModelKey,
+                    runtime: 'transformers-js',
+                    approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
+                    overridden: isPrivateModelOverridden(),
+                    selectionSource: resolvePrivateModelSource(),
+                    loadTimeMs: response.loadTimeMs,
+                    // Default tiny is bundled (local→remote fallback); candidates are remote-only.
+                    fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+                    // Privacy invariant: Private STT never routes to Cloud.
+                    cloudFallbackAttempted: false,
+                });
                 return;
             }
 
@@ -557,7 +576,25 @@ export class TransformersJSEngine extends STTEngine {
             this.pendingWorkerRequests.clear();
         };
 
-        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock) });
+        // Model-eval flag (OFF by default => production whisper-tiny.en, byte-identical).
+        // A flag-selected candidate is resolved on the main thread and passed to the worker.
+        const selectedModel = resolvePrivateModel();
+        const modelCfg = PRIV_STT_MODELS.CANDIDATES[selectedModel];
+        publishPrivateModelTelemetry({
+            model: selectedModel,
+            runtime: 'transformers-js',
+            approxMB: modelCfg.approxMB,
+            overridden: isPrivateModelOverridden(),
+            selectionSource: resolvePrivateModelSource(),
+            loadTimeMs: null,
+            fallbackPath: selectedModel === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+            cloudFallbackAttempted: false,
+        });
+        const response = await this.sendWorkerRequest({
+            type: 'init',
+            isE2E: Boolean(isMock),
+            model: { key: selectedModel, localId: modelCfg.localId, remoteId: modelCfg.remoteId },
+        });
         if (response.type !== 'ready') {
             throw new Error(`Unexpected TransformersJS worker init response: ${response.type}`);
         }
