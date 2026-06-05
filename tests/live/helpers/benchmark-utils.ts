@@ -410,7 +410,14 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_00
                 `${JSON.stringify(snapshot, null, 2)}`
             );
         }
-        await setupButton.click();
+        await setupButton.scrollIntoViewIfNeeded().catch(() => undefined);
+        try {
+            await setupButton.click({ timeout: 10_000 });
+        } catch (error) {
+            await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_FORCE_CLICK_RETRY');
+            console.warn('[benchmark-utils] Private setup click needed force retry', error);
+            await setupButton.click({ force: true, timeout: 5_000 });
+        }
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
     } else {
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_NOT_VISIBLE');

@@ -571,7 +571,17 @@ async function preparePrivateModel(page) {
       await page.waitForTimeout(PRIVATE_SETUP_CLICK_DELAY_MS);
     }
     await markPhase(page, 'private_model_download_click', await getPrivateReadinessSnapshot(page));
-    await downloadButton.click();
+    await downloadButton.scrollIntoViewIfNeeded().catch(() => undefined);
+    try {
+      await downloadButton.click({ timeout: 10_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await markPhase(page, 'private_model_download_click_retry_force', {
+        message,
+        readiness: await getPrivateReadinessSnapshot(page),
+      });
+      await downloadButton.click({ force: true, timeout: 5_000 });
+    }
   }
 
   await page.waitForFunction(() => {
