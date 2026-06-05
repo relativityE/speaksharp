@@ -12,7 +12,7 @@ Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in th
 ```text
 INTEGRATION_MAIN: origin/main (latest pushed integration baseline; exact SHA via `git rev-parse --short origin/main`)
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-05T00:49Z
+UPDATED_AT: 2026-06-05T05:15Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -38,6 +38,8 @@ Branch/proof rows keep exact base or artifact SHAs where they matter.
 | UX-NAV-1 | P1 | @dev-agent | TBD | `main@1784adfd` | new / dev-needed | Hard navigation while Private recording loses partial session. | Browser probe on canonical `5174` real auth: hard `page.goto('/analytics')` while Private recording landed on Analytics with no saved session/history and logged React `Maximum update depth exceeded`. Comparator: in-app Analytics nav with confirm accepted stopped/saved correctly. Artifacts: `/private/tmp/ux-private-navigation-interruption.json`, `/private/tmp/ux-private-spa-navigation-accept-dialog.json`. **Next @dev-agent:** decide/fix hard-nav/reload behavior: block reliably, persist/recover a local draft, or save before route replacement; add regression that no partial recording is lost and no max-depth warning fires. |
 | UX-FSM-1 | P1 | @dev-agent | TBD | `main@1784adfd` | new / dev-needed | Rapid Private Record/Stop emits React max-depth warnings. | Browser rapid-click probe (5 short Private cycles) recovered to `READY`, `data-recording=false`, no engine-frozen toast, but emitted 4 `Maximum update depth exceeded` console errors. Artifact: `/private/tmp/ux-private-rapid-start-stop.json`. **Next @dev-agent:** root-cause the render-loop/update dependency during fast start/stop cleanup and add regression that rapid cycles have zero max-depth warnings and no zombie `RECORDING`/`STOPPING`. |
 | UX-MUTEX-1 | P1 | test-release-agent | `test/ux-release-proof-sweep@1784adfd` | `main@1784adfd` | passed | Browser multi-tab session mutex proof. | PASS: tab1 stayed recording; tab2 attempt showed `Active session in another tab`, `data-recording=false`, no page errors. Artifact `/private/tmp/ux-multitab-session-mutex.json`. No dev action unless later user-facing copy polish is requested. |
+| UX-ENTITLEMENT-1 | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Trial/free/pro entitlement and STT policy proof. | PASS: focused Vitest entitlement proof passed 5 files / 76 tests across subscription tiers, transcription policy, session lifecycle, LiveRecordingCard, and free-plan support. Trial/private and Cloud gating logic are covered. |
+| UX-DAST-LOCAL | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Local DAST release gate. | PASS: `pnpm run rc:dast:local` built test mode and passed 18/18 Playwright checks covering primary journey, user features/PDF, entitlement, error states, and analytics truth. Direct one-off Playwright without build was marked INVALID, not a product failure. |
 
 ## Assignment Notification Protocol
 
