@@ -1,0 +1,79 @@
+{
+  "id": "stt-p6-conv02-edge-bakeoff",
+  "createdAt": "2026-06-05T11:58:00Z",
+  "purpose": "Extend Private v2 tiny-vs-base bakeoff with a filler-heavy edge fixture after setup-harness fixes.",
+  "codeUnderTest": {
+    "testBranch": "test/stt-p6-edge-bakeoff",
+    "modelEvalBranch": "dev/private-model-eval-main",
+    "mainIncludesHarnessFixesThrough": "bff319ec",
+    "note": "Branch used only for proof. It was not merged to main."
+  },
+  "fixture": {
+    "id": "conv_02",
+    "type": "filler",
+    "truth": "Well, I mean, you know, it is what it is.",
+    "expectedFillers": {
+      "i mean": 1,
+      "you know": 1
+    }
+  },
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true,
+    "invalidReasons": []
+  },
+  "runs": {
+    "tiny": {
+      "artifact": "/private/tmp/stt-p6-edge-conv02-tiny-rerun2.json",
+      "model": "whisper-tiny.en",
+      "approxMB": 40,
+      "selectionSource": "window",
+      "fallbackPath": "local-then-remote",
+      "loadTimeMs": 914,
+      "firstTextMs": 3335,
+      "stopFinalizationMs": 1823,
+      "transcript": "Well, I mean, you know, it is what it is.",
+      "wer": 0,
+      "accuracyPct": 100,
+      "detailTranscript": "Well, I mean, you know, it is what it is.",
+      "detailWer": 0,
+      "journeyPass": true,
+      "sessionPersisted": true
+    },
+    "base": {
+      "artifact": "/private/tmp/stt-p6-edge-conv02-base.json",
+      "model": "whisper-base.en",
+      "approxMB": 145,
+      "selectionSource": "window",
+      "fallbackPath": "remote-only",
+      "loadTimeMs": 2047,
+      "firstTextMs": 10746,
+      "stopFinalizationMs": 10739,
+      "transcript": "I mean, you know, it is what it is.",
+      "wer": 0.1,
+      "accuracyPct": 90,
+      "detailTranscript": "I mean, you know, it is what it is.",
+      "detailWer": 0.1,
+      "journeyPass": true,
+      "sessionPersisted": true
+    }
+  },
+  "deltas": {
+    "baseMinusTinyAccuracyPct": -10,
+    "baseMinusTinyFirstTextMs": 7411,
+    "baseMinusTinyStopFinalizationMs": 8916,
+    "baseOmission": "Dropped the opening word/filler-adjacent discourse marker: Well."
+  },
+  "result": {
+    "verdict": "base_worse_on_conv02",
+    "recommendationImpact": "Strengthens the existing recommendation not to default whisper-base.en for Private release. On this filler-heavy edge fixture, tiny is both more accurate and substantially faster.",
+    "remainingGaps": [
+      "Names/acronyms fixture still not covered by the current corpus runner.",
+      "Noisy/low-volume and near-silence fixtures still need either runner support or a separate probe."
+    ]
+  }
+}
