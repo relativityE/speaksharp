@@ -138,3 +138,45 @@ v4 still runtime-blocked in browser.
 The single-thread/no-proxy hypothesis is falsified for this ORT dev build.
 Node decode success proves model/dtype validity, but browser ORT still cannot run the graph.
 ```
+
+## TEST → DEV result (2026-06-05, `test/stt-v4r-exact-contract@b9f6448c`)
+
+Artifacts:
+
+- `/private/tmp/stt-v4r-b9-q8-result.json`
+- `/private/tmp/stt-v4r-b9-a2-matrix.json`
+
+Input WAV: `tests/fixtures/stt-isomorphic/audio/h1_6.wav`, temporarily served as
+`/__probe_h1_6.wav` during the local Vite run and removed after the proof.
+
+Runtime:
+
+- URL base: `http://127.0.0.1:5174/v4-decode-probe.html`
+- `device=wasm`
+- `threads=1`
+- `proxy=0`
+- `modelId=onnx-community/whisper-tiny.en`
+
+| encoder | decoder | result | exact error | loaded model files |
+|---|---|---|---|---|
+| `fp32` | `q8` | **FAIL** | `Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear` | `encoder_model.onnx`, `decoder_model_merged_quantized.onnx` |
+| `q8` | `q8` | **FAIL** | same missing decoder scale error | `encoder_model_quantized.onnx`, `decoder_model_merged_quantized.onnx` |
+| `fp32` | `q4` | **FAIL** | `invalid data location: undefined for input "a"` | `encoder_model.onnx`, `decoder_model_merged_q4.onnx` |
+
+Exact-contract note:
+
+- `__V4_PROBE_RESULT__` now emits the requested shape (`ok`, `modelId`, `backend`,
+  `encoderDtype`, `decoderDtype`, `proxy`, `threads`, `modelFilesLoaded`, `error`).
+- In this failure path, `transformersVersion` and `onnxRuntimeVersion` are present but blank.
+  If dev needs version values in every failure, the probe should resolve them from package metadata
+  or the imported backend before session creation.
+
+Verdict:
+
+```text
+v4 remains browser-runtime blocked.
+No b9 exact-contract WASM cell produced a non-empty transcript.
+q8 still fails at ORT session creation because the quantized decoder scale is missing.
+q4 still reproduces the original "invalid data location" failure.
+Keep v4 out of release A/B and treat this as an onnxruntime-web / model-artifact compatibility track.
+```
