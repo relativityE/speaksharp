@@ -553,7 +553,7 @@ async function preparePrivateModel(page) {
   await markPhase(page, 'private_model_readiness_before', before);
 
   const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+  const clickDownloadButton = async (phase) => {
     if (PRIVATE_SETUP_USER_CONSENT_REQUIRED) {
       const readiness = await getPrivateReadinessSnapshot(page);
       await markPhase(page, 'private_model_download_user_consent_required', readiness);
@@ -570,7 +570,7 @@ async function preparePrivateModel(page) {
       });
       await page.waitForTimeout(PRIVATE_SETUP_CLICK_DELAY_MS);
     }
-    await markPhase(page, 'private_model_download_click', await getPrivateReadinessSnapshot(page));
+    await markPhase(page, phase, await getPrivateReadinessSnapshot(page));
     await downloadButton.scrollIntoViewIfNeeded().catch(() => undefined);
     try {
       await downloadButton.click({ timeout: 10_000 });
@@ -582,14 +582,27 @@ async function preparePrivateModel(page) {
       });
       await downloadButton.click({ force: true, timeout: 5_000 });
     }
+  };
+
+  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    await clickDownloadButton('private_model_download_click');
   }
 
-  await page.waitForFunction(() => {
-    const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
-    const downloadVisible = Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none');
-    return !downloadVisible && root.getAttribute('data-model-status') === 'ready';
-  }, null, { timeout: 180_000 });
+  const setupDeadline = Date.now() + 180_000;
+  let delayedClickCount = 0;
+  while (Date.now() < setupDeadline) {
+    const readiness = await getPrivateReadinessSnapshot(page);
+    if (isPrivateReadySnapshot(readiness)) {
+      const after = await getPrivateReadinessSnapshot(page);
+      await markPhase(page, 'private_model_readiness_after', after);
+      return { before, after };
+    }
+    if (readiness.downloadVisible && delayedClickCount < 3) {
+      delayedClickCount += 1;
+      await clickDownloadButton('private_model_download_click_delayed');
+    }
+    await page.waitForTimeout(1_000);
+  }
 
   const after = await getPrivateReadinessSnapshot(page);
   await markPhase(page, 'private_model_readiness_after', after);
