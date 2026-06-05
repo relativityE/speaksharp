@@ -5,7 +5,7 @@ type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeli
 type WhisperDecodeOptions = Record<string, unknown>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean }
+    | { id: number; type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
     | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
     | { id: number; type: 'destroy' };
 
@@ -43,7 +43,7 @@ function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
 
-async function init(id: number, isE2E: boolean): Promise<void> {
+async function init(id: number, isE2E: boolean, model?: { key: string; localId: string; remoteId: string }): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -94,33 +94,56 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     };
 
     const loadStart = performance.now();
+    // Model-eval flag: default keeps whisper-tiny.en (production); a flag-selected model is
+    // passed from the main thread in the init request. RMS/decode path is otherwise unchanged.
+    const localModelId = model?.localId ?? 'whisper-tiny.en';
+    const remoteModelId = model?.remoteId ?? 'Xenova/whisper-tiny.en';
+    const loadedModelKey = model?.key ?? 'whisper-tiny.en';
+    // Only the default whisper-tiny.en is bundled in public/models/. Candidate models
+    // (whisper-base.en, whisper-small.en) are NOT on disk, so a local-first attempt fetches
+    // /models/<id>/... which the SPA dev server answers with index.html (HTTP 200, not 404)
+    // → the "Unexpected token <" model-load failure the STT-P6 A/B hit. So: the default loads
+    // local-first then remote (unchanged / byte-identical); candidates load REMOTE-ONLY.
+    const isBundledLocalModel = localModelId === 'whisper-tiny.en';
     try {
-        transcriber = await pipeline(
-            'automatic-speech-recognition',
-            'whisper-tiny.en',
-            {
-                quantized: true,
-                progress_callback,
-            },
-        );
-    } catch (localError) {
-        env.allowRemoteModels = true;
-        transcriber = await pipeline(
-            'automatic-speech-recognition',
-            'Xenova/whisper-tiny.en',
-            {
+        if (isBundledLocalModel) {
+            env.allowLocalModels = true;
+            env.allowRemoteModels = false;
+            try {
+                transcriber = await pipeline('automatic-speech-recognition', localModelId, {
+                    quantized: true,
+                    progress_callback,
+                });
+            } catch {
+                env.allowRemoteModels = true;
+                transcriber = await pipeline('automatic-speech-recognition', remoteModelId, {
+                    quantized: true,
+                    revision: 'main',
+                    progress_callback,
+                });
+            }
+        } else {
+            env.allowLocalModels = false;
+            env.allowRemoteModels = true;
+            transcriber = await pipeline('automatic-speech-recognition', remoteModelId, {
                 quantized: true,
                 revision: 'main',
                 progress_callback,
-            },
-        );
+            });
+        }
+    } catch (loadError) {
+        // Fail-fast with a NAMED, attributable error so the harness/mic isn't left hanging
+        // ~180s on a bad model id or missing remote asset. The worker's onmessage handler
+        // catches this and posts a single type:'error', which the engine rejects on immediately.
+        const detail = loadError instanceof Error ? loadError.message : String(loadError);
+        throw new Error(`MODEL_LOAD_FAILED [${loadedModelKey} -> ${remoteModelId}]: ${detail}`);
     }
 
     post({
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
-        model: 'whisper-tiny.en',
+        model: loadedModelKey,
         device: cpuThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
         threads: cpuThreads,
         crossOriginIsolated: cpuIsolated,
@@ -164,7 +187,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E);
+                    await init(request.id, request.isE2E, request.model);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions);
