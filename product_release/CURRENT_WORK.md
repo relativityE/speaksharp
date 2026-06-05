@@ -12,7 +12,7 @@ Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in th
 ```text
 INTEGRATION_MAIN: origin/main (latest pushed integration baseline; exact SHA via `git rev-parse --short origin/main`)
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-05T05:31Z
+UPDATED_AT: 2026-06-05T05:53Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -42,6 +42,9 @@ Branch/proof rows keep exact base or artifact SHAs where they matter.
 | UX-DAST-LOCAL | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Local DAST release gate. | PASS: `pnpm run rc:dast:local` built test mode and passed 18/18 Playwright checks covering primary journey, user features/PDF, entitlement, error states, and analytics truth. Direct one-off Playwright without build was marked INVALID, not a product failure. |
 | RC-LIVE-ENV | P0 | product/ops → test-release-agent | `main@21c5abd7` | `main@21c5abd7` | blocked / missing env | Live DAST production proof. | `pnpm run rc:dast:live` stopped at preflight before browser execution because required live proof inputs are absent: `BASE_URL`, Supabase URL/anon/service-role keys, Free/Pro test credentials, and `STRIPE_WEBHOOK_SECRET`. This is not app-path proof; open-beta live release evidence remains blocked until env is supplied. |
 | RC-LH-1 | P1 | @dev-agent | TBD | `main@21c5abd7` | new / dev-needed | Product gate Lighthouse cannot paint the test preview. | `pnpm run rc:gate:1:product` ran full `ci:local`: code quality passed, E2E passed 33/33, CI report recorded no unit failure names and 100% passing rate, but final status failed because Lighthouse returned `NO_FCP`. Reproduction on `pnpm exec vite preview --port 4173` showed loader stuck, `data-app-visible-ready=false`, and console error `Mock auth is not available from the runtime app...`. **Next @dev-agent:** make the Lighthouse/product gate use the centralized E2E harness/mock-auth bridge or a valid preview route so the app paints without weakening environment discipline. |
+| RC-GATE2-SAST | P1 | test-release-agent | `main@da09b2c6` | `main@da09b2c6` | passed | Static security/hardening gate. | PASS on current main: `pnpm run rc:gate:2:sast` passed quality/lint/typecheck/no-eslint-disable, frontend provider-secret scan, production-hardening scan, Edge tests 11 files/73 steps, and focused Vitest 8 files/78 tests. No dev action. |
+| RC-SCA-1 | P1 | @dev-agent | TBD | `main@da09b2c6` | new / dev-needed | Dependency audit release gate fails on critical Vitest advisory. | `pnpm run rc:gate:4:sca` fails current main: critical `vitest <4.1.0` advisory GHSA-5xrq-8626-4rwp ("When Vitest UI server is listening, arbitrary file can be read and executed"), 82 audit findings total. **Next @dev-agent:** upgrade/pin the Vitest stack to a patched version or remove/disable the vulnerable UI exposure, then rerun `pnpm run rc:gate:4:sca` plus the unit/front-end suites. |
+| RC-UX-SMOKE | P1 | test-release-agent | `main@da09b2c6` | `main@da09b2c6` | passed | Current-main UX smoke gate. | PASS: `pnpm run rc:gate:5:ux` built test mode and passed 14/14 Playwright checks after valid unsandboxed E2E server start. A sandboxed attempt failed preview bind with EPERM and was rejected as invalid evidence, not a product failure. |
 
 ## Assignment Notification Protocol
 

@@ -207,6 +207,7 @@ Please review whether the current guard and process are sufficient, or whether w
 |---|---|---|---|---|
 | RC-LH-1 | P1 | @dev-agent | `pnpm run rc:gate:1:product` runs local CI through code quality and E2E (`33/33`), then fails because Lighthouse returns `NO_FCP`. Reproduction on `127.0.0.1:4173` shows the built test-mode app stays on the loader and throws `Mock auth is not available from the runtime app...`. | Make the Lighthouse/product gate use the centralized E2E harness/mock-auth bridge or another valid preview route that paints without weakening environment discipline. |
 | RC-LIVE-ENV | P0 | product/ops | `pnpm run rc:dast:live` correctly stops before browser execution because live proof inputs are absent (`BASE_URL`, Supabase URL/anon/service-role, Free/Pro test creds, Stripe webhook secret). | Supply live proof env/secrets before counting live DAST as release evidence. |
+| RC-SCA-1 | P1 | @dev-agent | `pnpm run rc:gate:4:sca` fails current `main@da09b2c6` on critical `vitest <4.1.0` advisory `GHSA-5xrq-8626-4rwp`; audit reports 82 findings total (5 low, 35 moderate, 41 high, 1 critical). | Upgrade/pin the Vitest stack to a patched version or remove/disable vulnerable Vitest UI exposure, then rerun `pnpm run rc:gate:4:sca` and the relevant unit/front-end suites. |
 
 ## Current STT Ownership
 
