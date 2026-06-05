@@ -39,8 +39,8 @@ describe('Global Error Handlers', () => {
         vi.useRealTimers();
     });
 
-    it('should capture unhandledrejection in Sentry and show toast', () => {
-        const reason = new Error('Async Failure');
+    it('should capture unhandledrejection in Sentry and show a generic toast (no raw message leak)', () => {
+        const reason = new Error('Async Failure: secret-internal-db-detail');
         // Use custom interface to avoid PromiseRejectionEvent ReferenceError and ANY casts
         const event = new Event('unhandledrejection') as MockPromiseRejectionEvent;
         event.reason = reason;
@@ -49,10 +49,13 @@ describe('Global Error Handlers', () => {
 
         window.dispatchEvent(event);
 
+        // Raw reason still flows to Sentry (internal observability)...
         expect(Sentry.captureException).toHaveBeenCalledWith(reason);
-        expect(toast.error).toHaveBeenCalledWith('A background task failed', expect.objectContaining({
-            description: 'Async Failure'
-        }));
+        // ...but the user-facing toast must be generic and MUST NOT echo the raw error message.
+        expect(toast.error).toHaveBeenCalledTimes(1);
+        const [title, opts] = (toast.error as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+        expect(title).not.toContain('Async Failure');
+        expect(String((opts as { description?: string })?.description ?? '')).not.toContain('Async Failure');
         expect(event.preventDefault).toHaveBeenCalled();
     });
 

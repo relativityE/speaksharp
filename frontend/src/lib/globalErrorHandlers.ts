@@ -45,11 +45,13 @@ export const setupGlobalErrorHandlers = () => {
             reason: message
         }, 'CRITICAL');
 
-        // Add debouncing to prevent UI flooding during network outages
+        // Add debouncing to prevent UI flooding during network outages.
+        // The raw `message` is kept in logs/Sentry/analytics above (internal only); the
+        // user-facing toast stays generic so backend internals never leak (P2 hardening).
         const now = Date.now();
         if (now - lastToastTime > TOAST_COOLDOWN_MS) {
-            toast.error("A background task failed", {
-                description: message || 'Check logs for details'
+            toast.error("Something went wrong in the background", {
+                description: "We've logged the issue. Please retry — if it keeps happening, reload the page."
             });
             lastToastTime = now;
         }
