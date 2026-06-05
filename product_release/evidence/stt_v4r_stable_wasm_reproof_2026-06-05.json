@@ -1,0 +1,83 @@
+{
+  "createdAt": "2026-06-05T07:01:20.758Z",
+  "results": [
+    {
+      "name": "stable-q8",
+      "url": "http://127.0.0.1:5184/v4-decode-probe.html?wav=%2F%40fs%2Fprivate%2Ftmp%2Fspeaksharp-integration%2Ftests%2Ffixtures%2Fstt-isomorphic%2Faudio%2Fh1_6.wav&encoder=fp32&decoder=q8&device=wasm&threads=1&proxy=0",
+      "elapsedMs": 3403,
+      "result": {
+        "ok": false,
+        "modelId": "onnx-community/whisper-tiny.en",
+        "transformersVersion": "",
+        "onnxRuntimeVersion": "",
+        "backend": "wasm",
+        "encoderDtype": "fp32",
+        "decoderDtype": "q8",
+        "proxy": false,
+        "threads": 1,
+        "ortVersionRequested": "1.26.0",
+        "error": "Error: Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear",
+        "modelFilesLoaded": [
+          "config.json",
+          "preprocessor_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "onnx/encoder_model.onnx",
+          "onnx/decoder_model_merged_quantized.onnx",
+          "generation_config.json"
+        ]
+      },
+      "body": "Private v4 Decode Probe\n\nStandalone @huggingface/transformers (v4) + onnx-community Whisper browser decode test. NO SpeakSharp app code (no session, controller, store, save, analytics). First milestone: decode ONE WAV to a non-empty transcript, or capture the exact failure.\n\nParams: ?wav=<url>&encoder=fp32&decoder=q4&device=wasm&model=onnx-community/whisper-tiny.en\nMatrix: encoder ∈ {fp32,q8} · decoder ∈ {q8,q4} · device ∈ {wasm,webgpu}. Start with wasm + q8 decoder.\n\nOr pick a local WAV: \n\n❌ DECODE FAILED: Error: Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear\nResult (also on window.__V4_PROBE_RESULT__)\n{\n  \"ok\": false,\n  \"modelId\": \"onnx-community/whisper-tiny.en\",\n  \"transformersVersion\": \"\",\n  \"onnxRuntimeVersion\": \"\",\n  \"backend\": \"wasm\",\n  \"encoderDtype\": \"fp32\",\n  \"decoderDtype\": \"q8\",\n  \"proxy\": false,\n  \"threads\": 1,\n  \"ortVersionRequested\": \"1.26.0\",\n  \"error\": \"Error: Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear\",\n  \"modelFilesLoaded\": [\n    \"config.json\",\n    \"preprocessor_config.json\",\n    \"tokenizer.json\",\n    \"tokenizer_config.json\",\n    \"onnx/encoder_model.onnx\",\n    \"onnx/decoder_model_merged_quantized.onnx\",\n    \"generation_config.json\"\n  ]\n}",
+      "consoleRows": [
+        {
+          "type": "debug",
+          "text": "[vite] connecting..."
+        },
+        {
+          "type": "debug",
+          "text": "[vite] connected."
+        }
+      ],
+      "failures": []
+    },
+    {
+      "name": "bundled-q8",
+      "url": "http://127.0.0.1:5184/v4-decode-probe.html?wav=%2F%40fs%2Fprivate%2Ftmp%2Fspeaksharp-integration%2Ftests%2Ffixtures%2Fstt-isomorphic%2Faudio%2Fh1_6.wav&encoder=fp32&decoder=q8&device=wasm&threads=1&proxy=0&ortVersion=bundled",
+      "elapsedMs": 1960,
+      "result": {
+        "ok": false,
+        "modelId": "onnx-community/whisper-tiny.en",
+        "transformersVersion": "",
+        "onnxRuntimeVersion": "",
+        "backend": "wasm",
+        "encoderDtype": "fp32",
+        "decoderDtype": "q8",
+        "proxy": false,
+        "threads": 1,
+        "ortVersionRequested": "bundled",
+        "error": "Error: Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear",
+        "modelFilesLoaded": [
+          "config.json",
+          "preprocessor_config.json",
+          "tokenizer.json",
+          "tokenizer_config.json",
+          "onnx/encoder_model.onnx",
+          "onnx/decoder_model_merged_quantized.onnx",
+          "generation_config.json"
+        ]
+      },
+      "body": "Private v4 Decode Probe\n\nStandalone @huggingface/transformers (v4) + onnx-community Whisper browser decode test. NO SpeakSharp app code (no session, controller, store, save, analytics). First milestone: decode ONE WAV to a non-empty transcript, or capture the exact failure.\n\nParams: ?wav=<url>&encoder=fp32&decoder=q4&device=wasm&model=onnx-community/whisper-tiny.en\nMatrix: encoder ∈ {fp32,q8} · decoder ∈ {q8,q4} · device ∈ {wasm,webgpu}. Start with wasm + q8 decoder.\n\nOr pick a local WAV: \n\n❌ DECODE FAILED: Error: Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear\nResult (also on window.__V4_PROBE_RESULT__)\n{\n  \"ok\": false,\n  \"modelId\": \"onnx-community/whisper-tiny.en\",\n  \"transformersVersion\": \"\",\n  \"onnxRuntimeVersion\": \"\",\n  \"backend\": \"wasm\",\n  \"encoderDtype\": \"fp32\",\n  \"decoderDtype\": \"q8\",\n  \"proxy\": false,\n  \"threads\": 1,\n  \"ortVersionRequested\": \"bundled\",\n  \"error\": \"Error: Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear\",\n  \"modelFilesLoaded\": [\n    \"config.json\",\n    \"preprocessor_config.json\",\n    \"tokenizer.json\",\n    \"tokenizer_config.json\",\n    \"onnx/encoder_model.onnx\",\n    \"onnx/decoder_model_merged_quantized.onnx\",\n    \"generation_config.json\"\n  ]\n}",
+      "consoleRows": [
+        {
+          "type": "debug",
+          "text": "[vite] connecting..."
+        },
+        {
+          "type": "debug",
+          "text": "[vite] connected."
+        }
+      ],
+      "failures": []
+    }
+  ]
+}
