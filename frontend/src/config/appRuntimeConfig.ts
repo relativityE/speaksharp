@@ -19,6 +19,22 @@ export interface AppModeMeta {
   releaseProofEligible: boolean;
 }
 
+/**
+ * Class of the runtime Stripe publishable key. Publishable keys are NOT secrets (they ship in
+ * the client bundle by design), but the *class* matters: a production deploy must run `live`,
+ * never `test`. `missing` means no key was injected (fail-closed → ConfigurationNeededPage).
+ */
+export type StripeKeyClass = 'live' | 'test' | 'missing' | 'unknown';
+
+/** Pure, testable classifier for the runtime Stripe publishable key. */
+export function classifyStripeKey(key: string | undefined | null): StripeKeyClass {
+  const value = (key ?? '').trim();
+  if (value === '') return 'missing';
+  if (value.startsWith('pk_live_')) return 'live';
+  if (value.startsWith('pk_test_')) return 'test';
+  return 'unknown';
+}
+
 export interface AppRuntimeConfig {
   url: string;
   port: number;
@@ -27,6 +43,8 @@ export interface AppRuntimeConfig {
   mockAuth: boolean;
   supabaseUrl: string;
   releaseProofEligible: boolean;
+  /** Observable proof of the Stripe key class in the live runtime (see classifyStripeKey). */
+  stripeKeyClass: StripeKeyClass;
 }
 
 declare global {
@@ -45,8 +63,9 @@ export function computeAppRuntimeConfig(input: {
   useMockAuthEnv: boolean;
   actualPort: number;
   url: string;
+  stripeKey?: string;
 }): AppRuntimeConfig {
-  const { meta, supabaseUrl, envAuthMode, useMockAuthEnv, actualPort, url } = input;
+  const { meta, supabaseUrl, envAuthMode, useMockAuthEnv, actualPort, url, stripeKey } = input;
   const authMode = envAuthMode || meta.authMode;
   const usesRealSupabase = USES_REAL_SUPABASE.test(supabaseUrl);
   const mockAuth =
@@ -62,7 +81,16 @@ export function computeAppRuntimeConfig(input: {
       usesRealSupabase,
   );
 
-  return { url, port: actualPort, viteMode: meta.viteMode, authMode, mockAuth, supabaseUrl, releaseProofEligible };
+  return {
+    url,
+    port: actualPort,
+    viteMode: meta.viteMode,
+    authMode,
+    mockAuth,
+    supabaseUrl,
+    releaseProofEligible,
+    stripeKeyClass: classifyStripeKey(stripeKey),
+  };
 }
 
 function readModeMeta(): AppModeMeta {
@@ -85,6 +113,7 @@ export function publishAppRuntimeConfig(): AppRuntimeConfig {
     actualPort:
       typeof window !== 'undefined' && window.location.port ? Number(window.location.port) : meta.port,
     url: typeof window !== 'undefined' ? window.location.href : '',
+    stripeKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
   });
   if (typeof window !== 'undefined') {
     window.__APP_RUNTIME_CONFIG__ = cfg;

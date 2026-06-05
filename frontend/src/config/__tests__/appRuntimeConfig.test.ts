@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeAppRuntimeConfig, type AppModeMeta } from '../appRuntimeConfig';
+import { classifyStripeKey, computeAppRuntimeConfig, type AppModeMeta } from '../appRuntimeConfig';
 
 const MANUAL: AppModeMeta = { viteMode: 'development', port: 5174, authMode: 'real', releaseProofEligible: true };
 const TEST_MODE: AppModeMeta = { viteMode: 'test', port: 5173, authMode: 'mock', releaseProofEligible: false };
@@ -53,5 +53,25 @@ describe('computeAppRuntimeConfig — STT release-proof eligibility (config disc
 
   it('manual mode but VITE_USE_MOCK_AUTH=true → NOT eligible', () => {
     expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual, useMockAuthEnv: true }).releaseProofEligible).toBe(false);
+  });
+
+  it('surfaces stripeKeyClass for production runtime proof', () => {
+    expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual, stripeKey: 'pk_live_abc' }).stripeKeyClass).toBe('live');
+    expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual, stripeKey: 'pk_test_abc' }).stripeKeyClass).toBe('test');
+    // No stripeKey provided → fail-closed "missing" (the neutralized .env.production case).
+    expect(computeAppRuntimeConfig({ meta: MANUAL, ...okManual }).stripeKeyClass).toBe('missing');
+  });
+});
+
+describe('classifyStripeKey', () => {
+  it('classifies live, test, missing, and unknown key shapes', () => {
+    expect(classifyStripeKey('pk_live_51Abc')).toBe('live');
+    expect(classifyStripeKey('pk_test_51Abc')).toBe('test');
+    expect(classifyStripeKey('')).toBe('missing');
+    expect(classifyStripeKey('   ')).toBe('missing');
+    expect(classifyStripeKey(undefined)).toBe('missing');
+    expect(classifyStripeKey(null)).toBe('missing');
+    expect(classifyStripeKey('sk_live_should_never_be_here')).toBe('unknown');
+    expect(classifyStripeKey('garbage')).toBe('unknown');
   });
 });

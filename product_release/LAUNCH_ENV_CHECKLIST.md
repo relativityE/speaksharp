@@ -14,6 +14,8 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 
 ## 1. Billing & Payments (Stripe)
 - [ ] **Live Keys**: `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are using `sk_live_...` and `pk_live_...`.
+- [ ] **Frontend publishable key injected by Vercel**: `VITE_STRIPE_PUBLISHABLE_KEY` is set to the `pk_live_...` key in the **Vercel project env (Production scope)**. The committed `frontend/.env.production` ships this **empty on purpose** (fail-closed) — a production build without the Vercel override renders `ConfigurationNeededPage` rather than silently shipping a Stripe TEST-mode key. There is no `pk_test_...` committed to the repo.
+- [ ] **Runtime key-class proof**: On the live production URL, `window.__APP_RUNTIME_CONFIG__.stripeKeyClass === "live"`. Any other value blocks launch: `"test"` = a test key reached production (billing risk), `"missing"` = the Vercel env override is absent, `"unknown"` = malformed key.
 - [ ] **Webhook Endpoint**: Production URL `https://[PROJECT].supabase.co/functions/v1/stripe-webhook` is registered.
 - [ ] **Webhook Secret**: `STRIPE_WEBHOOK_SECRET` matches the production dashboard.
 - [ ] **Free Signup**: Public signup starts the unpaid baseline without Stripe checkout or card collection.
