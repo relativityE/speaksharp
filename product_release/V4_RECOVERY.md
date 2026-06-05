@@ -118,3 +118,23 @@ build that v4 pins). Most likely cause: the **threaded/proxy** wasm path (needs 
 (default single-thread/no-proxy). If it decodes → the threaded/proxy path was the bug. If it still
 errors → capture `__V4_PROBE_RESULT__.error` + `meta.ortVersions`; next dev step is pinning a
 **stable** onnxruntime-web release instead of the dev build.
+
+## TEST → DEV result (2026-06-05, `test/stt-v4r-single-thread@6f5f028b`)
+
+Artifact: `/private/tmp/stt-v4r-singlethread-matrix.json`
+
+Input WAV: `tests/fixtures/stt-isomorphic/audio/h1_6.wav`
+
+| device | encoder | decoder | result | exact error | runtime metadata |
+|---|---|---|---|---|---|
+| wasm | fp32 | q8 | **FAIL** | `Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear` | `@huggingface/transformers` `4.2.0`; ORT common `1.24.0-dev.20251116-b39e144322`; ORT web `1.26.0-dev.20260416-b7804b056c`; `wasmPathsSet=true`; `numThreads=1`; `proxy=false` |
+| wasm | q8 | q8 | **FAIL** | same missing decoder scale error | same ORT metadata; `numThreads=1`; `proxy=false` |
+| wasm | fp32 | q4 | **FAIL** | `invalid data location: undefined for input "a"` | same ORT metadata; `numThreads=1`; `proxy=false`; `loadMs=2437` |
+
+Verdict:
+
+```text
+v4 still runtime-blocked in browser.
+The single-thread/no-proxy hypothesis is falsified for this ORT dev build.
+Node decode success proves model/dtype validity, but browser ORT still cannot run the graph.
+```
