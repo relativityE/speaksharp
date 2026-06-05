@@ -59,6 +59,34 @@ start with WebGPU.
 For each cell capture `window.__V4_PROBE_RESULT__`: `ok`, `transcript` or `error{name,message}`,
 `meta.ortVersions`, `meta.wasmPathsSet`, `meta.loadMs/decodeMs`.
 
+## TEST → DEV result (2026-06-05, `test/stt-v4r-probe@f2274628`)
+
+Artifact: `/private/tmp/stt-v4r-wasm-matrix.json`
+
+Input WAV: `tests/fixtures/stt-isomorphic/audio/h1_6.wav` (3.1 s, 49,575 samples after browser decode)
+
+| device | encoder | decoder | result | exact error | runtime metadata |
+|---|---|---|---|---|---|
+| wasm | fp32 | q8 | **FAIL** | `Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear` | `@huggingface/transformers` `4.2.0`; ORT common `1.24.0-dev.20251116-b39e144322`; ORT web `1.26.0-dev.20260416-b7804b056c`; `wasmPathsSet=true` |
+| wasm | q8 | q8 | **FAIL** | same missing decoder scale error | same ORT metadata |
+| wasm | fp32 | q4 | **FAIL** | `invalid data location: undefined for input "a"` | same ORT metadata; `loadMs=2169` |
+
+Verdict:
+
+```text
+v4 still runtime-blocked.
+No WASM dtype combination produced a non-empty standalone browser transcript.
+Do not run app-path WER or release comparisons for v4.
+```
+
+Signal for dev:
+
+```text
+q8 moved failure from the old "input a" signature to an ORT quantized-decoder scale/session-creation failure.
+q4 still reproduces the known "invalid data location" failure.
+The current blocker is below SpeakSharp app code: v4 + onnx-community model artifact + ORT browser runtime compatibility.
+```
+
 ## Phase 3 — app integration (only after standalone decode works)
 
 Wire the working config into `TransformersJSV4Engine` → `PrivateSTT` → session → save/history/
