@@ -71,4 +71,20 @@ describe('issueReportService', () => {
       audio_attachment_note: 'User can provide audio separately.',
     }));
   });
+
+  it('stores an anonymous report (user_id null) when no userId is provided (Option C)', async () => {
+    await issueReportService.submit({
+      // no userId — anonymous
+      category: 'general',
+      severity: 'low',
+      title: 'Minor wording issue',
+      description: 'A label on the analytics page reads awkwardly.',
+      pageUrl: 'http://localhost:5174/analytics',
+      metadata: { route: '/analytics' },
+      includeTranscript: false,
+      includeAudio: false,
+    });
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: null }));
+  });
 });

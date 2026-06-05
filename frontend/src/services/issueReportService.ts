@@ -19,7 +19,13 @@ export interface IssueReportMetadata {
 }
 
 export interface SubmitIssueReportInput {
-  userId: string;
+  /**
+   * Optional (Option C): reports are anonymous by default — we store no identity and rely on the
+   * row timestamp + sttMode/route metadata (and sentryLastEventId) to correlate with logs/Sentry.
+   * The insert still runs under an authenticated session (RLS `TO authenticated`), so reports are
+   * not internet-spammable; we simply do not record WHO submitted.
+   */
+  userId?: string | null;
   sessionId?: string | null;
   category: IssueReportCategory;
   severity: IssueReportSeverity;
@@ -72,7 +78,7 @@ export const issueReportService = {
     const { data, error } = await supabase
       .from('user_issue_reports')
       .insert({
-        user_id: input.userId,
+        user_id: input.userId ?? null,
         session_id: input.sessionId ?? null,
         category: input.category,
         severity: input.severity,

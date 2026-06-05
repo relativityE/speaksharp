@@ -24,7 +24,8 @@ const Navigation = () => {
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
   const { data: usageLimit } = useUsageLimit();
-  const reportTranscript = useSessionStore(state => state.transcript.transcript);
+  // Issue reports are anonymous and never carry the auto transcript (Option C): the user types the
+  // exact snippet they want to share inside the dialog. We pass only non-PII session context.
   const reportSttMode = useSessionStore(state => state.sttMode);
   const reportRuntimeState = useSessionStore(state => state.runtimeState);
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -190,11 +191,9 @@ const Navigation = () => {
                     </Badge>
                   )}
                   <IssueReportDialog
-                    userId={session.user.id}
                     plan={effectiveSubscriptionStatus}
                     sttMode={reportSttMode}
                     runtimeState={reportRuntimeState}
-                    transcript={reportTranscript}
                   />
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
