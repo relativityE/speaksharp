@@ -10,7 +10,22 @@
 Private STT: NOT RELEASE-GREEN
 ```
 
-Explicit local model setup consent is now proven, but the current human transcript is too inaccurate and the detail journey still fails. Product has clarified a stricter bar: Private is not allowed to be "private but worse"; it must become a credible front-door STT path.
+Explicit local model setup consent is proven, and the latest human tiny/default runs saved through detail. Product has clarified a stricter bar: Private is not allowed to be "private but worse"; it must become a credible front-door STT path. The current open accuracy question is whether a larger local model is worth the extra setup and latency.
+
+## TEST → DEV/PRODUCT: Human v2 model bakeoff status (2026-06-05, owner: test-release-agent)
+
+Human production proof produced two valid **tiny/default** Private observations, but **did not produce larger/base evidence**.
+
+| Run | Requested | Confirmed recorded with | Result |
+|---|---|---|---|
+| A | default Private | `Private (whisper-tiny.en, transformers-js, browser)` | Accuracy `93.88%`; saved/history/detail passed; missed leading `Um` and branded casing. |
+| B | `?privateModel=whisper-base.en` | `Private (whisper-tiny.en, transformers-js, browser)` | Saved/history/detail passed, but this is **not base evidence**. Production preserved the base URL while `__PRIVATE_MODEL_TELEMETRY__` and `__PRIVATE_MODEL__` were null and the detail label proved tiny. |
+
+Evidence: `product_release/evidence/private_v2_human_bakeoff_2026-06-05.json`.
+
+**Size/friction:** `whisper-base.en` is roughly `145 MB` versus current `whisper-tiny.en` at roughly `40 MB` — about `3.6x` larger and `+105 MB` of setup/cache friction.
+
+**Next @dev-agent/product:** provide a release-proofable larger-model path before asking for another human base proof: either merge/expose the model-eval selector with visible telemetry and saved-detail labeling, or make production reject unsupported `privateModel` values instead of silently falling back to tiny.
 
 ## TEST → DEV: UX release-proof sweep (2026-06-05, owner: test-release-agent)
 
