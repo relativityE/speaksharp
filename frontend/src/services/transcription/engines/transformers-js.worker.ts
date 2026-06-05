@@ -5,7 +5,7 @@ type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeli
 type WhisperDecodeOptions = Record<string, unknown>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
+    | { id: number; type: 'init'; isE2E: boolean }
     | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
     | { id: number; type: 'destroy' };
 
@@ -43,7 +43,7 @@ function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
 
-async function init(id: number, isE2E: boolean, model?: { key: string; localId: string; remoteId: string }): Promise<void> {
+async function init(id: number, isE2E: boolean): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -94,15 +94,10 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     };
 
     const loadStart = performance.now();
-    // Model-eval flag: default keeps whisper-tiny.en (production); a flag-selected model is
-    // passed from the main thread in the init request. RMS/decode path is otherwise unchanged.
-    const localModelId = model?.localId ?? 'whisper-tiny.en';
-    const remoteModelId = model?.remoteId ?? 'Xenova/whisper-tiny.en';
-    const loadedModelKey = model?.key ?? 'whisper-tiny.en';
     try {
         transcriber = await pipeline(
             'automatic-speech-recognition',
-            localModelId,
+            'whisper-tiny.en',
             {
                 quantized: true,
                 progress_callback,
@@ -112,7 +107,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         env.allowRemoteModels = true;
         transcriber = await pipeline(
             'automatic-speech-recognition',
-            remoteModelId,
+            'Xenova/whisper-tiny.en',
             {
                 quantized: true,
                 revision: 'main',
@@ -125,7 +120,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
-        model: loadedModelKey,
+        model: 'whisper-tiny.en',
         device: cpuThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
         threads: cpuThreads,
         crossOriginIsolated: cpuIsolated,
@@ -169,7 +164,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E, request.model);
+                    await init(request.id, request.isE2E);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions);
