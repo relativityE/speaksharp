@@ -129,6 +129,31 @@ export const PRIV_STT_V4 = {
   WORKER_REQUEST_TIMEOUT_MS: 90_000,
 } as const;
 
+/**
+ * Private model-eval candidates (flag-gated A/B). The CI Private v2 benchmark showed
+ * ~51.7% WER vs a 6.1% ceiling, so decode/model quality — not just onset detection — is
+ * the dominant gap. This lets the test agent A/B larger local models against the default
+ * whisper-tiny.en WITHOUT a blind switch. Selection is via `?privateModel=` /
+ * `window.__PRIVATE_MODEL__`; DEFAULT keeps current production behavior byte-identical.
+ * Download sizes are approximate (quantized) and confirmed by the browser proof.
+ */
+export const PRIV_STT_MODELS = {
+  DEFAULT: 'whisper-tiny.en',
+  // Remote ids MUST be the Xenova/* family — these repos are built for transformers.js v2
+  // (@xenova/transformers, the production library). onnx-community/* repos are v3-format and
+  // FAIL to load on v2 with "Unsupported model type: whisper" (test-confirmed). distil-whisper
+  // (distil-small.en) only exists in v3 form, so it is NOT loadable on v2 — replaced here by
+  // whisper-small.en (Xenova/whisper-small.en, v2-native), giving a clean tiny→base→small
+  // accuracy ladder. Default tiny loads from local public/models/ (flag-off byte-identical);
+  // these remoteIds only matter for the candidate downloads. approxMB are best-effort; the A/B
+  // captures the real downloaded size.
+  CANDIDATES: {
+    'whisper-tiny.en': { localId: 'whisper-tiny.en', remoteId: 'Xenova/whisper-tiny.en', approxMB: 40 },
+    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'Xenova/whisper-base.en', approxMB: 145 },
+    'whisper-small.en': { localId: 'whisper-small.en', remoteId: 'Xenova/whisper-small.en', approxMB: 244 },
+  },
+} as const;
+
 const ASSEMBLYAI_PACKET_MS_BOUNDS = {
   min: STT_PROVIDER_REQUIREMENTS.CLOUD_ASSEMBLYAI.MIN_PACKET_MS,
   max: STT_PROVIDER_REQUIREMENTS.CLOUD_ASSEMBLYAI.MAX_PACKET_MS,
