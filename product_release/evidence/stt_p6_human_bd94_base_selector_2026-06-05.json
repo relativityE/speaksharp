@@ -1,0 +1,46 @@
+{
+  "id": "STT-P6-HUMAN",
+  "testedAt": "2026-06-05T13:01:00Z",
+  "branch": "test/stt-p6-human-bd94b185",
+  "sourceBranch": "dev/private-model-eval-rc@bd94b185",
+  "baseMain": "main@ef6ca7a2",
+  "command": "STT_AUTH=fresh STT_MODES=private STT_FIXTURES=h1_6 STT_INJECT_MIC_AUDIO=true STT_PRIVATE_MODEL=whisper-base.en STT_CORPUS_OUT=/private/tmp/stt-p6-human-bd94-base-h1_6.json HEADLESS=true BASE_URL=http://localhost:5174 node scripts/manual-stt-corpus-proof.mjs",
+  "status": "PASS",
+  "summary": "The selected Private model identity now persists/displays correctly: runtime telemetry and detail page both show whisper-base.en when ?privateModel=whisper-base.en is selected. h1_6 transcript/detail are 100% accurate and journey passed on a release-eligible localhost:5174 real-auth environment.",
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true,
+    "invalidReasons": []
+  },
+  "modelUnderTest": "whisper-base.en",
+  "fixture": "h1_6",
+  "transcript": "They, like, told wild tales to frighten him.",
+  "truth": "They, like, told wild tales to frighten him.",
+  "wer": 0,
+  "accuracyPct": 100,
+  "stopFinalizationMs": 5729,
+  "privateModelTelemetry": {
+    "model": "whisper-base.en",
+    "runtime": "transformers-js",
+    "approxMB": 145,
+    "overridden": true,
+    "selectionSource": "window",
+    "loadTimeMs": 1757,
+    "fallbackPath": "remote-only",
+    "cloudFallbackAttempted": false
+  },
+  "detailRecordedWith": "Private (whisper-base.en, transformers-js, browser)",
+  "detailTranscript": "They, like, told wild tales to frighten him.",
+  "detailWer": 0,
+  "detailAccuracyPct": 100,
+  "journeyPass": true,
+  "consoleWarnings": {
+    "maximumUpdateDepth": 0
+  },
+  "rawArtifact": "/private/tmp/stt-p6-human-bd94-base-h1_6.json",
+  "nextAction": "STT-P6-HUMAN selector/display bug can close for injected proof. Human base-vs-tiny evidence is still needed only if product wants human-backed accuracy claims for base; larger-model default remains rejected by prior broader bakeoff due latency and edge regressions."
+}
