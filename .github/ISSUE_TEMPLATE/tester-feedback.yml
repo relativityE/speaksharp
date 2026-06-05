@@ -14,6 +14,41 @@ body:
       description: Email, GitHub handle, or assigned tester ID.
     validations:
       required: true
+  - type: input
+    id: app_url
+    attributes:
+      label: App URL
+      description: Copy the full URL where the issue happened.
+      placeholder: "https://speaksharp-public.vercel.app/session"
+    validations:
+      required: true
+  - type: input
+    id: release_sha
+    attributes:
+      label: Release SHA / build identifier
+      description: Copy this from the app runtime proof or release notes. If unavailable, write "not visible".
+      placeholder: "main@abc1234 or not visible"
+    validations:
+      required: true
+  - type: input
+    id: browser_user_agent
+    attributes:
+      label: Browser / device
+      description: Include browser, version, OS, and device if known.
+      placeholder: "Chrome 126 on macOS, built-in mic"
+    validations:
+      required: true
+  - type: dropdown
+    id: plan_tier
+    attributes:
+      label: Plan / entitlement
+      options:
+        - Free
+        - Trial
+        - Pro
+        - Unknown
+    validations:
+      required: true
   - type: dropdown
     id: flow
     attributes:
@@ -29,6 +64,18 @@ body:
         - AI feedback
         - PDF export
         - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: stt_mode
+    attributes:
+      label: STT mode
+      options:
+        - Not STT-related
+        - Native / Browser
+        - Private / Vault
+        - Cloud
+        - Unknown
     validations:
       required: true
   - type: dropdown
@@ -55,10 +102,46 @@ body:
       placeholder: "Expected:\nActual:"
     validations:
       required: true
+  - type: input
+    id: session_id
+    attributes:
+      label: Session ID
+      description: Optional. Include only if visible in the app/report.
+      placeholder: "session id, or blank"
+    validations:
+      required: false
+  - type: input
+    id: sentry_event_id
+    attributes:
+      label: Sentry event ID
+      description: Optional. Include only if the app/support flow shows one.
+      placeholder: "event id, or blank"
+    validations:
+      required: false
+  - type: dropdown
+    id: transcript_opt_in
+    attributes:
+      label: Transcript opt-in
+      description: Transcript text can be sensitive, especially for Private/Vault mode. Choose Yes only if you intentionally pasted transcript text below.
+      options:
+        - "No transcript text included"
+        - "Yes, I intentionally included transcript text for debugging"
+    validations:
+      required: true
+  - type: dropdown
+    id: audio_opt_in
+    attributes:
+      label: Audio opt-in
+      description: Audio is never required by default. Choose Yes only if you intentionally attached audio for debugging.
+      options:
+        - "No audio attached"
+        - "Yes, I intentionally attached audio for debugging"
+    validations:
+      required: true
   - type: textarea
     id: evidence
     attributes:
       label: Evidence
-      description: Screenshots, browser/version, transcript snippet, session time, URL path, console/network notes.
+      description: Screenshots, session time, console/network notes, and optional transcript/audio only if the opt-in fields above say Yes.
     validations:
       required: false
