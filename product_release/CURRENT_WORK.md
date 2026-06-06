@@ -9,9 +9,9 @@ This is the durable coordination index. Keep it current and short.
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: origin/main@e697d189
+INTEGRATION_MAIN: origin/main@60fac591
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-06T20:07Z
+UPDATED_AT: 2026-06-06T21:54Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -22,10 +22,10 @@ GitHub, and then get deleted. Only `main` should exist on GitHub.
 
 | ID | Priority | Owner | Current State | Next Action |
 |---|---|---|---|---|
-| CI-MAIN | P0 | test-release-agent | Latest completed main CI is green: `main@e697d189`, CI - Test Audit `27072628347`, Production Canary `27072628345`, and Deploy Supabase `27072628342` all passed. | No dev action. Watch the next code-bearing push only. |
-| STT-V4 | P0 | dev-agent → test-release-agent | Probe v3 executed, but it is not a valid v4 verdict: NULL control passes when served from repo root with real WAV fixture, but local adapter lacks `shader-f16`; all v4 cells timed out or rejected fp16; both v2 comparator controls fail with `Unsupported model type: whisper`. Evidence summary: `/private/tmp/v4-bakeoff-v3-evidence-summary.json`. | Dev fix probe v3 comparator/fixture contract so v2 controls pass before test judges v4. Then test reruns on shader-f16-capable WebGPU or Tier 1 app path. |
+| CI-MAIN | P0 | test-release-agent | Latest completed code-bearing main CI is green: `main@e697d189`, CI - Test Audit `27072628347`, Production Canary `27072628345`, and Deploy Supabase `27072628342` all passed. Current `main@60fac591` contains coordination/evidence updates after the max-depth rerun. | No dev action. Watch the next code-bearing push only. |
+| STT-V4 | P0 | test-release-agent + product | Probe v3 is runnable, but current local test hardware cannot produce a valid v4 verdict: NULL control passed; dev fixed v2 control cells in `dev/v4-recovery@251bb8c0` to use `@huggingface/transformers@3.7.5` on `device=wasm`; local adapter lacks `shader-f16`, so v4 WebGPU cells timed out/rejected. | Rerun probe v3 on a shader-f16-capable WebGPU browser or Tier 1 app path. Classify no-capability environments as `INVALID_NO_SHADER_F16`, not v4 fail. |
 | MAXDEPTH-TRACE | P0 | dev-agent | Part 3 rerun on `dev/maxdepth-fix@a0aca877` still fails. Evidence: `/private/tmp/maxdepth-trace-after-fix-evidence.json`. Warnings `4`; summary `modelLoadingProgress=285`, `sttStatus=291`, trace length `581`. Progress still jumps backward/non-monotonic (`0 → 100 → 25 → … → 9`). | Dev continue fix; test reruns after next patch. Target is `Maximum update depth` warnings `0`. |
-| STT-HARNESS-INVALID-AUDIO | P0 | test-release-agent | Private corpus validator now marks zero/empty audio delivery, impossible stop timing, and missing speech-start evidence as `INVALID` before any model accuracy verdict. This is merged on `main@0b9aa327`. | Use this validator for Private STT bakeoffs so no-audio harness failures are not reported as model WER/transcript failures. |
+| STT-HARNESS-INVALID-AUDIO | P0 | test-release-agent | Private corpus validator now marks zero/empty audio delivery, impossible stop timing, and missing speech-start evidence as `INVALID` before any model accuracy verdict. This is merged on main. | Use this validator for Private STT bakeoffs so no-audio harness failures are not reported as model WER/transcript failures. |
 | UX-NAV-1 | P1 | dev-agent | Hard navigation during Private recording lost the partial session and logged React max-depth; in-app navigation with confirmation saved correctly. | Dev decides/fixes hard-nav behavior: block reliably, save before route replacement, or persist/recover a local draft. |
 | STT-N1 | P0 | test-release-agent | Native real-mic release proof remains required; injected audio is diagnostic only for Native Web Speech. | Run real Chrome mic proof and capture saveCandidate, formatter telemetry, trust trace, detail transcript, and truecasing/readability. |
 | SELFHOST-DEPLOY | P0 | test-release-agent | Production serves real self-hosted ONNX binaries, not LFS pointers. | Run authenticated Private tiny + base smoke on production/live matrix; confirm zero HuggingFace requests and save/detail identity. |
