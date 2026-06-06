@@ -8,6 +8,7 @@ import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { getEffectiveSubscriptionStatus, isPro } from "@/constants/subscriptionTiers";
+import { arePaymentsEnabled } from "@/config/appRuntimeConfig";
 import logger from "@/lib/logger";
 import {
   buildCheckoutBody,
@@ -39,6 +40,7 @@ const Navigation = () => {
 
   const handleUpgrade = async () => {
     if (!session) return;
+    if (!arePaymentsEnabled()) return; // payments not configured — entry points are hidden, no broken checkout
     setIsUpgrading(true);
     try {
       trackConversionCtaClicked({ source: 'nav_upgrade', plan: 'pro', tier: effectiveSubscriptionStatus });
@@ -111,6 +113,7 @@ const Navigation = () => {
 
   const isFreeUser = Boolean(session && !isEffectiveProUser);
   const showNavUpgrade = Boolean(
+    arePaymentsEnabled() &&
     profile &&
     isFreeUser &&
     location.pathname !== '/session' &&
