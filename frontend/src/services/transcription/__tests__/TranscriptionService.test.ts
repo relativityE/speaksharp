@@ -141,6 +141,31 @@ describe('TranscriptionService', () => {
         await privateService.destroy();
     });
 
+    it('MAXDEPTH Part 3: dedupes duplicate integer-percent progress (no store/callback flood)', async () => {
+        const onProgress = vi.fn();
+        const svc = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
+            onTranscriptUpdate: vi.fn(),
+            onModelLoadProgress: onProgress,
+            onReady: vi.fn(),
+            session: null,
+            navigate: vi.fn(),
+            getAssemblyAIToken: mockGetToken,
+        });
+        const p = (svc as unknown as { processModelLoadProgress: (n: number | null) => void });
+        // Worker floods the SAME integer percent many times; only DISTINCT percents should emit.
+        p.processModelLoadProgress(37);
+        p.processModelLoadProgress(37);
+        p.processModelLoadProgress(37);
+        p.processModelLoadProgress(38);
+        p.processModelLoadProgress(38);
+        // 37 once + 38 once = 2 (not 5) — the duplicate-percent churn that drove ~423/429 store
+        // mutations and the render storm is suppressed at the source.
+        expect(onProgress).toHaveBeenCalledTimes(2);
+        expect(onProgress).toHaveBeenNthCalledWith(1, 37);
+        expect(onProgress).toHaveBeenNthCalledWith(2, 38);
+        await svc.destroy();
+    });
+
     it('should sanitize transcripts effectively', async () => {
         const { sttRegistry } = await import('../STTRegistry');
         

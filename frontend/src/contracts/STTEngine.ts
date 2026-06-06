@@ -97,6 +97,18 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   constructor(options?: TranscriptionModeOptions | EngineCallbacks) {
     this.instanceId = Math.random().toString(36).substring(7);
     this.options = options || {};
+
+    // Propagate owning-service identity to EVERY engine at construction so init
+    // logs are attributable. Leaf engines (TransformersJS/V4/WhisperTurbo) call
+    // super(options) but previously never copied serviceId/runId, so they always
+    // logged serviceId='unknown' — making one decorator-chain init (facade + leaf)
+    // look like multiple orphan/"probe" engines. The facade passes its full
+    // options (which carry serviceId/runId) to the leaf, so reading them here
+    // attributes every layer to the same service. Pure observability; no behavior
+    // change (subclass onInit assignments remain and resolve to the same values).
+    const identity = options as { serviceId?: string; runId?: string } | undefined;
+    if (identity?.serviceId) this.serviceId = identity.serviceId;
+    if (identity?.runId) this.runId = identity.runId;
   }
 
   /**

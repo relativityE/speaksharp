@@ -499,6 +499,32 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect((saved.match(/literally/g) ?? []).length, `saved="${saved}"`).toBeGreaterThanOrEqual(2);
     });
 
+    it('coalesces a burst of model-load-progress events into one store update (no render flood)', () => {
+        // Repro of the SELFHOST-MODELS-MAXDEPTH storm: a large base.en download fires a rapid
+        // progress burst. Force the setTimeout fallback + fake timers for deterministic control.
+        const originalRaf = (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+        (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame = undefined;
+        vi.useFakeTimers();
+        try {
+            useSessionStore.getState().setModelLoadingProgress(null);
+            const onProgress = (controller as unknown as { handleModelLoadProgress: (p: number | null) => void })
+                .handleModelLoadProgress.bind(controller);
+
+            // Burst of 10 rapid progress events (the flood that tripped "Maximum update depth").
+            for (const p of [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]) onProgress(p);
+
+            // Anti-flood: NONE of the burst updated the store synchronously.
+            expect(useSessionStore.getState().modelLoadingProgress).toBeNull();
+
+            // One frame later: a SINGLE flush carrying only the latest value.
+            vi.advanceTimersByTime(20);
+            expect(useSessionStore.getState().modelLoadingProgress).toBe(100);
+        } finally {
+            vi.useRealTimers();
+            (globalThis as unknown as { requestAnimationFrame?: unknown }).requestAnimationFrame = originalRaf;
+        }
+    });
+
     it('routes newly-created service transcript callbacks through the controller before subscriber callbacks', async () => {
         SpeechRuntimeController.__resetForTests();
         controller = SpeechRuntimeController.getInstance();
