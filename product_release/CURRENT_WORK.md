@@ -9,9 +9,9 @@ This is the durable coordination index. Keep it current and short.
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: origin/main@60fac591
+INTEGRATION_MAIN: origin/main@2c9dd911
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-06T21:54Z
+UPDATED_AT: 2026-06-06T22:40Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -22,7 +22,7 @@ GitHub, and then get deleted. Only `main` should exist on GitHub.
 
 | ID | Priority | Owner | Current State | Next Action |
 |---|---|---|---|---|
-| CI-MAIN | P0 | test-release-agent | Latest completed main CI is green: `main@66887499`, CI - Test Audit `27075412632`, Production Canary `27075412651`, and Deploy Supabase `27075412634` all passed. This includes the merged MAXDEPTH Part 4 fix and post-land ping. | No dev action. Watch the next code-bearing push only. |
+| CI-MAIN | P0 | test-release-agent | Latest completed main CI is green: `main@2c9dd911`, CI - Test Audit `27075643657`, Production Canary `27075643658`, and Deploy Supabase `27075643662` all passed. The prior code-bearing MAXDEPTH Part 4 run also passed on `main@66887499` (`27075412632`). | No dev action. Watch the next code-bearing push only. |
 | STT-V4 | P0 | test-release-agent + product | Probe v3 is runnable, but current local test hardware cannot produce a valid v4 verdict: NULL control passed; dev fixed v2 control cells in `dev/v4-recovery@251bb8c0` to use `@huggingface/transformers@3.7.5` on `device=wasm`; local adapter lacks `shader-f16`, so v4 WebGPU cells timed out/rejected. | Rerun probe v3 on a shader-f16-capable WebGPU browser or Tier 1 app path. Classify no-capability environments as `INVALID_NO_SHADER_F16`, not v4 fail. |
 | STT-HARNESS-INVALID-AUDIO | P0 | test-release-agent | Private corpus validator now marks zero/empty audio delivery, impossible stop timing, and missing speech-start evidence as `INVALID` before any model accuracy verdict. This is merged on main. | Use this validator for Private STT bakeoffs so no-audio harness failures are not reported as model WER/transcript failures. |
 | UX-NAV-1 | P1 | dev-agent | Hard navigation during Private recording lost the partial session and logged React max-depth; in-app navigation with confirmation saved correctly. | Dev decides/fixes hard-nav behavior: block reliably, save before route replacement, or persist/recover a local draft. |
