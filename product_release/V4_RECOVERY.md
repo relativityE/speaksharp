@@ -1,12 +1,20 @@
-# Private v4 Recovery — separate engineering track (NOT release path)
+# Private v4 Recovery — historical recovery notes
 
-**Goal (first milestone):** make the modern `@huggingface/transformers` (v4) + onnx-community
+> **Current status (2026-06-06):** this document contains the older WASM-first recovery history.
+> It is superseded for active coordination by `product_release/STT_PING.md` / `STT-V4` in
+> `product_release/CURRENT_WORK.md`: v4 is active again as a WebGPU `base.en` candidate. Current
+> gate: v4 must match/beat v2 base accuracy and be materially
+> faster; latest no-auth bakeoff attempt hung in the first `v4-base q8/q8` cell and is now routed
+> to dev for probe hardening. Keep the historical failures below as context only.
+
+**Original first milestone:** make the modern `@huggingface/transformers` (v4) + onnx-community
 Whisper path decode **ONE WAV in the browser to a non-empty transcript** — i.e. eliminate
 `invalid data location: undefined for input "a"`. This is an infrastructure/runtime project,
 **not** an STT candidate, until it produces one valid transcript.
 
 **Non-goals / guardrails:**
-- v4 is **not** a release candidate while it returns empty transcripts. Stay on v2 for release.
+- v4 is **not** a release candidate while it returns empty transcripts. Stay on v2 for release
+  unless the current WebGPU base.en path passes the active bakeoff and app-lifecycle gates.
 - Do **not** run WER comparisons before a successful decode.
 - Do **not** mix v4 runtime debugging with Private UX bugs.
 - Do **not** assume WebGPU fixes a WASM/runtime binding error — get **WASM** decode first.
