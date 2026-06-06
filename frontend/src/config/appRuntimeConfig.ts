@@ -38,6 +38,21 @@ export function classifyStripeKey(key: string | undefined | null): StripeKeyClas
   return 'unknown';
 }
 
+/**
+ * Pure, testable: are payment surfaces enabled? Payments require a configured
+ * Stripe publishable key. When the key is absent ('missing') we hide/disable
+ * checkout entry points so users never hit a broken Stripe flow (and so the app
+ * boots without Stripe configured — Stripe is NOT required for core STT).
+ */
+export function arePaymentsEnabledFor(key: string | undefined | null): boolean {
+  return classifyStripeKey(key) !== 'missing';
+}
+
+/** Runtime convenience wrapper reading the live Stripe publishable key. */
+export function arePaymentsEnabled(): boolean {
+  return arePaymentsEnabledFor(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
+}
+
 export interface AppRuntimeConfig {
   url: string;
   port: number;

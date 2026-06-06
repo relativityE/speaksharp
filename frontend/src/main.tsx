@@ -50,11 +50,14 @@ if (ENV.isTest) {
   logger.debug('[main.tsx] Seeded random initialized for CI/E2E');
 }
 
+// Only the env that the CORE app genuinely cannot run without gates boot.
+// Supabase (auth + DB) is mandatory. Stripe and Sentry are intentionally NOT
+// here: Sentry already no-ops without a DSN (see init below), and payment
+// surfaces are hidden when the Stripe key is missing (arePaymentsEnabled),
+// so the app boots and core STT works without either configured.
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
-  'VITE_STRIPE_PUBLISHABLE_KEY',
-  'VITE_SENTRY_DSN',
 ];
 
 const areEnvVarsPresent = (): boolean => {
