@@ -20,6 +20,11 @@ on:
           - stripe-webhook-readiness
           - stripe-checkout-readiness
           - stripe-price-audit
+      zero_hf_audit:
+        description: 'Require Private model requests to stay same-origin /models with no HuggingFace traffic'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -224,6 +229,7 @@ jobs:
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+          ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
         run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload Private Cache Artifacts

@@ -5,6 +5,7 @@ import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const E2E_PRO_PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
+const ZERO_HF_AUDIT_REQUIRED = process.env.ZERO_HF_AUDIT_REQUIRED === 'true';
 
 type CacheSnapshot = {
   cacheNames: string[]
@@ -54,6 +55,7 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
     await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
     await selectBenchmarkMode(page, 'private');
+    const zeroHfAudit = ZERO_HF_AUDIT_REQUIRED ? await startZeroHuggingFaceAudit(page) : null;
     await preparePrivateModelIfPrompted(page);
     const firstReady = await getCacheSnapshot(page);
 
@@ -69,12 +71,17 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
     const secondReady = await getCacheSnapshot(page);
     await startAndStopPrivateRecording(page);
+    const zeroHfResult = zeroHfAudit
+      ? await zeroHfAudit.assertZeroHuggingFace({ requireModelsFromOrigin: true })
+      : null;
+    zeroHfAudit?.stop();
 
     const evidence = {
       firstStart: firstReady,
       secondStart: secondReady,
       cachePersisted: secondReady.transformerCacheKeyCount >= firstReady.transformerCacheKeyCount,
       secondStartReadyWithoutDownloadPrompt: isPrivateReadySnapshot(secondReady) && !secondReady.downloadVisible,
+      zeroHfAudit: zeroHfResult,
     };
 
     console.log(`LIVE_PRIVATE_CACHE_EVIDENCE ${JSON.stringify(evidence)}`);
@@ -92,6 +99,21 @@ async function signInAsPro(page: Page) {
   await page.getByTestId('sign-in-submit').click();
   await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
   await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
+}
+
+async function startZeroHuggingFaceAudit(page: Page): Promise<{
+  stop: () => void
+  assertZeroHuggingFace: (opts?: { requireModelsFromOrigin?: boolean }) => Promise<{
+    ok: true
+    totalRequests: number
+    modelsFromOrigin: number
+    huggingFaceRequests: 0
+  }>
+}> {
+  // JS helper intentionally lives outside the app bundle. It uses Playwright request
+  // events so worker model fetches are visible to the live release matrix.
+  const { trackPrivateModelRequests } = await import('./helpers/zeroHuggingFaceAudit.mjs');
+  return trackPrivateModelRequests(page);
 }
 
 function isPrivateReadySnapshot(snapshot: CacheSnapshot) {
