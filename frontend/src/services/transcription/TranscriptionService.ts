@@ -202,6 +202,10 @@ export default class TranscriptionService {
   private readonly MIN_RECORDING_DURATION_MS = 100;
   private downloadController: AbortController | null = null;
   private modelLoadingProgress: number | null = 0;
+  // MAXDEPTH Part 3: last integer percent pushed to the store, for source-level dedupe in
+  // processModelLoadProgress (suppress duplicate-percent progress events). -1 = nothing emitted yet
+  // (distinct from both null "reset" and 0..100), so the first real event always passes.
+  private lastProcessedPercent: number | null = -1;
   private privateModelReady: boolean = false;
   private privateDownloadAlternativeToastShown: boolean = false;
   private activeSubscriberId: string | null = null;
@@ -1679,6 +1683,15 @@ export default class TranscriptionService {
    */
   private processModelLoadProgress(progress: number | null): void {
     const percent = progress !== null ? Math.max(0, Math.min(100, Math.round(progress > 0 && progress <= 1 ? progress * 100 : progress))) : null;
+    // MAXDEPTH FIX (Part 3, root cause from the trace): the worker emits ~hundreds of
+    // progress events during base.en download but only ~100 DISTINCT integer percents.
+    // Without this guard every event wrote modelLoadingProgress (directly, bypassing the
+    // controller coalescing) AND a NEW sttStatus object — flooding the store (~423 + ~429
+    // mutations measured) and driving the React render storm / "Maximum update depth".
+    // Emit only when the integer percent actually changes (null transitions always pass),
+    // capping both fields to <=101 writes and eliminating duplicate-percent churn.
+    if (percent === this.lastProcessedPercent) return;
+    this.lastProcessedPercent = percent;
     this.options.onModelLoadProgress(percent);
     this.modelLoadingProgress = percent; // Keep internal state in sync
     const state = (useSessionStore as unknown as {
