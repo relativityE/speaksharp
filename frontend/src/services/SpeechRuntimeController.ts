@@ -23,6 +23,7 @@ import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
+import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
@@ -1856,6 +1857,20 @@ export class SpeechRuntimeController {
                         // transcript-container DOM (which includes status/placeholder
                         // banners like "Processing speech locally…" / "Listening...").
                         // Surfaced via window.__SPEECH_RUNTIME_DEBUG__().saveCandidate.
+                        // A+ repetition-risk DETECTOR (non-mutating): Whisper can loop phrases on
+                        // short/ambiguous audio. Per the team's data-integrity decision we do NOT
+                        // delete possibly-genuine repeats — we only FLAG the risk here for evidence/
+                        // telemetry. The saved transcript is the raw model output, unaltered. The
+                        // principled fix for the loops (VAD/segmentation) is a queued STT lane.
+                        const repetitionRisk = detectRepetitionRisk(finalTranscript);
+                        if (repetitionRisk.repetitionRisk) {
+                            logger.warn({
+                                sessionId,
+                                mode: service.getMode?.() ?? stopEntryMode,
+                                repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+                                repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
+                            }, '[REPETITION_RISK] saved transcript shows a repetition-loop signature (flagged, not altered)');
+                        }
                         this.lastSaveCandidateDebug = {
                             sessionId,
                             saveCandidateReason,
@@ -1870,6 +1885,10 @@ export class SpeechRuntimeController {
                             visibleStoreTranscriptLength: visibleStoreTranscript.length,
                             frozenStopTranscriptLength: frozenStopTranscript.length,
                             candidateLengths: preparedCandidates.map((c) => ({ source: c.source, length: c.text.length })),
+                            // Evidence-only repetition flags (never mutate saved text):
+                            repetitionRisk: repetitionRisk.repetitionRisk,
+                            repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+                            repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
                             capturedAt: Date.now(),
                         };
                         if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
