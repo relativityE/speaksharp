@@ -9,7 +9,7 @@ This is the durable coordination index. Keep it current and short.
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: origin/main@e768d602
+INTEGRATION_MAIN: origin/main@e697d189
 MERGE_LOCK: free
 UPDATED_AT: 2026-06-06T20:07Z
 UPDATED_BY: test-release-agent / Codex
@@ -22,8 +22,8 @@ GitHub, and then get deleted. Only `main` should exist on GitHub.
 
 | ID | Priority | Owner | Current State | Next Action |
 |---|---|---|---|---|
-| CI-MAIN | P0 | test-release-agent | Latest completed main CI before this coordination update is green: `main@e768d602`, CI - Test Audit `27072299342` passed all jobs. Production Canary `27072299347` and Deploy Supabase `27072299352` also passed. | No dev action. Watch the next code-bearing push only. |
-| STT-V4 | P0 | dev-agent/product → test-release-agent | V4 is active. Governing proof contract is `product_release/stt-perf-proof-protocol.md`; executable Tier 2/3 probe is `frontend/v4-bakeoff-probe.html` on `dev/v4-recovery@f30e8f7d`. | Prefer Tier 1 authed app lifecycle if valid real-auth `5174` + WebGPU exists. Otherwise run probe v3 on a shader-f16-capable GPU and paste `window.__V4_BAKEOFF__`. Validate v2 controls before judging v4. |
+| CI-MAIN | P0 | test-release-agent | Latest completed main CI is green: `main@e697d189`, CI - Test Audit `27072628347`, Production Canary `27072628345`, and Deploy Supabase `27072628342` all passed. | No dev action. Watch the next code-bearing push only. |
+| STT-V4 | P0 | dev-agent → test-release-agent | Probe v3 executed, but it is not a valid v4 verdict: NULL control passes when served from repo root with real WAV fixture, but local adapter lacks `shader-f16`; all v4 cells timed out or rejected fp16; both v2 comparator controls fail with `Unsupported model type: whisper`. Evidence summary: `/private/tmp/v4-bakeoff-v3-evidence-summary.json`. | Dev fix probe v3 comparator/fixture contract so v2 controls pass before test judges v4. Then test reruns on shader-f16-capable WebGPU or Tier 1 app path. |
 | MAXDEPTH-TRACE | P0 | dev-agent | Valid real-auth `5174` trace reproduced max-depth during Private base setup. Evidence artifact: `/private/tmp/maxdepth-trace-evidence.json`. Console max-depth warnings: `6`. Final summary: `modelLoadingProgress=423`, `sttStatus=429`, trace length `857`; ready wait succeeded. | Dev fix the setup render loop using the trace. Test reruns Private base setup after patch. |
 | STT-HARNESS-INVALID-AUDIO | P0 | test-release-agent | Private corpus validator now marks zero/empty audio delivery, impossible stop timing, and missing speech-start evidence as `INVALID` before any model accuracy verdict. This is merged on `main@0b9aa327`. | Use this validator for Private STT bakeoffs so no-audio harness failures are not reported as model WER/transcript failures. |
 | UX-NAV-1 | P1 | dev-agent | Hard navigation during Private recording lost the partial session and logged React max-depth; in-app navigation with confirmation saved correctly. | Dev decides/fixes hard-nav behavior: block reliably, save before route replacement, or persist/recover a local draft. |
