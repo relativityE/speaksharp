@@ -15,7 +15,7 @@ This file is the **single source of truth** for current release coordination.
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: origin/main@c995c32c
+INTEGRATION_MAIN: latest pushed origin/main
 MERGE_LOCK: free
 UPDATED_AT: 2026-06-06T22:59Z
 UPDATED_BY: test-release-agent / Codex
@@ -27,7 +27,7 @@ Work happens on isolated local branches/worktrees. Completed branches merge to `
 
 | Updated UTC | ID | Priority | Owner | Status | Latest Evidence / Ask | Ball |
 |---|---|---|---|---|---|---|
-| 2026-06-06T22:59Z | CI-MAIN | P0 | test-release-agent | **in progress on coordination collapse** | Current `main@c995c32c`: Production Canary `27076203025` PASS; Deploy Supabase `27076203024` PASS; `CI - Test Audit` `27076203028` still in progress. Latest completed CI before this docs-only coordination cleanup: `27075903512` PASS on `main@968ae0e5`. Prior code-bearing MAXDEPTH Part 4 run also passed (`27075412632` on `main@66887499`). | `=> test` |
+| 2026-06-06T22:59Z | CI-MAIN | P0 | test-release-agent | **in progress on coordination collapse** | Coordination cleanup is docs-only. Latest completed CI before cleanup: `27075903512` PASS on `main@968ae0e5`. Prior code-bearing MAXDEPTH Part 4 run also passed (`27075412632` on `main@66887499`). Current cleanup runs started after the legacy-file deletion; use GitHub Actions for the exact latest SHA/run status. | `=> test` |
 | 2026-06-06T20:40Z | V4 | P0 | test-release-agent + product | **v2 control fixed in probe; v4 needs a shader-f16 GPU** | Two dev fixes (`dev/v4-recovery@251bb8c0`): v2 controls now run via `@huggingface/transformers@3.7.5` on `device=wasm`; local adapter lacks `shader-f16`, so v4 WebGPU cells timed out/rejected. Need shader-f16-capable GPU running probe v3 (`Run all`) or Tier 1 app path. Classify no-capability environments as `INVALID_NO_SHADER_F16`, not v4 fail. | `=> test/product` |
 | 2026-06-06T20:36Z | STT-HARNESS-INVALID-AUDIO | P0 | test-release-agent | **implemented / ready for use** | `private-corpus-acceptance` now classifies invalid harness/audio-delivery evidence before model accuracy. Verified `pnpm exec vitest run tests/release --reporter=dot` = `7 files / 41 tests` passed. Use it for Private STT bakeoffs so no-audio harness failures are not reported as model failures. | `=> test` |
 | 2026-06-06T22:53Z | UX-NAV-1 | P1 | dev-agent | **dev-owned hard-navigation recovery bug** | Hard navigation during Private recording lost the partial session and logged React max-depth; in-app navigation with confirmation saved correctly. MAXDEPTH progress loop is closed, but hard-navigation recovery still needs dev disposition: block reliably, save before route replacement, or persist/recover a local draft. | `=> dev` |
