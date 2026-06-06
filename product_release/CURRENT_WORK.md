@@ -1,69 +1,37 @@
 # SpeakSharp Current Workboard
 
-This file is the live coordination board. Keep it small, current, and branch-based.
-Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in the STT reports.
+This is the durable coordination index. Keep it current and short.
 
-> **Fast dev⇄test loop:** `product_release/STT_PING.md` (append-only, one line per signal — the
-> current ball-in-court per ID). Read it FIRST each turn. This board is the durable index; the
-> reports hold evidence. Do not rewrite each other's cells — append a ping line instead.
+- Fast handoffs: `product_release/STT_PING.md`
+- Detailed evidence: `product_release/evidence/`
+- Backlog and post-launch work: `product_release/BACKLOG.md`
 
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: origin/main (latest pushed integration baseline; exact SHA via `git rev-parse --short origin/main`)
+INTEGRATION_MAIN: origin/main
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-05T06:08Z
+UPDATED_AT: 2026-06-06T20:18Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
-`main` is the stable integration/evidence baseline. Agents should not experiment directly on
-`main`. Work happens in independent branches/worktrees; only final integration is serialized.
-Branch/proof rows keep exact base or artifact SHAs where they matter.
+Work happens on isolated local branches/worktrees. Completed branches merge to `main`, get pushed to
+GitHub, and then get deleted. Only `main` should exist on GitHub.
 
-## Active Branches And Proofs
+## Active Work
 
-| ID | Priority | Owner | Branch / SHA | Base SHA | Status | Purpose | Merge Gate / Next Action |
-|---|---|---|---|---|---|---|---|
-| STT-P5 | P0 | dev-agent → test-release-agent | `dev/private-vad-silero-main@c5f3e77c`; tested as `test/stt-p5-vad-c5f3e77c` | `main@154e421e` | failed / alias fix not active in browser | VAD engine: Silero VAD via the **existing onnxruntime-web** injected at the `PrivateWhisper` onset gate behind `?privateVad=1` / `window.__PRIVATE_VAD_PROTOTYPE__`. Off by default. | **LATEST TEST RESULT (2026-06-05):** focused tests pass `49/49`; real-auth `localhost:5174` RMS-vs-VAD browser proof reached setup, recording, stop, save, history/detail. RMS: `87.5%`, firstText `8428ms`, stopFinal `4625ms`. VAD: `87.5%`, firstText `2832ms`, stopFinal `2392ms`, but **still not a valid Silero proof**: `privateVadTelemetry.vadEnabled=true`, `vadFellBackToRms=true`, `vadRuntimeVersion=null`, `vadMeanSpeechProb=null`, `vadSpeechSegments=[]`, and browser still requested `/onnxruntime/ort-wasm-simd-threaded.jsep.mjs?import`. Artifact `product_release/evidence/stt_p5_vad_c5f3_reproof_2026-06-05.json`; raw `/private/tmp/stt-p5-c5f3-{rms,vad}-h1_6.json`. **Next @dev-agent:** alias fix is not taking effect in the browser bundle or telemetry is wired to the wrong runtime path; prove stable ORT import/runtime telemetry before asking for another A/B. |
-| STT-P6 | **P0 — TOP PRIORITY (Private accuracy lever)** | dev-agent → test-release-agent → product | `dev/private-model-eval-main@4105f475`; tested as `test/stt-p6-enriched-rc@4105f475` | `main@0100b582` | enriched proof complete / product decision | Model-eval: flag-selected Private model (`whisper-tiny.en` default / `whisper-base.en` / `whisper-small.en`) threaded through worker `init`, behind `?privateModel=` / `STT_PRIVATE_MODEL=...`. Off by default. | **UPDATED RESULT (2026-06-05):** enriched telemetry confirms `whisper-base.en`, `selectionSource=window`, `fallbackPath=remote-only`, `cloudFallbackAttempted:false`. Base fixes `h1_6` (`87.5%` → `100%`) and holds h1_2/h1_8/h1_10 at `100%`, but **does not fix the filler/human-proxy failure** (`conv_01` remains `85.71%`, misses leading `Um`, `um=0`) and is too slow for long-form default CPU use (Washington same `99.48%` as tiny, but first text `2822` → `8277 ms`; trace shows base drain `10115 ms` + decode `48020 ms`, artifact finalize field `123159 ms`). **Recommendation:** do not make base the default Private release model; keep tiny as quick default, consider base only as explicit opt-in "higher accuracy / slower local model" after human-script proof and UX copy. See PRIVATE_STT `## TEST → PRODUCT/DEV: STT-P6 enriched base.en RC proof`. |
-| STT-P6-HUMAN | P0 | test-release-agent → product/dev | `dev/private-model-eval-rc@bd94b185`; tested as `test/stt-p6-human-bd94b185` | `main@ef6ca7a2` | passed / selector and detail identity agree | Human Private model proof requested to back bigger-model accuracy claims. | **LATEST TEST RESULT (2026-06-05):** focused selector tests pass `53/53`. Browser proof with `?privateModel=whisper-base.en` now honors the selector and persists/displays the selected model: `privateModelTelemetry.model=whisper-base.en`, detail reads `Recorded with Private (whisper-base.en, transformers-js, browser)`, h1_6 transcript/detail are `100%` accurate (`WER 0`), and journey/detail pass in a valid `localhost:5174` real-auth environment. Evidence `product_release/evidence/stt_p6_human_bd94_base_selector_2026-06-05.json`; raw `/private/tmp/stt-p6-human-bd94-base-h1_6.json`. **Decision note:** this closes the selector/display bug for injected proof; human base-vs-tiny evidence is still only needed if product wants human-backed marketing claims. Prior broader bakeoff still says do not default base because latency/edge regressions remain. |
-| STT-P7 | P0 | dev-agent | `dev/stt-p7-soft-frozen-trace@30eb264a`; tested as `test/stt-p7-current-main-smoke@f98987c3` | `main@2638e604` | injected smoke passed / human proof pending | Private mic-start reliability: human proof hit `RECORDING_LIFECYCLE_FAIL` ~857 ms after `RECORDING` + `Heartbeat Failure Escalated`; user saw mic-click errors/**toasts** before recording worked. | Current-main+P7 test branch served on canonical `localhost:5174` with real auth/runtime proof. Focused unit/type proof passed: 10/10 watchdog/trace tests + frontend typecheck. Injected Private-start smoke passed: recording reached `RECORDING`, stopped, saved, no `RECORDING_LIFECYCLE_FAIL`, no "Engine Frozen" toast, `environmentProof.source=app-runtime-config`, `releaseProofEligible=true`. Artifact trace: `/private/tmp/stt-p7-private-smoke-current/.../trace.zip`. Remaining: test helper did not capture `__PRIVATE_HEARTBEAT_TRACE__`; next human Private proof should confirm no false mic-click/toast and capture heartbeat trace if available. |
-| STT-E1 | P0 | test-release-agent | `main@e890716f` | `main@6eaa4ba6` | done | Release-proof environment preflight for Native/Private/Cloud STT evidence. | **MERGED:** shared benchmark snapshots now emit `environmentProof`; Cloud/app-path and Pro STT matrix hard-stop release proof unless `localhost:5174` + real auth; manual Native and manual STT corpus launchers no longer load `.env.test`, default to `5174`, and write INVALID artifacts before recording when the environment is wrong. |
-| STT-P1 | P0 | test-release-agent → dev-agent | `dev/stt-p1-filler-recount@c5b55f5b`; tested as `test/stt-p1-filler-recount@c5b55f5b` | `main@cf4886be` | fixed / proof passed | Private current-main filler metric proof | **PASS:** standalone filler recount fix works. `conv_01` saved `Um, basically, we should literally like, wait.` with WER `0`, accuracy `100%`, and `observedFillers`: `um=1`, `basically=1`, `literally=1`, `like=1`. Detail transcript matched. Valid `5174` real-auth `environmentProof`. Artifact `/private/tmp/stt-p1-filler-recount-conv_01.json`. |
-| STT-P1D | P1 | dev-agent | `dev/private-live-draft-dedup@5d7d7f89`; tested as `test/private-p1d-current-main@112bb51e`; `dev/private-p1d-complete@e77b544c` tested as `test/private-p1d-complete-proof@f094f23e` | `main@cc630d3e` / `main@63509d0a` | partial improvement / still not release-ready | Private live-draft repetition + stale filler count (from `conv_01` diagnostic) | **LATEST TEST RESULT:** `dev/private-p1d-complete` focused tests passed (`PrivateWhisper` 45/45 + typecheck) and injected browser proof passed loose word/filler checks, but the saved transcript is still not customer-acceptable. Truth: `Um. Basically, we should literally like, wait.` Saved: `Basically, we should literally like, "Wait, um, basically."` It removes the long doubled phrase but drops/moves the opening `Um` and appends `um, basically` at the end; `saveCandidateReason=service_result`, length 59, wordCount 8. Filler rows improved (`um=3`, basically=3, like=2, literally=2), but final transcript quality is still wrong. **Next @dev-agent:** do not merge P1D complete as green. Either refine final-candidate repetition collapse to preserve first occurrence/order, or classify this as unavoidable decode error and route to P5/P6/model/VAD. See PRIVATE_STT `## TEST → DEV: STT-P1D complete proof`. **DEV RESPONSE (2026-06-04, `dev/private-p1d-complete@f846d560`): REVERTED the 2× collapse; classifying this as a model decode error → route to STT-P6/model + STT-P5/VAD.** Two independent reasons converge: (1) **data integrity** — a 2× verbatim repeat is indistinguishable at the text level from a user genuinely re-saying a phrase after a misspeak, so collapsing it would silently DELETE real user speech (product owner flagged real recordings like this); (2) **your proof** — even when it removed the doubled phrase the output was still wrong (dropped `Um`, reordered). Text-level collapse is therefore both lossy and insufficient. Restored the conservative pre-existing behavior (collapse only **3+** verbatim repeats, ~never natural speech); the **filler-count fix + live-draft display dedup are kept** (filler half passes). The Private garbling/repetition is a **whisper-tiny model-quality** problem, not a text-cleanup problem → it belongs to the STT-P6 bigger-model A/B (primary) and STT-P5 VAD. A non-lossy text guard is only feasible with decode **timestamps** (collapse only when a repeat maps to the SAME audio span); deferred unless product wants it. |
-| STT-P8 | P1 | dev-agent → test-release-agent | `dev/private-resampler-parity@58d9ba7d`; tested as `test/stt-p8-current-main@a38dd948` and `test/stt-p8-extended@3341ee32` | `main@ef13a20b` / `main@4292022a` | extended A/B: safe but no WER lift proven | Private capture **resampler parity** — close app(63.22%) < drop-in accuracy gap (Open Blocker P0 / F2-#37) | **UPDATED TEST RESULT:** focused tests/typecheck still pass (`utils` 72/72 + tsc). Prior A/B on `conv_01` and `h1_6` showed no WER lift. Extended A/B on `h1_8` and `h1_10` also showed no WER lift because both box and linear reached `100%` WER `0`; telemetry confirmed flag toggled and journey/detail passed. **Next @dev-agent/test:** P8 remains safe but not proven as the accuracy lever. Do not merge as an accuracy fix without harder evidence (human script, Washington/long, or the original low-parity exact buffer). See PRIVATE_STT `## TEST → DEV: STT-P8 extended A/B`. |
-| STT-N1 | P0 | test-release-agent | `test/proof-native-human` or human artifacts | `main@18299067` | ready | Native real Chrome mic re-proof | Capture `saveCandidate`, formatter telemetry, trust trace, detail transcript, truecasing/readability. |
-| STT-V4 | P0 | dev-agent/product → test-release-agent | `dev/v4-recovery@aa983a6d`; latest ping `85af0654` | `main@85af0654` | no-auth bakeoff run / not engine-qualified | Private v4 base.en WebGPU candidate. v4 is active again, but must beat v2 base on accuracy and materially improve latency before release use. | Current no-auth bakeoff result on `/h1_6.wav`: `v4-base q8/q8` timed out after `60000ms`; `v4-base fp16` unsupported by the WebGPU device; `v4-base fp32` decoded on WebGPU but took `decodeMs=48008`, `wallMs=53345`, `WER=0.125`, transcript `" day, like, told wild tales to frighten him."`; v2 comparator cells failed in the probe with `Unsupported model type: whisper` plus `buffer`/`long` module errors. **Next @dev-agent/product:** either stop v4 release work on this evidence, or fix comparator/polyfill support so v2 base/tiny run in the same probe before any app-lifecycle proof. Authed app lifecycle proof should not run until the no-auth engine gate is clean. |
-| STT-C1 | P2 | test-release-agent | `test/proof-cloud-baseline` | latest main when resumed | deferred | Cloud richer baseline proof | Defer until Native/Private blockers move. Baseline only; keyterms/default-filler A/B is stopped. |
-| CFG-1 | P0 | dev-agent + test-release-agent | `main@7152c5c8` | `main@078b1a9a` | verified / merged | Config discipline: single `APP_MODES` source of truth + startup banner + app-published `window.__APP_RUNTIME_CONFIG__`, with proof helpers reading that runtime config before any Native/Private/Cloud release proof. | **MERGED + VERIFIED:** shared benchmark preflight now prefers `window.__APP_RUNTIME_CONFIG__` (`source: app-runtime-config`) and falls back only for older branches. Test-agent rerun: CFG unit tests `7/7`, helper-file compile clean, `pnpm dev:test` printed mocked-diagnostics-only banner. Browser runtime proof: `5173/session` publishes `port=5173`, `authMode=mock`, `mockAuth=true`, `supabaseUrl=https://mock.supabase.co`, `releaseProofEligible=false`; active `5174/session` publishes `port=5174`, `authMode=real`, `mockAuth=false`, real Supabase URL, `releaseProofEligible=true`. Cloud is covered because `tests/live/cloud-artifact.live.spec.ts` calls `assertManualReleaseProofEnvironment`. |
-| UX-NAV-1 | P1 | @dev-agent | TBD | `main@1784adfd` | new / dev-needed | Hard navigation while Private recording loses partial session. | Browser probe on canonical `5174` real auth: hard `page.goto('/analytics')` while Private recording landed on Analytics with no saved session/history and logged React `Maximum update depth exceeded`. Comparator: in-app Analytics nav with confirm accepted stopped/saved correctly. Artifacts: `/private/tmp/ux-private-navigation-interruption.json`, `/private/tmp/ux-private-spa-navigation-accept-dialog.json`. **Next @dev-agent:** decide/fix hard-nav/reload behavior: block reliably, persist/recover a local draft, or save before route replacement; add regression that no partial recording is lost and no max-depth warning fires. |
-| UX-FSM-1 | P1 | @dev-agent | TBD | `main@1784adfd` | new / dev-needed | Rapid Private Record/Stop emits React max-depth warnings. | Browser rapid-click probe (5 short Private cycles) recovered to `READY`, `data-recording=false`, no engine-frozen toast, but emitted 4 `Maximum update depth exceeded` console errors. Artifact: `/private/tmp/ux-private-rapid-start-stop.json`. **Next @dev-agent:** root-cause the render-loop/update dependency during fast start/stop cleanup and add regression that rapid cycles have zero max-depth warnings and no zombie `RECORDING`/`STOPPING`. |
-| UX-MUTEX-1 | P1 | test-release-agent | `test/ux-release-proof-sweep@1784adfd` | `main@1784adfd` | passed | Browser multi-tab session mutex proof. | PASS: tab1 stayed recording; tab2 attempt showed `Active session in another tab`, `data-recording=false`, no page errors. Artifact `/private/tmp/ux-multitab-session-mutex.json`. No dev action unless later user-facing copy polish is requested. |
-| UX-ENTITLEMENT-1 | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Trial/free/pro entitlement and STT policy proof. | PASS: focused Vitest entitlement proof passed 5 files / 76 tests across subscription tiers, transcription policy, session lifecycle, LiveRecordingCard, and free-plan support. Trial/private and Cloud gating logic are covered. |
-| UX-DAST-LOCAL | P1 | test-release-agent | `test/ux-release-proof-sweep-2@e44f8afd` | `main@e44f8afd` | passed | Local DAST release gate. | PASS: `pnpm run rc:dast:local` built test mode and passed 18/18 Playwright checks covering primary journey, user features/PDF, entitlement, error states, and analytics truth. Direct one-off Playwright without build was marked INVALID, not a product failure. |
-| RC-LIVE-ENV | P0 | product/ops → test-release-agent | `main@21c5abd7` | `main@21c5abd7` | blocked / missing env | Live DAST production proof. | `pnpm run rc:dast:live` stopped at preflight before browser execution because required live proof inputs are absent: `BASE_URL`, Supabase URL/anon/service-role keys, Free/Pro test credentials, and `STRIPE_WEBHOOK_SECRET`. This is not app-path proof; open-beta live release evidence remains blocked until env is supplied. |
-| RC-LH-1 | P1 | test-release-agent → product/dev | `dev/rc-gates-fix@2f58eacb`; tested as `test/rc-lh-valid-2f58eacb` | `main@1bf43c6c` | passed / merge-ready | Product gate Lighthouse / product CI proof. | **PASS (2026-06-05):** `pnpm run rc:gate:1:product` passed in a normal-terminal context. CI audit `PASSED`; E2E `33/33`, `0` flaky; Lighthouse `99/100/100/100`; quality score `97/100`; coverage `73.92%`; runtime `550.10s`. Evidence `product_release/evidence/rc_lh_valid_reproof_2026-06-05.json`. Branch changes: stale sandbox-EPERM invalid artifact is cleared at fresh CI start; worker protocol test accepts the wrapped `MODEL_LOAD_FAILED` string while preserving artifact-error assertion; long session→analytics parity E2E gets a 90s budget with product assertions unchanged. **Next:** merge to `main`, delete local branch, push `main` only. |
-| RC-GATE2-SAST | P1 | test-release-agent | `main@da09b2c6` | `main@da09b2c6` | passed | Static security/hardening gate. | PASS on current main: `pnpm run rc:gate:2:sast` passed quality/lint/typecheck/no-eslint-disable, frontend provider-secret scan, production-hardening scan, Edge tests 11 files/73 steps, and focused Vitest 8 files/78 tests. No dev action. |
-| RC-SCA-1 | P1 | dev-agent → test-release-agent | `dev/rc-gates-fix@2c99911b`; tested as `test/rc-gates-fix-reproof@2c99911b` | `main@2f4eb545` | passed / exception documented | Dependency audit release gate. | **PASS (2026-06-05):** `pnpm run rc:gate:4:sca` exits `0`; audit reports 82 total vulnerabilities and `1 critical (1 ignored)` through documented `pnpm.auditConfig.ignoreGhsas` in `product_release/SCA_EXCEPTIONS.md`. Evidence `product_release/evidence/rc_sca_reproof_2026-06-05.json`. |
-| RC-UX-SMOKE | P1 | test-release-agent | `main@da09b2c6` | `main@da09b2c6` | passed | Current-main UX smoke gate. | PASS: `pnpm run rc:gate:5:ux` built test mode and passed 14/14 Playwright checks after valid unsandboxed E2E server start. A sandboxed attempt failed preview bind with EPERM and was rejected as invalid evidence, not a product failure. |
-| PROD-CONFIG-1 | P0 | @dev-agent + product-ops → test-release-agent | `main@1ca658a1`; branch proof `dev/beta-closeout@a8067a4b` | `main@1ca658a1` | fail / deploy-proof blocked | Vercel production runtime config closeout: release SHA, real auth, Stripe key class, no mock/test mode. | Live production probe `https://speaksharp-public.vercel.app` returned HTTP 200, `authMode=real`, `mockAuth=false`, real Supabase URL, and `releaseProofEligible=true`. **FAIL:** live runtime does not expose release SHA/build commit and does not expose `stripeKeyClass`; production bundle `/assets/main-B_f09iBZ-1780638351825.js` lacks `stripeKeyClass`. Dev branch adds `stripeKeyClass`; production must deploy it and expose a release/build identifier. Then test-release-agent verifies `stripeKeyClass === "live"` and records the SHA. |
-| PRIVACY-OBS-1 | P1 | test-release-agent + @dev-agent | `main@1ca658a1`; branch proof `dev/beta-closeout@a8067a4b` | `main@1ca658a1` | pass with deploy-pending caveat | Sentry/PostHog privacy closeout: no transcript/audio in events. | Production runtime/bundle check: Sentry uses `sendDefaultPii=false` and console breadcrumbs are scrubbed; PostHog runs with `autocapture=false`, `capture_pageview=false`, `capture_performance=false`, `disable_session_recording=true`; SAST/Edge tests passed. **Caveat:** current production still contains the old raw background-toast string; `dev/beta-closeout@a8067a4b` masks user-facing raw messages and passed focused tests, but needs merge/deploy before live proof. |
-| FEEDBACK-1 | P0 | test-release-agent + product | `main@828af8b3` or newer | `main@828af8b3` | migration applied / live submit proof needed | Beta feedback path: issue report submission, required metadata, transcript/audio opt-in only. | Production migration is recorded as applied after switching the default UUID to `gen_random_uuid()`. Public read-only probe found no unauthenticated Report Issue entrypoint on `/`, `/pricing`, `/auth/signup`, or redirected `/session`. **Next:** authenticated app-path proof must submit an issue, confirm a row lands, confirm metadata is present, confirm transcript/audio are null unless explicitly opted in, and confirm safe failure copy. |
-
-## Assignment Notification Protocol
-
-This board is the notification source of truth. An assignment is considered active only when
-the relevant row has an owner, priority, branch/proof target, status, and next action.
-
-When assigning or changing work:
-
-1. Update the row in this file.
-2. Put detailed instructions and evidence requirements in the relevant STT report.
-3. Tell the other agent to pull `main` and read this file plus the named report section.
-4. The receiving agent claims the work by updating status/branch in this file before writing.
-
-Do not rely on chat-only instructions for release blockers. Chat can announce the change, but
-the durable assignment lives here.
+| ID | Priority | Owner | Current State | Next Action |
+|---|---|---|---|---|
+| CI-MAIN | P0 | test-release-agent | Latest `CI - Test Audit` is running on the current V4 harness-alignment push. Production Canary and Deploy Supabase are green. Prior edge red was a `supabase/setup-cli` HTTP 504 during setup, not an app test failure. | Watch the active CI run to completion and update `STT_PING.md` only if it ends red or green. |
+| STT-V4 | P0 | dev-agent/product → test-release-agent | V4 is active. Governing proof contract is `product_release/stt-perf-proof-protocol.md`; executable Tier 2/3 probe is `frontend/v4-bakeoff-probe.html` on `dev/v4-recovery@f30e8f7d`. | Prefer Tier 1 authed app lifecycle if valid real-auth `5174` + WebGPU exists. Otherwise run probe v3 on a shader-f16-capable GPU and paste `window.__V4_BAKEOFF__`. Validate v2 controls before judging v4. |
+| MAXDEPTH-TRACE | P0 | test-release-agent → dev-agent | Browser trace is blocked in this environment because no valid `.env.development` exists for real-auth `5174`. Unit trace work passed previously. | Run valid real-auth `5174` browser trace with `localStorage['ss.maxdepth.trace']='1'`; capture `window.__MAXDEPTH_SUMMARY__()` and first ~80 trace entries for dev. |
+| UX-NAV-1 | P1 | dev-agent | Hard navigation during Private recording lost the partial session and logged React max-depth; in-app navigation with confirmation saved correctly. | Dev decides/fixes hard-nav behavior: block reliably, save before route replacement, or persist/recover a local draft. |
+| STT-N1 | P0 | test-release-agent | Native real-mic release proof remains required; injected audio is diagnostic only for Native Web Speech. | Run real Chrome mic proof and capture saveCandidate, formatter telemetry, trust trace, detail transcript, and truecasing/readability. |
+| SELFHOST-DEPLOY | P0 | test-release-agent | Production serves real self-hosted ONNX binaries, not LFS pointers. | Run authenticated Private tiny + base smoke on production/live matrix; confirm zero HuggingFace requests and save/detail identity. |
+| FEEDBACK-1 | P0 | test-release-agent + product | Feedback migration is applied. Public read-only probe found no unauthenticated Report Issue entrypoint. | Authenticated app-path proof: submit issue, confirm DB row, required metadata, transcript/audio null unless opted in, and safe failure copy. |
+| PROD-CONFIG-1 | P0 | product-ops/dev-agent → test-release-agent | Production runtime config proof still needs release/build SHA and live Stripe-key-class verification after deploy. | Product/dev expose/deploy the fields; test verifies release SHA, real auth, no mock/test mode, and `stripeKeyClass`. |
+| PAYMENT-LIVE-GATE | P0 | product-ops | Public checkout is fail-closed unless `stripeKeyClass === "live"`. Non-live production shows no checkout surface. | Product-ops sets live Stripe key when launch-ready; until then payment surfaces remain hidden. |
+| RC-LIVE-ENV | P0 | product/ops → test-release-agent | Live DAST is blocked by missing live proof inputs. | Provide required live env: `BASE_URL`, Supabase URL/anon/service-role keys, Free/Pro credentials, and `STRIPE_WEBHOOK_SECRET`; then rerun live DAST. |
 
 ## Manual Proof Environment Contract
 
@@ -72,15 +40,12 @@ Manual human STT proof must use the real-auth manual app only:
 ```text
 Launch command: pnpm dev
 Expected URL: http://localhost:5174
-Forbidden for human proof: pnpm exec vite, direct vite launch, pnpm dev:test, localhost:5173, .env.test
+Forbidden: pnpm exec vite, direct vite launch, pnpm dev:test, localhost:5173, .env.test
 ```
 
 `localhost:5173` is mocked E2E diagnostics only. Any Native/Private human STT artifact collected on
-`5173`, with mock auth, or from a direct Vite launch is invalid for release evidence. CDP/browser
-monitoring must attach to the same `5174` tab before recording when possible; otherwise the artifact
-must explicitly say CDP was unavailable and rely on user observation plus app/server logs.
+`5173`, with mock auth, or from a direct Vite launch is invalid for release evidence.
 
-Implementation status: STT-E1 wires this into shared benchmark snapshots and manual proof launchers.
 Expected artifact block:
 
 ```json
@@ -96,58 +61,21 @@ Expected artifact block:
 }
 ```
 
-## Branch Status Values
+## Branch Protocol
 
-```text
-coding
-ready
-testing
-blocked
-merge-approved
-merged
-abandoned
-done
-```
+- Every agent works on a branch/worktree.
+- Completed work merges to `main`, pushes to GitHub, and deletes the branch.
+- Do not push remote branches other than `main`.
+- Do not merge failing, diagnostic-only, or stale branches.
+- Behavior-changing STT branches need proof or explicit product/test approval before merge.
 
-## Required Branch Declaration
+## Assignment Notification Protocol
 
-Every active branch or proof must state:
+An assignment is active only when the current row has an owner, priority, status, and next action.
 
-```text
-Branch:
-Base SHA:
-Files touched:
-Expected behavior change:
-Tests run:
-Proof needed:
-Rollback plan:
-```
+When changing work:
 
-## Worktree Model
-
-Each agent should use an independent worktree or isolated branch whenever possible.
-
-| Agent | Preferred workspace |
-|---|---|
-| dev-agent | dev-owned worktree / `dev/...` branches |
-| test-release-agent | test-owned worktree / `test/...` or `docs/...` branches |
-| integration | original repo or clean main worktree only |
-
-Agents may test another agent's branch before it merges. That is preferred for risky STT changes:
-build branch -> test branch/SHA -> approve or revise -> merge once.
-
-## Merge Rules
-
-- Only one merge to `main` at a time.
-- Merge only branches with a task ID, clean diff, tests run, and proof attached or explicitly requested.
-- Behavior-changing STT branches need product/test approval before merge.
-- Report verdicts and release classifications are serialized; do not let two agents edit the same verdict section at once.
-- After merge, update this board with the new `INTEGRATION_MAIN`, branch status, and next proof/action.
-
-## Report Editing Protocol
-
-| Agent | Permission |
-|---|---|
-| test-release-agent | Owns current verdicts, latest evidence, pass/fail classification |
-| dev-agent | Appends only under `## DEV → TEST AGENT` or targeted handoff blocks |
-| product owner | Owns priority, scope, release classification, paid/free positioning |
+1. Update this file only for durable active work.
+2. Use `product_release/STT_PING.md` for fast current handoff.
+3. Put detailed evidence in the relevant report/artifact, not in this board.
+4. Remove completed or superseded entries immediately.
