@@ -4,6 +4,7 @@ import { SpeechRuntimeController } from '../SpeechRuntimeController';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { sessionManager } from '@/services/transcription/SessionManager';
+import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 
 // Mock Dependencies
 vi.mock('../../lib/logger', () => ({
@@ -571,5 +572,76 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(window.__SS_TRANSCRIPT_TRACE__?.some(event => event.stage === 'store:update' && event.type === 'partial')).toBe(true);
 
         getOrCreateSpy.mockRestore();
+    });
+});
+
+describe('SpeechRuntimeController.persistActiveRecoveryDraft (UX-NAV-1)', () => {
+    let controller: SpeechRuntimeController;
+
+    beforeEach(() => {
+        vi.useRealTimers();
+        localStorage.clear();
+        controller = SpeechRuntimeController.getInstance();
+        (controller as unknown as { service: unknown }).service = null;
+        (controller as unknown as { state: string }).state = 'IDLE';
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => {
+        localStorage.clear();
+    });
+
+    const arrangeRecording = (sessionId: string | null, transcript: string, partial = '') => {
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string | null }).sessionId = sessionId;
+        const store = useSessionStore.getState();
+        // setSTTMode resets the visible session (incl. startTime/transcript) when the mode
+        // changes, so set the mode FIRST, then seed startTime + transcript.
+        store.setSTTMode('private');
+        store.setStartTime(Date.now() - 5000);
+        store.updateTranscript(transcript, partial);
+    };
+
+    it('writes a recovery draft from the live transcript while RECORDING', () => {
+        arrangeRecording('sess-nav-1', 'the quick brown fox');
+
+        controller.persistActiveRecoveryDraft();
+
+        const draft = getSessionRecoveryDraft();
+        expect(draft?.sessionId).toBe('sess-nav-1');
+        expect((draft?.transcript ?? '').toLowerCase()).toContain('the quick brown fox');
+        expect(draft?.mode).toBe('private');
+        expect(draft?.durationSeconds).toBeGreaterThanOrEqual(4);
+    });
+
+    it('includes the partial tail so an in-progress utterance is not lost', () => {
+        arrangeRecording('sess-nav-2', 'committed words', 'and the partial tail');
+
+        controller.persistActiveRecoveryDraft();
+
+        const text = (getSessionRecoveryDraft()?.transcript ?? '').toLowerCase();
+        expect(text).toContain('committed words');
+        expect(text).toContain('and the partial tail');
+    });
+
+    it('is a no-op when not actively RECORDING', () => {
+        arrangeRecording('sess-nav-3', 'should not persist');
+        (controller as unknown as { state: string }).state = 'IDLE';
+
+        controller.persistActiveRecoveryDraft();
+
+        expect(getSessionRecoveryDraft()).toBeNull();
+    });
+
+    it('is a no-op with no sessionId and with an empty transcript', () => {
+        arrangeRecording(null, 'no session id');
+        controller.persistActiveRecoveryDraft();
+        expect(getSessionRecoveryDraft()).toBeNull();
+
+        arrangeRecording('sess-nav-4', '   ');
+        controller.persistActiveRecoveryDraft();
+        expect(getSessionRecoveryDraft()).toBeNull();
     });
 });

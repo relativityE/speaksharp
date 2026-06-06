@@ -419,6 +419,39 @@ export class SpeechRuntimeController {
     }
 
     /**
+     * UX-NAV-1: synchronously persist the in-progress transcript as a recovery draft.
+     *
+     * Called from the App-level hard-navigation/unload guard (`beforeunload`/`pagehide`),
+     * where the normal async stop→decode→save path cannot run to completion before the
+     * page is torn down. `localStorage.setItem` is synchronous, so the draft is durably
+     * written before unload; `SessionPage`'s recovery effect restores it on next load via
+     * `getSessionRecoveryDraft()`. The draft is cleared on a successful stop+save
+     * (`clearSessionRecoveryDraft`), so this never resurrects an already-saved session.
+     *
+     * No-op unless actively RECORDING with a known sessionId and non-empty transcript.
+     */
+    public persistActiveRecoveryDraft(): void {
+        if (this.state !== 'RECORDING') return;
+        const sessionId = this.sessionId;
+        if (!sessionId) return;
+
+        const store = useSessionStore.getState();
+        const { transcript: committed, partial } = store.transcript;
+        const transcript = [committed, partial].filter(Boolean).join(' ').trim();
+        if (!transcript) return;
+
+        const startTime = store.startTime;
+        const durationSeconds = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
+
+        saveSessionRecoveryDraft({
+            sessionId,
+            transcript,
+            durationSeconds,
+            mode: this.service?.getMode?.() ?? store.sttMode ?? 'unknown',
+        });
+    }
+
+    /**
      * Synchronously syncs the current FSM state to the DOM forensic anchors.
      * Use this when UI state changes (like mode selection) need immediate 
      * visibility for E2E infrastructure before async transitions complete.
