@@ -82,6 +82,8 @@ function buildEnvironmentProof(baseUrl) {
   const invalidReasons = [
     ...(!isLocalhost ? ['not_localhost'] : []),
     ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+    ...(!SUPABASE_URL ? ['missing_supabase_url'] : []),
+    ...(!SUPABASE_ANON_KEY ? ['missing_supabase_anon_key'] : []),
     ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
     ...(mockAuth ? ['mock_auth_detected'] : []),
   ];
@@ -91,6 +93,8 @@ function buildEnvironmentProof(baseUrl) {
     port: Number.isFinite(port) ? port : null,
     authMode,
     mockAuth,
+    supabaseUrlPresent: Boolean(SUPABASE_URL),
+    supabaseAnonKeyPresent: Boolean(SUPABASE_ANON_KEY),
     releaseProofEligible: invalidReasons.length === 0,
     cdpSameTab: true,
     invalidReasons,

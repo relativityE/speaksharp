@@ -34,22 +34,26 @@ const MANUAL_SPEAK_MS = Number(process.env.NATIVE_PROOF_MANUAL_SPEAK_MS || 0);
 const NATIVE_AUDIO_READY_TIMEOUT_MS = Number(process.env.NATIVE_AUDIO_READY_TIMEOUT_MS || 12_000);
 const NATIVE_AUDIO_READY_GRACE_MS = Number(process.env.NATIVE_AUDIO_READY_GRACE_MS || 300);
 const POST_AUDIO_WAIT_MS = Number(process.env.NATIVE_PROOF_POST_AUDIO_WAIT_MS || (AUDIO_FILE ? 500 : 8_000));
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 function buildEnvironmentProof(baseUrl) {
   const url = new URL(baseUrl);
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const hostname = url.hostname;
   const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
   const mockAuth = (
     process.env.VITE_AUTH_MODE === 'mock' ||
     process.env.VITE_USE_MOCK_AUTH === 'true' ||
-    /mock\.supabase\.co/i.test(supabaseUrl)
+    /mock\.supabase\.co/i.test(SUPABASE_URL) ||
+    /^mock_/i.test(SUPABASE_ANON_KEY)
   );
   const authMode = mockAuth ? 'mock' : 'real';
   const invalidReasons = [
     ...(!isLocalhost ? ['not_localhost'] : []),
     ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+    ...(!SUPABASE_URL ? ['missing_supabase_url'] : []),
+    ...(!SUPABASE_ANON_KEY ? ['missing_supabase_anon_key'] : []),
     ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
     ...(mockAuth ? ['mock_auth_detected'] : []),
     ...(USE_FAKE_AUDIO_CAPTURE ? ['fake_audio_capture'] : []),
@@ -60,6 +64,8 @@ function buildEnvironmentProof(baseUrl) {
     port: Number.isFinite(port) ? port : null,
     authMode,
     mockAuth,
+    supabaseUrlPresent: Boolean(SUPABASE_URL),
+    supabaseAnonKeyPresent: Boolean(SUPABASE_ANON_KEY),
     releaseProofEligible: invalidReasons.length === 0,
     cdpSameTab: true,
     invalidReasons,
