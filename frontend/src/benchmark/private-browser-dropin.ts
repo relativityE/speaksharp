@@ -1,4 +1,5 @@
 import { TransformersJSEngine } from '@/services/transcription/engines/TransformersJSEngine';
+import logger from '@/lib/logger';
 
 type DropInEvent = {
   t: number;
@@ -62,7 +63,7 @@ function log(event: string, detail: Record<string, unknown> = {}): void {
     detail,
   };
   state.events.push(entry);
-  console.info('[PRIVATE_DROPIN]', JSON.stringify(entry));
+  logger.info({ entry }, '[PRIVATE_DROPIN]');
   render();
 }
 

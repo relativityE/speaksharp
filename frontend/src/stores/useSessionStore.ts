@@ -135,9 +135,9 @@ export const useSessionStore = create<SessionStore>((set) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
         (window as unknown as { __LAST_STORE_ID__: string }).__LAST_STORE_ID__ = instanceId;
-        if (import.meta.env.DEV) {
-            console.warn(`[STORE-IDENTITY] SessionStore Instance Created: [${instanceId}]`);
-        }
+        // Diagnostic identity marker — logger.debug is dev-only by config (prod/test
+        // default to 'warn'), so this no longer needs a manual import.meta.env.DEV gate.
+        logger.debug(`[STORE-IDENTITY] SessionStore Instance Created: [${instanceId}]`);
     }
 
     return {
