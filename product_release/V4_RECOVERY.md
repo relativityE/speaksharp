@@ -1,8 +1,8 @@
 # Private v4 Recovery — historical recovery notes
 
 > **Current status (2026-06-06):** this document contains the older WASM-first recovery history.
-> It is superseded for active coordination by `product_release/STT_PING.md` / `STT-V4` in
-> `product_release/CURRENT_WORK.md`: v4 is active again as a WebGPU `base.en` candidate. Current
+> It is superseded for active coordination by `product_release/ACTIVE_COORDINATION.md` / `STT-V4`:
+> v4 is active again as a WebGPU `base.en` candidate. Current
 > gate: v4 must match/beat v2 base accuracy and be materially
 > faster; latest no-auth bakeoff attempt hung in the first `v4-base q8/q8` cell and is now routed
 > to dev for probe hardening. Keep the historical failures below as context only.
