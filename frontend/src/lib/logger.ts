@@ -24,7 +24,7 @@ export const resolveLoggerLevel = ({
 };
 
 const readViteEnv = (key: string): string | undefined => {
-  return (import.meta.env as Record<string, string | undefined>)[key];
+  return (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.[key];
 };
 
 const mode =
