@@ -83,13 +83,13 @@ describe('classifyStripeKey', () => {
   });
 });
 
-describe('arePaymentsEnabledFor', () => {
-  it('enables payments for any non-missing key class (live/test/unknown)', () => {
+describe('arePaymentsEnabledFor (fail-closed to LIVE)', () => {
+  it('enables public payment surfaces ONLY for a live key', () => {
     expect(arePaymentsEnabledFor('pk_live_51Abc')).toBe(true);
-    expect(arePaymentsEnabledFor('pk_test_51Abc')).toBe(true);
-    expect(arePaymentsEnabledFor('garbage')).toBe(true);
   });
-  it('disables payments only when the key is missing/blank', () => {
+  it('hides payment surfaces for test/unknown/missing key classes', () => {
+    expect(arePaymentsEnabledFor('pk_test_51Abc')).toBe(false); // test-mode checkout must not show publicly
+    expect(arePaymentsEnabledFor('garbage')).toBe(false);       // unknown
     expect(arePaymentsEnabledFor('')).toBe(false);
     expect(arePaymentsEnabledFor('   ')).toBe(false);
     expect(arePaymentsEnabledFor(undefined)).toBe(false);
