@@ -18,7 +18,7 @@ describe('StatusNotificationBar', () => {
         cleanup();
     });
 
-    it('displays the padlock icon (Vault Mode) when active engine is private', () => {
+    it('displays the padlock icon when active engine is private', () => {
         vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
             const state = {
                 activeEngine: 'private',
@@ -30,7 +30,7 @@ describe('StatusNotificationBar', () => {
         render(<StatusNotificationBar status={{ type: 'recording', message: 'Recording' }} />);
 
         // Check for the padlock title or icon
-        const padlock = screen.getByTitle(/Vault Mode: On-Device Processing/i);
+        const padlock = screen.getByTitle(/Private transcription: on-device processing/i);
         expect(padlock).toBeDefined();
     });
 
@@ -45,7 +45,7 @@ describe('StatusNotificationBar', () => {
 
         render(<StatusNotificationBar status={{ type: 'recording', message: 'Recording' }} />);
 
-        expect(screen.queryByTitle(/Vault Mode: On-Device Processing/i)).toBeNull();
+        expect(screen.queryByTitle(/Private transcription: on-device processing/i)).toBeNull();
     });
 
     it('uses neutral styling for ready state instead of a full green alert band', () => {

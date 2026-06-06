@@ -154,7 +154,7 @@ export const SessionPage: React.FC = () => {
         ? Math.max(0, usageLimit.trial_seconds_remaining ?? 0)
         : 0;
     const trialStatusDetail = trialSecondsRemaining > 0
-        ? `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private/Vault Mode.`
+        ? `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private transcription.`
         : undefined;
     const shouldShowTrialDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 

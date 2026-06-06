@@ -69,7 +69,7 @@ describe('PricingPage', () => {
             expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
             expect(screen.getByText('Practice analytics and trends')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
-            expect(screen.getByText('Vault Mode private transcription after one-time local model setup')).toBeInTheDocument();
+            expect(screen.getByText('Private transcription after one-time local model setup')).toBeInTheDocument();
             expect(screen.getByText('Cloud transcription for serious high-accuracy workflows')).toBeInTheDocument();
             expect(screen.getByText('More semantic AI coaching and PDF export capacity')).toBeInTheDocument();
         });
