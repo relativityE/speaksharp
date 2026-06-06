@@ -4,6 +4,7 @@ import {
   validatePrivateRow,
   validatePrivateCorpusArtifact,
   PRIVATE_ACCEPTANCE,
+  classifyPrivateAudioValidity,
 } from '../../scripts/private-corpus-acceptance.mjs';
 
 describe('private corpus acceptance validator', () => {
@@ -68,6 +69,92 @@ describe('private corpus acceptance validator', () => {
       stopFinalizationMs: PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS + 1,
     };
     expect(validatePrivateRow(row, ['chewed up']).failures.some((f) => f.startsWith('stop_finalization_over_limit'))).toBe(true);
+  });
+
+  it('marks zero-audio delivery INVALID before model accuracy verdicts', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: '',
+      privateAudioChunks: [],
+      privateTrace: [],
+      stopFinalizationMs: 1200,
+    };
+
+    const result = validatePrivateRow(row, ['they like']);
+    expect(result.pass).toBe(false);
+    expect(result.invalid).toBe(true);
+    expect(result.invalidReason).toBe('invalid_no_audio_delivered');
+    expect(result.failures).not.toContain('final_missing:they like');
+  });
+
+  it('marks all-zero RMS/peak chunks INVALID', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: '',
+      privateAudioChunks: [
+        { samples: 16000, durationSec: 1, rms: 0, peak: 0 },
+        { samples: 16000, durationSec: 1, rms: 0, peak: 0 },
+      ],
+      privateTrace: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(classifyPrivateAudioValidity(row)).toEqual({
+      valid: false,
+      reason: 'invalid_zero_audio_energy',
+    });
+  });
+
+  it('marks impossible stop timing INVALID', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'anything',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0.04, peak: 0.2 }],
+      privateTrace: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+      stopFinalizationMs: -12020,
+    };
+
+    expect(validatePrivateRow(row).invalidReason).toBe('invalid_impossible_timing:-12020');
+  });
+
+  it('marks speech fixtures without speech_start_detected INVALID when timeline proof exists', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'anything',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0.04, peak: 0.2 }],
+      privateTrace: [{ event: 'process_audio_ready' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(validatePrivateRow(row).invalidReason).toBe('invalid_no_speech_start_detected');
+  });
+
+  it('does not require speech_start_detected for explicit silence fixtures', () => {
+    const row = {
+      fixture: 'near_silence',
+      expectedSilence: true,
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: '',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0.04, peak: 0.2 }],
+      privateTrace: [{ event: 'process_audio_ready' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(classifyPrivateAudioValidity(row).valid).toBe(true);
   });
 
   // Cross-check against the REAL failing artifact from the test-agent report so the
