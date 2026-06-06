@@ -97,46 +97,24 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     // Model-eval flag: default keeps whisper-tiny.en (production); a flag-selected model is
     // passed from the main thread in the init request. RMS/decode path is otherwise unchanged.
     const localModelId = model?.localId ?? 'whisper-tiny.en';
-    const remoteModelId = model?.remoteId ?? 'Xenova/whisper-tiny.en';
     const loadedModelKey = model?.key ?? 'whisper-tiny.en';
-    // Only the default whisper-tiny.en is bundled in public/models/. Candidate models
-    // (whisper-base.en, whisper-small.en) are NOT on disk, so a local-first attempt fetches
-    // /models/<id>/... which the SPA dev server answers with index.html (HTTP 200, not 404)
-    // → the "Unexpected token <" model-load failure the STT-P6 A/B hit. So: the default loads
-    // local-first then remote (unchanged / byte-identical); candidates load REMOTE-ONLY.
-    const isBundledLocalModel = localModelId === 'whisper-tiny.en';
+    // SELF-HOSTED, NO HUGGINGFACE AT RUNTIME: every Private model (whisper-tiny.en, whisper-base.en)
+    // is bundled under /models/ and served from our own origin (Vercel, via Git LFS). We load
+    // LOCAL-ONLY and fail closed — `allowRemoteModels` stays false so a missing/misnamed asset
+    // surfaces a clear MODEL_LOAD_FAILED instead of silently reaching out to huggingface.co.
+    // (env.allowLocalModels/localModelPath='/models/' are set to the local floor above.)
+    env.allowLocalModels = true;
+    env.allowRemoteModels = false;
     try {
-        if (isBundledLocalModel) {
-            env.allowLocalModels = true;
-            env.allowRemoteModels = false;
-            try {
-                transcriber = await pipeline('automatic-speech-recognition', localModelId, {
-                    quantized: true,
-                    progress_callback,
-                });
-            } catch {
-                env.allowRemoteModels = true;
-                transcriber = await pipeline('automatic-speech-recognition', remoteModelId, {
-                    quantized: true,
-                    revision: 'main',
-                    progress_callback,
-                });
-            }
-        } else {
-            env.allowLocalModels = false;
-            env.allowRemoteModels = true;
-            transcriber = await pipeline('automatic-speech-recognition', remoteModelId, {
-                quantized: true,
-                revision: 'main',
-                progress_callback,
-            });
-        }
+        transcriber = await pipeline('automatic-speech-recognition', localModelId, {
+            quantized: true,
+            progress_callback,
+        });
     } catch (loadError) {
-        // Fail-fast with a NAMED, attributable error so the harness/mic isn't left hanging
-        // ~180s on a bad model id or missing remote asset. The worker's onmessage handler
-        // catches this and posts a single type:'error', which the engine rejects on immediately.
+        // Fail-fast with a NAMED, attributable error so the harness/mic isn't left hanging.
+        // The worker's onmessage handler catches this and posts a single type:'error'.
         const detail = loadError instanceof Error ? loadError.message : String(loadError);
-        throw new Error(`MODEL_LOAD_FAILED [${loadedModelKey} -> ${remoteModelId}]: ${detail}`);
+        throw new Error(`MODEL_LOAD_FAILED [${loadedModelKey} local /models/${localModelId}]: ${detail}`);
     }
 
     post({
