@@ -92,7 +92,7 @@ describe('transformers-js.worker protocol contract', () => {
             ]);
         });
         expect(postedMessages[0]?.errorMessage).toContain('model artifact unavailable');
-        expect(pipeline).toHaveBeenCalledTimes(2);
+        expect(pipeline).toHaveBeenCalledTimes(1);
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 6, type: 'ready' }));
     });
 
