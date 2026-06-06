@@ -47,6 +47,10 @@ If this file conflicts with older files in `product_release/archive/`, this file
 | Cloud | Controlled, provider-backed STT path | Current strongest/pristine STT candidate. Cloud-only Pro artifact run `26762814579` passed live transcript, stop/save, history/detail, AI suggestions, and PDF export. Pro feature entitlement required; unavailable for trial. |
 | Native Browser | Browser-dependent convenience STT | Chrome desktop recommended. Do not use Native fixture/WER as release benchmark evidence unless the exact audio route is proven. |
 
+## Known Limitations
+
+- **Private (Whisper) short-clip repetition.** On short or ambiguous audio, Whisper may repeat a phrase in the transcript (a known model failure class around silence/non-speech regions), which can inflate filler counts and short-clip WER. Long-form transcription is unaffected (Washington fixture ~98.95%). For this release we **preserve the raw model output rather than deleting text that may reflect real speech** — prior aggressive de-duplication was reverted for data integrity, and decode-param tuning A/B'd worse. The saved transcript is flagged (non-mutating `detectRepetitionRisk` → `repetitionRisk` evidence fields), not altered. **The principled fix (VAD / audio segmentation) is queued as the next STT reliability lane (STT-P5).**
+
 ## Tester Scope
 
 Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` for human tester copy. The tester path is:
