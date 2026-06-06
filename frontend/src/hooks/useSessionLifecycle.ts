@@ -35,7 +35,7 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
     }
 
     if (mode === 'private') {
-        return 'Private / Vault Mode could not finish setup. Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.';
+        return 'Private transcription could not finish setup. Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.';
     }
 
     if (mode === 'cloud') {

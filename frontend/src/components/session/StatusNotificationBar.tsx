@@ -135,7 +135,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Downloading private model...';
                 break;
             case 'init-failed':
-                displayMessage = 'Private / Vault Mode could not finish setup.';
+                displayMessage = 'Private transcription could not finish setup.';
                 break;
             case 'info':
                 displayMessage = 'Information';
@@ -174,9 +174,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         <Icon className={`h-5 w-5 ${config.iconClass} ${isAnimated ? 'animate-spin' : ''}`} />
                     )}
 
-                    {/* Vault Mode Indicator (Padlock) */}
+                    {/* Private transcription indicator (padlock) */}
                     {activeEngine === 'private' && (
-                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 surface-shadow border border-[hsl(var(--border-strong))]" title="Vault Mode: On-Device Processing">
+                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 surface-shadow border border-[hsl(var(--border-strong))]" title="Private transcription: on-device processing">
                             <Lock className="h-2 w-2 text-success fill-success/20" />
                         </div>
                     )}

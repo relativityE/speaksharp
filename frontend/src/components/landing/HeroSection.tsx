@@ -85,8 +85,8 @@ export const HeroSection = () => {
                   </Link>
                 </Button>
                 <Button variant="secondary" size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
-                  <Link to="/analytics" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
-                    See How Feedback Works
+                  <Link to="/auth/signup" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
+                    Create Account to View Feedback
                   </Link>
                 </Button>
               </motion.div>

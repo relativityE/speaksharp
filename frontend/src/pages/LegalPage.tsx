@@ -46,7 +46,7 @@ export const TermsPage = () => (
       },
       {
         heading: 'Accounts and Access',
-        body: 'Free accounts can use Browser transcription and the included practice limits. Vault Mode and Cloud transcription are available according to the plan and trial rules shown in the product. Cloud STT is a Pro feature.',
+        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription and Cloud transcription are available according to the plan and trial rules shown in the product. Cloud STT is a Pro feature.',
       },
       {
         heading: 'Payments',
@@ -75,7 +75,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Transcription Modes',
-        body: 'Browser transcription runs through the browser speech recognition capability. Vault Mode is designed to keep transcription local after setup. Cloud transcription sends audio to a cloud STT provider only when the user selects a Cloud-capable Pro workflow.',
+        body: 'Browser transcription runs through the browser speech recognition capability. Private transcription is designed to keep transcription local after setup. Cloud transcription sends audio to a cloud STT provider only when the user selects a Cloud-capable Pro workflow.',
       },
       {
         heading: 'How Data Is Used',
@@ -87,7 +87,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Control',
-        body: 'You can choose which transcription mode to use when available, avoid Cloud transcription by staying with Browser or Vault Mode, and contact support for account or data questions.',
+        body: 'You can choose which transcription mode to use when available, avoid Cloud transcription by staying with Browser or Private transcription, and contact support for account or data questions.',
       },
     ]}
   />
