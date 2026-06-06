@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveLoggerLevel } from '../logger';
+import { resolveLoggerLevel } from '../loggerConfig';
 
 describe('resolveLoggerLevel', () => {
   it('keeps development logs visible for local debugging', () => {
