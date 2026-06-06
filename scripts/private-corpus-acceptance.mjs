@@ -67,8 +67,12 @@ export function classifyPrivateAudioValidity(row) {
     return { valid: false, reason: `invalid_impossible_timing:${row.stopFinalizationMs}` };
   }
 
-  if (privateAudioChunks.length === 0 && !hasProcessAudioReady) {
+  if (privateAudioChunks.length === 0) {
     return { valid: false, reason: 'invalid_no_audio_delivered' };
+  }
+
+  if (!hasProcessAudioReady) {
+    return { valid: false, reason: 'invalid_process_audio_ready_missing' };
   }
 
   if (privateAudioChunks.length > 0) {
