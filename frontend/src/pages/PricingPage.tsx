@@ -13,6 +13,7 @@ import {
   type ConversionSource,
 } from '@/services/conversionFunnel';
 import { toast } from '@/lib/toast';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import logger from '../lib/logger';
 
 interface Tier {
@@ -75,6 +76,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
 
   const handleUpgrade = async () => {
     if (isSubmitting) return;
+    if (tier.action === 'checkout' && !arePaymentsEnabled()) return; // payments not configured — checkout CTA is hidden
     setIsSubmitting(true);
 
     try {
@@ -136,14 +138,16 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
         </ul>
       </CardContent>
       <div className="p-6">
-        <Button
-          onClick={() => { void handleUpgrade(); }}
-          className="w-full"
-          variant={tier.isPopular ? 'default' : 'outline'}
-          disabled={isSubmitting}
-        >
-          {isSubmitting && tier.action === 'checkout' ? 'Starting checkout...' : tier.cta}
-        </Button>
+        {(tier.action !== 'checkout' || arePaymentsEnabled()) && (
+          <Button
+            onClick={() => { void handleUpgrade(); }}
+            className="w-full"
+            variant={tier.isPopular ? 'default' : 'outline'}
+            disabled={isSubmitting}
+          >
+            {isSubmitting && tier.action === 'checkout' ? 'Starting checkout...' : tier.cta}
+          </Button>
+        )}
       </div>
     </Card>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyStripeKey, computeAppRuntimeConfig, type AppModeMeta } from '../appRuntimeConfig';
+import { arePaymentsEnabledFor, classifyStripeKey, computeAppRuntimeConfig, type AppModeMeta } from '../appRuntimeConfig';
 
 const MANUAL: AppModeMeta = { viteMode: 'development', port: 5174, authMode: 'real', releaseProofEligible: true };
 const TEST_MODE: AppModeMeta = { viteMode: 'test', port: 5173, authMode: 'mock', releaseProofEligible: false };
@@ -80,5 +80,19 @@ describe('classifyStripeKey', () => {
     expect(classifyStripeKey(null)).toBe('missing');
     expect(classifyStripeKey('sk_live_should_never_be_here')).toBe('unknown');
     expect(classifyStripeKey('garbage')).toBe('unknown');
+  });
+});
+
+describe('arePaymentsEnabledFor', () => {
+  it('enables payments for any non-missing key class (live/test/unknown)', () => {
+    expect(arePaymentsEnabledFor('pk_live_51Abc')).toBe(true);
+    expect(arePaymentsEnabledFor('pk_test_51Abc')).toBe(true);
+    expect(arePaymentsEnabledFor('garbage')).toBe(true);
+  });
+  it('disables payments only when the key is missing/blank', () => {
+    expect(arePaymentsEnabledFor('')).toBe(false);
+    expect(arePaymentsEnabledFor('   ')).toBe(false);
+    expect(arePaymentsEnabledFor(undefined)).toBe(false);
+    expect(arePaymentsEnabledFor(null)).toBe(false);
   });
 });

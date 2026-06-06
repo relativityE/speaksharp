@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import logger from '../lib/logger';
 import { toast } from '@/lib/toast';
 import { useUserProfile } from '@/hooks/useUserProfile';
@@ -124,6 +125,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
     const handleUpgrade = async (source: ConversionSource = 'analytics_overview_banner') => {
         if (upgradeLoading) return;
+        if (!arePaymentsEnabled()) return; // payments not configured — no broken checkout
         setUpgradeLoading(true);
 
         try {
