@@ -70,9 +70,11 @@ export const setupGlobalErrorHandlers = () => {
             lineno: event.lineno
         }, 'Global Uncaught Error');
 
-        // Observability Hard-Gate: Ensure raw error is pushed to console for Playwright
+        // Observability Hard-Gate: surface the raw error for Playwright. logger.error
+        // always emits (never level-suppressed) and pino's browser build routes it to
+        // console.error, so the gate still fires while going through the logger.
         if (event.error) {
-            console.error('[GlobalHardGate]', event.error);
+            logger.error({ err: event.error }, '[GlobalHardGate]');
         }
 
 

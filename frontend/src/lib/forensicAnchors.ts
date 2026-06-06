@@ -9,6 +9,7 @@
  */
 
 import type { RuntimeState } from '../services/SpeechRuntimeController';
+import logger from './logger';
 
 /**
  * 👑 Master Control Object (MCA)
@@ -90,7 +91,7 @@ export function mapToRuntimeState(state: TranscriptionState): RuntimeState {
       // Exhaustiveness check — TypeScript will error if a new state is added
       // to TranscriptionState without updating this mapper
       const exhaustiveCheck: never = state;
-      console.error(`[forensicAnchors] Unmapped FSM state: ${exhaustiveCheck}`);
+      logger.error(`[forensicAnchors] Unmapped FSM state: ${exhaustiveCheck}`);
       return 'FAILED';
     }
   }
@@ -286,7 +287,7 @@ export function syncSessionPersisted(
 ): void {
   if (typeof document === 'undefined') return;
   const sessionId = details?.sessionId ?? null;
-  console.info(`[FORENSIC] syncSessionPersisted: ${persisted}${sessionId ? ` (${sessionId})` : ''}`);
+  logger.debug(`[FORENSIC] syncSessionPersisted: ${persisted}${sessionId ? ` (${sessionId})` : ''}`);
   const root = document.documentElement;
   if (persisted) {
     root.setAttribute('data-session-persisted', 'true');
