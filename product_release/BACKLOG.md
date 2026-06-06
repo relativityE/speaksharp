@@ -166,7 +166,7 @@ Please review whether the current guard and process are sufficient, or whether w
 2. Should `pnpm dev` automatically open `http://localhost:5174/auth/signup` for manual tester flows?
 3. Should CDP/browser proof tooling refuse to proceed unless the active page URL is `localhost:5174` and the app reports real-auth mode?
 4. Should release artifacts include a required `environmentProof` block: URL, port, mode, auth mode, and launch command?
-5. Should `product_release/CURRENT_WORK.md` require every human proof row to state the launcher and port before recording begins?
+5. Should `product_release/ACTIVE_COORDINATION.md` require every human proof row to state the launcher and port before recording begins?
 
 ### Acceptance Criteria
 
@@ -220,14 +220,8 @@ Please review whether the current guard and process are sufficient, or whether w
 
 ## Current STT Ownership
 
-This is the current owner split. Old proof chatter has been removed from the
-active reports; use git history only for audit. Live branch/worktree state
-belongs in `product_release/CURRENT_WORK.md`.
-
-| Owner | Current tasks |
-|---|---|
-| **@dev-agent** | #30 Private setup CTA; return-timestamps audit; named VAD prototype flag; Private content loss/substitution; Private first-visible draft gating; any Fix-A-v2/VAD/model candidate must be named, flagged, and browser-proven. |
-| **test-release-agent / Codex** | Rerun Native real-mic proof on current main; rerun Private human proof on current main; run v4 containment; run Fix-A-v2 focused proof; rerun any named VAD/model candidate after dev hands tree back. |
+Current ownership belongs only in `product_release/ACTIVE_COORDINATION.md`.
+Old proof chatter has been removed from active reports; use git history only for audit.
 | **product** | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
 
 Coordination protocol: each agent should work in its own worktree or isolated
