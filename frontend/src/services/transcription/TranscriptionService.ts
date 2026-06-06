@@ -692,7 +692,7 @@ export default class TranscriptionService {
         pushE2EEvent('ENGINE_READY', { serviceId: this.serviceId, source: 'TranscriptionService', sessionId: this.sessionId });
       }
     } catch (error: unknown) {
-      console.error('[DIAGNOSTIC HEARTBEAT ERROR]', error);
+      logger.error({ error }, '[DIAGNOSTIC HEARTBEAT ERROR]');
       const err = error as { code?: string; message?: string };
       // CACHE_MISS can be thrown or returned during init
       if (err?.code === 'CACHE_MISS' || err?.message?.includes('CACHE_MISS')) {
