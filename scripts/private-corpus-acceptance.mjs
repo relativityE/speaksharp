@@ -19,6 +19,72 @@ export const PRIVATE_ACCEPTANCE = {
   FIRST_TEXT_HARD_LIMIT_MS: 5000,
 };
 
+const asArray = (value) => Array.isArray(value) ? value : [];
+const eventName = (event) => String(event?.event ?? event?.name ?? event?.type ?? '');
+const finiteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+const isSpeechFixture = (row) => {
+  if (row?.expectedSpeech === false || row?.expectedSilence === true) return false;
+  const fixture = String(row?.fixture ?? '').toLowerCase();
+  return !/(silence|near[-_ ]?silence|tone|empty)/i.test(fixture);
+};
+
+/**
+ * Classify invalid harness/audio-delivery evidence before model accuracy.
+ *
+ * This intentionally runs only when the row includes audio/timeline/timing proof
+ * fields. Older artifact rows without those fields still validate via the legacy
+ * acceptance checks; current proof rows with zero audio must be INVALID, never a
+ * model FAIL.
+ */
+export function classifyPrivateAudioValidity(row) {
+  if (!row || typeof row !== 'object') {
+    return { valid: false, reason: 'row_missing' };
+  }
+
+  const privateTrace = [
+    ...asArray(row.privateTrace),
+    ...asArray(row.privateTimeline),
+  ];
+  const privateAudioChunks = [
+    ...asArray(row.privateAudioChunks),
+    ...asArray(row.privateUtteranceAudioChunks),
+  ];
+  const hasProofFields = privateTrace.length > 0
+    || privateAudioChunks.length > 0
+    || Object.prototype.hasOwnProperty.call(row, 'privateTrace')
+    || Object.prototype.hasOwnProperty.call(row, 'privateTimeline')
+    || Object.prototype.hasOwnProperty.call(row, 'privateAudioChunks')
+    || Object.prototype.hasOwnProperty.call(row, 'privateUtteranceAudioChunks');
+
+  if (!hasProofFields) {
+    return { valid: true, reason: null };
+  }
+
+  const hasProcessAudioReady = privateTrace.some((event) => eventName(event) === 'process_audio_ready');
+  const hasSpeechStart = privateTrace.some((event) => eventName(event) === 'speech_start_detected');
+
+  if (finiteNumber(row.stopFinalizationMs) && row.stopFinalizationMs <= 0) {
+    return { valid: false, reason: `invalid_impossible_timing:${row.stopFinalizationMs}` };
+  }
+
+  if (privateAudioChunks.length === 0 && !hasProcessAudioReady) {
+    return { valid: false, reason: 'invalid_no_audio_delivered' };
+  }
+
+  if (privateAudioChunks.length > 0) {
+    const energyValues = privateAudioChunks.flatMap((chunk) => [chunk.rms, chunk.peak]).filter(finiteNumber);
+    if (energyValues.length > 0 && energyValues.every((value) => value <= 0)) {
+      return { valid: false, reason: 'invalid_zero_audio_energy' };
+    }
+  }
+
+  if (isSpeechFixture(row) && privateTrace.length > 0 && !hasSpeechStart) {
+    return { valid: false, reason: 'invalid_no_speech_start_detected' };
+  }
+
+  return { valid: true, reason: null };
+}
+
 /**
  * Validate a single corpus result row. `requiredFinalSubstrings` lets the caller
  * assert truth-preserving fragments (e.g. ['pepper spoils'] for h1_2).
@@ -28,6 +94,17 @@ export function validatePrivateRow(row, requiredFinalSubstrings = []) {
 
   if (!row || typeof row !== 'object') {
     return { fixture: row?.fixture ?? 'unknown', pass: false, failures: ['row_missing'] };
+  }
+
+  const audioValidity = classifyPrivateAudioValidity(row);
+  if (!audioValidity.valid) {
+    return {
+      fixture: row.fixture,
+      pass: false,
+      invalid: true,
+      invalidReason: audioValidity.reason,
+      failures: [audioValidity.reason],
+    };
   }
 
   // Runtime telemetry must be structurally present (the P0.1 gate).
