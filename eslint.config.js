@@ -39,7 +39,7 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       'no-empty': 'error',
-      'no-console': ['error', { allow: ['warn', 'info', 'debug', 'error'] }], // Enforce structured logger, but allow raw errors for Global Escalation
+      'no-console': 'error', // App code MUST use the structured logger (src/lib/logger). pino routes error/warn to console.* so escalation still surfaces. Tests are exempt below.
       'react-refresh/only-export-components': [
         'warn',  // Downgrade to warning - this is a dev-time optimization hint, not a critical error
         {
@@ -122,6 +122,7 @@ export default tseslint.config(
     rules: {
       ...vitest.configs.recommended.rules,
       'vitest/no-commented-out-tests': 'error',
+      'no-console': 'off', // Tests may use console for probe/debug output; the logger ban applies to app code only.
     },
     languageOptions: {
       globals: {

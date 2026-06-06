@@ -15,6 +15,7 @@ import type { TranscriptionState, TranscriptionEvent } from './services/transcri
 import { setAppVisibleReady } from '@/lib/forensicAnchors';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
+import logger from '@/lib/logger';
 
 const showTestModeBadge =
   !import.meta.env.PROD &&
@@ -144,7 +145,7 @@ const App: React.FC = () => {
           window.location.assign(nextUrl.href);
         })
         .catch((error) => {
-          console.error('[App] Failed to stop recording before route exit:', error);
+          logger.error({ error }, '[App] Failed to stop recording before route exit');
           window.alert('We could not stop and save the recording yet. Please stop the session before leaving.');
         });
     };
@@ -201,7 +202,7 @@ const App: React.FC = () => {
             const originalTransition = s.fsm.transition.bind(s.fsm);
             s.fsm.transition = (params: TranscriptionEvent) => {
               if (params.type === 'ENGINE_INIT_SUCCESS' && state === 'ENGINE_INITIALIZING') {
-                console.info(`[TRACE] Pausing mid-transition as requested: ${state}`);
+                logger.debug(`[TRACE] Pausing mid-transition as requested: ${state}`);
                 return true; // Halt transition (Deterministic pause)
               }
               return originalTransition(params);
@@ -210,7 +211,7 @@ const App: React.FC = () => {
         };
 
         g.__SS_E2E__ = bridge;
-        console.info('[App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)');
+        logger.debug('[App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)');
       });
     }
   }, []);
@@ -248,13 +249,13 @@ const App: React.FC = () => {
     // Logic: If leaving /session -> Hard Termination
     if (prevPath === '/session' && currentPath !== '/session') {
       const routeExitVersion = ++routeExitVersionRef.current;
-      console.warn(`[DIAGNOSTIC] 🏁 Route Exit Detected: ${prevPath} -> ${currentPath}`);
+      logger.debug(`[DIAGNOSTIC] 🏁 Route Exit Detected: ${prevPath} -> ${currentPath}`);
       void import('@/services/transcription/SessionManager').then(({ sessionManager }) => {
         const activeService = sessionManager.getActiveService();
-        console.warn(`[DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: ${activeService?.serviceId || 'NONE'}`);
+        logger.debug(`[DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: ${activeService?.serviceId || 'NONE'}`);
         const stopBeforeDestroy = isListening
           ? speechRuntimeController.stopRecording().catch((error) => {
-            console.error('[App] Failed to stop recording before route-exit teardown:', error);
+            logger.error({ error }, '[App] Failed to stop recording before route-exit teardown');
           })
           : Promise.resolve();
 
