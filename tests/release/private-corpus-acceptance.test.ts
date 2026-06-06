@@ -90,6 +90,36 @@ describe('private corpus acceptance validator', () => {
     expect(result.failures).not.toContain('final_missing:they like');
   });
 
+  it('marks rows with process_audio_ready but no captured audio chunks INVALID', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'anything',
+      privateAudioChunks: [],
+      privateTrace: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(validatePrivateRow(row).invalidReason).toBe('invalid_no_audio_delivered');
+  });
+
+  it('marks rows with captured chunks but no process_audio_ready event INVALID', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateRuntime: 'wasm-singlethread',
+      privateProvider: 'transformers-js',
+      privateCloudFallbackAttempted: false,
+      detailTranscript: 'anything',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0.04, peak: 0.2 }],
+      privateTrace: [{ event: 'speech_start_detected' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(validatePrivateRow(row).invalidReason).toBe('invalid_process_audio_ready_missing');
+  });
+
   it('marks all-zero RMS/peak chunks INVALID', () => {
     const row = {
       fixture: 'h1_6',
