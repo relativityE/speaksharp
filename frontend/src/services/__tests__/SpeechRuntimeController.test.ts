@@ -450,6 +450,55 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
+    it('flags repetitionRisk on the save candidate for a Whisper loop WITHOUT altering the saved transcript', async () => {
+        const storage = await import('../../lib/storage');
+        window.__SS_TRANSCRIPT_TRACE__ = [];
+        vi.mocked(storage.completeSession).mockClear();
+
+        // A Whisper-style loop: a multi-word phrase repeated back-to-back (the short-clip failure class).
+        const loopingPartial =
+            'basically we should literally like wait basically we should literally like wait basically we should literally like wait';
+
+        const stopTranscription = vi.fn().mockResolvedValue({
+            success: true,
+            transcript: '',
+            stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 10, accuracy: 1 },
+        });
+        (controller as unknown as { service: unknown }).service = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 10_000),
+            stopTranscription,
+            destroy: vi.fn().mockResolvedValue(undefined),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+        };
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string }).sessionId = 'sess-loop';
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode('private');
+
+        (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: loopingPartial },
+        });
+
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        // Read the authoritative save-candidate debug directly (same object exposed via
+        // window.__SPEECH_RUNTIME_DEBUG__().saveCandidate), independent of any env gating.
+        const saveCandidate = (controller as unknown as { lastSaveCandidateDebug: Record<string, unknown> | null }).lastSaveCandidateDebug;
+
+        // (1) The detector FLAGS the loop on the saved candidate...
+        expect(saveCandidate?.repetitionRisk, `saveCandidate=${JSON.stringify(saveCandidate)}`).toBe(true);
+        expect(saveCandidate?.repetitionRiskReason).toBeTruthy();
+
+        // (2) ...but the saved transcript is NOT altered — the repeated content is preserved (never deleted).
+        const saved = String(saveCandidate?.selectedForSave ?? '').toLowerCase();
+        expect((saved.match(/literally/g) ?? []).length, `saved="${saved}"`).toBeGreaterThanOrEqual(2);
+    });
+
     it('routes newly-created service transcript callbacks through the controller before subscriber callbacks', async () => {
         SpeechRuntimeController.__resetForTests();
         controller = SpeechRuntimeController.getInstance();
