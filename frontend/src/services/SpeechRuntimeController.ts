@@ -978,9 +978,32 @@ export class SpeechRuntimeController {
         void this.checkRecordingInvariant();
     }
 
+    private pendingModelProgress: number | null = null;
+    private modelProgressFlushScheduled = false;
+
+    // Coalesce model-load PROGRESS events. A large base.en download — amplified by multiple
+    // worker progress streams during init — fires a rapid burst; pushing each one straight to
+    // the store floods React with synchronous re-renders and trips "Maximum update depth
+    // exceeded" during DOWNLOAD_REQUIRED->ENGINE_INITIALIZING. We keep only the LATEST value and
+    // flush at most once per animation frame, so a burst can never storm the renderer.
+    // (SELFHOST-MODELS-MAXDEPTH — fixes the progress-flood render storm.)
     private handleModelLoadProgress(progress: number | null) {
-        useSessionStore.getState().setModelLoadingProgress(progress);
-        this.subscriberCallbacks.onModelLoadProgress?.(progress);
+        this.pendingModelProgress = progress;
+        if (this.modelProgressFlushScheduled) return;
+        this.modelProgressFlushScheduled = true;
+
+        const flush = () => {
+            this.modelProgressFlushScheduled = false;
+            const value = this.pendingModelProgress;
+            useSessionStore.getState().setModelLoadingProgress(value);
+            this.subscriberCallbacks.onModelLoadProgress?.(value);
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(flush);
+        } else {
+            setTimeout(flush, 0);
+        }
     }
 
     private isModeAllowedByCurrentPolicy(mode: TranscriptionMode | null): boolean {

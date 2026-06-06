@@ -1,5 +1,6 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
+import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type WhisperDecodeOptions = Record<string, unknown>;
@@ -87,9 +88,17 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         cpuThreads = 1;
     }
 
-    const progress_callback = (data: { progress?: number }) => {
-        if (data.progress !== undefined) {
-            post({ id, type: 'progress', progress: data.progress });
+    // MAXDEPTH FIX (Part 4): whisper-base.en is a SPLIT model (separate encoder +
+    // decoder ONNX files). transformers.js fires progress_callback PER FILE, each
+    // ramping 0→100 independently, so forwarding the raw per-file `progress` yields a
+    // non-monotonic, oscillating stream that drives a React render loop ("Maximum
+    // update depth exceeded"). Aggregate to one monotonic overall percent at the
+    // source — see createProgressAggregator for the full rationale + the trace.
+    const aggregateProgress = createProgressAggregator();
+    const progress_callback = (data: ProgressEvent) => {
+        const overall = aggregateProgress(data);
+        if (overall !== null) {
+            post({ id, type: 'progress', progress: overall });
         }
     };
 

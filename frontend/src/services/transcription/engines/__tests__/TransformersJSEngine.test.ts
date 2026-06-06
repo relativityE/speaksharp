@@ -345,4 +345,25 @@ describe('TransformersJSEngine (Unit)', () => {
         const result = await engine.init();
         expect(result.isOk === false).toBe(true);
     });
+
+    // MAXDEPTH Part 1 (observability): leaf engines must inherit the owning
+    // service identity at construction so init logs are attributable. Before the
+    // base-constructor fix they always reported serviceId='unknown', making a
+    // single facade->leaf decorator init look like multiple orphan/"probe" engines.
+    it('inherits serviceId/runId from constructor options (no orphan "unknown")', () => {
+        const identified = new TransformersJSEngine({
+            onTranscriptUpdate: vi.fn(),
+            onReady: vi.fn(),
+            serviceId: 'svc-abc',
+            runId: 'run-xyz',
+        } as unknown as ConstructorParameters<typeof TransformersJSEngine>[0]);
+        expect((identified as unknown as { serviceId: string }).serviceId).toBe('svc-abc');
+        expect((identified as unknown as { runId: string }).runId).toBe('run-xyz');
+    });
+
+    it('defaults serviceId/runId to "unknown" when options omit identity', () => {
+        const anon = new TransformersJSEngine({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        expect((anon as unknown as { serviceId: string }).serviceId).toBe('unknown');
+        expect((anon as unknown as { runId: string }).runId).toBe('unknown');
+    });
 });
