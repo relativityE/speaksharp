@@ -1623,6 +1623,32 @@ try {
 } catch (error) {
   evidence.error = error instanceof Error ? error.message : String(error);
 } finally {
+  const markEvidence = () => {
+    evidence.completedAt = new Date().toISOString();
+    evidence.runnerPass = evidence.sandboxEperm === true
+      ? false
+      : evidence.results.length > 0 && evidence.results.every((result) => !result.error);
+    evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
+      result.journeyPass === true &&
+      result.inputLikelyContaminated !== true &&
+      result.fillerPass !== false &&
+      (MAX_WER == null || result.meetsWerThreshold === true)
+    ));
+    evidence.pass = evidence.gatePass;
+  };
+
+  markEvidence();
+  evidence.preBrowserCloseEvidenceWritten = true;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.log(`STT_CORPUS_EVIDENCE_PRE_CLOSE ${JSON.stringify({
+    out: OUT,
+    runnerPass: evidence.runnerPass,
+    gatePass: evidence.gatePass,
+    resultCount: evidence.results.length,
+    maxWer: MAX_WER,
+    invalidReason: evidence.reason,
+  })}`);
+
   const closeError = browser
     ? await browser.close().then(() => null).catch((error) => error)
     : null;
@@ -1635,17 +1661,7 @@ try {
     evidence.browserCloseWarning = closeError instanceof Error ? closeError.message : String(closeError);
   }
 
-  evidence.completedAt = new Date().toISOString();
-  evidence.runnerPass = evidence.sandboxEperm === true
-    ? false
-    : evidence.results.length > 0 && evidence.results.every((result) => !result.error);
-  evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
-    result.journeyPass === true &&
-    result.inputLikelyContaminated !== true &&
-    result.fillerPass !== false &&
-    (MAX_WER == null || result.meetsWerThreshold === true)
-  ));
-  evidence.pass = evidence.gatePass;
+  markEvidence();
   await writeFile(OUT, JSON.stringify(evidence, null, 2));
   console.log(`STT_CORPUS_EVIDENCE ${JSON.stringify({
     out: OUT,
