@@ -2,7 +2,7 @@
 -- Transcript/audio payloads are opt-in only; metadata is captured by default.
 
 CREATE TABLE IF NOT EXISTS public.user_issue_reports (
-  id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
   category text NOT NULL DEFAULT 'general',
