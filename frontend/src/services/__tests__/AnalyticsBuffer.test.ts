@@ -125,4 +125,39 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
         $ts: new Date('2026-05-22T12:00:00.000Z').getTime()
     }));
   });
+
+  it('redacts transcript and audio-like analytics properties at the send boundary', () => {
+    analyticsBuffer.ready = true;
+
+    analyticsBuffer.push('PrivacyTest', {
+      transcript: 'um this private transcript must not leave',
+      audioDataUrl: 'data:audio/wav;base64,very-sensitive',
+      nested: {
+        finalTranscript: 'another sensitive transcript',
+        safeMode: 'private',
+      },
+      values: [
+        { transcriptExcerpt: 'nested array transcript' },
+      ],
+    }, 'CRITICAL');
+
+    expect(posthog.capture).toHaveBeenCalledWith('PrivacyTest', expect.objectContaining({
+      transcript: { length: 41, words: 7, redacted: true },
+      audioDataUrl: { length: 36, words: 1, redacted: true },
+      nested: {
+        finalTranscript: { length: 28, words: 3, redacted: true },
+        safeMode: 'private',
+      },
+      values: [
+        { transcriptExcerpt: { length: 23, words: 3, redacted: true } },
+      ],
+      $priority: 'CRITICAL',
+    }));
+
+    const payload = JSON.stringify(vi.mocked(posthog.capture).mock.calls[0][1]);
+    expect(payload).not.toContain('private transcript');
+    expect(payload).not.toContain('very-sensitive');
+    expect(payload).not.toContain('another sensitive');
+    expect(payload).not.toContain('nested array transcript');
+  });
 });

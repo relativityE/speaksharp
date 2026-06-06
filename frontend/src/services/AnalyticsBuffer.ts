@@ -2,6 +2,7 @@
 import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
+import { redactTranscript } from '../lib/logRedaction';
 
 
 /**
@@ -17,6 +18,35 @@ interface AnalyticsEvent {
   priority: AnalyticsPriority;
   timestamp: number;
 }
+
+const SENSITIVE_ANALYTICS_KEY = /(transcript|audio|wav|blob|base64)/i;
+
+const sanitizeAnalyticsValue = (key: string, value: unknown): unknown => {
+  if (SENSITIVE_ANALYTICS_KEY.test(key)) {
+    return typeof value === 'string'
+      ? redactTranscript(value)
+      : { redacted: true };
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeAnalyticsValue(key, item));
+  }
+
+  if (value && typeof value === 'object') {
+    return sanitizeAnalyticsProperties(value as Record<string, unknown>);
+  }
+
+  return value;
+};
+
+const sanitizeAnalyticsProperties = (
+  properties?: Record<string, unknown>,
+): Record<string, unknown> | undefined => {
+  if (!properties) return undefined;
+  return Object.fromEntries(
+    Object.entries(properties).map(([key, value]) => [key, sanitizeAnalyticsValue(key, value)]),
+  );
+};
 
 class AnalyticsBuffer {
   private static instance: AnalyticsBuffer;
@@ -145,7 +175,7 @@ class AnalyticsBuffer {
   private send(event: AnalyticsEvent): void {
     try {
       posthog.capture(event.event, {
-        ...event.properties,
+        ...sanitizeAnalyticsProperties(event.properties),
         $priority: event.priority,
         $ts: event.timestamp
       });
