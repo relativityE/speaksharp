@@ -47,7 +47,7 @@ if (ENV.isTest) {
     seed = (seed * 16807) % 2147483647;
     return (seed - 1) / 2147483646;
   };
-  logger.info('[main.tsx] Seeded random initialized for CI/E2E');
+  logger.debug('[main.tsx] Seeded random initialized for CI/E2E');
 }
 
 const REQUIRED_ENV_VARS: string[] = [
@@ -82,7 +82,7 @@ const queryClient = new QueryClient({
 if (ENV.isTest) {
   (window as unknown as { queryClient: typeof queryClient }).queryClient = queryClient;
 }
-logger.info('[React Query] ✅ QueryClient initialized');
+logger.debug('[React Query] QueryClient initialized');
 
 // CRITICAL: Initialize Sentry FIRST before any async operations
 // This ensures errors during initialization are captured
@@ -93,7 +93,7 @@ const enableSentryTracing = import.meta.env.VITE_ENABLE_SENTRY_TRACING === 'true
 const enableSentryReplay = import.meta.env.VITE_ENABLE_SENTRY_REPLAY === 'true';
 const enableSentryConsoleCapture = import.meta.env.VITE_ENABLE_SENTRY_CONSOLE_CAPTURE === 'true';
 
-logger.info({ isTestMode, sentryDSN, skipSentry }, '[main.tsx] Sentry Initialization Check');
+logger.debug({ isTestMode, hasSentryDsn: Boolean(sentryDSN), skipSentry }, '[main.tsx] Sentry Initialization Check');
 
 if (!skipSentry) {
   try {
@@ -114,7 +114,7 @@ if (!skipSentry) {
       // be exfiltrated to Sentry on error (defense layer 2; layer 1 is redactTranscript).
       beforeBreadcrumb: scrubConsoleBreadcrumb,
     });
-    logger.info('[Sentry] Initialized successfully (early init)');
+    logger.debug('[Sentry] Initialized successfully (early init)');
   } catch (err) {
     logger.warn({ err }, '[Sentry] ⚠️ Failed to initialize');
   }
@@ -133,10 +133,10 @@ setupGlobalErrorHandlers();
 const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
-    logger.info('[main.tsx] Starting app render...');
+    logger.debug('[main.tsx] Starting app render...');
 
     if (areEnvVarsPresent()) {
-      logger.info({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
+      logger.debug({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
 
       const devEnvironmentStatus = getDevEnvironmentStatus();
       if (!devEnvironmentStatus.valid) {
@@ -170,7 +170,7 @@ const renderApp = async (initialSession: Session | null = null) => {
                 disable_session_recording: true,
                 debug: import.meta.env.MODE === 'development',
               });
-              logger.info('[PostHog] Initialized successfully');
+              logger.debug('[PostHog] Initialized successfully');
             } catch (error) {
               logger.warn({ error }, "PostHog failed to initialize:");
             }
@@ -189,7 +189,7 @@ const renderApp = async (initialSession: Session | null = null) => {
           if (session && !sessionToUse) {
             // This is a race condition fallback, but atomic injection 
             // via localStorage is the primary source of truth.
-            logger.info('[E2E] Bridge session resolved asynchronously');
+            logger.debug('[E2E] Bridge session resolved asynchronously');
           }
         }).catch((err) => {
           logger.error({ err }, '[E2E] Failed to initialize e2e-bridge');
@@ -241,7 +241,7 @@ const renderApp = async (initialSession: Session | null = null) => {
 const startInitializing = async () => {
   // Bootstrap: Initialize E2E Environment if in test mode
 
-  logger.info('[main.tsx] Initialize started');
+  logger.debug('[main.tsx] Initialize started');
 
   // Defer heavy WASM initialization to avoid competing with React hydration
   const initSTT = () => {
@@ -249,7 +249,7 @@ const startInitializing = async () => {
     void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
       speechRuntimeController.initializeInfrastructure()
         .then(() => {
-          logger.info('[main.tsx] STT Infrastructure Ready');
+          logger.debug('[main.tsx] STT Infrastructure Ready');
         })
         .catch(err => {
           logger.error({ err }, '[main.tsx] ❌ SpeechRuntimeController failed');
