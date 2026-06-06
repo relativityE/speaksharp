@@ -308,7 +308,10 @@ if (typeof window !== 'undefined') {
     // Mock environment variables for consistent testing
     vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon-key');
-    vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_test_');
+    // Fake LIVE-class key (format-only) so component tests exercise the payments-ENABLED
+    // UI path under the live-only gate (arePaymentsEnabledFor). The test/missing -> hidden
+    // behavior is asserted deterministically in appRuntimeConfig.test.ts.
+    vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_live_FAKE_FOR_TESTS');
     vi.stubEnv('VITE_DEV_PREMIUM_ACCESS', 'false');
     // crypto.randomUUID polyfill (JSDOM requirement)
     if (typeof crypto === 'undefined' || !crypto.randomUUID) {
