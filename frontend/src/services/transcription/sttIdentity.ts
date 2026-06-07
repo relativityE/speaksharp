@@ -3,14 +3,14 @@
  *
  * A human (or proof harness) watching a live session cannot otherwise tell WHICH engine/model is
  * running (v2 tiny vs v2 base vs experimental v4), how it was selected (default vs `?privateModel=` /
- * `?privateEngine=` override), its size, device/backend, dtype, or release status. This module
- * assembles those already-published signals into ONE object so the dev/test badge and the proof
- * artifacts speak the same vocabulary.
+ * `?privateEngine=` override), its size, where it loaded from, device/backend, or release status.
+ * This module assembles those already-published signals into ONE object so the dev/test badge and the
+ * proof artifacts speak the same vocabulary (the reviewer's required field set).
  *
  * PURE + READ-ONLY: `buildSttIdentity` is a pure function of its inputs; `collectSttIdentityFromWindow`
  * reads existing globals/flags and never mutates state, transcripts, or behavior. It NEVER shows raw
- * model names to normal users — the consuming badge is gated behind an explicit debug flag, and the
- * `releaseStatus` field marks v4 as hidden/experimental.
+ * model names to normal users — the consuming badge is gated behind an explicit debug flag, and
+ * `userHidden` is true for Private.
  */
 import { NOT_AVAILABLE, type Maybe } from './sttEvidence';
 import { PRIV_STT_MODELS } from './sttConstants';
@@ -22,14 +22,18 @@ import {
 } from './utils/privateModelFlag';
 
 export type SttMode = 'private' | 'cloud' | 'native';
+
+/** Release disposition of the running engine/model (reviewer schema). */
 export type SttReleaseStatus =
-    | 'release-default'      // v2 base.en — the shipping default
-    | 'internal-fallback'   // v2 tiny.en — emergency/internal fallback, not user-facing
-    | 'override'            // explicitly selected non-default model/engine (test/dev)
-    | 'hidden-experimental'; // v4 — off-flag, never user-facing
+    | 'default'      // v2 base.en — the shipping default
+    | 'fallback'     // v2 tiny.en — internal/emergency/faster fallback
+    | 'override'     // explicitly selected non-default model/engine (test/dev)
+    | 'experimental'; // v4 — off-flag, never user-facing
 
 /** The fallback (non-default) Private model: kept internal/emergency only, never the user default. */
 export const PRIVATE_FALLBACK_MODEL = 'whisper-tiny.en';
+/** Models self-hosted under `public/models/` (load LOCAL, no Hugging Face at runtime). */
+const SELF_HOSTED_MODELS = new Set(['whisper-base.en', 'whisper-tiny.en']);
 
 /** A v4 runtime snapshot (subset of `__PRIVATE_V4_RUNTIME__`). Present only on a v4 run. */
 export interface SttIdentityV4Input {
@@ -37,6 +41,8 @@ export interface SttIdentityV4Input {
     backend?: string;
     dtype?: Record<string, string>;
     modelId?: string;
+    modelSource?: 'hf' | 'local';
+    fallbackOccurred?: boolean;
     transformersVersion?: string;
     onnxRuntimeVersion?: string;
 }
@@ -60,22 +66,28 @@ export interface SttIdentityInput {
 
 export interface SttIdentity {
     mode: Maybe<SttMode | string>;
-    /** Engine/runtime: 'transformers-js' (v2), 'transformers-js-v4', 'assemblyai', 'web-speech-api'. */
+    /** Provider/vendor family (e.g. 'transformers.js', 'assemblyai', 'web-speech-api'). */
+    provider: Maybe<string>;
+    /** Specific engine id: 'transformers-js' (v2) / 'transformers-js-v4' / 'assemblyai' / 'web-speech-api'. */
     engine: Maybe<string>;
-    /** Whether the engine came from the default routing or an explicit override. */
+    /** Whether the engine came from default routing or an explicit override. */
     engineSelection: 'default' | 'override';
     /** Model id/key actually running. */
-    model: Maybe<string>;
+    modelId: Maybe<string>;
     /** How the model was selected (default vs window flag vs URL). */
-    modelSelectionSource: Maybe<PrivateModelSelectionSource>;
+    selectionSource: Maybe<PrivateModelSelectionSource>;
     modelOverridden: Maybe<boolean>;
     approxMB: Maybe<number>;
-    device: Maybe<string>;
+    /** Where the model loaded from: bundled/self-hosted (local) vs downloaded (remote). */
+    modelSource: Maybe<'local' | 'remote'>;
+    resolvedDevice: Maybe<string>;
     backend: Maybe<string>;
     dtype: Maybe<string>;
+    /** Whether the engine fell back from the requested device/engine (always surfaced). */
+    fallbackOccurred: Maybe<boolean>;
     runtimeVersion: Maybe<string>;
     releaseStatus: Maybe<SttReleaseStatus>;
-    /** True when this engine/model must never be shown to normal users (v4, or any raw model name). */
+    /** True when this engine/model must never be shown to normal users (raw model names / v4). */
     userHidden: boolean;
 }
 
@@ -89,62 +101,80 @@ export function buildSttIdentity(input: SttIdentityInput): SttIdentity {
     const isV4 = Boolean(input.v4);
     const engineOverridden = Boolean(input.engineOverride && input.engineOverride.trim().length > 0);
 
+    let provider: string | null = null;
     let engine: string | null = null;
-    let model: string | null = null;
-    let device: string | null = null;
+    let modelId: string | null = null;
+    let modelSource: 'local' | 'remote' | null = null;
+    let resolvedDevice: string | null = null;
     let backend: string | null = null;
     let dtype: string | null = null;
+    let fallbackOccurred: boolean | null = null;
     let runtimeVersion: string | null = null;
     let releaseStatus: SttReleaseStatus | null = null;
 
     if (mode === 'private') {
         if (isV4) {
             const v4 = input.v4 as SttIdentityV4Input;
+            provider = 'transformers.js (webgpu)';
             engine = 'transformers-js-v4';
-            model = v4.modelId ?? null;
-            device = v4.resolvedDevice ?? null;
+            modelId = v4.modelId ?? null;
+            modelSource = v4.modelSource === 'local' ? 'local' : v4.modelSource === 'hf' ? 'remote' : null;
+            resolvedDevice = v4.resolvedDevice ?? null;
             backend = v4.backend ?? (v4.resolvedDevice === 'webgpu' ? 'webgpu' : null);
             dtype = v4.dtype && typeof v4.dtype === 'object'
                 ? Object.entries(v4.dtype).map(([k, v]) => `${k}=${v}`).join(',')
                 : null;
+            fallbackOccurred = typeof v4.fallbackOccurred === 'boolean' ? v4.fallbackOccurred : false;
             runtimeVersion = [v4.transformersVersion, v4.onnxRuntimeVersion].filter(Boolean).join(' / ') || null;
-            releaseStatus = 'hidden-experimental';
+            releaseStatus = 'experimental';
         } else {
+            provider = 'transformers.js';
             engine = 'transformers-js';
-            model = input.privateModelKey ?? null;
-            device = 'cpu';
+            modelId = input.privateModelKey ?? null;
+            modelSource = modelId && SELF_HOSTED_MODELS.has(modelId) ? 'local' : modelId ? 'remote' : null;
+            resolvedDevice = 'cpu';
             backend = 'wasm';
+            fallbackOccurred = false; // Private NEVER falls back to Cloud; no device fallback for v2.
             releaseStatus = input.modelOverridden
                 ? 'override'
-                : model === PRIV_STT_MODELS.DEFAULT
-                    ? 'release-default'
-                    : model === PRIVATE_FALLBACK_MODEL
-                        ? 'internal-fallback'
+                : modelId === PRIV_STT_MODELS.DEFAULT
+                    ? 'default'
+                    : modelId === PRIVATE_FALLBACK_MODEL
+                        ? 'fallback'
                         : 'override';
         }
     } else if (mode === 'cloud') {
+        provider = 'assemblyai';
         engine = 'assemblyai';
-        model = 'universal-streaming';
-        device = 'cloud';
-        releaseStatus = 'release-default';
+        modelId = 'universal-streaming';
+        modelSource = 'remote';
+        resolvedDevice = 'cloud';
+        fallbackOccurred = false;
+        releaseStatus = 'default';
     } else if (mode === 'native') {
+        provider = 'web-speech-api';
         engine = 'web-speech-api';
-        model = 'browser-native';
-        device = 'browser';
-        releaseStatus = 'release-default';
+        modelId = 'browser-native';
+        modelSource = 'remote'; // Chrome Web Speech sends audio to Google.
+        resolvedDevice = 'browser';
+        fallbackOccurred = false;
+        releaseStatus = 'default';
     }
 
     return {
         mode: val(mode),
+        provider: val(provider),
         engine: val(engine),
         engineSelection: engineOverridden ? 'override' : 'default',
-        model: val(model),
-        modelSelectionSource: val(input.modelSelectionSource),
+        modelId: val(modelId),
+        selectionSource: val(input.modelSelectionSource),
         modelOverridden: val(input.modelOverridden),
         approxMB: val(input.approxMB),
-        device: val(device),
+        modelSource: val(modelSource),
+        resolvedDevice: val(resolvedDevice),
         backend: val(backend),
         dtype: val(dtype),
+        fallbackOccurred: val(fallbackOccurred),
         runtimeVersion: val(runtimeVersion),
         releaseStatus: val(releaseStatus),
         // Private model names + v4 are never surfaced to normal users (no model picker exists).
@@ -157,6 +187,8 @@ interface V4RuntimeGlobal {
     backend?: string;
     dtype?: Record<string, string>;
     modelId?: string;
+    modelSource?: 'hf' | 'local';
+    fallbackOccurred?: boolean;
     transformersVersion?: string;
     onnxRuntimeVersion?: string;
 }
