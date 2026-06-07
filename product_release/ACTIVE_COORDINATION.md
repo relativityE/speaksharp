@@ -11,17 +11,31 @@ This file is the **single source of truth** for current release coordination.
 3. New findings, bug ownership, proof results, and priority changes are recorded here immediately.
 4. Completed or superseded rows are removed immediately. Evidence details stay in reports/artifacts; history stays in git.
 5. No second active board, queue, ping log, or hidden assignment list is allowed.
+6. **Latest-main rule, no exceptions:** every agent starts new work from latest `origin/main`, rebases/refreshes any existing branch onto latest `origin/main` before handoff, and records the exact branch@SHA. If a branch is not based on latest `origin/main`, it is not eligible for release proof or merge.
+7. Before asking another agent to test or review a branch, the owner must run:
+   `git fetch origin main --prune && git rev-list --left-right --count origin/main...<branch>`
+   and the left count must be `0` unless the row explicitly says the branch is intentionally stale and not proof-eligible.
 
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: latest pushed origin/main
+INTEGRATION_MAIN: origin/main@cb67199c
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-07T07:42Z
+UPDATED_AT: 2026-06-07T08:10Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
 Work happens on isolated local branches/worktrees. Completed branches merge to `main`, get pushed to GitHub, and then get deleted. Only `main` should exist on GitHub.
+
+## Branch / Main Ledger
+
+This table is a coordination snapshot. Update it whenever an agent creates, rebases, merges, deletes, or hands off a branch.
+
+| Updated UTC | Agent | Main SHA In Use | Open Local Branch Count | Open Branches / Status |
+|---|---|---:|---:|---|
+| 2026-06-07T08:10Z | test-release-agent | `origin/main@cb67199c` | 0 active work branches | No active test branch; last completed work merged to `main`. |
+| 2026-06-07T08:10Z | dev-agent | `origin/main@cb67199c` required before next handoff | 4 observed `dev/*` branches | `dev/account-recording-lease@dd1ebd3c` ahead 1 / behind 2; `dev/v4-recovery@0a58f882` ahead 23 / behind 300 and **stale / not proof-eligible**; `dev/ux-nav-1-draft-on-unload@75566bc3` ahead 1 / behind 32; `dev/maxdepth-instrument@3de1625e` debug-only / stale. Dev must rebase/refresh each branch onto latest `origin/main` before test handoff or merge. |
+| 2026-06-07T08:10Z | remote | `origin/main@cb67199c` | 0 remote feature branches | Remote branches are clean: only `origin/main`. |
 
 ## Active Work
 
