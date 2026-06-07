@@ -28,6 +28,90 @@ const isSpeechFixture = (row) => {
   return !/(silence|near[-_ ]?silence|tone|empty)/i.test(fixture);
 };
 
+const readPrivateHarnessSignals = (row) => {
+  const privateTrace = [
+    ...asArray(row?.privateTrace),
+    ...asArray(row?.privateTimeline),
+  ];
+  const privateAudioChunks = [
+    ...asArray(row?.privateAudioChunks),
+    ...asArray(row?.privateUtteranceAudioChunks),
+  ];
+  const hasProofFields = privateTrace.length > 0
+    || privateAudioChunks.length > 0
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateTrace')
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateTimeline')
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateAudioChunks')
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateUtteranceAudioChunks');
+  const hasProcessAudioReady = privateTrace.some((event) => eventName(event) === 'process_audio_ready');
+  const hasSpeechStart = privateTrace.some((event) => eventName(event) === 'speech_start_detected');
+  const energyValues = privateAudioChunks
+    .flatMap((chunk) => [chunk.rms, chunk.peak])
+    .filter(finiteNumber);
+
+  return {
+    privateTrace,
+    privateAudioChunks,
+    hasProofFields,
+    hasProcessAudioReady,
+    hasSpeechStart,
+    energyValues,
+    hasPositiveEnergy: energyValues.length === 0 || energyValues.some((value) => value > 0),
+    speechExpected: isSpeechFixture(row),
+  };
+};
+
+/**
+ * Build the compact precheck block that proof artifacts should write before
+ * judging model accuracy. Unlike the legacy validator compatibility path, this
+ * function requires current harness proof fields and returns INVALID when they
+ * are missing.
+ */
+export function buildPrivateHarnessPrecheck(row) {
+  if (!row || typeof row !== 'object') {
+    return {
+      status: 'HARNESS_PRECHECK_INVALID',
+      valid: false,
+      reason: 'row_missing',
+      checks: {},
+    };
+  }
+
+  const signals = readPrivateHarnessSignals(row);
+  let reason = null;
+
+  if (!signals.hasProofFields) {
+    reason = 'invalid_harness_proof_missing';
+  } else if (finiteNumber(row.stopFinalizationMs) && row.stopFinalizationMs <= 0) {
+    reason = `invalid_impossible_timing:${row.stopFinalizationMs}`;
+  } else if (signals.privateAudioChunks.length === 0) {
+    reason = 'invalid_no_audio_delivered';
+  } else if (!signals.hasProcessAudioReady) {
+    reason = 'invalid_process_audio_ready_missing';
+  } else if (signals.energyValues.length > 0 && !signals.hasPositiveEnergy) {
+    reason = 'invalid_zero_audio_energy';
+  } else if (signals.speechExpected && signals.privateTrace.length > 0 && !signals.hasSpeechStart) {
+    reason = 'invalid_no_speech_start_detected';
+  }
+
+  const valid = reason == null;
+  return {
+    status: valid ? 'HARNESS_PRECHECK_PASS' : 'HARNESS_PRECHECK_INVALID',
+    valid,
+    reason,
+    checks: {
+      fixture: row.fixture ?? null,
+      proofFieldsPresent: signals.hasProofFields,
+      audioChunkCount: signals.privateAudioChunks.length,
+      processAudioReady: signals.hasProcessAudioReady,
+      speechStartDetected: signals.hasSpeechStart,
+      positiveEnergy: signals.hasPositiveEnergy,
+      speechExpected: signals.speechExpected,
+      stopFinalizationMs: finiteNumber(row.stopFinalizationMs) ? row.stopFinalizationMs : null,
+    },
+  };
+}
+
 /**
  * Classify invalid harness/audio-delivery evidence before model accuracy.
  *
@@ -41,52 +125,14 @@ export function classifyPrivateAudioValidity(row) {
     return { valid: false, reason: 'row_missing' };
   }
 
-  const privateTrace = [
-    ...asArray(row.privateTrace),
-    ...asArray(row.privateTimeline),
-  ];
-  const privateAudioChunks = [
-    ...asArray(row.privateAudioChunks),
-    ...asArray(row.privateUtteranceAudioChunks),
-  ];
-  const hasProofFields = privateTrace.length > 0
-    || privateAudioChunks.length > 0
-    || Object.prototype.hasOwnProperty.call(row, 'privateTrace')
-    || Object.prototype.hasOwnProperty.call(row, 'privateTimeline')
-    || Object.prototype.hasOwnProperty.call(row, 'privateAudioChunks')
-    || Object.prototype.hasOwnProperty.call(row, 'privateUtteranceAudioChunks');
+  const { hasProofFields } = readPrivateHarnessSignals(row);
 
   if (!hasProofFields) {
     return { valid: true, reason: null };
   }
 
-  const hasProcessAudioReady = privateTrace.some((event) => eventName(event) === 'process_audio_ready');
-  const hasSpeechStart = privateTrace.some((event) => eventName(event) === 'speech_start_detected');
-
-  if (finiteNumber(row.stopFinalizationMs) && row.stopFinalizationMs <= 0) {
-    return { valid: false, reason: `invalid_impossible_timing:${row.stopFinalizationMs}` };
-  }
-
-  if (privateAudioChunks.length === 0) {
-    return { valid: false, reason: 'invalid_no_audio_delivered' };
-  }
-
-  if (!hasProcessAudioReady) {
-    return { valid: false, reason: 'invalid_process_audio_ready_missing' };
-  }
-
-  if (privateAudioChunks.length > 0) {
-    const energyValues = privateAudioChunks.flatMap((chunk) => [chunk.rms, chunk.peak]).filter(finiteNumber);
-    if (energyValues.length > 0 && energyValues.every((value) => value <= 0)) {
-      return { valid: false, reason: 'invalid_zero_audio_energy' };
-    }
-  }
-
-  if (isSpeechFixture(row) && privateTrace.length > 0 && !hasSpeechStart) {
-    return { valid: false, reason: 'invalid_no_speech_start_detected' };
-  }
-
-  return { valid: true, reason: null };
+  const precheck = buildPrivateHarnessPrecheck(row);
+  return { valid: precheck.valid, reason: precheck.reason };
 }
 
 /**
