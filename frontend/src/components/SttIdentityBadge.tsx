@@ -43,18 +43,21 @@ export default function SttIdentityBadge() {
         >
             <div className="font-bold uppercase tracking-wide">STT identity · debug</div>
             <div data-testid="stt-identity-mode">mode: {show(identity.mode)}</div>
+            <div data-testid="stt-identity-provider">provider: {show(identity.provider)}</div>
             <div data-testid="stt-identity-engine">
                 engine: {show(identity.engine)} ({identity.engineSelection})
             </div>
-            <div data-testid="stt-identity-model">model: {show(identity.model)}</div>
+            <div data-testid="stt-identity-model">model: {show(identity.modelId)}</div>
             <div data-testid="stt-identity-selection">
-                select: {show(identity.modelSelectionSource)}{identity.modelOverridden === true ? ' · override' : ''}
+                select: {show(identity.selectionSource)}{identity.modelOverridden === true ? ' · override' : ''}
             </div>
             <div data-testid="stt-identity-size">size: {sizeText}</div>
+            <div data-testid="stt-identity-modelsource">source: {show(identity.modelSource)}</div>
             <div data-testid="stt-identity-device">
-                device: {show(identity.device)} / {show(identity.backend)}
+                device: {show(identity.resolvedDevice)} / {show(identity.backend)}
             </div>
             <div data-testid="stt-identity-dtype">dtype: {show(identity.dtype)}</div>
+            <div data-testid="stt-identity-fallback">fallback: {show(identity.fallbackOccurred)}</div>
             <div data-testid="stt-identity-release">status: {show(identity.releaseStatus)}</div>
         </div>
     );
