@@ -28,6 +28,7 @@ import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
+import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
 declare global {
     interface Window {
@@ -368,6 +369,9 @@ export class SpeechRuntimeController {
             // aggregates the existing diagnostic globals into the normalized SttEvidence schema
             // (PASS/FAIL/INVALID/BLOCKED). Diagnostic only — never gates product behavior.
             installSttEvidenceCollector(window);
+            // STT-IDENTITY-DIAG: read-only window.__STT_IDENTITY__() — consolidated engine/model
+            // identity for the dev/test badge + proof artifacts (also folded into __STT_EVIDENCE__().identity).
+            installSttIdentityAccessor(window);
 
             // Fix 1 Correction: Programmatic Mode Switch
             (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
