@@ -70,12 +70,12 @@ export const buildIssueReportMetadata = (input: {
 };
 
 export const issueReportService = {
-  async submit(input: SubmitIssueReportInput): Promise<{ id: string }> {
+  async submit(input: SubmitIssueReportInput): Promise<{ id: string | null }> {
     const supabase = getSupabaseClient();
     const transcriptExcerpt = input.includeTranscript ? sanitizeOptionalText(input.transcriptExcerpt) : null;
     const audioAttachmentNote = input.includeAudio ? sanitizeOptionalText(input.audioAttachmentNote) : null;
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('user_issue_reports')
       .insert({
         user_id: input.userId ?? null,
@@ -90,15 +90,13 @@ export const issueReportService = {
         transcript_excerpt: transcriptExcerpt,
         include_audio: input.includeAudio,
         audio_attachment_note: audioAttachmentNote,
-      })
-      .select('id')
-      .single();
+      });
 
     if (error) {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');
       throw error;
     }
 
-    return { id: String(data.id) };
+    return { id: null };
   },
 };
