@@ -154,25 +154,12 @@ async function signIn(page: Page, email: string, password: string) {
 async function prepareSession(page: Page) {
   await page.goto('/session');
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
-  await selectBenchmarkMode(page, 'private');
-  await preparePrivateModelIfPrompted(page);
-  await expect(page.getByTestId('session-start-stop-button')).toBeEnabled({ timeout: 90_000 });
-}
-
-async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
-    await downloadButton.click();
-  }
-
-  await page.waitForFunction(() => {
-    const root = document.documentElement;
-    return (
-      root.getAttribute('data-stt-ready') === 'true' ||
-      root.getAttribute('data-model-status') === 'ready' ||
-      root.getAttribute('data-runtime-state') === 'READY'
-    );
-  }, { timeout: 180_000 });
+  // Use NATIVE for the account-mutex proof: the lease is acquired in the controller for ALL modes
+  // (mode-agnostic), so proving it in Native avoids the Private DOWNLOAD_REQUIRED setup that left the
+  // start button disabled and timed out the DAST run. Native is also the free-tier default — the most
+  // realistic credential-sharing surface.
+  await selectBenchmarkMode(page, 'native');
+  await expect(page.getByTestId('session-start-stop-button')).toBeEnabled({ timeout: 60_000 });
 }
 
 async function startRecording(page: Page, label: string) {
