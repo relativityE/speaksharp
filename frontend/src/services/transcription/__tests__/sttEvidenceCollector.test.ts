@@ -112,6 +112,48 @@ describe('collectSttEvidence — mapping diagnostic globals to the schema', () =
     });
 });
 
+describe('collectSttEvidence — v4 runtime + error surfacing', () => {
+    it('surfaces v4 resolvedDevice/dtype/runtime and a decode errorClass (not bare fail_no_transcript)', () => {
+        const ev = collectSttEvidence({
+            timeline: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+            inferenceChunks: [{ durationSec: 41.5, rms: 0.4, peak: 0.9 }],
+            runtimeDebug: { transcriptLength: 0, saveCandidate: null },
+            v4Runtime: {
+                provider: 'transformers-js-v4',
+                modelId: 'onnx-community/whisper-base.en',
+                modelSource: 'hf',
+                dtype: { encoder_model: 'fp32', decoder_model_merged: 'q8' },
+                requestedDevice: 'webgpu',
+                resolvedDevice: 'webgpu',
+                fallbackOccurred: false,
+                transformersVersion: '3.7.5',
+                onnxRuntimeVersion: '1.x',
+            },
+            v4LastError: { errorClass: 'Error', message: 'invalid data location: undefined for input "a"' },
+        });
+        expect(ev.engine.provider).toBe('transformers-js-v4');
+        expect(ev.engine.resolvedDevice).toBe('webgpu');
+        expect(ev.engine.modelSource).toBe('remote'); // hf -> remote
+        expect(ev.engine.dtype).toContain('decoder_model_merged=q8');
+        expect(ev.engine.runtimeVersion).toContain('3.7.5');
+        // A real decode error must classify FAIL with the concrete class, not fail_no_transcript.
+        expect(ev.verdict).toBe('FAIL');
+        expect(ev.invalidReason).toBe('fail_error:Error');
+        expect(ev.error.errorClass).toBe('Error');
+    });
+
+    it('a successful v4 run reports PASS with v4 device identity', () => {
+        const ev = collectSttEvidence({
+            timeline: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+            inferenceChunks: [{ durationSec: 4, rms: 0.4, peak: 0.9 }],
+            runtimeDebug: { transcriptLength: 33, saveCandidate: { selectedForSaveLength: 33, repetitionRisk: false } },
+            v4Runtime: { provider: 'transformers-js-v4', resolvedDevice: 'webgpu', modelSource: 'hf' },
+        });
+        expect(ev.verdict).toBe('PASS');
+        expect(ev.engine.resolvedDevice).toBe('webgpu');
+    });
+});
+
 describe('readSttEvidenceSources', () => {
     it('does not throw and yields all-absent sources when no diagnostic globals are present', () => {
         const sources = readSttEvidenceSources(); // clean jsdom window: no globals set

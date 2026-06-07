@@ -53,6 +53,23 @@ interface RuntimeDebugLike {
     transcriptLength?: number;
     saveCandidate?: SaveCandidateLike | null;
 }
+/** window.__PRIVATE_V4_RUNTIME__ — resolved v4 device/runtime identity (set by TransformersJSV4Engine). */
+interface V4RuntimeLike {
+    provider?: string;
+    modelId?: string;
+    modelSource?: 'hf' | 'local';
+    dtype?: Record<string, string>;
+    requestedDevice?: string;
+    resolvedDevice?: string;
+    fallbackOccurred?: boolean;
+    transformersVersion?: string;
+    onnxRuntimeVersion?: string;
+}
+/** window.__PRIVATE_V4_LAST_ERROR__ — last v4 decode failure (set by TransformersJSV4Engine). */
+interface V4LastErrorLike {
+    errorClass?: string;
+    message?: string;
+}
 
 /** The diagnostic globals, gathered into one object so collection is unit-testable without a DOM. */
 export interface SttEvidenceSources {
@@ -62,6 +79,8 @@ export interface SttEvidenceSources {
     timeline?: TimelineEventLike[] | null;
     modelTelemetry?: ModelTelemetryLike | null;
     runtimeDebug?: RuntimeDebugLike | null;
+    v4Runtime?: V4RuntimeLike | null;
+    v4LastError?: V4LastErrorLike | null;
 }
 
 declare global {
@@ -108,6 +127,8 @@ export function readSttEvidenceSources(win: Window | undefined = typeof window !
         timeline: (win.__PRIVATE_STT_TIMELINE__ as TimelineEventLike[] | undefined) ?? null,
         modelTelemetry: (win.__PRIVATE_MODEL_TELEMETRY__ as ModelTelemetryLike | undefined) ?? null,
         runtimeDebug,
+        v4Runtime: ((win as unknown as { __PRIVATE_V4_RUNTIME__?: V4RuntimeLike }).__PRIVATE_V4_RUNTIME__) ?? null,
+        v4LastError: ((win as unknown as { __PRIVATE_V4_LAST_ERROR__?: V4LastErrorLike }).__PRIVATE_V4_LAST_ERROR__) ?? null,
     };
 }
 
@@ -119,7 +140,7 @@ export function readSttEvidenceSources(win: Window | undefined = typeof window !
 export function collectSttEvidence(sources: SttEvidenceSources, overrides: Partial<SttEvidenceInput> = {}): SttEvidence {
     const input: SttEvidenceInput = { tier: 'app-lifecycle' };
 
-    const { timing, modelTelemetry: model, runtimeDebug: dbg, timeline, inferenceChunks, utteranceChunks } = sources;
+    const { timing, modelTelemetry: model, runtimeDebug: dbg, timeline, inferenceChunks, utteranceChunks, v4Runtime, v4LastError } = sources;
 
     // --- engine / selection ---
     if (model?.runtime != null || dbg?.serviceMode != null) input.provider = dbg?.serviceMode ?? model?.runtime ?? undefined;
@@ -127,6 +148,26 @@ export function collectSttEvidence(sources: SttEvidenceSources, overrides: Parti
     if (model?.fallbackPath === 'remote-only') input.modelSource = 'remote';
     else if (model?.fallbackPath === 'local-then-remote') input.modelSource = 'local';
     if (typeof model?.cloudFallbackAttempted === 'boolean') input.fallbackOccurred = model.cloudFallbackAttempted;
+
+    // --- v4 runtime overrides (when a v4 run published __PRIVATE_V4_RUNTIME__) ---
+    // v4 is a distinct engine whose device/runtime identity isn't in the v2 telemetry globals, so
+    // surface it here — otherwise resolvedDevice/runtimeVersion/errorClass read NOT_AVAILABLE for v4.
+    if (v4Runtime) {
+        if (v4Runtime.provider != null) input.provider = v4Runtime.provider;
+        if (v4Runtime.modelId != null) input.modelId = v4Runtime.modelId;
+        if (v4Runtime.requestedDevice != null) input.requestedDevice = v4Runtime.requestedDevice;
+        if (v4Runtime.resolvedDevice != null) input.resolvedDevice = v4Runtime.resolvedDevice;
+        if (typeof v4Runtime.fallbackOccurred === 'boolean') input.fallbackOccurred = v4Runtime.fallbackOccurred;
+        if (v4Runtime.modelSource === 'local') input.modelSource = 'local';
+        else if (v4Runtime.modelSource === 'hf') input.modelSource = 'remote';
+        if (v4Runtime.dtype && typeof v4Runtime.dtype === 'object') {
+            input.dtype = Object.entries(v4Runtime.dtype).map(([k, v]) => `${k}=${v}`).join(',');
+        }
+        const runtimeVersion = [v4Runtime.transformersVersion, v4Runtime.onnxRuntimeVersion].filter(Boolean).join(' / ');
+        if (runtimeVersion) input.runtimeVersion = runtimeVersion;
+    }
+    // A stashed v4 decode failure names the error class (else a chunk error reads as fail_no_transcript).
+    if (v4LastError?.errorClass) input.errorClass = v4LastError.errorClass;
 
     // --- timing (kept separate) ---
     if (model && model.loadTimeMs != null) input.modelLoadMs = model.loadTimeMs ?? undefined;
