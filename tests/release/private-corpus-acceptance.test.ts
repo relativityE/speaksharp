@@ -5,6 +5,7 @@ import {
   validatePrivateCorpusArtifact,
   PRIVATE_ACCEPTANCE,
   classifyPrivateAudioValidity,
+  buildPrivateHarnessPrecheck,
 } from '../../scripts/private-corpus-acceptance.mjs';
 
 describe('private corpus acceptance validator', () => {
@@ -185,6 +186,66 @@ describe('private corpus acceptance validator', () => {
     };
 
     expect(classifyPrivateAudioValidity(row).valid).toBe(true);
+  });
+
+  it('builds a compact HARNESS_PRECHECK_PASS block for valid current proof rows', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0.04, peak: 0.2 }],
+      privateTrace: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(buildPrivateHarnessPrecheck(row)).toEqual({
+      status: 'HARNESS_PRECHECK_PASS',
+      valid: true,
+      reason: null,
+      checks: {
+        fixture: 'h1_6',
+        proofFieldsPresent: true,
+        audioChunkCount: 1,
+        processAudioReady: true,
+        speechStartDetected: true,
+        positiveEnergy: true,
+        speechExpected: true,
+        stopFinalizationMs: 1200,
+      },
+    });
+  });
+
+  it('builds HARNESS_PRECHECK_INVALID when current proof fields are missing', () => {
+    const row = {
+      fixture: 'h1_6',
+      detailTranscript: 'legacy row',
+      stopFinalizationMs: 1200,
+    };
+
+    expect(classifyPrivateAudioValidity(row)).toEqual({ valid: true, reason: null });
+    expect(buildPrivateHarnessPrecheck(row)).toMatchObject({
+      status: 'HARNESS_PRECHECK_INVALID',
+      valid: false,
+      reason: 'invalid_harness_proof_missing',
+      checks: {
+        fixture: 'h1_6',
+        proofFieldsPresent: false,
+        audioChunkCount: 0,
+      },
+    });
+  });
+
+  it('builds HARNESS_PRECHECK_INVALID for zero-energy current proof rows', () => {
+    const row = {
+      fixture: 'h1_6',
+      privateAudioChunks: [{ samples: 16000, durationSec: 1, rms: 0, peak: 0 }],
+      privateTrace: [{ event: 'process_audio_ready' }, { event: 'speech_start_detected' }],
+      stopFinalizationMs: 1200,
+    };
+
+    expect(buildPrivateHarnessPrecheck(row)).toMatchObject({
+      status: 'HARNESS_PRECHECK_INVALID',
+      valid: false,
+      reason: 'invalid_zero_audio_energy',
+    });
   });
 
   // Cross-check against the REAL failing artifact from the test-agent report so the
