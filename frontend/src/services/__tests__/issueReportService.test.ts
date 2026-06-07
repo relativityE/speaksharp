@@ -47,6 +47,7 @@ describe('issueReportService', () => {
       include_audio: false,
       audio_attachment_note: null,
     }));
+    expect(select).not.toHaveBeenCalled();
   });
 
   it('stores optional transcript and audio note only when opted in', async () => {
@@ -70,6 +71,7 @@ describe('issueReportService', () => {
       include_audio: true,
       audio_attachment_note: 'User can provide audio separately.',
     }));
+    expect(select).not.toHaveBeenCalled();
   });
 
   it('stores an anonymous report (user_id null) when no userId is provided (Option C)', async () => {
@@ -86,5 +88,6 @@ describe('issueReportService', () => {
     });
 
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: null }));
+    expect(select).not.toHaveBeenCalled();
   });
 });
