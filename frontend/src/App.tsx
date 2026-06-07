@@ -6,6 +6,7 @@ import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import SttIdentityBadge from '@/components/SttIdentityBadge';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from '@/stores/useReadinessStore';
@@ -285,6 +286,8 @@ const App: React.FC = () => {
           Test Mode · Mock Auth
         </div>
       )}
+      {/* STT-IDENTITY-DIAG: dev/test-only; self-gates on the debug flag (renders null otherwise). */}
+      <SttIdentityBadge />
       <Toaster
         position={isMobileViewport ? "top-center" : (isSessionRoute ? "bottom-right" : "top-right")}
         expand={false}
