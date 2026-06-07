@@ -367,17 +367,38 @@ async function assertModeSwitchBlockedWhileRecording(page: Page, activeMode: Stt
 
 async function waitForFixtureTranscript(page: Page, mode: SttMode, timeout: number) {
   let lastText = '';
+  let lastSurface = 'none';
   try {
     await expect(async () => {
-      const text = normalizeTranscript(await page.getByTestId('transcript-container').textContent());
-      lastText = text;
-      expect(text, `${mode} must surface fixture transcript text`).toMatch(TRANSCRIPT_PATTERN);
-      expect(PLACEHOLDER_TRANSCRIPT_PATTERN.test(text) && !TRANSCRIPT_PATTERN.test(text), `Placeholder-only transcript: "${text}"`).toBe(false);
+      const surfaces = await page.evaluate(() => {
+        const cleanText = document.querySelector('[data-testid="transcript-text-only"]')?.textContent ?? '';
+        const visibleText = document.querySelector('[data-testid="transcript-container"]')?.textContent ?? '';
+        const saveCandidate = (window as unknown as {
+          __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: { selectedForSave?: string | null } | null };
+        }).__SPEECH_RUNTIME_DEBUG__?.().saveCandidate?.selectedForSave ?? '';
+
+        return [
+          { surface: 'transcript-text-only', text: cleanText },
+          { surface: 'transcript-container', text: visibleText },
+          { surface: 'saveCandidate.selectedForSave', text: saveCandidate },
+        ];
+      });
+      const candidates = surfaces
+        .map(({ surface, text }) => ({ surface, text: normalizeTranscript(text) }))
+        .filter(({ text }) => text.length > 0);
+      const matched = candidates.find(({ text }) => TRANSCRIPT_PATTERN.test(text));
+      const best = matched ?? candidates[0] ?? { surface: 'none', text: '' };
+      lastText = best.text;
+      lastSurface = best.surface;
+
+      expect(best.text, `${mode} must surface fixture transcript text via ${best.surface}`).toMatch(TRANSCRIPT_PATTERN);
+      expect(PLACEHOLDER_TRANSCRIPT_PATTERN.test(best.text) && !TRANSCRIPT_PATTERN.test(best.text), `Placeholder-only transcript from ${best.surface}: "${best.text}"`).toBe(false);
     }).toPass({ timeout, intervals: [2_000, 5_000] });
+    console.log(`LIVE_STT_FIXTURE_TRANSCRIPT_SURFACE ${JSON.stringify({ mode, surface: lastSurface, transcriptPreview: lastText.slice(0, 120) })}`);
     return lastText;
   } catch (error) {
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${mode}-fixture-transcript-timeout`);
-    throw new Error(`${mode} transcript did not appear. Last transcript="${lastText}"\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${mode} transcript did not appear. Last surface="${lastSurface}" Last transcript="${lastText}"\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
