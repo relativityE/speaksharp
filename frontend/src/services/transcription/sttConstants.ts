@@ -85,10 +85,10 @@ export const PRIV_STT = {
   FIRST_TRANSCRIPT_MIN_DURATION_SECONDS: 2.0,
   FIRST_TRANSCRIPT_MIN_RMS: 0.05,
   FORCE_FINAL_MIN_SECONDS: 2,
-  // Default local Private model (whisper-tiny.en via transformers.js v2) download size.
-  // Surfaced in the setup CTA so users see the cost before downloading. Single source of
-  // truth: ModelManager.getModelSizeMB('transformers-js') derives from this.
-  DEFAULT_MODEL_DOWNLOAD_MB: 40,
+  // Default local Private model (PRIVATE-BASE-DEFAULT: now whisper-base.en via transformers.js v2)
+  // download size. Surfaced in the setup CTA so users see the cost before downloading. The live CTA
+  // derives the exact size from CANDIDATES[resolvePrivateModel()].approxMB; keep this fallback in sync.
+  DEFAULT_MODEL_DOWNLOAD_MB: 80,
 } as const;
 
 /**
@@ -138,7 +138,12 @@ export const PRIV_STT_V4 = {
  * Download sizes are approximate (quantized) and confirmed by the browser proof.
  */
 export const PRIV_STT_MODELS = {
-  DEFAULT: 'whisper-tiny.en',
+  // PRIVATE-BASE-DEFAULT (product direction): the Private release default is v2 **base.en** — it is
+  // materially more accurate (human proof WER ~0.037 vs tiny ~0.093) and the release optimizes for
+  // transcript trust over fastest first text. base.en is self-hosted under public/models/, so the
+  // default loads local-only (no Hugging Face). tiny.en stays a CANDIDATE for internal/emergency
+  // fallback (selectable via the flag), but is NOT a user-facing release option.
+  DEFAULT: 'whisper-base.en',
   // Remote ids MUST be the Xenova/* family — these repos are built for transformers.js v2
   // (@xenova/transformers, the production library). onnx-community/* repos are v3-format and
   // FAIL to load on v2 with "Unsupported model type: whisper" (test-confirmed). distil-whisper

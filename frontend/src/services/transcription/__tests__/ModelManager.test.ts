@@ -27,6 +27,16 @@ const requiredWhisperTinyCacheUrls = [
     'http://localhost/models/whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx',
 ];
 
+// PRIVATE-BASE-DEFAULT: the default Private model is now whisper-base.en, so cache-availability
+// for 'transformers-js' is gated on the base assets (same filenames, base path).
+const requiredWhisperBaseCacheUrls = [
+    'http://localhost/models/whisper-base.en/config.json',
+    'http://localhost/models/whisper-base.en/tokenizer.json',
+    'http://localhost/models/whisper-base.en/preprocessor_config.json',
+    'http://localhost/models/whisper-base.en/onnx/encoder_model_quantized.onnx',
+    'http://localhost/models/whisper-base.en/onnx/decoder_model_merged_quantized.onnx',
+];
+
 const requiredWhisperTinyV4CacheUrls = [
     'http://localhost/models/onnx-community/whisper-tiny.en/config.json',
     'http://localhost/models/onnx-community/whisper-tiny.en/tokenizer.json',
@@ -150,7 +160,8 @@ describe('ModelManager transformers cache contract', () => {
     });
 
     it('reports transformers-js available only when the required Whisper cache assets are present', async () => {
-        stubTransformersCache(requiredWhisperTinyCacheUrls);
+        // Default Private model is base.en (PRIVATE-BASE-DEFAULT) → availability gates on base assets.
+        stubTransformersCache(requiredWhisperBaseCacheUrls);
 
         await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(true);
     });
@@ -186,7 +197,8 @@ describe('ModelManager transformers cache contract', () => {
     });
 
     it('returns expected model size estimates for each Private engine family', () => {
-        expect(ModelManager.getModelSizeMB('transformers-js')).toBe(40);
+        // Default Private model is base.en (~80 MB) per PRIVATE-BASE-DEFAULT.
+        expect(ModelManager.getModelSizeMB('transformers-js')).toBe(80);
         expect(ModelManager.getModelSizeMB('whisper-turbo')).toBe(75);
         expect(ModelManager.getModelSizeMB('transformers-js-v4')).toBeGreaterThan(0);
     });
