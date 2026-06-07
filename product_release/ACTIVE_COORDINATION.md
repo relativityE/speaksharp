@@ -13,8 +13,9 @@ This file is the **single source of truth** for current release coordination.
 5. No second active board, queue, ping log, or hidden assignment list is allowed.
 6. **Main-first rule, no exceptions:** we find release bugs on latest `main`. Every agent must know and record the exact `origin/main` SHA they are using before starting, resuming, testing, or handing off work. No guessing.
 7. New work starts from latest `origin/main`. Any older branch must be rebased/refreshed onto latest `origin/main` before anyone resumes work on it, tests it, reviews it, or hands it off. Stale branches are not proof-eligible.
-8. Completed branches merge to `main` and push ASAP, then the local branch is deleted. Do not let completed work sit off-main.
-9. Before asking another agent to test or review a branch, the owner must run:
+8. Proof-gated working branches are shared with the **test agent** after they are rebased on latest `origin/main`. The test agent runs the agreed proof battery and merges to `main` only after proof success. Branch owners do **not** self-merge proof-gated work.
+9. Completed, non-proof-gated branches merge to `main` and push ASAP, then the local branch is deleted. Do not let completed work sit off-main.
+10. Before asking another agent to test or review a branch, the owner must run:
    `git fetch origin main --prune && git rev-list --left-right --count origin/main...<branch>`
    and the left count must be `0` unless the row explicitly says the branch is intentionally stale and not proof-eligible.
 
