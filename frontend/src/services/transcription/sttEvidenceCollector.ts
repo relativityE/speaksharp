@@ -21,6 +21,10 @@
  * `overrides`, which take precedence over collected values.
  */
 import { buildSttEvidence, type SttEvidence, type SttEvidenceInput } from './sttEvidence';
+import { collectSttIdentityFromWindow, type SttIdentity } from './sttIdentity';
+
+/** Evidence plus the consolidated STT identity (STT-IDENTITY-DIAG), for proof artifacts. */
+export type SttEvidenceWithIdentity = SttEvidence & { identity: SttIdentity };
 
 interface TimingLike {
     timeToFirstProvisionalMs?: number | null;
@@ -88,7 +92,7 @@ declare global {
         // __PRIVATE_MODEL_TELEMETRY__ and __SPEECH_RUNTIME_DEBUG__ are already declared by
         // privateModelFlag.ts / SpeechRuntimeController.ts; we only add the new accessor here.
         /** Read-only STT evidence snapshot for proof harnesses (installed by the controller). */
-        __STT_EVIDENCE__?: (overrides?: Partial<SttEvidenceInput>) => SttEvidence;
+        __STT_EVIDENCE__?: (overrides?: Partial<SttEvidenceInput>) => SttEvidenceWithIdentity;
     }
 }
 
@@ -212,9 +216,10 @@ export function collectSttEvidence(sources: SttEvidenceSources, overrides: Parti
     return buildSttEvidence({ ...input, ...overrides });
 }
 
-/** Convenience: collect from the live `window` globals. */
-export function collectSttEvidenceFromWindow(overrides?: Partial<SttEvidenceInput>): SttEvidence {
-    return collectSttEvidence(readSttEvidenceSources(), overrides);
+/** Convenience: collect from the live `window` globals, with the consolidated identity attached. */
+export function collectSttEvidenceFromWindow(overrides?: Partial<SttEvidenceInput>): SttEvidenceWithIdentity {
+    const evidence = collectSttEvidence(readSttEvidenceSources(), overrides);
+    return { ...evidence, identity: collectSttIdentityFromWindow() };
 }
 
 /** Install the read-only `window.__STT_EVIDENCE__()` accessor for proof harnesses. */
