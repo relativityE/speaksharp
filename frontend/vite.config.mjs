@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
-import { PORTS, resolveAppMode } from '../scripts/build.config.js';
+import { PORTS, resolveAppModeMeta } from '../scripts/build.config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -167,7 +167,7 @@ export default defineConfig(({ mode }) => {
       // STT release-proof config-discipline: inject the canonical mode meta (single source
       // of truth = APP_MODES in build.config.js). The app reads this to publish
       // window.__APP_RUNTIME_CONFIG__, which the test-agent proof preflight validates against.
-      '__APP_MODE_META__': JSON.stringify(resolveAppMode(mode)),
+      '__APP_MODE_META__': JSON.stringify(resolveAppModeMeta(mode)),
     },
     optimizeDeps: {
       include: [
