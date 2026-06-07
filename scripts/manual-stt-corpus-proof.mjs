@@ -1020,6 +1020,17 @@ async function collectTraceSnapshot(page, mode) {
   }), { currentMode: mode, includeAudioDataUrl: INCLUDE_AUDIO_DATA_URL }).catch(() => ({}));
 }
 
+async function collectNormalizedSttEvidence(page, overrides) {
+  return page.evaluate((sttEvidenceOverrides) => {
+    if (typeof window.__STT_EVIDENCE__ !== 'function') return null;
+    return window.__STT_EVIDENCE__(sttEvidenceOverrides);
+  }, overrides).catch((error) => ({
+    verdict: 'NOT_TESTED',
+    invalidReason: 'collector_unavailable',
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
 async function collectPrivateRuntimeSnapshot(page) {
   return page.evaluate(() => ({
     speechRuntimeDebug: typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
@@ -1446,6 +1457,16 @@ async function runFixture(page, mode, fixture) {
   result.stopFinalizationMs = stopPrivateComplete?.epochMs && stopStartPhase?.t
     ? stopPrivateComplete.epochMs - stopStartPhase.t
     : (afterStopSettlePhase?.t && stopStartPhase?.t ? afterStopSettlePhase.t - stopStartPhase.t : null);
+  result.sttEvidence = await collectNormalizedSttEvidence(page, {
+    tier: 'app-lifecycle',
+    fixtureId: fixture.id,
+    envValid: evidence.environmentProof.releaseProofEligible,
+    referenceText: fixture.transcript,
+    wer: selectedForSaveMetric.wer,
+    transcriptLength: selectedForSaveTranscript.length,
+    speechExpected: fixture.type !== 'silence',
+    stopFinalizationMs: result.stopFinalizationMs ?? undefined,
+  });
   result.meetsWerThreshold = MAX_WER == null ? null : result.wer <= MAX_WER;
   result.verdict = result.invalidForWer
     ? result.invalidReason
