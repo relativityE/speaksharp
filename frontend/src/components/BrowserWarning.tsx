@@ -20,7 +20,7 @@ export const BrowserWarning: React.FC<BrowserWarningProps> = ({ isSupported, sup
       <div>
         <h5 className="font-bold">Browser Compatibility</h5>
         <p className="text-sm">
-          {reason} For the best experience, we recommend using the latest version of Google Chrome or Firefox.
+          {reason} For Browser transcription, use the latest version of Chrome or Edge when available.
         </p>
       </div>
     </Alert>
