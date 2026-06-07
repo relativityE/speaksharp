@@ -27,6 +27,7 @@ import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 
 declare global {
     interface Window {
@@ -362,6 +363,11 @@ export class SpeechRuntimeController {
                 selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
             });
+
+            // STT-EVIDENCE-SCHEMA step 2: read-only proof accessor. window.__STT_EVIDENCE__(overrides?)
+            // aggregates the existing diagnostic globals into the normalized SttEvidence schema
+            // (PASS/FAIL/INVALID/BLOCKED). Diagnostic only — never gates product behavior.
+            installSttEvidenceCollector(window);
 
             // Fix 1 Correction: Programmatic Mode Switch
             (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
