@@ -47,8 +47,10 @@ describe('privateModelFlag', () => {
     });
 
     it('honors a valid ?privateModel= override', () => {
-      setSearch('?privateModel=whisper-base.en');
-      expect(resolvePrivateModel()).toBe('whisper-base.en');
+      // base.en is now the DEFAULT (PRIVATE-BASE-DEFAULT); use a non-default candidate to prove an
+      // explicit URL override is honored + flagged as overridden.
+      setSearch('?privateModel=whisper-tiny.en');
+      expect(resolvePrivateModel()).toBe('whisper-tiny.en');
       expect(isPrivateModelOverridden()).toBe(true);
     });
 
