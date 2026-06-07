@@ -24,3 +24,17 @@ export const APP_MODES = {
 export function resolveAppMode(viteMode) {
     return viteMode === 'test' ? APP_MODES.test : APP_MODES.manual;
 }
+
+/**
+ * Resolve the canonical mode meta to publish in the runtime config, reporting the ACTUAL
+ * vite mode string as `viteMode` (priority-10 release hygiene). `resolveAppMode` reuses the
+ * `manual` entry for every non-test mode — including a `--mode production` build — and `manual`
+ * hardcodes `viteMode: 'development'`. Publishing that in production made `__APP_RUNTIME_CONFIG__`
+ * report `viteMode: 'development'` on the live site (a misleading diagnostic surface). The
+ * auth/port/release-proof semantics are unchanged (still sourced from `resolveAppMode`); only the
+ * reported label becomes truthful: 'production' in prod, 'development' in dev, 'test' in test.
+ * Release-proof eligibility keys off `viteMode !== 'test'`, so prod ('production') stays eligible.
+ */
+export function resolveAppModeMeta(viteMode) {
+    return { ...resolveAppMode(viteMode), viteMode };
+}
