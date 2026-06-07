@@ -13,9 +13,10 @@ import {
  *
  * These lock the invariants that keep the Private STT release safe regardless of future
  * config edits. They are pure-logic guards over the model registry + selection resolver —
- * no behavior change. The release spine is:
- *   - v2 whisper-tiny.en = the live Private default.
- *   - v2 whisper-base.en = opt-in "Higher Accuracy" only.
+ * no behavior change. The release spine is (PRIVATE-BASE-DEFAULT):
+ *   - v2 whisper-base.en = the live Private default (accuracy/trust over fastest first text).
+ *   - v2 whisper-tiny.en = internal/emergency fallback only — a selectable candidate, NOT the
+ *     default and NOT a user-facing release option.
  *   - v4 = hidden/dev-only; never default, never selectable through the normal Private path.
  *   - unknown selections REJECT (no silent fallback that mislabels the engine).
  */
@@ -27,28 +28,28 @@ describe('release-spine guards: Private STT default + opt-in', () => {
         delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
     });
 
-    it('tiny.en is the registered default Private model', () => {
-        expect(PRIV_STT_MODELS.DEFAULT).toBe('whisper-tiny.en');
+    it('base.en is the registered default Private model (PRIVATE-BASE-DEFAULT)', () => {
+        expect(PRIV_STT_MODELS.DEFAULT).toBe('whisper-base.en');
     });
 
-    it('default Private provider resolves to tiny.en (not v4, not base) with no flag', () => {
-        expect(resolvePrivateModel()).toBe('whisper-tiny.en');
+    it('default Private provider resolves to base.en (not v4, not tiny) with no flag', () => {
+        expect(resolvePrivateModel()).toBe('whisper-base.en');
         expect(resolvePrivateModelSource()).toBe('default');
         expect(isPrivateModelOverridden()).toBe(false);
     });
 
-    it('base.en is opt-in only: selected only when explicitly requested', () => {
+    it('tiny.en is an internal/emergency fallback only: NOT the default, but still flag-selectable', () => {
         // Not the default...
-        expect(resolvePrivateModel()).not.toBe('whisper-base.en');
-        // ...but reachable as an explicit opt-in.
-        (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = 'whisper-base.en';
-        expect(resolvePrivateModel()).toBe('whisper-base.en');
+        expect(resolvePrivateModel()).not.toBe('whisper-tiny.en');
+        // ...but reachable as an explicit internal override (emergency fallback).
+        (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = 'whisper-tiny.en';
+        expect(resolvePrivateModel()).toBe('whisper-tiny.en');
         expect(isPrivateModelOverridden()).toBe(true);
         expect(resolvePrivateModelSource()).toBe('window');
     });
 
-    it('base.en consent size is ~80 MB (locks the download-consent copy number)', () => {
-        const approxMB = PRIV_STT_MODELS.CANDIDATES['whisper-base.en'].approxMB;
+    it('the default model consent size is ~80 MB (base) — honest download-consent copy', () => {
+        const approxMB = PRIV_STT_MODELS.CANDIDATES[PRIV_STT_MODELS.DEFAULT].approxMB;
         expect(approxMB).toBeGreaterThanOrEqual(70);
         expect(approxMB).toBeLessThanOrEqual(90);
     });
@@ -83,7 +84,7 @@ describe('release-spine guards: v4 cannot become default or leak via the Private
         for (const bogus of [PRIV_STT_V4.ENGINE_KEY, PRIV_STT_V4.MODEL_ID, 'onnx-community/whisper-base.en']) {
             (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = bogus;
             // resolver stays total -> falls back to the safe default rather than honoring v4...
-            expect(resolvePrivateModel()).toBe('whisper-tiny.en');
+            expect(resolvePrivateModel()).toBe('whisper-base.en');
             // ...and an explicit request for an unsupported id REJECTS (no mislabeled engine).
             expect(() => assertValidPrivateModelSelection()).toThrow(/not supported|MODEL_LOAD_FAILED/);
         }
@@ -102,7 +103,7 @@ describe('release-spine guards: unknown selections reject, no silent fallback', 
         (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = 'whisper-enormous.en';
         expect(() => assertValidPrivateModelSelection()).toThrow();
         // The total resolver still returns the safe default (never a wrong-but-quiet pick).
-        expect(resolvePrivateModel()).toBe('whisper-tiny.en');
+        expect(resolvePrivateModel()).toBe('whisper-base.en');
     });
 
     it('no flag and a valid candidate both pass the start-time assertion', () => {

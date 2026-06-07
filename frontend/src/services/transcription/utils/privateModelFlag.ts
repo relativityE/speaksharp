@@ -1,7 +1,7 @@
 /**
  * Private model-eval flag + telemetry contract (model-eval lane).
  *
- * OFF by default — resolves to `PRIV_STT_MODELS.DEFAULT` (current production whisper-tiny.en),
+ * OFF by default — resolves to `PRIV_STT_MODELS.DEFAULT` (Private release default whisper-base.en),
  * so the default Private path is byte-identical. The test agent overrides the model for an
  * A/B run via either:
  *   - `window.__PRIVATE_MODEL__ = 'whisper-small.en'`
