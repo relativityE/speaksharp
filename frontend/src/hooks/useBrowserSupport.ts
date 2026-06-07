@@ -19,7 +19,7 @@ export const useBrowserSupport = (): BrowserSupportState => {
       setIsSupported(supported);
 
       if (!supported) {
-          if(!speechSupport) setError('Speech recognition not supported in this browser.');
+          if(!speechSupport) setError("Browser transcription isn't available in this browser. Use Chrome or Edge, or switch to Private transcription (trial/Pro) which runs on your device.");
           else if (!mediaSupport) setError('Microphone access not supported in this browser.');
           else if (!storageSupport) setError('Local storage not supported in this browser.');
       }
