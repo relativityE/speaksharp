@@ -1,6 +1,7 @@
 // src/lib/DistributedLock.ts
 import logger from './logger';
 import { safeLocalStorageGet, safeLocalStorageSet, safeLocalStorageRemove } from './safeStorage';
+import { getStableTabId } from './tabIdentity';
 
 export interface LockInfo {
     tabId: string;
@@ -24,7 +25,9 @@ export class DistributedLock {
     private heartbeatInterval: NodeJS.Timeout | null = null;
 
     constructor(tabId?: string) {
-        this.tabId = tabId || Math.random().toString(36).substring(2, 15);
+        // Stable per-tab id (sessionStorage) so a reload re-uses the same identity and the tab
+        // recognizes its own lock — fixes the false "Active session in another tab" lockout.
+        this.tabId = tabId || getStableTabId();
     }
 
     public getTabId(): string {

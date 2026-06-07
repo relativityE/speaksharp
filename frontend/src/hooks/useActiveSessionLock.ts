@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ENV } from '../config/TestFlags';
 import { safeLocalStorageGet, safeLocalStorageSet, safeLocalStorageRemove } from '@/lib/safeStorage';
+import { getStableTabId } from '@/lib/tabIdentity';
 
 const LOCK_KEY = 'speaksharp_active_session_lock';
 const HEARTBEAT_INTERVAL = 2000;
@@ -13,7 +14,9 @@ interface SessionLockInfo {
 
 export const useActiveSessionLock = () => {
     const [isLockHeldByOther, setIsLockHeldByOther] = useState(false);
-    const tabId = useRef(Math.random().toString(36).substring(2, 15)).current;
+    // Stable per-tab id (sessionStorage): a reload keeps the same identity (no self-lockout), and
+    // it matches DistributedLock so the two lock mechanisms agree within one tab (LOCK-FALSE-POSITIVE).
+    const tabId = useRef(getStableTabId()).current;
     const heartbeatTimer = useRef<NodeJS.Timeout | null>(null);
 
     const getLock = useCallback((): SessionLockInfo | null => {

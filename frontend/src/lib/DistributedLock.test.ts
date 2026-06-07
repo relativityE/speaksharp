@@ -89,3 +89,38 @@ describe('DistributedLock', () => {
         expect(acquired).toBe(false);
     });
 });
+
+describe('DistributedLock — stable tab identity (LOCK-FALSE-POSITIVE)', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        localStorage.clear();
+        sessionStorage.clear();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('a reload (new instance, same tab/sessionStorage) recognizes its OWN fresh lock — no false "another tab"', () => {
+        const before = new DistributedLock(); // no explicit tabId -> stable sessionStorage id
+        expect(before.acquire('RECORDING')).toBe(true);
+
+        // Simulate a hard reload: a brand-new instance in the SAME tab. sessionStorage persists, so
+        // it must re-use the same identity and recognize the still-fresh lock as its own.
+        const afterReload = new DistributedLock();
+        expect(afterReload.getTabId()).toBe(before.getTabId());
+        expect(afterReload.isHeldByOther()).toBe(false);
+        expect(afterReload.acquire('RECORDING')).toBe(true); // recording can start; no false lockout
+    });
+
+    it('a genuinely different tab (separate sessionStorage) is still correctly blocked', () => {
+        const tabA = new DistributedLock();
+        tabA.acquire('RECORDING');
+
+        // A different tab has its own sessionStorage namespace; emulate by clearing it.
+        sessionStorage.clear();
+        const tabB = new DistributedLock();
+        expect(tabB.getTabId()).not.toBe(tabA.getTabId());
+        expect(tabB.isHeldByOther()).toBe(true); // real cross-tab mutex preserved
+        expect(tabB.acquire('RECORDING')).toBe(false);
+    });
+});
