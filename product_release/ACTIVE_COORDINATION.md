@@ -12,19 +12,21 @@ This file is the **single source of truth** for current release coordination.
 4. Completed or superseded rows are removed immediately. Evidence details stay in reports/artifacts; history stays in git.
 5. No second active board, queue, ping log, or hidden assignment list is allowed.
 6. **Main-first rule, no exceptions:** we find release bugs on latest `main`. Every agent must know and record the exact `origin/main` SHA they are using before starting, resuming, testing, or handing off work. No guessing.
-7. New work starts from latest `origin/main`. Any older branch must be rebased/refreshed onto latest `origin/main` before anyone resumes work on it, tests it, reviews it, or hands it off. Stale branches are not proof-eligible.
-8. Proof-gated working branches are shared with the **test agent** after they are rebased on latest `origin/main`. The test agent runs the agreed proof battery and merges to `main` only after proof success. Branch owners do **not** self-merge proof-gated work.
-9. Completed, non-proof-gated branches merge to `main` and push ASAP, then the local branch is deleted. Do not let completed work sit off-main.
-10. Before asking another agent to test or review a branch, the owner must run:
+7. New code/test work starts from latest `origin/main`. Any older code/test branch must be rebased/refreshed onto latest `origin/main` before anyone resumes work on it, tests it, reviews it, or hands it off. Stale branches are not proof-eligible.
+8. Rebasing a proof branch onto latest `origin/main` means **"make this branch current enough to test."** It does **not** mean "add this branch to main."
+9. Proof-gated working branches are shared with the **test agent** after they are rebased on latest `origin/main`. The test agent runs the agreed proof battery and merges to `main` only after proof success. Branch owners do **not** self-merge proof-gated work.
+10. Coordination/doc-only updates are not proof branches and do not require the proof-branch rebase ritual or an immediate rebase by other agents. They may be committed/merged normally as coordination changes. A proof branch only needs to be refreshed before handoff/testing/merge, or when main changed in code/test files that could affect the proof.
+11. Completed, non-proof-gated branches merge to `main` and push ASAP, then the local branch is deleted. Do not let completed work sit off-main.
+12. Before asking another agent to test or review a code/test branch, the owner must run:
    `git fetch origin main --prune && git rev-list --left-right --count origin/main...<branch>`
    and the left count must be `0` unless the row explicitly says the branch is intentionally stale and not proof-eligible.
 
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: origin/main@cb67199c
+INTEGRATION_MAIN: origin/main@33959f8a
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-07T08:10Z
+UPDATED_AT: 2026-06-07T08:35Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -36,9 +38,9 @@ This table is a coordination snapshot. Update it whenever an agent creates, reba
 
 | Updated UTC | Agent | Main SHA In Use | Open Local Branch Count | Open Branches / Status |
 |---|---|---:|---:|---|
-| 2026-06-07T08:10Z | test-release-agent | `origin/main@cb67199c` | 0 active work branches | No active test branch; last completed work merged to `main`. |
-| 2026-06-07T08:10Z | dev-agent | `origin/main@cb67199c` required before next handoff | 4 observed `dev/*` branches | `dev/account-recording-lease@dd1ebd3c` ahead 1 / behind 2; `dev/v4-recovery@0a58f882` ahead 23 / behind 300 and **stale / not proof-eligible**; `dev/ux-nav-1-draft-on-unload@75566bc3` ahead 1 / behind 32; `dev/maxdepth-instrument@3de1625e` debug-only / stale. Dev must rebase/refresh each branch onto latest `origin/main` before test handoff or merge. |
-| 2026-06-07T08:10Z | remote | `origin/main@cb67199c` | 0 remote feature branches | Remote branches are clean: only `origin/main`. |
+| 2026-06-07T08:35Z | test-release-agent | `origin/main@33959f8a` | 1 coordination branch | `test/coord-clarify-rebase-vs-merge` doc-only clarification; merge/delete immediately after commit. |
+| 2026-06-07T08:35Z | dev-agent | `origin/main@33959f8a` required before next handoff | 4 observed `dev/*` branches | `dev/v4-recovery@4bbd22e8` is the active V4 proof branch and trails latest main only by coordination commits; test will refresh before proof. `dev/account-recording-lease@dd1ebd3c`, `dev/ux-nav-1-draft-on-unload@75566bc3`, and `dev/maxdepth-instrument@3de1625e` remain local/in-flight or diagnostic until their rows say otherwise. |
+| 2026-06-07T08:35Z | remote | `origin/main@33959f8a` | 0 remote feature branches | Remote branches are clean: only `origin/main`. |
 
 ## Active Work
 
