@@ -428,7 +428,15 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_00
 
 export async function expectBenchmarkRecordingStarted(page: Page, label: string) {
     try {
-        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });
+        // Canonical "recording started" signal is data-recording=true on the start/stop button.
+        // The `Stop Recording` aria-label only renders once the stop control mounts and was a flaky
+        // proxy (it broke the native-preflight probe). Wait for the attribute, falling back to the
+        // label so existing behavior is preserved where the attribute isn't set.
+        await page.waitForFunction(() => (
+            document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true'
+        ), { timeout: 12_000 }).catch(async () => {
+            await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 5_000 });
+        });
         await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STARTED_${label.toUpperCase()}`);
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
