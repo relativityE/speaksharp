@@ -15,7 +15,28 @@ type CacheSnapshot = {
   runtimeState: string | null
   sttReady: string | null
   downloadVisible: boolean
+  privateModelTelemetry: {
+    model?: string
+    selectionSource?: string
+    overridden?: boolean
+    fallbackPath?: string
+  } | null
 }
+
+const PRIVATE_MODEL_CASES = [
+  {
+    label: 'default-tiny',
+    sessionPath: '/session',
+    expectedModel: 'whisper-tiny.en',
+    expectedSelectionSource: 'default',
+  },
+  {
+    label: 'base-opt-in',
+    sessionPath: '/session?privateModel=whisper-base.en',
+    expectedModel: 'whisper-base.en',
+    expectedSelectionSource: 'url',
+  },
+] as const;
 
 test.use({
   permissions: ['microphone'],
@@ -31,7 +52,7 @@ test.use({
 });
 
 test.describe.serial('Private first-start and second-start cache proof @live', () => {
-  test('Private CPU model setup survives a same-browser second start from cache', async ({ page }) => {
+  test('Private tiny default and base opt-in load from selfhosted cache', async ({ page }) => {
     test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and Pro test credentials are required.');
     test.setTimeout(300_000);
 
@@ -50,44 +71,58 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
     });
 
     await signInAsPro(page);
-    await clearPrivateModelStorage(page);
-    await page.reload();
-    await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
-    await selectBenchmarkMode(page, 'private');
-    const zeroHfAudit = ZERO_HF_AUDIT_REQUIRED ? await startZeroHuggingFaceAudit(page) : null;
-    await preparePrivateModelIfPrompted(page);
-    const firstReady = await getCacheSnapshot(page);
+    const modelEvidence = [];
+    for (const modelCase of PRIVATE_MODEL_CASES) {
+      await clearPrivateModelStorage(page);
+      await page.goto(modelCase.sessionPath);
+      await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
-    expect(isPrivateReadySnapshot(firstReady), JSON.stringify(firstReady)).toBe(true);
-    expect(firstReady.transformerCacheKeyCount, JSON.stringify(firstReady)).toBeGreaterThan(0);
+      await selectBenchmarkMode(page, 'private');
+      const zeroHfAudit = ZERO_HF_AUDIT_REQUIRED ? await startZeroHuggingFaceAudit(page) : null;
+      await preparePrivateModelIfPrompted(page);
+      const firstReady = await getCacheSnapshot(page);
 
-    await startAndStopPrivateRecording(page);
+      expect(isPrivateReadySnapshot(firstReady), JSON.stringify({ modelCase, firstReady })).toBe(true);
+      expect(firstReady.transformerCacheKeyCount, JSON.stringify({ modelCase, firstReady })).toBeGreaterThan(0);
+      expect(firstReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedModel);
+      expect(firstReady.privateModelTelemetry?.selectionSource, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedSelectionSource);
 
-    await page.reload();
-    await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
-    await selectBenchmarkMode(page, 'private');
-    await waitForPrivateReady(page);
+      await startAndStopPrivateRecording(page);
 
-    const secondReady = await getCacheSnapshot(page);
-    await startAndStopPrivateRecording(page);
-    const zeroHfResult = zeroHfAudit
-      ? await zeroHfAudit.assertZeroHuggingFace({ requireModelsFromOrigin: true })
-      : null;
-    zeroHfAudit?.stop();
+      await page.goto(modelCase.sessionPath);
+      await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
+      await selectBenchmarkMode(page, 'private');
+      await waitForPrivateReady(page);
+
+      const secondReady = await getCacheSnapshot(page);
+      expect(secondReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedModel);
+      await startAndStopPrivateRecording(page);
+      const zeroHfResult = zeroHfAudit
+        ? await zeroHfAudit.assertZeroHuggingFace({ requireModelsFromOrigin: true })
+        : null;
+      zeroHfAudit?.stop();
+
+      const evidence = {
+        model: modelCase.label,
+        expectedModel: modelCase.expectedModel,
+        firstStart: firstReady,
+        secondStart: secondReady,
+        cachePersisted: secondReady.transformerCacheKeyCount >= firstReady.transformerCacheKeyCount,
+        secondStartReadyWithoutDownloadPrompt: isPrivateReadySnapshot(secondReady) && !secondReady.downloadVisible,
+        zeroHfAudit: zeroHfResult,
+      };
+
+      expect(evidence.cachePersisted, JSON.stringify(evidence)).toBe(true);
+      expect(evidence.secondStartReadyWithoutDownloadPrompt, JSON.stringify(evidence)).toBe(true);
+      modelEvidence.push(evidence);
+    }
 
     const evidence = {
-      firstStart: firstReady,
-      secondStart: secondReady,
-      cachePersisted: secondReady.transformerCacheKeyCount >= firstReady.transformerCacheKeyCount,
-      secondStartReadyWithoutDownloadPrompt: isPrivateReadySnapshot(secondReady) && !secondReady.downloadVisible,
-      zeroHfAudit: zeroHfResult,
+      models: modelEvidence,
     };
 
     console.log(`LIVE_PRIVATE_CACHE_EVIDENCE ${JSON.stringify(evidence)}`);
-
-    expect(evidence.cachePersisted, JSON.stringify(evidence)).toBe(true);
-    expect(evidence.secondStartReadyWithoutDownloadPrompt, JSON.stringify(evidence)).toBe(true);
   });
 });
 
@@ -202,6 +237,14 @@ async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
       : [];
     const root = document.documentElement;
     const downloadButton = document.querySelector('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
+    const telemetry = (window as unknown as {
+      __PRIVATE_MODEL_TELEMETRY__?: {
+        model?: string
+        selectionSource?: string
+        overridden?: boolean
+        fallbackPath?: string
+      }
+    }).__PRIVATE_MODEL_TELEMETRY__ ?? null;
 
     return {
       cacheNames,
@@ -211,6 +254,7 @@ async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
       runtimeState: root.getAttribute('data-runtime-state'),
       sttReady: root.getAttribute('data-stt-ready'),
       downloadVisible: Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none'),
+      privateModelTelemetry: telemetry,
     };
   });
 }
