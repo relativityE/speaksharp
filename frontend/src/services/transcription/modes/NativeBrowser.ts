@@ -8,7 +8,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
-import { registerNativeProductionFormatter } from './nativeGeminiFormatter';
+import { registerNativeProductionFormatter } from './nativeDeterministicCleanup';
 
 declare global {
   interface Window {

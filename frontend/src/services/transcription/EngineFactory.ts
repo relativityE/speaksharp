@@ -6,13 +6,13 @@ import PrivateWhisper from './modes/PrivateWhisper';
 import logger from '../../lib/logger';
 import { getDefaultProviderEntry } from './providers/sttProviderConfig';
 import type { PrivateSttProvider, SttMode, SttProviderEntry } from './providers/types';
-import { registerNativeProductionFormatter } from './modes/nativeGeminiFormatter';
+import { registerNativeProductionFormatter } from './modes/nativeDeterministicCleanup';
 import { registerNativeTranscriptFormatter } from './modes/nativeTranscriptFormatter';
 
 /**
  * Activate (or clear) the API-backed saved-transcript formatter for the active
  * production engine. The formatter is Native ONLY:
- *   - native  -> register the Gemini `format-transcript` adapter
+ *   - native  -> register the deterministic word-preserving cleanup ($0, no LLM)
  *   - cloud   -> clear (Cloud has provider punctuation; must not depend on it)
  *   - private -> clear (Private formatting must stay local; never API)
  * Never throws — a formatter wiring failure must not block engine construction.
