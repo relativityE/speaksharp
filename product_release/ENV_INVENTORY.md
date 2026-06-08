@@ -116,13 +116,66 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 
 ---
 
-## 3. CI/deploy secrets (GitHub Actions — Home D)
+## 3. GitHub Actions env (Home D) — Secrets vs Variables
 
-| Variable | Home | Purpose |
-|---|---|---|
-| `SUPABASE_ACCESS_TOKEN` | D | `supabase` CLI auth in deploy workflow |
-| `SUPABASE_PROJECT_ID` | D | target project for `functions deploy` |
-| (sync source) `GEMINI_API_KEY`, `AGENT_SECRET`, `ALLOWED_ORIGIN`, `STRIPE_*` | D → C | `deploy-supabase-migrations.yml` pushes these into Supabase secrets |
+**40** names are referenced as `secrets.*` across `.github/workflows`; **nothing uses `vars.*` yet.**
+Many are **non-secret config over-classified as Secrets** — they should be GitHub Actions
+**Variables** (plaintext, still env-injected) so the true-secret surface is small + auditable.
+
+> **Safe migration order (CI never breaks):** product-ops creates the Variable (copy value) →
+> dev flips the workflow ref `secrets.X` → `vars.X` → product-ops deletes the old Secret.
+
+### 3a. Genuine SECRETS — keep as GitHub Secrets (~18)
+| Variable | Why secret |
+|---|---|
+| `STRIPE_SECRET_KEY` | live API secret |
+| `STRIPE_WEBHOOK_SECRET` | webhook signing secret |
+| `SUPABASE_SERVICE_ROLE_KEY` | full DB / RLS bypass |
+| `SUPABASE_ACCESS_TOKEN` | Supabase management / CLI |
+| `ASSEMBLYAI_API_KEY` | paid API key |
+| `GEMINI_API_KEY` | paid API key (get-ai-suggestions) |
+| `SENTRY_AUTH_TOKEN` | release-upload token |
+| `POSTHOG_PERSONAL_API_KEY` | account-level personal API key |
+| `AGENT_SECRET` | internal auth |
+| `OBSERVABILITY_SMOKE_SECRET` | smoke auth |
+| `PROMO_GEN_ADMIN_SECRET` | admin promo auth |
+| `GH_PAT` | GitHub PAT |
+| `VERCEL_ACCESS_TOKEN` | Vercel deploy token |
+| `FREE_TEST_PASSWORD` · `PRO_TEST_PASSWORD` · `BASIC_TEST_PASSWORD` · `CANARY_PASSWORD` · `SOAK_TEST_PASSWORD` | real test-account credentials |
+
+### 3b. Over-classified → should be GitHub **Variables** (non-secret config)
+| Variable | Why it is NOT a secret |
+|---|---|
+| `SUPABASE_URL` | public project URL (also shipped as `VITE_SUPABASE_URL`) |
+| `SUPABASE_ANON_KEY` | client-public anon key (shipped in bundle; RLS-guarded) |
+| `SUPABASE_PROJECT_ID` | public project ref |
+| `STRIPE_PUBLISHABLE_KEY` · `VITE_STRIPE_PUBLISHABLE_KEY` | publishable key is public by design |
+| `STRIPE_PRO_PRICE_ID` · `STRIPE_BASIC_PRICE_ID` | public price identifiers |
+| `SENTRY_DSN` | client-public DSN (shipped in bundle) |
+| `SENTRY_API_BASE` · `SENTRY_ORG` · `SENTRY_PROJECT` | non-secret config / slugs |
+| `POSTHOG_PROJECT_API_KEY` | public ingest key (shipped in client) |
+| `POSTHOG_PROJECT_ID` · `POSTHOG_API_HOST` · `POSTHOG_INGEST_HOST` | public id / hosts |
+| `EDGE_FN_URL` | public function base URL |
+| `VERCEL_ORG_ID` · `VERCEL_PROJECT_ID` · `VERCEL_TEAM_ID` | non-secret platform IDs |
+| `FREE_TEST_EMAIL` · `PRO_TEST_EMAIL` · `BASIC_TEST_EMAIL` | test-account emails (passwords stay in 3a). Product-ops may keep these secret to reduce account enumeration — their call. |
+
+> ⚠️ **product-ops: verify against the live GitHub console** — add any Secret/Variable the
+> workflows don't reference, and confirm each 3b row before moving it.
+
+## 4. Vercel Project Env (Home B) — verify in console
+
+The **real production** values for the §1 `VITE_*` live here (Production scope) + platform vars.
+Vercel "Sensitive" ≈ Secret; plain ≈ Variable. All app `VITE_*` are public → plain.
+
+| Variable | Vercel classification |
+|---|---|
+| `VITE_SUPABASE_URL` · `VITE_SUPABASE_ANON_KEY` | plain (public) |
+| `VITE_STRIPE_PUBLISHABLE_KEY` (`pk_live_…`) | plain (public) — the one prod-critical injection |
+| `VITE_SENTRY_DSN` · `VITE_POSTHOG_KEY` · `VITE_POSTHOG_HOST` | plain (public) |
+| `VERCEL_GIT_COMMIT_SHA` | auto (platform) |
+
+> ⚠️ **product-ops: enumerate the actual Vercel project env** and reconcile here — this is the
+> repo-expected set, not a console read.
 
 ---
 
