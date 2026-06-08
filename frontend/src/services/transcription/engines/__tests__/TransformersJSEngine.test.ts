@@ -13,7 +13,7 @@ import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 // Hoist mock factories to top of file
 const { mockPipeline, mockEnv } = vi.hoisted(() => ({
     mockPipeline: vi.fn(),
-    mockEnv: { allowLocalModels: false, useBrowserCache: true },
+    mockEnv: { allowLocalModels: false, allowRemoteModels: false, localModelPath: '/models/', useBrowserCache: true },
 }));
 
 // Mock the flagging system - aligned with window.__SS_E2E__
@@ -102,7 +102,7 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(result.isOk).toBe(true);
         expect(mockPipeline).toHaveBeenCalledWith(
             'automatic-speech-recognition',
-            'whisper-tiny.en',
+            'whisper-base.en', // resolved local default (base.en), local-only — strict no-HF
             expect.objectContaining({ quantized: true })
         );
         expect(mockPipeline.mock.calls[0]?.[2]).not.toEqual(expect.objectContaining({ revision: 'main' }));
@@ -234,44 +234,44 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(errorResult.error.message).toContain('not initialized');
     });
 
-    it('should handle initialization errors', async () => {
-        mockPipeline
-            .mockRejectedValueOnce(new Error('Local model missing'))
-            .mockRejectedValueOnce(new Error('Network failure'));
+    it('fails closed with a clear no-HF error when the local model is missing (no Hugging Face fallback)', async () => {
+        mockPipeline.mockRejectedValueOnce(new Error('Local model missing'));
 
         const result = await engine.init();
 
         expect(result.isOk === false).toBe(true);
         const errorResult = result as { isOk: false; error: Error };
-        expect(errorResult.error.message).toContain('Network failure');
-        expect(mockPipeline).toHaveBeenLastCalledWith(
-            'automatic-speech-recognition',
-            'Xenova/whisper-tiny.en',
-            expect.objectContaining({ quantized: true })
-        );
+        expect(errorResult.error.message).toContain('PRIVATE_LOCAL_MODEL_UNAVAILABLE');
+        // Exactly ONE load attempt (local); strict no-HF means no remote retry.
+        expect(mockPipeline).toHaveBeenCalledTimes(1);
+        expect(mockPipeline.mock.calls[0]?.[1]).not.toMatch(/^Xenova\//);
+        expect(mockEnv.allowRemoteModels).not.toBe(true);
     });
 
-    it('falls back to Hugging Face when the bundled local model is missing or corrupt', async () => {
-        mockPipeline
-            .mockRejectedValueOnce(new Error('Unexpected token < at position 0'))
-            .mockResolvedValueOnce(async () => ({ text: 'Recovered via remote model' }));
+    it('does NOT fall back to Hugging Face when the bundled local model is missing/corrupt (strict no-HF)', async () => {
+        mockPipeline.mockRejectedValueOnce(new Error('Unexpected token < at position 0'));
 
         const result = await engine.init();
 
+        expect(result.isOk === false).toBe(true);
+        // Only the local attempt happened; no remote (Xenova / Hugging Face) retry.
+        expect(mockPipeline).toHaveBeenCalledTimes(1);
+        const calledModels = mockPipeline.mock.calls.map((c) => c[1]);
+        expect(calledModels.some((m) => typeof m === 'string' && m.startsWith('Xenova/'))).toBe(false);
+        expect(mockEnv.allowRemoteModels).not.toBe(true);
+    });
+
+    it('loads the resolved local model (base.en default), not a hardcoded model, and never enables remote', async () => {
+        const result = await engine.init();
+
         expect(result.isOk).toBe(true);
-        expect(mockPipeline).toHaveBeenNthCalledWith(
-            1,
+        expect(mockPipeline).toHaveBeenCalledWith(
             'automatic-speech-recognition',
-            'whisper-tiny.en',
+            'whisper-base.en',
             expect.objectContaining({ quantized: true })
         );
-        expect(mockPipeline.mock.calls[0]?.[2]).not.toEqual(expect.objectContaining({ revision: 'main' }));
-        expect(mockPipeline).toHaveBeenNthCalledWith(
-            2,
-            'automatic-speech-recognition',
-            'Xenova/whisper-tiny.en',
-            expect.objectContaining({ quantized: true })
-        );
+        // Strict no-HF: remote models are never enabled on the happy path.
+        expect(mockEnv.allowRemoteModels).toBe(false);
     });
 
     it('should handle transcription errors', async () => {
