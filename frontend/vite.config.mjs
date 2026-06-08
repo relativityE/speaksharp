@@ -3,7 +3,6 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 import { PORTS, resolveAppModeMeta } from '../scripts/build.config.js';
@@ -60,15 +59,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       tsconfigPaths(),
-      react(),
-      viteStaticCopy({
-        targets: [
-          {
-            src: '../node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
-            dest: 'pdfjs'
-          }
-        ]
-      })
+      react()
     ],
     assetsInclude: ['**/*.onnx'],
     assetsInlineLimit: 0, // Prevent WASM from being base64 encoded
@@ -125,8 +116,7 @@ export default defineConfig(({ mode }) => {
             'vendor-supabase': ['@supabase/supabase-js'],
             'vendor-utils': ['lodash', 'date-fns', 'clsx', 'tailwind-merge'],
             'vendor-transformers': ['@xenova/transformers'],
-            'vendor-charts': ['recharts', 'lucide-react'],
-            'vendor-pdf': ['pdfjs-dist']
+            'vendor-charts': ['recharts', 'lucide-react']
           }
         }
       },
