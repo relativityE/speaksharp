@@ -170,20 +170,21 @@ Many are **non-secret config over-classified as Secrets** — they should be Git
 > ⚠️ **product-ops: verify against the live GitHub console** — add any Secret/Variable the
 > workflows don't reference, and confirm each 3b row before moving it.
 
-## 4. Vercel Project Env (Home B) — verify in console
+## 4. Vercel Project Env (Home B)
 
 The **real production** values for the §1 `VITE_*` live here (Production scope) + platform vars.
-Vercel "Sensitive" ≈ Secret; plain ≈ Variable. All app `VITE_*` are public → plain.
 
-| Variable | Vercel classification |
-|---|---|
-| `VITE_SUPABASE_URL` · `VITE_SUPABASE_ANON_KEY` | plain (public) |
-| `VITE_STRIPE_PUBLISHABLE_KEY` (`pk_live_…`) | plain (public) — the one prod-critical injection |
-| `VITE_SENTRY_DSN` · `VITE_POSTHOG_KEY` · `VITE_POSTHOG_HOST` | plain (public) |
-| `VERCEL_GIT_COMMIT_SHA` | auto (platform) |
+> **✅ Live-verified 2026-06-08 (`vercel env ls`, names only):** 7 env vars (project `speaksharp/speaksharp`,
+> all "Encrypted" at rest in Vercel). 6 are the public `VITE_*`; **`OPS_STATUS_PASSWORD` is a real
+> secret here (Vercel-only, gates the Ops status page) — was uncatalogued; added below.**
 
-> ⚠️ **product-ops: enumerate the actual Vercel project env** and reconcile here — this is the
-> repo-expected set, not a console read.
+| Variable | Targets | Nature |
+|---|---|---|
+| `VITE_SUPABASE_URL` · `VITE_SUPABASE_ANON_KEY` | Prod/Preview/Dev | public |
+| `VITE_STRIPE_PUBLISHABLE_KEY` (`pk_live_…`) | Prod/Preview/Dev | public — the one prod-critical injection |
+| `VITE_SENTRY_DSN` · `VITE_POSTHOG_KEY` · `VITE_POSTHOG_HOST` | Prod/Preview/Dev | public |
+| `OPS_STATUS_PASSWORD` | Prod/Preview | **SECRET** (Ops status page gate) |
+| `VERCEL_GIT_COMMIT_SHA` | (auto) | platform-provided at build |
 
 ---
 
