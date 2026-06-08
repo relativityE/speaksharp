@@ -182,8 +182,10 @@ this is the safe intermediate state, nothing flipped yet):
 - **Still pending owner values (9):** `STRIPE_PUBLISHABLE_KEY` (local is `pk_test_`; prod needs `pk_live_`),
   `STRIPE_PRO_PRICE_ID` (local is test-mode), `STRIPE_BASIC_PRICE_ID`, `SENTRY_API_BASE` (region unconfirmed),
   `SENTRY_ORG`, `SENTRY_PROJECT`, `POSTHOG_PROJECT_ID`, `BASIC_TEST_EMAIL`, `PRO_TEST_EMAIL`.
-- **Remaining cutover (gated, NOT done):** (1) flip `secrets.X → vars.X` for the 8 across 11 workflow files;
-  (2) Test verifies CI/Canary/Deploy green; (3) owner deletes the 8 now-duplicated Secrets.
+- **Cutover progress:**
+  1. ✅ **DONE** — flipped `secrets.X → vars.X` for the 8 (52 refs across 11 files; commit `7dd2ad53`, on `dev/release-closure`). Workflows on this branch now read the Variables; the Secrets are unused here.
+  2. ⏳ **Test** — merge `dev/release-closure` to main, then verify CI/Canary/Deploy green (main still references `secrets.X` until the merge lands).
+  3. ⏳ **Owner** — delete the 8 Secrets **only after** the merge is on main AND green. Deleting before the merge breaks main (it still uses `secrets.X`).
 
 ## 4. Vercel Project Env (Home B)
 
