@@ -86,7 +86,7 @@ let lastTelemetry: NativeFormatterTelemetry = { ...EMPTY_TELEMETRY };
 let pendingProviderMeta: Partial<NativeFormatterTelemetry> | null = null;
 
 /**
- * Called by the formatter adapter (e.g. nativeGeminiFormatter) to report the
+ * Called by the formatter adapter (e.g. nativeDeterministicCleanup) to report the
  * provider-side outcome of the in-flight attempt (requestId, latency, char counts,
  * server word-preservation check, error code). The seam merges this with the final
  * accept/fallback decision.
