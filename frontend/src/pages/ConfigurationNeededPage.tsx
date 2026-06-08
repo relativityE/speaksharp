@@ -25,10 +25,11 @@ const ConfigurationNeededPage: React.FC = () => {
           <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
             <li>VITE_SUPABASE_URL</li>
             <li>VITE_SUPABASE_ANON_KEY</li>
-            <li>VITE_STRIPE_PUBLISHABLE_KEY</li>
-            <li>VITE_SENTRY_DSN</li>
           </ul>
         </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Stripe and Sentry settings are optional for app startup. Payment surfaces stay hidden unless a live Stripe publishable key is configured.
+        </p>
         <Button
           className="mt-6"
           onClick={() => window.location.reload()}
