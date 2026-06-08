@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
   VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
 jobs:
@@ -199,7 +199,7 @@ jobs:
 
       - name: Run E2E Test Shard
         env:
-          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STT_ENGINE: mock
         run: pnpm ci:test ${{ matrix.shard }}

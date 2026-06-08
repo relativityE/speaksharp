@@ -15,7 +15,7 @@ jobs:
 
       - name: Prove Sentry frontend ingest via Sentry API
         env:
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
@@ -31,9 +31,9 @@ jobs:
 
       - name: Prove Edge Function Sentry ingest via Sentry API
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           OBSERVABILITY_SMOKE_SECRET: ${{ secrets.OBSERVABILITY_SMOKE_SECRET }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
@@ -49,10 +49,10 @@ jobs:
 
       - name: Prove PostHog launch event via PostHog Query API
         env:
-          POSTHOG_PROJECT_API_KEY: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-          POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
-          POSTHOG_API_HOST: ${{ secrets.POSTHOG_API_HOST }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_POLL_TIMEOUT_MS: 900000
         run: node scripts/live-observability-proof.mjs --target=posthog
