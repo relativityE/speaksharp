@@ -26,7 +26,7 @@ Use these groups when reviewing the full feature list. They keep launch-critical
 
 | Group | Includes |
 | :--- | :--- |
-| **Transcription Modes** | Browser, Private/Vault, Cloud, mode selector |
+| **Transcription Modes** | Browser, Private, Cloud, mode selector |
 | **Real-Time Coaching** | Live transcript, WPM, fillers, pauses, clarity, SpeakSharp Score, live coaching card |
 | **Post-Session Coaching** | Semantic AI suggestions, analytics/history, PDF reports |
 | **Habit & Progress** | SpeakSharp Score movement, goals, streaks, live-coaching targets, future guided drills |

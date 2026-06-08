@@ -73,7 +73,7 @@ body:
       options:
         - Not STT-related
         - Native / Browser
-        - Private / Vault
+        - Private
         - Cloud
         - Unknown
     validations:
@@ -122,7 +122,7 @@ body:
     id: transcript_opt_in
     attributes:
       label: Transcript opt-in
-      description: Transcript text can be sensitive, especially for Private/Vault mode. Choose Yes only if you intentionally pasted transcript text below.
+      description: Transcript text can be sensitive, especially for Private mode. Choose Yes only if you intentionally pasted transcript text below.
       options:
         - "No transcript text included"
         - "Yes, I intentionally included transcript text for debugging"
