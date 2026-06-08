@@ -122,8 +122,15 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 Many are **non-secret config over-classified as Secrets** — they should be GitHub Actions
 **Variables** (plaintext, still env-injected) so the true-secret surface is small + auditable.
 
-> **Safe migration order (CI never breaks):** product-ops creates the Variable (copy value) →
-> dev flips the workflow ref `secrets.X` → `vars.X` → product-ops deletes the old Secret.
+> **✅ Live-verified 2026-06-08 (`gh`, read-only, no values):** **36 repo Secrets, 0 Variables, no
+> env-scoped secrets** (Preview/Production/production-db envs empty). Reconciliation vs workflow refs:
+> `SUPABASE_DB_PASSWORD` is set but was uncatalogued → added to 3a. 5 workflow-referenced names are
+> NOT set in GitHub (`VERCEL_ORG_ID`, `VERCEL_TEAM_ID`, `VITE_STRIPE_PUBLISHABLE_KEY` [Vercel-side],
+> `FREE_TEST_EMAIL`, `FREE_TEST_PASSWORD`) → dead refs or Vercel-only; owner to confirm.
+
+> **Safe migration order (CI never breaks):** product-ops (owner/human) creates the Variable (copy
+> value) → dev flips the workflow ref `secrets.X` → `vars.X` → owner deletes the old Secret.
+> Agents do NOT mutate the secret store; dev only edits the `.yml` refs.
 
 ### 3a. Genuine SECRETS — keep as GitHub Secrets (~18)
 | Variable | Why secret |
@@ -132,6 +139,7 @@ Many are **non-secret config over-classified as Secrets** — they should be Git
 | `STRIPE_WEBHOOK_SECRET` | webhook signing secret |
 | `SUPABASE_SERVICE_ROLE_KEY` | full DB / RLS bypass |
 | `SUPABASE_ACCESS_TOKEN` | Supabase management / CLI |
+| `SUPABASE_DB_PASSWORD` | Postgres DB password (migrations / `db push`) |
 | `ASSEMBLYAI_API_KEY` | paid API key |
 | `GEMINI_API_KEY` | paid API key (get-ai-suggestions) |
 | `SENTRY_AUTH_TOKEN` | release-upload token |
