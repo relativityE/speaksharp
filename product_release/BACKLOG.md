@@ -467,3 +467,35 @@ states, the no-HF fallback hole, and a dead operational function.
 
 ### Beta GO/NO-GO
 **NO-GO** while any Lane 1 item is open. **GO when:** secrets rotated/removed; valid audio-fixture checks pass + final STT proofs rerun on valid fixtures; Private base-default/local-only/no-HF proof passes; Native funnel works without scary copy; feedback works-or-hidden; payment hidden unless Stripe live; v4 off; CI/canary/deploy green. **A fully pruned repo is NOT required for beta** — a safe, honest, non-misleading product is.
+
+## Re-Assessment Addendum — Dev Fine-Tooth Pass (2026-06-08, main@c5a2a460)
+
+Second independent dev root-canal + bloat sweep after the closure merge. Source is clean
+(400 `frontend/src` files; 0 real `console.*`/`debugger`/`@ts-ignore`/`eslint-disable`/empty-catch/`.only`).
+Items below are NEW (not previously captured) or CORRECT prior inaccuracies. All are
+bloat / post-beta class — **none are new beta-GO blockers.**
+
+### New findings to track (Lane 3 / post-beta cleanup)
+
+| ID | Finding | Evidence | Disposition |
+|---|---|---|---|
+| BLOAT-DEAD-SRC-MODULES | 9 dead / prod-unused `src` modules | 0 prod importers (verified repo-wide): `config/readiness.ts` (@deprecated), `hooks/useSpeechRecognition/useSessionTimer.ts`, `lib/e2eAttributes.ts`, `lib/processImage.ts`, `utils/stripeDetection.ts`, `services/recordingLeasePolicy.ts` (test-only), `services/transcription/utils/ImmutableCallbackProxy.ts` (test-only), `services/transcription/utils/privateVadFlag.ts` (test-only), `lib/mockData.ts` (test fixture in `src/`) | Post-beta: delete (move test-only fixtures to `tests/`). Re-verify each at delete time. |
+| BLOAT-STRIPE-JS-DEPS | `@stripe/stripe-js@^7.9.0` + `@stripe/react-stripe-js@^4.0.2` are prod deps used ONLY by test infra (`tests/mocks/stripe.tsx`, `tests/support/utils/renderWithStripe.tsx`) exercising a Stripe **Elements** flow the app does not ship (checkout = server redirect) | grep: 0 src/prod imports; only test infra | Post-beta: remove both deps + the dead Elements test harness, or move to devDeps if an Elements flow is planned. |
+| BLOAT-PARKED-VAD | Parked Silero-VAD Phase-2 cluster, unwired in prod: `silero_vad.onnx` asset + `onnxruntime-web` direct dep + `privateVadFlag` (flag never read in prod) + `sttConstants` VAD block. Whisper's ORT is transitive via `@xenova/transformers`. | `privateVadFlag` prod=0; `onnxruntime-web` 0 src imports | Post-beta: keep quarantined, or retire as one coherent change if VAD is not pursued. |
+| BLOAT-ASSEMBLYAI-DEPCLASS | `assemblyai` SDK is in `dependencies` but imported ONLY by benchmark research scripts (`scripts/benchmark-assemblyai-ceiling.mts`); the app/Cloud path uses raw WS + an edge-fn token | grep: 0 src/backend SDK imports | Post-beta: move to `devDependencies` (or remove with the research harness). |
+
+### Corrections to existing backlog rows
+
+| Row | Correction |
+|---|---|
+| "Private STT CPU speed via cross-origin isolation" (claims "no `@stripe/stripe-js` … no stripe npm dependency") | **FALSE** — `@stripe/stripe-js` AND `@stripe/react-stripe-js` ARE in `package.json` (test-only usage; see BLOAT-STRIPE-JS-DEPS). The "no embedded Stripe.js in the shipped app" claim is true; the "no npm dependency" claim is not. |
+| DEAD-SCRIPTS (Lane 3, "~48/87 unreferenced") | **OVERCOUNT.** Actual unreferenced top-level scripts = **3** research harnesses: `native-human-cdp-monitor.mjs`, `private-corpus-acceptance.mjs`, `private-local-punctuation-feasibility.mts`. The ~48 heuristic counted false positives (`lib/` helpers + CI-aggregated scripts). |
+
+### Open dev tasks surfaced (not beta-GO blockers)
+- **ORT-WASM-SAME-ORIGIN** — serve onnxruntime-web WASM from our origin (set `env.backends.onnx.wasm.wasmPaths` + copy wasm to `public/`) IF product wants the "all STT runtime assets same-origin" claim. Cost: re-add copy step + ~5–23 MB origin-served wasm + version-match on `@xenova` upgrades. Closes the no-HF claim-boundary nuance (ORT WASM currently loads from jsDelivr).
+- **ENV-PROD** — keep tracked `frontend/.env.production` (public `VITE_*`) or move to Vercel host env (consistent with the already-host-injected Stripe key). Policy call (product) + ops sets Vercel vars.
+
+### Confirmed clean (no action)
+- Edge-function CORS = origin allowlist (no wildcards).
+- No `@stripe/stripe-js` embedded in the shipped app (checkout = redirect).
+- 0 real code smells in `frontend/src`; rotation runbook complete (`SECRET_ROTATION_RUNBOOK.md`).
