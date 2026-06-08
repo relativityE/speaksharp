@@ -19,6 +19,7 @@ on:
           - first-time-tester-private-trial
           - stripe-webhook-readiness
           - stripe-checkout-readiness
+          - stripe-billing-portal-readiness
           - stripe-price-audit
       zero_hf_audit:
         description: 'Require Private model requests to stay same-origin /models with no HuggingFace traffic'
@@ -326,6 +327,36 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-checkout-readiness-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-stripe-billing-portal-readiness:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-billing-portal-readiness' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Run Stripe Billing Portal Readiness Proof
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+        run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Stripe Billing Portal Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-stripe-billing-portal-readiness-artifacts
           path: |
             blob-report/live/
             playwright-report/

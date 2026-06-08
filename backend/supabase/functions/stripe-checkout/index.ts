@@ -47,6 +47,27 @@ const sanitizeMetadataValue = (value: unknown, fallback: string): string => {
   return normalized || fallback;
 };
 
+const fetchExistingStripeCustomerId = async (
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const profile = data as { stripe_customer_id?: unknown } | null;
+  const customerId = typeof profile?.stripe_customer_id === "string"
+    ? profile.stripe_customer_id.trim()
+    : "";
+  return customerId || null;
+};
+
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
   const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
@@ -199,11 +220,34 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     const effectiveSiteUrl = siteUrl ?? `http://localhost:${DEV_PORT}`;
     console.log(`[Stripe Checkout] 🔐 Using SITE_URL: ${effectiveSiteUrl}`);
 
+    let stripeCustomerId: string | null = null;
+    try {
+      stripeCustomerId = await fetchExistingStripeCustomerId(supabase, user.id);
+      if (stripeCustomerId) {
+        console.log(`[Stripe Checkout] ✅ Reusing Stripe customer for user ${user.id}`);
+      }
+    } catch (profileError) {
+      console.error("[Stripe Checkout] ❌ Failed to load billing customer profile:", profileError);
+      return createErrorResponse(
+        ErrorCodes.DATABASE_ERROR,
+        "Unable to start checkout. Please try again or contact support.",
+        responseHeaders
+      );
+    }
+
+    const customerParams = stripeCustomerId
+      ? { customer: stripeCustomerId }
+      : user.email
+        ? { customer_email: user.email }
+        : {};
+
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);
     try {
       const session = await stripeClient.checkout.sessions.create({
+        ...customerParams,
         payment_method_types: ["card"],
+        client_reference_id: user.id,
         line_items: [
           {
             price: priceId,
@@ -213,7 +257,6 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
         mode: "subscription",
         success_url: `${effectiveSiteUrl}/session?checkout=success&conversion_source=${encodeURIComponent(conversionSource)}&utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(utmMedium)}&utm_campaign=${encodeURIComponent(utmCampaign)}`,
         cancel_url: `${effectiveSiteUrl}/pricing?checkout=cancelled&conversion_source=${encodeURIComponent(conversionSource)}&utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(utmMedium)}&utm_campaign=${encodeURIComponent(utmCampaign)}`,
-        customer_email: user.email,
         metadata: {
           userId: user.id,
           plan,
