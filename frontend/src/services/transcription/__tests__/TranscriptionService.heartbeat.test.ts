@@ -135,6 +135,42 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         vi.useRealTimers();
     });
 
+    it('does NOT emit a frozen warning for Native on heartbeat drift (Web Speech pauses are not freezes)', async () => {
+        vi.useFakeTimers();
+        const onStatusChange = vi.fn();
+
+        service = new TranscriptionServiceClass({
+            onTranscriptUpdate: vi.fn(),
+            onModelLoadProgress: vi.fn(),
+            onReady: vi.fn(),
+            onStatusChange,
+            session: null,
+            navigate: vi.fn() as unknown as NavigateFunction,
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
+            mockMic,
+            policy: {
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: false,
+                preferredMode: 'native',
+                allowFallback: false,
+                executionIntent: 'test'
+            }
+        }, undefined, 50, 8000);
+
+        await service.init();
+        await service.startTranscription();
+        expect(service.getMode()).toBe('native');
+
+        // Native heartbeat only updates on result events; a natural speaking pause exceeds the
+        // threshold but is NOT a freeze (Native has its own result-stall restart).
+        await vi.advanceTimersByTimeAsync(9000);
+
+        expect(onStatusChange).not.toHaveBeenCalledWith(expect.objectContaining({ isFrozen: true }));
+
+        vi.useRealTimers();
+    });
+
     it('should support segmented handoff to Native browser', async () => {
         service = new TranscriptionServiceClass({
             onTranscriptUpdate: vi.fn(),

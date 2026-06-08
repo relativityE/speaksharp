@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Zap, Trophy, Flame } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 
 interface SunsetModalsProps {
     open: boolean;
@@ -20,6 +21,8 @@ interface SunsetModalsProps {
 
 export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, type, isPro }) => {
     const navigate = useNavigate();
+    // Only offer upgrade when payments are live — otherwise no dead button / broken /pricing route.
+    const canUpgrade = !isPro && arePaymentsEnabled();
 
     const Content = () => {
         if (type === 'daily') {
@@ -40,7 +43,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <div className="py-6 text-center font-medium text-foreground/70">
-                        {!isPro && (
+                        {canUpgrade && (
                             <p className="font-semibold text-primary">Want double the daily bandwidth? Upgrade to Pro for 2 full hours of practice.</p>
                         )}
                         {isPro && (
@@ -68,7 +71,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="py-6 text-center font-medium text-foreground/70">
-                    {!isPro && (
+                    {canUpgrade && (
                         <p className="font-semibold text-primary">Upgrade to Pro to lock in 50 hours/month and advanced speech analytics.</p>
                     )}
                 </div>
@@ -84,7 +87,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         Close
                     </Button>
-                    {!isPro && (
+                    {canUpgrade && (
                         <Button className="font-bold bg-primary hover:bg-primary/90" onClick={() => navigate('/pricing')}>
                             <Zap className="w-4 h-4 mr-2" /> Upgrade to Pro
                         </Button>
