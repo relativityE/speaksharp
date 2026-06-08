@@ -22,14 +22,41 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 
 | Home | What lives here | Who sets it |
 |---|---|---|
-| **A. Committed `frontend/.env.production`** | client-public `VITE_*` build vars (baked into the shipped bundle) | dev (repo) |
-| **B. Vercel Project Env → Production scope** | build-time overrides (e.g. live Stripe key) + platform vars (`VERCEL_GIT_COMMIT_SHA`) | product-ops (Vercel UI) |
+| **A. Local root `.env*` (gitignored)** | client-public `VITE_*` for **local dev/test** — this is Vite's `envDir` (repo root) | each developer |
+| **B. Vercel Project Env → Production scope** | the **real production** `VITE_*` (incl. live Stripe key) + platform vars (`VERCEL_GIT_COMMIT_SHA`) | product-ops (Vercel UI) |
 | **C. Supabase Edge Function secrets** | all server-side secrets used by edge functions | product-ops (Supabase UI / `supabase secrets set`) |
 | **D. GitHub Actions secrets** | CI/deploy credentials + the **sync source** that pushes some values into Home C | product-ops (GitHub repo settings) |
-| **E. Local `.env` / `.env.test` (gitignored)** | developer/test-only values | each developer |
+| **E. Committed templates** | `*.env*.example` + `frontend/.env.production` (documentation ONLY — see Loading Model) | dev (repo) |
+
+> **⚠️ LOADING MODEL (critical):** `frontend/vite.config.mjs` sets `envDir = repo root`, and there is
+> **no root `.env.production`**. So at build/dev time Vite loads `.env*` from the **repo ROOT** (Home A)
+> plus actual `process.env` `VITE_*` (Home B on Vercel). **`frontend/.env.production` is NOT loaded by
+> the build** — it ships the Stripe key empty as fail-closed *documentation*, but the real fail-closed
+> behavior comes from the key simply being absent in `process.env`. Treat it as a template, not config.
+> `scripts/validate-env.mjs` reads root `.env` + root `.env.test`.
 
 > **Auto-provided:** Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 > into Edge Functions automatically — they are not manually set in Home C unless overriding.
+
+## `.env.*` file map + minimum set
+
+| File | Tracked? | Loaded by | Verdict |
+|---|---|---|---|
+| root `.env` | gitignored | Vite (dev) + validate-env | local dev — keep (per-dev) |
+| root `.env.test` | gitignored | Vite (test) + validate-env | local test — keep (per-dev) |
+| root `.env.local` | gitignored | Vite | local override — keep (per-dev) |
+| root `.env.test.example` | **tracked** | template only | **KEEP** — the one canonical template |
+| `frontend/.env.production` | **tracked** | **nothing** (outside `envDir`) | not-loaded doc → remove or keep purely as a labeled template (product decided "keep"; see Decisions) |
+| `frontend/.env.test` | gitignored | **nothing** (outside `envDir`) | leftover; local-only, harmless |
+| `frontend/.env.test.example` | **tracked** | template for a not-loaded file | **redundant** with root `.env.test.example` → remove candidate |
+| `frontend/.env.development` | ~~tracked symlink~~ | — | **REMOVED** (was a tracked symlink → gitignored target; dangled on clone) |
+
+**Minimum tracked set (target):** root `.env.test.example` only (+ `frontend/.env.production` if kept as a labeled doc template). `frontend/.env.test.example` and the `frontend/.env.development` symlink are removable.
+
+## Decisions log
+- **ORT-WASM-SAME-ORIGIN = NO** (2026-06-08). Claim boundary stays **"no Hugging Face model weights"** (model weights local; ONNX runtime WASM from jsDelivr CDN is acceptable). Not wiring same-origin WASM.
+- **ENV-PROD = KEEP committed `frontend/.env.production`** (2026-06-08) — but note it is **not build-loaded** (see Loading Model); it functions as documentation. Re-confirm whether to keep it as a labeled template or remove it (real prod config = Home B + this inventory).
+- **`.env.development` symlink removed** (2026-06-08) as dead/broken-on-clone.
 
 ---
 
