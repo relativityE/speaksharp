@@ -52,8 +52,9 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // Verify E2E signal for watermark
     await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
 
-    // 6. Marketing Funnel: conversion prompt is prominent on analytics, not inside the practice workspace.
-    await expect(page.getByTestId('analytics-page-upgrade-button')).toBeVisible();
+    // 6. Payment readiness: in test/non-live Stripe mode, checkout surfaces
+    // must stay hidden so Free users do not see dead upgrade buttons.
+    await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
   });
 
   // SCENARIO 2: Pro Tier (Premium Matrix)
