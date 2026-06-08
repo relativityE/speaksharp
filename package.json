@@ -134,8 +134,6 @@
     "sonner": "^2.0.7",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
-    "whisper-turbo": "^0.11.0",
-    "whisper-webgpu": "^0.10.0",
     "zustand": "^5.0.9"
   },
   "optionalDependencies": {
@@ -237,9 +235,6 @@
       "glob": ">=10.5.0",
       "basic-ftp": "^5.2.0",
       "protobufjs": "^7.5.5"
-    },
-    "patchedDependencies": {
-      "whisper-turbo@0.11.0": "patches/whisper-turbo@0.11.0.patch"
     },
     "auditConfig": {
       "ignoreGhsas": [

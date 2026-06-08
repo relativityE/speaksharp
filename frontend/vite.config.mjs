@@ -16,8 +16,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test';
   const buildStamp = Date.now();
-  const stripSourceMapComment = (contents) =>
-    contents.toString().replace(/\n?\/\/# sourceMappingURL=.*$/gm, '');
   console.log(`[Vite] Mode: ${mode}`);
 
   // EXPERIMENT TOGGLE (off by default) — scoped cross-origin-isolation proof.
@@ -65,20 +63,6 @@ export default defineConfig(({ mode }) => {
       react(),
       viteStaticCopy({
         targets: [
-          {
-            src: '../node_modules/whisper-turbo/dist/session.worker.js',
-            dest: 'whisper-turbo',
-            transform: stripSourceMapComment,
-          },
-          {
-            src: '../node_modules/whisper-turbo/dist/db/*.js',
-            dest: 'whisper-turbo/db',
-            transform: stripSourceMapComment,
-          },
-          {
-            src: '../node_modules/whisper-webgpu/whisper-wasm_bg.wasm',
-            dest: 'whisper-turbo'
-          },
           {
             src: '../node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
             dest: 'pdfjs'
@@ -170,16 +154,7 @@ export default defineConfig(({ mode }) => {
       '__APP_MODE_META__': JSON.stringify(resolveAppModeMeta(mode)),
     },
     optimizeDeps: {
-      include: [
-        // Pre-bundle whisper-turbo and its dependencies for worker support
-        'whisper-turbo',
-        'whisper-webgpu',
-        'comlink',
-        'true-myth',
-        'idb/with-async-ittr',
-        'whisper-turbo',
-        'whisper-webgpu'
-      ],
+      include: [],
       exclude: [],
     },
     ssr: {

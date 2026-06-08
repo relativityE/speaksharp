@@ -118,13 +118,6 @@ const privateProviders = [
     displayName: 'Transformers.js v4',
     intent: 'Next Private STT provider candidate after journey/finalization proof.',
   },
-  {
-    id: 'whisper-turbo',
-    status: 'available',
-    registryKey: 'whisper-turbo',
-    displayName: 'Whisper Turbo',
-    intent: 'Explicit override path for fast local inference where supported.',
-  },
 ] as const satisfies readonly SttProviderEntry<PrivateSttProvider>[];
 
 const cloudProviders = [

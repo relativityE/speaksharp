@@ -18,7 +18,6 @@ import { MicStream } from '../../utils/types';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE } from '../../sttConstants';
 
 // Global mocks to prevent resolution errors
-vi.mock('whisper-turbo', () => ({}));
 vi.mock('@xenova/transformers', () => ({}));
 
 // Mock the PrivateSTT facade

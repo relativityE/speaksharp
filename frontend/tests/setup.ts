@@ -1,6 +1,5 @@
 import { beforeEach, afterEach, beforeAll, afterAll, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
-import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
 import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { server } from './support/mocks/server';
 import { PORTS } from '../../scripts/build.config.js';

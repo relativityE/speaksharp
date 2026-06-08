@@ -157,12 +157,12 @@ export default defineConfig({
     // Fix deprecation: "deps.inline" -> "server.deps.inline"
     server: {
       deps: {
-        inline: ["@xenova/transformers", "whisper-turbo", "whisper-webgpu"],
+        inline: ["@xenova/transformers"],
       }
     }
   },
   define: {},
   optimizeDeps: {
-    exclude: ['whisper-turbo', 'whisper-webgpu']
+    exclude: []
   }
 });
