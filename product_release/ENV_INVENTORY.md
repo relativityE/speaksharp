@@ -164,11 +164,13 @@ Many are **non-secret config over-classified as Secrets** — they should be Git
 | `POSTHOG_PROJECT_API_KEY` | public ingest key (shipped in client) |
 | `POSTHOG_PROJECT_ID` · `POSTHOG_API_HOST` · `POSTHOG_INGEST_HOST` | public id / hosts |
 | `EDGE_FN_URL` | public function base URL |
-| `VERCEL_ORG_ID` · `VERCEL_PROJECT_ID` · `VERCEL_TEAM_ID` | non-secret platform IDs |
-| `FREE_TEST_EMAIL` · `PRO_TEST_EMAIL` · `BASIC_TEST_EMAIL` | test-account emails (passwords stay in 3a). Product-ops may keep these secret to reduce account enumeration — their call. |
+| `VERCEL_PROJECT_ID` | non-secret platform ID (`VERCEL_ORG_ID`/`VERCEL_TEAM_ID` are referenced by workflows but NOT set as GitHub secrets) |
+| `BASIC_TEST_EMAIL` · `PRO_TEST_EMAIL` | test-account emails — **DECIDED 2026-06-08: move to Variables** (the matching passwords stay Secrets in 3a). |
 
-> ⚠️ **product-ops: verify against the live GitHub console** — add any Secret/Variable the
-> workflows don't reference, and confirm each 3b row before moving it.
+> **✅ FINAL (live-verified, 2026-06-08): 18 → Variable / 18 keep Secret = 36 total.** The 18-move set
+> is exactly what `scripts/ops/reclassify-github-env.sh` creates. Same-name `secrets.X → vars.X` is
+> allowed (probe-verified — secret + variable can coexist), so no rename. (`FREE_TEST_EMAIL`/
+> `FREE_TEST_PASSWORD` are not set as GitHub secrets → out of scope.)
 
 ## 4. Vercel Project Env (Home B)
 
