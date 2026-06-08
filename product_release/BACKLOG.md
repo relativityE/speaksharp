@@ -116,7 +116,7 @@ Score/Analytics from weak transcripts.
 | Priority | ID | Finding | Status / evidence | Owner / next action |
 |---|---|---|---|---|
 | P0 | PROD-CONFIG-1 | ✅ CLOSED for beta/non-payment launch on `main@c5a2a460`; live-payment launch remains product-ops. | Production runtime reproof `/private/tmp/TEST_PROD_RUNTIME_REPROOF_C5A2A460_2026-06-08.md` against `https://speaksharp-public.vercel.app/` and `/pricing` found `window.__APP_RUNTIME_CONFIG__` present with real Supabase auth (`authMode=real`, `mockAuth=false`, `releaseProofEligible=true`), release `c5a2a4600de3dc702115422a75600d2985695a66`, and `stripeKeyClass="test"`. Public home/pricing and authenticated analytics exposed no checkout/upgrade controls; checkout action count `0`. | Closed for beta while payments remain hidden. Product-ops must set live Stripe key and test live checkout/webhook before paid launch. |
-| P1 | PRIVACY-OBS-1 | Sentry/PostHog privacy posture is mostly good, but current production still predates the raw-message masking branch. | Production has Sentry `sendDefaultPii=false`, console breadcrumbs scrubbed, and PostHog `autocapture=false`, `capture_pageview=false`, `capture_performance=false`, `disable_session_recording=true`; SAST/Edge privacy tests passed. Current production bundle still contains the older raw background-toast string. | @dev-agent: merge/deploy `dev/beta-closeout` masking; test-release-agent re-proofs live bundle and user-facing toasts. |
+| P1 | PRIVACY-OBS-1 | ✅ CLOSED for beta on production `main@4d84b46d`. | Production has Sentry `sendDefaultPii=false`, console breadcrumbs scrubbed, and PostHog `autocapture=false`, `capture_pageview=false`, `capture_performance=false`, `disable_session_recording=true`; SAST/Edge privacy tests passed. Current production bundle probe on `https://speaksharp-public.vercel.app/assets/main-D7WVK4dq-1780924913880.js` found the generic background-toast string `"Something went wrong in the background"` and no committed secret literals. The remaining `PGRST116` bundle hit is an internal profile-service "profile not found" branch, not a user-facing raw toast. | Closed for beta. Reopen only if a runtime proof shows transcript/audio payloads in Sentry/PostHog or raw backend errors in user-facing toasts. |
 | P0 | FEEDBACK-1 | ✅ CLOSED for beta on production `main@c5a2a460`. | Earlier proof failed with `PGRST205` because `public.user_issue_reports` was absent. Current production reproof `/private/tmp/TEST_PROD_RUNTIME_REPROOF_C5A2A460_2026-06-08.md` on release `c5a2a4600de3dc702115422a75600d2985695a66` shows fresh signup, visible Report Issue, HTTP 201 insert to `user_issue_reports`, `includeTranscript=false`, `includeAudio=false`, and success text. | Closed for beta: keep Report Issue visible. Reopen only if a later release build regresses or product requires opt-in attachment variants before beta. |
 | P0 | STT-EVIDENCE-1 | STT release evidence is partial. | Private STT-P6 base-vs-tiny evidence is complete: base helps guard rows but does not fix `conv_01` and is too slow as default. Native human mic proof is still pending. Cloud baseline smoke is complete; richer metrics are deferred behind Native/Private. | test-release-agent owns Native human proof and any Cloud richer metrics after Native/Private; product decides Private base opt-in vs tiny default. |
 
@@ -427,7 +427,14 @@ is forced into exactly one lane.
 `frontend/src`). Risk is concentrated in config/secrets, test-fixture integrity, customer-facing dead
 states, the no-HF fallback hole, and a dead operational function.
 
-### Lane 1 — Release blockers (MUST fix before beta)
+### Historical Lane Snapshot — Superseded By Current Rows Above
+
+The original Lane 1/2/3 inventory below is retained as an audit trail for what was found during the
+root-canal review. **Do not use this snapshot as current status.** Current closure status lives in the
+`Release Bloat / Dead-Weight Inventory`, `Open Beta Closeout Findings`, and `/private/tmp/ACTIVE_COORDINATION.md`
+rows above. Items listed below as actions may already be closed in the current rows.
+
+### Historical Lane 1 — Original Release Blockers
 
 | # | ID | Finding | Evidence | Disposition / action | Owner | Found by |
 |---|---|---|---|---|---|---|
@@ -439,7 +446,7 @@ states, the no-HF fallback hole, and a dead operational function.
 | 6 | FIX-RLS-DELETE | `backend/supabase/functions/fix-rls` — dead stub: wildcard CORS (`*`), unused service-role client, "use dashboard SQL"; **not in deploy workflow**. | function body; `deploy-supabase-migrations.yml` does NOT list `fix-rls`. | Delete (confirmed undeployed). If ever kept, move to internal/admin script + remove public edge shape + wildcard CORS. | dev | both |
 | 7 | FEEDBACK-GATE | "Report Issue" must not be visible-but-broken. | Current release proof `/private/tmp/prod-rerun-proof-1780861749917.json`: release `f9204d539091116759b859d31b739b4a6363e5d1`, fresh signup, visible Report Issue, HTTP 201 insert to `user_issue_reports`, `includeTranscript=false`, `includeAudio=false`, success text. | **Closed for beta:** keep visible. Reopen only if a later release build regresses or product requires attachment opt-in variants before beta. | test | dev supplement |
 
-### Lane 2 — Release hygiene (fix if low-risk, else document; do NOT block beta on these alone)
+### Historical Lane 2 — Original Release Hygiene
 
 | ID | Finding | Disposition | Found by |
 |---|---|---|---|
@@ -450,7 +457,7 @@ states, the no-HF fallback hole, and a dead operational function.
 | BUILD-WARNINGS | Large chunks; modules both dynamically+statically imported (defeats splitting); `onnxruntime-web` eval warning. | Chunking pass; non-blocking. | both |
 | FORMAT-TRANSCRIPT-EDGE | ✅ RESOLVED in `dev/release-closure@8125a899` (BLOAT-FORMAT-TRANSCRIPT). Decision was REMOVE (not flag-gate): the `format-transcript` Gemini edge fn + client adapter + deploy lines are deleted; Native uses the deterministic `normalizeNativeTranscript` via the existing seam. No rollback flag kept (recoverable from git if ever needed). | Done; test runtime-verify+merge. | dev | dev |
 
-### Lane 3 — Post-beta cleanup (DO NOT TOUCH before beta)
+### Historical Lane 3 — Original Post-Beta Cleanup
 
 | ID | Finding | Disposition | Found by |
 |---|---|---|---|
@@ -461,12 +468,14 @@ states, the no-HF fallback hole, and a dead operational function.
 | MODELS-OBJECT-STORAGE | ~115 MB Whisper base+tiny blobs are plain Git (post-LFS). | Move to object storage (Supabase Storage/Vercel Blob), runtime fetch + long cache. Post-beta. | dev |
 | LOCAL-IGNORED-BLOAT | `frontend/dist` ~245 MB, `test-results` ~108 MB, `dist-e2e` ~94 MB, `lighthouse-results` ~58 MB — all **gitignored** (not shipped). | **Not a repo/release issue** — optional local `rm -rf`. | both |
 
-### Suggested execution order (for the fix phase, after this inventory is approved)
+### Historical Suggested Execution Order
 1. SECURITY-SECRETS → 2. AUDIO-FIXTURES → 3. NO-HF-FALLBACK → 4. UX (Engine Frozen + payment CTAs) →
 5. FIX-RLS-DELETE → 6. FEEDBACK reconfirm → 7. DEBRIS/STALE-DOC cleanup → 8. PARKED-ENGINE quarantine (no piecemeal deletion).
 
-### Beta GO/NO-GO
-**NO-GO** while any Lane 1 item is open. **GO when:** secrets rotated/removed; valid audio-fixture checks pass + final STT proofs rerun on valid fixtures; Private base-default/local-only/no-HF proof passes; Native funnel works without scary copy; feedback works-or-hidden; payment hidden unless Stripe live; v4 off; CI/canary/deploy green. **A fully pruned repo is NOT required for beta** — a safe, honest, non-misleading product is.
+### Historical Beta GO/NO-GO
+This was the original rule at inventory creation. Current GO/NO-GO is tracked by the current rows above:
+provider-side key rotation remains the hard product-ops blocker; other items are either closed for beta,
+conditional human proof, policy call, or post-beta cleanup.
 
 ## Re-Assessment Addendum — Dev Fine-Tooth Pass (2026-06-08, main@c5a2a460)
 
