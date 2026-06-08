@@ -46,16 +46,16 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 | root `.env.test` | gitignored | Vite (test) + validate-env | local test — keep (per-dev) |
 | root `.env.local` | gitignored | Vite | local override — keep (per-dev) |
 | root `.env.test.example` | **tracked** | template only | **KEEP** — the one canonical template |
-| ~~`frontend/.env.production`~~ | **REMOVED** | — | **REMOVED** on `dev/release-closure` (was outside `envDir`, never build-loaded; real prod config = Home B + this inventory) |
+| ~~`frontend/.env.production`~~ | **REMOVED** | — | **REMOVED** on `main@c010434d` (was outside `envDir`, never build-loaded; real prod config = Home B + this inventory) |
 | `frontend/.env.test` | gitignored | **nothing** (outside `envDir`) | leftover; local-only, harmless |
-| ~~`frontend/.env.test.example`~~ | **REMOVED** | — | **REMOVED** on `dev/release-closure` (was redundant with root `.env.test.example`) |
+| ~~`frontend/.env.test.example`~~ | **REMOVED** | — | **REMOVED** on `main@c010434d` (was redundant with root `.env.test.example`) |
 | `frontend/.env.development` | ~~tracked symlink~~ | — | **REMOVED** (was a tracked symlink → gitignored target; dangled on clone) |
 
 **Minimum tracked set (in effect):** root `.env.test.example` only. `frontend/.env.production`, `frontend/.env.test.example`, and the `frontend/.env.development` symlink have all been removed.
 
 ## Decisions log
 - **ORT-WASM-SAME-ORIGIN = NO** (2026-06-08). Claim boundary stays **"no Hugging Face model weights"** (model weights local; ONNX runtime WASM from jsDelivr CDN is acceptable). Not wiring same-origin WASM.
-- **ENV-PROD = REMOVE `frontend/.env.production`** (2026-06-08, supersedes the earlier "keep") — outside Vite `envDir`, never build-loaded, documentation-only. Removed on `dev/release-closure`. Real prod client config = Home B (Vercel) + this inventory. Do not re-add.
+- **ENV-PROD = REMOVE `frontend/.env.production`** (2026-06-08, supersedes the earlier "keep") — outside Vite `envDir`, never build-loaded, documentation-only. Removed on `main@c010434d`. Real prod client config = Home B (Vercel) + this inventory. Do not re-add.
 - **`.env.development` symlink removed** (2026-06-08) as dead/broken-on-clone.
 
 ---
@@ -183,9 +183,9 @@ this is the safe intermediate state, nothing flipped yet):
   `STRIPE_PRO_PRICE_ID` (local is test-mode), `STRIPE_BASIC_PRICE_ID`, `SENTRY_API_BASE` (region unconfirmed),
   `SENTRY_ORG`, `SENTRY_PROJECT`, `POSTHOG_PROJECT_ID`, `BASIC_TEST_EMAIL`, `PRO_TEST_EMAIL`.
 - **Cutover progress:**
-  1. ✅ **DONE** — flipped `secrets.X → vars.X` for the 8 (52 refs across 11 files; commit `7dd2ad53`, on `dev/release-closure`). Workflows on this branch now read the Variables; the Secrets are unused here.
-  2. ⏳ **Test** — merge `dev/release-closure` to main, then verify CI/Canary/Deploy green (main still references `secrets.X` until the merge lands).
-  3. ⏳ **Owner** — delete the 8 Secrets **only after** the merge is on main AND green. Deleting before the merge breaks main (it still uses `secrets.X`).
+  1. ✅ **DONE** — flipped `secrets.X → vars.X` for the 8 (52 refs across 11 files; merged to `main@c010434d`). Workflows now read the Variables; the old Secrets are unused for these names.
+  2. ✅ **DONE** — post-merge verification green: `CI - Test Audit` run `27153261348`, `Production Canary` run `27153261334`, and `Deploy Supabase` run `27153261357`.
+  3. ⏳ **Owner** — deletion is now safe but optional: delete ONLY the 8 duplicated old Secrets above, at owner convenience. Do not delete `SUPABASE_ANON_KEY` or any unmoved/true secret.
 
 ## 4. Vercel Project Env (Home B)
 
