@@ -1,8 +1,10 @@
-# SpeakSharp Active Coordination
+# SpeakSharp Active Coordination — RETIRED (do not use)
 
-This file is the **single source of truth** for current release coordination.
-
-`CURRENT_WORK.md` and `STT_PING.md` have been deleted. Do not recreate them, and do not add active work anywhere except this file.
+> ⚠️ **This in-repo file is RETIRED and stale — it is NOT the source of truth.**
+> - Exhaustive master backlog (everything to do, all lanes, with status): **`product_release/BACKLOG.md`**.
+> - Live active/next coordination between agents: the shared local board (outside the repo).
+>
+> Content below is historical only; its statuses/branches are out of date. Do not add active work here.
 
 ## Protocol
 
