@@ -28,8 +28,15 @@ describe('ConfigurationNeededPage', () => {
 
         expect(screen.getByText('VITE_SUPABASE_URL')).toBeInTheDocument();
         expect(screen.getByText('VITE_SUPABASE_ANON_KEY')).toBeInTheDocument();
-        expect(screen.getByText('VITE_STRIPE_PUBLISHABLE_KEY')).toBeInTheDocument();
-        expect(screen.getByText('VITE_SENTRY_DSN')).toBeInTheDocument();
+        expect(screen.queryByText('VITE_STRIPE_PUBLISHABLE_KEY')).not.toBeInTheDocument();
+        expect(screen.queryByText('VITE_SENTRY_DSN')).not.toBeInTheDocument();
+    });
+
+    it('explains Stripe and Sentry are optional for startup', () => {
+        render(<ConfigurationNeededPage />);
+
+        expect(screen.getByText(/Stripe and Sentry settings are optional for app startup/i)).toBeInTheDocument();
+        expect(screen.getByText(/Payment surfaces stay hidden unless a live Stripe publishable key is configured/i)).toBeInTheDocument();
     });
 
     it('renders reload button', () => {
