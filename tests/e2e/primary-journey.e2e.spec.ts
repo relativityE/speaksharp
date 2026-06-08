@@ -119,7 +119,9 @@ test.describe('Primary User Journey Matrix', () => {
 
       // 9. Tier-Aware Visibility (Lean Smoke Test)
       if (scenario.userType === 'free') {
-        await expect(page.getByTestId('analytics-page-upgrade-button')).toBeVisible();
+        // In test/non-live Stripe mode, checkout surfaces must stay hidden so
+        // Free users do not see dead upgrade buttons.
+        await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
       } else {
         await expect(page.getByText(/Pro active/i)).toBeVisible();
       }
