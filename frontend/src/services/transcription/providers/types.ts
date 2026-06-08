@@ -20,8 +20,7 @@ export type NativeSttProvider =
 
 export type PrivateSttProvider =
   | 'transformers-js'
-  | 'transformers-js-v4'
-  | 'whisper-turbo';
+  | 'transformers-js-v4';
 
 export type CloudSttProvider =
   | 'assemblyai'

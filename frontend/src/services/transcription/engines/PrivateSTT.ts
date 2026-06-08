@@ -73,8 +73,7 @@ const getPrivateProviderIds = (): PrivateEngineType[] =>
     getProviderIdsForMode('private')
         .filter((provider): provider is PrivateEngineType =>
             provider === 'transformers-js' ||
-            provider === 'transformers-js-v4' ||
-            provider === 'whisper-turbo');
+            provider === 'transformers-js-v4');
 
 const isPrivateEngineProvider = (value: string | null): value is PrivateEngineType =>
     Boolean(value && getPrivateProviderIds().includes(value as PrivateEngineType));
@@ -301,9 +300,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         const preferredEngine = (getPrivateEngineOverride() || getConfiguredPrivateEngine()) as EngineType;
         const cacheEngine =
-            preferredEngine === 'whisper-turbo' ? 'whisper-turbo'
-                : preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
-                    : 'transformers-js';
+            preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
+                : 'transformers-js';
         const isDownloaded = await ModelManager.isModelDownloaded(cacheEngine);
 
         if (!isDownloaded) {
