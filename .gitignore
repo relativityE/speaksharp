@@ -80,3 +80,10 @@ video-production/README.md
 !video-production/
 frontend/dist-e2e/
 .vercel
+
+# --- Release/CI output dumps (generated; never commit) ---
+baseline_manifest.txt
+consolidated_manifest.txt
+e2e_errors_detailed.txt
+unit-results.txt
+frontend/test_failures_v7.txt
