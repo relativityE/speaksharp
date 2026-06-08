@@ -172,6 +172,19 @@ Many are **non-secret config over-classified as Secrets** — they should be Git
 > allowed (probe-verified — secret + variable can coexist), so no rename. (`FREE_TEST_EMAIL`/
 > `FREE_TEST_PASSWORD` are not set as GitHub secrets → out of scope.)
 
+#### Migration status — 2026-06-08
+**8 Variables CREATED** (values public/derivable; same-named Secrets still present + still used by CI —
+this is the safe intermediate state, nothing flipped yet):
+`SUPABASE_URL` · `SUPABASE_PROJECT_ID` · `EDGE_FN_URL` · `SENTRY_DSN` · `POSTHOG_PROJECT_API_KEY` ·
+`POSTHOG_INGEST_HOST` · `POSTHOG_API_HOST` · `VERCEL_PROJECT_ID`
+
+- **`SUPABASE_ANON_KEY` — owner decision: KEEP as a Secret** (despite being client-public). Removed from the move set.
+- **Still pending owner values (9):** `STRIPE_PUBLISHABLE_KEY` (local is `pk_test_`; prod needs `pk_live_`),
+  `STRIPE_PRO_PRICE_ID` (local is test-mode), `STRIPE_BASIC_PRICE_ID`, `SENTRY_API_BASE` (region unconfirmed),
+  `SENTRY_ORG`, `SENTRY_PROJECT`, `POSTHOG_PROJECT_ID`, `BASIC_TEST_EMAIL`, `PRO_TEST_EMAIL`.
+- **Remaining cutover (gated, NOT done):** (1) flip `secrets.X → vars.X` for the 8 across 11 workflow files;
+  (2) Test verifies CI/Canary/Deploy green; (3) owner deletes the 8 now-duplicated Secrets.
+
 ## 4. Vercel Project Env (Home B)
 
 The **real production** values for the §1 `VITE_*` live here (Production scope) + platform vars.
