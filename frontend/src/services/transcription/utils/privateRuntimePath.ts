@@ -39,8 +39,9 @@ export type PrivateRuntimeReason =
 export interface PrivateRuntimeDecision {
   /** Coarse runtime kind driving UX copy + telemetry. */
   runtime: PrivateRuntimeKind;
-  /** Concrete engine the facade will initialize. */
-  provider: 'whisper-turbo' | 'transformers-js';
+  /** Concrete engine the facade will initialize. (The GPU tier is parked; the WebGPU
+   *  successor engine is transformers-js-v4 — whisper-turbo was retired.) */
+  provider: 'transformers-js-v4' | 'transformers-js';
   /** Acceleration class. */
   acceleration: 'gpu' | 'cpu';
   reason: PrivateRuntimeReason;
@@ -67,7 +68,7 @@ export interface ResolvePrivateRuntimePathOptions {
    */
   webgpuPromotionAllowed: boolean;
   /**
-   * Whether the WebGPU (whisper-turbo) model is already cached. Promotion to GPU
+   * Whether the WebGPU GPU model is already cached. Promotion to GPU
    * requires this so we never trigger a surprise ~75MB download. Reported back in
    * the decision regardless of the outcome.
    */
@@ -111,7 +112,7 @@ export async function resolvePrivateRuntimePath(
     if (webgpuAvailable && options.turboModelCached) {
       return {
         runtime: 'webgpu',
-        provider: 'whisper-turbo',
+        provider: 'transformers-js-v4',
         acceleration: 'gpu',
         reason: 'webgpu_available_and_model_cached',
         webgpuAvailable: true,

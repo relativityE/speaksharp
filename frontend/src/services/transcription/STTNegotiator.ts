@@ -19,7 +19,7 @@ export interface NegotiatedStrategy {
   source: string;
   /** The specific execution mode (e.g. 'mock' or the resolved mode) */
   executionMode: string;
-  /** The specific engine variant requested (e.g. 'private' might resolve to 'whisper-turbo') */
+  /** The specific engine variant requested (e.g. 'private' might resolve to 'transformers-js') */
   variant?: string;
 }
 

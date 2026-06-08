@@ -45,7 +45,7 @@ class MockHeartbeatEngine extends STTEngine {
     async transcribe() { return Result.ok('test'); }
 
     public override async getTranscript() { return 'test'; }
-    public override getEngineType() { return 'whisper-turbo'; }
+    public override getEngineType() { return 'transformers-js'; }
     setHeartbeat(ts: number) { this.lastHeartbeat = ts; }
 }
 
@@ -73,7 +73,7 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         registry = (await import('../STTRegistry')).sttRegistry;
 
         // Override registry with heartbeat-specific engine at all keys
-        registry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         registry.register('assemblyai', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         registry.register('native-browser', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         registry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });

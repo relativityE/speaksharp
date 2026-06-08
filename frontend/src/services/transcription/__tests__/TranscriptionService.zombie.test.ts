@@ -95,13 +95,13 @@ describe('TranscriptionService - Zombie Prevention', () => {
         const instances = {
             assemblyai: new MockEngine('cloud'),
             'native-browser': new MockEngine('native'),
-            'whisper-turbo': new MockEngine('private')
+            'transformers-js': new MockEngine('private')
         };
         
         sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
         sttRegistryInstance.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
-        sttRegistryInstance.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
-        sttRegistryInstance.register('transformers-js', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
+        sttRegistryInstance.register('transformers-js', (opts: TranscriptionModeOptions) => { instances['transformers-js'] = new MockEngine('transformers-js', opts); return instances['transformers-js']; });
+        sttRegistryInstance.register('transformers-js', (opts: TranscriptionModeOptions) => { instances['transformers-js'] = new MockEngine('transformers-js', opts); return instances['transformers-js']; });
 
         service = new TranscriptionServiceClass(mockOptions);
         // Start init with a valid mock environment already present

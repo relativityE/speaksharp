@@ -75,11 +75,11 @@ describe('TranscriptionService Max Attempts', () => {
             protected async onStop() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
         }
 
         const mockEngine = new FailureEngine();
-        registry.register('whisper-turbo', () => mockEngine);
+        registry.register('transformers-js', () => mockEngine);
         registry.register('transformers-js', () => mockEngine);
 
         await service.init();

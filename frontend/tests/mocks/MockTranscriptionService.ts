@@ -161,7 +161,7 @@ export class MockTranscriptionService {
     }
 
     public getMode(): any { return this.mode; }
-    public getEngineType(): any { return this.mode === 'private' ? 'whisper-turbo' : this.mode; }
+    public getEngineType(): any { return this.mode === 'private' ? 'transformers-js' : this.mode; }
 
     public getStrategy(): any {
         return {
