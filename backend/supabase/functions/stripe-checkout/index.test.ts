@@ -23,7 +23,7 @@ const env = (key: string) => {
   return values[key];
 };
 
-const createSupabase = () =>
+const createSupabase = (stripeCustomerId: string | null = null, profileError: unknown = null) => () =>
   ({
     auth: {
       getUser: () =>
@@ -32,6 +32,17 @@ const createSupabase = () =>
           error: null,
         }),
     },
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () =>
+            Promise.resolve({
+              data: stripeCustomerId ? { stripe_customer_id: stripeCustomerId } : { stripe_customer_id: null },
+              error: profileError,
+            }),
+        }),
+      }),
+    }),
   }) as any;
 
 Deno.test("stripe-checkout edge function", async (t) => {
@@ -39,7 +50,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("basic"), {
       getEnv: env,
-      createSupabase,
+      createSupabase: createSupabase(),
       stripeClient: {
         checkout: {
           sessions: {
@@ -61,15 +72,19 @@ Deno.test("stripe-checkout edge function", async (t) => {
 
   await t.step("creates Pro checkout with the configured Pro price", async () => {
     let receivedPrice: string | undefined;
+    let receivedCustomerEmail: unknown;
+    let receivedClientReferenceId: unknown;
     const res = await handler(request("pro"), {
       getEnv: env,
-      createSupabase,
+      createSupabase: createSupabase(),
       stripeClient: {
         checkout: {
           sessions: {
             create: async (params) => {
               const lineItems = params.line_items as Array<{ price?: string }>;
               receivedPrice = lineItems[0]?.price;
+              receivedCustomerEmail = params.customer_email;
+              receivedClientReferenceId = params.client_reference_id;
               return { id: "cs_test", url: "https://checkout.stripe.com/test" };
             },
           },
@@ -81,13 +96,41 @@ Deno.test("stripe-checkout edge function", async (t) => {
     assertEquals(res.status, 200);
     assertEquals(json.checkoutUrl, "https://checkout.stripe.com/test");
     assertEquals(receivedPrice, "price_1TbnH175Lp2WYe28RTatJout");
+    assertEquals(receivedCustomerEmail, "user@example.com");
+    assertEquals(receivedClientReferenceId, "user-123");
+  });
+
+  await t.step("reuses a stored Stripe customer instead of creating a duplicate customer", async () => {
+    let receivedCustomer: unknown;
+    let receivedCustomerEmail: unknown;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase("cus_existing"),
+      stripeClient: {
+        checkout: {
+          sessions: {
+            create: async (params) => {
+              receivedCustomer = params.customer;
+              receivedCustomerEmail = params.customer_email;
+              return { id: "cs_test", url: "https://checkout.stripe.com/test" };
+            },
+          },
+        },
+      },
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 200);
+    assertEquals(json.checkoutUrl, "https://checkout.stripe.com/test");
+    assertEquals(receivedCustomer, "cus_existing");
+    assertEquals(receivedCustomerEmail, undefined);
   });
 
   await t.step("rejects Pro checkout when the Pro price is not configured", async () => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: (key) => key === "STRIPE_PRO_PRICE_ID" ? undefined : env(key),
-      createSupabase,
+      createSupabase: createSupabase(),
       stripeClient: {
         checkout: {
           sessions: {
@@ -105,6 +148,29 @@ Deno.test("stripe-checkout edge function", async (t) => {
     assertEquals(json.error.code, "CONFIG_MISSING_ENV");
     assertEquals(json.error.message, "Configuration Error: STRIPE_PRO_PRICE_ID is missing");
     assertEquals(json.error.details.missing, "STRIPE_PRO_PRICE_ID");
+    assertEquals(stripeCalled, false);
+  });
+
+  await t.step("fails safely instead of creating checkout when billing profile lookup fails", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(null, { message: "profile unavailable" }),
+      stripeClient: {
+        checkout: {
+          sessions: {
+            create: async () => {
+              stripeCalled = true;
+              return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
+            },
+          },
+        },
+      },
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "DATABASE_ERROR");
     assertEquals(stripeCalled, false);
   });
 });

@@ -5,6 +5,7 @@ import { toast } from '@/lib/toast';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { useQueryClient } from '@tanstack/react-query';
 
 /**
  * Hook to handle Stripe checkout redirect notifications.
@@ -13,6 +14,7 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 export function useCheckoutNotifications() {
     const location = useLocation();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const lastToastId = useRef<string | null>(null);
 
     useEffect(() => {
@@ -42,16 +44,18 @@ export function useCheckoutNotifications() {
             );
 
             if (checkoutStatus === 'success') {
-                toast.success('Welcome to Pro!', {
-                    description: 'Your account has been upgraded successfully.',
+                void queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+                void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
+                toast.success('Payment received', {
+                    description: 'We are confirming your plan with Stripe. Pro unlocks after your account updates.',
                     icon: React.createElement(CheckCircle2, { className: "h-5 w-5 text-emerald-700" }),
-                    duration: 3500,
+                    duration: 7000,
                 });
             } else if (checkoutStatus === 'cancelled') {
-                toast.error("Payment couldn't be processed", {
-                    description: "You're on the Free plan - click 'Upgrade to Pro' anytime to try again.",
+                toast.error('Checkout cancelled', {
+                    description: 'No payment was made. You can try again anytime.',
                     icon: React.createElement(AlertCircle, { className: "h-5 w-5 text-red-700" }),
-                    duration: 8000,
+                    duration: 6000,
                 });
             }
 
@@ -71,5 +75,5 @@ export function useCheckoutNotifications() {
                 }, { replace: true });
             }, 100);
         }
-    }, [location.search, location.pathname, navigate]);
+    }, [location.search, location.pathname, navigate, queryClient]);
 }
