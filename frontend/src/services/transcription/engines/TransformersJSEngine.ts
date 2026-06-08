@@ -216,8 +216,10 @@ export class TransformersJSEngine extends STTEngine {
             env.allowLocalModels = true;
             env.localModelPath = '/models/';
 
-            // Prefer bundled assets, but allow a production Hugging Face fallback if the
-            // local model bundle is missing or corrupt.
+            // STRICT NO-HF (release policy): Private STT is self-hosted. Load ONLY from the bundled
+            // local assets and never reach out to Hugging Face. allowRemoteModels stays false for the
+            // engine's whole lifetime (matches transformers-js.worker.ts), so a missing/misnamed local
+            // model fails closed with a clear error instead of silently fetching from huggingface.co.
             env.allowRemoteModels = false;
 
             // Browser cache is only available in a real browser, not Happy-DOM/Node
@@ -246,11 +248,15 @@ export class TransformersJSEngine extends STTEngine {
                 }
             };
 
+            // Selected-model-aware: honor the resolved Private model's LOCAL asset dir (base.en default /
+            // tiny.en fallback), not a hardcoded model — mirrors the worker path.
+            const selectedModel = resolvePrivateModel();
+            const localModelId = PRIV_STT_MODELS.CANDIDATES[selectedModel].localId;
             const loadStart = performance.now();
             try {
                 this.transcriber = await pipeline(
                     'automatic-speech-recognition',
-                    'whisper-tiny.en', // Use the local directory name in public/models/
+                    localModelId, // local directory name in public/models/ — local-only (allowRemoteModels=false)
                     {
                         // Use quantized model for faster loading
                         quantized: true,
@@ -258,27 +264,21 @@ export class TransformersJSEngine extends STTEngine {
                     }
                 );
             } catch (localError) {
-                if (ENV.isE2E) {
-                    throw localError;
-                }
-
-                logger.warn({
+                // STRICT NO-HF: do NOT fall back to Hugging Face. Keep allowRemoteModels=false and fail
+                // loudly with a clear, actionable local-model-unavailable error, so the no-HF/self-host
+                // guarantee holds even when the worker path is unavailable (this main-thread fallback).
+                logger.error({
                     sId: this.serviceId,
                     rId: this.runId,
                     eId: this.instanceId,
+                    model: localModelId,
                     errorName: localError instanceof Error ? localError.name : typeof localError,
                     errorMessage: localError instanceof Error ? localError.message : String(localError),
-                }, '[TransformersJS] Local model load failed. Retrying from Hugging Face.');
-
-                env.allowRemoteModels = true;
-                this.transcriber = await pipeline(
-                    'automatic-speech-recognition',
-                    'Xenova/whisper-tiny.en',
-                    {
-                        quantized: true,
-                        revision: 'main',
-                        progress_callback
-                    }
+                }, '[TransformersJS] Local model load failed; NOT falling back to Hugging Face (strict no-HF).');
+                throw new Error(
+                    `PRIVATE_LOCAL_MODEL_UNAVAILABLE: could not load local Private model "${localModelId}" from ` +
+                    `${env.localModelPath}. Private STT is self-hosted and does not fetch from Hugging Face. ` +
+                    `Original: ${localError instanceof Error ? localError.message : String(localError)}`,
                 );
             }
 
@@ -288,7 +288,7 @@ export class TransformersJSEngine extends STTEngine {
                 rId: this.runId,
                 eId: this.instanceId,
                 event: 'model_loaded',
-                model: 'whisper-tiny.en',
+                model: localModelId,
                 load_time_ms: Math.round(loadTime),
                 engine: 'transformersjs',
             }, '[TransformersJS] Engine initialized successfully.');
