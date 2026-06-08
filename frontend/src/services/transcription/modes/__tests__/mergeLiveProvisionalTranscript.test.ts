@@ -15,7 +15,6 @@ import { describe, it, expect, vi } from 'vitest';
 // Unmock for THIS file so we test the real merge function (mirrors PrivateWhisper.test.ts),
 // and stub the heavy engine deps so importing the real module resolves.
 vi.unmock('../PrivateWhisper');
-vi.mock('whisper-turbo', () => ({}));
 vi.mock('@xenova/transformers', () => ({}));
 const mocks = vi.hoisted(() => ({
   init: vi.fn(),

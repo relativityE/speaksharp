@@ -2,10 +2,11 @@
  * @file PrivateSTT.spec.ts
  * @description Unit Test for the "Routing Logic" (Facade).
  * @verification_scope
- * - Verifies `WebGPU` capability detection via `navigator.gpu`.
+ * - Verifies WebGPU presence NEVER promotes off the CPU floor (whisper-turbo /
+ *   WebGPU acceleration was retired pre-beta).
  * - Verifies correct engine selection:
- *   - WebGPU available -> WhisperTurboEngine (Fast Path)
- *   - WebGPU missing -> TransformersJSEngine (Safe Path)
+ *   - default / WebGPU present -> TransformersJSEngine (CPU floor)
+ *   - explicit forceEngine='transformers-js-v4' -> V4 (experimental, opt-in)
  *   - `window.__SS_E2E__` -> MockEngine (Reliable Path)
  */
 // @vitest-environment happy-dom
@@ -18,7 +19,6 @@ import { STTEngine } from '../../../../contracts/STTEngine';
 import { PRIV_STT_V4 } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
-vi.mock('whisper-turbo', () => ({}));
 vi.mock('@xenova/transformers', () => ({}));
 
 // Inject dynamic ENV mock to bypass static IIFE in TestFlags.ts
@@ -167,28 +167,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(mockWTEInit).not.toHaveBeenCalled();
     });
 
-    it('auto-promotes to WhisperTurbo when WebGPU is usable and the turbo model is cached', async () => {
-        if (window.__SS_E2E__) {
-            window.__SS_E2E__.isActive = true;
-            window.__SS_E2E__.engineType = 'real';
-        }
-        Object.defineProperty(navigator, 'gpu', {
-            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
-            writable: true,
-            configurable: true,
-        });
-        const { ModelManager } = await import('../../ModelManager');
-        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(true);
-
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        await pstt.init();
-
-        expect(pstt.getEngineType()).toBe('whisper-turbo');
-        expect(mockWTEInit).toHaveBeenCalledOnce();
-    });
-
-    it('stays on CPU when WebGPU is usable but the turbo model is NOT cached (no surprise download)', async () => {
+    it('stays on CPU (transformers-js) even when WebGPU is usable — turbo/WebGPU promotion retired', async () => {
         if (window.__SS_E2E__) {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
@@ -207,30 +186,6 @@ describe('PrivateSTT (Routing Logic)', () => {
 
         expect(pstt.getEngineType()).toBe('transformers-js');
         expect(mockWTEInit).not.toHaveBeenCalled();
-    });
-
-    it('falls back to CPU automatically when the auto-promoted GPU engine fails to initialize', async () => {
-        if (window.__SS_E2E__) {
-            window.__SS_E2E__.isActive = true;
-            window.__SS_E2E__.engineType = 'real';
-        }
-        Object.defineProperty(navigator, 'gpu', {
-            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
-            writable: true,
-            configurable: true,
-        });
-        const { ModelManager } = await import('../../ModelManager');
-        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(true);
-        mockWTEInit.mockResolvedValueOnce({ isOk: false, error: new Error('WebGPU lost') });
-
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        const result = await pstt.init();
-
-        expect(result.isOk).toBe(true);
-        expect(mockWTEInit).toHaveBeenCalledOnce();
-        expect(mockTJInit).toHaveBeenCalledOnce();
-        expect(pstt.getEngineType()).toBe('transformers-js');
     });
 
     it('selects TransformersJSEngine (Safe Path) when WebGPU is missing', async () => {
@@ -293,21 +248,6 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(debugObj?.cloudFallbackAttempted).toBe(false);
         expect(debugObj?.selectedAt).toBeDefined();
         expect(pstt.getRuntimePath()?.provider).toBe('transformers-js');
-    });
-
-    it('selects WhisperTurboEngine only with explicit forceEngine override', async () => {
-        // Must set engineType='real' so ENV.disableWasm=false, enabling the GPU path
-        if (window.__SS_E2E__) {
-            window.__SS_E2E__.isActive = true;
-            window.__SS_E2E__.engineType = 'real';
-        }
-        Object.defineProperty(navigator, 'gpu', { value: {}, writable: true, configurable: true });
-
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'whisper-turbo' } as never);
-        await pstt.init();
-
-        expect(pstt.getEngineType()).toBe('whisper-turbo');
     });
 
     it('contract: selects experimental v4 only with explicit forceEngine override', async () => {

@@ -31,7 +31,6 @@
  */
 
 import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
-import { TranscriptionError } from '@/services/transcription/errors';
 import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
 import { STTEngine, validateEngine } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
@@ -42,7 +41,6 @@ import { getEngine } from '@/services/transcription/STTRegistry';
 import { PRIV_STT_V4 } from '../sttConstants';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
-import { ENV } from '@/config/TestFlags';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
 // Stale import removed
 
@@ -190,29 +188,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
         }
 
-        // DEFAULT (AUTO) PATH — the dual-engine promise:
-        //   fast GPU (whisper-turbo) when WebGPU is genuinely usable AND already
-        //   cached, with a GUARANTEED automatic fall back to the safe CPU engine
-        //   (transformers-js) on absence, init failure, or any error. This is how
-        //   Private STT was sold: never strand a user without on-device STT, and
-        //   never silently send audio off-device (cloud is never a fallback).
+        // DEFAULT (AUTO) PATH — on-device only. After the whisper-turbo (WebGPU)
+        // retirement, the auto path resolves to the configured CPU engine
+        // (transformers-js): never strand a user without on-device STT, and never
+        // silently send audio off-device (cloud is never a fallback). CPU is the
+        // product floor, so there is nothing safer to fall back to — if it fails,
+        // surface the error rather than loop.
         const autoEngine = await this.resolveAutoPrivateEngine(selectedEngine);
         logger.info({ sId: this.serviceId, rId: this.runId, provider: autoEngine, configured: selectedEngine, source: 'auto' }, '[PrivateSTT] Initializing auto-selected private provider');
         const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
         if (primary.isOk) {
             return Result.ok(undefined);
-        }
-
-        // Guaranteed CPU fallback: only when the auto path tried the GPU engine.
-        // If the configured default itself failed, there is nothing safer to try,
-        // so surface that error rather than loop.
-        if (autoEngine === 'whisper-turbo' && selectedEngine !== 'whisper-turbo') {
-            const fallbackEngine: SelectedPrivateEngine = isPrivateEngineProvider(selectedEngine) ? selectedEngine : 'transformers-js';
-            logger.warn({ sId: this.serviceId, rId: this.runId, failed: autoEngine, fallback: fallbackEngine, err: (primary as { error?: Error }).error }, '[PrivateSTT] GPU engine unavailable — falling back to CPU engine');
-            // Discard any partially-initialized GPU engine before retrying.
-            await this.onDestroy();
-            const fallback = await this.initSelectedEngine(fallbackEngine, timeoutMs, isMock);
-            return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
         }
 
         return primary as Result<void, Error>;
@@ -231,36 +217,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /**
      * Decide which engine the DEFAULT (non-override) path should attempt first,
      * via the single deterministic runtime-path resolver. CPU is the product
-     * FLOOR; WebGPU is acceleration only.
+     * FLOOR and the only on-device engine after the whisper-turbo (WebGPU)
+     * retirement.
      *
-     * Promotes to whisper-turbo (WebGPU) only when ALL of the following hold:
-     *   - the configured default is the standard CPU engine (`transformers-js`),
-     *   - we are NOT in a CI/unit/E2E-forced-CPU context (`ENV.disableWasm`),
-     *   - WebGPU is genuinely usable (real adapter, not merely `navigator.gpu`),
-     *   - the turbo model is ALREADY cached (no surprise ~75MB download).
-     *
-     * Otherwise it resolves to a CPU tier (multi-thread when cross-origin
-     * isolated, else single-thread) and returns the configured CPU engine. The
-     * resolved path is stored for telemetry/UX. No-WebGPU / no-turbo-cache users
-     * (and all tests) keep today's exact CPU behavior; the caller still
-     * guarantees CPU fallback if a promoted GPU engine fails to init.
+     * The auto path now always resolves to the configured CPU engine
+     * (`transformers-js`). We still run the runtime-path resolver so the CPU
+     * device/thread tier (multi-thread when cross-origin isolated, else
+     * single-thread) is recorded for telemetry/UX, but WebGPU promotion is never
+     * considered. This is behaviorally identical to the shipped path: turbo only
+     * ever promoted when its model was pre-cached, which no production flow did.
      */
     private async resolveAutoPrivateEngine(configured: SelectedPrivateEngine): Promise<SelectedPrivateEngine> {
-        // WebGPU promotion is only *considered* on the standard CPU default and
-        // outside CI/forced-CPU. The turbo-cache check gates the actual promotion
-        // (no surprise ~75MB download) and is reported in the decision either way.
-        const webgpuPromotionAllowed = configured === 'transformers-js' && !ENV.disableWasm;
-        const turboModelCached = webgpuPromotionAllowed
-            ? await ModelManager.isModelDownloaded('whisper-turbo').catch(() => false)
-            : false;
-
-        const decision = await resolvePrivateRuntimePath({ webgpuPromotionAllowed, turboModelCached });
+        const decision = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false });
         this.runtimePath = decision;
         publishPrivateRuntimeDebug(decision);
         logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured }, '[PrivateSTT] Resolved private runtime decision');
-
-        if (configured !== 'transformers-js') return configured;
-        return decision.provider === 'whisper-turbo' ? 'whisper-turbo' : configured;
+        return configured;
     }
 
     protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {
@@ -366,58 +338,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             }
             return { isOk: false, error: new Error('Mock engine requested but not registered in STTRegistry') };
         }
-        if (engineType === 'whisper-turbo') return this.initFastEngine(timeoutMs, isMock);
         if (engineType === 'transformers-js') return this.initSafeEngine(timeoutMs, isMock);
         if (engineType === 'transformers-js-v4') return this.initV4Engine(timeoutMs, isMock);
         return { isOk: false as const, error: new Error(`Unknown private provider: ${engineType}`) };
-    }
-
-
-    /**
-     * Initialize the fast (whisper-turbo) engine
-     */
-    private async initFastEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
-        const options = this.options as TranscriptionModeOptions;
-        try {
-            // 1. Registry Lookup (Mocks or Overrides)
-            const factory = getEngine('whisper-turbo');
-            if (factory) {
-                logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 WhisperTurbo resolved via Registry');
-                const engine = factory(options);
-                validateEngine(engine);
-                const result = await engine.init(timeoutMs, isMock);
-                if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
-                    return { isOk: false, error: (result as { error: Error }).error };
-                }
-                this.engine = engine;
-                this._engineType = 'whisper-turbo';
-                return { isOk: true, data: 'whisper-turbo' as EngineType };
-            }
-
-            // 2. Production Fallback (Dynamic Import)
-            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production WhisperTurbo module...');
-            const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
-            const engine = new WhisperTurboEngine(options);
-            validateEngine(engine);
-            const resultRaw = await engine.init(timeoutMs, isMock);
-            const result = resultRaw as unknown as Record<string, unknown>;
-
-            // Type guard for Result variants
-            if (result && 'isOk' in result && result.isOk === false) {
-                logger.warn({ err: result.error as Error }, '[PrivateSTT] ⚠️ WhisperTurbo.init() failed');
-                return { isOk: false, error: result.error as Error };
-            }
-            // Check for status-based result (DownloadRequired)
-            if (result && result.status === 'requires_download') {
-                return { isOk: false, error: TranscriptionError.cacheMiss() };
-            }
-            this.engine = engine;
-            this._engineType = 'whisper-turbo';
-            return { isOk: true, data: 'whisper-turbo' as EngineType };
-        } catch (error) {
-            const e = error instanceof Error ? error : new Error(String(error));
-            return { isOk: false, error: e };
-        }
     }
 
     /**

@@ -36,7 +36,6 @@
  * -------------
  * | Remote URL (CDN)                                  | Local Path              |
  * |--------------------------------------------------|-------------------------|
- * | https://rmbl.us/whisper-turbo/tiny-q8g16.bin    | /models/tiny-q8g16.bin  |
  * | https://huggingface.co/.../tokenizer.json       | /models/tokenizer.json  |
  * 
  * CACHE STRATEGY:
@@ -107,7 +106,6 @@ const MODEL_CACHE_NAME = 'whisper-models-v1';
 
 // Map remote URLs to local paths
 const URL_MAPPINGS = {
-    'https://rmbl.us/whisper-turbo/tiny-q8g16.bin': '/models/tiny-q8g16.bin',
     'https://huggingface.co/openai/whisper-large-v2/raw/main/tokenizer.json': '/models/tokenizer.json',
 };
 

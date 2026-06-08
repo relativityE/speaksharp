@@ -127,7 +127,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(privateSTT.getEngineType()).toBe('transformers-js');
     });
 
-    it('should fallback to TransformersJS if WhisperTurbo fails', async () => {
+    it('ignores a registered whisper-turbo engine and uses TransformersJS (turbo retired)', async () => {
         const mockFastInstance = new StubWhisperTurbo();
         (mockFastInstance as unknown as { onInit: unknown }).onInit = vi.fn().mockResolvedValue({ isOk: false, error: new Error('WebGPU Init Failed') });
 
@@ -197,7 +197,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         spy.mockRestore();
     });
 
-    it('should handle WhisperTurbo initialization failure', async () => {
+    it('never routes to a registered whisper-turbo engine, even if present (turbo retired)', async () => {
         // WhisperTurbo fails
         const mockFastInstance = new StubWhisperTurbo();
         (mockFastInstance as unknown as { onInit: unknown }).onInit = vi.fn().mockResolvedValue({ isOk: false, error: new Error('Low-level WASM crash') });

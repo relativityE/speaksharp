@@ -24,7 +24,6 @@ describe('STT provider config', () => {
     expect(getProviderIdsForMode('private')).toEqual([
       'transformers-js',
       'transformers-js-v4',
-      'whisper-turbo',
     ]);
   });
 

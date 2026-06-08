@@ -5,25 +5,22 @@
  * 
  * PURPOSE:
  * --------
- * Provides client-side speech-to-text using the PrivateSTT dual-engine facade.
- * Automatically selects the best engine:
- * - whisper-turbo (fast) when WebGPU is available
- * - transformers.js (safe) as fallback or in CI
- * 
+ * Provides client-side speech-to-text using the PrivateSTT facade.
+ * The on-device CPU engine (transformers.js) is the product floor and the only
+ * engine on the default path. (whisper-turbo / WebGPU acceleration was retired
+ * pre-beta; transformers-js-v4 remains an experimental, explicit opt-in.)
+ *
  * ARCHITECTURE:
  * -------------
  * This service uses the PrivateSTT facade which:
- * 1. Detects available hardware capabilities
- * 1. Detects available hardware capabilities
- * 2. Tries whisper-turbo first
- * 3. Falls back to transformers.js on failure
- * 4. Forces transformers.js in CI/test environments
- * 
+ * 1. Detects available hardware capabilities (recorded for telemetry/UX)
+ * 2. Initializes the configured CPU engine (transformers.js)
+ * 3. Forces transformers.js in CI/test environments
+ *
  * PERFORMANCE:
  * ------------
- * - whisper-turbo: Very fast on GPU-capable hardware
- * - transformers.js: Slower but reliable on all hardware
- * 
+ * - transformers.js: reliable on all hardware; CPU is the guaranteed local floor
+ *
  * RELATED FILES:
  * --------------
  * - frontend/src/services/transcription/engines/ - Engine implementations
@@ -695,11 +692,8 @@ export async function clearPrivateSTTCache(): Promise<void> {
     };
   });
 
-  // Clear both caches in parallel and wait for actual completion events
-  await Promise.all([
-    clearDB('whisper-turbo'),
-    clearDB('transformers-cache')
-  ]);
+  // Clear the Private (transformers) model cache and wait for completion.
+  await clearDB('transformers-cache');
 }
 
 /**
@@ -788,7 +782,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private currentThreshold: number = PRIV_STT.SPEECH_START_RMS_THRESHOLD;
 
   public get type(): EngineType {
-    return (this.privateSTT.getEngineType() as EngineType) || 'whisper-turbo';
+    return (this.privateSTT.getEngineType() as EngineType) || 'transformers-js';
   }
 
   /**
@@ -945,7 +939,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         document.body.setAttribute('data-engine-variant', this.engineType || 'unknown');
       }
 
-      logger.info({ sId: this.serviceId, rId: this.instanceId }, `[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
+      logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Model ready! Using on-device CPU mode.');
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS
       if (typeof window !== 'undefined' && window.dispatchEvent) {
