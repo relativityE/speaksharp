@@ -1,5 +1,8 @@
 # Secret Rotation Runbook
 
+> Canonical variable catalog (names × storage homes × consumers) lives in `ENV_INVENTORY.md`.
+> This runbook covers **rotating the Secret rows** there.
+
 This runbook closes the product-ops side of `BLOAT-TRACKED-ENV-SECRETS`.
 The repo-side cleanup is not enough: any real value that was ever committed must
 be treated as compromised unless product-ops proves it was fake.

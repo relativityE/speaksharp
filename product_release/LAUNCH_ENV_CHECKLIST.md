@@ -7,6 +7,8 @@
 
 > Environment checklist, not release status.
 > Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
+> The canonical variable catalog (every var × scope × storage home) is `ENV_INVENTORY.md` —
+> this file only **verifies live values**; add/migrate/rotate from the inventory.
 
 This checklist MUST be verified against the LIVE production environment. Modern failures often stem from environment mismatch; verification of runtime truth is the primary release gate.
 
