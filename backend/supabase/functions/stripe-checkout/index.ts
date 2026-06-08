@@ -5,7 +5,7 @@ import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shar
 import { corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
-const DEV_PORT = 5173;
+const DEV_PORT = 5174;
 
 // Defensive Stripe initialization - validate env before crash
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
