@@ -44,8 +44,10 @@ const mockTJInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockV4Init = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 
+// A stub registered under a NON-CONFIGURED provider key, to prove PrivateSTT never
+// auto-selects a stray registry entry (the key 'whisper-turbo' was retired).
 class StubWTE extends STTEngine {
-    type = 'whisper-turbo' as const;
+    type = 'transformers-js-v4' as const;
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = mockWTEInit;
     onStart = vi.fn().mockResolvedValue(undefined);
@@ -104,7 +106,7 @@ describe('PrivateSTT (Routing Logic)', () => {
 
         // 2. Inject Test Stubs into SSOT Registry
         const { sttRegistry } = await import('../../STTRegistry');
-        sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
+        sttRegistry.register('unconfigured-provider', (options) => new StubWTE(options));
         sttRegistry.register('transformers-js', (options) => new StubTJ(options));
         sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
         sttRegistry.register('mock', (options) => new StubE(options));
@@ -315,7 +317,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         await setupStrictZero();
         const { sttRegistry } = await import('../../STTRegistry');
         sttRegistry.clear();
-        sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
+        sttRegistry.register('unconfigured-provider', (options) => new StubWTE(options));
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

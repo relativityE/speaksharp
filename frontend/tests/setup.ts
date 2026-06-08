@@ -69,7 +69,7 @@ vi.mock('@/services/transcription/utils/AudioProcessor', () => {
 // Mock heavy dependencies that trigger Worker chains
 vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
     class MockPrivateWhisper {
-        public readonly type = 'whisper-turbo';
+        public readonly type = 'transformers-js';
         private readonly privateSTT?: {
             init?: (timeoutMs?: number, isMock?: boolean) => Promise<{ isOk?: boolean; error?: Error }>;
             start?: (...args: unknown[]) => Promise<void>;
@@ -97,7 +97,7 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
         public async getTranscript() { return this.privateSTT?.getTranscript?.() ?? ''; }
         public async checkAvailability() { return this.privateSTT?.checkAvailability?.() ?? { isAvailable: true }; }
         public getLastHeartbeatTimestamp() { return Date.now(); }
-        public getEngineType() { return this.privateSTT?.getEngineType?.() ?? 'whisper-turbo'; }
+        public getEngineType() { return this.privateSTT?.getEngineType?.() ?? 'transformers-js'; }
         public updateOptions(...args: unknown[]) { this.privateSTT?.updateOptions?.(...args); }
     }
     return {

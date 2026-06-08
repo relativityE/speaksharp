@@ -45,7 +45,7 @@ vi.mock('../../engines/PrivateSTT', () => {
         init: mocks.init,
         checkAvailability: mocks.checkAvailability,
         transcribe: mocks.transcribe,
-        getEngineType: vi.fn().mockReturnValue('whisper-turbo')
+        getEngineType: vi.fn().mockReturnValue('transformers-js')
     }));
     return {
         PrivateSTT: MockPrivateSTT,
@@ -72,7 +72,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         mocks.processAudioFrame.mockReset();
 
         // Setup successful init
-        mocks.init.mockResolvedValue(Result.ok('whisper-turbo'));
+        mocks.init.mockResolvedValue(Result.ok('transformers-js'));
         mocks.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CACHE_MISS', message: 'Download required' });
         mocks.isMeaningfullySilent.mockReturnValue(false);
 

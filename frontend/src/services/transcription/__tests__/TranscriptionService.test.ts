@@ -179,7 +179,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
             
             public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
                 (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
@@ -220,7 +220,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
         }
 
         const failingEngine = new FailingStartEngine({} as unknown as TranscriptionModeOptions);
@@ -246,7 +246,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
         }
 
         sttRegistry.registerStatic('mock', new CountingStartEngine({} as unknown as TranscriptionModeOptions));
@@ -277,7 +277,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
 
             public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
                 (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
@@ -310,7 +310,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
 
             public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
                 (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
@@ -346,7 +346,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
 
             public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
                 (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
@@ -479,7 +479,7 @@ describe('TranscriptionService', () => {
         sttRegistry.register('mock', () => ({
             checkAvailability: async () => ({ isAvailable: false, reason: 'UNKNOWN', message: 'Injected failure' }),
             init: async () => Result.ok(undefined),
-            getEngineType: () => 'whisper-turbo'
+            getEngineType: () => 'transformers-js'
         } as unknown as STTEngine));
 
         const failingService = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({

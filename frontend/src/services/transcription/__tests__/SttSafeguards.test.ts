@@ -92,10 +92,10 @@ describe('STT Safeguards Unit Tests', () => {
             protected async onStop() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
         }
         
-        sttRegistry.register('whisper-turbo', () => new MockEngine());
+        sttRegistry.register('transformers-js', () => new MockEngine());
         sttRegistry.register('transformers-js', () => new MockEngine());
         sttRegistry.register('mock', () => new MockEngine());
 

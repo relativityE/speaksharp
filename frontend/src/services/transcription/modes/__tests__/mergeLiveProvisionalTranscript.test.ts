@@ -35,7 +35,7 @@ vi.mock('../../engines/PrivateSTT', () => {
     init: mocks.init,
     checkAvailability: mocks.checkAvailability,
     transcribe: mocks.transcribe,
-    getEngineType: vi.fn().mockReturnValue('whisper-turbo'),
+    getEngineType: vi.fn().mockReturnValue('transformers-js'),
   }));
   return { PrivateSTT: MockPrivateSTT, createPrivateSTT: vi.fn(() => new MockPrivateSTT()) };
 });

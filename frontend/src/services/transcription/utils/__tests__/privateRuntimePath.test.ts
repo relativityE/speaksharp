@@ -46,7 +46,7 @@ describe('resolvePrivateRuntimePath — policy order (CPU is the floor)', () => 
     setGpu(workingAdapter());
     const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: true, turboModelCached: true });
     expect(d.runtime).toBe('webgpu');
-    expect(d.provider).toBe('whisper-turbo');
+    expect(d.provider).toBe('transformers-js-v4');
     expect(d.acceleration).toBe('gpu');
     expect(d.reason).toBe('webgpu_available_and_model_cached');
     expect(d.webgpuAvailable).toBe(true);
