@@ -10,7 +10,7 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 - `LAUNCH_ENV_CHECKLIST.md` — verifies the *live* values at release.
 - `SECRET_ROTATION_RUNBOOK.md` — how to rotate the **Secret** rows below.
 - `env.required` / `env.optional` — machine-readable build gate (read by `scripts/validate-env.mjs`).
-- `frontend/.env.production`, `.env.test.example`, `frontend/.env.test.example` — committed templates.
+- `.env.test.example` (root) — the one committed env template.
 
 > ⚠️ This catalog lists variable **names, scopes, and homes** — never paste secret **values** here.
 > Treat the live consoles (Vercel / GitHub / Supabase) as authoritative for values; reconcile this
@@ -26,13 +26,13 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 | **B. Vercel Project Env → Production scope** | the **real production** `VITE_*` (incl. live Stripe key) + platform vars (`VERCEL_GIT_COMMIT_SHA`) | product-ops (Vercel UI) |
 | **C. Supabase Edge Function secrets** | all server-side secrets used by edge functions | product-ops (Supabase UI / `supabase secrets set`) |
 | **D. GitHub Actions secrets** | CI/deploy credentials + the **sync source** that pushes some values into Home C | product-ops (GitHub repo settings) |
-| **E. Committed templates** | `*.env*.example` + `frontend/.env.production` (documentation ONLY — see Loading Model) | dev (repo) |
+| **E. Committed templates** | root `.env.test.example` only | dev (repo) |
 
 > **⚠️ LOADING MODEL (critical):** `frontend/vite.config.mjs` sets `envDir = repo root`, and there is
 > **no root `.env.production`**. So at build/dev time Vite loads `.env*` from the **repo ROOT** (Home A)
-> plus actual `process.env` `VITE_*` (Home B on Vercel). **`frontend/.env.production` is NOT loaded by
-> the build** — it ships the Stripe key empty as fail-closed *documentation*, but the real fail-closed
-> behavior comes from the key simply being absent in `process.env`. Treat it as a template, not config.
+> plus actual `process.env` `VITE_*` (Home B on Vercel). The production fail-closed behavior comes from
+> the Stripe key simply being absent in `process.env` until Vercel injects it (Home B). (The old
+> `frontend/.env.production` was outside `envDir`, never build-loaded, and has been **removed** — do not re-add it.)
 > `scripts/validate-env.mjs` reads root `.env` + root `.env.test`.
 
 > **Auto-provided:** Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -46,16 +46,16 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 | root `.env.test` | gitignored | Vite (test) + validate-env | local test — keep (per-dev) |
 | root `.env.local` | gitignored | Vite | local override — keep (per-dev) |
 | root `.env.test.example` | **tracked** | template only | **KEEP** — the one canonical template |
-| `frontend/.env.production` | **tracked** | **nothing** (outside `envDir`) | not-loaded doc → remove or keep purely as a labeled template (product decided "keep"; see Decisions) |
+| ~~`frontend/.env.production`~~ | **REMOVED** | — | **REMOVED** on `dev/release-closure` (was outside `envDir`, never build-loaded; real prod config = Home B + this inventory) |
 | `frontend/.env.test` | gitignored | **nothing** (outside `envDir`) | leftover; local-only, harmless |
-| `frontend/.env.test.example` | **tracked** | template for a not-loaded file | **redundant** with root `.env.test.example` → remove candidate |
+| ~~`frontend/.env.test.example`~~ | **REMOVED** | — | **REMOVED** on `dev/release-closure` (was redundant with root `.env.test.example`) |
 | `frontend/.env.development` | ~~tracked symlink~~ | — | **REMOVED** (was a tracked symlink → gitignored target; dangled on clone) |
 
-**Minimum tracked set (target):** root `.env.test.example` only (+ `frontend/.env.production` if kept as a labeled doc template). `frontend/.env.test.example` and the `frontend/.env.development` symlink are removable.
+**Minimum tracked set (in effect):** root `.env.test.example` only. `frontend/.env.production`, `frontend/.env.test.example`, and the `frontend/.env.development` symlink have all been removed.
 
 ## Decisions log
 - **ORT-WASM-SAME-ORIGIN = NO** (2026-06-08). Claim boundary stays **"no Hugging Face model weights"** (model weights local; ONNX runtime WASM from jsDelivr CDN is acceptable). Not wiring same-origin WASM.
-- **ENV-PROD = KEEP committed `frontend/.env.production`** (2026-06-08) — but note it is **not build-loaded** (see Loading Model); it functions as documentation. Re-confirm whether to keep it as a labeled template or remove it (real prod config = Home B + this inventory).
+- **ENV-PROD = REMOVE `frontend/.env.production`** (2026-06-08, supersedes the earlier "keep") — outside Vite `envDir`, never build-loaded, documentation-only. Removed on `dev/release-closure`. Real prod client config = Home B (Vercel) + this inventory. Do not re-add.
 - **`.env.development` symlink removed** (2026-06-08) as dead/broken-on-clone.
 
 ---
@@ -209,7 +209,7 @@ The **real production** values for the §1 `VITE_*` live here (Production scope)
 
 1. **Classify:** client-public (`VITE_*`, shipped in bundle) **or** server secret. If it's a secret, it must NEVER be `VITE_*` and never committed.
 2. **Pick the home** from the legend (A–E) and add a row to the right table above.
-3. **Client-public:** add to `frontend/.env.production` (or Vercel if it's an override); if startup must fail without it, add to `env.required`, else `env.optional`.
+3. **Client-public:** add to root `.env*` for local dev, and to **Vercel Project Env (Home B)** for production; if startup must fail without it, add to `env.required`, else `env.optional`. (Do not create `frontend/.env.production` — it is not build-loaded.)
 4. **Server secret:** add to Supabase Edge Function secrets (Home C); if CI must inject it, add to GitHub secrets (Home D) + the `deploy-supabase-migrations.yml` sync step.
 5. **Verification:** add a check line to `LAUNCH_ENV_CHECKLIST.md`. If it's a rotatable secret, add it to `SECRET_ROTATION_RUNBOOK.md`.
 6. Update **this file** (it is the source of truth) — keep names only, no values.

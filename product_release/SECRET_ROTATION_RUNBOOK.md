@@ -1,5 +1,11 @@
 # Secret Rotation Runbook
 
+> **STATUS 2026-06-08 — NOT NEEDED (no rotation).** Owner ruling: the "committed secrets" were a
+> **misclassification** — the tracked `.env.test` entries held mock values, and a full-tree/full-history
+> scan found **no real secret ever committed** (`/private/tmp/DEV_SECRET_HISTORY_SCAN_2026-06-08.md`).
+> Real provider secrets live only in GitHub and were never exposed. **This runbook is retained only as a
+> reference in case a *real* exposure ever occurs — it is not an active action item.**
+
 > Canonical variable catalog (names × storage homes × consumers) lives in `ENV_INVENTORY.md`.
 > This runbook covers **rotating the Secret rows** there.
 
