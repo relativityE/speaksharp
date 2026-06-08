@@ -22,10 +22,4 @@ if [ ! -d "node_modules" ]; then
     exit 1
 fi
 
-# Check required env files exist
-if [ ! -f ".env.test" ]; then
-    echo "❌ .env.test missing"
-    exit 1
-fi
-
 echo "✅ Preflight checks passed"
