@@ -4,10 +4,10 @@ import { corsHeaders } from "./cors.ts";
 Deno.test("shared CORS headers are request-aware", async (t) => {
   await t.step("echoes localhost origins for local development", () => {
     const headers = corsHeaders(new Request("http://localhost", {
-      headers: { Origin: "http://localhost:5173" },
+      headers: { Origin: "http://localhost:5174" },
     }));
 
-    assertEquals(headers["Access-Control-Allow-Origin"], "http://localhost:5173");
+    assertEquals(headers["Access-Control-Allow-Origin"], "http://localhost:5174");
   });
 
   await t.step("echoes Vercel preview origins for release previews", () => {

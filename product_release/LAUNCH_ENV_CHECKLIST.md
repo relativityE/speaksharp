@@ -25,7 +25,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 ## 2. Backend Infrastructure (Supabase)
 - [ ] **Project URL**: `VITE_SUPABASE_URL` points to the production instance.
 - [ ] **Service Role**: `SUPABASE_SERVICE_ROLE_KEY` is correctly set in Edge Function secrets.
-- [ ] **CORS Origins**: `ALLOWED_ORIGIN` is set in Supabase Edge Function secrets to the exact allowed origins, comma-separated if needed. Current expected soft-release values are `https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173`.
+- [ ] **CORS Origins**: `ALLOWED_ORIGIN` is set in Supabase Edge Function secrets to the exact allowed origins, comma-separated if needed. Current expected soft-release values are `https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5174`.
 - [ ] **Auth Redirects**: Production domain added to Supabase Auth Allow List.
 - [ ] **Storage Buckets**: Verify any production storage buckets still used by the app have correct RLS policies. Audio files are not expected to be stored for launch; finalized session records do persist transcript/analysis text needed for coaching comparison, PDF regeneration, AI suggestions, and WER-ready validation.
 

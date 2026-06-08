@@ -16,11 +16,11 @@
  * 
  * CONFIGURATION:
  * - Production: ALLOWED_ORIGIN env var set in Supabase Dashboard (e.g., https://speaksharp.vercel.app)
- * - Development: Falls back to localhost:5173 (matches scripts/build.config.js PORTS.DEV)
+ * - Development/manual proof: falls back to localhost:5174 (`pnpm dev`, real auth)
  */
 
 // Port configuration for local development fallback (sync with scripts/build.config.js)
-const DEV_PORT = 5173;
+const DEV_PORT = 5174;
 
 const DEFAULT_DEV_ORIGIN = `http://localhost:${DEV_PORT}`;
 const CONFIGURED_ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGIN") ?? "")

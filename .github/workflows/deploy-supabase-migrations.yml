@@ -137,7 +137,7 @@ jobs:
           fi
           supabase secrets set \
             AGENT_SECRET="$AGENT_SECRET" \
-            ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" \
+            ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5174" \
             STRIPE_BASIC_PRICE_ID="$STRIPE_BASIC_PRICE_ID" \
             STRIPE_PRO_PRICE_ID="$STRIPE_PRO_PRICE_ID" \
             --project-ref "$SUPABASE_PROJECT_ID"
