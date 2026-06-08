@@ -53,7 +53,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Free Baseline Function**: Live `effective_subscription_tier` falls back to `free` for null/unknown inactive statuses.
 - [ ] **Usage Update Function**: Live `update_user_usage(INT, TEXT)` does not write `subscription_status = 'basic'` as part of a normal Free usage update.
 - [ ] **Tier Config Rows**: Live `tier_configs.free` exists. If `tier_configs.basic` exists as a future placeholder, it must be equivalent to Free for current unpaid-baseline behavior or documented as inactive.
-- [ ] **Cloud Policy**: Active trial profile can use Private/Vault Mode, but Cloud STT remains a Pro feature and is unavailable for trial.
+- [ ] **Cloud Policy**: Active trial profile can use Private, but Cloud STT remains a Pro feature and is unavailable for trial.
 
 ## 7. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).

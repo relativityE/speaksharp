@@ -41,7 +41,7 @@ This table keeps product claims honest before product release. A feature can app
 | Feature Area | Vetted Implementation State | Code / Evidence Pointer | Current Claim Level | What Must Happen Before Stronger Claim |
 | :--- | :--- | :--- | :--- | :--- |
 | **Browser / Native STT** | Implemented in the app through browser speech recognition. | `frontend/src/services/transcription/modes/NativeBrowser.ts`, `frontend/src/hooks/useBrowserSupport.ts` | Free, instant, zero-download, browser-dependent transcription. | Add live human Native STT accuracy evidence before claiming high accuracy. |
-| **Private / Vault Mode STT** | Implemented through local model setup and on-device transcription path. | `frontend/src/services/transcription/modes/PrivateWhisper.ts`, `frontend/src/services/transcription/engines/` | Private/Vault Mode keeps audio local to the browser. | Keep validating first-run setup and recovery behavior in RC/manual evidence. |
+| **Private STT** | Implemented through local model setup and on-device transcription path. | `frontend/src/services/transcription/modes/PrivateWhisper.ts`, `frontend/src/services/transcription/engines/` | Private keeps audio local to the browser. | Keep validating first-run setup and recovery behavior in RC/manual evidence. |
 | **Cloud STT** | Implemented through AssemblyAI token and streaming path. | `frontend/src/services/transcription/modes/CloudAssemblyAI.ts`, `backend/supabase/functions/assemblyai-token/index.ts` | Cloud STT is a Pro feature and is unavailable for trial. | Keep live Cloud transcript proof tied to release evidence before production claims. |
 | **Real-Time Delivery Metrics** | Implemented in Session through WPM, filler, pause, clarity, transcript, and status panels. | `frontend/src/hooks/useSessionMetrics.ts`, `frontend/src/hooks/useVocalAnalysis.ts`, `frontend/src/components/session/` | Current coaching inputs. | Continue avoiding "metric soup" by decoding metrics into short coaching actions. |
 | **SpeakSharp Score** | Implemented as a deterministic score engine plus the default Session live-coaching card. | `frontend/src/utils/speakingScore.ts`, `frontend/src/components/session/LiveCoachingScoreCard.tsx`, `product_release/SPEAKSHARP_SESSION_SCORE.operational.md` | Accepted current path; research-informed directional coaching score. | Add calibration examples, persistence plan, and reviewer pass before broad claims. |
@@ -65,7 +65,7 @@ This table keeps product claims honest before product release. A feature can app
 | Capability | Status | Definition |
 | :--- | :--- | :--- |
 | **Browser Transcription** | Current | Free, zero-download browser speech recognition. Availability and accuracy vary by browser; Chrome desktop is the recommended baseline. |
-| **Private / Vault Mode STT** | Current Pro trial / Pro path | Local on-device transcription after initial model setup. Private STT audio data must not leave the user's browser. |
+| **Private STT** | Current Pro trial / Pro path | Local on-device transcription after initial model setup. Private STT audio data must not leave the user's browser. |
 | **Cloud STT** | Pro feature | AssemblyAI-powered cloud transcription selected explicitly by the user. Cloud STT is a Pro feature and is unavailable for trial. |
 | **Real-Time Delivery Metrics** | Current | Live WPM, filler word counts, pause metrics, clarity signals, transcript capture, and mode/status feedback during practice. |
 | **Real-Time Live Coaching Feedback** | Accepted current path | Session-page coaching surface that converts live metrics into a SpeakSharp Score, confidence state, next target, and 2-3 short actions the user can try immediately. The exact score is directional; session-to-session movement is more important than the single number. |
@@ -106,7 +106,7 @@ These are accepted product directions used to vet the current offering and futur
 | :--- | :--- | :--- | :--- | :--- |
 | Transcription Modes | **Transcription** | Current | Core speech-to-text service across Browser, Private, and Cloud modes. | Covered by unit, E2E, live, and STT evidence paths depending on engine. |
 | Transcription Modes | **Browser / Native STT** | Current | Free baseline path using browser speech recognition. It is instant and zero-download, but browser-dependent. | Claims must stay bounded until live human Native evidence supports stronger wording. |
-| Transcription Modes | **Private STT / Vault Mode** | Current Pro trial / Pro path | Local-first transcription path for privacy-sensitive practice. | Private audio must not leave the browser. Initial model setup is expected. |
+| Transcription Modes | **Private STT** | Current Pro trial / Pro path | Local-first transcription path for privacy-sensitive practice. | Private audio must not leave the browser. Initial model setup is expected. |
 | Transcription Modes | **Cloud STT** | Pro feature | Cloud transcription through AssemblyAI, selected explicitly by the user. | Cloud release validation requires live transcript proof, not just token/WebSocket readiness. |
 | Transcription Modes | **STT Mode Selector** | Current | Lets users choose Browser, Private, or Cloud when allowed by tier/runtime policy. | Must not silently switch Private users to Cloud. |
 | Real-Time Coaching | **Live Transcript** | Current | Shows live/interim transcript during practice and saved transcript after session. | Transcript quality depends on selected STT engine and browser/runtime behavior. |
@@ -178,7 +178,7 @@ Metrics are inputs. Coaching is the product.
 Allowed:
 
 - Free starts with Browser transcription.
-- Private/Vault Mode keeps audio local to the browser.
+- Private keeps audio local to the browser.
 - Cloud STT is a Pro feature.
 - SpeakSharp can track pace, fillers, pauses, clarity signals, history, and reports.
 - Semantic AI coaching exists, but quality is still being proven through examples and review.
