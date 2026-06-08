@@ -31,6 +31,7 @@ import type { FillerWordTrends, OverallStats } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 
 // --- Prop Interfaces ---
 
@@ -839,8 +840,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     compact
                     className="mx-auto max-w-3xl border border-border surface-shadow"
                     testId={TEST_IDS.ANALYTICS_EMPTY_STATE}
-                    // Subtle upgrade option for Free users - triggers Stripe checkout directly
-                    secondaryAction={!isProUser ? {
+                    // Subtle upgrade option for Free users — only when payments are live (no dead button)
+                    secondaryAction={!isProUser && arePaymentsEnabled() ? {
                         prefix: "Want unlimited sessions?",
                         label: "Upgrade to Pro",
                         onClick: onUpgrade,

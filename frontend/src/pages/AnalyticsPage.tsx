@@ -47,19 +47,22 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
         ? 'A detailed breakdown of your recent practice session.'
         : 'Track your speaking progress and improvements';
 
+    // Only surface/track the upgrade CTA when payments are live — otherwise it is a dead/no-op button.
+    const showUpgrade = !isSessionView && !isPro && arePaymentsEnabled();
+
     useEffect(() => {
-        if (!isSessionView && !isPro) {
+        if (showUpgrade) {
             trackConversionCtaViewed({ source: 'analytics_overview_banner', plan: 'pro' });
         }
-    }, [isSessionView, isPro]);
+    }, [showUpgrade]);
 
     return (
         <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
             <p className="mb-4 text-sm font-medium text-foreground/70 sm:text-base">{description}</p>
 
-            {/* Plan Banner - Only show on dashboard view, not session view */}
-            {!isSessionView && !isPro && (
+            {/* Plan Banner — upgrade CTA only when payments are live (no dead/no-op button) */}
+            {showUpgrade && (
                 <div
                     className="w-full flex flex-col gap-3 rounded-lg border border-l-4 border-border border-l-primary bg-card px-4 py-4 text-left surface-shadow sm:flex-row sm:items-center sm:justify-between sm:px-6"
                 >

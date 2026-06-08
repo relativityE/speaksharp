@@ -1586,19 +1586,32 @@ export default class TranscriptionService {
       if (drift > timeout) {
         if (!this.isFrozen) {
           this.isFrozen = true;
-          this.options.onStatusChange?.({
-            type: 'warning',
-            message: 'Speech recognition is taking a moment (Engine Frozen)',
-            isFrozen: true
-          });
+          // Native (Web Speech) only heartbeats on result events, which are naturally sparse during
+          // speaking pauses — heartbeat drift is NOT a freeze for Native (it has its own result-stall
+          // restart). Do not surface a scary "frozen" warning during healthy Native recognition.
+          // For Private/Cloud (continuous heartbeat expected) show a calm, actionable notice.
+          if (this.mode === 'native') {
+            logger.warn(
+              { driftMs: drift, mode: this.mode },
+              '[TranscriptionService] Native heartbeat drift (likely a speaking pause; no user-facing warning)'
+            );
+          } else {
+            this.options.onStatusChange?.({
+              type: 'warning',
+              message: 'Transcription is taking longer than expected. You can keep recording, or switch to Private transcription.',
+              isFrozen: true
+            });
+          }
         }
       } else if (this.isFrozen) {
         this.isFrozen = false;
-        this.options.onStatusChange?.({
-          type: 'info',
-          message: 'Speech recognition recovered',
-          isFrozen: false
-        });
+        if (this.mode !== 'native') {
+          this.options.onStatusChange?.({
+            type: 'info',
+            message: 'Speech recognition recovered',
+            isFrozen: false
+          });
+        }
       }
     }, this.watchdogIntervalMs);
   }
