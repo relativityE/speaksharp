@@ -77,14 +77,14 @@ test('native live STT analytics probe without mocked transcript injection', asyn
     evidence.nativeCiDisposition = disposition;
     console.log(`NATIVE_CI_PREFLIGHT_DISPOSITION ${JSON.stringify(disposition)}`);
 
-    if (disposition.classification === 'CI_BROWSER_LIMITATION') {
+    if (disposition.classification === 'ADVISORY_CI_BROWSER_LIMITATION') {
       // Advisory: CI browser could not prove Web Speech start; app recovered safely.
       // Not "Native green" — a real-browser/human Native proof remains a follow-up.
       test.info().annotations.push({
         type: 'advisory',
         description: `native-preflight CI_BROWSER_LIMITATION: ${disposition.summary} Real-browser/human Native proof remains a follow-up.`,
       });
-      console.log(`LIVE_ANALYTICS_NATIVE_EVIDENCE ${JSON.stringify({ ...evidence, classification: 'CI_BROWSER_LIMITATION', recordingStarted: false })}`);
+      console.log(`LIVE_ANALYTICS_NATIVE_EVIDENCE ${JSON.stringify({ ...evidence, classification: 'ADVISORY_CI_BROWSER_LIMITATION', recordingStarted: false })}`);
       return;
     }
 
