@@ -209,6 +209,33 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
   await t.step("handleSubscriptionUpdated - restores paid Basic on active status", async () => {
     assertEquals((await getArgs("active", "basic")).p_action, "activate_basic");
   });
+
+  await t.step("handleSubscriptionUpdated - signed no-op (active, no userId) acks 200 without mutation", async () => {
+    // Mirrors the live signed-webhook readiness no-op: a valid, signed subscription
+    // event that resolves to no actionable user must be acknowledged (200 received),
+    // not surfaced as a DB failure, and must not mutate entitlement (p_action 'none').
+    const event = {
+      id: "evt_noop_1",
+      type: "customer.subscription.updated",
+      data: { object: { id: "sub_noop_1", status: "active" } }
+    };
+
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
+      }
+    };
+
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+    const body = await response.json();
+
+    assertEquals(response.status, 200);
+    assertEquals(body.received, true);
+    assertEquals(capturedArgs.p_action, "none");
+    assertEquals(capturedArgs.p_user_id, null);
+  });
 });
 
 Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {

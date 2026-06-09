@@ -227,7 +227,8 @@
       "node-domexception": "^2.0.2",
       "glob": ">=10.5.0",
       "basic-ftp": "^5.2.0",
-      "protobufjs": "^7.5.5"
+      "protobufjs": "^7.5.5",
+      "shell-quote": ">=1.8.4"
     },
     "auditConfig": {
       "ignoreGhsas": [
