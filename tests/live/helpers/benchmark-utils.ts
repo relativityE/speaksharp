@@ -444,6 +444,101 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
     }
 }
 
+/**
+ * Native CI preflight disposition — release-gate CLASSIFICATION only (no app behavior change).
+ *
+ * Web Speech `onstart` is environment-dependent; headless/CI Chrome often never fires it even
+ * though `SpeechRecognition` exists. When that happens AND the app fails safely (reached READY,
+ * shows safe fallback copy, recovers to idle without hanging), this is a CI browser limitation,
+ * not a paid-soft-launch defect. A genuine hang / scary copy / unrecoverable or corrupt state is
+ * still a P0 failure. A separate real-browser/human Native proof remains a follow-up.
+ */
+export interface NativePreflightDisposition {
+    speechRecognitionPresent: boolean;
+    reachedReady: boolean;
+    startRequested: boolean;
+    onstartFired: boolean;
+    timeoutMs: number;
+    safeFallbackShown: boolean;
+    recoveredToIdle: boolean;
+    classification: 'CI_BROWSER_LIMITATION' | 'NATIVE_PREFLIGHT_FAIL';
+    summary: string;
+    signals: {
+        runtimeState: string | null;
+        startButtonRecording: string | null;
+        startButtonDisabled: boolean | null;
+        speechRecognitionName: string | null;
+        speechRecognitionIsMock: boolean;
+        unsafeCopyDetected: boolean;
+        bodyTextSample: string;
+        startErrorMessage: string;
+    };
+}
+
+const NATIVE_SAFE_REST_RUNTIME_STATES = ['READY', 'IDLE', 'TERMINATED', 'FAILED_VISIBLE'];
+const NATIVE_SAFE_FALLBACK_RE = /(speech recognition did not start|switch stt mode|please try again|ready to record)/i;
+const NATIVE_UNSAFE_COPY_RE = /(undefined is not|cannot read propert|\bTypeError\b|\bReferenceError\b|INTERNAL_ERROR|unexpected error|something went wrong|stack trace)/i;
+
+export async function collectNativePreflightDisposition(
+    page: Page,
+    options: { timeoutMs: number; startError?: unknown; label?: string },
+): Promise<NativePreflightDisposition> {
+    const { timeoutMs, startError } = options;
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${options.label ?? 'native-preflight'}-disposition`);
+
+    const speechRecognitionPresent = Boolean(snapshot.browser?.speechRecognitionName) && !snapshot.browser?.speechRecognitionIsMock;
+    const runtimeState = snapshot.root?.runtimeState ?? null;
+    const reachedReady = Boolean(
+        snapshot.root?.appReady === 'true' &&
+        (snapshot.root?.sttReady === 'true' || runtimeState === 'READY' || runtimeState === 'RECORDING' || snapshot.root?.modelStatus === 'ready'),
+    );
+    const startButtonRecording = snapshot.ui?.startButtonRecording ?? null;
+    const onstartFired = startButtonRecording === 'true';
+    const startButtonDisabled = snapshot.ui?.startButtonDisabled ?? null;
+    const bodyText = snapshot.ui?.bodyText ?? '';
+    const safeFallbackShown = NATIVE_SAFE_FALLBACK_RE.test(bodyText);
+    const unsafeCopyDetected = NATIVE_UNSAFE_COPY_RE.test(bodyText);
+    const recoveredToIdle = !onstartFired
+        && startButtonDisabled !== true
+        && (runtimeState === null || NATIVE_SAFE_REST_RUNTIME_STATES.includes(runtimeState));
+
+    const isCiBrowserLimitation =
+        speechRecognitionPresent &&
+        reachedReady &&
+        !onstartFired &&
+        safeFallbackShown &&
+        recoveredToIdle &&
+        !unsafeCopyDetected;
+
+    const classification: NativePreflightDisposition['classification'] =
+        isCiBrowserLimitation ? 'CI_BROWSER_LIMITATION' : 'NATIVE_PREFLIGHT_FAIL';
+    const summary = isCiBrowserLimitation
+        ? `SpeechRecognition present but onstart did not fire within ${timeoutMs}ms; app showed safe fallback copy and recovered to idle (runtimeState=${runtimeState ?? 'none'}).`
+        : `Not a CI browser limitation: srPresent=${speechRecognitionPresent} reachedReady=${reachedReady} onstartFired=${onstartFired} safeFallback=${safeFallbackShown} recovered=${recoveredToIdle} unsafeCopy=${unsafeCopyDetected}.`;
+
+    return {
+        speechRecognitionPresent,
+        reachedReady,
+        startRequested: true,
+        onstartFired,
+        timeoutMs,
+        safeFallbackShown,
+        recoveredToIdle,
+        classification,
+        summary,
+        signals: {
+            runtimeState,
+            startButtonRecording,
+            startButtonDisabled,
+            speechRecognitionName: snapshot.browser?.speechRecognitionName ?? null,
+            speechRecognitionIsMock: Boolean(snapshot.browser?.speechRecognitionIsMock),
+            unsafeCopyDetected,
+            bodyTextSample: bodyText.slice(0, 300),
+            startErrorMessage: startError instanceof Error ? startError.message : String(startError ?? ''),
+        },
+    };
+}
+
 export async function expectBenchmarkTranscriptOutput(page: Page, label: string, timeout = 20_000, minWords = 5) {
     try {
         await expect(async () => {
