@@ -16,6 +16,18 @@ function actionForPlan(plan: BillingPlan) {
   return plan === 'basic' ? 'activate_basic' : 'upgrade_to_pro';
 }
 
+function normalizeStripeObjectId(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (value && typeof value === "object" && "id" in value) {
+    const id = (value as { id?: unknown }).id;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  return null;
+}
+
 export async function handler(
   req: Request,
   stripe: StripeClient,
@@ -37,15 +49,17 @@ export async function handler(
     console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
 
     let action = 'none';
-    let userId = null;
-    let subscriptionId = null;
+    let userId: string | null = null;
+    let subscriptionId: string | null = null;
+    let stripeCustomerId: string | null = null;
     let plan: BillingPlan = 'pro';
 
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object
         userId = session.metadata?.userId
-        subscriptionId = session.subscription
+        subscriptionId = normalizeStripeObjectId(session.subscription)
+        stripeCustomerId = normalizeStripeObjectId(session.customer)
         plan = normalizeBillingPlan(session.metadata?.plan)
 
         if (!userId) {
@@ -63,6 +77,7 @@ export async function handler(
       case "customer.subscription.deleted": {
         const subscription = event.data.object
         subscriptionId = subscription.id
+        stripeCustomerId = normalizeStripeObjectId(subscription.customer)
         action = 'downgrade_to_free';
         break;
       }
@@ -70,6 +85,7 @@ export async function handler(
       case "customer.subscription.updated": {
         const subscription = event.data.object
         subscriptionId = subscription.id
+        stripeCustomerId = normalizeStripeObjectId(subscription.customer)
         const status = subscription.status
         userId = subscription.metadata?.userId ?? null
         plan = normalizeBillingPlan(subscription.metadata?.plan)
@@ -84,7 +100,8 @@ export async function handler(
 
       case "invoice.payment_failed": {
         const invoice = event.data.object
-        subscriptionId = invoice.subscription
+        subscriptionId = normalizeStripeObjectId(invoice.subscription)
+        stripeCustomerId = normalizeStripeObjectId(invoice.customer)
         const attemptCount = invoice.attempt_count || 0
 
         if (attemptCount >= 3 && subscriptionId) {
@@ -100,7 +117,8 @@ export async function handler(
       p_event_type: event.type,
       p_action: action,
       p_user_id: userId,
-      p_subscription_id: subscriptionId
+      p_subscription_id: subscriptionId,
+      p_stripe_customer_id: stripeCustomerId
     });
 
     if (error) {

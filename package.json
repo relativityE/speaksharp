@@ -65,7 +65,7 @@
     "rc:dast:local": "cross-env BASE_URL= pnpm build:test && cross-env BASE_URL= pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts tests/e2e/analytics-truth.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-dast-local",
     "verify:test-users": "node scripts/verify-test-users.mjs",
     "sync:reviewer-test-users": "node scripts/sync-reviewer-test-users.mjs",
-    "rc:dast:live": "node scripts/rc-dast-live-preflight.mjs && cross-env VITE_USE_LIVE_DB=true pnpm exec playwright test tests/live/cloud-token-gates.live.spec.ts tests/live/stripe-checkout-readiness.live.spec.ts tests/live/stripe-webhook-readiness.live.spec.ts tests/live/user-filler-words-persistence.live.spec.ts tests/live/stt-switching-contract.live.spec.ts tests/live/account-wide-recording-mutex.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line",
+    "rc:dast:live": "node scripts/rc-dast-live-preflight.mjs && cross-env VITE_USE_LIVE_DB=true pnpm exec playwright test tests/live/cloud-token-gates.live.spec.ts tests/live/stripe-checkout-readiness.live.spec.ts tests/live/stripe-billing-portal-readiness.live.spec.ts tests/live/stripe-webhook-readiness.live.spec.ts tests/live/user-filler-words-persistence.live.spec.ts tests/live/stt-switching-contract.live.spec.ts tests/live/account-wide-recording-mutex.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line",
     "rc:ux:smoke": "cross-env BASE_URL= pnpm build:test && cross-env BASE_URL= pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-ux-smoke",
     "rc:gate:1:product": "node scripts/rc-gate-product.mjs",
     "rc:gate:2:sast": "pnpm quality && pnpm rc:sast:secrets && node scripts/rc-production-hardening.mjs && pnpm test:edge && pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/config/__tests__/env.test.ts frontend/src/constants/__tests__/subscriptionTiers.test.ts frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx frontend/src/services/transcription/__tests__/TranscriptionPolicy.test.ts frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts frontend/src/utils/__tests__/fillerWordUtils.test.ts frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx",
@@ -227,7 +227,8 @@
       "node-domexception": "^2.0.2",
       "glob": ">=10.5.0",
       "basic-ftp": "^5.2.0",
-      "protobufjs": "^7.5.5"
+      "protobufjs": "^7.5.5",
+      "shell-quote": ">=1.8.4"
     },
     "auditConfig": {
       "ignoreGhsas": [

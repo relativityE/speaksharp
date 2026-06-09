@@ -3,6 +3,9 @@ project_id = "yxlapjuovrsvjswkwnrk"
 [functions.stripe-webhook]
   entrypoint = "./functions/stripe-webhook/index.ts"
 
+[functions.stripe-billing-portal]
+  entrypoint = "./functions/stripe-billing-portal/index.ts"
+
 [functions.create-user]
   entrypoint = "./functions/create-user/index.ts"
   verify_jwt = false
