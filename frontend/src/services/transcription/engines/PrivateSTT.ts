@@ -1,6 +1,7 @@
 /**
- * 🚨 READ-ONLY: This file is part of the core engine routing logic.
- * No modifications are allowed unless directed by User.
+ * ⚠️ CORE ENGINE ROUTING. Simple/localized changes are OK; notify the User
+ * if a design or significant change (engine-selection semantics, fallback policy,
+ * or the manifest control-plane contract).
  * 
  * Frozen Gate: Authoritative STT engine selection.
  * Ensures the manifest is the sole control plane for engine intent.
