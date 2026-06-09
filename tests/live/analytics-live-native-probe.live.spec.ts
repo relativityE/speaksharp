@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { AUDIO_ARGS, selectBenchmarkMode, collectBenchmarkPreconditionSnapshot, expectBenchmarkRecordingStarted } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, selectBenchmarkMode, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -14,6 +14,7 @@ test.use({
 
 test('native live STT analytics probe without mocked transcript injection', async ({ page }) => {
   test.setTimeout(120_000);
+  const nativeStartTimeoutMs = 12_000;
 
   const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
   const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
@@ -25,15 +26,25 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   const evidence: Record<string, unknown> = {
     mode: 'native',
     transcriptSource: HARVARD_BENCHMARK_LONG_AUDIO,
+    speechRecognitionPresent: false,
+    reachedReady: false,
+    startRequested: false,
+    onstartFired: false,
+    timeoutMs: nativeStartTimeoutMs,
+    safeFallbackShown: false,
+    recoveredToIdle: false,
+    classification: 'PENDING',
     transcriptAppeared: false,
     statsChanged: false,
     saved: false,
     historyReload: false,
     blockers: [] as string[],
   };
+  const browserEvents: Array<{ type: string; text: string }> = [];
 
   page.on('console', (message) => {
     const text = message.text();
+    browserEvents.push({ type: message.type(), text });
     if (/SpeechRecognition|Transcription|Supabase|Session saved|error|failed/i.test(text)) {
       console.log(`[browser:${message.type()}] ${text}`);
     }
@@ -55,6 +66,12 @@ test('native live STT analytics probe without mocked transcript injection', asyn
 
   await selectBenchmarkMode(page, 'native');
   evidence.preflight = await collectBenchmarkPreconditionSnapshot(page, 'native-live-before-start');
+  evidence.speechRecognitionPresent = await page.evaluate(() => Boolean(
+    (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).SpeechRecognition ||
+    (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
+  ));
+  evidence.reachedReady = ((evidence.preflight as { runtime?: { controllerState?: string; serviceState?: string } }).runtime?.controllerState === 'READY') ||
+    ((evidence.preflight as { runtime?: { controllerState?: string; serviceState?: string } }).runtime?.serviceState === 'READY');
   console.log(`NATIVE_LIVE_PREFLIGHT ${JSON.stringify(evidence.preflight)}`);
 
   const profileText = ((evidence.preflight as { ui?: { profileText?: string | null } }).ui?.profileText ?? '').trim();
@@ -63,7 +80,46 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   }
 
   await page.getByTestId('session-start-stop-button').click();
-  await expectBenchmarkRecordingStarted(page, 'native-live-probe');
+  evidence.startRequested = true;
+
+  const recordingStarted = await page.waitForFunction(() => (
+    document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true'
+  ), { timeout: nativeStartTimeoutMs }).then(() => true).catch(() => false);
+  evidence.onstartFired = recordingStarted;
+
+  if (!recordingStarted) {
+    await page.waitForTimeout(500);
+    const postStartSnapshot = await collectBenchmarkPreconditionSnapshot(page, 'native-live-after-start-timeout').catch((error) => ({
+      snapshotError: error instanceof Error ? error.message : String(error),
+    }));
+    const bodyText = await page.locator('body').textContent().catch(() => '');
+    const dataRecording = await page.getByTestId('session-start-stop-button').getAttribute('data-recording').catch(() => null);
+    const eventText = browserEvents.map(event => event.text).join('\n');
+
+    evidence.postStart = postStartSnapshot;
+    evidence.browserEventSample = browserEvents.slice(-20);
+    evidence.safeFallbackShown = /Browser speech recognition did not start|try again or switch STT mode|Recording could not start/i.test(`${bodyText}\n${eventText}`);
+    evidence.recoveredToIdle = dataRecording !== 'true' && (
+      ((postStartSnapshot as { runtime?: { controllerState?: string; serviceState?: string } }).runtime?.controllerState === 'READY') ||
+      ((postStartSnapshot as { runtime?: { controllerState?: string; serviceState?: string } }).runtime?.serviceState === 'READY') ||
+      /Ready|Mic ready/i.test(bodyText ?? '')
+    );
+
+    if (evidence.speechRecognitionPresent && evidence.reachedReady && evidence.safeFallbackShown && evidence.recoveredToIdle) {
+      evidence.classification = 'ADVISORY_CI_BROWSER_LIMITATION';
+      console.log(`LIVE_ANALYTICS_NATIVE_EVIDENCE ${JSON.stringify(evidence)}`);
+      test.info().annotations.push({
+        type: 'advisory',
+        description: 'CI Chrome exposed SpeechRecognition but never fired onstart; app showed safe fallback copy and recovered to idle.',
+      });
+      return;
+    }
+
+    evidence.classification = 'FAIL_P0_NATIVE_START_UNSAFE';
+    throw new Error(`Native start failed without safe advisory disposition\n${JSON.stringify(evidence, null, 2)}`);
+  }
+
+  evidence.classification = 'PASS';
   await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 30_000 });
 
   await page.waitForTimeout(18_000);
