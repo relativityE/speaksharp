@@ -461,7 +461,7 @@ export interface NativePreflightDisposition {
     timeoutMs: number;
     safeFallbackShown: boolean;
     recoveredToIdle: boolean;
-    classification: 'CI_BROWSER_LIMITATION' | 'NATIVE_PREFLIGHT_FAIL';
+    classification: 'ADVISORY_CI_BROWSER_LIMITATION' | 'FAIL_P0_NATIVE_START_UNSAFE';
     summary: string;
     signals: {
         runtimeState: string | null;
@@ -511,7 +511,7 @@ export async function collectNativePreflightDisposition(
         !unsafeCopyDetected;
 
     const classification: NativePreflightDisposition['classification'] =
-        isCiBrowserLimitation ? 'CI_BROWSER_LIMITATION' : 'NATIVE_PREFLIGHT_FAIL';
+        isCiBrowserLimitation ? 'ADVISORY_CI_BROWSER_LIMITATION' : 'FAIL_P0_NATIVE_START_UNSAFE';
     const summary = isCiBrowserLimitation
         ? `SpeechRecognition present but onstart did not fire within ${timeoutMs}ms; app showed safe fallback copy and recovered to idle (runtimeState=${runtimeState ?? 'none'}).`
         : `Not a CI browser limitation: srPresent=${speechRecognitionPresent} reachedReady=${reachedReady} onstartFired=${onstartFired} safeFallback=${safeFallbackShown} recovered=${recoveredToIdle} unsafeCopy=${unsafeCopyDetected}.`;
