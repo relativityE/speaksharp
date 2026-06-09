@@ -11,6 +11,12 @@ const STRIPE_PRO_PRICE_ID = process.env.STRIPE_PRO_PRICE_ID;
 const BASE_URL = process.env.BASE_URL ?? 'https://speaksharp-public.vercel.app';
 const RUN_ID = Date.now();
 const PASSWORD = `SpeakSharp-Paid-Runtime-${RUN_ID}!`;
+const RAW_STRIPE_RUNTIME_MODE = (process.env.STRIPE_RUNTIME_MODE ??
+  (STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'live' : 'test')).toLowerCase();
+const STRIPE_RUNTIME_MODE = RAW_STRIPE_RUNTIME_MODE === 'live' ? 'live' : 'test';
+const IS_LIVE_MODE = STRIPE_RUNTIME_MODE === 'live';
+const ALLOW_SYNTHETIC_LIVE_WEBHOOK = process.env.STRIPE_ALLOW_SYNTHETIC_LIVE_WEBHOOK === 'true';
+const CAN_POST_SYNTHETIC_WEBHOOK = !IS_LIVE_MODE || ALLOW_SYNTHETIC_LIVE_WEBHOOK;
 
 type CreatedUser = {
   id: string;
@@ -80,7 +86,10 @@ const deleteStripeCustomer = async (customerId: string) => {
 const createStripeCustomer = async (email: string) => {
   const body = new URLSearchParams();
   body.set('email', email);
-  body.set('metadata[speaksharp_test]', 'paid_soft_launch_runtime');
+  body.set(
+    'metadata[speaksharp_test]',
+    IS_LIVE_MODE ? 'paid_soft_launch_live_runtime_smoke' : 'paid_soft_launch_runtime'
+  );
   body.set('metadata[run_id]', String(RUN_ID));
   const customer = await postStripeForm('customers', body);
   expect(customer.id, JSON.stringify({ customer })).toMatch(/^cus_/);
@@ -175,14 +184,18 @@ const parseCheckoutSessionId = (checkoutUrl: string) => {
   return match?.[1] ?? null;
 };
 
-test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @stripe', () => {
+test.describe.serial(`Stripe ${STRIPE_RUNTIME_MODE}-mode paid soft launch runtime proof @live @stripe`, () => {
   let admin: SupabaseClient;
   const createdUsers: CreatedUser[] = [];
   const createdStripeCustomers: string[] = [];
 
   test.beforeAll(() => {
-    test.skip(requiredEnvMissing(), 'Supabase and Stripe test-mode runtime secrets are required.');
-    expect(STRIPE_SECRET_KEY, 'This proof must use Stripe test mode only.').toMatch(/^sk_test_/);
+    test.skip(requiredEnvMissing(), 'Supabase and Stripe runtime secrets are required.');
+    expect(['test', 'live'], 'STRIPE_RUNTIME_MODE must be test or live.').toContain(RAW_STRIPE_RUNTIME_MODE);
+    expect(
+      STRIPE_SECRET_KEY,
+      `This proof is running in ${STRIPE_RUNTIME_MODE} mode and must use the matching Stripe secret key.`
+    ).toMatch(IS_LIVE_MODE ? /^sk_live_/ : /^sk_test_/);
     expect(STRIPE_WEBHOOK_SECRET, 'Webhook proof requires a Stripe webhook signing secret.').toMatch(/^whsec_/);
     admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -194,7 +207,7 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
     await Promise.allSettled(createdStripeCustomers.map((customerId) => deleteStripeCustomer(customerId)));
   });
 
-  test('test-mode checkout, webhook entitlement, and billing portal work end-to-end', async () => {
+  test(`${STRIPE_RUNTIME_MODE}-mode checkout uses the right Stripe objects and entitlement path`, async () => {
     const email = `paid-soft-launch-${RUN_ID}@example.com`;
     const customerId = await createStripeCustomer(email);
     createdStripeCustomers.push(customerId);
@@ -218,7 +231,10 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
       const price = await getStripeJson(`prices/${encodeURIComponent(STRIPE_PRO_PRICE_ID!)}?expand[]=product`);
       expect(price.id).toBe(STRIPE_PRO_PRICE_ID);
       expect(price.active).toBe(true);
-      expect(price.livemode, 'This proof must use a test-mode Stripe price.').toBe(false);
+      expect(
+        price.livemode,
+        `This proof is running in ${STRIPE_RUNTIME_MODE} mode and must use a matching Stripe price.`
+      ).toBe(IS_LIVE_MODE);
 
       const checkoutResponse = await functionContext.post('/functions/v1/stripe-checkout', {
         headers: {
@@ -245,9 +261,58 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
       expect(checkoutSessionId, checkoutBody.checkoutUrl).toBeTruthy();
       const checkoutSession = await getStripeJson(`checkout/sessions/${encodeURIComponent(checkoutSessionId!)}`);
       expect(checkoutSession.mode).toBe('subscription');
+      expect(
+        checkoutSession.livemode,
+        `Checkout session must be created in ${STRIPE_RUNTIME_MODE} mode.`
+      ).toBe(IS_LIVE_MODE);
       expect(checkoutSession.customer).toBe(customerId);
       expect(checkoutSession.customer_email ?? null).toBeNull();
       expect(checkoutSession.client_reference_id).toBe(user.id);
+
+      const profileAfterCheckout = await readProfile(admin, user.id);
+      expect(profileAfterCheckout.subscription_status).toBe('free');
+      expect(profileAfterCheckout.stripe_subscription_id).toBeNull();
+      expect(profileAfterCheckout.stripe_customer_id).toBe(customerId);
+
+      if (!CAN_POST_SYNTHETIC_WEBHOOK) {
+        const evidence = {
+          runId: RUN_ID,
+          proofKind: 'live-key-checkout-smoke',
+          stripeMode: STRIPE_RUNTIME_MODE,
+          baseUrl: BASE_URL,
+          price: {
+            id: redactId(price.id),
+            livemode: price.livemode,
+            active: price.active,
+            amount: price.unit_amount,
+            currency: price.currency,
+            interval: (price.recurring as { interval?: unknown } | undefined)?.interval ?? null,
+          },
+          checkout: {
+            status: checkoutResponse.status(),
+            sessionId: redactId(checkoutSessionId),
+            sessionLivemode: checkoutSession.livemode,
+            reusedCustomer: checkoutSession.customer === customerId,
+            customerEmailOmitted: (checkoutSession.customer_email ?? null) === null,
+            clientReferenceMatchesUser: checkoutSession.client_reference_id === user.id,
+          },
+          entitlement: {
+            remainedFreeBeforeWebhook: profileAfterCheckout.subscription_status === 'free',
+            subscriptionStillNull: profileAfterCheckout.stripe_subscription_id === null,
+            customerStored: profileAfterCheckout.stripe_customer_id === customerId,
+          },
+          webhook: {
+            skipped: true,
+            reason: 'Live mode requires a real completed payment/webhook, or STRIPE_ALLOW_SYNTHETIC_LIVE_WEBHOOK=true for entitlement-code-only proof.',
+          },
+          billingPortal: {
+            skipped: true,
+            reason: 'Paid customer portal proof requires completed entitlement.',
+          },
+        };
+        console.log(`STRIPE_PAID_SOFT_LAUNCH_RUNTIME_EVIDENCE ${JSON.stringify(evidence)}`);
+        return;
+      }
 
       const subscriptionId = `sub_paid_runtime_${RUN_ID}`;
       const webhookPayload = JSON.stringify({
@@ -256,7 +321,7 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
         api_version: '2024-06-20',
         type: 'checkout.session.completed',
         created: Math.floor(Date.now() / 1000),
-        livemode: false,
+        livemode: IS_LIVE_MODE,
         data: {
           object: {
             id: checkoutSessionId,
@@ -305,7 +370,8 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
 
       const evidence = {
         runId: RUN_ID,
-        stripeMode: 'test',
+        proofKind: IS_LIVE_MODE ? 'live-key-synthetic-webhook' : 'test-mode-full-spine',
+        stripeMode: STRIPE_RUNTIME_MODE,
         baseUrl: BASE_URL,
         price: {
           id: redactId(price.id),
@@ -318,12 +384,15 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
         checkout: {
           status: checkoutResponse.status(),
           sessionId: redactId(checkoutSessionId),
+          sessionLivemode: checkoutSession.livemode,
           reusedCustomer: checkoutSession.customer === customerId,
           customerEmailOmitted: (checkoutSession.customer_email ?? null) === null,
           clientReferenceMatchesUser: checkoutSession.client_reference_id === user.id,
         },
         webhook: {
           status: webhookResponse.status(),
+          synthetic: IS_LIVE_MODE,
+          eventLivemode: IS_LIVE_MODE,
           received: webhookBody.received ?? null,
           profileStatus: paidProfile.subscription_status,
           subscriptionStored: paidProfile.stripe_subscription_id === subscriptionId,
@@ -334,7 +403,10 @@ test.describe.serial('Stripe test-mode paid soft launch runtime proof @live @str
           host: portalBody.portalUrl ? new URL(portalBody.portalUrl).hostname : null,
         },
       };
-      console.log(`STRIPE_TESTMODE_PAID_SOFT_LAUNCH_RUNTIME_EVIDENCE ${JSON.stringify(evidence)}`);
+      console.log(`STRIPE_PAID_SOFT_LAUNCH_RUNTIME_EVIDENCE ${JSON.stringify(evidence)}`);
+      if (!IS_LIVE_MODE) {
+        console.log(`STRIPE_TESTMODE_PAID_SOFT_LAUNCH_RUNTIME_EVIDENCE ${JSON.stringify(evidence)}`);
+      }
     } finally {
       await functionContext.dispose();
     }
