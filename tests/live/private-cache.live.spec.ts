@@ -25,10 +25,16 @@ type CacheSnapshot = {
 
 const PRIVATE_MODEL_CASES = [
   {
-    label: 'default-tiny',
+    label: 'default-base',
     sessionPath: '/session',
-    expectedModel: 'whisper-tiny.en',
+    expectedModel: 'whisper-base.en',
     expectedSelectionSource: 'default',
+  },
+  {
+    label: 'tiny-fallback',
+    sessionPath: '/session?privateModel=whisper-tiny.en',
+    expectedModel: 'whisper-tiny.en',
+    expectedSelectionSource: 'url',
   },
   {
     label: 'base-opt-in',
@@ -52,7 +58,7 @@ test.use({
 });
 
 test.describe.serial('Private first-start and second-start cache proof @live', () => {
-  test('Private tiny default and base opt-in load from selfhosted cache', async ({ page }) => {
+  test('Private base default plus tiny fallback load from selfhosted cache', async ({ page }) => {
     test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and Pro test credentials are required.');
     test.setTimeout(300_000);
 
