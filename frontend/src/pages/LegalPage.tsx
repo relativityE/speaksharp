@@ -50,7 +50,7 @@ export const TermsPage = () => (
       },
       {
         heading: 'Payments',
-        body: 'Pro checkout is handled by Stripe. Subscription status is applied after Stripe confirms checkout or webhook events. If a payment or configuration issue prevents checkout, contact support before retrying repeated purchases.',
+        body: 'Pro checkout and billing management are handled by Stripe. Subscription status is applied only after Stripe confirms checkout or webhook events. You can cancel from billing management when available for your account, or contact support through Report Issue for cancellation, refund, or payment questions. Refund requests are reviewed case by case during paid early access.',
       },
       {
         heading: 'Acceptable Use',

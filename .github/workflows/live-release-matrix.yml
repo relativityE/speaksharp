@@ -19,6 +19,8 @@ on:
           - first-time-tester-private-trial
           - stripe-webhook-readiness
           - stripe-checkout-readiness
+          - stripe-billing-portal-readiness
+          - stripe-paid-soft-launch-runtime
           - stripe-price-audit
       zero_hf_audit:
         description: 'Require Private model requests to stay same-origin /models with no HuggingFace traffic'
@@ -326,6 +328,73 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-checkout-readiness-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-stripe-billing-portal-readiness:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-billing-portal-readiness' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Run Stripe Billing Portal Readiness Proof
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+        run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Stripe Billing Portal Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-stripe-billing-portal-readiness-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-stripe-paid-soft-launch-runtime:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-paid-soft-launch-runtime' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Stripe Test-Mode Paid Soft Launch Runtime Proof
+        env:
+          BASE_URL: https://speaksharp-public.vercel.app/
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+        run: pnpm exec playwright test tests/live/stripe-paid-soft-launch-runtime.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Stripe Paid Soft Launch Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-stripe-paid-soft-launch-runtime-artifacts
           path: |
             blob-report/live/
             playwright-report/
