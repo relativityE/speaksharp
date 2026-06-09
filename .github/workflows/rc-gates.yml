@@ -40,6 +40,10 @@ jobs:
           install-playwright: 'true'
       - name: Run Product Truth Gate
         env:
+          # Public Supabase build env (required by validate-env/build:test).
+          # Non-secret client values; never the service-role key.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STT_ENGINE: mock
@@ -147,5 +151,9 @@ jobs:
           install-playwright: 'true'
       - name: Run UX Gate
         env:
+          # Public Supabase build env (required by validate-env/build:test).
+          # Non-secret client values; never the service-role key.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           STT_ENGINE: mock
         run: pnpm rc:gate:5:ux
