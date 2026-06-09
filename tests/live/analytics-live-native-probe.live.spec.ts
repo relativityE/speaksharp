@@ -84,7 +84,7 @@ test('native live STT analytics probe without mocked transcript injection', asyn
 
   const recordingStarted = await page.waitForFunction(() => (
     document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true'
-  ), { timeout: nativeStartTimeoutMs }).then(() => true).catch(() => false);
+  ), undefined, { timeout: nativeStartTimeoutMs }).then(() => true).catch(() => false);
   evidence.onstartFired = recordingStarted;
 
   if (!recordingStarted) {
