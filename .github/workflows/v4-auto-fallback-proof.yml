@@ -1,0 +1,113 @@
+name: v4 AUTO Fallback Proof
+
+# Proves the AUTO-path decode-fallback CONTRACT in headless CI WITHOUT pretending CI has WebGPU:
+#   AUTO resolver attempts v4 (?v4ForceAuto=1, dev/test-only) -> WASM decode fails (?v4Device=wasm)
+#   -> PrivateSTT falls back to v2-base -> record/stop/transcript/save/history completes.
+#
+# PASS signature in the artifact: journeyPass=true AND privateRuntimePath.reason='v4_forced_auto'
+# (v4 was attempted) AND privateProvider='transformers-js' (fell back to v2-base).
+#
+# This is NOT a WebGPU proof, NOT "v4 decode fixed", NOT production-ready. The STRICT-override
+# proof (v4-app-path-proof) stays separate and keeps exposing the real v4 decode bug.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/v4-decode-fallback
+    paths:
+      - '.github/workflows/v4-auto-fallback-proof.yml'
+      - 'frontend/src/services/transcription/**'
+      - 'frontend/src/contracts/**'
+      - 'scripts/manual-stt-corpus-proof.mjs'
+      - 'tests/fixtures/stt-isomorphic/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v4-auto-fallback-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v4-auto-fallback-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BASE_URL: http://localhost:5174
+      VITE_USE_LIVE_DB: 'true'
+      VITE_SKIP_MSW: 'true'
+      VITE_AUTH_MODE: real
+      VITE_USE_MOCK_AUTH: 'false'
+      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+      PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+      STT_AUTH: existing
+      STT_MODES: private
+      STT_FIXTURES: h1_6
+      # AUTO path forced to ATTEMPT v4 (dev/test-only) + WASM device => decode fails => v2-base fallback.
+      # NOTE: deliberately NO STT_PRIVATE_ENGINE — that is the STRICT override path (no fallback);
+      # this proof exercises the AUTO/flag path where the fallback is allowed to engage.
+      STT_V4_FORCE_AUTO: '1'
+      STT_V4_DEVICE: wasm
+      STT_INJECT_MIC_AUDIO: 'true'
+      STT_POST_PLAYBACK_WAIT_MS: '15000'
+      STT_FIRST_TEXT_TIMEOUT_MS: '45000'
+      HEADLESS: 'true'
+      STT_CORPUS_OUT: ${{ github.workspace }}/v4-auto-fallback-proof.json
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Assert required live proof env
+        run: |
+          missing=0
+          for key in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY PRO_TEST_EMAIL PRO_TEST_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error title=Missing required env::$key is required for the v4 AUTO fallback proof"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Start release-proof local app on 5174
+        run: |
+          pnpm dev:real > "${RUNNER_TEMP}/v4-auto-vite.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/v4-auto-vite.pid"
+          pnpm exec wait-on --timeout 120000 "$BASE_URL"
+
+      - name: Run AUTO-path v4->v2 fallback proof (record-stop-save-history)
+        run: node scripts/manual-stt-corpus-proof.mjs
+
+      - name: Print proof summary
+        if: always()
+        run: |
+          if [ -f "$STT_CORPUS_OUT" ]; then
+            node -e "const fs=require('fs'); const p=process.env.STT_CORPUS_OUT; const j=JSON.parse(fs.readFileSync(p,'utf8')); console.log(JSON.stringify({pass:j.pass, blockers:j.blockers, environmentProof:j.environmentProof, privateEngine:j.privateEngine, results:(j.results||[]).map(r=>({mode:r.mode,fixture:r.fixture,verdict:r.verdict,journeyPass:r.journeyPass,firstText:r.firstText,sessionPersisted:r.sessionPersisted,historyVisible:r.historyVisible,detailVisible:r.detailVisible,privateProvider:r.privateProvider,privateRuntime:r.privateRuntime,privateWebgpuAvailable:r.privateWebgpuAvailable,privateRuntimePath:r.privateRuntimePath,wer:r.wer,accuracyPct:r.accuracyPct}))}, null, 2));"
+          else
+            echo "No proof artifact written at $STT_CORPUS_OUT"
+          fi
+
+      - name: Upload AUTO fallback proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v4-auto-fallback-proof
+          path: |
+            ${{ github.workspace }}/v4-auto-fallback-proof.json
+            ${{ runner.temp }}/v4-auto-vite.log
+            blob-report/
+            playwright-report/
+            test-results/
+          retention-days: 14
