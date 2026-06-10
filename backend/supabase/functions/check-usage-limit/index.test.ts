@@ -95,8 +95,8 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.daily_remaining, 0);
     });
 
-    await t.step('should pass through expired trial Free results from the RPC source of truth', async () => {
-        const userId = 'expired-trial-user';
+    await t.step('should pass through unavailable Private sample results from the RPC source of truth', async () => {
+        const userId = 'sample-used-user';
         const mockCreateSupabaseExpiredTrial = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
@@ -113,7 +113,12 @@ Deno.test('check-usage-limit edge function', async (t) => {
                             trial_active: false,
                             trial_started_at: '2026-01-01T00:00:00.000Z',
                             trial_expires_at: '2026-01-01T01:00:00.000Z',
-                            trial_seconds_remaining: 0
+                            trial_seconds_remaining: 0,
+                            private_sample_available: false,
+                            private_sample_limit_seconds: 300,
+                            private_sample_seconds_used: 300,
+                            private_sample_seconds_remaining: 0,
+                            private_sample_completed_at: '2026-01-01T00:05:00.000Z'
                         },
                         error: null
                     });
@@ -134,10 +139,12 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.is_pro, false);
         assertEquals(json.trial_active, false);
         assertEquals(json.trial_seconds_remaining, 0);
+        assertEquals(json.private_sample_available, false);
+        assertEquals(json.private_sample_seconds_remaining, 0);
     });
 
-    await t.step('should pass through active trial Pro results from the RPC source of truth', async () => {
-        const userId = 'active-trial-user';
+    await t.step('should pass through available Private sample Free results from the RPC source of truth', async () => {
+        const userId = 'private-sample-user';
         const mockCreateSupabasePaidPro = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
@@ -148,13 +155,17 @@ Deno.test('check-usage-limit edge function', async (t) => {
                             daily_limit: 7200,
                             monthly_remaining: 180000,
                             monthly_limit: 180000,
-                            remaining_seconds: 7200,
-                            subscription_status: 'pro',
-                            is_pro: true,
-                            trial_active: true,
-                            trial_started_at: '2026-01-01T00:00:00.000Z',
-                            trial_expires_at: '2026-01-01T01:00:00.000Z',
-                            trial_seconds_remaining: 3600
+                            remaining_seconds: 3600,
+                            subscription_status: 'free',
+                            is_pro: false,
+                            trial_active: false,
+                            trial_started_at: null,
+                            trial_expires_at: null,
+                            trial_seconds_remaining: 0,
+                            private_sample_available: true,
+                            private_sample_limit_seconds: 300,
+                            private_sample_seconds_used: 0,
+                            private_sample_seconds_remaining: 300
                         },
                         error: null
                     });
@@ -171,9 +182,11 @@ Deno.test('check-usage-limit edge function', async (t) => {
         const json = await res.json();
 
         assertEquals(res.status, 200);
-        assertEquals(json.subscription_status, 'pro');
-        assertEquals(json.is_pro, true);
-        assertEquals(json.trial_active, true);
+        assertEquals(json.subscription_status, 'free');
+        assertEquals(json.is_pro, false);
+        assertEquals(json.trial_active, false);
+        assertEquals(json.private_sample_available, true);
+        assertEquals(json.private_sample_seconds_remaining, 300);
     });
 
     await t.step('should handle RPC errors by failing closed', async () => {

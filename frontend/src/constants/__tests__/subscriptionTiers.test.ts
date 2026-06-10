@@ -65,18 +65,18 @@ describe('subscriptionTiers', () => {
         });
     });
 
-    describe('effective trial tier', () => {
-        it('treats active trial profiles as Pro before usage refresh completes', () => {
+    describe('effective tier without legacy trial grants', () => {
+        it('does not treat legacy active trial timestamps as Pro before usage refresh completes', () => {
             const profile = {
                 subscription_status: 'free',
                 trial_expires_at: '2999-01-01T00:00:00.000Z',
             };
 
-            expect(isActiveTrialProfile(profile)).toBe(true);
-            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('pro');
+            expect(isActiveTrialProfile(profile)).toBe(false);
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('free');
         });
 
-        it('treats expired trial Free profiles as Free before usage refresh completes', () => {
+        it('treats expired legacy trial Free profiles as Free before usage refresh completes', () => {
             const profile = {
                 subscription_status: 'free',
                 trial_expires_at: '2024-01-01T00:00:00.000Z',
@@ -98,7 +98,7 @@ describe('subscriptionTiers', () => {
     });
 
 	    describe('hasPaidProEntitlement', () => {
-        it('does not treat active trial as subscribed Pro', () => {
+        it('does not treat legacy active trial timestamp as subscribed Pro', () => {
             expect(hasPaidProEntitlement({
                 subscription_status: 'free',
                 trial_expires_at: '2999-01-01T00:00:00.000Z',
@@ -118,7 +118,7 @@ describe('subscriptionTiers', () => {
 	    });
 
 	    describe('hasCloudSttEntitlement', () => {
-	        it('does not allow active trial profiles to use Cloud STT', () => {
+	        it('does not allow legacy active trial timestamp profiles to use Cloud STT', () => {
 	            expect(hasCloudSttEntitlement({
 	                subscription_status: 'free',
 	                trial_expires_at: '2999-01-01T00:00:00.000Z',
@@ -132,7 +132,7 @@ describe('subscriptionTiers', () => {
 	            })).toBe(true);
 	        });
 
-	        it('does not allow expired trials or unsubscribed Pro-shaped profiles to use Cloud STT', () => {
+	        it('does not allow expired legacy trials or unsubscribed Pro-shaped profiles to use Cloud STT', () => {
 	            expect(hasCloudSttEntitlement({
 	                subscription_status: 'free',
 	                trial_expires_at: '2024-01-01T00:00:00.000Z',

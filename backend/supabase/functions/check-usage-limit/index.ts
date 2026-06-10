@@ -15,6 +15,13 @@ interface UsageLimitResponse {
     trial_started_at?: string | null;
     trial_expires_at?: string | null;
     trial_seconds_remaining?: number;
+    private_sample_available?: boolean;
+    private_sample_limit_seconds?: number;
+    private_sample_seconds_used?: number;
+    private_sample_seconds_remaining?: number;
+    private_sample_started_at?: string | null;
+    private_sample_completed_at?: string | null;
+    private_sample_session_id?: string | null;
     error?: string;
 }
 
