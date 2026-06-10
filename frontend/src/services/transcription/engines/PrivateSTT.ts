@@ -43,6 +43,7 @@ import { PRIV_STT_V4 } from '../sttConstants';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
+import { getV4FlagState } from '../privateV4Flags';
 // Stale import removed
 
 declare global {
@@ -198,7 +199,18 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         logger.info({ sId: this.serviceId, rId: this.runId, provider: autoEngine, configured: selectedEngine, source: 'auto' }, '[PrivateSTT] Initializing auto-selected private provider');
         const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
         if (primary.isOk) {
+            this.emitV4FlagTelemetry(null);
             return Result.ok(undefined);
+        }
+
+        // v4 → v2-base fallback (AUTO path only; the explicit-override path stays
+        // strict). A flagged v4 user must never be stranded: if v4 init/load fails,
+        // fall back to the proven v2-base engine.
+        if (autoEngine === 'transformers-js-v4') {
+            logger.warn({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error }, '[PrivateSTT] v4 init failed; falling back to v2-base');
+            const fallback = await this.initSafeEngine(timeoutMs, isMock);
+            this.emitV4FlagTelemetry('v4_init_failed');
+            return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
         }
 
         return primary as Result<void, Error>;
@@ -228,11 +240,53 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * ever promoted when its model was pre-cached, which no production flow did.
      */
     private async resolveAutoPrivateEngine(configured: SelectedPrivateEngine): Promise<SelectedPrivateEngine> {
-        const decision = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false });
+        // v4 flag-gated tiering (post-paid-soft-launch). When the flag is OFF, `v4`
+        // is omitted, so the resolver returns the EXACT v2/CPU decision as before —
+        // flag-off is byte-identical to the v2-base default (no v4 ever selected).
+        const v4Flags = getV4FlagState();
+        const decision = await resolvePrivateRuntimePath({
+            webgpuPromotionAllowed: false,
+            turboModelCached: false,
+            v4: v4Flags.v4Enabled ? { enabled: true, distilEnabled: v4Flags.distilEnabled } : undefined,
+        });
         this.runtimePath = decision;
         publishPrivateRuntimeDebug(decision);
         logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured }, '[PrivateSTT] Resolved private runtime decision');
+
+        // Route to v4 ONLY when the resolver actually selected it (flag on + confirmed
+        // WebGPU). Otherwise stay on the configured v2 engine. v4 init failure falls
+        // back to v2-base in onInit (auto path only).
+        if (decision.provider === 'transformers-js-v4') {
+            return 'transformers-js-v4';
+        }
         return configured;
+    }
+
+    /**
+     * Internal-only v4 flag telemetry. Emitted only when the v4 flag is on, so the
+     * default v2 path stays silent. Records the attempted/selected variant, device,
+     * and any fallback reason — never user-facing engine internals. Never throws.
+     */
+    private emitV4FlagTelemetry(fallbackReason: string | null): void {
+        try {
+            const flags = getV4FlagState();
+            if (!flags.v4Enabled) return;
+            const d = this.runtimePath;
+            logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                v4FlagEnabled: flags.v4Enabled,
+                distilFlagEnabled: flags.distilEnabled,
+                selectedVariant: d?.v4Variant ?? null,
+                attemptedProvider: d?.provider ?? null,
+                resolvedDevice: d?.runtime ?? null,
+                finalProvider: this._engineType ?? null,
+                fallbackProvider: fallbackReason ? (this._engineType ?? null) : null,
+                fallbackReason,
+            }, '[V4_FLAG_TELEMETRY]');
+        } catch (error) {
+            logger.debug?.({ error }, '[PrivateSTT] v4 flag telemetry emit failed');
+        }
     }
 
     protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {

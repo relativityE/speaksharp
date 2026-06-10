@@ -11,6 +11,12 @@
  *   3. CPU single-thread otherwise — the GUARANTEED local floor.
  *   4. Cloud             NEVER automatic. `cloudFallbackAttempted` is always false.
  *
+ * v4 (post-paid-soft-launch, flag-gated) layers ON TOP via the optional `v4`
+ * input. When `v4` is omitted or disabled the resolver behaves byte-identically
+ * to the v2-base default — v4 is NEVER selected. When enabled, v4 is selected
+ * ONLY on confirmed WebGPU (conservative first rollout: no-WebGPU stays v2-base),
+ * and always keeps v2-base as the init/load fallback.
+ *
  * The resolver returns a flat, fully-populated decision object so selection, UX
  * copy, diagnostics/telemetry, and tests all derive from one source of truth.
  * It does not instantiate engines or download anything — it only describes the
@@ -24,11 +30,13 @@ import {
   getHardwareThreads,
   isCrossOriginIsolated,
 } from './wasmThreads';
+import type { PrivSttV4VariantId } from '../sttConstants';
 
 export type PrivateRuntimeKind = 'webgpu' | 'wasm-multithread' | 'wasm-singlethread';
 
 export type PrivateRuntimeReason =
   | 'webgpu_available_and_model_cached'
+  | 'webgpu_available_v4_flag'
   | 'no_webgpu_cross_origin_isolated'
   | 'no_webgpu_or_isolation';
 
@@ -42,6 +50,8 @@ export interface PrivateRuntimeDecision {
   /** Concrete engine the facade will initialize. (The GPU tier is parked; the WebGPU
    *  successor engine is transformers-js-v4 — whisper-turbo was retired.) */
   provider: 'transformers-js-v4' | 'transformers-js';
+  /** When provider is v4, which model TIER was chosen; null on the v2/CPU path. */
+  v4Variant: PrivSttV4VariantId | null;
   /** Acceleration class. */
   acceleration: 'gpu' | 'cpu';
   reason: PrivateRuntimeReason;
@@ -73,6 +83,18 @@ export interface ResolvePrivateRuntimePathOptions {
    * the decision regardless of the outcome.
    */
   turboModelCached: boolean;
+  /**
+   * v4 flag-gated tiering (post-paid-soft-launch). When omitted or { enabled:false }
+   * the resolver behaves identically to the v2-base default — v4 is NEVER selected,
+   * so flag-off is byte-identical. When enabled, v4 is selected ONLY on confirmed
+   * WebGPU (conservative v1: no-WebGPU stays the v2-base CPU floor). `distilEnabled`
+   * is reserved for the WebGPU accuracy tier (increment 2 wires the model through
+   * the worker); v1 always uses the base_q4 floor.
+   */
+  v4?: {
+    enabled: boolean;
+    distilEnabled: boolean;
+  };
 }
 
 function cpuDecision(crossOriginIsolated: boolean, webgpuAvailable: boolean, turboCached: boolean): PrivateRuntimeDecision {
@@ -81,6 +103,7 @@ function cpuDecision(crossOriginIsolated: boolean, webgpuAvailable: boolean, tur
   return {
     runtime: multithread ? 'wasm-multithread' : 'wasm-singlethread',
     provider: 'transformers-js',
+    v4Variant: null,
     acceleration: 'cpu',
     reason: multithread ? 'no_webgpu_cross_origin_isolated' : 'no_webgpu_or_isolation',
     webgpuAvailable,
@@ -100,6 +123,41 @@ export async function resolvePrivateRuntimePath(
 ): Promise<PrivateRuntimeDecision> {
   const isolated = isCrossOriginIsolated();
 
+  // v4 flag-gated path (post-paid-soft-launch). CONSERVATIVE: v4 is selected ONLY
+  // on confirmed WebGPU; no-WebGPU stays the v2-base CPU floor. Omitted/disabled
+  // `v4` never enters here, so flag-off behavior is byte-identical to the default.
+  if (options.v4?.enabled) {
+    let webgpuAvailable = false;
+    try {
+      webgpuAvailable = (await detectWebGPUSupport()).supported;
+    } catch {
+      webgpuAvailable = false;
+    }
+
+    if (webgpuAvailable) {
+      // v1: base_q4 is the WebGPU floor. The distil_q4 accuracy tier needs the
+      // worker model-param (increment 2) before it can actually load, so v1 never
+      // returns distil even when the distil flag is on (the distil flag is a no-op
+      // until increment 2 — it is also off by default).
+      return {
+        runtime: 'webgpu',
+        provider: 'transformers-js-v4',
+        v4Variant: 'base_q4',
+        acceleration: 'gpu',
+        reason: 'webgpu_available_v4_flag',
+        webgpuAvailable: true,
+        turboCached: options.turboModelCached,
+        crossOriginIsolated: isolated,
+        wasmThreadCount: 0, // N/A on the GPU path.
+        fallbackAvailable: true, // v4 can safely fall back to the v2-base CPU floor.
+        cloudFallbackAttempted: false,
+      };
+    }
+
+    // Flag on but no WebGPU → conservative first rollout stays on the v2-base floor.
+    return cpuDecision(isolated, false, options.turboModelCached);
+  }
+
   // Tier 1: WebGPU acceleration — only considered when explicitly allowed.
   if (options.webgpuPromotionAllowed) {
     let webgpuAvailable = false;
@@ -113,6 +171,7 @@ export async function resolvePrivateRuntimePath(
       return {
         runtime: 'webgpu',
         provider: 'transformers-js-v4',
+        v4Variant: null,
         acceleration: 'gpu',
         reason: 'webgpu_available_and_model_cached',
         webgpuAvailable: true,
