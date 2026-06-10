@@ -62,6 +62,42 @@ Instead of `STT_V4_FORCE_AUTO`, drive the **real PostHog flag**:
 - App-path journey incl. detail — run `27308000513` on `df19b164`.
 - v4 model quality basis — the base_q4 bakeoff that selected it (LibriSpeech test-other).
 
-## Report back (paste into the board)
-`runtime`, `privateProvider`, transcript snippet, `wer`/`accuracyPct`, fallback result (Run B),
-flag off/on behavior + payload-safety note (Run C), and the chrome://gpu WebGPU line.
+## Required preconditions (state these or the run is INVALID)
+- **Branch/SHA:** `dev/v4-integration@1c678b50` (or later if code changed).
+- **App:** local `pnpm dev:real` on `http://localhost:5174`, `VITE_USE_LIVE_DB=true`, `VITE_AUTH_MODE=real`.
+- **Account role:** the **Pro** test user (`PRO_TEST_EMAIL`/`PRO_TEST_PASSWORD`); v4 + history/detail need Pro entitlement.
+- **Browser:** Chrome where `chrome://gpu` shows **"WebGPU: Hardware accelerated"**; `HEADLESS=false`.
+- **Verify `resolvedDevice=webgpu`:** artifact `privateRuntime` / `privateRuntimePath.runtime` == `webgpu`
+  AND `privateRuntimePath.reason` == `webgpu_available_v4_flag` (Run A). If it shows `wasm-*` or
+  `v4_forced_auto`, WebGPU was NOT exercised → **INVALID**, not PASS.
+- **Verify `fallbackOccurred=false` (Run A):** `privateProvider == transformers-js-v4` and
+  `privateRuntimePath` has no fallback reason. (Run B intentionally inverts this.)
+
+## Required artifact fields (machine-readable JSON; NO screenshot-only proof)
+The run must emit/collect:
+```
+browser, gpuAdapter (chrome://gpu name), resolvedDevice, fallbackOccurred,
+modelId, dtype, fixture, rawTranscript, referenceTranscript, wer, accuracyPct,
+sessionPersisted, historyVisible, detailVisible, consoleErrors[], networkErrors[],
+posthogFlagState (Run C: off vs on), capturedPosthogPayloadKeys (Run C)
+```
+
+## INVALID vs FAIL vs PASS
+- **INVALID** (re-run, do not conclude): WebGPU not actually active (`resolvedDevice != webgpu`),
+  auth/login failed, wrong fixture, or app not on live DB. Not evidence either way.
+- **FAIL** (route back to Dev with the artifact): on real WebGPU, v4 selected but produced no
+  transcript / errored; OR Run B did not fall back to v2-base; OR Run C showed flag-OFF loading v4,
+  a query/localStorage bypass selecting v4 in prod build, or PII in payloads.
+- **PASS:** Run A `resolvedDevice=webgpu` + non-empty transcript + meaningful WER + save/detail;
+  Run B fell back to v2-base with a transcript; Run C flag-gated correctly with clean payloads.
+
+## Release decision rule
+- **v4 OFF-flag (current strategy):** this proof is a **v4-enablement** gate, **NOT a beta blocker**.
+  A FAIL keeps v4 hidden; beta ships on Native + Private v2-base/tiny.
+- **v4 EXPOSED in beta:** PASS is **required** before exposure.
+- Even on PASS, treat v4 as experimental until it beats v2-base on quality/speed and stays
+  self-hosted (no HuggingFace runtime traffic).
+
+## Report back (paste the JSON artifact into the board)
+Include every "Required artifact field" above + the `chrome://gpu` WebGPU line + the
+INVALID/FAIL/PASS verdict per Run A/B/C.
