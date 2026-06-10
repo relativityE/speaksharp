@@ -103,6 +103,44 @@ export function emitV4Telemetry(event: V4TelemetryEvent, props?: Record<string, 
     }
 }
 
+/**
+ * Pure mapper: build the allowlisted lifecycle property bag from the v4 runtime
+ * decision + outcome. Keeps the call sites thin and testable, and routes through
+ * `sanitizeV4TelemetryProps` so only non-PII keys survive. `fallbackAttempted` is
+ * derived (true iff a fallback reason is present).
+ */
+export function buildV4LifecycleProps(input: {
+    finalEngine?: string | null;
+    variant?: string | null;
+    model?: string | null;
+    dtype?: string | null;
+    requestedDevice?: string | null;
+    resolvedDevice?: string | null;
+    webgpuAvailable?: boolean;
+    fallbackReason?: string | null;
+    loadMs?: number | null;
+    decodeMs?: number | null;
+    rtf?: number | null;
+}): V4TelemetryProps {
+    // Pass inputs through as-is: sanitize omits `undefined`, keeps `null`/values. The
+    // caller decides which fields to force-present (by passing `?? null`); fields it
+    // does not know yet (e.g. decodeMs on a ready event) are simply omitted.
+    return sanitizeV4TelemetryProps({
+        engine: input.finalEngine,
+        variant: input.variant,
+        model: input.model,
+        dtype: input.dtype,
+        requestedDevice: input.requestedDevice,
+        resolvedDevice: input.resolvedDevice,
+        webgpuAvailable: input.webgpuAvailable,
+        fallbackAttempted: input.fallbackReason != null,
+        fallbackReason: input.fallbackReason,
+        loadMs: input.loadMs,
+        decodeMs: input.decodeMs,
+        rtf: input.rtf,
+    });
+}
+
 export const emitV4Ready = (props?: Record<string, unknown>): void =>
     emitV4Telemetry(V4_TELEMETRY_EVENTS.READY, props);
 export const emitV4DecodeComplete = (props?: Record<string, unknown>): void =>

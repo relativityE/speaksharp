@@ -46,6 +46,7 @@ import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/s
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
 import { getV4FlagState } from '../privateV4Flags';
+import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
 // Stale import removed
 
 declare global {
@@ -308,6 +309,26 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // No user-facing engine internals; safe to capture for cohort validation.
             logger.info({ sId: this.serviceId, rId: this.runId, ...payload }, '[V4_FLAG_TELEMETRY]');
             try { posthog?.capture?.('private_stt_v4_attempt', payload); } catch { /* posthog optional */ }
+
+            // Stage-B structured lifecycle events (allowlisted, no PII): ready on success;
+            // fallback + error when v4 init/load fell back to the v2-base floor.
+            const lifecycle = buildV4LifecycleProps({
+                finalEngine: this._engineType ?? null,
+                variant,
+                model: variantCfg?.MODEL_ID ?? null,
+                dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
+                requestedDevice: d?.provider === 'transformers-js-v4' ? 'webgpu' : 'cpu',
+                resolvedDevice: d?.runtime ?? null,
+                webgpuAvailable: d?.webgpuAvailable,
+                fallbackReason,
+                loadMs: loadMs ?? null,
+            });
+            if (fallbackReason) {
+                emitV4Fallback(lifecycle);
+                emitV4Error({ ...lifecycle, errorClass: fallbackReason });
+            } else {
+                emitV4Ready(lifecycle);
+            }
         } catch (error) {
             logger.debug?.({ error }, '[PrivateSTT] v4 flag telemetry emit failed');
         }
