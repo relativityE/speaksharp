@@ -151,20 +151,22 @@ export const SessionPage: React.FC = () => {
     };
 
     const baseStatus = getBaseStatus();
-    const trialSecondsRemaining = usageLimit?.trial_active
-        ? Math.max(0, usageLimit.trial_seconds_remaining ?? 0)
+    const privateSampleSecondsRemaining = usageLimit?.private_sample_available
+        ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
         : 0;
-    const trialStatusDetail = trialSecondsRemaining > 0
-        ? `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private transcription.`
+    const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
+        ? `Private sample: ${formatRemainingTime(privateSampleSecondsRemaining)} left for one local transcription sample. Browser transcription stays free.`
+        : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
+            ? 'Private sample used. Browser transcription stays free; upgrade for continued Private transcription.'
         : undefined;
-    const shouldShowTrialDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
+    const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 
     const visibleModelLoadingProgress =
         isProUser && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
-        detail: baseStatus.detail ?? (shouldShowTrialDetail ? trialStatusDetail : undefined),
+        detail: baseStatus.detail ?? (shouldShowPrivateSampleDetail ? privateSampleStatusDetail : undefined),
         progress: visibleModelLoadingProgress ?? undefined
     };
     return (

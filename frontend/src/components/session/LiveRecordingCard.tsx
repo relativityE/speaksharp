@@ -106,11 +106,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
     const privateModeDescription = isProUser
         ? 'Private transcription keeps transcription local after model setup. All audio processing remains local.'
-        : 'Private transcription unlocks with an active trial or Pro. It needs a one-time local model setup.';
+        : 'Private transcription unlocks with one free sample or paid Early Access. It needs a one-time local model setup.';
     const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
     const cloudModeDescription = canUseCloudStt
         ? 'Pro cloud transcription workflow. Audio is sent to the cloud STT provider.'
-        : 'Cloud STT is a Pro feature (unavailable for trial).';
+        : 'Cloud STT is a paid Early Access feature.';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
@@ -202,7 +202,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     </span>
                                     {!isProUser && (
                                         <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            Unlocks with an active trial or Pro
+                                            One sample, then paid Early Access
                                         </span>
                                     )}
                                 </DropdownMenuRadioItem>
@@ -219,7 +219,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     </span>
                                     {!canUseCloudStt && (
                                         <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            Pro feature (not available on trial)
+                                            Paid Early Access feature
                                         </span>
                                     )}
                                 </DropdownMenuRadioItem>
