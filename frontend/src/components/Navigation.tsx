@@ -196,6 +196,7 @@ const Navigation = () => {
                     </Badge>
                   )}
                   <IssueReportDialog
+                    userId={session.user?.id ?? null}
                     plan={effectiveSubscriptionStatus}
                     sttMode={reportSttMode}
                     runtimeState={reportRuntimeState}

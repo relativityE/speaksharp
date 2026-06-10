@@ -81,8 +81,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       });
       const snippet = transcriptSnippet.trim().slice(0, MAX_TRANSCRIPT_SNIPPET);
       const includeSnippet = includeTranscript && snippet.length > 0;
+      // Account context for support: attach the submitter's id ONLY for billing/
+      // account categories, where support must act on the specific account (refunds,
+      // cancellations, billing). General reports stay anonymous (privacy design preserved).
+      const supportNeedsAccountContext = category === 'billing' || category === 'account';
       await issueReportService.submit({
-        userId: userId ?? null,
+        userId: supportNeedsAccountContext ? (userId ?? null) : null,
         sessionId: params.sessionId ?? null,
         category,
         severity,
