@@ -37,10 +37,11 @@ import { STTEngine, validateEngine } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
 import posthog from 'posthog-js';
+import { ENV } from '@/config/TestFlags';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
-import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS } from '../sttConstants';
+import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS, PRIVATE_ENGINE_OVERRIDE_KEY } from '../sttConstants';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
@@ -57,8 +58,6 @@ declare global {
         __PRIVATE_STT_RUNTIME_DEBUG__?: PrivateRuntimeDecision & { selectedAt: string };
     }
 }
-
-const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
 
 /**
  * Publish the resolved runtime decision to a stable window debug object so the
@@ -89,8 +88,23 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
     return provider;
 }
 
+/**
+ * Whether the explicit private-engine override (`?privateEngine` / localStorage) may
+ * be honored. MERGE-SAFETY: this is a DEV / TEST / E2E affordance ONLY. In a production
+ * build a normal user must NOT be able to force an engine (e.g. v4) via a public URL or
+ * localStorage and thereby bypass the PostHog flag. `import.meta.env.DEV` is the dev
+ * server; `ENV.isTest` covers unit + E2E. Both are false in the production build, so a
+ * normal production user always falls through to the flag-gated resolver (v2-base when
+ * flags are off). `forceEngine` (a programmatic option, not publicly settable) is
+ * unaffected and still honored.
+ */
+function isPrivateOverrideContextAllowed(): boolean {
+    return import.meta.env.DEV === true || ENV.isTest;
+}
+
 function getPrivateEngineOverride(): PrivateEngineType | null {
     if (typeof window === 'undefined') return null;
+    if (!isPrivateOverrideContextAllowed()) return null;
 
     const queryValue = new URLSearchParams(window.location.search).get('privateEngine');
     const storedValue = window.localStorage.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
