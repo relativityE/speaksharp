@@ -21,27 +21,6 @@ needs a real GPU (Metal/WebGPU) **and** an authenticated session. This runbook m
 - A machine whose Chrome reports WebGPU: open `chrome://gpu` → "WebGPU: Hardware accelerated".
 - Pro test credentials in env: `PRO_TEST_EMAIL`, `PRO_TEST_PASSWORD`; `VITE_SUPABASE_URL` + anon key.
 
-## Run 0 — AUTHLESS v4 WebGPU value/quality (the drop-in) ⭐ preferred for the VALUE number
-Dev parameterized `frontend/src/benchmark/private-browser-dropin.ts` to instantiate
-`TransformersJSV4Engine` (base_q4 / distil_q4) via `?engine=v4&variant=...`. **No app auth/session
-needed** — it loads `private-dropin.html` directly. On a headed Chrome with a real GPU the v4
-worker auto-selects WebGPU.
-```bash
-git checkout dev/v4-integration && pnpm install
-pnpm dev          # vite serves frontend/private-dropin.html on :5174 (no auth)
-# second shell, HEADED Chrome on a real-WebGPU machine:
-HEADLESS=false DROPIN_ENGINE=v4 DROPIN_VARIANT=base_q4 FIXTURE_ID=h1_1 \
-  npx tsx scripts/private-browser-dropin-proof.mts
-# repeat DROPIN_VARIANT=distil_q4
-```
-**PASS evidence (artifact JSON):** `dropinEngine:v4`, the `[TransformersJSV4] Worker engine loaded`
-console event shows `device: webgpu` (NOT wasm), non-empty transcript, `wer`/`accuracyPct`, and
-decode timing → RTF. If the loaded device is `wasm-*`, WebGPU wasn't active → **INVALID** (check
-`chrome://gpu` first). This run gives the v4 **quality + speed** number without any login.
-
-(Runs A/B/C below use the full app-path harness and need the Pro test login — they cover the
-operational PostHog flag + the in-app fallback, not the raw decode value.)
-
 ## Run A — v4 selected by the real path + transcript quality (WebGPU)
 ```bash
 git checkout dev/v4-integration            # df19b164
