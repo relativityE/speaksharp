@@ -1636,11 +1636,16 @@ try {
 
   page.on('console', (message) => {
     const text = message.text();
-    if (/STT|Speech|Transcription|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
+    if (/STT|Speech|Transcription|Transformers|onnx|wasm|webgpu|\bv4\b|fallback|decode|transcrib|exceeded|EmptyTranscript|runtime|provider|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
       evidence.consoleEvents.push({ type: message.type(), text });
+      // Un-blind (diagnostic observability only): forward relevant browser console to the run log.
+      console.log(`[BROWSER:${message.type()}] ${text}`);
     }
   });
-  page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+  page.on('pageerror', (error) => {
+    evidence.pageErrors.push(error.message);
+    console.log(`[BROWSER:pageerror] ${error.message}`);
+  });
   page.on('requestfailed', (request) => evidence.failedRequests.push({
     url: request.url(),
     errorText: request.failure()?.errorText,
