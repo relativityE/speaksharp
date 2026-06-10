@@ -1,0 +1,113 @@
+name: v4 App-Path Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: STT fixture id to inject at the mic
+        required: true
+        default: h1_6
+      private_engine:
+        description: Private engine override for the proof
+        required: true
+        default: transformers-js-v4
+      headless:
+        description: Run Chromium headless
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - dev/v4-flag-ready
+    paths:
+      - '.github/workflows/v4-app-path-proof.yml'
+      - 'frontend/src/services/transcription/**'
+      - 'frontend/src/contracts/**'
+      - 'scripts/manual-stt-corpus-proof.mjs'
+      - 'tests/fixtures/stt-isomorphic/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v4-app-path-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v4-app-path-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BASE_URL: http://localhost:5174
+      VITE_USE_LIVE_DB: 'true'
+      VITE_SKIP_MSW: 'true'
+      VITE_AUTH_MODE: real
+      VITE_USE_MOCK_AUTH: 'false'
+      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+      PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+      STT_AUTH: existing
+      STT_MODES: private
+      STT_FIXTURES: ${{ github.event.inputs.fixture || 'h1_6' }}
+      STT_PRIVATE_ENGINE: ${{ github.event.inputs.private_engine || 'transformers-js-v4' }}
+      STT_INJECT_MIC_AUDIO: 'true'
+      STT_POST_PLAYBACK_WAIT_MS: '15000'
+      STT_FIRST_TEXT_TIMEOUT_MS: '45000'
+      HEADLESS: ${{ github.event.inputs.headless || 'true' }}
+      STT_CORPUS_OUT: ${{ runner.temp }}/v4-stage-b-apppath-proof.json
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Assert required live proof env
+        run: |
+          missing=0
+          for key in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY PRO_TEST_EMAIL PRO_TEST_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error title=Missing required env::$key is required for v4 app-path proof"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Start release-proof local app on 5174
+        run: |
+          pnpm dev:real > "${RUNNER_TEMP}/v4-vite.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/v4-vite.pid"
+          pnpm exec wait-on --timeout 120000 "$BASE_URL"
+
+      - name: Run v4 record-stop-save-history proof
+        run: node scripts/manual-stt-corpus-proof.mjs
+
+      - name: Print proof summary
+        if: always()
+        run: |
+          if [ -f "$STT_CORPUS_OUT" ]; then
+            node -e "const fs=require('fs'); const p=process.env.STT_CORPUS_OUT; const j=JSON.parse(fs.readFileSync(p,'utf8')); console.log(JSON.stringify({pass:j.pass, blockers:j.blockers, environmentProof:j.environmentProof, privateEngine:j.privateEngine, results:(j.results||[]).map(r=>({mode:r.mode,fixture:r.fixture,verdict:r.verdict,journeyPass:r.journeyPass,firstText:r.firstText,sessionPersisted:r.sessionPersisted,historyVisible:r.historyVisible,detailVisible:r.detailVisible,privateProvider:r.privateProvider,privateRuntime:r.privateRuntime,privateWebgpuAvailable:r.privateWebgpuAvailable,privateRuntimePath:r.privateRuntimePath,wer:r.wer,accuracyPct:r.accuracyPct}))}, null, 2));"
+          else
+            echo "No proof artifact written at $STT_CORPUS_OUT"
+          fi
+
+      - name: Upload v4 proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v4-app-path-proof
+          path: |
+            ${{ runner.temp }}/v4-stage-b-apppath-proof.json
+            ${{ runner.temp }}/v4-vite.log
+            blob-report/
+            playwright-report/
+            test-results/
+          retention-days: 14
