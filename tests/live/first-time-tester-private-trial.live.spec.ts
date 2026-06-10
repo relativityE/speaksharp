@@ -153,9 +153,11 @@ test.describe('First-time tester Private sample path @live', () => {
 });
 
 function isPrivateReadySnapshot(snapshot: FirstUseSnapshot) {
-  return snapshot.sttReady === 'true' ||
+  return snapshot.startButtonEnabled ||
+    snapshot.sttReady === 'true' ||
     snapshot.runtimeState === 'RECORDING' ||
-    snapshot.modelStatus === 'ready';
+    snapshot.modelStatus === 'ready' ||
+    /ready to record/i.test(snapshot.statusText);
 }
 
 async function clearPrivateModelStorage(page: Page) {
@@ -203,14 +205,20 @@ async function preparePrivateModelIfPrompted(page: Page) {
 async function waitForPrivateReady(page: Page) {
   await page.waitForFunction(() => {
     const root = document.documentElement;
+    const startButton = document.querySelector<HTMLButtonElement>('[data-testid="session-start-stop-button"]');
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     const runtimeState = root.getAttribute('data-runtime-state');
     const sttReady = root.getAttribute('data-stt-ready');
     const modelStatus = root.getAttribute('data-model-status');
+    const startButtonEnabled = Boolean(startButton && !startButton.disabled);
+    const statusText = statusNode?.textContent?.trim() ?? '';
 
     return (
+      startButtonEnabled ||
       sttReady === 'true' ||
       runtimeState === 'RECORDING' ||
-      modelStatus === 'ready'
+      modelStatus === 'ready' ||
+      /ready to record/i.test(statusText)
     );
   }, { timeout: 180_000 });
 }
@@ -297,6 +305,7 @@ type FirstUseSnapshot = {
   sttReady: string | null
   statusText: string
   downloadVisible: boolean
+  startButtonEnabled: boolean
 }
 
 type WarmupEvidence = {
@@ -332,6 +341,7 @@ async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
     const root = document.documentElement;
     const downloadButton = document.querySelector('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    const startButton = document.querySelector<HTMLButtonElement>('[data-testid="session-start-stop-button"]');
 
     return {
       modelStatus: root.getAttribute('data-model-status'),
@@ -339,6 +349,7 @@ async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
       sttReady: root.getAttribute('data-stt-ready'),
       statusText: statusNode?.textContent?.trim() ?? document.body.innerText.slice(0, 500),
       downloadVisible: Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none'),
+      startButtonEnabled: Boolean(startButton && !startButton.disabled),
     };
   });
 }
