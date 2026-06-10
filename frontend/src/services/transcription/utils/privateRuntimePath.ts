@@ -37,6 +37,7 @@ export type PrivateRuntimeKind = 'webgpu' | 'wasm-multithread' | 'wasm-singlethr
 export type PrivateRuntimeReason =
   | 'webgpu_available_and_model_cached'
   | 'webgpu_available_v4_flag'
+  | 'v4_forced_auto'
   | 'no_webgpu_cross_origin_isolated'
   | 'no_webgpu_or_isolation';
 
@@ -94,6 +95,8 @@ export interface ResolvePrivateRuntimePathOptions {
   v4?: {
     enabled: boolean;
     distilEnabled: boolean;
+    /** DEV/TEST-only: attempt v4 even WITHOUT WebGPU (headless-CI AUTO fallback proof). */
+    forceAuto?: boolean;
   };
 }
 
@@ -134,28 +137,30 @@ export async function resolvePrivateRuntimePath(
       webgpuAvailable = false;
     }
 
-    if (webgpuAvailable) {
-      // Both v4 tiers load via the worker model-param. distil_q4 is the WebGPU
-      // ACCURACY tier and requires its own explicit flag ON TOP of WebGPU; otherwise
-      // base_q4 is the WebGPU FLOOR. Exposure stays controlled (distil flag off by
-      // default); the implementation is capable of selecting either, now.
+    // v4 is selected on confirmed WebGPU (the conservative rollout). The DEV/TEST-only
+    // `forceAuto` knob ALSO selects v4 without WebGPU so headless CI can exercise the
+    // AUTO-path decode fallback (v4 attempt -> decode fail -> v2-base). forceAuto is gated
+    // in PrivateSTT (dev/test/E2E only) and is never set in production.
+    if (webgpuAvailable || options.v4.forceAuto) {
+      // Both v4 tiers load via the worker model-param. distil_q4 is the WebGPU ACCURACY tier
+      // and requires its own explicit flag ON TOP of WebGPU; otherwise base_q4 is the floor.
       const v4Variant: PrivSttV4VariantId = options.v4.distilEnabled ? 'distil_q4' : 'base_q4';
       return {
-        runtime: 'webgpu',
+        runtime: webgpuAvailable ? 'webgpu' : 'wasm-singlethread',
         provider: 'transformers-js-v4',
         v4Variant,
-        acceleration: 'gpu',
-        reason: 'webgpu_available_v4_flag',
-        webgpuAvailable: true,
+        acceleration: webgpuAvailable ? 'gpu' : 'cpu',
+        reason: webgpuAvailable ? 'webgpu_available_v4_flag' : 'v4_forced_auto',
+        webgpuAvailable,
         turboCached: options.turboModelCached,
         crossOriginIsolated: isolated,
-        wasmThreadCount: 0, // N/A on the GPU path.
+        wasmThreadCount: webgpuAvailable ? 0 : 1,
         fallbackAvailable: true, // v4 can safely fall back to the v2-base CPU floor.
         cloudFallbackAttempted: false,
       };
     }
 
-    // Flag on but no WebGPU → conservative first rollout stays on the v2-base floor.
+    // Flag on but no WebGPU (and not forced) → conservative rollout stays on the v2-base floor.
     return cpuDecision(isolated, false, options.turboModelCached);
   }
 

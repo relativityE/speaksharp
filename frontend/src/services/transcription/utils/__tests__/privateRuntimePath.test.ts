@@ -162,6 +162,19 @@ describe('resolvePrivateRuntimePath — v4 flag-gated tiering (controlled, base/
     expect(d.v4Variant).toBeNull();
   });
 
+  it('v4 enabled + forceAuto + NO WebGPU → v4 base_q4 on WASM (dev/test headless-CI fallback proof)', async () => {
+    setGpu(undefined);
+    setIsolated(false);
+    const d = await resolvePrivateRuntimePath({ webgpuPromotionAllowed: false, turboModelCached: false, v4: { enabled: true, distilEnabled: false, forceAuto: true } });
+    expect(d.provider).toBe('transformers-js-v4');     // AUTO path attempts v4 without WebGPU
+    expect(d.v4Variant).toBe('base_q4');
+    expect(d.runtime).toBe('wasm-singlethread');
+    expect(d.reason).toBe('v4_forced_auto');
+    expect(d.webgpuAvailable).toBe(false);
+    expect(d.acceleration).toBe('cpu');
+    expect(d.fallbackAvailable).toBe(true);            // still falls back to v2-base on failure
+  });
+
   it('v4 enabled + WebGPU detection throws → v2-base floor (never strands)', async () => {
     setGpu({ requestAdapter: vi.fn().mockRejectedValue(new Error('boom')) });
     setIsolated(false);

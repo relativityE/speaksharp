@@ -46,6 +46,7 @@ import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/s
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
 import { getV4FlagState } from '../privateV4Flags';
+import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
 // Stale import removed
 
@@ -267,10 +268,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // is omitted, so the resolver returns the EXACT v2/CPU decision as before —
         // flag-off is byte-identical to the v2-base default (no v4 ever selected).
         const v4Flags = getV4FlagState();
+        // DEV/TEST-only force-AUTO knob: attempt v4 on the AUTO path even without WebGPU so
+        // headless CI can prove the decode-fallback contract. Inert in production.
+        const forceAuto = getV4ExperimentOverrides().forceAuto;
         const decision = await resolvePrivateRuntimePath({
             webgpuPromotionAllowed: false,
             turboModelCached: false,
-            v4: v4Flags.v4Enabled ? { enabled: true, distilEnabled: v4Flags.distilEnabled } : undefined,
+            v4: (v4Flags.v4Enabled || forceAuto)
+                ? { enabled: true, distilEnabled: v4Flags.distilEnabled, forceAuto }
+                : undefined,
         });
         this.runtimePath = decision;
         publishPrivateRuntimeDebug(decision);
