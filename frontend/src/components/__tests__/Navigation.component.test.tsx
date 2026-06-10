@@ -174,6 +174,39 @@ describe('Navigation', () => {
                 transcriptExcerpt: 'User chose to include this transcript',
             }));
         });
+
+        it('discloses and includes account context for billing reports only', async () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user', email: 'user@example.com' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+
+            renderNavigation('/pricing');
+
+            fireEvent.click(screen.getByTestId('nav-report-issue-button'));
+            fireEvent.change(screen.getByTestId('issue-report-category'), {
+                target: { value: 'billing' },
+            });
+            expect(screen.getByText(/Account support report/i)).toBeInTheDocument();
+            expect(screen.getByText(/include your account id/i)).toBeInTheDocument();
+            expect(screen.queryByText(/Anonymous report/i)).not.toBeInTheDocument();
+
+            fireEvent.change(screen.getByTestId('issue-report-title'), {
+                target: { value: 'Billing portal issue' },
+            });
+            fireEvent.change(screen.getByTestId('issue-report-description'), {
+                target: { value: 'I need help managing my billing for paid early access.' },
+            });
+            fireEvent.click(screen.getByTestId('issue-report-submit'));
+
+            await waitFor(() => {
+                expect(issueReportService.submit).toHaveBeenCalled();
+            });
+            expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
+                userId: 'test-user',
+                category: 'billing',
+            }));
+        });
     });
 
     describe('Navigation Links', () => {

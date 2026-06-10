@@ -56,6 +56,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
+  const supportNeedsAccountContext = category === 'billing' || category === 'account';
 
   const reset = () => {
     setCategory('stt');
@@ -84,7 +85,6 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       // Account context for support: attach the submitter's id ONLY for billing/
       // account categories, where support must act on the specific account (refunds,
       // cancellations, billing). General reports stay anonymous (privacy design preserved).
-      const supportNeedsAccountContext = category === 'billing' || category === 'account';
       await issueReportService.submit({
         userId: supportNeedsAccountContext ? (userId ?? null) : null,
         sessionId: params.sessionId ?? null,
@@ -182,9 +182,19 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           </label>
 
           <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-            Anonymous report — we do not collect your name, email, or account id. Automatically
-            included: URL, route, browser, viewport, timezone, release-proof config, plan, STT mode,
-            and the last Sentry event id when available (used only to correlate with our logs).
+            {supportNeedsAccountContext ? (
+              <>
+                Account support report — we include your account id so we can help with billing or access.
+                Automatically included: URL, route, browser, viewport, timezone, release-proof config,
+                plan, STT mode, and the last Sentry event id when available (used only to correlate with our logs).
+              </>
+            ) : (
+              <>
+                Anonymous report — we do not collect your name, email, or account id. Automatically
+                included: URL, route, browser, viewport, timezone, release-proof config, plan, STT mode,
+                and the last Sentry event id when available (used only to correlate with our logs).
+              </>
+            )}
           </div>
 
           <label className="flex items-start gap-2 text-sm">

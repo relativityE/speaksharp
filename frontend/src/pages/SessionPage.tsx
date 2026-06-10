@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -143,7 +144,7 @@ export const SessionPage: React.FC = () => {
         if (showAnalyticsPrompt) {
             return {
                 type: 'ready',
-                message: '✓ Session saved. Click Analytics above to review.'
+                message: '✓ Session saved. Review it in Analytics when you are ready.'
             } as SttStatus;
         }
         return sttStatus as SttStatus;
@@ -183,6 +184,32 @@ export const SessionPage: React.FC = () => {
             {/* Status Bar - Spans full width of the main content area */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 <StatusNotificationBar status={displayStatus} />
+                {showAnalyticsPrompt && (
+                    <div
+                        className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        data-testid="post-save-review-actions"
+                    >
+                        <span className="font-medium text-foreground/80">
+                            Your session is saved. Review trends, transcript detail, and coaching notes in Analytics.
+                        </span>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            {mode === 'native' && isProUser && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setMode('private')}
+                                    data-testid="post-save-private-cta"
+                                >
+                                    Set up Private for cleaner local transcription
+                                </Button>
+                            )}
+                            <Button asChild size="sm" data-testid="post-save-review-session-link">
+                                <Link to="/analytics">View analytics</Link>
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}

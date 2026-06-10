@@ -234,7 +234,7 @@ export const generateSessionPdf = async (
     if (session.ai_suggestions) {
       doc.addPage();
       doc.setFontSize(16);
-      doc.text('AI-Powered Suggestions', 14, 22);
+      doc.text('AI Coaching Suggestions', 14, 22);
       doc.setFontSize(11);
 
       let y = 34;

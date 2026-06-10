@@ -65,9 +65,8 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText(/mins of practice per month/)).toBeInTheDocument();
-            expect(screen.getByText('Starter analytics')).toBeInTheDocument();
+            expect(screen.getByText('Core practice feedback metrics')).toBeInTheDocument();
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
-            expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
         });
 
@@ -75,11 +74,11 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
-            expect(screen.getByText('Practice analytics and trends')).toBeInTheDocument();
+            expect(screen.getByText('Practice analytics, trends, and coaching reports')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
             expect(screen.getByText('Private transcription after one-time local model setup')).toBeInTheDocument();
             expect(screen.getByText('Cloud transcription when enabled for Pro workflows')).toBeInTheDocument();
-            expect(screen.getByText('More semantic AI coaching and PDF export capacity')).toBeInTheDocument();
+            expect(screen.getByText('Semantic AI coaching and expanded PDF export capacity')).toBeInTheDocument();
         });
 
         it('should render CTA buttons', () => {
