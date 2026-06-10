@@ -20,6 +20,8 @@ function createMockSupabase(options: {
     can_start: boolean;
     subscription_status?: string;
     is_pro?: boolean;
+    private_sample_available?: boolean;
+    private_sample_seconds_remaining?: number;
     error?: string;
   } | null;
   usageError?: { message: string } | null;
@@ -156,14 +158,14 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Cloud STT is available as a Pro feature. Trial access includes Private STT.",
+        "Cloud STT is a paid Early Access feature. Browser transcription is still available.",
       );
       assertEquals(assemblyAiCalled, false);
     },
   );
 
   await t.step(
-    "denies active trial users before generating a Cloud STT token",
+    "denies Private sample users before generating a Cloud STT token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -171,7 +173,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              token: "active-trial-token",
+                token: "private-sample-token",
               expires_in_seconds: 600,
             }),
             { status: 200 },
@@ -180,15 +182,17 @@ Deno.test("assemblyai-token edge function", async (t) => {
       };
 
       const res = await handler(
-        request("Bearer active-trial-token"),
+        request("Bearer private-sample-token"),
         createMockSupabase({
-          user: { id: "active-trial-user" },
+          user: { id: "private-sample-user" },
           subscriptionStatus: "free",
-          trialExpiresAt: "2999-01-01T00:00:00.000Z",
+          trialExpiresAt: null,
           usageLimit: {
             can_start: true,
-            subscription_status: "pro",
-            is_pro: true,
+            subscription_status: "free",
+            is_pro: false,
+            private_sample_available: true,
+            private_sample_seconds_remaining: 300,
           },
         }),
         fetchImpl,
@@ -199,14 +203,14 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Cloud STT is available as a Pro feature. Trial access includes Private STT.",
+        "Cloud STT is a paid Early Access feature. Browser transcription is still available.",
       );
       assertEquals(assemblyAiCalled, false);
     },
   );
 
   await t.step(
-    "denies expired trial users before generating a Cloud STT token",
+    "denies users after the Private sample is unavailable before generating a Cloud STT token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -215,15 +219,17 @@ Deno.test("assemblyai-token edge function", async (t) => {
       };
 
       const res = await handler(
-        request("Bearer expired-trial-token"),
+        request("Bearer sample-used-token"),
         createMockSupabase({
-          user: { id: "expired-trial-user" },
+          user: { id: "sample-used-user" },
           subscriptionStatus: "free",
-          trialExpiresAt: "2024-01-01T00:00:00.000Z",
+          trialExpiresAt: null,
           usageLimit: {
             can_start: true,
             subscription_status: "free",
             is_pro: false,
+            private_sample_available: false,
+            private_sample_seconds_remaining: 0,
           },
         }),
         fetchImpl,
@@ -234,7 +240,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Cloud STT is available as a Pro feature. Trial access includes Private STT.",
+        "Cloud STT is a paid Early Access feature. Browser transcription is still available.",
       );
       assertEquals(assemblyAiCalled, false);
     },

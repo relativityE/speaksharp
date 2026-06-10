@@ -44,7 +44,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 |---|---|---|
 | Private v2 | Controlled, benchmarkable local STT path | In our control; suitable for benchmark automation once current artifacts are refreshed. |
 | Private v4 | Controlled, benchmarkable worker-backed local STT path | In our control; WIP benchmark evidence must replace mini-corpus seed data. |
-| Cloud | Controlled, provider-backed STT path | Current strongest/pristine STT candidate. Cloud-only Pro artifact run `26762814579` passed live transcript, stop/save, history/detail, AI suggestions, and PDF export. Pro feature entitlement required; unavailable for trial. |
+| Cloud | Controlled, provider-backed STT path | Current strongest/pristine STT candidate. Cloud-only Pro artifact run `26762814579` passed live transcript, stop/save, history/detail, AI suggestions, and PDF export. Paid Early Access entitlement required. |
 | Native Browser | Browser-dependent convenience STT | Chrome desktop recommended. Do not use Native fixture/WER as release benchmark evidence unless the exact audio route is proven. |
 
 ## Known Limitations
@@ -55,9 +55,9 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` for human tester copy. The tester path is:
 
-1. Fresh account with automatic one-hour trial.
-2. Private model download/setup if prompted.
-3. Private recording, transcript, stop/save, history/detail, analytics.
+1. Fresh account starts with free Browser transcription.
+2. Private sample model download/setup if prompted.
+3. Private sample recording, transcript, stop/save, history/detail, analytics.
 4. Custom word added through UI and spoken during recording.
 5. PDF export from saved session.
 6. Optional Browser transcription in Chrome with browser-dependent wording.

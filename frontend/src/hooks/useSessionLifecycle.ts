@@ -12,7 +12,7 @@ import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
-import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isActiveTrialProfile, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
@@ -62,11 +62,9 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    const hasServerTrialState = typeof usageLimit?.trial_active === 'boolean';
-    const hasActiveTrialEntitlement = hasServerTrialState
-        ? usageLimit.trial_active === true
-        : isActiveTrialProfile(profile);
-    const canUsePrivateStt = isProUser || hasActiveTrialEntitlement;
+    const privateSampleRemainingSeconds = Math.max(0, usageLimit?.private_sample_seconds_remaining ?? 0);
+    const hasPrivateSampleEntitlement = usageLimit?.private_sample_available === true && privateSampleRemainingSeconds > 0;
+    const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
     const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
     const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
@@ -377,11 +375,19 @@ export const useSessionLifecycle = () => {
     }, []);
 
 
-    // Tier enforcement: Auto-stop and 5-minute warning for any tier with a finite daily cap.
+    // Tier enforcement: auto-stop paid practice limits and the one-session
+    // unpaid Private sample. The sample has its own countdown/copy so users do
+    // not confuse it with the free Browser path.
     useEffect(() => {
         if (!isVerified || !usageLimit) return;
 
-        const sourceRemaining = isProUser && typeof usageLimit.daily_remaining === 'number'
+        const isPrivateSampleRecording = effectiveMode === 'private'
+            && !isProUser
+            && usageLimit.private_sample_available === true
+            && typeof usageLimit.private_sample_seconds_remaining === 'number';
+        const sourceRemaining = isPrivateSampleRecording
+            ? usageLimit.private_sample_seconds_remaining
+            : isProUser && typeof usageLimit.daily_remaining === 'number'
             ? usageLimit.daily_remaining
             : usageLimit.remaining_seconds;
 
@@ -389,17 +395,19 @@ export const useSessionLifecycle = () => {
 
         if (isListening && typeof sourceRemaining === 'number' && sourceRemaining > 0) {
             const remaining = sourceRemaining - elapsedTime;
+            const warningThresholdSeconds = isPrivateSampleRecording ? 60 : 300;
 
-            // 5-minute warning (300 seconds)
-            if (remaining > 0 && remaining <= 300) {
+            if (remaining > 0 && remaining <= warningThresholdSeconds) {
                 const minutes = Math.ceil(remaining / 60);
-                const tierLabel = isProUser ? 'Pro ' : '';
-                const warningMsg = `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${tierLabel}practice limit.`;
+                const warningMsg = isPrivateSampleRecording
+                    ? '1 minute left in your Private sample. We’ll stop and save when time runs out.'
+                    : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
                     posthog.capture('session_limit_warning', {
                         remaining_seconds: remaining,
                         tier: isProUser ? 'pro' : 'free',
+                        limit_type: isPrivateSampleRecording ? 'private_sample' : 'daily',
                         ...getSessionCoachingExperimentProperties(),
                     });
                 }
@@ -409,17 +417,21 @@ export const useSessionLifecycle = () => {
 
                 logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
 
-                const isMonthly = usageLimit.monthly_remaining <= 0;
-                setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
+                if (!isPrivateSampleRecording) {
+                    const isMonthly = usageLimit.monthly_remaining <= 0;
+                    setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
+                }
 
                 void handleStartStopRef.current?.({
-                    stopReason: isProUser
+                    stopReason: isPrivateSampleRecording
+                        ? 'Your Private sample ended. We stopped and saved your session. Browser transcription is still available.'
+                        : isProUser
                         ? "⛔ Pro daily practice limit reached."
                         : "⛔ Daily usage limit reached."
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
+    }, [elapsedTime, effectiveMode, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);
