@@ -181,21 +181,37 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!isProUser}
                                     title={privateModeDescription}
                                 >
-                                    Private
+                                    <span className="flex items-center gap-1.5">
+                                        {!isProUser && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Private
+                                    </span>
+                                    {!isProUser && (
+                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                            Unlocks with an active trial or Pro
+                                        </span>
+                                    )}
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
                                     title={cloudModeDescription}
                                 >
-                                    Cloud
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Cloud
+                                    </span>
+                                    {!canUseCloudStt && (
+                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                            Pro feature (not available on trial)
+                                        </span>
+                                    )}
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
