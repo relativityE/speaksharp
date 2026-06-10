@@ -122,6 +122,11 @@ function getPrivateEngineOverride(): PrivateEngineType | null {
 /**
  * Dual-engine Private STT facade
  */
+/** Upper bound on a v4 AUTO-path decode. A base_q4-on-WASM decode can HANG and never return;
+ *  past this bound we treat it as a failure and fall back to v2-base. Kept comfortably under the
+ *  app-path proof's first-text window so the v2 re-transcribe still fits inside it. */
+const V4_AUTO_DECODE_TIMEOUT_MS = 40_000;
+
 export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {
     public readonly type: EngineType = 'transformers-js'; // Primary type for this facade
 
@@ -389,15 +394,21 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         if (!this.engine) {
             return { isOk: false, error: new Error('PrivateSTT not initialized.') };
         }
-        const result = await this.engine.transcribe(audio);
-
-        // A flagged v4 engine on the AUTO path "produced nothing" if it ERRORED or returned an
-        // EMPTY / whitespace transcript. base_q4 on the WASM backend can fail SILENTLY
-        // (isOk:true, data:"" — e.g. the onnxruntime "invalid data location" condition) instead
-        // of throwing, so an empty SUCCESS must trigger fallback too — otherwise the user is
-        // stranded with an empty session. Genuine silence is safe: v2 also returns empty, so we
-        // never emit a wrong transcript. The strict explicit-override path never sets the flag.
         const v4Auto = this.v4AutoFallbackEligible && this._engineType === 'transformers-js-v4';
+
+        // On the AUTO path, BOUND the v4 decode: a base_q4-on-WASM decode can HANG and never
+        // return (no error, no result), which would strand the user because the fallback only
+        // runs AFTER transcribe resolves. Race it against a timeout so a stuck decode becomes a
+        // failure we can fall back from. v2 / strict-override paths call transcribe directly.
+        const result = v4Auto
+            ? await this.transcribeBounded(this.engine, audio, V4_AUTO_DECODE_TIMEOUT_MS)
+            : await this.engine.transcribe(audio);
+
+        // A flagged v4 engine on the AUTO path "produced nothing" if it ERRORED / TIMED OUT or
+        // returned an EMPTY / whitespace transcript. base_q4 on WASM can fail SILENTLY
+        // (isOk:true, data:"") or hang, so all three must trigger fallback — otherwise the user
+        // is stranded. Genuine silence is safe: v2 also returns empty. Strict override never
+        // sets the flag, so it is unaffected.
         const v4Empty = v4Auto && result.isOk && result.data.trim().length === 0;
         const v4ProducedNothing = v4Auto && (!result.isOk || v4Empty);
 
@@ -418,6 +429,20 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return this.engine.transcribe(audio);
         }
         return result;
+    }
+
+    /** Race a v4 decode against a timeout so a HUNG WASM decode degrades to a failure we can fall
+     *  back from (AUTO path only). The timeout never throws; it resolves to a failure Result. */
+    private async transcribeBounded(engine: IPrivateSTTEngine, audio: Float32Array, ms: number): Promise<Result<string, Error>> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<Result<string, Error>>((resolve) => {
+            timer = setTimeout(() => resolve({ isOk: false, error: new Error(`v4 decode exceeded ${ms}ms`) }), ms);
+        });
+        try {
+            return await Promise.race([engine.transcribe(audio), timeout]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
     }
 
     /**

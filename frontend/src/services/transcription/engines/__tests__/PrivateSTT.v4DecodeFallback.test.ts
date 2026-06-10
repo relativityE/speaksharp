@@ -138,6 +138,29 @@ describe('PrivateSTT v4 decode-time fallback (auto/flag path)', () => {
         expect(pstt.getEngineType()).toBe('transformers-js'); // swapped to v2-base
     });
 
+    it('v4 decode HANG (never resolves) -> times out -> falls back to v2-base', async () => {
+        const audio = new Float32Array([0.1, 0.2, 0.3]);
+        // base_q4 on WASM can hang: transcribe never resolves. Without a bound the user is
+        // stranded (the fallback only runs after transcribe returns). The decode timeout fixes it.
+        v4Transcribe.mockReturnValue(new Promise<never>(() => { /* never resolves */ }));
+        tjTranscribe.mockResolvedValue({ isOk: true, data: 'v2 after timeout' });
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('transformers-js-v4');
+
+        vi.useFakeTimers();
+        const p = pstt.transcribe(audio);
+        await vi.advanceTimersByTimeAsync(41_000); // past the 40s v4 decode bound
+        vi.useRealTimers();
+        const result = await p;
+
+        expect(result, 'a hung v4 decode must not strand the user').toEqual({ isOk: true, data: 'v2 after timeout' });
+        expect(tjTranscribe).toHaveBeenCalledWith(audio);
+        expect(pstt.getEngineType()).toBe('transformers-js');
+    });
+
     it('only falls back ONCE (no loop) if v2 also fails', async () => {
         v4Transcribe.mockResolvedValue({ isOk: false, error: new Error('invalid data location') });
         tjTranscribe.mockResolvedValue({ isOk: false, error: new Error('v2 decode also failed') });
