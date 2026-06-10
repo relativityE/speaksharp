@@ -18,6 +18,7 @@ import {
     emitV4Fallback,
     emitV4SessionSaved,
     emitV4Error,
+    buildV4LifecycleProps,
     V4_TELEMETRY_EVENTS,
     V4_TELEMETRY_ALLOWED_PROPS,
 } from '../privateV4Telemetry';
@@ -144,5 +145,53 @@ describe('emitV4Telemetry — events + capture', () => {
     it('never throws when posthog.capture throws (telemetry must not break the STT path)', () => {
         captureMock.mockImplementationOnce(() => { throw new Error('posthog down'); });
         expect(() => emitV4Ready({ variant: 'base_q4' })).not.toThrow();
+    });
+});
+
+describe('buildV4LifecycleProps — pure mapper (allowlisted, fallbackAttempted derived)', () => {
+    it('maps a successful v4 decision to allowlisted props (fallbackAttempted=false)', () => {
+        const props = buildV4LifecycleProps({
+            finalEngine: 'transformers-js-v4',
+            variant: 'base_q4',
+            model: 'onnx-community/whisper-base.en',
+            dtype: '{"encoder_model":"fp32","decoder_model_merged":"q4"}',
+            requestedDevice: 'webgpu',
+            resolvedDevice: 'webgpu',
+            webgpuAvailable: true,
+            fallbackReason: null,
+            loadMs: 1200,
+        });
+        expect(props).toEqual({
+            engine: 'transformers-js-v4',
+            variant: 'base_q4',
+            model: 'onnx-community/whisper-base.en',
+            dtype: '{"encoder_model":"fp32","decoder_model_merged":"q4"}',
+            requestedDevice: 'webgpu',
+            resolvedDevice: 'webgpu',
+            webgpuAvailable: true,
+            fallbackAttempted: false,
+            fallbackReason: null,
+            loadMs: 1200,
+        });
+    });
+
+    it('derives fallbackAttempted=true when a fallback reason is present', () => {
+        const props = buildV4LifecycleProps({
+            finalEngine: 'transformers-js',
+            variant: 'base_q4',
+            fallbackReason: 'v4_init_failed',
+            loadMs: 50,
+        });
+        expect(props.fallbackAttempted).toBe(true);
+        expect(props.fallbackReason).toBe('v4_init_failed');
+        expect(props.engine).toBe('transformers-js');
+    });
+
+    it('omits undefined inputs and carries no key outside the allowlist', () => {
+        const props = buildV4LifecycleProps({ variant: 'base_q4' });
+        for (const key of Object.keys(props)) {
+            expect(V4_TELEMETRY_ALLOWED_PROPS as readonly string[]).toContain(key);
+        }
+        expect(props).not.toHaveProperty('requestedDevice'); // undefined input dropped
     });
 });
