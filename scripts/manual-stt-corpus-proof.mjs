@@ -1420,8 +1420,17 @@ async function runFixture(page, mode, fixture) {
   }, null, { timeout: 45_000 }).catch(() => undefined);
   const rawHistoryVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
   result.historyVisible = Boolean(result.sessionPersisted && rawHistoryVisible);
-  const detailButton = page.getByTestId(/^open-session-detail-/).first();
-  const rawDetailVisible = await detailButton.isVisible({ timeout: 5_000 }).catch(() => false);
+  const detailButtons = page.getByTestId(/^open-session-detail-/);
+  let detailButton = null;
+  const detailButtonCount = await detailButtons.count().catch(() => 0);
+  for (let i = 0; i < detailButtonCount; i += 1) {
+    const candidate = detailButtons.nth(i);
+    if (await candidate.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      detailButton = candidate;
+      break;
+    }
+  }
+  const rawDetailVisible = Boolean(detailButton);
   const analyticsBody = compact(await page.locator('body').textContent().catch(() => ''));
   result.analyticsBodySample = analyticsBody.slice(0, 1000);
   result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, selectedForSaveTranscript);
