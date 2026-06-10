@@ -47,9 +47,9 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
         <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
         Free plan support
       </div>
-      <p className="text-sm font-semibold text-foreground">Free may include privacy-respecting sponsor messages outside practice.</p>
+      <p className="text-sm font-semibold text-foreground">Free practice stays focused on your speaking work.</p>
       <p className="mt-2 text-sm text-muted-foreground">
-        Your transcript and speaking data are never used for ads. Pro is ad-free.
+        Pro supports expanded limits and capacity when you need more room to practice.
       </p>
       {arePaymentsEnabled() && (
         <Button variant="outline" size="sm" className="mt-4" onClick={handleUpgrade}>

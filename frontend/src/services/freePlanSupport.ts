@@ -1,4 +1,4 @@
-import { ADS_CONFIG } from '@/config';
+import { FREE_PLAN_SUPPORT_CONFIG } from '@/config';
 
 export type FreePlanSupportPlacement =
   | 'landing-lower'
@@ -18,7 +18,7 @@ const ALLOWED_PLACEMENTS: ReadonlySet<FreePlanSupportPlacement> = new Set([
 ]);
 
 export function canShowFreePlanSupport({
-  enabled = ADS_CONFIG.ENABLE_FREE_PLAN_SUPPORT,
+  enabled = FREE_PLAN_SUPPORT_CONFIG.ENABLE_FREE_PLAN_SUPPORT,
   tier,
   placement,
   route,

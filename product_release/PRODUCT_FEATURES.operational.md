@@ -30,7 +30,7 @@ Use these groups when reviewing the full feature list. They keep launch-critical
 | **Real-Time Coaching** | Live transcript, WPM, fillers, pauses, clarity, SpeakSharp Score, live coaching card |
 | **Post-Session Coaching** | Semantic AI suggestions, analytics/history, PDF reports |
 | **Habit & Progress** | SpeakSharp Score movement, goals, streaks, live-coaching targets, future guided drills |
-| **Conversion & Trust** | Free-to-Pro, privacy positioning, sponsor support, watermark/referral loop |
+| **Conversion & Trust** | Free-to-Pro, privacy positioning, free-plan support, watermark/referral loop |
 | **Access & Reliability** | Usage limits, quotas, browser support, accessibility, design system |
 | **Future Expansion** | Live meeting companion, full referral proof loop |
 
@@ -73,7 +73,7 @@ This table keeps product claims honest before product release. A feature can app
 | **Analytics & History** | Current | Saved session review, progress trends, transcript/session details, engine metadata, PDF report generation, and session-over-session comparison. |
 | **Branded PDF Reports** | Current | Exported reports include SpeakSharp branding/watermarking for Free and Pro users. Reports should support review, recall, and word-of-mouth discovery without exposing unsupported claims. |
 | **Free-To-Pro Conversion** | Current funnel | Free baseline experience should be useful and honest while nudging toward Pro only in relevant, non-intrusive surfaces. |
-| **Privacy-First Free Plan Support** | Infrastructure / limited | Free may include privacy-respecting sponsor/support messaging outside private practice surfaces. Transcript and speaking data must never be used for ads. |
+| **Free-To-Pro Upgrade Support** | Infrastructure / limited | Free-to-Pro guidance can appear outside private practice surfaces when explicitly enabled. Practice surfaces must stay focused on the user's speaking work. |
 | **Score-Based Gamification** | Accepted current path | SpeakSharp Score, confidence states, next target, and live coaching actions give the current Session experience a motivating progress loop. This is the first version of gamification, not a validated public-speaking grade. |
 | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through score movement, streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
 | **Live Meeting Companion** | Planned post-soft release | Compact real-time coaching mode intended for live calls or overlays, such as Zoom/Teams/Meet workflows. Not part of the current soft-release product claim. |
@@ -129,7 +129,7 @@ These are accepted product directions used to vet the current offering and futur
 | Access & Reliability | **Usage Limits / Quotas** | Current | Enforces daily/monthly practice limits by tier. | Must fail closed if quota service is unavailable. |
 | Access & Reliability | **Daily Usage Visibility** | Planned post-soft release | User-facing progress/status for remaining daily practice time. | Should reduce surprise at limits without making the app feel quota-first. |
 | Conversion & Trust | **Upgrade / Conversion Funnel** | Current | Free-to-Pro upgrade path through pricing, analytics, and relevant feature gates. | Basic paid checkout remains deferred/future-only. |
-| Conversion & Trust | **Privacy-First Free Plan Support** | Infrastructure / limited | House/sponsor support messaging for Free users outside private practice surfaces. | No third-party ad vendors before privacy/vendor review. No transcript/session data for ads. |
+| Conversion & Trust | **Free-To-Pro Upgrade Support** | Infrastructure / limited | Upgrade guidance for Free users outside private practice surfaces. | Keep disabled unless explicitly enabled, and keep private practice surfaces free of conversion messaging. |
 | Conversion & Trust | **Landing Social Proof** | Planned, content-dependent | Real user/tester quotes or outcome snippets for first-time visitor trust. | Must use real source material; do not invent testimonials. |
 | Conversion & Trust | **Invite / Share Hook** | Planned post-soft release | Simple entry point to share a report or progress moment. | Should build on branded reports and Referral Proof Loop rather than becoming a disconnected CTA. |
 | Future Expansion | **Live Meeting Companion** | Planned | Overlay-friendly companion mode for live meeting support. | Planned after soft release; not current release scope. |
@@ -189,7 +189,7 @@ Avoid:
 - Claiming Native Browser STT is benchmark-grade without live evidence.
 - Claiming the SpeakSharp Score is a validated public-speaking assessment.
 - Claiming Cloud STT is included in trial.
-- Claiming ads/sponsor support use transcript or speaking data.
+- Claiming free-plan support messages use transcript or speaking data.
 - Presenting planned Live Meeting Companion or packaged Guided Habit Pathways as shipped.
 
 ## Related Operational Docs

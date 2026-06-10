@@ -79,7 +79,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'How Data Is Used',
-        body: 'Session data is used to provide transcripts, coaching, analytics, reports, reliability monitoring, and support. Transcript data is not used for ads.',
+        body: 'Session data is used to provide transcripts, coaching, analytics, reports, reliability monitoring, and support.',
       },
       {
         heading: 'Service Providers',

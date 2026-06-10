@@ -77,7 +77,12 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    const defaultMode: TranscriptionMode = shouldForceNativeMode ? 'native' : 'private';
+    // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
+    // on the instant Browser/Native path so a new user never hits the Private model-
+    // setup wall before their first transcript. Private stays available as an explicit
+    // user-selected mode. No mode persistence in this release — every new session
+    // defaults to Native; a Pro user opts into Private per session.
+    const defaultMode: TranscriptionMode = 'native';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
@@ -112,11 +117,11 @@ export const useSessionLifecycle = () => {
 
     const isListening = useSessionStore(state => state.isListening);
     const history = useSessionStore(state => state.history);
-    const shouldPromoteNativeDefaultToPrivate = profileReadyForStt
-        && !isListening
-        && !shouldForceNativeMode
-        && sttMode === 'native'
-        && modeSourceRef.current === null;
+    // First-use trust fix (Option A): do NOT auto-promote a fresh Native default to
+    // Private. Private is now an explicit user choice, so a new user is never pushed
+    // into the model-setup wall before their first transcript. Kept as a named flag
+    // so the dependent effects and their dependency arrays are otherwise unchanged.
+    const shouldPromoteNativeDefaultToPrivate = false;
 
     const speechRecognition = useSpeechRecognition(speechConfig);
     const {
