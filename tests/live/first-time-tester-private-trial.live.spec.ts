@@ -42,7 +42,9 @@ test.describe('First-time tester Private sample path @live', () => {
       win.__RC_GATE_EVENTS__ = [];
       win.__SS_E2E__ = {
         ...(win.__SS_E2E__ ?? {}),
-        isActive: true,
+        // Keep the event sink for evidence, but do not activate E2E mock
+        // enforcement. This proof must exercise the real Private engine path.
+        isActive: false,
         pushEvent(event, payload) {
           win.__RC_GATE_EVENTS__?.push({ event, payload, timestamp: Date.now() });
         },
