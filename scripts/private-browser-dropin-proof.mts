@@ -14,10 +14,6 @@ const __dirname = path.dirname(__filename);
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:5174';
 const FIXTURE_ID = process.env.FIXTURE_ID || 'h1_1';
 const HEADLESS = process.env.HEADLESS === 'true';
-// Engine under test in the AUTHLESS drop-in. DROPIN_ENGINE=v4 + DROPIN_VARIANT=base_q4|distil_q4
-// proves v4 WebGPU value WITHOUT app auth (headed Chrome on a real GPU auto-selects WebGPU).
-const DROPIN_ENGINE = process.env.DROPIN_ENGINE === 'v4' ? 'v4' : 'v2';
-const DROPIN_VARIANT = process.env.DROPIN_VARIANT === 'distil_q4' ? 'distil_q4' : 'base_q4';
 const PLAYBACK_GRACE_MS = Number(process.env.PLAYBACK_GRACE_MS || 750);
 const POST_PLAYBACK_WAIT_MS = Number(process.env.POST_PLAYBACK_WAIT_MS || 1500);
 const OUT = process.env.OUT || `/private/tmp/speaksharp-private-browser-dropin-${FIXTURE_ID}-${Date.now()}.json`;
@@ -54,10 +50,8 @@ const evidence: Record<string, unknown> = {
   startedAt: new Date().toISOString(),
   baseUrl: BASE_URL,
   fixture: FIXTURE_ID,
-  dropinEngine: DROPIN_ENGINE,
-  dropinVariant: DROPIN_ENGINE === 'v4' ? DROPIN_VARIANT : 'v2-base',
   microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
-  comparator: `browser-dropin-${DROPIN_ENGINE === 'v4' ? 'transformersjs-v4-' + DROPIN_VARIANT : 'transformers-js-v2'}-engine-only-no-session-controller-store-save`,
+  comparator: 'browser-dropin-transformers-js-engine-only-no-session-controller-store-save',
   consoleEvents: [],
   pageErrors: [],
   failedRequests: [],
@@ -95,7 +89,7 @@ try {
     });
   });
 
-  await page.goto(`${BASE_URL}/private-dropin.html?engine=${DROPIN_ENGINE}&variant=${DROPIN_VARIANT}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE_URL}/private-dropin.html`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => Boolean(window.__PRIVATE_DROPIN__), null, { timeout: 30_000 });
 
   await page.evaluate(() => window.__PRIVATE_DROPIN__!.initModel());

@@ -1,5 +1,4 @@
 import { TransformersJSEngine } from '@/services/transcription/engines/TransformersJSEngine';
-import { TransformersJSV4Engine } from '@/services/transcription/engines/TransformersJSV4Engine';
 import logger from '@/lib/logger';
 
 type DropInEvent = {
@@ -40,15 +39,7 @@ const state: DropInState = {
   recording: false,
 };
 
-// Engine selectable via URL (?engine=v4&variant=base_q4|distil_q4); default = v2 TransformersJSEngine.
-// This turns the AUTHLESS drop-in into a v4 WebGPU value harness: on a real-GPU headed Chrome the
-// v4 worker auto-selects WebGPU; headless falls back to WASM (smoke only). No app auth/session.
-const dropinParams = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-const dropinIsV4 = dropinParams.get('engine') === 'v4';
-const dropinVariant = dropinParams.get('variant') === 'distil_q4' ? 'distil_q4' : 'base_q4';
-const engine = dropinIsV4
-  ? new TransformersJSV4Engine({ v4Variant: dropinVariant } as unknown as ConstructorParameters<typeof TransformersJSV4Engine>[0])
-  : new TransformersJSEngine();
+const engine = new TransformersJSEngine();
 const chunks: Float32Array[] = [];
 let stream: MediaStream | null = null;
 let audioContext: AudioContext | null = null;
