@@ -109,14 +109,10 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await expect(option).toHaveAttribute('data-disabled', '');
   }
 
-  async function expectModeEnabled(page: import('@playwright/test').Page, label: RegExp) {
-    const option = page.getByRole('menuitemradio', { name: label });
-    await expect(option).toBeVisible();
-    await expect(option).not.toHaveAttribute('data-disabled', '');
-  }
-
-  // SCENARIO 3: Access Control (trial unlocks Private only; Cloud remains Pro-only)
-  test('Tier Control: active trial can use Private but not Cloud', async ({ page }) => {
+  // SCENARIO 3: Access Control. The paid-invite contract no longer grants
+  // blanket Private access from a legacy trial timestamp; Private is explicit
+  // Early Access/sample entitlement, while Cloud remains Pro-only.
+  test('Tier Control: active legacy trial timestamp does not unlock paid STT modes', async ({ page }) => {
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
       mockProfile: {
@@ -131,7 +127,8 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await navigateToRoute(page, '/session');
     await openModeMenu(page);
 
-    await expectModeEnabled(page, /Private/i);
+    await expectModeDisabled(page, /Private/i);
+    await expect(page.getByRole('menuitemradio', { name: /Private/i })).toHaveAttribute('title', /Early Access|Private sample|Upgrade/i);
     await expectModeDisabled(page, /Cloud/i);
   });
 

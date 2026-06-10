@@ -555,9 +555,22 @@ export async function mockLiveTranscript(
 
 export async function selectTranscriptionEngine(page: Page, mode: 'native' | 'cloud' | 'private') {
   const select = page.getByTestId('stt-mode-select');
+  await expect(select).toBeVisible({ timeout: 15_000 });
+
+  if (mode === 'private') {
+    const firstRunPrivateCta = page.getByTestId('first-run-setup-private');
+    if (await firstRunPrivateCta.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await firstRunPrivateCta.click({ force: true });
+      await expect(select).toHaveAttribute('data-state', 'private', { timeout: 5_000 });
+      return;
+    }
+  }
+
   await select.click();
   const option = page.getByTestId(`stt-mode-${mode}`);
+  await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
+  await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
 }
 
 export async function waitForToast(page: Page, message: string | RegExp) {
