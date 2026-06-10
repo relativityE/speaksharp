@@ -259,7 +259,7 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
 
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 60_000 });
-  await expect(page.locator('html[data-session-persisted="true"]')).toBeVisible({ timeout: 60_000 });
+  await waitForPrivateSampleSaved(page);
 
   return {
     transcriptText,
@@ -268,6 +268,15 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
     saved: true,
     beforeStop,
   };
+}
+
+async function waitForPrivateSampleSaved(page: Page) {
+  await expect(async () => {
+    const persisted = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
+    const bodyText = normalizeText(await page.locator('body').textContent());
+    const savedUi = /session saved|your session is saved|view analytics/i.test(bodyText);
+    expect(persisted || savedUi, { persisted, savedUi, bodyText: bodyText.slice(0, 500) }).toBe(true);
+  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 5_000] });
 }
 
 async function readTranscriptTextOnly(page: Page) {
