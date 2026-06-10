@@ -36,10 +36,11 @@ import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
 import { STTEngine, validateEngine } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
+import posthog from 'posthog-js';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
-import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT } from '../sttConstants';
+import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS } from '../sttConstants';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
@@ -197,9 +198,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // surface the error rather than loop.
         const autoEngine = await this.resolveAutoPrivateEngine(selectedEngine);
         logger.info({ sId: this.serviceId, rId: this.runId, provider: autoEngine, configured: selectedEngine, source: 'auto' }, '[PrivateSTT] Initializing auto-selected private provider');
+        const initStart = performance.now();
         const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
         if (primary.isOk) {
-            this.emitV4FlagTelemetry(null);
+            this.emitV4FlagTelemetry(null, Math.round(performance.now() - initStart));
             return Result.ok(undefined);
         }
 
@@ -209,7 +211,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         if (autoEngine === 'transformers-js-v4') {
             logger.warn({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error }, '[PrivateSTT] v4 init failed; falling back to v2-base');
             const fallback = await this.initSafeEngine(timeoutMs, isMock);
-            this.emitV4FlagTelemetry('v4_init_failed');
+            this.emitV4FlagTelemetry('v4_init_failed', Math.round(performance.now() - initStart));
             return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
         }
 
@@ -267,23 +269,31 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * default v2 path stays silent. Records the attempted/selected variant, device,
      * and any fallback reason — never user-facing engine internals. Never throws.
      */
-    private emitV4FlagTelemetry(fallbackReason: string | null): void {
+    private emitV4FlagTelemetry(fallbackReason: string | null, loadMs?: number): void {
         try {
             const flags = getV4FlagState();
             if (!flags.v4Enabled) return;
             const d = this.runtimePath;
-            logger.info({
-                sId: this.serviceId,
-                rId: this.runId,
+            const variant = d?.v4Variant ?? null;
+            const variantCfg = variant ? PRIV_STT_V4_VARIANTS[variant] : null;
+            const payload = {
                 v4FlagEnabled: flags.v4Enabled,
                 distilFlagEnabled: flags.distilEnabled,
-                selectedVariant: d?.v4Variant ?? null,
-                attemptedProvider: d?.provider ?? null,
+                selectedVariant: variant,
+                model: variantCfg?.MODEL_ID ?? null,
+                dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
+                requestedDevice: d?.provider === 'transformers-js-v4' ? 'webgpu' : 'cpu',
                 resolvedDevice: d?.runtime ?? null,
+                attemptedProvider: d?.provider ?? null,
                 finalProvider: this._engineType ?? null,
                 fallbackProvider: fallbackReason ? (this._engineType ?? null) : null,
                 fallbackReason,
-            }, '[V4_FLAG_TELEMETRY]');
+                loadMs: loadMs ?? null,
+            };
+            // Internal log (always) + PostHog event (analytics) for flagged v4 attempts.
+            // No user-facing engine internals; safe to capture for cohort validation.
+            logger.info({ sId: this.serviceId, rId: this.runId, ...payload }, '[V4_FLAG_TELEMETRY]');
+            try { posthog?.capture?.('private_stt_v4_attempt', payload); } catch { /* posthog optional */ }
         } catch (error) {
             logger.debug?.({ error }, '[PrivateSTT] v4 flag telemetry emit failed');
         }
