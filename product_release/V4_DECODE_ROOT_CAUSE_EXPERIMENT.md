@@ -90,7 +90,21 @@ Experiment-only overrides are dev/test-gated (production unchanged); v2-base def
 no Stripe; the shipped AUTO-path fallback (`dev/v4-decode-fallback`) protects users regardless of
 the outcome. The strict-override path stays strict so the experiment can see the real error.
 
+## AUTO-path fallback CI proof (now wired)
+
+Headless CI can prove the fallback contract via `?v4ForceAuto=1` (no WebGPU needed):
+```bash
+STT_V4_FORCE_AUTO=1 STT_V4_DEVICE=wasm STT_MODES=private STT_FIXTURES=h1_6 \
+STT_AUTH=existing node scripts/manual-stt-corpus-proof.mjs   # AUTO -> v4 attempt -> WASM fail -> v2-base
+```
+Or dispatch `.github/workflows/v4-auto-fallback-proof.yml`. PASS signature = `journeyPass=true`
+AND runtimePath `reason='v4_forced_auto'` (v4 attempted) AND final provider `transformers-js`
+(fell back to v2-base). Classify as **AUTO FALLBACK CI PROOF — dev/test forced path** (NOT a
+WebGPU / production / "v4-decode-fixed" proof). The strict-override proof stays separate.
+
 ## Status
 
-DRAFT — matrix + knob design ready. Next: implement the 3 dev/test override knobs (~10 lines,
-gated), then Test/a-human runs the matrix and we apply the indicated fix.
+WIRED — reader + resolver + PrivateSTT + worker (device / dtype / no-worker / forceAuto) + the
+harness knobs (`STT_V4_FORCE_AUTO` / `STT_V4_DEVICE` / `STT_V4_DECODER_DTYPE` / `STT_V4_NO_WORKER`)
++ the AUTO-fallback workflow all landed on `dev/v4-decode-fallback`. Next: Test runs the
+AUTO-fallback proof + the device×dtype root-cause matrix on a real browser, then we apply the fix.
