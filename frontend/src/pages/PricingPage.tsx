@@ -4,7 +4,7 @@ import { CheckCircle, ShieldCheck, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { SUBSCRIPTION_LIMITS } from '@/config';
+import { SUBSCRIPTION_LIMITS, ADS_CONFIG } from '@/config';
 import {
   buildCheckoutBody,
   trackCheckoutStarted,
@@ -42,7 +42,12 @@ const tiers: Tier[] = [
       'Save last 5 sessions',
       'AI-assisted feedback',
       'Watermarked PDF exports',
-      'Free may include privacy-respecting sponsor messages outside practice',
+      // Sponsor/ad copy is shown only when the sponsor surface is actually enabled
+      // (same flag that gates the FreePlanSupport card). Hidden by default so we do
+      // not advertise a feature that does not exist yet.
+      ...(ADS_CONFIG.ENABLE_FREE_PLAN_SUPPORT
+        ? ['Free may include privacy-respecting sponsor messages outside practice']
+        : []),
     ],
     cta: 'Start Free',
     action: 'signup',

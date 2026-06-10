@@ -112,11 +112,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           type="button"
           variant="ghost"
           size="sm"
-          className="hidden md:inline-flex"
+          className="inline-flex"
           data-testid="nav-report-issue-button"
+          aria-label="Report issue"
         >
-          <Bug className="h-4 w-4 mr-2" />
-          Report issue
+          <Bug className="h-4 w-4 md:mr-2" />
+          <span className="hidden md:inline">Report issue</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-xl">

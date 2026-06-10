@@ -69,7 +69,9 @@ describe('PricingPage', () => {
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
             expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
-            expect(screen.getByText('Free may include privacy-respecting sponsor messages outside practice')).toBeInTheDocument();
+            // Sponsor/ad copy is gated behind ADS_CONFIG.ENABLE_FREE_PLAN_SUPPORT (off by
+            // default), so it must NOT appear unless the sponsor surface is actually enabled.
+            expect(screen.queryByText('Free may include privacy-respecting sponsor messages outside practice')).not.toBeInTheDocument();
         });
 
         it('should render Pro tier features', () => {

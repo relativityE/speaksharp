@@ -17,6 +17,7 @@ import {
   trackConversionCtaViewed,
 } from "@/services/conversionFunnel";
 import { IssueReportDialog } from "@/components/IssueReportDialog";
+import { toast } from '@/lib/toast';
 import { useSessionStore } from "@/stores/useSessionStore";
 
 const Navigation = () => {
@@ -61,6 +62,7 @@ const Navigation = () => {
       }
     } catch (err) {
       logger.error({ err }, 'Upgrade failed');
+      toast.error('Unable to start checkout. Please try again or contact support if it continues.');
       setIsUpgrading(false);
     }
   };
