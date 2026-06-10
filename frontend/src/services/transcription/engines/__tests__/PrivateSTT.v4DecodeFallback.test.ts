@@ -134,4 +134,21 @@ describe('PrivateSTT v4 decode-time fallback (auto/flag path)', () => {
         expect(result.isOk).toBe(false);
         expect(tjTranscribe).toHaveBeenCalledTimes(1); // fell back once, did not loop
     });
+
+    it('STRICT override v4 decode failure does NOT fall back (exposes the bug for dev/test)', async () => {
+        v4Transcribe.mockResolvedValue({ isOk: false, error: new Error('invalid data location: undefined for input "a"') });
+        tjTranscribe.mockResolvedValue({ isOk: true, data: 'v2 must NOT be used on the strict override path' });
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        // forceEngine = the explicit/strict override path: it must surface the v4 error,
+        // never silently fall back, so dev/test can see the real bug.
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js-v4' } as never);
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('transformers-js-v4');
+
+        const result = await pstt.transcribe(new Float32Array([0.1]));
+        expect(result.isOk).toBe(false);              // strict: surfaces the v4 decode error
+        expect(tjTranscribe).not.toHaveBeenCalled();  // v2-base NOT invoked
+        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // stayed on v4, no swap
+    });
 });

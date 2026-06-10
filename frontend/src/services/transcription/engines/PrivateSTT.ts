@@ -290,7 +290,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * default v2 path stays silent. Records the attempted/selected variant, device,
      * and any fallback reason — never user-facing engine internals. Never throws.
      */
-    private emitV4FlagTelemetry(fallbackReason: string | null, loadMs?: number): void {
+    private emitV4FlagTelemetry(fallbackReason: string | null, loadMs?: number, errorClass?: string | null): void {
         try {
             const flags = getV4FlagState();
             if (!flags.v4Enabled) return;
@@ -310,6 +310,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 fallbackProvider: fallbackReason ? (this._engineType ?? null) : null,
                 fallbackReason,
                 loadMs: loadMs ?? null,
+                errorClass: errorClass ?? null, // class name only — never message/stack (no PII)
             };
             // Internal log (always) + PostHog event (analytics) for flagged v4 attempts.
             // No user-facing engine internals; safe to capture for cohort validation.
@@ -331,7 +332,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             });
             if (fallbackReason) {
                 emitV4Fallback(lifecycle);
-                emitV4Error({ ...lifecycle, errorClass: fallbackReason });
+                emitV4Error({ ...lifecycle, errorClass: errorClass ?? fallbackReason });
             } else {
                 emitV4Ready(lifecycle);
             }
@@ -399,7 +400,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (!fallback.isOk || !this.engine) {
                 return result; // v2 also unavailable — surface the original decode error
             }
-            this.emitV4FlagTelemetry('v4_decode_failed');
+            this.emitV4FlagTelemetry('v4_decode_failed', undefined, result.error instanceof Error ? result.error.name : 'Error');
             return this.engine.transcribe(audio);
         }
         return result;
