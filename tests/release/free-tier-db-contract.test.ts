@@ -23,6 +23,7 @@ describe('free tier database contract', () => {
 
     it('replaces the soft-release Pro trial with a server-backed Private sample', () => {
         const migration = readMigration('20260610143000_private_sample_entitlement.sql');
+        const fkOrderFix = readMigration('20260610210500_fix_private_sample_session_fk_order.sql');
 
         expect(migration).toMatch(/private_sample_limit_seconds INT NOT NULL DEFAULT 300/);
         expect(migration).toMatch(/private_sample_session_id UUID REFERENCES public\.sessions\(id\)/);
@@ -38,6 +39,12 @@ describe('free tier database contract', () => {
         expect(migration).toMatch(/v_final_duration := LEAST\(v_final_duration, v_sample_limit\)/);
         expect(migration).toMatch(/private_sample_completed_at = COALESCE\(private_sample_completed_at, now\(\)\)/);
         expect(migration).toMatch(/private_sample_limit_reached/);
+
+        expect(fkOrderFix).toMatch(/FK 23503/);
+        expect(fkOrderFix.indexOf('INSERT INTO public.sessions')).toBeLessThan(
+            fkOrderFix.indexOf('v_usage_check := public.update_user_usage(v_duration, p_engine_type, v_new_session_id)')
+        );
+        expect(fkOrderFix).toMatch(/DELETE FROM public\.sessions\s+WHERE id = v_new_session_id AND user_id = auth\.uid\(\)/);
     });
 
     it('normalizes legacy Basic state to Free for launch', () => {
