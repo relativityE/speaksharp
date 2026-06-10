@@ -122,6 +122,22 @@ describe('PrivateSTT v4 decode-time fallback (auto/flag path)', () => {
         expect(pstt.getEngineType()).toBe('transformers-js-v4');
     });
 
+    it('v4 EMPTY transcript (silent WASM failure, isOk:true data:"") -> falls back to v2-base', async () => {
+        const audio = new Float32Array([0.1, 0.2, 0.3]);
+        // base_q4 on WASM can return an empty SUCCESS instead of throwing — must still fall back.
+        v4Transcribe.mockResolvedValue({ isOk: true, data: '   ' });
+        tjTranscribe.mockResolvedValue({ isOk: true, data: 'v2 recovered transcript' });
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        const result = await pstt.transcribe(audio);
+        expect(result, 'empty v4 must not strand the user').toEqual({ isOk: true, data: 'v2 recovered transcript' });
+        expect(tjTranscribe).toHaveBeenCalledWith(audio); // same audio re-transcribed
+        expect(pstt.getEngineType()).toBe('transformers-js'); // swapped to v2-base
+    });
+
     it('only falls back ONCE (no loop) if v2 also fails', async () => {
         v4Transcribe.mockResolvedValue({ isOk: false, error: new Error('invalid data location') });
         tjTranscribe.mockResolvedValue({ isOk: false, error: new Error('v2 decode also failed') });
