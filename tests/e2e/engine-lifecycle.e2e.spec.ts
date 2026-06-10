@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, attachLiveTranscript, waitForModelReady, programmaticLoginWithRoutes, selectTranscriptionEngine } from './helpers';
+import { navigateToRoute, waitForModelReady, programmaticLoginWithRoutes, selectTranscriptionEngine } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 
@@ -20,124 +20,26 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   test.afterEach(async () => {
   });
 
-  // SCENARIO 1: Private STT / Whisper (First-time Download -> Cache -> Success)
-  // Obsolete synthetic download/cache harness: first-use trust now keeps Browser
-  // as the default and Private setup is covered by paid-invite and live
-  // private-cache proofs instead of this fragile frozen-progress mock.
-  test.skip('Engine Lifecycle: Private setup/cache path remains recoverable', async ({ proPage: page }) => {
-    attachLiveTranscript(page);
-
-    // 1. Register a mock for 'transformers-js' that signals CACHE_MISS
-    const downloadFlowMock = `(opts) => {
-      let progressCb = opts?.onModelLoadProgress;
-      let statusCb = opts?.onStatusChange;
-      return {
-        init: async () => {
-          if (!window.__MODEL_CACHED__) {
-            // Simulate download started
-            if (statusCb) statusCb({ type: 'downloading', progress: 0.1 });
-            
-            // 🛡️ DETERMINISTIC GATE: Freeze here until Playwright signals completion
-            // This prevents fast-forwarded timers from making the indicator vanish instantly
-            await new Promise(resolve => {
-               window.__E2E_FINISH_DOWNLOAD__ = resolve;
-            });
-
-            if (statusCb) statusCb({ type: 'downloading', progress: 1.0 });
-            window.__MODEL_CACHED__ = true;
-          }
-          if (opts?.onReady) opts.onReady();
-          if (window.__APP_READY_STATE__) window.__APP_READY_STATE__['model-ready'] = true;
-          window.__E2E_ADVANCE_PROGRESS__ = (p) => { if (progressCb) progressCb(p); };
-        },
-        checkAvailability: async () => ({
-          isAvailable: !!window.__MODEL_CACHED__,
-          reason: !window.__MODEL_CACHED__ ? 'CACHE_MISS' : undefined,
-          requiresDownload: !window.__MODEL_CACHED__,
-          requiresNetwork: !window.__MODEL_CACHED__
-        }),
-        start: async () => { },
-        stop: async () => 'lifecycle-success',
-        pause: async () => { },
-        resume: async () => { },
-        destroy: async () => { },
-        terminate: async () => { },
-        transcribe: async () => ({ isOk: true, value: 'lifecycle-success' }),
-        getTranscript: async () => 'lifecycle-success',
-        getLastHeartbeatTimestamp: () => Date.now(),
-        getEngineType: () => 'whisper-turbo'
-      };
-    }`;
-    await registerMockInE2E(page, 'transformers-js', downloadFlowMock);
-    await registerMockInE2E(page, 'whisper-turbo', downloadFlowMock);
-    await page.addInitScript(() => {
-      const win = window as unknown as { __SS_E2E__?: { engineType?: 'mock' | 'real' | 'system' } };
-      if (win.__SS_E2E__) {
-        win.__SS_E2E__.engineType = 'real';
-      }
-    });
-    await page.evaluate(() => {
-      const win = window as unknown as { __SS_E2E__?: { engineType?: 'mock' | 'real' | 'system' } };
-      if (win.__SS_E2E__) {
-        win.__SS_E2E__.engineType = 'real';
-      }
-    });
-
+  // SCENARIO 1: First-use trust changed the maintained contract. Browser is
+  // the default; Private is explicit. Once selected, Private must either be
+  // startable or safely blocked behind visible setup/download guidance.
+  test('Engine Lifecycle: explicit Private selection shows safe setup or ready state', async ({ proPage: page }) => {
     await navigateToRoute(page, '/session');
-
-    // Switch to Private Mode
     await selectTranscriptionEngine(page, 'private');
-    // Forensic Readiness Gate (Invariant I3)
-
 
     const modeButton = page.getByTestId('stt-mode-select');
     await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-    // If Private setup is required, complete the deterministic mocked download.
-    // Current first-use trust behavior may also pre-warm Private directly after
-    // explicit user selection, in which case the setup CTA is not rendered.
-    const setupButton = page.getByTestId('download-model-button-inline');
-    if (await setupButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await setupButton.click({ force: true });
-    }
-
-    // 🛡️ FORENSIC GATE: If the mock is frozen in either warm-up or explicit
-    // download, unfreeze it from the test context.
-    const hasFrozenDownload = await page.waitForFunction(
-      () => typeof (window as unknown as Record<string, unknown>).__E2E_FINISH_DOWNLOAD__ === 'function',
-      { timeout: 5_000 },
-    ).then(() => true).catch(() => false);
-
-    if (hasFrozenDownload) {
-      // 🛡️ UNFREEZE: Trigger completion from the test context
-      await page.evaluate(() => {
-        const win = window as unknown as Record<string, (() => void) | undefined>;
-        if (win.__E2E_FINISH_DOWNLOAD__) {
-          win.__E2E_FINISH_DOWNLOAD__?.();
-        }
-      });
-    }
-
-    const indicator = page.getByTestId('background-task-indicator').first();
-    const setupFinished = await indicator.isHidden({ timeout: 10_000 }).catch(() => false);
-
-    if (setupFinished) {
-      await waitForModelReady(page);
-    } else {
-      await expect(indicator).toContainText(/Private Model|Downloading/i);
-    }
-
-    // Verify start after cache when the mocked setup reaches ready. If this
-    // synthetic download harness remains in-progress, the product-safe contract
-    // is that recording stays disabled while setup copy is visible.
     const startButton = page.getByTestId('session-start-stop-button');
     await expect(startButton).toHaveAttribute('data-recording', 'false', { timeout: 10000 });
+
     if (await startButton.isEnabled({ timeout: 5_000 }).catch(() => false)) {
       await startButton.click();
       await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
       await startButton.click();
     } else {
       await expect(startButton).toBeDisabled();
+      await expect(page.locator('body')).toContainText(/Private|model setup|Downloading private model|local/i);
     }
   });
 
