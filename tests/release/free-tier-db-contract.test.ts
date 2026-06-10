@@ -30,6 +30,10 @@ describe('free tier database contract', () => {
         expect(migration).toMatch(/legacy trial timestamps do not grant Pro/i);
         expect(migration).toMatch(/public\.update_user_usage\(v_duration, p_engine_type, v_new_session_id\)/);
         expect(migration).toMatch(/public\.update_user_usage\(p_incremental_seconds, v_engine_type, p_session_id\)/);
+        expect(migration.indexOf('INSERT INTO public.sessions')).toBeLessThan(
+            migration.indexOf('v_usage_check := public.update_user_usage(v_duration, p_engine_type, v_new_session_id)')
+        );
+        expect(migration).toMatch(/DELETE FROM public\.sessions\s+WHERE id = v_new_session_id AND user_id = auth\.uid\(\)/);
         expect(migration).toMatch(/v_sample_session_id IS NOT NULL AND v_sample_session_id IS DISTINCT FROM p_session_id/);
         expect(migration).toMatch(/v_final_duration := LEAST\(v_final_duration, v_sample_limit\)/);
         expect(migration).toMatch(/private_sample_completed_at = COALESCE\(private_sample_completed_at, now\(\)\)/);
