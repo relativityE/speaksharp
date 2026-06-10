@@ -51,6 +51,7 @@ const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@s
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
+const EXTRA_QUERY = (process.env.STT_EXTRA_QUERY || '').trim();
 const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
 const PRIVATE_VAD = (process.env.STT_PRIVATE_VAD || '').trim();
 const PRIVATE_MODEL = (process.env.STT_PRIVATE_MODEL || '').trim();
@@ -1228,6 +1229,12 @@ async function runFixture(page, mode, fixture) {
   const sessionUrl = new URL('/session', BASE_URL);
   if (mode === 'private' && PRIVATE_ENGINE) {
     sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
+  }
+  if (EXTRA_QUERY) {
+    const extra = new URLSearchParams(EXTRA_QUERY.startsWith('?') ? EXTRA_QUERY.slice(1) : EXTRA_QUERY);
+    for (const [key, value] of extra.entries()) {
+      sessionUrl.searchParams.set(key, value);
+    }
   }
   if (mode === 'private' && PRIVATE_MIC_CONSTRAINTS) {
     sessionUrl.searchParams.set('privateMicConstraints', PRIVATE_MIC_CONSTRAINTS);
