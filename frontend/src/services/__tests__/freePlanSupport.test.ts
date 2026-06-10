@@ -11,7 +11,7 @@ describe('canShowFreePlanSupport', () => {
     })).toBe(true);
   });
 
-  it('keeps paid Basic and Pro ad-free', () => {
+  it('keeps free-plan support off paid Basic and Pro tiers', () => {
     for (const tier of ['basic', 'pro'] as const) {
       expect(canShowFreePlanSupport({
         enabled: true,

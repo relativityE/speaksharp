@@ -711,9 +711,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should allow active server trial users to use private even when profile timestamp appears expired locally', async () => {
+    it('should allow active server trial users to keep Private selected (not force-downgraded to Native) even when the profile timestamp appears expired locally', async () => {
+        // Option A: the default is the instant Native path, but an entitled (server-trial)
+        // user who has SELECTED Private must not be force-downgraded back to Native.
         const mockStore = createTestSessionStore({
-            sttMode: 'native',
+            sttMode: 'private',
             isListening: false,
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
@@ -758,7 +760,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should promote an implicit native default to private when profile resolves as Pro', async () => {
+    it('should keep the implicit Native default for Pro users (Option A: no auto-promotion to Private)', async () => {
+        // Option A first-use trust fix: a fresh Pro user stays on the instant Browser/
+        // Native default and is NOT auto-promoted into the Private model-setup wall before
+        // their first transcript. Private remains an explicit user-selected mode.
         const mockStore = createTestSessionStore({
             sttMode: 'native',
             isListening: false,
@@ -803,7 +808,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('private');
+            expect(mockStore.getState().sttMode).toBe('native');
         });
     });
 

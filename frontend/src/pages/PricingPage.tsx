@@ -42,7 +42,6 @@ const tiers: Tier[] = [
       'Save last 5 sessions',
       'AI-assisted feedback',
       'Watermarked PDF exports',
-      'Free may include privacy-respecting sponsor messages outside practice',
     ],
     cta: 'Start Free',
     action: 'signup',
@@ -59,7 +58,6 @@ const tiers: Tier[] = [
       'Private transcription after one-time local model setup',
       'Cloud transcription when enabled for Pro workflows',
       'More semantic AI coaching and PDF export capacity',
-      'Ad-free experience',
     ],
     cta: 'Upgrade to Pro',
     action: 'checkout',
@@ -237,7 +235,7 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {['Private transcription keeps audio local', 'Transcript data is never used for ads', 'Pro unlocks after Stripe confirmation'].map((label) => (
+        {['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features', 'Pro unlocks after Stripe confirmation'].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}

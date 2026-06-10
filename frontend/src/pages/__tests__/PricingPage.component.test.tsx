@@ -69,7 +69,6 @@ describe('PricingPage', () => {
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
             expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
-            expect(screen.getByText('Free may include privacy-respecting sponsor messages outside practice')).toBeInTheDocument();
         });
 
         it('should render Pro tier features', () => {

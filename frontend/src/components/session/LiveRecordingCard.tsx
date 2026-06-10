@@ -127,6 +127,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     ? 'Set up Private transcription on this computer. All audio processing remains local.'
                                     : modeHint[mode]}
                             </p>
+                            {!isPrivateDownloadRequired && mode === 'native' && isProUser && !isListening && (
+                                <button
+                                    type="button"
+                                    onClick={() => onModeChange('private')}
+                                    className="mt-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                                    data-testid="first-run-setup-private"
+                                >
+                                    Set up Private transcription for better local accuracy →
+                                </button>
+                            )}
                             {isPrivateDownloadRequired && (
                                 <p
                                     className="mt-1 text-[11px] font-medium leading-snug text-foreground/60"
@@ -181,21 +191,37 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!isProUser}
                                     title={privateModeDescription}
                                 >
-                                    Private
+                                    <span className="flex items-center gap-1.5">
+                                        {!isProUser && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Private
+                                    </span>
+                                    {!isProUser && (
+                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                            Unlocks with an active trial or Pro
+                                        </span>
+                                    )}
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
                                     title={cloudModeDescription}
                                 >
-                                    Cloud
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Cloud
+                                    </span>
+                                    {!canUseCloudStt && (
+                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                            Pro feature (not available on trial)
+                                        </span>
+                                    )}
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
