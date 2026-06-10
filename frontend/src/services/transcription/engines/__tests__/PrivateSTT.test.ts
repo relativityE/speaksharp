@@ -42,6 +42,8 @@ vi.mock('@/config/TestFlags', async (importOriginal) => {
 const mockWTEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockTJInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockV4Init = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
+// Construction spy: proves the v4 engine object is never even instantiated on the flag-off path.
+const mockV4Construct = vi.fn();
 const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 
 // A stub registered under a NON-CONFIGURED provider key, to prove PrivateSTT never
@@ -72,6 +74,10 @@ class StubTJ extends STTEngine {
 
 class StubV4 extends STTEngine {
     type = 'transformers-js-v4' as const;
+    constructor(options?: ConstructorParameters<typeof STTEngine>[0]) {
+        super(options);
+        mockV4Construct();
+    }
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = mockV4Init;
     onStart = vi.fn().mockResolvedValue(undefined);
@@ -188,6 +194,32 @@ describe('PrivateSTT (Routing Logic)', () => {
 
         expect(pstt.getEngineType()).toBe('transformers-js');
         expect(mockWTEInit).not.toHaveBeenCalled();
+    });
+
+    it('flag-off (default): auto path stays v2-base and NEVER constructs or initializes the v4 engine — even with WebGPU usable', async () => {
+        // PostHog is uninitialized in unit tests, so getV4FlagState() reads every v4 flag as OFF —
+        // exactly the production default. This nails the explicit pre-merge item:
+        // "flag off -> no v4 constructor / load / model request".
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        // WebGPU IS usable — proves it is the FLAG (off), not WebGPU-absence, keeping us on v2-base.
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        const { ModelManager } = await import('../../ModelManager');
+        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(false);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js'); // v2-base default
+        expect(mockV4Construct).not.toHaveBeenCalled();        // v4 engine never constructed
+        expect(mockV4Init).not.toHaveBeenCalled();             // no v4 init / load / model request
     });
 
     it('selects TransformersJSEngine (Safe Path) when WebGPU is missing', async () => {
