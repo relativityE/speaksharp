@@ -47,16 +47,18 @@ jobs:
       PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
       STT_AUTH: existing
       STT_MODES: private
-      STT_FIXTURES: h1_6
-      # AUTO path forced to ATTEMPT v4 (dev/test-only) + WASM device => decode fails => v2-base fallback.
-      # NOTE: deliberately NO STT_PRIVATE_ENGINE — that is the STRICT override path (no fallback);
-      # this proof exercises the AUTO/flag path where the fallback is allowed to engage.
+      # washington_01 is 65.8s > the ~16s record window, so Chrome-native fake audio plays it ONCE
+      # (no loop) -> clean non-repetitive transcript + normal-sized session (h1_6 at 3.1s looped ~5x).
+      STT_FIXTURES: washington_01
+      # AUTO path forced to ATTEMPT v4 on WASM (dev/test-only). v4 DECODES on WASM (proven by
+      # 27305398130); if it ever fails, the AUTO path falls back to v2-base. No STT_PRIVATE_ENGINE
+      # (that is the STRICT override path); this proof exercises the AUTO/flag path.
       STT_V4_FORCE_AUTO: '1'
       STT_V4_DEVICE: wasm
       # Chrome-NATIVE fake audio (robust headless) instead of the JS getUserMedia->MediaStreamDestination
       # bridge (silent headless). Sets --use-file-for-fake-audio-capture so getUserMedia returns real PCM.
       STT_USE_FAKE_AUDIO_CAPTURE: 'true'
-      STT_FAKE_AUDIO_FILE: ${{ github.workspace }}/tests/fixtures/stt-isomorphic/audio/h1_6.wav
+      STT_FAKE_AUDIO_FILE: ${{ github.workspace }}/tests/fixtures/stt-isomorphic/audio/washington_01.wav
       STT_POST_PLAYBACK_WAIT_MS: '15000'
       # Generous: first text arrives AFTER v4 attempt -> v2-base re-init (model load) -> v2 decode.
       STT_FIRST_TEXT_TIMEOUT_MS: '90000'
