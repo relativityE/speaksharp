@@ -17,12 +17,13 @@ vi.mock('@/lib/supabaseClient', () => ({
 describe('UpgradePromptDialog', () => {
     it('does not render the dialog when open is false', () => {
         render(<UpgradePromptDialog open={false} onOpenChange={() => { }} />);
-        expect(screen.queryByText('Unlock Your Full Potential')).not.toBeInTheDocument();
+        expect(screen.queryByText('Keep your full practice history')).not.toBeInTheDocument();
     });
 
     it('renders the dialog when open is true', () => {
         render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
-        expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
+        expect(screen.getByText('Keep your full practice history')).toBeInTheDocument();
+        expect(screen.getByText(/Private local transcription/i)).toBeInTheDocument();
         expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
         expect(screen.getByText('Maybe Later')).toBeInTheDocument();
     });

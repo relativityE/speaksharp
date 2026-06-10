@@ -42,9 +42,9 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Unlock Your Full Potential</AlertDialogTitle>
+          <AlertDialogTitle>Keep your full practice history</AlertDialogTitle>
           <AlertDialogDescription>
-            You've had a great session! Upgrade to Pro to save your full session history, get advanced analytics, and practice without limits.
+            Upgrade to Pro for full session history, Private local transcription, deeper practice reports, and billing support during paid early access.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

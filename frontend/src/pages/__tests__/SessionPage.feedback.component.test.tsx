@@ -14,7 +14,7 @@
  * @see SessionPage.tsx for the component under test
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '../../../tests/support/test-utils';
+import { fireEvent, render, screen } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import React from 'react';
 
@@ -134,6 +134,28 @@ describe('SessionPage Feedback Logic', () => {
 
         expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved/);
         expect(screen.getByTestId('status-type')).toHaveTextContent('ready');
+        expect(screen.getByTestId('post-save-review-actions')).toHaveTextContent(/Review trends/i);
+        expect(screen.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
+    });
+
+    it('offers Private setup after a saved Browser session for eligible users', async () => {
+        const setMode = vi.fn();
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            isProUser: true,
+            setMode,
+            isListening: false,
+            sttStatus: { type: 'ready' },
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        const privateCta = screen.getByTestId('post-save-private-cta');
+        expect(privateCta).toHaveTextContent(/Private/i);
+        fireEvent.click(privateCta);
+        expect(setMode).toHaveBeenCalledWith('private');
     });
 
     it('should show listening state in status bar when hook indicates listening', async () => {

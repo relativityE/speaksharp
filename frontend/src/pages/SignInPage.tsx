@@ -9,6 +9,37 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Mail } from 'lucide-react';
 import logger from '../lib/logger';
 
+const getSafeSignInError = (err: unknown): string => {
+    const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+    const message = rawMessage.toLowerCase();
+
+    if (err instanceof TypeError && message.includes('failed to fetch')) {
+        return 'Unable to reach sign-in. Check your connection and try again.';
+    }
+    if (message.includes('invalid login') || message.includes('invalid credentials') || message.includes('email not confirmed')) {
+        return 'Email or password not recognized. Check your details or use a sign-in link.';
+    }
+    if (message.includes('rate') || message.includes('too many')) {
+        return 'Too many sign-in attempts. Please wait a moment and try again.';
+    }
+
+    return 'Sign-in could not be completed. Please try again.';
+};
+
+const getSafeMagicLinkError = (err: unknown): string => {
+    const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+    const message = rawMessage.toLowerCase();
+
+    if (err instanceof TypeError && message.includes('failed to fetch')) {
+        return 'Unable to send a sign-in link. Check your connection and try again.';
+    }
+    if (message.includes('rate') || message.includes('too many')) {
+        return 'Too many sign-in link requests. Please wait a moment and try again.';
+    }
+
+    return 'Sign-in link could not be sent. Please try again.';
+};
+
 // Sign In page – supports both password and magic link
 export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
@@ -40,12 +71,7 @@ export default function SignInPage() {
             }
         } catch (err: unknown) {
             logger.error({ err }, '[SignInPage] handleSubmit failed');
-            // Provide more descriptive error messages for common failure modes
-            if (err instanceof TypeError && err.message === 'Failed to fetch') {
-                setError('Unable to connect to authentication server. Check your network connection and Supabase configuration.');
-            } else {
-                setError(err instanceof Error ? err.message : 'An unexpected error occurred');
-            }
+            setError(getSafeSignInError(err));
         } finally {
             setIsSubmitting(false);
         }
@@ -64,14 +90,14 @@ export default function SignInPage() {
             const { error: otpError } = await supabase.auth.signInWithOtp({
                 email,
                 options: {
-                    emailRedirectTo: `${window.location.origin}/`
+                    emailRedirectTo: `${window.location.origin}${postAuthPath}`
                 }
             });
             if (otpError) throw otpError;
             setMessage('Magic link sent! Check your email for a login link.');
         } catch (err: unknown) {
             logger.error({ err }, '[SignInPage] handleMagicLink failed');
-            setError(err instanceof Error ? err.message : 'Failed to send magic link');
+            setError(getSafeMagicLinkError(err));
         } finally {
             setIsSendingMagicLink(false);
         }

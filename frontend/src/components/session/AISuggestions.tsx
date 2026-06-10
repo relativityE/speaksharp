@@ -35,6 +35,29 @@ interface AISuggestionsProps {
   };
 }
 
+const getSafeAiSuggestionError = (err: unknown): string => {
+  const rawMessage = err instanceof Error
+    ? err.message
+    : (typeof err === 'object' && err !== null && 'message' in err)
+      ? String((err as { message?: unknown }).message ?? '')
+      : typeof err === 'string'
+        ? err
+        : '';
+  const message = rawMessage.toLowerCase();
+
+  if (message.includes('not on a pro') || message.includes('pro plan') || message.includes('403')) {
+    return 'AI coaching is a Pro feature. Upgrade to Pro to request semantic suggestions.';
+  }
+  if (message.includes('rate') || message.includes('quota') || message.includes('too many')) {
+    return 'AI coaching is temporarily rate limited. Please try again later.';
+  }
+  if (message.includes('network') || message.includes('fetch') || message.includes('connect')) {
+    return 'AI coaching could not connect. Please check your connection and try again.';
+  }
+
+  return 'AI coaching is unavailable right now. Your session is saved, and you can try again later.';
+};
+
 const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions, metrics }) => {
   const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(initialSuggestions || null);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,13 +91,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
       setSuggestions(data.suggestions);
     } catch (err: unknown) {
       logger.error({ err }, "Error fetching AI suggestions:");
-      if (err instanceof Error) {
-        setError(err.message);
-      } else if (typeof err === 'object' && err !== null && 'message' in err) {
-        setError((err as { message: string }).message);
-      } else {
-        setError('An unexpected error occurred.');
-      }
+      setError(getSafeAiSuggestionError(err));
     } finally {
       setIsLoading(false);
     }
@@ -85,7 +102,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
-          AI-Powered Suggestions
+          AI Coaching Suggestions
         </CardTitle>
         <Button
           onClick={() => { void fetchSuggestions(); }}
@@ -108,7 +125,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
           <Alert variant="error" size="md">
             <AlertTriangle className="h-5 w-5" />
             <div>
-              <h5 className="font-bold">Error</h5>
+              <h5 className="font-bold">AI coaching unavailable</h5>
               <p className="text-sm">{error}</p>
             </div>
           </Alert>
@@ -116,7 +133,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
 
         {!suggestions && !isLoading && !error && (
           <div className="py-4 text-center font-medium text-foreground/70">
-            <p>Click the button to get AI-powered feedback on your speech.</p>
+            <p>Click the button to request AI coaching on your speech.</p>
             <p className="mt-2 text-xs">
               Your transcript is securely processed by our AI feedback provider only when you request suggestions.
             </p>

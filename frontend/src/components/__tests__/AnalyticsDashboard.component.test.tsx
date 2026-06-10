@@ -382,7 +382,7 @@ describe('AnalyticsDashboard', () => {
         });
 
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'Native Browser'
+            'Browser'
         );
     });
 
@@ -531,7 +531,7 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByTestId('session-engine-badge-cloud-session')).toHaveTextContent('Cloud');
         expect(screen.getByTestId('session-engine-badge-private-session')).toHaveTextContent('Private');
-        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Native Browser');
+        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Browser');
     });
 
     it('shows an explicit open-session link on each history item so testers can verify saved sessions', () => {

@@ -97,7 +97,7 @@ describe('STTAccuracyVsBenchmark', () => {
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('STT Engine Session Quality')).toBeInTheDocument();
         expect(screen.getByText(/Based on saved session metrics/)).toBeInTheDocument();
-        expect(screen.getByText(/Native Browser/)).toBeInTheDocument();
+        expect(screen.getByText(/Browser/)).toBeInTheDocument();
         expect(screen.getByText(/Cloud/)).toBeInTheDocument();
         expect(screen.queryByText('Theoretical Max')).not.toBeInTheDocument();
     });

@@ -278,7 +278,7 @@ describe('generateSessionPdf', () => {
     });
     const savedPdf = await getSavedPdf();
 
-    expect(savedPdf.text).toContain('(AI-Powered Suggestions) Tj');
+    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
     expect(savedPdf.text).toContain('(You used a clear opening and can improve pacing.) Tj');
     expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
   });

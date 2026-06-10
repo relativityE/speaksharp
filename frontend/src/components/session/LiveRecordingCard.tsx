@@ -109,7 +109,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         : 'Private transcription unlocks with an active trial or Pro. It needs a one-time local model setup.';
     const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
     const cloudModeDescription = canUseCloudStt
-        ? 'Pro feature for highest-accuracy transcription. Audio is sent to the cloud STT provider.'
+        ? 'Pro cloud transcription workflow. Audio is sent to the cloud STT provider.'
         : 'Cloud STT is a Pro feature (unavailable for trial).';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">

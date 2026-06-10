@@ -52,7 +52,7 @@ function walk(dir: string): string[] {
 }
 
 describe('engine label mapper never leaks raw engine/model identifiers (item 3)', () => {
-    const friendly = new Set(['Cloud', 'Private', 'Native Browser', 'Not recorded']);
+    const friendly = new Set(['Cloud', 'Private', 'Browser', 'Not recorded']);
     const rawTokens = ['onnx', 'wasm', 'whisper', 'transformers', 'xenova', 'q4', 'q8', 'fp32', 'huggingface'];
 
     for (const engine of [

@@ -186,7 +186,7 @@ const getEngineBadge = (session: PracticeSession): { label: string; className: s
 
     if (engine.includes('native') || engine.includes('browser')) {
         return {
-            label: 'Native Browser',
+            label: 'Browser',
             className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
             icon: Monitor,
         };

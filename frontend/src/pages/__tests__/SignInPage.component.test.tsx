@@ -15,6 +15,7 @@ const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);
 describe('SignInPage', () => {
     const mockSetSession = vi.fn();
     const mockSignInWithPassword = vi.fn();
+    const mockSignInWithOtp = vi.fn();
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -32,6 +33,7 @@ describe('SignInPage', () => {
         mockGetSupabaseClient.mockReturnValue({
             auth: {
                 signInWithPassword: mockSignInWithPassword,
+                signInWithOtp: mockSignInWithOtp,
             },
         } as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
     });
@@ -180,7 +182,8 @@ describe('SignInPage', () => {
             await user.click(screen.getByTestId('sign-in-submit'));
 
             await waitFor(() => {
-                expect(screen.getByTestId('auth-error-message')).toHaveTextContent('Invalid credentials');
+                expect(screen.getByTestId('auth-error-message')).toHaveTextContent('Email or password not recognized');
+                expect(screen.getByTestId('auth-error-message')).not.toHaveTextContent('Invalid credentials');
             });
         });
 
@@ -244,7 +247,8 @@ describe('SignInPage', () => {
             await user.click(screen.getByTestId('sign-in-submit'));
 
             await waitFor(() => {
-                expect(screen.getByTestId('auth-error-message')).toHaveTextContent('Network error');
+                expect(screen.getByTestId('auth-error-message')).toHaveTextContent('Sign-in could not be completed');
+                expect(screen.getByTestId('auth-error-message')).not.toHaveTextContent('Network error');
             });
         });
 
@@ -259,7 +263,26 @@ describe('SignInPage', () => {
             await user.click(screen.getByTestId('sign-in-submit'));
 
             await waitFor(() => {
-                expect(screen.getByTestId('auth-error-message')).toHaveTextContent('An unexpected error occurred');
+                expect(screen.getByTestId('auth-error-message')).toHaveTextContent('Sign-in could not be completed');
+            });
+        });
+
+        it('preserves intended path when sending a sign-in link', async () => {
+            const user = userEvent.setup();
+            mockSignInWithOtp.mockResolvedValue({ error: null });
+
+            renderSignInPage();
+
+            await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+            await user.click(screen.getByTestId('magic-link-button'));
+
+            await waitFor(() => {
+                expect(mockSignInWithOtp).toHaveBeenCalledWith({
+                    email: 'test@example.com',
+                    options: {
+                        emailRedirectTo: `${window.location.origin}/session`,
+                    },
+                });
             });
         });
     });
