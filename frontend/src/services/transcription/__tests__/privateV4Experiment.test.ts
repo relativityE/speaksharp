@@ -17,24 +17,29 @@ describe('getV4ExperimentOverrides — dev/test-gated v4 decode A/B knobs', () =
     afterEach(() => { (globalThis as { __TEST__?: boolean }).__TEST__ = true; });
 
     it('defaults to no overrides', () => {
-        expect(getV4ExperimentOverrides(mockWin(''))).toEqual({ noWorker: false });
+        expect(getV4ExperimentOverrides(mockWin(''))).toEqual({ noWorker: false, forceAuto: false });
     });
 
     it('reads device + decoderDtype + noWorker from query params', () => {
         expect(getV4ExperimentOverrides(mockWin('?v4Device=wasm&v4DecoderDtype=fp32&v4NoWorker=1')))
-            .toEqual({ device: 'wasm', decoderDtype: 'fp32', noWorker: true });
+            .toEqual({ device: 'wasm', decoderDtype: 'fp32', noWorker: true, forceAuto: false });
+    });
+
+    it('reads v4ForceAuto (the headless-CI AUTO fallback knob)', () => {
+        expect(getV4ExperimentOverrides(mockWin('?v4ForceAuto=1&v4Device=wasm')))
+            .toEqual({ device: 'wasm', noWorker: false, forceAuto: true });
     });
 
     it('falls back to localStorage when no query param', () => {
-        expect(getV4ExperimentOverrides(mockWin('', { 'speaksharp.v4.device': 'webgpu', 'speaksharp.v4.decoderDtype': 'int8' })))
-            .toEqual({ device: 'webgpu', decoderDtype: 'int8', noWorker: false });
+        expect(getV4ExperimentOverrides(mockWin('', { 'speaksharp.v4.device': 'webgpu', 'speaksharp.v4.decoderDtype': 'int8', 'speaksharp.v4.forceAuto': '1' })))
+            .toEqual({ device: 'webgpu', decoderDtype: 'int8', noWorker: false, forceAuto: true });
     });
 
     it('rejects invalid device/dtype values', () => {
-        expect(getV4ExperimentOverrides(mockWin('?v4Device=banana&v4DecoderDtype=fp64'))).toEqual({ noWorker: false });
+        expect(getV4ExperimentOverrides(mockWin('?v4Device=banana&v4DecoderDtype=fp64'))).toEqual({ noWorker: false, forceAuto: false });
     });
 
     it('undefined window -> no overrides', () => {
-        expect(getV4ExperimentOverrides(undefined)).toEqual({ noWorker: false });
+        expect(getV4ExperimentOverrides(undefined)).toEqual({ noWorker: false, forceAuto: false });
     });
 });
