@@ -40,7 +40,7 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(result.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
 
-  test('allows subscribed Pro and denies Free, active trial, and over-quota Pro before minting AssemblyAI token', async () => {
+  test('allows subscribed Pro and denies Free, Private-sample, and over-quota Pro before minting AssemblyAI token', async () => {
     const freeUser = await createLiveUser(admin, `cloud-free-${RUN_ID}@example.com`, {
       subscription_status: 'free',
       trial_started_at: '2024-01-01T00:00:00.000Z',
@@ -53,17 +53,22 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     });
     createdUsers.push(freeUser);
 
-    const activeTrialUser = await createLiveUser(admin, `cloud-trial-${RUN_ID}@example.com`, {
+    const privateSampleUser = await createLiveUser(admin, `cloud-private-sample-${RUN_ID}@example.com`, {
       subscription_status: 'free',
-      trial_started_at: new Date(Date.now() - 60_000).toISOString(),
-      trial_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+      trial_started_at: null,
+      trial_expires_at: null,
       daily_usage_seconds: 0,
       native_usage_seconds: 0,
       cloud_usage_seconds: 0,
+      private_sample_limit_seconds: 300,
+      private_sample_seconds_used: 0,
+      private_sample_started_at: null,
+      private_sample_completed_at: null,
+      private_sample_session_id: null,
       stripe_subscription_id: null,
       subscription_id: null,
     });
-    createdUsers.push(activeTrialUser);
+    createdUsers.push(privateSampleUser);
 
     const paidProUser = await createLiveUser(admin, `cloud-paid-pro-${RUN_ID}@example.com`, {
       subscription_status: 'pro',
@@ -90,13 +95,13 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     createdUsers.push(overQuotaUser);
 
     const freeResult = await requestAssemblyToken(freeUser.email);
-    const activeTrialResult = await requestAssemblyToken(activeTrialUser.email);
+    const privateSampleResult = await requestAssemblyToken(privateSampleUser.email);
     const paidProResult = await requestAssemblyToken(paidProUser.email);
     const overQuotaResult = await requestAssemblyToken(overQuotaUser.email);
 
     const evidence = {
       free: summarizeTokenResult(freeResult),
-      activeTrial: summarizeTokenResult(activeTrialResult),
+      privateSample: summarizeTokenResult(privateSampleResult),
       paidPro: summarizeTokenResult(paidProResult),
       overQuota: summarizeTokenResult(overQuotaResult),
     };
@@ -105,9 +110,9 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(freeResult.status, JSON.stringify(evidence)).toBe(403);
     expect(freeResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is (?:available (?:with Pro|as a Pro feature)|a Pro feature)|pro trial or subscription required/i);
     expect(freeResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
-    expect(activeTrialResult.status, JSON.stringify(evidence)).toBe(403);
-    expect(activeTrialResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is (?:available (?:with Pro|as a Pro feature)|a Pro feature)|Trial access includes Private STT/i);
-    expect(activeTrialResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
+    expect(privateSampleResult.status, JSON.stringify(evidence)).toBe(403);
+    expect(privateSampleResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is a paid Early Access feature/i);
+    expect(privateSampleResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
     expect(paidProResult.status, JSON.stringify(evidence)).toBe(200);
     expect(paidProResult.body?.token, JSON.stringify(evidence)).toBeTruthy();
     expect(overQuotaResult.status, JSON.stringify(evidence)).toBe(429);

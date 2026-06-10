@@ -116,7 +116,7 @@ Every RC-counted test must identify the independent source of truth it enforces.
 | State machine | Browser/STT/session lifecycle | `onend` while listening restarts once after debounce |
 | Message protocol | Workers, engines, Edge Functions | `transcribe` request returns `result` or `error`, never silence |
 | Security/product rule | Tiering, quota, auth, CORS, Stripe | Free Cloud token returns 403 and provider is not called |
-| Human journey | UX smoke and live tester paths | Fresh trial user can record, review analytics, save, and reopen history |
+| Human journey | UX smoke and live tester paths | Fresh Browser-first user can intentionally try the Private sample, record, review analytics, save, and reopen history |
 
 Existing tests whose expected values were copied from the current implementation are **suspect**. They can remain in the suite, but they should not be promoted to RC-counted evidence until reviewed against one of the contract sources above.
 
@@ -139,7 +139,7 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, Private-sample, and over-quota users are fail-closed. |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Gate 1 / Gate 3 | Human journey / running app | Real Pro STT path creates transcript, save/history/detail, AI feedback, and PDF artifact. |
 | `tests/live/private-cache.live.spec.ts` | Gate 1 / Gate 3 | State machine / running app | Private model/cache path starts and remains usable across repeated starts. |
-| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh active-trial tester can reach Private STT path and produce release evidence. |
+| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh tester starts Browser-first, intentionally enters the bounded Private sample path, records, saves, and reopens history. |
 | `tests/live/user-filler-words-persistence.live.spec.ts` | Gate 1 / Gate 3 | Product rule / persistence | Custom filler words persist in the deployed app and are retrievable for the same user. |
 | `tests/live/stt-switching-contract.live.spec.ts` | Gate 3 | State machine / running app | Deployed STT mode switching follows entitlement and lifecycle rules. |
 | `tests/live/stripe-checkout-readiness.live.spec.ts` | Gate 3 | Running app / payment rule | Stripe checkout readiness works in test mode without production-charge assumptions. |

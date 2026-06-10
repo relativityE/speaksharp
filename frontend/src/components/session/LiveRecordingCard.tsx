@@ -24,6 +24,7 @@ interface LiveRecordingCardProps {
     isListening: boolean;
     isReady: boolean;
     isProUser: boolean;
+    isPaidProUser?: boolean;
     canUseCloudStt?: boolean;
     statusMessage?: string; // Optional message from the STT service
     formattedTime: string;
@@ -54,6 +55,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
+    isPaidProUser = isProUser,
     canUseCloudStt = isProUser,
     statusMessage: _statusMessage,
     formattedTime,
@@ -104,9 +106,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
         mock: 'Test transcription mode.',
     };
-    const privateModeDescription = isProUser
+    const hasPrivateSampleAccess = isProUser && !isPaidProUser;
+    const privateModeDescription = isPaidProUser
         ? 'Private transcription keeps transcription local after model setup. All audio processing remains local.'
-        : 'Private transcription unlocks with one free sample or paid Early Access. It needs a one-time local model setup.';
+        : isProUser
+            ? 'Try one Private sample session. Record up to 5 minutes with local transcription so you can compare it with Browser transcription.'
+            : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
     const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
     const cloudModeDescription = canUseCloudStt
         ? 'Pro cloud transcription workflow. Audio is sent to the cloud STT provider.'
@@ -128,14 +133,23 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     : modeHint[mode]}
                             </p>
                             {!isPrivateDownloadRequired && mode === 'native' && isProUser && !isListening && (
-                                <button
-                                    type="button"
-                                    onClick={() => onModeChange('private')}
-                                    className="mt-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
-                                    data-testid="first-run-setup-private"
-                                >
-                                    Set up Private transcription for better local accuracy →
-                                </button>
+                                <div className="mt-1 space-y-0.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => onModeChange('private')}
+                                        className="text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                                        data-testid="first-run-setup-private"
+                                    >
+                                        {hasPrivateSampleAccess
+                                            ? 'Try one Private sample session'
+                                            : 'Set up Private transcription for better local accuracy →'}
+                                    </button>
+                                    {hasPrivateSampleAccess && (
+                                        <p className="text-[10px] font-medium leading-snug text-foreground/60">
+                                            Record up to 5 minutes with local transcription so you can compare it with Browser transcription.
+                                        </p>
+                                    )}
+                                </div>
                             )}
                             {isPrivateDownloadRequired && (
                                 <p
@@ -202,7 +216,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     </span>
                                     {!isProUser && (
                                         <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            One sample, then paid Early Access
+                                            Private transcription is part of Early Access
                                         </span>
                                     )}
                                 </DropdownMenuRadioItem>
