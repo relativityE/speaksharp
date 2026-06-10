@@ -1154,7 +1154,7 @@ async function readSupabaseAuthFromBrowser(page) {
   }).catch(() => null);
 }
 
-async function fetchLatestSavedSessions(page) {
+async function fetchLatestSavedSessions(page, expectedTranscript = '') {
   try {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return { skipped: true, reason: 'missing_supabase_url_or_anon_key' };
@@ -1172,7 +1172,7 @@ async function fetchLatestSavedSessions(page) {
     url.searchParams.set('user_id', `eq.${auth.userId}`);
     url.searchParams.set('or', '(status.is.null,status.eq.completed)');
     url.searchParams.set('order', 'created_at.desc');
-    url.searchParams.set('limit', '5');
+    url.searchParams.set('limit', '25');
 
     const fetched = await page.evaluate(async ({ requestUrl, anonKey, accessToken }) => {
       const response = await fetch(requestUrl, {
@@ -1199,20 +1199,38 @@ async function fetchLatestSavedSessions(page) {
       rows = null;
     }
 
+    const rowSummaries = Array.isArray(rows) ? rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      engine: row.engine,
+      total_words: row.total_words,
+      transcriptLength: typeof row.transcript === 'string' ? row.transcript.length : null,
+      transcriptPreview: typeof row.transcript === 'string' ? row.transcript.slice(0, 120) : null,
+      created_at: row.created_at,
+    })) : null;
+    const normalizedExpected = compact(expectedTranscript).toLowerCase();
+    const matchedIndex = Array.isArray(rows) && normalizedExpected
+      ? rows.findIndex((row) => compact(typeof row.transcript === 'string' ? row.transcript : '').toLowerCase() === normalizedExpected)
+      : -1;
+    const matchedRow = matchedIndex >= 0 ? rows[matchedIndex] : null;
+
     return {
       skipped: false,
       ok: fetched.ok,
       status: fetched.status,
       userId: auth.userId,
       rowCount: Array.isArray(rows) ? rows.length : null,
-      latest: Array.isArray(rows) && rows[0] ? {
-        id: rows[0].id,
-        status: rows[0].status,
-        engine: rows[0].engine,
-        total_words: rows[0].total_words,
-        transcriptLength: typeof rows[0].transcript === 'string' ? rows[0].transcript.length : null,
-        transcriptPreview: typeof rows[0].transcript === 'string' ? rows[0].transcript.slice(0, 120) : null,
-        created_at: rows[0].created_at,
+      rows: rowSummaries,
+      latest: rowSummaries?.[0] ?? null,
+      matched: matchedRow ? {
+        id: matchedRow.id,
+        status: matchedRow.status,
+        engine: matchedRow.engine,
+        total_words: matchedRow.total_words,
+        transcriptLength: typeof matchedRow.transcript === 'string' ? matchedRow.transcript.length : null,
+        transcriptPreview: typeof matchedRow.transcript === 'string' ? matchedRow.transcript.slice(0, 120) : null,
+        created_at: matchedRow.created_at,
+        index: matchedIndex,
       } : null,
       errorBody: fetched.ok ? undefined : compact(fetched.bodyText).slice(0, 500),
     };
@@ -1434,13 +1452,15 @@ async function runFixture(page, mode, fixture) {
   const analyticsBody = compact(await page.locator('body').textContent().catch(() => ''));
   result.analyticsBodySample = analyticsBody.slice(0, 1000);
   result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, selectedForSaveTranscript);
-  result.directSavedSessionQuery = await fetchLatestSavedSessions(page);
+  result.directSavedSessionQuery = await fetchLatestSavedSessions(page, selectedForSaveTranscript);
   result.detailVisible = false;
-  result.detailNavigation = rawDetailVisible ? 'history-link' : null;
-  if (!rawDetailVisible && result.directSavedSessionQuery?.latest?.id) {
-    await page.goto(`${BASE_URL}/analytics/${result.directSavedSessionQuery.latest.id}`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
-    result.detailNavigation = 'direct-saved-session-route';
-  } else if (rawDetailVisible && detailButton) {
+  result.persistedSessionMatch = result.directSavedSessionQuery?.matched ?? null;
+  result.detailNavigation = null;
+  if (result.persistedSessionMatch?.id) {
+    await page.goto(`${BASE_URL}/analytics/${result.persistedSessionMatch.id}`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    result.detailNavigation = 'direct-matched-saved-session-route';
+  } else if (rawDetailVisible && detailButton && result.directSavedSessionQuery?.skipped) {
+    result.detailNavigation = 'history-link-direct-query-skipped';
     await detailButton.click().catch(() => undefined);
   }
   if (result.sessionPersisted && result.detailNavigation) {
