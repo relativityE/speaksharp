@@ -84,12 +84,12 @@ export interface ResolvePrivateRuntimePathOptions {
    */
   turboModelCached: boolean;
   /**
-   * v4 flag-gated tiering (post-paid-soft-launch). When omitted or { enabled:false }
-   * the resolver behaves identically to the v2-base default — v4 is NEVER selected,
-   * so flag-off is byte-identical. When enabled, v4 is selected ONLY on confirmed
-   * WebGPU (conservative v1: no-WebGPU stays the v2-base CPU floor). `distilEnabled`
-   * is reserved for the WebGPU accuracy tier (increment 2 wires the model through
-   * the worker); v1 always uses the base_q4 floor.
+   * v4 flag-gated tiering. When omitted or { enabled:false } the resolver behaves
+   * identically to the v2-base default — v4 is NEVER selected, so flag-off is
+   * byte-identical. When enabled, v4 is selected ONLY on confirmed WebGPU
+   * (no-WebGPU stays the v2-base CPU floor). `distilEnabled` selects the WebGPU
+   * ACCURACY tier (distil_q4) on top of WebGPU; otherwise base_q4 is the WebGPU
+   * floor. Exposure stays controlled by the flags; both tiers are implemented.
    */
   v4?: {
     enabled: boolean;
@@ -135,14 +135,15 @@ export async function resolvePrivateRuntimePath(
     }
 
     if (webgpuAvailable) {
-      // v1: base_q4 is the WebGPU floor. The distil_q4 accuracy tier needs the
-      // worker model-param (increment 2) before it can actually load, so v1 never
-      // returns distil even when the distil flag is on (the distil flag is a no-op
-      // until increment 2 — it is also off by default).
+      // Both v4 tiers load via the worker model-param. distil_q4 is the WebGPU
+      // ACCURACY tier and requires its own explicit flag ON TOP of WebGPU; otherwise
+      // base_q4 is the WebGPU FLOOR. Exposure stays controlled (distil flag off by
+      // default); the implementation is capable of selecting either, now.
+      const v4Variant: PrivSttV4VariantId = options.v4.distilEnabled ? 'distil_q4' : 'base_q4';
       return {
         runtime: 'webgpu',
         provider: 'transformers-js-v4',
-        v4Variant: 'base_q4',
+        v4Variant,
         acceleration: 'gpu',
         reason: 'webgpu_available_v4_flag',
         webgpuAvailable: true,
