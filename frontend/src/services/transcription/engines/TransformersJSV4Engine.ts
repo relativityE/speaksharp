@@ -16,7 +16,7 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
@@ -118,6 +118,12 @@ export class TransformersJSV4Engine extends STTEngine {
 
     protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
         const options = (this.options || {}) as TranscriptionModeOptions;
+        // v4 model TIER (Option B): the flag-gated resolver picks the variant
+        // (base_q4 floor / distil_q4 tier) and PrivateSTT threads it via options.
+        // Default = base_q4. Both the worker init message and the in-thread pipeline
+        // load THIS variant's model/dtype instead of a hardcoded constant.
+        const variant: PrivSttV4VariantId = (this.options as { v4Variant?: PrivSttV4VariantId })?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
+        const v4Model = PRIV_STT_V4_VARIANTS[variant];
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Engine already initialized, skipping.');
             options.onReady?.();
@@ -128,9 +134,10 @@ export class TransformersJSV4Engine extends STTEngine {
             sId: this.serviceId,
             rId: this.runId,
             eId: this.instanceId,
-            model: PRIV_STT_V4.MODEL_ID,
-            dtype: PRIV_STT_V4.DTYPE,
+            model: v4Model.MODEL_ID,
+            dtype: v4Model.DTYPE,
             device: PRIV_STT_V4.DEVICE ?? 'default-cpu-wasm',
+            variant,
         }, '[TransformersJSV4] Initializing engine...');
 
         if (isMock) {
@@ -141,7 +148,7 @@ export class TransformersJSV4Engine extends STTEngine {
 
         try {
             if (this.shouldUseWorker()) {
-                await this.initWorker(isMock);
+                await this.initWorker(isMock, v4Model);
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
                 options.onReady?.();
@@ -174,7 +181,7 @@ export class TransformersJSV4Engine extends STTEngine {
 
             const loadStart = performance.now();
             const pipelineOptions: Record<string, unknown> = {
-                dtype: PRIV_STT_V4.DTYPE,
+                dtype: v4Model.DTYPE,
                 progress_callback,
             };
             if (PRIV_STT_V4.DEVICE) {
@@ -183,7 +190,7 @@ export class TransformersJSV4Engine extends STTEngine {
 
             this.transcriber = await pipeline(
                 'automatic-speech-recognition',
-                PRIV_STT_V4.MODEL_ID,
+                v4Model.MODEL_ID,
                 pipelineOptions
             );
 
@@ -207,9 +214,9 @@ export class TransformersJSV4Engine extends STTEngine {
                 rId: this.runId,
                 eId: this.instanceId,
                 event: 'model_loaded',
-                model: PRIV_STT_V4.MODEL_ID,
-                dtype: PRIV_STT_V4.DTYPE,
-                expected_download_mb: PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB,
+                model: v4Model.MODEL_ID,
+                dtype: v4Model.DTYPE,
+                expected_download_mb: v4Model.EXPECTED_SPLIT_DOWNLOAD_MB,
                 load_time_ms: Math.round(loadTime),
                 engine: 'transformersjs-v4',
             }, '[TransformersJSV4] Engine initialized successfully.');
@@ -402,7 +409,7 @@ export class TransformersJSV4Engine extends STTEngine {
             !ENV.isTest;
     }
 
-    private async initWorker(isMock?: boolean): Promise<void> {
+    private async initWorker(isMock: boolean | undefined, v4Model: { MODEL_ID: string; DTYPE: unknown }): Promise<void> {
         this.worker = new Worker(v4WorkerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
@@ -456,7 +463,7 @@ export class TransformersJSV4Engine extends STTEngine {
             this.pendingWorkerRequests.clear();
         };
 
-        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock) });
+        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock), model: v4Model.MODEL_ID, dtype: v4Model.DTYPE });
         if (response.type !== 'ready') {
             throw new Error(`Unexpected TransformersJSV4 worker init response: ${response.type}`);
         }
@@ -476,7 +483,7 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
+        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {

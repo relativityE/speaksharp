@@ -39,7 +39,7 @@ import logger from '@/lib/logger';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
-import { PRIV_STT_V4 } from '../sttConstants';
+import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT } from '../sttConstants';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
@@ -438,7 +438,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     private async initV4Engine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
-        const options = this.options as TranscriptionModeOptions;
+        // Thread the resolver-chosen v4 model variant (base_q4 floor / distil_q4 tier)
+        // into the engine via options. Override path (no resolver) defaults to base_q4.
+        const variant = this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
+        const options = { ...(this.options as TranscriptionModeOptions), v4Variant: variant } as TranscriptionModeOptions;
         try {
             const factory = getEngine('transformers-js-v4');
             if (factory) {

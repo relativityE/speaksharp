@@ -4,7 +4,7 @@ import { detectWebGPUSupport } from '../utils/webgpuSupport';
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean }
+    | { id: number; type: 'init'; isE2E: boolean; model?: string; dtype?: unknown }
     | { id: number; type: 'transcribe'; audio: Float32Array }
     | { id: number; type: 'destroy' };
 
@@ -57,7 +57,7 @@ function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     return options;
 }
 
-async function createPipeline(progress_callback: (data: unknown) => void): Promise<{ pipe: Pipeline; device: string }> {
+async function createPipeline(progress_callback: (data: unknown) => void, modelId: string, dtype: unknown): Promise<{ pipe: Pipeline; device: string }> {
     const transformers = await import('@huggingface/transformers');
     const { pipeline, env, LogLevel } = transformers;
 
@@ -68,7 +68,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
 
     const preferredDevice = await getPreferredDevice();
     const options: Record<string, unknown> = {
-        dtype: PRIV_STT_V4.DTYPE,
+        dtype,
         progress_callback,
     };
     if (preferredDevice) {
@@ -77,7 +77,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
 
     try {
         return {
-            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, options),
+            pipe: await pipeline('automatic-speech-recognition', modelId, options),
             device: preferredDevice ?? 'wasm-default',
         };
     } catch (error) {
@@ -88,7 +88,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
         const fallbackOptions = { ...options };
         delete fallbackOptions.device;
         return {
-            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, fallbackOptions),
+            pipe: await pipeline('automatic-speech-recognition', modelId, fallbackOptions),
             device: 'wasm-fallback',
         };
     }
@@ -108,7 +108,7 @@ async function warmUp(id: number): Promise<void> {
     post({ id, type: 'warmed', warmupMs: Math.round(performance.now() - start) });
 }
 
-async function init(id: number, isE2E: boolean): Promise<void> {
+async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -129,13 +129,13 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     };
 
     const loadStart = performance.now();
-    const loaded = await createPipeline(progress_callback);
+    const loaded = await createPipeline(progress_callback, modelId, dtype);
     transcriber = loaded.pipe;
     post({
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
-        model: PRIV_STT_V4.MODEL_ID,
+        model: modelId,
         device: loaded.device,
     });
     try {
@@ -179,7 +179,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E);
+                    await init(request.id, request.isE2E, request.model ?? PRIV_STT_V4.MODEL_ID, request.dtype ?? PRIV_STT_V4.DTYPE);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio);
