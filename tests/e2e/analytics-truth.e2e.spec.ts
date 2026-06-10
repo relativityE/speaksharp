@@ -18,6 +18,7 @@ const transcript = [
 for (const mode of ['native', 'cloud'] as const) {
 test(`Gate 2 mocked ${mode}: analytics values change from transcript events and survive reload/export`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
+  const expectedEngineLabel = mode === 'native' ? /browser/i : new RegExp(mode, 'i');
 
   await navigateToRoute(page, '/session');
   await selectTranscriptionEngine(page, mode);
@@ -48,13 +49,13 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
   await expect(page.getByTestId(TEST_IDS.STAT_CARD_SPEAKING_PACE).locator('.text-3xl').first()).not.toHaveText('0');
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
   await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
-  await expect(page.getByTestId('session-engine-metadata')).toContainText(new RegExp(mode, 'i'));
+  await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
   await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
 
   await page.reload();
   await waitForFeature(page, 'analytics');
   await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
-  await expect(page.getByTestId('session-engine-metadata')).toContainText(new RegExp(mode, 'i'));
+  await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
 
   await page.getByRole('button', { name: /Export PDF/i }).click();
   await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
