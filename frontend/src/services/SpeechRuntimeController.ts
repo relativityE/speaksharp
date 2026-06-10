@@ -1590,6 +1590,10 @@ export class SpeechRuntimeController {
                         throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
                     }
 
+                    if (!dbSession) {
+                        throw new Error('SESSION_SAVE_FAILED');
+                    }
+
                     const currentState = this.getState();
                     if (dbSession && service && (
                         currentState === 'RECORDING' ||
@@ -1845,6 +1849,10 @@ export class SpeechRuntimeController {
 
                             if (saveResult?.usageExceeded) {
                                 throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
+                            }
+
+                            if (!saveResult?.session?.id) {
+                                throw new Error('SESSION_SAVE_FAILED');
                             }
                         }
                     }

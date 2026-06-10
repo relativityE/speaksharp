@@ -582,15 +582,6 @@ BEGIN
     END IF;
 
     v_duration := COALESCE((p_session_data->>'duration')::INT, 0);
-    v_usage_check := public.update_user_usage(v_duration, p_engine_type, v_new_session_id);
-
-    IF NOT (v_usage_check->>'success')::BOOLEAN THEN
-        RETURN jsonb_build_object(
-            'new_session', null,
-            'usage_exceeded', true,
-            'error', v_usage_check->>'error'
-        );
-    END IF;
 
     INSERT INTO public.sessions (
         id,
@@ -631,6 +622,19 @@ BEGIN
         'active',
         now() + interval '1 hour'
     );
+
+    v_usage_check := public.update_user_usage(v_duration, p_engine_type, v_new_session_id);
+
+    IF NOT (v_usage_check->>'success')::BOOLEAN THEN
+        DELETE FROM public.sessions
+        WHERE id = v_new_session_id AND user_id = auth.uid();
+
+        RETURN jsonb_build_object(
+            'new_session', null,
+            'usage_exceeded', true,
+            'error', v_usage_check->>'error'
+        );
+    END IF;
 
     IF v_duration > 0 THEN
         INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
