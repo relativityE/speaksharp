@@ -12,6 +12,8 @@ import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { UserProfile } from '@/types/user';
 
+vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
+
 // Mock ALL hooks used inside useSessionLifecycle
 vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn(() => ({
@@ -424,6 +426,217 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 message: "⚠️ Great practice! 5 minutes remaining for today's Pro practice limit."
             });
         });
+    });
+
+    it('warns trial Private users at ten minutes with trial-specific copy', async () => {
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        const mockStore = createTestSessionStore({
+            elapsedTime: 0,
+            isListening: true,
+            sttMode: 'private',
+            startTime: Date.now(),
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'ready', message: 'Recording' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: 7200,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+                trial_active: true,
+                trial_expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+                trial_seconds_remaining: 600,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttStatus).toEqual({
+                type: 'info',
+                message: "⚠️ Your 60-minute trial ends in 10 minutes. We'll stop and save this Private session when it ends."
+            });
+        });
+    });
+
+    it('stops and saves a trial Private session after a 59:30 rollover without showing the practice-limit modal', async () => {
+        const mockStore = createTestSessionStore({
+            elapsedTime: 31,
+            isListening: true,
+            sttMode: 'private',
+            startTime: Date.now() - 31000,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'ready', message: 'Recording' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: 7200,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+                trial_active: true,
+                trial_seconds_remaining: 30,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+            expect(mockStore.getState().sttStatus).toEqual({
+                type: 'info',
+                message: '⛔ Your 60-minute trial ended. Session saved.'
+            });
+            expect(mockStore.getState().sunsetModal.open).toBe(false);
+        });
+    });
+
+    it('does not stop Browser/Native when only the Private trial clock expires', () => {
+        const mockStore = createTestSessionStore({
+            elapsedTime: 31,
+            isListening: true,
+            sttMode: 'native',
+            startTime: Date.now() - 31000,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'ready', message: 'Recording' },
+            mode: 'native',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: 7200,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+                trial_active: true,
+                trial_seconds_remaining: 0,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
     it('should honor can_start=false for stale Pro or expired trial users', async () => {

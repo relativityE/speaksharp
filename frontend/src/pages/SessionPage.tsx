@@ -23,6 +23,7 @@ import {
 import { formatRemainingTime, useUsageLimit } from '@/hooks/useUsageLimit';
 import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { getTrialSecondsRemaining, isTrialPrivateSession } from '@/utils/trialCountdown';
 
 /**
  * ARCHITECTURE:
@@ -151,11 +152,17 @@ export const SessionPage: React.FC = () => {
     };
 
     const baseStatus = getBaseStatus();
-    const trialSecondsRemaining = usageLimit?.trial_active
-        ? Math.max(0, usageLimit.trial_seconds_remaining ?? 0)
-        : 0;
+    const rawTrialSecondsRemaining = getTrialSecondsRemaining(usageLimit, {
+        elapsedSecondsFallback: isListening ? elapsedTime : 0
+    });
+    const trialSecondsRemaining = rawTrialSecondsRemaining ?? 0;
+    const isActivePrivateTrial = usageLimit
+        ? isTrialPrivateSession(usageLimit, mode, canUseCloudStt)
+        : false;
     const trialStatusDetail = trialSecondsRemaining > 0
-        ? `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private transcription.`
+        ? isActivePrivateTrial && isListening
+            ? `Trial countdown: ${formatRemainingTime(trialSecondsRemaining)} left. We'll stop and save Private when it ends.`
+            : `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private transcription.`
         : undefined;
     const shouldShowTrialDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 

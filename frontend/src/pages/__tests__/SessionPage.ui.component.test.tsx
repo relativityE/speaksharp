@@ -21,7 +21,13 @@ vi.mock('@/stores/useSessionStore');
 vi.mock('@/hooks/useVocalAnalysis');
 vi.mock('@/contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
-vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/hooks/useUsageLimit', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/hooks/useUsageLimit')>();
+    return {
+        ...actual,
+        useUsageLimit: vi.fn(),
+    };
+});
 
 vi.mock('@/providers/useTranscriptionContext', () => ({
     useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn(), destroy: vi.fn(), getState: vi.fn().mockReturnValue('IDLE') } })),
@@ -60,6 +66,7 @@ const DEFAULT_LIFECYCLE_MOCK = {
     isListening: false,
     isReady: true,
     isProUser: false,
+    elapsedTime: 0,
     mode: 'native',
     sttStatus: { type: 'ready', message: '' },
     modelLoadingProgress: null,
@@ -196,6 +203,39 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(browserItem);
 
         expect(setModeSpy).toHaveBeenCalledWith('native');
+    });
+
+    it('shows one live trial countdown for an active Private trial recording', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...DEFAULT_LIFECYCLE_MOCK,
+            isListening: true,
+            isProUser: true,
+            canUseCloudStt: false,
+            mode: 'private',
+            elapsedTime: 30,
+            sttStatus: { type: 'recording', message: 'Recording' },
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+
+        mockUseUsageLimit.mockReturnValue({
+            data: {
+                can_start: true,
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: 7200,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+                trial_active: true,
+                trial_seconds_remaining: 600,
+            },
+            isLoading: false,
+        } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
+
+        render(<SessionPage />);
+
+        expect(screen.getByText("Trial countdown: 9m 30s left. We'll stop and save Private when it ends.")).toBeInTheDocument();
     });
 
     it('keeps Cloud available during Private setup only for subscribed Pro users', async () => {
