@@ -1436,8 +1436,14 @@ async function runFixture(page, mode, fixture) {
   result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, selectedForSaveTranscript);
   result.directSavedSessionQuery = await fetchLatestSavedSessions(page);
   result.detailVisible = false;
-  if (result.sessionPersisted && rawDetailVisible) {
+  result.detailNavigation = rawDetailVisible ? 'history-link' : null;
+  if (!rawDetailVisible && result.directSavedSessionQuery?.latest?.id) {
+    await page.goto(`${BASE_URL}/analytics/${result.directSavedSessionQuery.latest.id}`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    result.detailNavigation = 'direct-saved-session-route';
+  } else if (rawDetailVisible && detailButton) {
     await detailButton.click().catch(() => undefined);
+  }
+  if (result.sessionPersisted && result.detailNavigation) {
     await page.waitForTimeout(750);
     const detailBody = compact(await page.locator('body').textContent().catch(() => ''));
     const detailTranscript = await readSessionDetailTranscript(page);
