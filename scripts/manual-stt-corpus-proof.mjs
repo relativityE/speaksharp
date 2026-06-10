@@ -62,6 +62,7 @@ const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
 const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
 const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
 const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
+const INJECT_MIC_AUDIO_LOOP = process.env.STT_INJECT_MIC_AUDIO_LOOP === 'true';
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -146,7 +147,7 @@ async function getPcmWavDurationMs(audioPath) {
 async function installInjectedMicAudio(page, audioPath) {
   const wav = await readFile(audioPath);
   const audioBase64 = wav.toString('base64');
-  await page.addInitScript(({ audioBase64: injectedAudioBase64 }) => {
+  await page.addInitScript(({ audioBase64: injectedAudioBase64, loopAudio }) => {
     const state = {
       installedAt: Date.now(),
       getUserMediaCalls: 0,
@@ -186,6 +187,7 @@ async function installInjectedMicAudio(page, audioPath) {
         const destination = audioContext.createMediaStreamDestination();
         const source = audioContext.createBufferSource();
         source.buffer = decoded;
+        source.loop = Boolean(loopAudio);
         source.connect(destination);
         source.onended = () => {
           state.endedAt = Date.now();
@@ -195,13 +197,14 @@ async function installInjectedMicAudio(page, audioPath) {
         state.durationMs = Math.round(decoded.duration * 1000);
         state.sampleRate = decoded.sampleRate;
         state.channels = decoded.numberOfChannels;
+        state.loop = Boolean(loopAudio);
         return destination.stream;
       } catch (error) {
         state.error = error instanceof Error ? error.message : String(error);
         throw error;
       }
     };
-  }, { audioBase64 });
+  }, { audioBase64, loopAudio: INJECT_MIC_AUDIO_LOOP });
 }
 
 function normalizeForWer(text) {
@@ -1525,14 +1528,17 @@ const evidence = {
   },
   injectedMicAudio: {
     enabled: INJECT_MIC_AUDIO,
+    loop: INJECT_MIC_AUDIO_LOOP,
     validForNativeWebSpeechWer: false,
-    route: INJECT_MIC_AUDIO ? 'page getUserMedia override; WAV starts when the app requests mic input' : null,
+    route: INJECT_MIC_AUDIO
+      ? `page getUserMedia override; WAV starts when the app requests mic input${INJECT_MIC_AUDIO_LOOP ? ' and loops until the stream is stopped' : ''}`
+      : null,
   },
   webgpuDisabledForRun: DISABLE_WEBGPU,
   customWord: CUSTOM_WORD || null,
   microphonePath: INJECT_MIC_AUDIO
-    ? 'page getUserMedia override with per-fixture WAV injected at mic request time'
-    : 'real browser getUserMedia with afplay through the physical speaker/mic path',
+  ? `page getUserMedia override with per-fixture WAV injected at mic request time${INJECT_MIC_AUDIO_LOOP ? ' (looped)' : ''}`
+  : 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
     mode: AUTH_MODE,
     email: AUTH_MODE === 'fresh' ? SIGNUP_EMAIL : EMAIL,
