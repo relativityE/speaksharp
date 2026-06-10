@@ -259,11 +259,45 @@ jobs:
         with:
           install-playwright: 'true'
 
+      - name: Assert required live proof env
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=0
+          for key in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error title=Missing required env::$key is required for first-time tester Private sample proof"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Start release-proof local app on 5174
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BASE_URL: http://localhost:5174
+        run: |
+          pnpm dev:real > "${RUNNER_TEMP}/first-time-private-sample-vite.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/first-time-private-sample-vite.pid"
+          pnpm exec wait-on --timeout 120000 "$BASE_URL"
+
       - name: Run First-Time Tester Private Trial Proof
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          BASE_URL: https://speaksharp-public.vercel.app/
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BASE_URL: http://localhost:5174
         run: pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload First-Time Tester Private Trial Artifacts
@@ -272,6 +306,7 @@ jobs:
         with:
           name: live-first-time-tester-private-trial-artifacts
           path: |
+            ${{ runner.temp }}/first-time-private-sample-vite.log
             blob-report/live/
             playwright-report/
             test-results/live/
