@@ -341,7 +341,7 @@ jobs:
           STT_AUTH: existing
           STT_MODES: private
           STT_FIXTURES: h1_6
-          STT_PRIVATE_ENGINE: transformers-js-v4
+          STT_EXTRA_QUERY: v4ForceAuto=1
           STT_INJECT_MIC_AUDIO: 'true'
           STT_INJECT_MIC_AUDIO_LOOP: 'true'
           STT_POST_PLAYBACK_WAIT_MS: '15000'
