@@ -129,6 +129,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     protected serviceId: string = 'unknown';
     protected runId: string = 'unknown';
     private runtimePath: PrivateRuntimeDecision | null = null;
+    // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
+    // decode-time fallback to v2-base; the strict explicit-override path never sets it.
+    private v4AutoFallbackEligible = false;
 
     /**
      * PrivateSTT manages the dual-engine strategy for on-device transcription.
@@ -162,6 +165,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         this.serviceId = options.serviceId || 'unknown';
         this.runId = options.runId || 'unknown';
+        this.v4AutoFallbackEligible = false; // reset per init; only auto-path v4 success re-enables
 
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
@@ -216,6 +220,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const initStart = performance.now();
         const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
         if (primary.isOk) {
+            // Eligible for a one-shot decode-time fallback ONLY when the AUTO path chose v4.
+            this.v4AutoFallbackEligible = autoEngine === 'transformers-js-v4';
             this.emitV4FlagTelemetry(null, Math.round(performance.now() - initStart));
             return Result.ok(undefined);
         }
@@ -376,7 +382,27 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         if (!this.engine) {
             return { isOk: false, error: new Error('PrivateSTT not initialized.') };
         }
-        return this.engine.transcribe(audio);
+        const result = await this.engine.transcribe(audio);
+        if (result.isOk) return result;
+
+        // DECODE-time fallback (AUTO / flag path only). A flagged v4 engine that fails to
+        // DECODE mid-session (e.g. an onnxruntime runtime error such as
+        // "invalid data location: undefined for input ...") must NOT strand the user with
+        // an empty session. Tear down v4, init the proven v2-base engine, and RE-TRANSCRIBE
+        // the SAME audio (no data loss). One-shot: clear the flag so we never loop. The
+        // strict explicit-override path never sets the flag, so it is unaffected.
+        if (this.v4AutoFallbackEligible && this._engineType === 'transformers-js-v4') {
+            this.v4AutoFallbackEligible = false;
+            logger.warn({ sId: this.serviceId, rId: this.runId, err: result.error }, '[PrivateSTT] v4 decode failed; falling back to v2-base and re-transcribing');
+            try { await this.engine.terminate?.(); } catch { /* best-effort v4 teardown */ }
+            const fallback = await this.initSafeEngine();
+            if (!fallback.isOk || !this.engine) {
+                return result; // v2 also unavailable — surface the original decode error
+            }
+            this.emitV4FlagTelemetry('v4_decode_failed');
+            return this.engine.transcribe(audio);
+        }
+        return result;
     }
 
     /**
