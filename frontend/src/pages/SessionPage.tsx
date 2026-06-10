@@ -20,7 +20,7 @@ import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
-import { formatRemainingTime, useUsageLimit } from '@/hooks/useUsageLimit';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 
@@ -155,9 +155,9 @@ export const SessionPage: React.FC = () => {
         ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
         : 0;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
-        ? `Private sample: ${formatRemainingTime(privateSampleSecondsRemaining)} left for one local transcription sample. Browser transcription stays free.`
+        ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
-            ? 'Private sample used. Browser transcription stays free; upgrade for continued Private transcription.'
+            ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
         : undefined;
     const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 
@@ -229,6 +229,7 @@ export const SessionPage: React.FC = () => {
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
                                     isProUser={isProUser}
+                                    isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
                                     statusMessage={sttStatus.message}

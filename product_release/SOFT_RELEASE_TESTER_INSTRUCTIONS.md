@@ -49,7 +49,7 @@ Please report:
 - Never share `127.0.0.1:5173` with human testers. That port is mocked E2E/test mode only.
 - If a local rehearsal is required, use `pnpm dev` and `127.0.0.1:5174`; do not use `pnpm dev:test`.
 - Do not generate or send tester codes. Free Browser access is automatic for new accounts.
-- Confirm sample fields appear on new profiles: `private_sample_limit_seconds`, `private_sample_seconds_used`, and no active trial timestamp grant.
+- Confirm sample fields appear on new profiles: `private_sample_limit_seconds`, `private_sample_seconds_used`, and no legacy timestamp grants paid access.
 - Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
 - Keep tester instructions Browser-first with an intentional Private sample. Cloud can be tested separately through paid Pro/admin/dev accounts, but it is not part of free-account sample testing.
 - Pro/admin/dev Cloud tester scope, if included, must explicitly prove Cloud recording, transcript, save/history/detail, analytics, and PDF export. Do not ask automatic-trial testers to validate Cloud.

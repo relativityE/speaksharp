@@ -96,7 +96,7 @@ describe('LiveRecordingCard', () => {
     });
 
     it('keeps Cloud disabled for Private-sample access without paid Cloud entitlement', async () => {
-        render(<LiveRecordingCard {...defaultProps} isProUser={true} canUseCloudStt={false} />);
+        render(<LiveRecordingCard {...defaultProps} isProUser={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
@@ -156,6 +156,14 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/accuracy varies by browser and environment/i));
     });
 
+    it('shows the approved Private sample CTA for sample-entitled users on the Browser path', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} isPaidProUser={false} canUseCloudStt={false} />);
+
+        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
+        expect(screen.getByText(/Record up to 5 minutes with local transcription/i)).toBeDefined();
+        expect(screen.getByText(/compare it with Browser transcription/i)).toBeDefined();
+    });
+
     it('explains why Private is unavailable after the sample is unavailable', async () => {
         render(<LiveRecordingCard {...defaultProps} isProUser={false} canUseCloudStt={false} />);
 
@@ -164,8 +172,9 @@ describe('LiveRecordingCard', () => {
         const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
         expect(privateOption).toHaveAttribute('data-disabled');
         expect(privateOption.textContent).toMatch(/^Private/i);
-        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/one free sample or paid Early Access/i));
-        expect(screen.getByText(/One sample, then paid Early Access/i)).toBeDefined();
+        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/Private transcription is part of Early Access/i));
+        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/full session history, and deeper reports/i));
+        expect(screen.getByText(/Private transcription is part of Early Access/i)).toBeDefined();
         expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/paid Early Access/i));
     });
 

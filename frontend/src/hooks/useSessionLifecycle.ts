@@ -375,9 +375,9 @@ export const useSessionLifecycle = () => {
     }, []);
 
 
-    // Tier enforcement: auto-stop daily/monthly limits and the one-session
+    // Tier enforcement: auto-stop paid practice limits and the one-session
     // unpaid Private sample. The sample has its own countdown/copy so users do
-    // not confuse it with the free Browser practice limit.
+    // not confuse it with the free Browser path.
     useEffect(() => {
         if (!isVerified || !usageLimit) return;
 
@@ -400,7 +400,7 @@ export const useSessionLifecycle = () => {
             if (remaining > 0 && remaining <= warningThresholdSeconds) {
                 const minutes = Math.ceil(remaining / 60);
                 const warningMsg = isPrivateSampleRecording
-                    ? `Private sample ending soon: about ${minutes} minute${minutes > 1 ? 's' : ''} left. Your session will save automatically.`
+                    ? '1 minute left in your Private sample. We’ll stop and save when time runs out.'
                     : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
@@ -424,7 +424,7 @@ export const useSessionLifecycle = () => {
 
                 void handleStartStopRef.current?.({
                     stopReason: isPrivateSampleRecording
-                        ? 'Private sample ended and your session was saved. Browser transcription is still available; upgrade for continued Private transcription.'
+                        ? 'Your Private sample ended. We stopped and saved your session. Browser transcription is still available.'
                         : isProUser
                         ? "⛔ Pro daily practice limit reached."
                         : "⛔ Daily usage limit reached."

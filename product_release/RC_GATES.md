@@ -222,7 +222,7 @@ Required maintained checks:
 |---|---|---|
 | User does not know what to click first | Canary + primary journey smoke | Session entry and recording CTA are reachable |
 | STT mode is unclear | `tests/e2e/user-features.e2e.spec.ts`, Native manual checklist | Private/Cloud/Native selection is visible and current mode is inspectable |
-| Expired trial copy traps user | `tests/live/expired-trial-denial.live.spec.ts` | Continue Free / Free-safe action dismisses dialog and lands in safe state |
+| Legacy trial copy traps user | legacy-entitlement smoke / product-copy sweep | Legacy trial timestamps never show current-user trial entitlement copy; users land in the Browser-safe path with the Private sample or paid Early Access copy |
 | Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof. If Edge has no passing proof, UI/tester copy must say Chrome recommended instead of implying Edge parity. |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
 | Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |
