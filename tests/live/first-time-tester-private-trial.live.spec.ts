@@ -94,9 +94,9 @@ test.describe('First-time tester Private sample path @live', () => {
     await test.step('Land in session Browser-first, then intentionally choose Private sample', async () => {
       await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
       await expect(page.getByTestId('stt-mode-select')).toContainText(/Browser/i, { timeout: 20_000 });
-      await expect(page.getByText(/Private sample: up to 5 minutes|Try one Private sample session/i)).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('first-run-setup-private')).toHaveText(/Try one Private sample session/i, { timeout: 20_000 });
       await selectBenchmarkMode(page, 'private');
-      await expect(page.getByText(/Private sample: up to 5 minutes|Record up to 5 minutes/i)).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('live-session-header')).toContainText(/Private sample: up to 5 minutes|Record up to 5 minutes/i, { timeout: 20_000 });
       console.log('FIRST_TIME_TESTER_STEP session_private_selected');
     });
 
