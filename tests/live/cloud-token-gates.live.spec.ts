@@ -108,7 +108,7 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     console.log(`LIVE_CLOUD_TOKEN_GATE_EVIDENCE ${JSON.stringify(evidence)}`);
 
     expect(freeResult.status, JSON.stringify(evidence)).toBe(403);
-    expect(freeResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is (?:available (?:with Pro|as a Pro feature)|a Pro feature)|pro trial or subscription required/i);
+    expect(freeResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is (?:available (?:with Pro|as a Pro feature)|a Pro feature|a paid Early Access feature)|pro trial or subscription required/i);
     expect(freeResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
     expect(privateSampleResult.status, JSON.stringify(evidence)).toBe(403);
     expect(privateSampleResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is a paid Early Access feature/i);
