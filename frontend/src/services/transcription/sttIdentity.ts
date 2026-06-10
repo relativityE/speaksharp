@@ -13,7 +13,7 @@
  * `userHidden` is true for Private.
  */
 import { NOT_AVAILABLE, type Maybe } from './sttEvidence';
-import { PRIV_STT_MODELS } from './sttConstants';
+import { PRIV_STT_MODELS, PRIVATE_ENGINE_OVERRIDE_KEY } from './sttConstants';
 import {
     resolvePrivateModel,
     resolvePrivateModelSource,
@@ -193,12 +193,15 @@ interface V4RuntimeGlobal {
     onnxRuntimeVersion?: string;
 }
 
-/** Read the raw `?privateEngine=` / localStorage engine override (mirrors PrivateSTT, no import). */
+/** Read the raw `?privateEngine=` / localStorage engine override. Uses the SAME shared
+ *  `PRIVATE_ENGINE_OVERRIDE_KEY` as PrivateSTT so this debug mirror cannot drift from the
+ *  real override key. (Diagnostic display only — the badge is debug-gated; gating of the
+ *  override BEHAVIOR lives in PrivateSTT.) */
 function readEngineOverride(win: Window): string | null {
     try {
         const fromQuery = new URLSearchParams(win.location.search).get('privateEngine');
         if (fromQuery && fromQuery.length > 0) return fromQuery;
-        const stored = win.localStorage?.getItem('speaksharp_private_engine_override');
+        const stored = win.localStorage?.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
         if (stored && stored.length > 0) return stored;
     } catch {
         /* ignore */

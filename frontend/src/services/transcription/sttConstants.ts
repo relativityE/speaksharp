@@ -167,6 +167,14 @@ export type PrivSttV4VariantId = keyof typeof PRIV_STT_V4_VARIANTS;
 export const PRIV_STT_V4_DEFAULT_VARIANT: PrivSttV4VariantId = 'base_q4';
 
 /**
+ * Single source of truth for the explicit private-engine override localStorage key.
+ * Shared by `PrivateSTT` (override read) and `sttIdentity` (debug mirror) so the two
+ * cannot drift. NOTE: the override itself is honored only in dev/test/E2E — see
+ * `PrivateSTT.getPrivateEngineOverride`. It is NOT a production user affordance.
+ */
+export const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
+
+/**
  * Private model-eval candidates (flag-gated A/B). The CI Private v2 benchmark showed
  * ~51.7% WER vs a 6.1% ceiling, so decode/model quality — not just onset detection — is
  * the dominant gap. This lets the test agent A/B larger local models against the default
