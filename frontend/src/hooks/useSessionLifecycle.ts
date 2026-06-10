@@ -21,12 +21,6 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
-import {
-    getTrialSecondsRemaining,
-    isTrialPrivateSession,
-    PRACTICE_LIMIT_WARNING_THRESHOLD_SECONDS,
-    TRIAL_WARNING_THRESHOLD_SECONDS,
-} from '@/utils/trialCountdown';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -383,38 +377,29 @@ export const useSessionLifecycle = () => {
     }, []);
 
 
-    // Tier enforcement: trial Private uses the trial clock; paid/free quotas use practice limits.
+    // Tier enforcement: Auto-stop and 5-minute warning for any tier with a finite daily cap.
     useEffect(() => {
         if (!isVerified || !usageLimit) return;
 
-        const trialSecondsRemaining = getTrialSecondsRemaining(usageLimit, { elapsedSecondsFallback: elapsedTime });
-        const isActiveTrialPrivateSession = isTrialPrivateSession(usageLimit, effectiveMode, canUseCloudStt)
-            && trialSecondsRemaining !== null;
-        const sourceRemaining = isActiveTrialPrivateSession
-            ? trialSecondsRemaining
-            : (isProUser && typeof usageLimit.daily_remaining === 'number'
-                ? usageLimit.daily_remaining
-                : usageLimit.remaining_seconds);
+        const sourceRemaining = isProUser && typeof usageLimit.daily_remaining === 'number'
+            ? usageLimit.daily_remaining
+            : usageLimit.remaining_seconds;
 
         if (sourceRemaining === -1 || !Number.isFinite(sourceRemaining)) return;
 
-        if (isListening && typeof sourceRemaining === 'number') {
-            const remaining = isActiveTrialPrivateSession ? sourceRemaining : sourceRemaining - elapsedTime;
-            const warningThreshold = isActiveTrialPrivateSession
-                ? TRIAL_WARNING_THRESHOLD_SECONDS
-                : PRACTICE_LIMIT_WARNING_THRESHOLD_SECONDS;
+        if (isListening && typeof sourceRemaining === 'number' && sourceRemaining > 0) {
+            const remaining = sourceRemaining - elapsedTime;
 
-            if (remaining > 0 && remaining <= warningThreshold) {
+            // 5-minute warning (300 seconds)
+            if (remaining > 0 && remaining <= 300) {
                 const minutes = Math.ceil(remaining / 60);
-                const warningMsg = isActiveTrialPrivateSession
-                    ? `⚠️ Your 60-minute trial ends in ${minutes} minute${minutes > 1 ? 's' : ''}. We'll stop and save this Private session when it ends.`
-                    : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
+                const tierLabel = isProUser ? 'Pro ' : '';
+                const warningMsg = `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${tierLabel}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
                     posthog.capture('session_limit_warning', {
                         remaining_seconds: remaining,
-                        limit_type: isActiveTrialPrivateSession ? 'trial' : 'practice',
-                        tier: isActiveTrialPrivateSession ? 'trial' : isProUser ? 'pro' : 'free',
+                        tier: isProUser ? 'pro' : 'free',
                         ...getSessionCoachingExperimentProperties(),
                     });
                 }
@@ -424,21 +409,17 @@ export const useSessionLifecycle = () => {
 
                 logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
 
-                if (!isActiveTrialPrivateSession) {
-                    const isMonthly = usageLimit.monthly_remaining <= 0;
-                    setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
-                }
+                const isMonthly = usageLimit.monthly_remaining <= 0;
+                setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
 
                 void handleStartStopRef.current?.({
-                    stopReason: isActiveTrialPrivateSession
-                        ? '⛔ Your 60-minute trial ended. Session saved.'
-                        : (isProUser
-                            ? "⛔ Pro daily practice limit reached."
-                            : "⛔ Daily usage limit reached.")
+                    stopReason: isProUser
+                        ? "⛔ Pro daily practice limit reached."
+                        : "⛔ Daily usage limit reached."
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sttStatus.message, isProUser, isVerified, effectiveMode, canUseCloudStt, setSTTStatus, setSunsetModal]);
+    }, [elapsedTime, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);
