@@ -55,7 +55,8 @@ jobs:
       STT_V4_DEVICE: wasm
       STT_INJECT_MIC_AUDIO: 'true'
       STT_POST_PLAYBACK_WAIT_MS: '15000'
-      STT_FIRST_TEXT_TIMEOUT_MS: '45000'
+      # Generous: first text arrives AFTER v4 attempt -> v2-base re-init (model load) -> v2 decode.
+      STT_FIRST_TEXT_TIMEOUT_MS: '90000'
       HEADLESS: 'true'
       STT_CORPUS_OUT: ${{ github.workspace }}/v4-auto-fallback-proof.json
 

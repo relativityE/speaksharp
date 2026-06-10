@@ -390,23 +390,31 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return { isOk: false, error: new Error('PrivateSTT not initialized.') };
         }
         const result = await this.engine.transcribe(audio);
-        if (result.isOk) return result;
 
-        // DECODE-time fallback (AUTO / flag path only). A flagged v4 engine that fails to
-        // DECODE mid-session (e.g. an onnxruntime runtime error such as
-        // "invalid data location: undefined for input ...") must NOT strand the user with
-        // an empty session. Tear down v4, init the proven v2-base engine, and RE-TRANSCRIBE
-        // the SAME audio (no data loss). One-shot: clear the flag so we never loop. The
-        // strict explicit-override path never sets the flag, so it is unaffected.
-        if (this.v4AutoFallbackEligible && this._engineType === 'transformers-js-v4') {
+        // A flagged v4 engine on the AUTO path "produced nothing" if it ERRORED or returned an
+        // EMPTY / whitespace transcript. base_q4 on the WASM backend can fail SILENTLY
+        // (isOk:true, data:"" — e.g. the onnxruntime "invalid data location" condition) instead
+        // of throwing, so an empty SUCCESS must trigger fallback too — otherwise the user is
+        // stranded with an empty session. Genuine silence is safe: v2 also returns empty, so we
+        // never emit a wrong transcript. The strict explicit-override path never sets the flag.
+        const v4Auto = this.v4AutoFallbackEligible && this._engineType === 'transformers-js-v4';
+        const v4Empty = v4Auto && result.isOk && result.data.trim().length === 0;
+        const v4ProducedNothing = v4Auto && (!result.isOk || v4Empty);
+
+        if (result.isOk && !v4Empty) return result;
+
+        // DECODE-time fallback (AUTO / flag path only): tear down v4, init the proven v2-base
+        // engine, and RE-TRANSCRIBE the SAME audio (no data loss). One-shot: clear the flag.
+        if (v4ProducedNothing) {
             this.v4AutoFallbackEligible = false;
-            logger.warn({ sId: this.serviceId, rId: this.runId, err: result.error }, '[PrivateSTT] v4 decode failed; falling back to v2-base and re-transcribing');
+            const errorClass = result.isOk ? 'EmptyTranscript' : (result.error instanceof Error ? result.error.name : 'Error');
+            logger.warn({ sId: this.serviceId, rId: this.runId, errorClass, empty: result.isOk }, '[PrivateSTT] v4 produced no transcript; falling back to v2-base and re-transcribing');
             try { await this.engine.terminate?.(); } catch { /* best-effort v4 teardown */ }
             const fallback = await this.initSafeEngine();
             if (!fallback.isOk || !this.engine) {
-                return result; // v2 also unavailable — surface the original decode error
+                return result; // v2 also unavailable — surface v4's original result
             }
-            this.emitV4FlagTelemetry('v4_decode_failed', undefined, result.error instanceof Error ? result.error.name : 'Error');
+            this.emitV4FlagTelemetry('v4_decode_failed', undefined, errorClass);
             return this.engine.transcribe(audio);
         }
         return result;
