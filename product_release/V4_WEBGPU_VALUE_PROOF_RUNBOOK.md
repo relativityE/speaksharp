@@ -21,24 +21,27 @@ needs a real GPU (Metal/WebGPU) **and** an authenticated session. This runbook m
 - A machine whose Chrome reports WebGPU: open `chrome://gpu` → "WebGPU: Hardware accelerated".
 - Pro test credentials in env: `PRO_TEST_EMAIL`, `PRO_TEST_PASSWORD`; `VITE_SUPABASE_URL` + anon key.
 
-## Run A — v4 selected by the real path + transcript quality (WebGPU)
+## Run A — v4 selected by the PostHog FLAG + transcript quality (WebGPU)
+**v4 must be selected by the PostHog FLAG, not a URL/forceAuto bypass.** Before running, enable the
+v4 flag (`stt_v4_enabled`) for the Pro test user in PostHog (target `isInternalTester=true`). Do
+NOT pass `STT_V4_FORCE_AUTO` here — that is a dev/test CI shortcut, not the operational control
+plane. On a real WebGPU machine the resolver then selects v4 from the flag.
 ```bash
-git checkout dev/v4-integration            # df19b164
+git checkout dev/v4-integration
 pnpm install
-# App with live DB:
 VITE_USE_LIVE_DB=true VITE_AUTH_MODE=real pnpm dev:real    # serves :5174
-# In a second shell — NON-headless so WebGPU is real:
+# second shell — NON-headless so WebGPU is real; v4 comes from the PostHog flag, NO engine override:
 HEADLESS=false \
 STT_AUTH=existing STT_MODES=private STT_FIXTURES=washington_01 \
 STT_USE_FAKE_AUDIO_CAPTURE=true \
 STT_FAKE_AUDIO_FILE="$PWD/tests/fixtures/stt-isomorphic/audio/washington_01.wav" \
-STT_V4_FORCE_AUTO=1 STT_V4_DEVICE=webgpu \
 node scripts/manual-stt-corpus-proof.mjs
 ```
 **PASS evidence (artifact):** `privateProvider:transformers-js-v4`, `privateRuntime` /
-`privateRuntimePath.runtime` = **`webgpu`**, non-empty transcript, `wer` meaningful (washington
-does not loop → clean), `sessionPersisted:true`, `historyVisible:true`, `detailVisible:true`.
-Capture `wer`/`accuracyPct` as the **v4 quality number**.
+`privateRuntimePath.runtime` = **`webgpu`**, `reason: webgpu_available_v4_flag` (i.e. selected by
+the FLAG, NOT `v4_forced_auto`), non-empty transcript, `wer` meaningful (washington does not loop →
+clean), `sessionPersisted:true`, `historyVisible:true`, `detailVisible:true`. Capture
+`wer`/`accuracyPct` as the **v4 quality number**.
 
 ## Run B — fallback safety on WebGPU (force a v4 decode failure)
 Same as Run A, but force a broken decoder dtype so v4 fails and must fall back:
