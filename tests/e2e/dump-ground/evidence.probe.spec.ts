@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupE2EManifest, navigateToRoute, getProbe, programmaticLoginWithRoutes, waitForModelReady } from '../helpers';
+import { setupE2EManifest, navigateToRoute, getProbe, programmaticLoginWithRoutes, selectTranscriptionEngine, waitForModelReady } from '../helpers';
 import { registerMockInE2E } from '../../helpers/testRegistry.helpers';
 import type { E2EWindow } from '../helpers/setupE2EManifest';
 
@@ -193,8 +193,9 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       // Forensic Readiness Gate (Invariant I3)
       await waitForModelReady(page, 15000);
 
-      // Pro sessions default to Private; assert that state directly so the
-      // probe remains focused on the download/unmount race.
+      // First-use trust keeps Pro sessions on Browser by default. Explicitly
+      // enter Private so the probe remains focused on the download/unmount race.
+      await selectTranscriptionEngine(page, 'private');
       await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
       // Trigger the explicit download path before unmounting. Automatic warm-up

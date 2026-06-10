@@ -318,6 +318,25 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
     let attempt = 0;
     let lastOptionState: unknown = null;
 
+    if (mode === 'private') {
+        const firstRunPrivateCta = page.getByTestId('first-run-setup-private');
+        if (await firstRunPrivateCta.isVisible({ timeout: 1_000 }).catch(() => false)) {
+            await firstRunPrivateCta.click({ force: true });
+            try {
+                await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
+                await logBenchmarkPhase(page, `SETUP_STT_MODE_SELECTED_${mode.toUpperCase()}_VIA_FIRST_RUN_CTA`);
+                return;
+            } catch (error) {
+                lastOptionState = {
+                    attempt: 0,
+                    viaFirstRunPrivateCta: true,
+                    selectedState: await select.getAttribute('data-state').catch(() => null),
+                    error: error instanceof Error ? error.message : String(error),
+                };
+            }
+        }
+    }
+
     while (Date.now() < deadline) {
         attempt++;
         await select.click({ force: true }).catch(() => undefined);

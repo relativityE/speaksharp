@@ -417,6 +417,15 @@ async function selectMode(page, mode) {
   const select = page.getByTestId('stt-mode-select');
   await select.waitFor({ state: 'visible', timeout: 45_000 });
 
+  if (mode === 'private') {
+    const firstRunPrivateCta = page.getByTestId('first-run-setup-private');
+    if (await firstRunPrivateCta.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await firstRunPrivateCta.click({ force: true });
+      await page.waitForTimeout(750);
+      if ((await select.getAttribute('data-state')) === mode) return;
+    }
+  }
+
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await select.click({ force: true });
     const option = page.getByTestId(`stt-mode-${mode}`);
@@ -439,6 +448,7 @@ async function assertModePreflight(page, mode) {
     const root = document.documentElement;
     const selectNode = document.querySelector('[data-testid="stt-mode-select"]');
     const option = document.querySelector(`[data-testid="stt-mode-${targetMode}"]`);
+    const privateSetupCta = document.querySelector('[data-testid="first-run-setup-private"]');
     return {
       targetMode,
       currentMode: selectNode?.getAttribute('data-state') ?? null,
@@ -447,12 +457,19 @@ async function assertModePreflight(page, mode) {
       privateOptionInDom: Boolean(option),
       privateOptionVisible: option ? getComputedStyle(option).display !== 'none' : false,
       privateOptionDisabled: option?.getAttribute('aria-disabled') ?? option?.getAttribute('data-disabled') ?? null,
+      privateSetupCtaInDom: Boolean(privateSetupCta),
+      privateSetupCtaVisible: privateSetupCta ? getComputedStyle(privateSetupCta).display !== 'none' : false,
       bodySample: document.body?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '',
     };
   }, mode);
   await markPhase(page, 'mode_preflight', preflight);
 
-  if (mode === 'private' && preflight.currentMode !== 'private' && !preflight.privateOptionInDom) {
+  if (
+    mode === 'private' &&
+    preflight.currentMode !== 'private' &&
+    !preflight.privateOptionInDom &&
+    !preflight.privateSetupCtaInDom
+  ) {
     const error = new Error('INVALID_PRECONDITION private mode is not available for this account/session');
     error.invalidForSttEvidence = true;
     error.invalidReason = 'private_mode_not_available';
