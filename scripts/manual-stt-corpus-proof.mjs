@@ -56,6 +56,13 @@ const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').
 const PRIVATE_VAD = (process.env.STT_PRIVATE_VAD || '').trim();
 const PRIVATE_MODEL = (process.env.STT_PRIVATE_MODEL || '').trim();
 const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
+// v4 decode-experiment / AUTO-fallback knobs (dev/test-gated app-side; see privateV4Experiment.ts).
+// STT_V4_FORCE_AUTO drives the AUTO-path fallback CI proof: AUTO attempts v4 (no WebGPU needed)
+// -> with STT_V4_DEVICE=wasm the decode fails -> PrivateSTT falls back to v2-base -> journey completes.
+const V4_FORCE_AUTO = process.env.STT_V4_FORCE_AUTO === '1' || process.env.STT_V4_FORCE_AUTO === 'true';
+const V4_DEVICE = (process.env.STT_V4_DEVICE || '').trim();
+const V4_DECODER_DTYPE = (process.env.STT_V4_DECODER_DTYPE || '').trim();
+const V4_NO_WORKER = process.env.STT_V4_NO_WORKER === '1' || process.env.STT_V4_NO_WORKER === 'true';
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
@@ -1266,6 +1273,19 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_RESAMPLER) {
     sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
   }
+  // v4 decode-experiment / AUTO-fallback URL params (app honors them dev/test-only).
+  if (mode === 'private' && V4_FORCE_AUTO) {
+    sessionUrl.searchParams.set('v4ForceAuto', '1');
+  }
+  if (mode === 'private' && V4_DEVICE) {
+    sessionUrl.searchParams.set('v4Device', V4_DEVICE);
+  }
+  if (mode === 'private' && V4_DECODER_DTYPE) {
+    sessionUrl.searchParams.set('v4DecoderDtype', V4_DECODER_DTYPE);
+  }
+  if (mode === 'private' && V4_NO_WORKER) {
+    sessionUrl.searchParams.set('v4NoWorker', '1');
+  }
   if (mode === 'native') {
     if (NATIVE_CONTINUOUS) {
       sessionUrl.searchParams.set('nativeContinuous', NATIVE_CONTINUOUS);
@@ -1658,11 +1678,16 @@ try {
 
   page.on('console', (message) => {
     const text = message.text();
-    if (/STT|Speech|Transcription|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
+    if (/STT|Speech|Transcription|Transformers|onnx|wasm|webgpu|\bv4\b|fallback|decode|transcrib|exceeded|EmptyTranscript|runtime|provider|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
       evidence.consoleEvents.push({ type: message.type(), text });
+      // Un-blind (diagnostic observability only): forward relevant browser console to the run log.
+      console.log(`[BROWSER:${message.type()}] ${text}`);
     }
   });
-  page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+  page.on('pageerror', (error) => {
+    evidence.pageErrors.push(error.message);
+    console.log(`[BROWSER:pageerror] ${error.message}`);
+  });
   page.on('requestfailed', (request) => evidence.failedRequests.push({
     url: request.url(),
     errorText: request.failure()?.errorText,
