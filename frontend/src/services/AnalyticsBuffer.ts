@@ -192,10 +192,31 @@ class AnalyticsBuffer {
 
     try {
       posthog.identify(userId, properties);
+      // Explicitly re-evaluate feature flags for the now-identified user so the app never keeps the
+      // prior anonymous flag state (the Gate B stale-flag gotcha — flags must reflect the account).
+      posthog.reloadFeatureFlags();
       Sentry.setUser({ id: userId, ...properties });
       logger.debug({ userId }, '[AnalyticsBuffer] User identified');
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to identify user');
+    }
+  }
+
+  /**
+   * Clear the identified user on sign-out: reset PostHog to a fresh anonymous distinct id and clear
+   * the Sentry user. Pairs with identify() so a shared device does not retain a prior account's
+   * identity (and so PostHog feature-flag evaluation reverts to the anonymous/default cohort).
+   */
+  public resetIdentity(): void {
+    try {
+      posthog.reset();
+      // Re-evaluate flags for the fresh anonymous id so a signed-out shared device does not retain
+      // the prior account's flag evaluation.
+      posthog.reloadFeatureFlags();
+      Sentry.setUser(null);
+      logger.debug('[AnalyticsBuffer] User identity reset');
+    } catch (err) {
+      logger.warn({ err }, '[AnalyticsBuffer] Failed to reset identity');
     }
   }
 }

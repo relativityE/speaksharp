@@ -6,7 +6,9 @@ import posthog from 'posthog-js';
 vi.mock('posthog-js', () => ({
   default: {
     capture: vi.fn(),
-    identify: vi.fn()
+    identify: vi.fn(),
+    reset: vi.fn(),
+    reloadFeatureFlags: vi.fn()
   }
 }));
 
@@ -159,5 +161,21 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     expect(payload).not.toContain('very-sensitive');
     expect(payload).not.toContain('another sensitive');
     expect(payload).not.toContain('nested array transcript');
+  });
+});
+
+describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('identify() passes through the user id (no email) and reloads feature flags', () => {
+    analyticsBuffer.identify('user-123');
+    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
+  });
+
+  it('resetIdentity() resets PostHog to a fresh anonymous id and reloads flags', () => {
+    analyticsBuffer.resetIdentity();
+    expect(posthog.reset).toHaveBeenCalledTimes(1);
+    expect(posthog.reloadFeatureFlags).toHaveBeenCalled();
   });
 });
