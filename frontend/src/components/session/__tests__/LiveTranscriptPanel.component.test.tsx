@@ -3,7 +3,11 @@ import { render, screen } from '../../../../tests/support/test-utils';
 import { act } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
-import { splitSettledActiveTranscript } from '@/components/session/liveTranscriptUtils';
+import {
+    collapseAdjacentRepeatedPhrases,
+    splitSettledActiveTranscript,
+    trimOverlappingDraftTranscript
+} from '@/components/session/liveTranscriptUtils';
 import { TEST_IDS } from '@/constants/testIds';
 
 describe('LiveTranscriptPanel', () => {
@@ -83,6 +87,37 @@ describe('LiveTranscriptPanel', () => {
 
         const text = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent ?? '';
         expect(text.match(/a dash of pepper spoils beef stew/g)).toHaveLength(1);
+    });
+
+    it('trims overlapping rolling draft text before displaying it to the user', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="On the other hand the magnitude and difficulty"
+                interimTranscript="On the other hand the magnitude and difficulty of the trust to which the voice of my country called me"
+                isListening={true}
+                sttMode="private"
+            />
+        );
+
+        const text = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent ?? '';
+        expect(text.match(/On the other hand/g)).toHaveLength(1);
+        expect(screen.getByTestId('live-transcript-current-line')).toHaveTextContent('of the trust to which the voice of my country called me');
+    });
+
+    it('collapses adjacent repeated live phrases for display without changing the raw transcript surface', () => {
+        const rawTranscript = 'we need focus we need focus now';
+        render(
+            <LiveTranscriptPanel
+                transcript={rawTranscript}
+                interimTranscript=""
+                isListening={true}
+                sttMode="private"
+            />
+        );
+
+        const visibleText = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent ?? '';
+        expect(visibleText.match(/we need focus/g)).toHaveLength(1);
+        expect(screen.getByTestId('transcript-text-only')).toHaveAttribute('data-transcript-text-only', rawTranscript);
     });
 
     it('does not erase final transcript text when later interim text is empty', () => {
@@ -438,6 +473,36 @@ describe('LiveTranscriptPanel', () => {
         });
     });
 
+    describe('trimOverlappingDraftTranscript', () => {
+        it('returns only the trailing new words when draft repeats the committed prefix', () => {
+            expect(
+                trimOverlappingDraftTranscript(
+                    'On the other hand the magnitude and difficulty',
+                    'On the other hand the magnitude and difficulty of the trust'
+                )
+            ).toBe('of the trust');
+        });
+
+        it('handles a one-word recognition correction before the overlapping region', () => {
+            expect(
+                trimOverlappingDraftTranscript(
+                    'Veneration and love from a retreat which I had chosen',
+                    'generation and love from a retreat which I had chosen with the fondest predilection'
+                )
+            ).toBe('with the fondest predilection');
+        });
+
+        it('keeps unrelated draft text intact', () => {
+            expect(trimOverlappingDraftTranscript('first point', 'second point')).toBe('second point');
+        });
+    });
+
+    describe('collapseAdjacentRepeatedPhrases', () => {
+        it('removes immediate repeated phrases from the live display string', () => {
+            expect(collapseAdjacentRepeatedPhrases('we need focus we need focus now')).toBe('we need focus now');
+        });
+    });
+
     it('REGRESSION(Option 1): a multi-sentence draft settles completed sentences while the active one stays Draft', () => {
         render(
             <LiveTranscriptPanel
@@ -582,6 +647,25 @@ describe('LiveTranscriptPanel', () => {
             // Regression: previously textContent read "Draft transcriptText may change…".
             expect(banner).toHaveTextContent('Draft transcript Text may change before the final transcript is saved.');
             expect(banner.textContent).not.toContain('transcriptText');
+        });
+
+        it('keeps the trust banner outside the scrollable transcript log so text cannot scroll underneath it', () => {
+            render(
+                <LiveTranscriptPanel
+                    transcript={Array.from({ length: 80 }, (_, index) => `sentence ${index + 1}`).join(' ')}
+                    interimTranscript="latest words"
+                    isListening
+                    sttMode="private"
+                />
+            );
+
+            const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+            const banner = screen.getByTestId('live-transcript-trust-banner');
+            const slot = screen.getByTestId('live-transcript-banner-slot');
+
+            expect(slot).toContainElement(banner);
+            expect(transcriptContainer).not.toContainElement(banner);
+            expect(transcriptContainer).toHaveClass('overflow-y-auto');
         });
     });
 });

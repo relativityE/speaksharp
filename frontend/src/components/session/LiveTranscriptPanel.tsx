@@ -2,7 +2,11 @@ import React from 'react';
 import { Lock, Cloud } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
-import { splitSettledActiveTranscript } from './liveTranscriptUtils';
+import {
+    collapseAdjacentRepeatedPhrases,
+    splitSettledActiveTranscript,
+    trimOverlappingDraftTranscript
+} from './liveTranscriptUtils';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
@@ -81,11 +85,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     isFinalizing = false,
     nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
-    const tokens = parseTranscriptForHighlighting(transcript, userWords);
     const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
-    const hasTranscript = transcript.trim() !== '';
+    const displayTranscript = isListening
+        ? collapseAdjacentRepeatedPhrases(transcript)
+        : transcript.trim();
+    const hasTranscript = displayTranscript.trim() !== '';
     const displayInterimTranscript =
-        transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
+        trimOverlappingDraftTranscript(displayTranscript, interimTranscript);
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
     // Option 1 (live-view segment finalization): show completed draft sentences as
     // settled/recognized so a long speech is not one giant Draft block, while the
@@ -107,9 +113,10 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const isPrivateMode = normalizedSttMode === 'private';
     const isDrafting = uiState === 'drafting';
     const showDraftTrustBanner = isListening && !isFinalizing;
+    const showTrustHeader = isFinalizing || showDraftTrustBanner;
     const showPrivateFeedback = isPrivateMode && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
-    const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
+    const visibleTranscript = [displayTranscript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
     const finalizingBannerText = isPrivateMode ? 'Processing speech locally…' : 'Processing transcript…';
     const finalizingEmptyTitle = isPrivateMode ? 'Finalizing local transcript…' : 'Finalizing transcript…';
     const finalizingEmptyDescription = isPrivateMode
@@ -233,6 +240,35 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     </div>
                 )}
             </div>
+            {showTrustHeader && (
+                <div className="mb-3 shrink-0" data-testid="live-transcript-banner-slot">
+                    {/* Finalizing banner: post-Stop whole-utterance decode in progress.
+                        Kept outside the scroll log so transcript text can never scroll
+                        under or on top of the trust header. */}
+                    {isFinalizing ? (
+                        <div
+                            className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
+                            data-testid="live-transcript-finalizing"
+                        >
+                            <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+                            {finalizingBannerText}
+                        </div>
+                    ) : (
+                        <div
+                            className="rounded-md border border-dashed border-primary/30 bg-background px-3 py-2 text-sm text-foreground/80 shadow-sm"
+                            data-testid="live-transcript-trust-banner"
+                            data-transcript-trust="draft"
+                            aria-label="Draft transcript notice"
+                        >
+                            <span className="font-semibold text-primary">Draft transcript</span>
+                            {/* Real whitespace text node so extracted/AT text reads
+                                "Draft transcript Text may change…" not glued "transcriptText". */}
+                            {' '}
+                            <span className="ml-2 text-xs text-foreground/60">Text may change before the final transcript is saved.</span>
+                        </div>
+                    )}
+                </div>
+            )}
             <div
                 ref={setScrollContainerRef}
                 className={`live-transcript-scroll h-[18rem] sm:h-[20rem] lg:h-[22rem] overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all`}
@@ -244,33 +280,6 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 aria-label="Live transcript of your speech"
                 role="log"
             >
-                {/* Finalizing banner: post-Stop whole-utterance decode in progress.
-                    Keeps the user informed during multi-second CPU finalization so
-                    stale draft text is never mistaken for the saved result. */}
-                {isFinalizing && (
-                    <div
-                        className="sticky top-0 z-20 mb-3 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
-                        data-testid="live-transcript-finalizing"
-                    >
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
-                        {finalizingBannerText}
-                    </div>
-                )}
-
-                {showDraftTrustBanner && (
-                    <div
-                        className="sticky top-0 z-20 mb-3 rounded-md border border-dashed border-primary/30 bg-background/95 px-3 py-2 text-sm text-foreground/80 shadow-sm backdrop-blur"
-                        data-testid="live-transcript-trust-banner"
-                        data-transcript-trust="draft"
-                        aria-label="Draft transcript notice"
-                    >
-                        <span className="font-semibold text-primary">Draft transcript</span>
-                        {/* Real whitespace text node so extracted/AT text reads
-                            "Draft transcript Text may change…" not glued "transcriptText". */}
-                        {' '}
-                        <span className="ml-2 text-xs text-foreground/60">Text may change before the final transcript is saved.</span>
-                    </div>
-                )}
 
                 {/* Segmented History (Chapters) */}
                 {history.map((segment, idx) => (
@@ -327,7 +336,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         data-transcript-draft={isDrafting ? 'true' : undefined}
                         aria-label={isDrafting ? 'Draft transcript, still being recognized' : undefined}
                     >
-                        {tokens.map((token) => {
+                        {parseTranscriptForHighlighting(displayTranscript, userWords).map((token) => {
                             if (token.type === 'error') {
                                 return (
                                     <span key={token.id} className="text-destructive font-bold opacity-80 text-sm tracking-wide">
