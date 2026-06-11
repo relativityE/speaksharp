@@ -119,6 +119,25 @@ const mergeFinalTranscriptUpdate = (currentTranscript: string, nextFinal: string
 };
 
 /**
+ * Apply an incoming `final` to the accumulated transcript.
+ *
+ * A whole-utterance REPLACEMENT final (Private's post-Stop full re-decode, flagged
+ * `replacesRollingTranscript`) supersedes the accumulated rolling finals wholesale — it is a complete
+ * re-transcription, not an incremental segment, so the generic prefix/suffix/append merge would wrongly
+ * concatenate rolling + final. An empty/whitespace replacement is IGNORED (never wipes good text).
+ * Every other final (rolling, Native, Cloud) merges incrementally via `mergeFinalTranscriptUpdate`.
+ *
+ * Exported only so the replace-vs-append contract is unit-testable without standing up the service.
+ */
+export const applyFinalTranscriptUpdate = (
+  currentTranscript: string,
+  nextFinal: string,
+  replacesRollingTranscript?: boolean,
+): string => (replacesRollingTranscript && nextFinal.trim().length > 0)
+  ? nextFinal.trim()
+  : mergeFinalTranscriptUpdate(currentTranscript, nextFinal);
+
+/**
  * @deprecated Use SpeechRuntimeController as the sole manager of service instances.
  * This is preserved only for the Controller's internal initialization.
  */
@@ -1671,7 +1690,13 @@ export default class TranscriptionService {
     }
 
     if (transcript.final) {
-      this.currentTranscript = mergeFinalTranscriptUpdate(this.currentTranscript, transcript.final);
+      // Whole-utterance replacement finals (Private post-Stop) replace the rolling transcript;
+      // incremental finals (rolling/Native/Cloud) keep merging. See applyFinalTranscriptUpdate.
+      this.currentTranscript = applyFinalTranscriptUpdate(
+        this.currentTranscript,
+        transcript.final,
+        transcript.replacesRollingTranscript,
+      );
       this.partialTranscript = '';
       this.options.onTranscriptUpdate?.({
         transcript: { final: this.currentTranscript }

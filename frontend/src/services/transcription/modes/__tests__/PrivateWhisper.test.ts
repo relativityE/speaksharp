@@ -607,7 +607,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(mocks.transcribe).toHaveBeenCalledTimes(2);
         expect((mocks.transcribe.mock.calls[1][0] as Float32Array).length).toBe(longLiveChunk.length);
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
-            transcript: { final: 'private local full final transcript' },
+            transcript: { final: 'private local full final transcript', replacesRollingTranscript: true },
         });
 
         vi.useRealTimers();
@@ -762,7 +762,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(engine.wholeUtteranceTranscript).toBe('The puppy, like, chewed up the new shoes.');
         expect(await engine.getTranscript()).toBe('The puppy, like, chewed up the new shoes.');
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
-            transcript: { final: 'The puppy, like, chewed up the new shoes.' },
+            transcript: { final: 'The puppy, like, chewed up the new shoes.', replacesRollingTranscript: true },
         });
     });
 
@@ -1080,7 +1080,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             expect.objectContaining({ type: 'info', message: 'Processing speech locally…' }),
         );
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
-            transcript: { final: 'first stable words continue with tail' },
+            transcript: { final: 'first stable words continue with tail', replacesRollingTranscript: true },
         });
     });
 

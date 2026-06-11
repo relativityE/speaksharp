@@ -2277,7 +2277,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       decodeMs,
     });
 
-    this.onTranscriptUpdate?.({ transcript: { final: transcript } });
+    // `replacesRollingTranscript: true` — this whole-utterance decode is a COMPLETE re-transcription
+    // that REPLACES the accumulated rolling finals (we just set this.currentTranscript = transcript,
+    // discarding replacedRollingTranscript). Without the marker, TranscriptionService's generic merge
+    // appends it to the rolling preview (rolling + final duplication / inflated WER).
+    this.onTranscriptUpdate?.({ transcript: { final: transcript, replacesRollingTranscript: true } });
   }
 
   private retainAudioForRetry(audio: Float32Array): void {
