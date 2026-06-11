@@ -812,7 +812,16 @@ async function playFixture(audioPath) {
     return { source: 'page-getUserMedia-injected-wav', audioPath, durationMs };
   }
   if (USE_FAKE_AUDIO_CAPTURE) {
-    return { source: 'chrome-fake-audio-capture', audioPath: FAKE_AUDIO_FILE || audioPath };
+    // Chrome streams FAKE_AUDIO_FILE as the mic via --use-file-for-fake-audio-capture, but that
+    // stream is PASSIVE — the harness must keep RECORDING for the file's real duration before it
+    // clicks Stop. Returning immediately here collapsed the recording window to POST_PLAYBACK_WAIT_MS
+    // (~10s), so only the first few seconds of a 65.8s fixture were captured and full-reference WER
+    // was inflated by the uncaptured tail (the Gate A `WER 0.801` capture artifact). Wait the fixture
+    // duration (mirrors the INJECT_MIC_AUDIO branch) so the whole fixture is captured before Stop.
+    const file = FAKE_AUDIO_FILE || audioPath;
+    const durationMs = await getPcmWavDurationMs(file);
+    await new Promise(resolve => setTimeout(resolve, durationMs + PLAYBACK_GRACE_MS));
+    return { source: 'chrome-fake-audio-capture', audioPath: file, durationMs };
   }
   if (process.platform !== 'darwin') {
     throw new Error('Real-mic STT corpus proof currently uses macOS afplay and must run on darwin.');
