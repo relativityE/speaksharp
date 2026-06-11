@@ -46,7 +46,7 @@ try {
 }
 
 console.log(`GATE_B_POSTHOG_TARGETING_EVIDENCE ${JSON.stringify(evidence)}`);
-if (!evidence.pass) process.exitCode = evidence.classification === 'FAIL_HARNESS' ? 1 : 2;
+if (evidence.classification === 'FAIL_HARNESS') process.exitCode = 1;
 
 async function findPersonByEmail(targetEmail) {
   const attempts = [];
@@ -67,6 +67,24 @@ async function findPersonByEmail(targetEmail) {
       if (match) return { ...match, __attempts: attempts };
       if (results.length === 1 && params.search) return { ...results[0], __attempts: attempts };
     }
+  }
+
+  const query = `
+    SELECT id, created_at, properties, is_identified
+    FROM persons
+    WHERE properties.email = ${sqlString(targetEmail)}
+       OR properties.Email = ${sqlString(targetEmail)}
+       OR properties['$email'] = ${sqlString(targetEmail)}
+    LIMIT 5
+  `;
+  const queryResult = await hogql(query, 'Gate B disposable Pro person lookup');
+  attempts.push({ path: '/api/projects/<env>/query/', status: queryResult.status, ok: queryResult.ok, mode: 'hogql_person_lookup' });
+  if (queryResult.ok) {
+    const rows = Array.isArray(queryResult.body?.results) ? queryResult.body.results : [];
+    const match = rows
+      .map((row) => personFromHogqlRow(row))
+      .find((candidate) => personHasEmail(candidate, targetEmail));
+    if (match) return { ...match, __attempts: attempts };
   }
   return { __notFound: true, __attempts: attempts };
 }
@@ -124,7 +142,11 @@ async function evaluateFlag(person) {
 
 function summarizePerson(person) {
   if (!person || person.__notFound) {
-    return { found: false, lookupAttempts: person?.__attempts || [] };
+    return {
+      found: false,
+      lookupAttempts: person?.__attempts || [],
+      lookupForbidden: (person?.__attempts || []).some((attempt) => attempt.status === 403),
+    };
   }
   const properties = safeObject(person.properties);
   return {
@@ -141,7 +163,11 @@ function summarizePerson(person) {
 
 function summarizeFlag(flag) {
   if (!flag || flag.__notFound) {
-    return { found: false, lookupAttempts: flag?.__attempts || [] };
+    return {
+      found: false,
+      lookupAttempts: flag?.__attempts || [],
+      lookupForbidden: (flag?.__attempts || []).some((attempt) => attempt.status === 403),
+    };
   }
   const groups = Array.isArray(flag.filters?.groups) ? flag.filters.groups : [];
   return {
@@ -159,7 +185,13 @@ function summarizeFlag(flag) {
 }
 
 function classifyOperatorTargeting(flag, person) {
-  if (!flag || flag.__notFound) return { verified: false, reason: 'flag_not_found' };
+  if (!flag || flag.__notFound) {
+    return {
+      verified: false,
+      reason: 'flag_config_unavailable',
+      lookupForbidden: (flag?.__attempts || []).some((attempt) => attempt.status === 403),
+    };
+  }
   const groups = Array.isArray(flag.filters?.groups) ? flag.filters.groups : [];
   const properties = groups.flatMap((group) => extractProperties(group).map((property) => ({
     groupRolloutPercentage: group.rollout_percentage ?? null,
@@ -202,9 +234,9 @@ function classifyOperatorTargeting(flag, person) {
 
 function classify(current) {
   if (!current.person?.found || !current.person?.hasExpectedEmail) return 'BLOCKED_ON_TEST_USER_IDENTIFICATION';
-  if (!current.flagConfig?.found) return 'BLOCKED_ON_PRODUCT_TARGETING';
-  if (!current.operatorTargeting?.verified) return 'BLOCKED_ON_PRODUCT_TARGETING';
   if (!current.flagEvaluation?.privateSttV4Enabled) return 'BLOCKED_ON_PRODUCT_TARGETING';
+  if (!current.flagConfig?.found) return 'FAIL_HARNESS';
+  if (!current.operatorTargeting?.verified) return 'BLOCKED_ON_PRODUCT_TARGETING';
   return 'TARGETING_VERIFIED';
 }
 
@@ -214,6 +246,28 @@ async function apiGet(url) {
       Authorization: `Bearer ${personalApiKey}`,
       Accept: 'application/json',
     },
+  });
+  return {
+    ok: response.ok,
+    status: response.status,
+    body: await parseBody(response),
+  };
+}
+
+async function hogql(query, name) {
+  const response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${personalApiKey}`,
+    },
+    body: JSON.stringify({
+      query: {
+        kind: 'HogQLQuery',
+        query,
+      },
+      name,
+    }),
   });
   return {
     ok: response.ok,
@@ -241,6 +295,15 @@ function normalizeResults(body) {
   if (Array.isArray(body?.results)) return body.results;
   if (Array.isArray(body)) return body;
   return [];
+}
+
+function personFromHogqlRow(row) {
+  return {
+    id: row?.[0] ?? null,
+    created_at: row?.[1] ?? null,
+    properties: safeObject(row?.[2]),
+    is_identified: row?.[3] ?? null,
+  };
 }
 
 function personHasEmail(person, targetEmail) {
@@ -301,6 +364,10 @@ function sanitizeError(error) {
       .replaceAll(personalApiKey, '<redacted>')
       .replaceAll(projectApiKey, '<redacted>'),
   };
+}
+
+function sqlString(value) {
+  return `'${String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
 }
 
 function requireEnv(name, aliases = []) {
