@@ -62,7 +62,7 @@ export class SessionManager {
      * Guaranteed safe against concurrent calls or StrictMode races.
      */
     public async destroySession(): Promise<void> {
-        console.warn('[TRACE] DESTROY_SESSION_CALLED');
+        logger.debug('[SessionManager] destroySession called');
         if (!this.activeService) return;
         await this.activeService.destroy();
         this.activeService = null;

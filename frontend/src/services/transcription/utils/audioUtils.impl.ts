@@ -24,6 +24,46 @@ interface WindowWithwebkitAudioContext extends Window {
   webkitAudioContext: typeof AudioContext;
   micStream?: MicStream;
   __E2E_BRIDGE_MIC__?: boolean;
+  __PRIVATE_MIC_CONSTRAINTS_DEBUG__?: {
+    mode: 'raw' | 'default';
+    requestedConstraints: boolean | MediaTrackConstraints;
+    actualTrackSettings: Partial<MediaTrackSettings>;
+    capturedAt: string;
+  };
+}
+
+// Product default: raw constraints (DSP off) so the local Whisper decode receives
+// unprocessed audio, matching the drop-in comparator.
+export const RAW_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  channelCount: 1,
+};
+
+/**
+ * TEST-ONLY mic-constraint selector for isolating the Private app-vs-drop-in
+ * boundary (see Private STT report h1_6 A/B). Default behavior is unchanged:
+ * `raw` is returned unless a test explicitly opts into `default` (browser-default
+ * DSP: echoCancellation/noiseSuppression/autoGainControl ON) via
+ * `?privateMicConstraints=default` or localStorage `speaksharp.test.micConstraints`.
+ * No product surface depends on this; it exists only so STT testing can A/B the
+ * effect of DSP without a code change.
+ */
+export function resolveAudioConstraints(): { mode: 'raw' | 'default'; constraints: boolean | MediaTrackConstraints } {
+  if (typeof window === 'undefined') return { mode: 'raw', constraints: RAW_AUDIO_CONSTRAINTS };
+  let requested: string | null = null;
+  try {
+    requested = new URLSearchParams(window.location.search).get('privateMicConstraints')
+      ?? window.localStorage.getItem('speaksharp.test.micConstraints');
+  } catch {
+    requested = null;
+  }
+  if (requested === 'default') {
+    // Browser-default DSP (echoCancellation/noiseSuppression/autoGainControl on).
+    return { mode: 'default', constraints: true };
+  }
+  return { mode: 'raw', constraints: RAW_AUDIO_CONSTRAINTS };
 }
 
 export async function createMicStreamImpl(
@@ -76,7 +116,35 @@ export async function createMicStreamImpl(
     oscillator.start();
     mediaStream = dst.stream;
   } else {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const { mode, constraints } = resolveAudioConstraints();
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+    // Surface both the REQUESTED constraints and the ACTUAL track settings Chrome
+    // returned, so STT testing can confirm what the browser actually applied (the
+    // two can differ). Diagnostic only; no behavior depends on this log.
+    try {
+      const track = mediaStream.getAudioTracks()[0];
+      const settings = track?.getSettings?.() ?? {};
+      const actualTrackSettings = {
+        echoCancellation: (settings as MediaTrackSettings).echoCancellation,
+        noiseSuppression: (settings as MediaTrackSettings).noiseSuppression,
+        autoGainControl: (settings as MediaTrackSettings).autoGainControl,
+        channelCount: (settings as MediaTrackSettings).channelCount,
+        sampleRate: (settings as MediaTrackSettings).sampleRate,
+      };
+      (window as unknown as WindowWithwebkitAudioContext).__PRIVATE_MIC_CONSTRAINTS_DEBUG__ = {
+        mode,
+        requestedConstraints: constraints,
+        actualTrackSettings,
+        capturedAt: new Date().toISOString(),
+      };
+      logger.info({
+        micConstraintsMode: mode,
+        requestedConstraints: constraints,
+        actualTrackSettings,
+      }, '[MicStream] getUserMedia constraints applied');
+    } catch {
+      // Non-fatal: settings introspection is best-effort diagnostics.
+    }
   }
 
   // Load worklet URL dynamically, passing the audio context instance for the check.

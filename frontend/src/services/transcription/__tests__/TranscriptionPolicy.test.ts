@@ -152,7 +152,7 @@ describe('TranscriptionPolicy', () => {
             expect(buildPolicyForUser(true, 'cloud', { allowCloud: true }).allowFallback).toBe(false);
         });
 
-        it('keeps trial-style Pro users off Cloud when paid Cloud access is disabled', () => {
+        it('keeps trial-style Pro users off Cloud when Cloud Pro feature access is disabled', () => {
             const policy = buildPolicyForUser(true, 'cloud', { allowCloud: false });
             expect(policy.allowNative).toBe(true);
             expect(policy.allowPrivate).toBe(true);

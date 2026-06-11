@@ -22,7 +22,7 @@ const mockNavigate = vi.fn() as unknown as NavigateFunction;
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
 class MockRaceEngine extends STTEngine {
-    public readonly type = 'whisper-turbo' as const;
+    public readonly type = 'transformers-js' as const;
     
     protected async onInit() { return Result.ok(undefined); }
     protected async onStart() {}
@@ -72,7 +72,7 @@ describe('TranscriptionService - Race Conditions', () => {
         // Arrange
         const engine = new MockRaceEngine();
         
-        registry.register('whisper-turbo', () => engine);
+        registry.register('transformers-js', () => engine);
         registry.register('transformers-js', () => engine);
         registry.register('mock', () => engine);
 
@@ -134,7 +134,7 @@ describe('TranscriptionService - Race Conditions', () => {
         vi.spyOn(engine, 'init').mockImplementation(() => initPromiseResolves as Promise<Result<void, Error>>);
         
         // 1. Inject into STTRegistry
-        registry.register('whisper-turbo', () => engine);
+        registry.register('transformers-js', () => engine);
         registry.register('transformers-js', () => engine);
         
         vi.stubGlobal('navigator', {

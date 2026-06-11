@@ -1,18 +1,23 @@
 import { chromium } from 'playwright';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import dotenv from 'dotenv';
+import {
+  buildSandboxProcessControlEpermArtifact,
+  isSandboxProcessControlEperm,
+} from './sandbox-eperm-evidence.mjs';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
-dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.test'), override: false });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env'), override: false });
+dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.local'), override: true });
 
 const execFileAsync = promisify(execFile);
 
-const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5174';
 const AUTH_MODE = process.env.STT_AUTH || 'existing';
 const EMAIL = process.env.PRO_TEST_EMAIL
   ?? process.env.E2E_PRO_EMAIL
@@ -37,21 +42,262 @@ const FIXTURE_LIST = (process.env.STT_FIXTURES || 'h1_1')
   .filter(Boolean);
 const PLAYBACK_GRACE_MS = Number(process.env.STT_PLAYBACK_GRACE_MS || 800);
 const POST_PLAYBACK_WAIT_MS = Number(process.env.STT_POST_PLAYBACK_WAIT_MS || 10_000);
+// Trailing silence appended to the fake-audio file so Chrome's looping source can never replay the
+// fixture OPENING inside the record window (the loop-over-capture that produced repeated_span / bad WER).
+// Must exceed (record window − fixture duration) ≈ preroll + grace + POST_PLAYBACK_WAIT; default is generous.
+const FAKE_AUDIO_PAD_MS = Number(process.env.STT_FAKE_AUDIO_PAD_MS || (POST_PLAYBACK_WAIT_MS + 30_000));
 const FIRST_TEXT_TIMEOUT_MS = Number(process.env.STT_FIRST_TEXT_TIMEOUT_MS || 20_000);
+const AFPLAY_RETRIES = Number(process.env.STT_AFPLAY_RETRIES || 2);
 const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_DELAY_MS || 0);
+const PRIVATE_SETUP_USER_CONSENT_REQUIRED = process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true';
 const HEADLESS = process.env.HEADLESS === 'true';
 const MAX_WER = process.env.STT_MAX_WER == null ? null : Number(process.env.STT_MAX_WER);
 const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@speaksharp.app`;
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
+const EXTRA_QUERY = (process.env.STT_EXTRA_QUERY || '').trim();
+const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
+const PRIVATE_VAD = (process.env.STT_PRIVATE_VAD || '').trim();
+const PRIVATE_MODEL = (process.env.STT_PRIVATE_MODEL || '').trim();
+const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
+// v4 decode-experiment / AUTO-fallback knobs (dev/test-gated app-side; see privateV4Experiment.ts).
+// STT_V4_FORCE_AUTO drives the AUTO-path fallback CI proof: AUTO attempts v4 (no WebGPU needed)
+// -> with STT_V4_DEVICE=wasm the decode fails -> PrivateSTT falls back to v2-base -> journey completes.
+const V4_FORCE_AUTO = process.env.STT_V4_FORCE_AUTO === '1' || process.env.STT_V4_FORCE_AUTO === 'true';
+const V4_DEVICE = (process.env.STT_V4_DEVICE || '').trim();
+const V4_DECODER_DTYPE = (process.env.STT_V4_DECODER_DTYPE || '').trim();
+const V4_VARIANT = (process.env.STT_V4_VARIANT || '').trim();
+const V4_NO_WORKER = process.env.STT_V4_NO_WORKER === '1' || process.env.STT_V4_NO_WORKER === 'true';
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
 const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
+const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
+const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
+const RESOLVED_FAKE_AUDIO_FILE = FAKE_AUDIO_FILE ? path.resolve(FAKE_AUDIO_FILE) : '';
+const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
+const INJECT_MIC_AUDIO_LOOP = process.env.STT_INJECT_MIC_AUDIO_LOOP === 'true';
+const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
+const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+
+function buildEnvironmentProof(baseUrl) {
+  const url = new URL(baseUrl);
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  const hostname = url.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const mockAuth = (
+    process.env.VITE_AUTH_MODE === 'mock' ||
+    process.env.VITE_USE_MOCK_AUTH === 'true' ||
+    /mock\.supabase\.co/i.test(SUPABASE_URL) ||
+    /^mock_/i.test(SUPABASE_ANON_KEY)
+  );
+  const authMode = mockAuth ? 'mock' : 'real';
+  const invalidReasons = [
+    ...(!isLocalhost ? ['not_localhost'] : []),
+    ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+    ...(!SUPABASE_URL ? ['missing_supabase_url'] : []),
+    ...(!SUPABASE_ANON_KEY ? ['missing_supabase_anon_key'] : []),
+    ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
+    ...(mockAuth ? ['mock_auth_detected'] : []),
+  ];
+
+  return {
+    url: `${url.origin}/session`,
+    port: Number.isFinite(port) ? port : null,
+    authMode,
+    mockAuth,
+    supabaseUrlPresent: Boolean(SUPABASE_URL),
+    supabaseAnonKeyPresent: Boolean(SUPABASE_ANON_KEY),
+    releaseProofEligible: invalidReasons.length === 0,
+    cdpSameTab: true,
+    invalidReasons,
+  };
+}
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
+}
+
+const TRANSCRIPT_CONTAINER_SELECTOR = '[data-testid="transcript-container"]';
+const TRANSCRIPT_CHROME_SELECTOR = [
+  '[data-testid="live-transcript-trust-banner"]',
+  '[data-testid="live-transcript-finalizing"]',
+  '[data-testid="live-transcript-finalizing-empty"]',
+].join(',');
+
+function stripTranscriptChrome(text) {
+  return compact(String(text || '')
+    .replace(/\bDraft transcript\b/gi, ' ')
+    .replace(/Text may change before the final transcript is saved\./gi, ' ')
+    .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+    .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+    .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+    .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+    .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+    .replace(/Start recording and your words will appear here\./gi, ' ')
+    .replace(/No speech was detected[^.]*\./gi, ' '));
+}
+
+async function getPcmWavDurationMs(audioPath) {
+  const wav = await readFile(audioPath);
+  if (wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`Unsupported WAV file: ${audioPath}`);
+  }
+  let format = null;
+  let dataChunkSize = null;
+  let offset = 12;
+  while (offset + 8 <= wav.length) {
+    const chunkId = wav.toString('ascii', offset, offset + 4);
+    const chunkSize = wav.readUInt32LE(offset + 4);
+    if (chunkId === 'fmt ') {
+      format = {
+        audioFormat: wav.readUInt16LE(offset + 8),
+        channels: wav.readUInt16LE(offset + 10),
+        sampleRate: wav.readUInt32LE(offset + 12),
+        byteRate: wav.readUInt32LE(offset + 16),
+        bitsPerSample: wav.readUInt16LE(offset + 22),
+      };
+    }
+    if (chunkId === 'data') {
+      dataChunkSize = chunkSize;
+      break;
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  if (!format || dataChunkSize == null || !Number.isFinite(format.byteRate) || format.byteRate <= 0) {
+    throw new Error(`Unable to determine WAV duration for ${audioPath}`);
+  }
+  return Math.ceil((dataChunkSize / format.byteRate) * 1000);
+}
+
+// Build a temp PCM WAV = source fixture + `trailingSilenceMs` of silence, used as Chrome's
+// --use-file-for-fake-audio-capture source. Chrome LOOPS that file; padding with silence longer than
+// the record window guarantees over-capture is SILENCE (transcribed as nothing) rather than the looped
+// fixture opening (which contaminated WER with a repeated span). PCM 16-bit silence = zero bytes.
+async function buildPaddedFakeAudioWav(srcPath, trailingSilenceMs) {
+  const src = await readFile(srcPath);
+  if (src.toString('ascii', 0, 4) !== 'RIFF' || src.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`Unsupported WAV for padding: ${srcPath}`);
+  }
+  let fmt = null;
+  let dataOffset = null;
+  let dataSize = null;
+  let offset = 12;
+  while (offset + 8 <= src.length) {
+    const id = src.toString('ascii', offset, offset + 4);
+    const size = src.readUInt32LE(offset + 4);
+    if (id === 'fmt ') {
+      fmt = {
+        audioFormat: src.readUInt16LE(offset + 8),
+        channels: src.readUInt16LE(offset + 10),
+        sampleRate: src.readUInt32LE(offset + 12),
+        bitsPerSample: src.readUInt16LE(offset + 22),
+      };
+    } else if (id === 'data') {
+      dataOffset = offset + 8;
+      dataSize = Math.min(size, src.length - dataOffset);
+    }
+    if (fmt && dataOffset != null) break;
+    offset += 8 + size + (size % 2);
+  }
+  if (!fmt || dataOffset == null) throw new Error(`Cannot parse WAV for padding: ${srcPath}`);
+  if (fmt.audioFormat !== 1) throw new Error(`Fake-audio padding supports PCM only (audioFormat=${fmt.audioFormat}): ${srcPath}`);
+  const blockAlign = fmt.channels * (fmt.bitsPerSample / 8);
+  const byteRate = fmt.sampleRate * blockAlign;
+  if (!(byteRate > 0)) throw new Error(`Invalid WAV byteRate for padding: ${srcPath}`);
+  const pcm = src.subarray(dataOffset, dataOffset + dataSize);
+  let silenceBytes = Math.round((byteRate * trailingSilenceMs) / 1000);
+  silenceBytes -= silenceBytes % blockAlign; // keep frame alignment
+  const silence = Buffer.alloc(Math.max(0, silenceBytes)); // zeros = PCM-16 silence
+  const totalData = dataSize + silence.length;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + totalData, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(fmt.channels, 22);
+  header.writeUInt32LE(fmt.sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(fmt.bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(totalData, 40);
+  const paddedPath = path.join(os.tmpdir(), `stt-fakeaudio-padded-${Date.now()}-${path.basename(srcPath)}`);
+  await writeFile(paddedPath, Buffer.concat([header, pcm, silence]));
+  return {
+    paddedPath,
+    originalDurationMs: Math.ceil((dataSize / byteRate) * 1000),
+    paddedDurationMs: Math.ceil((totalData / byteRate) * 1000),
+    silenceMs: Math.round((silence.length / byteRate) * 1000),
+  };
+}
+
+async function installInjectedMicAudio(page, audioPath) {
+  const wav = await readFile(audioPath);
+  const audioBase64 = wav.toString('base64');
+  await page.addInitScript(({ audioBase64: injectedAudioBase64, loopAudio }) => {
+    const state = {
+      installedAt: Date.now(),
+      getUserMediaCalls: 0,
+      startedAt: null,
+      endedAt: null,
+      error: null,
+      route: 'page-getUserMedia-injected-wav',
+    };
+    Object.defineProperty(window, '__STT_INJECTED_MIC_AUDIO__', {
+      configurable: true,
+      value: state,
+    });
+
+    const originalGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    if (!originalGetUserMedia) {
+      state.error = 'getUserMedia_unavailable';
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      state.getUserMediaCalls += 1;
+      if (!constraints || !constraints.audio) {
+        return originalGetUserMedia(constraints);
+      }
+      try {
+        const binary = atob(injectedAudioBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        const audioContext = new AudioContextCtor({ sampleRate: 16000 });
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        const decoded = await audioContext.decodeAudioData(bytes.buffer.slice(0));
+        const destination = audioContext.createMediaStreamDestination();
+        const source = audioContext.createBufferSource();
+        source.buffer = decoded;
+        source.loop = Boolean(loopAudio);
+        source.connect(destination);
+        source.onended = () => {
+          state.endedAt = Date.now();
+        };
+        source.start(0);
+        state.startedAt = Date.now();
+        state.durationMs = Math.round(decoded.duration * 1000);
+        state.sampleRate = decoded.sampleRate;
+        state.channels = decoded.numberOfChannels;
+        state.loop = Boolean(loopAudio);
+        return destination.stream;
+      } catch (error) {
+        state.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+    };
+  }, { audioBase64, loopAudio: INJECT_MIC_AUDIO_LOOP });
 }
 
 function normalizeForWer(text) {
@@ -89,6 +335,33 @@ function calculateWordErrorRate(reference, hypothesis) {
   return dp[ref.length][hyp.length] / ref.length;
 }
 
+function buildWerMetric(reference, transcript) {
+  const text = compact(transcript);
+  const wer = calculateWordErrorRate(reference, text);
+  return {
+    transcript: text,
+    normalizedTranscript: normalizeForWer(text),
+    wordCount: words(text).length,
+    wer,
+    accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
+  };
+}
+
+function extractSessionDetailTranscript(bodyText) {
+  const body = compact(bodyText);
+  if (!body) return '';
+  const recordedWithIndex = body.indexOf('Recorded with');
+  const suggestionsIndex = body.indexOf('AI-Powered Suggestions');
+  if (recordedWithIndex === -1 || suggestionsIndex === -1 || suggestionsIndex <= recordedWithIndex) {
+    return '';
+  }
+
+  const between = body.slice(recordedWithIndex, suggestionsIndex);
+  const modeMatch = between.match(/Recorded with(.+?)(Native Browser|Private|Cloud|AssemblyAI|Browser|Whisper|web-speech-api|browser\))/i);
+  const afterMode = modeMatch ? between.slice(modeMatch.index + modeMatch[0].length) : between.replace(/^Recorded with\s*/i, '');
+  return compact(afterMode);
+}
+
 async function loadFixtures() {
   const sourcePath = path.resolve('tests/fixtures/stt-isomorphic/harvard-sentences.ts');
   const source = await readFile(sourcePath, 'utf8');
@@ -120,6 +393,21 @@ async function loadFixtures() {
       audioPath: path.resolve(`tests/fixtures/stt-isomorphic/audio/${audio}`),
       type: 'filler',
       expectedFillers,
+    });
+  }
+
+  const washingtonSourcePath = path.resolve('tests/fixtures/stt-isomorphic/washington-speeches.ts');
+  const washingtonSource = await readFile(washingtonSourcePath, 'utf8').catch(() => '');
+  const washingtonBlocks = [...washingtonSource.matchAll(/id:\s*'([^']+)'[\s\S]*?audio:\s*'([^']+)'[\s\S]*?transcript:\s*\[([\s\S]*?)\]\.join\(' '\)/g)];
+  for (const [, id, audio, transcriptBlock] of washingtonBlocks) {
+    const transcript = [...transcriptBlock.matchAll(/'((?:\\'|[^'])*)'/g)]
+      .map(([, line]) => line.replace(/\\'/g, "'"))
+      .join(' ');
+    byId.set(id, {
+      id,
+      transcript,
+      audioPath: path.resolve(`tests/fixtures/stt-isomorphic/audio/${audio}`),
+      type: 'long-form',
     });
   }
 
@@ -225,6 +513,15 @@ async function selectMode(page, mode) {
   const select = page.getByTestId('stt-mode-select');
   await select.waitFor({ state: 'visible', timeout: 45_000 });
 
+  if (mode === 'private') {
+    const firstRunPrivateCta = page.getByTestId('first-run-setup-private');
+    if (await firstRunPrivateCta.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await firstRunPrivateCta.click({ force: true });
+      await page.waitForTimeout(750);
+      if ((await select.getAttribute('data-state')) === mode) return;
+    }
+  }
+
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await select.click({ force: true });
     const option = page.getByTestId(`stt-mode-${mode}`);
@@ -238,6 +535,44 @@ async function selectMode(page, mode) {
   }
 
   throw new Error(`Could not select STT mode "${mode}"; final state=${await select.getAttribute('data-state')}`);
+}
+
+async function assertModePreflight(page, mode) {
+  const select = page.getByTestId('stt-mode-select');
+  await select.waitFor({ state: 'visible', timeout: 45_000 });
+  const preflight = await page.evaluate((targetMode) => {
+    const root = document.documentElement;
+    const selectNode = document.querySelector('[data-testid="stt-mode-select"]');
+    const option = document.querySelector(`[data-testid="stt-mode-${targetMode}"]`);
+    const privateSetupCta = document.querySelector('[data-testid="first-run-setup-private"]');
+    return {
+      targetMode,
+      currentMode: selectNode?.getAttribute('data-state') ?? null,
+      userTier: root.getAttribute('data-user-tier'),
+      profileReady: root.getAttribute('data-profile-ready'),
+      privateOptionInDom: Boolean(option),
+      privateOptionVisible: option ? getComputedStyle(option).display !== 'none' : false,
+      privateOptionDisabled: option?.getAttribute('aria-disabled') ?? option?.getAttribute('data-disabled') ?? null,
+      privateSetupCtaInDom: Boolean(privateSetupCta),
+      privateSetupCtaVisible: privateSetupCta ? getComputedStyle(privateSetupCta).display !== 'none' : false,
+      bodySample: document.body?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '',
+    };
+  }, mode);
+  await markPhase(page, 'mode_preflight', preflight);
+
+  if (
+    mode === 'private' &&
+    preflight.currentMode !== 'private' &&
+    !preflight.privateOptionInDom &&
+    !preflight.privateSetupCtaInDom
+  ) {
+    const error = new Error('INVALID_PRECONDITION private mode is not available for this account/session');
+    error.invalidForSttEvidence = true;
+    error.invalidReason = 'private_mode_not_available';
+    error.preflight = preflight;
+    throw error;
+  }
+  return preflight;
 }
 
 async function readCustomWordCount(page, word) {
@@ -298,7 +633,7 @@ async function ensureCustomWordThroughUi(page, word) {
 async function getPrivateReadinessSnapshot(page) {
   return page.evaluate(async () => {
     const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"]');
+    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
     const setupPanel = document.querySelector('[data-testid="private-setup-panel"]');
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     const cacheNames = 'caches' in window ? await caches.keys() : [];
@@ -334,8 +669,17 @@ async function preparePrivateModel(page) {
   const before = await getPrivateReadinessSnapshot(page);
   await markPhase(page, 'private_model_readiness_before', before);
 
-  const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"]').first();
-  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+  const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
+  const clickDownloadButton = async (phase) => {
+    if (PRIVATE_SETUP_USER_CONSENT_REQUIRED) {
+      const readiness = await getPrivateReadinessSnapshot(page);
+      await markPhase(page, 'private_model_download_user_consent_required', readiness);
+      throw new Error(
+        `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
+        `Private model setup requires an explicit user click; this proof must not auto-download.\n` +
+        `${JSON.stringify(readiness, null, 2)}`
+      );
+    }
     if (PRIVATE_SETUP_CLICK_DELAY_MS > 0) {
       await markPhase(page, 'private_model_download_visible_hold', {
         holdMs: PRIVATE_SETUP_CLICK_DELAY_MS,
@@ -343,16 +687,47 @@ async function preparePrivateModel(page) {
       });
       await page.waitForTimeout(PRIVATE_SETUP_CLICK_DELAY_MS);
     }
-    await markPhase(page, 'private_model_download_click', await getPrivateReadinessSnapshot(page));
-    await downloadButton.click();
+    await markPhase(page, phase, await getPrivateReadinessSnapshot(page));
+    await downloadButton.scrollIntoViewIfNeeded().catch(() => undefined);
+    try {
+      await downloadButton.click({ timeout: 10_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const readinessAfterClickFailure = await getPrivateReadinessSnapshot(page);
+      if (isPrivateReadySnapshot(readinessAfterClickFailure)) {
+        await markPhase(page, 'private_model_download_click_skipped_ready', {
+          message,
+          readiness: readinessAfterClickFailure,
+        });
+        return;
+      }
+      await markPhase(page, 'private_model_download_click_retry_force', {
+        message,
+        readiness: readinessAfterClickFailure,
+      });
+      await downloadButton.click({ force: true, timeout: 5_000 });
+    }
+  };
+
+  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    await clickDownloadButton('private_model_download_click');
   }
 
-  await page.waitForFunction(() => {
-    const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"]');
-    const downloadVisible = Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none');
-    return !downloadVisible && root.getAttribute('data-model-status') === 'ready';
-  }, null, { timeout: 180_000 });
+  const setupDeadline = Date.now() + 180_000;
+  let delayedClickCount = 0;
+  while (Date.now() < setupDeadline) {
+    const readiness = await getPrivateReadinessSnapshot(page);
+    if (isPrivateReadySnapshot(readiness)) {
+      const after = await getPrivateReadinessSnapshot(page);
+      await markPhase(page, 'private_model_readiness_after', after);
+      return { before, after };
+    }
+    if (readiness.downloadVisible && delayedClickCount < 3) {
+      delayedClickCount += 1;
+      await clickDownloadButton('private_model_download_click_delayed');
+    }
+    await page.waitForTimeout(1_000);
+  }
 
   const after = await getPrivateReadinessSnapshot(page);
   await markPhase(page, 'private_model_readiness_after', after);
@@ -442,7 +817,24 @@ async function waitForRecordingGoSignal(page, mode) {
 }
 
 async function readTranscript(page) {
-  return compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
+  const transcriptOnly = await page.evaluate(({ containerSelector, chromeSelector }) => {
+    const container = document.querySelector(containerSelector);
+    if (!container) return '';
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll(chromeSelector).forEach((node) => node.remove());
+    return clone.textContent ?? '';
+  }, {
+    containerSelector: TRANSCRIPT_CONTAINER_SELECTOR,
+    chromeSelector: TRANSCRIPT_CHROME_SELECTOR,
+  }).catch(() => '');
+  return stripTranscriptChrome(transcriptOnly);
+}
+
+async function readSessionDetailTranscript(page) {
+  const byTestId = compact(await page.getByTestId('session-detail-transcript').textContent().catch(() => ''));
+  if (byTestId) return byTestId;
+  const body = compact(await page.locator('body').textContent().catch(() => ''));
+  return extractSessionDetailTranscript(body);
 }
 
 function isPlaceholderTranscript(text) {
@@ -454,7 +846,21 @@ async function waitForFirstText(page, startedAt) {
   let lastText = '';
 
   while (Date.now() < deadline) {
-    const text = await readTranscript(page);
+    let text = '';
+    try {
+      text = await readTranscript(page);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/Target page, context or browser has been closed/i.test(message)) {
+        return {
+          timestampMs: null,
+          text: lastText,
+          error: 'browser_closed_while_waiting_for_first_text',
+          errorMessage: message,
+        };
+      }
+      throw error;
+    }
     lastText = text;
     if (!isPlaceholderTranscript(text) && words(text).length > 0) {
       return {
@@ -462,7 +868,20 @@ async function waitForFirstText(page, startedAt) {
         text,
       };
     }
-    await page.waitForTimeout(250);
+    try {
+      await page.waitForTimeout(250);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/Target page, context or browser has been closed/i.test(message)) {
+        return {
+          timestampMs: null,
+          text: lastText,
+          error: 'browser_closed_while_waiting_for_first_text',
+          errorMessage: message,
+        };
+      }
+      throw error;
+    }
   }
 
   return {
@@ -472,10 +891,64 @@ async function waitForFirstText(page, startedAt) {
 }
 
 async function playFixture(audioPath) {
+  if (INJECT_MIC_AUDIO) {
+    const durationMs = await getPcmWavDurationMs(audioPath);
+    await new Promise(resolve => setTimeout(resolve, durationMs + PLAYBACK_GRACE_MS));
+    return { source: 'page-getUserMedia-injected-wav', audioPath, durationMs };
+  }
+  if (USE_FAKE_AUDIO_CAPTURE) {
+    // Chrome streams FAKE_AUDIO_FILE as the mic via --use-file-for-fake-audio-capture, but that
+    // stream is PASSIVE — the harness must keep RECORDING for the file's real duration before it
+    // clicks Stop. Returning immediately here collapsed the recording window to POST_PLAYBACK_WAIT_MS
+    // (~10s), so only the first few seconds of a 65.8s fixture were captured and full-reference WER
+    // was inflated by the uncaptured tail (the Gate A `WER 0.801` capture artifact). Wait the fixture
+    // duration (mirrors the INJECT_MIC_AUDIO branch) so the whole fixture is captured before Stop.
+    if (!RESOLVED_FAKE_AUDIO_FILE) {
+      const error = new Error('STT_USE_FAKE_AUDIO_CAPTURE requires STT_FAKE_AUDIO_FILE because Chrome fake mic input is fixed at browser launch.');
+      error.invalidForSttEvidence = true;
+      error.invalidReason = 'missing_fake_audio_file';
+      throw error;
+    }
+    const expectedFixtureAudio = path.resolve(audioPath);
+    if (RESOLVED_FAKE_AUDIO_FILE !== expectedFixtureAudio) {
+      const error = new Error(`STT_FAKE_AUDIO_FILE must match the scored fixture audio. fake=${RESOLVED_FAKE_AUDIO_FILE} fixture=${expectedFixtureAudio}`);
+      error.invalidForSttEvidence = true;
+      error.invalidReason = 'fake_audio_file_fixture_mismatch';
+      throw error;
+    }
+    const file = RESOLVED_FAKE_AUDIO_FILE;
+    const durationMs = await getPcmWavDurationMs(file);
+    await new Promise(resolve => setTimeout(resolve, durationMs + PLAYBACK_GRACE_MS));
+    return { source: 'chrome-fake-audio-capture', audioPath: file, durationMs };
+  }
   if (process.platform !== 'darwin') {
     throw new Error('Real-mic STT corpus proof currently uses macOS afplay and must run on darwin.');
   }
-  await execFileAsync('/usr/bin/afplay', [audioPath], { timeout: 45_000 });
+  let lastError;
+  for (let attempt = 1; attempt <= AFPLAY_RETRIES + 1; attempt += 1) {
+    try {
+      await execFileAsync('/usr/bin/afplay', [audioPath], { timeout: 45_000 });
+      return { source: 'afplay-physical-speaker-mic', audioPath, attempt };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/AudioQueueStart failed/i.test(message) || attempt > AFPLAY_RETRIES) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 750 * attempt));
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  const playbackError = new Error(`fixture_playback_failed: ${message}`);
+  playbackError.cause = lastError;
+  playbackError.playbackFailure = {
+    source: 'afplay-physical-speaker-mic',
+    audioPath,
+    attempts: AFPLAY_RETRIES + 1,
+    reason: /AudioQueueStart failed/i.test(message) ? 'afplay_audio_queue_start_failed' : 'afplay_failed',
+    message,
+  };
+  throw playbackError;
 }
 
 async function markPhase(page, phase, detail = {}) {
@@ -485,21 +958,128 @@ async function markPhase(page, phase, detail = {}) {
     detail,
   };
   await page.evaluate((entry) => {
+    const compact = (text) => (text || '').replace(/\s+/g, ' ').trim();
+    const stripTranscriptChrome = (text) => compact(String(text || '')
+      .replace(/\bDraft transcript\b/gi, ' ')
+      .replace(/Text may change before the final transcript is saved\./gi, ' ')
+      .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+      .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+      .replace(/Start recording and your words will appear here\./gi, ' ')
+      .replace(/No speech was detected[^.]*\./gi, ' '));
+    const extractTranscriptOnly = () => {
+      const container = document.querySelector('[data-testid="transcript-container"]');
+      if (!container) return null;
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll([
+        '[data-testid="live-transcript-trust-banner"]',
+        '[data-testid="live-transcript-finalizing"]',
+        '[data-testid="live-transcript-finalizing-empty"]',
+      ].join(',')).forEach((node) => node.remove());
+      return stripTranscriptChrome(clone.textContent ?? '');
+    };
+    const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
     window.__STT_CORPUS_PHASES__ = window.__STT_CORPUS_PHASES__ ?? [];
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     window.__STT_CORPUS_PHASES__.push({
       ...entry,
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
-      transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
+      rawTranscript: transcriptContainer?.textContent ?? null,
+      transcript: extractTranscriptOnly(),
+      transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+      draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+      finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+      draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       runtimeState: document.documentElement.getAttribute('data-runtime-state'),
       sessionPersisted: document.documentElement.getAttribute('data-session-persisted'),
     });
   }, stamped).catch(() => undefined);
 }
 
+async function readUiStatusSnapshot(page) {
+  return page.evaluate(() => {
+    const compact = (text) => (text || '').replace(/\s+/g, ' ').trim();
+    const stripTranscriptChrome = (text) => compact(String(text || '')
+      .replace(/\bDraft transcript\b/gi, ' ')
+      .replace(/Text may change before the final transcript is saved\./gi, ' ')
+      .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+      .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+      .replace(/Start recording and your words will appear here\./gi, ' ')
+      .replace(/No speech was detected[^.]*\./gi, ' '));
+    const extractTranscriptOnly = (container) => {
+      if (!container) return null;
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll([
+        '[data-testid="live-transcript-trust-banner"]',
+        '[data-testid="live-transcript-finalizing"]',
+        '[data-testid="live-transcript-finalizing-empty"]',
+      ].join(',')).forEach((node) => node.remove());
+      return stripTranscriptChrome(clone.textContent ?? '');
+    };
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+    return {
+      perfNow: Number(performance.now().toFixed(1)),
+      recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
+      runtimeState: document.documentElement.getAttribute('data-runtime-state'),
+      rawTranscript: transcriptContainer?.textContent ?? null,
+      transcript: extractTranscriptOnly(transcriptContainer),
+      transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+      draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+      finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+      draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+    };
+  }).catch(() => null);
+}
+
+async function observeStopStatus(page, startedAt, maxMs = 10_000) {
+  const snapshots = [];
+  while (Date.now() - startedAt < maxMs) {
+    const snapshot = await readUiStatusSnapshot(page);
+    if (snapshot) snapshots.push({ t: Date.now(), ...snapshot });
+    if (snapshot?.recording === 'false') break;
+    await page.waitForTimeout(250);
+  }
+  return snapshots;
+}
+
 async function collectTraceSnapshot(page, mode) {
-  return page.evaluate((currentMode) => ({
+  return page.evaluate(({ currentMode, includeAudioDataUrl }) => ({
     phases: window.__STT_CORPUS_PHASES__ ?? [],
+    speechRuntimeDebug: typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
+      ? window.__SPEECH_RUNTIME_DEBUG__()
+      : null,
+    // Single source of truth: PrivateSTT publishes the resolved decision to this
+    // stable global and keeps it after Stop. (The old chain read
+    // window.__TRANSCRIPTION_SERVICE__.strategy.getRuntimePath(), but that global
+    // is the controller — no .strategy — so it always resolved to null.)
+    privateRuntimePath: currentMode === 'private'
+      ? window.__PRIVATE_STT_RUNTIME_DEBUG__ ?? null
+      : undefined,
+    privateEngineVariant: currentMode === 'private'
+      ? document.body?.getAttribute('data-engine-variant') ?? null
+      : undefined,
+    privateMicConstraintsDebug: currentMode === 'private'
+      ? window.__PRIVATE_MIC_CONSTRAINTS_DEBUG__ ?? null
+      : undefined,
+    privateVadTelemetry: currentMode === 'private'
+      ? window.__PRIVATE_VAD_TELEMETRY__ ?? null
+      : undefined,
+    privateModelTelemetry: currentMode === 'private'
+      ? window.__PRIVATE_MODEL_TELEMETRY__ ?? null
+      : undefined,
+    privateResamplerTelemetry: currentMode === 'private'
+      ? window.__PRIVATE_RESAMPLER_TELEMETRY__ ?? null
+      : undefined,
+    transcriptLifecycleTrace: window.__SS_TRANSCRIPT_TRACE__ ?? [],
     nativeTrace: currentMode === 'native' ? window.__NATIVE_BROWSER_TRACE__ ?? [] : undefined,
     nativeParallelCapture: currentMode === 'native' ? (window.__NATIVE_PARALLEL_CAPTURE__ ?? []).map((capture) => ({
       createdAt: capture.createdAt,
@@ -508,7 +1088,15 @@ async function collectTraceSnapshot(page, mode) {
       sampleRate: capture.sampleRate,
       rms: capture.rms,
       peak: capture.peak,
+      startedAt: capture.startedAt,
+      endedAt: capture.endedAt,
+      speechStartMs: capture.speechStartMs,
+      speechEndMs: capture.speechEndMs,
+      speechDurationMs: capture.speechDurationMs,
+      segmentCount: capture.segmentCount,
+      speechSegments: capture.speechSegments,
       wavDataUrlBytes: capture.wavDataUrl?.length ?? 0,
+      ...(includeAudioDataUrl ? { wavDataUrl: capture.wavDataUrl ?? null } : {}),
     })) : undefined,
     privateTrace: currentMode === 'private' ? window.__PRIVATE_STT_TIMELINE__ ?? [] : undefined,
     privateAudioChunks: currentMode === 'private' ? (window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map((chunk) => ({
@@ -519,14 +1107,294 @@ async function collectTraceSnapshot(page, mode) {
       transcript: chunk.transcript,
       rejectedReason: chunk.rejectedReason,
       wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
+      ...(includeAudioDataUrl ? { wavDataUrl: chunk.wavDataUrl ?? null } : {}),
     })) : undefined,
-  }), mode).catch(() => ({}));
+    privateUtteranceAudioChunks: currentMode === 'private' ? (window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? []).map((chunk) => ({
+      createdAt: chunk.createdAt,
+      samples: chunk.samples,
+      durationSec: chunk.durationSec,
+      rms: chunk.rms,
+      peak: chunk.peak,
+      speechStartOffsetMs: chunk.speechStartOffsetMs,
+      retainedPrerollSamples: chunk.retainedPrerollSamples,
+      wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
+      ...(includeAudioDataUrl ? { wavDataUrl: chunk.wavDataUrl ?? null } : {}),
+    })) : undefined,
+    transcriptUiState: (() => {
+      const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+      const compact = (text) => (text || '').replace(/\s+/g, ' ').trim();
+      const stripTranscriptChrome = (text) => compact(String(text || '')
+        .replace(/\bDraft transcript\b/gi, ' ')
+        .replace(/Text may change before the final transcript is saved\./gi, ' ')
+        .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+        .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+        .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+        .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+        .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+        .replace(/Start recording and your words will appear here\./gi, ' ')
+        .replace(/No speech was detected[^.]*\./gi, ' '));
+      const extractTranscriptOnly = () => {
+        if (!transcriptContainer) return null;
+        const clone = transcriptContainer.cloneNode(true);
+        clone.querySelectorAll([
+          '[data-testid="live-transcript-trust-banner"]',
+          '[data-testid="live-transcript-finalizing"]',
+          '[data-testid="live-transcript-finalizing-empty"]',
+        ].join(',')).forEach((node) => node.remove());
+        return stripTranscriptChrome(clone.textContent ?? '');
+      };
+      return {
+        state: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+        rawTranscript: transcriptContainer?.textContent ?? null,
+        transcript: extractTranscriptOnly(),
+        draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+        finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+        draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      };
+    })(),
+  }), { currentMode: mode, includeAudioDataUrl: INCLUDE_AUDIO_DATA_URL }).catch(() => ({}));
+}
+
+async function collectNormalizedSttEvidence(page, overrides) {
+  return page.evaluate((sttEvidenceOverrides) => {
+    if (typeof window.__STT_EVIDENCE__ !== 'function') return null;
+    return window.__STT_EVIDENCE__(sttEvidenceOverrides);
+  }, overrides).catch((error) => ({
+    verdict: 'NOT_TESTED',
+    invalidReason: 'collector_unavailable',
+    error: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+async function collectPrivateRuntimeSnapshot(page) {
+  return page.evaluate(() => ({
+    speechRuntimeDebug: typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
+      ? window.__SPEECH_RUNTIME_DEBUG__()
+      : null,
+    runtimePath: window.__PRIVATE_STT_RUNTIME_DEBUG__ ?? null,
+    engineVariant: document.body?.getAttribute('data-engine-variant') ?? null,
+  })).catch(() => ({}));
+}
+
+function traceTextLength(entry) {
+  if (!entry || typeof entry !== 'object') return 0;
+  for (const key of ['textLength', 'selectedLength', 'visibleAtStopLength', 'transcriptLength', 'finalLength', 'partialLength', 'committedLength']) {
+    const value = entry[key];
+    if (typeof value === 'number' && value > 0) return value;
+  }
+  for (const key of ['preview', 'text', 'selected', 'transcript', 'partial', 'committed']) {
+    const value = entry[key];
+    if (typeof value === 'string' && value.trim()) return value.trim().length;
+  }
+  return 0;
+}
+
+function hasTraceText(trace, stage) {
+  return trace.some((entry) => entry.stage === stage && traceTextLength(entry) > 0);
+}
+
+function latestTraceStage(trace, stage) {
+  return [...trace].reverse().find((entry) => entry.stage === stage) ?? null;
+}
+
+function summarizeTranscriptLifecycle(trace = []) {
+  const stageCounts = trace.reduce((counts, entry) => {
+    const stage = entry?.stage ?? 'unknown';
+    counts[stage] = (counts[stage] ?? 0) + 1;
+    return counts;
+  }, {});
+  const stopEvent = latestTraceStage(trace, 'lifecycle:stop');
+  const saveEvent = latestTraceStage(trace, 'save:candidate');
+  const boundaryOrder = [
+    ['engine_emits_text', 'engine:emit'],
+    ['service_normalized_event', 'service:receive'],
+    ['controller_updates_lifecycle', 'controller:receive'],
+    ['store_updates', 'store:update'],
+    ['ui_visible_before_stop', 'ui:visible'],
+    ['stop_called', 'lifecycle:stop'],
+    ['save_candidate_selected', 'save:candidate'],
+  ];
+  const boundaryStatus = Object.fromEntries(
+    boundaryOrder.map(([key, stage]) => [key, hasTraceText(trace, stage) || (stage === 'lifecycle:stop' && Boolean(stopEvent))]),
+  );
+  const firstBrokenBoundary = boundaryOrder.find(([key]) => !boundaryStatus[key])?.[0] ?? null;
+
+  return {
+    traceEventCount: trace.length,
+    stageCounts,
+    boundaryStatus,
+    firstBrokenBoundary,
+    stopSelectedSource: typeof saveEvent?.reason === 'string' ? saveEvent.reason : null,
+    stopSelectedTranscriptLength: typeof saveEvent?.selectedLength === 'number' ? saveEvent.selectedLength : null,
+    visibleTranscriptAtStopLength: typeof stopEvent?.visibleAtStopLength === 'number' ? stopEvent.visibleAtStopLength : null,
+    stopPreview: typeof stopEvent?.preview === 'string' ? stopEvent.preview : null,
+    saveCandidatePreview: typeof saveEvent?.preview === 'string' ? saveEvent.preview : null,
+    saveCandidateSelectedTranscript: typeof saveEvent?.selected === 'string'
+      ? saveEvent.selected
+      : (typeof saveEvent?.preview === 'string' ? saveEvent.preview : null),
+  };
+}
+
+function transcriptEvidenceInBody(bodyText, transcript) {
+  const bodyWords = new Set(words(bodyText));
+  const transcriptWords = words(transcript);
+  const uniqueTranscriptWords = [...new Set(transcriptWords)];
+  const matchedWords = uniqueTranscriptWords.filter((word) => bodyWords.has(word));
+  return {
+    bodyLength: compact(bodyText).length,
+    uniqueTranscriptWordCount: uniqueTranscriptWords.length,
+    matchedUniqueTranscriptWordCount: matchedWords.length,
+    matchedUniqueTranscriptWords: matchedWords.slice(0, 20),
+    containsAtLeastHalfUniqueTranscriptWords: uniqueTranscriptWords.length > 0 && matchedWords.length / uniqueTranscriptWords.length >= 0.5,
+  };
+}
+
+async function readSupabaseAuthFromBrowser(page) {
+  return page.evaluate(() => {
+    for (const [key, rawValue] of Object.entries(localStorage)) {
+      if (!/^sb-.*-auth-token$/.test(key) || typeof rawValue !== 'string') continue;
+      try {
+        const parsed = JSON.parse(rawValue);
+        const userId = parsed?.user?.id ?? parsed?.currentSession?.user?.id ?? null;
+        const accessToken = parsed?.access_token ?? parsed?.currentSession?.access_token ?? null;
+        if (userId && accessToken) {
+          return { storageKey: key, userId, accessToken };
+        }
+      } catch {
+        // Keep scanning other localStorage keys.
+      }
+    }
+    return null;
+  }).catch(() => null);
+}
+
+async function fetchLatestSavedSessions(page, expectedTranscript = '') {
+  try {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return { skipped: true, reason: 'missing_supabase_url_or_anon_key' };
+    }
+    if (/mock\.supabase\.co/i.test(SUPABASE_URL) || /^mock_/i.test(SUPABASE_ANON_KEY)) {
+      return { skipped: true, reason: 'mock_supabase_env_for_direct_query' };
+    }
+    const auth = await readSupabaseAuthFromBrowser(page);
+    if (!auth) {
+      return { skipped: true, reason: 'missing_browser_supabase_auth' };
+    }
+
+    const url = new URL(`${SUPABASE_URL}/rest/v1/sessions`);
+    url.searchParams.set('select', 'id,user_id,status,transcript,created_at,engine,total_words');
+    url.searchParams.set('user_id', `eq.${auth.userId}`);
+    url.searchParams.set('or', '(status.is.null,status.eq.completed)');
+    url.searchParams.set('order', 'created_at.desc');
+    url.searchParams.set('limit', '25');
+
+    const fetched = await page.evaluate(async ({ requestUrl, anonKey, accessToken }) => {
+      const response = await fetch(requestUrl, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const bodyText = await response.text();
+      return {
+        ok: response.ok,
+        status: response.status,
+        bodyText,
+      };
+    }, {
+      requestUrl: url.toString(),
+      anonKey: SUPABASE_ANON_KEY,
+      accessToken: auth.accessToken,
+    });
+    let rows = null;
+    try {
+      rows = JSON.parse(fetched.bodyText);
+    } catch {
+      rows = null;
+    }
+
+    const rowSummaries = Array.isArray(rows) ? rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      engine: row.engine,
+      total_words: row.total_words,
+      transcriptLength: typeof row.transcript === 'string' ? row.transcript.length : null,
+      transcriptPreview: typeof row.transcript === 'string' ? row.transcript.slice(0, 120) : null,
+      created_at: row.created_at,
+    })) : null;
+    const normalizedExpected = compact(expectedTranscript).toLowerCase();
+    const matchedIndex = Array.isArray(rows) && normalizedExpected
+      ? rows.findIndex((row) => compact(typeof row.transcript === 'string' ? row.transcript : '').toLowerCase() === normalizedExpected)
+      : -1;
+    const matchedRow = matchedIndex >= 0 ? rows[matchedIndex] : null;
+
+    return {
+      skipped: false,
+      ok: fetched.ok,
+      status: fetched.status,
+      userId: auth.userId,
+      rowCount: Array.isArray(rows) ? rows.length : null,
+      rows: rowSummaries,
+      latest: rowSummaries?.[0] ?? null,
+      matched: matchedRow ? {
+        id: matchedRow.id,
+        status: matchedRow.status,
+        engine: matchedRow.engine,
+        total_words: matchedRow.total_words,
+        transcriptLength: typeof matchedRow.transcript === 'string' ? matchedRow.transcript.length : null,
+        transcriptPreview: typeof matchedRow.transcript === 'string' ? matchedRow.transcript.slice(0, 120) : null,
+        created_at: matchedRow.created_at,
+        index: matchedIndex,
+      } : null,
+      errorBody: fetched.ok ? undefined : compact(fetched.bodyText).slice(0, 500),
+    };
+  } catch (error) {
+    return {
+      skipped: false,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function runFixture(page, mode, fixture) {
   const sessionUrl = new URL('/session', BASE_URL);
   if (mode === 'private' && PRIVATE_ENGINE) {
     sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
+  }
+  if (EXTRA_QUERY) {
+    const extra = new URLSearchParams(EXTRA_QUERY.startsWith('?') ? EXTRA_QUERY.slice(1) : EXTRA_QUERY);
+    for (const [key, value] of extra.entries()) {
+      sessionUrl.searchParams.set(key, value);
+    }
+  }
+  if (mode === 'private' && PRIVATE_MIC_CONSTRAINTS) {
+    sessionUrl.searchParams.set('privateMicConstraints', PRIVATE_MIC_CONSTRAINTS);
+  }
+  if (mode === 'private' && PRIVATE_VAD) {
+    sessionUrl.searchParams.set('privateVad', PRIVATE_VAD);
+  }
+  if (mode === 'private' && PRIVATE_MODEL) {
+    sessionUrl.searchParams.set('privateModel', PRIVATE_MODEL);
+  }
+  if (mode === 'private' && PRIVATE_RESAMPLER) {
+    sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
+  }
+  // v4 decode-experiment / AUTO-fallback URL params (app honors them dev/test-only).
+  if (mode === 'private' && V4_FORCE_AUTO) {
+    sessionUrl.searchParams.set('v4ForceAuto', '1');
+  }
+  if (mode === 'private' && V4_DEVICE) {
+    sessionUrl.searchParams.set('v4Device', V4_DEVICE);
+  }
+  if (mode === 'private' && V4_DECODER_DTYPE) {
+    sessionUrl.searchParams.set('v4DecoderDtype', V4_DECODER_DTYPE);
+  }
+  if (mode === 'private' && V4_VARIANT) {
+    sessionUrl.searchParams.set('v4Variant', V4_VARIANT);
+  }
+  if (mode === 'private' && V4_NO_WORKER) {
+    sessionUrl.searchParams.set('v4NoWorker', '1');
   }
   if (mode === 'native') {
     if (NATIVE_CONTINUOUS) {
@@ -539,17 +1407,29 @@ async function runFixture(page, mode, fixture) {
       sessionUrl.searchParams.set('nativeMaxAlternatives', NATIVE_MAX_ALTERNATIVES);
     }
   }
+  if (INJECT_MIC_AUDIO && mode !== 'native') {
+    await installInjectedMicAudio(page, fixture.audioPath);
+  }
+  if (mode === 'private' && PRIVATE_MODEL) {
+    await page.addInitScript((model) => {
+      window.__PRIVATE_MODEL__ = model;
+    }, PRIVATE_MODEL);
+  }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
+  await assertModePreflight(page, mode);
   await selectMode(page, mode);
 
   await page.evaluate(() => {
     window.__STT_CORPUS_PHASES__ = [];
+    window.__SS_TRANSCRIPT_TRACE__ = [];
+    window.__SS_TRANSCRIPT_TRACE_SEQ__ = 0;
     window.__NATIVE_BROWSER_TRACE__ = [];
     window.__PRIVATE_TRANSCRIPT_TRACE__ = true;
     window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
     window.__NATIVE_PARALLEL_CAPTURE__ = [];
     window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ = [];
+    window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ = [];
   });
   await markPhase(page, 'ready_to_start', { mode, fixture: fixture.id });
   const customWordEvidence = CUSTOM_WORD ? await ensureCustomWordThroughUi(page, CUSTOM_WORD) : undefined;
@@ -563,6 +1443,9 @@ async function runFixture(page, mode, fixture) {
   const startClick = await clickStartStopButton(page, 'click_start');
   await markPhase(page, 'click_start_done', startClick);
   await waitForRecordingGoSignal(page, mode);
+  const privateRuntimeDuringRecording = mode === 'private'
+    ? await collectPrivateRuntimeSnapshot(page)
+    : undefined;
   await markPhase(page, 'recording_attribute_true');
 
   const startedAt = Date.now();
@@ -571,24 +1454,25 @@ async function runFixture(page, mode, fixture) {
 
   const firstTextPromise = waitForFirstText(page, startedAt);
   await markPhase(page, 'afplay_start', { audioPath: fixture.audioPath });
-  await playFixture(fixture.audioPath);
-  await markPhase(page, 'afplay_end', { audioPath: fixture.audioPath });
+  const playbackResult = await playFixture(fixture.audioPath);
+  await markPhase(page, 'afplay_end', { audioPath: fixture.audioPath, playbackResult });
   const firstText = await firstTextPromise;
   await markPhase(page, 'first_text_observed', firstText);
   await page.waitForTimeout(POST_PLAYBACK_WAIT_MS);
   await markPhase(page, 'post_playback_wait_done', { postPlaybackWaitMs: POST_PLAYBACK_WAIT_MS });
 
-  const transcript = await readTranscript(page);
+  const visibleAtStopTranscript = await readTranscript(page);
   const liveCustomWord = CUSTOM_WORD ? await readCustomWordCount(page, CUSTOM_WORD) : undefined;
   if (liveCustomWord) {
     await markPhase(page, 'custom_word_live_count', { word: CUSTOM_WORD, ...liveCustomWord });
   }
-  await markPhase(page, 'click_stop', { transcript });
+  await markPhase(page, 'click_stop', { transcript: visibleAtStopTranscript });
   const stopClick = await clickStartStopButton(page, 'click_stop').catch((error) => ({
     method: 'failed',
     error: error instanceof Error ? error.message : String(error),
   }));
   await markPhase(page, 'click_stop_done', stopClick);
+  const stopStatusSnapshots = await observeStopStatus(page, Date.now());
   await page.waitForFunction(
     () => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'false',
     null,
@@ -597,11 +1481,19 @@ async function runFixture(page, mode, fixture) {
   await markPhase(page, 'recording_attribute_false');
   await page.waitForTimeout(2_000);
   await markPhase(page, 'after_stop_settle');
+  const postStopTranscript = await readTranscript(page);
 
   const traceSnapshot = await collectTraceSnapshot(page, mode);
+  const transcriptLifecycleSummary = summarizeTranscriptLifecycle(traceSnapshot.transcriptLifecycleTrace);
+  const debugSelectedForSave = traceSnapshot.speechRuntimeDebug?.saveCandidate?.selectedForSave;
+  const selectedForSaveTranscript = compact(typeof debugSelectedForSave === 'string' ? debugSelectedForSave : '')
+    || transcriptLifecycleSummary.saveCandidateSelectedTranscript
+    || postStopTranscript
+    || visibleAtStopTranscript;
+  const visibleAtStopMetric = buildWerMetric(fixture.transcript, visibleAtStopTranscript);
+  const postStopMetric = buildWerMetric(fixture.transcript, postStopTranscript);
+  const selectedForSaveMetric = buildWerMetric(fixture.transcript, selectedForSaveTranscript);
 
-  const normalizedTranscript = normalizeForWer(transcript);
-  const wer = calculateWordErrorRate(fixture.transcript, transcript);
   const result = {
     mode,
     fixture: fixture.id,
@@ -609,17 +1501,26 @@ async function runFixture(page, mode, fixture) {
     audioPath: fixture.audioPath,
     truth: fixture.transcript,
     expectedFillers: fixture.expectedFillers,
-    transcript,
-    normalizedTranscript,
-    wordCount: words(transcript).length,
-    wer,
-    accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
+    transcript: postStopTranscript,
+    visibleAtStopTranscript,
+    postStopTranscript,
+    selectedForSaveTranscript,
+    normalizedTranscript: postStopMetric.normalizedTranscript,
+    wordCount: postStopMetric.wordCount,
+    wer: postStopMetric.wer,
+    accuracyPct: postStopMetric.accuracyPct,
+    visibleAtStopWer: visibleAtStopMetric.wer,
+    visibleAtStopAccuracyPct: visibleAtStopMetric.accuracyPct,
+    postStopWer: postStopMetric.wer,
+    postStopAccuracyPct: postStopMetric.accuracyPct,
+    selectedForSaveWer: selectedForSaveMetric.wer,
+    selectedForSaveAccuracyPct: selectedForSaveMetric.accuracyPct,
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
     customWord: customWordEvidence ? {
       ...customWordEvidence,
       liveAfterTranscript: liveCustomWord,
-      transcriptContainsWord: new RegExp(`\\b${CUSTOM_WORD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(transcript),
+      transcriptContainsWord: new RegExp(`\\b${CUSTOM_WORD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(postStopTranscript),
     } : undefined,
     privateReadiness,
     phases: traceSnapshot.phases,
@@ -627,25 +1528,141 @@ async function runFixture(page, mode, fixture) {
     nativeParallelCapture: traceSnapshot.nativeParallelCapture,
     privateTrace: traceSnapshot.privateTrace,
     privateAudioChunks: traceSnapshot.privateAudioChunks,
+    privateUtteranceAudioChunks: traceSnapshot.privateUtteranceAudioChunks,
+    privateEngineVariant: traceSnapshot.privateEngineVariant,
+    privateMicConstraintsDebug: traceSnapshot.privateMicConstraintsDebug,
+    transcriptUiState: traceSnapshot.transcriptUiState,
+    stopStatusSnapshots,
+    transcriptLifecycleTrace: traceSnapshot.transcriptLifecycleTrace,
+    transcriptLifecycleSummary,
+    traceStageCounts: transcriptLifecycleSummary.stageCounts,
+    traceBoundaryStatus: transcriptLifecycleSummary.boundaryStatus,
+    firstBrokenBoundary: transcriptLifecycleSummary.firstBrokenBoundary,
+    stopSelectedSource: transcriptLifecycleSummary.stopSelectedSource,
+    stopSelectedTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
+    visibleTranscriptAtStopLength: transcriptLifecycleSummary.visibleTranscriptAtStopLength,
+    savePayloadTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
+    speechRuntimeDebug: traceSnapshot.speechRuntimeDebug,
+    privateRuntimeDuringRecording,
+    privateVadTelemetry: traceSnapshot.privateVadTelemetry,
+    privateModelTelemetry: traceSnapshot.privateModelTelemetry,
+    privateResamplerTelemetry: traceSnapshot.privateResamplerTelemetry,
+    privateRuntimePath: privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath,
+    privateRuntime: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.runtime ?? null,
+    privateProvider: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.provider ?? null,
+    privateWebgpuAvailable: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.webgpuAvailable ?? null,
+    privateTurboCached: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.turboCached ?? null,
+    privateCrossOriginIsolated: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.crossOriginIsolated ?? null,
+    privateWasmThreadCount: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.wasmThreadCount ?? null,
+    privateCloudFallbackAttempted: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.cloudFallbackAttempted ?? null,
   };
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
-  await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
-  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
-  result.historyVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
-  result.detailVisible = await page.getByTestId(/^open-session-detail-/).first().isVisible({ timeout: 5_000 }).catch(() => false);
-  result.analyticsBodySample = compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1000);
-  result.truthWordsHeard = words(fixture.transcript).filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(result.normalizedTranscript));
-  result.inputLikelyContaminated = result.wordCount > 0 && result.truthWordsHeard.length === 0;
+  await page.waitForFunction(() => {
+    if (document.querySelector('[data-testid^="session-history-item-"]')) return true;
+    if (document.querySelector('[data-testid="app-error"]')) return true;
+    if (document.querySelector('[data-testid="app-loading"]')) return false;
+    const body = document.body?.textContent ?? '';
+    return /No sessions yet|Error Loading Analytics|Session Not Found/i.test(body);
+  }, null, { timeout: 45_000 }).catch(() => undefined);
+  const rawHistoryVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
+  result.historyVisible = Boolean(result.sessionPersisted && rawHistoryVisible);
+  const detailButtons = page.getByTestId(/^open-session-detail-/);
+  let detailButton = null;
+  const detailButtonCount = await detailButtons.count().catch(() => 0);
+  for (let i = 0; i < detailButtonCount; i += 1) {
+    const candidate = detailButtons.nth(i);
+    if (await candidate.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      detailButton = candidate;
+      break;
+    }
+  }
+  const rawDetailVisible = Boolean(detailButton);
+  const analyticsBody = compact(await page.locator('body').textContent().catch(() => ''));
+  result.analyticsBodySample = analyticsBody.slice(0, 1000);
+  result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, selectedForSaveTranscript);
+  result.directSavedSessionQuery = await fetchLatestSavedSessions(page, selectedForSaveTranscript);
+  result.detailVisible = false;
+  result.persistedSessionMatch = result.directSavedSessionQuery?.matched ?? null;
+  result.detailNavigation = null;
+  if (result.persistedSessionMatch?.id) {
+    await page.goto(`${BASE_URL}/analytics/${result.persistedSessionMatch.id}`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    result.detailNavigation = 'direct-matched-saved-session-route';
+  } else if (rawDetailVisible && detailButton && result.directSavedSessionQuery?.skipped) {
+    result.detailNavigation = 'history-link-direct-query-skipped';
+    await detailButton.click().catch(() => undefined);
+  }
+  if (result.sessionPersisted && result.detailNavigation) {
+    await page.waitForTimeout(750);
+    const detailBody = compact(await page.locator('body').textContent().catch(() => ''));
+    const detailTranscript = await readSessionDetailTranscript(page);
+    result.detailBodySample = detailBody.slice(0, 1000);
+    result.detailTranscript = detailTranscript;
+    const detailMetric = buildWerMetric(fixture.transcript, detailTranscript);
+    result.detailWer = detailMetric.wer;
+    result.detailAccuracyPct = detailMetric.accuracyPct;
+    result.detailTranscriptEvidence = transcriptEvidenceInBody(detailTranscript, selectedForSaveTranscript);
+    result.detailVisible = Boolean(
+      detailTranscript &&
+      result.detailTranscriptEvidence.containsAtLeastHalfUniqueTranscriptWords
+    );
+  }
+  result.savedTranscriptLength = result.sessionPersisted ? result.savePayloadTranscriptLength : null;
+  const truthWords = words(fixture.transcript);
+  const uniqueTruthWords = [...new Set(truthWords)];
+  const normalizedTranscriptWordSet = new Set(words(result.normalizedTranscript));
+  result.truthWordsHeard = uniqueTruthWords.filter((word) => normalizedTranscriptWordSet.has(word));
+  result.truthWordRecall = uniqueTruthWords.length > 0
+    ? Number((result.truthWordsHeard.length / uniqueTruthWords.length).toFixed(4))
+    : null;
+  result.inputLikelyContaminated = result.wordCount > 0 && (
+    result.truthWordsHeard.length === 0 ||
+    (
+      result.wordCount > truthWords.length * 2 &&
+      result.truthWordRecall !== null &&
+      result.truthWordRecall < 0.35
+    )
+  );
+  if (mode === 'native' && USE_FAKE_AUDIO_CAPTURE) {
+    result.inputLikelyContaminated = true;
+    result.invalidForWer = true;
+    result.invalidReason = 'native_webspeech_fake_audio_capture_invalid';
+    result.invalidDetails = 'Chrome Web Speech is server-side live recognition; Playwright fake-audio capture starts at browser launch, loops the file, ignores per-fixture playback timing, and is not a valid WER route for Native.';
+  }
   if (fixture.expectedFillers) {
     const expectedKeys = Object.keys(fixture.expectedFillers);
-    result.observedFillers = countFillerOccurrences(transcript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
+    result.observedFillers = countFillerOccurrences(selectedForSaveTranscript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
     result.fillerPass = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
   }
   result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
+  result.processingSpeechLocallyShown = Array.isArray(result.phases)
+    ? result.phases.some((phase) => /Processing speech locally/i.test(phase.statusText || ''))
+      || (Array.isArray(result.stopStatusSnapshots) && result.stopStatusSnapshots.some((snapshot) => /Processing speech locally/i.test(snapshot.statusText || '')))
+    : false;
+  const stopStartPhase = Array.isArray(result.phases) ? result.phases.find((phase) => phase.phase === 'click_stop') : null;
+  const stopCompletePhase = Array.isArray(result.phases) ? result.phases.find((phase) => phase.phase === 'stop_force_processing_complete') : null;
+  const afterStopSettlePhase = Array.isArray(result.phases) ? result.phases.find((phase) => phase.phase === 'after_stop_settle') : null;
+  const stopPrivateComplete = Array.isArray(result.privateTrace)
+    ? [...result.privateTrace].reverse().find((event) => event.event === 'stop_force_processing_complete')
+    : null;
+  result.stopFinalizationMs = stopPrivateComplete?.epochMs && stopStartPhase?.t
+    ? stopPrivateComplete.epochMs - stopStartPhase.t
+    : (afterStopSettlePhase?.t && stopStartPhase?.t ? afterStopSettlePhase.t - stopStartPhase.t : null);
+  result.sttEvidence = await collectNormalizedSttEvidence(page, {
+    tier: 'app-lifecycle',
+    fixtureId: fixture.id,
+    envValid: evidence.environmentProof.releaseProofEligible,
+    referenceText: fixture.transcript,
+    wer: selectedForSaveMetric.wer,
+    transcriptLength: selectedForSaveTranscript.length,
+    speechExpected: fixture.type !== 'silence',
+    stopFinalizationMs: result.stopFinalizationMs ?? undefined,
+  });
   result.meetsWerThreshold = MAX_WER == null ? null : result.wer <= MAX_WER;
-  result.verdict = result.inputLikelyContaminated
+  result.verdict = result.invalidForWer
+    ? result.invalidReason
+    : result.inputLikelyContaminated
     ? 'input-contaminated-or-fixture-not-captured'
     : result.fillerPass === false
       ? 'filler-count-mismatch'
@@ -658,18 +1675,42 @@ async function runFixture(page, mode, fixture) {
 
 const evidence = {
   baseUrl: BASE_URL,
+  environmentProof: buildEnvironmentProof(BASE_URL),
   modes: MODE_LIST,
   fixtures: FIXTURE_LIST,
   maxWer: MAX_WER,
   clearPrivateCache: CLEAR_PRIVATE_CACHE,
   privateEngine: PRIVATE_ENGINE || 'default',
+  privateMicConstraints: PRIVATE_MIC_CONSTRAINTS || 'default-product',
+  privateVad: PRIVATE_VAD || 'default-rms',
+  privateModel: PRIVATE_MODEL || 'default-whisper-tiny.en',
+  privateResampler: PRIVATE_RESAMPLER || 'default-box',
   nativeConfig: {
     continuous: NATIVE_CONTINUOUS || 'default',
     interimResults: NATIVE_INTERIM_RESULTS || 'default',
     maxAlternatives: NATIVE_MAX_ALTERNATIVES || 'default',
   },
+  fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE ? {
+    enabled: true,
+    file: RESOLVED_FAKE_AUDIO_FILE || null,
+    validForNativeWebSpeechWer: false,
+    invalidReason: 'Chrome Web Speech uses Google server-side live recognition; Playwright fake-audio capture is not a valid WER route for Native because the file stream is launch-time, looped, and not paced to recognition start.',
+  } : {
+    enabled: false,
+  },
+  injectedMicAudio: {
+    enabled: INJECT_MIC_AUDIO,
+    loop: INJECT_MIC_AUDIO_LOOP,
+    validForNativeWebSpeechWer: false,
+    route: INJECT_MIC_AUDIO
+      ? `page getUserMedia override; WAV starts when the app requests mic input${INJECT_MIC_AUDIO_LOOP ? ' and loops until the stream is stopped' : ''}`
+      : null,
+  },
+  webgpuDisabledForRun: DISABLE_WEBGPU,
   customWord: CUSTOM_WORD || null,
-  microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
+  microphonePath: INJECT_MIC_AUDIO
+  ? `page getUserMedia override with per-fixture WAV injected at mic request time${INJECT_MIC_AUDIO_LOOP ? ' (looped)' : ''}`
+  : 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
     mode: AUTH_MODE,
     email: AUTH_MODE === 'fresh' ? SIGNUP_EMAIL : EMAIL,
@@ -681,14 +1722,108 @@ const evidence = {
   results: [],
 };
 
-const browser = await chromium.launch({
-  channel: 'chrome',
-  headless: HEADLESS,
-  args: [
-    '--autoplay-policy=no-user-gesture-required',
-    '--disable-blink-features=AutomationControlled',
-  ],
-});
+if (!evidence.environmentProof.releaseProofEligible) {
+  evidence.blockers = [
+    `INVALID_SETUP setup.env RELEASE_PROOF_INELIGIBLE manual-stt-corpus-proof ` +
+    `Manual STT corpus proof must run on localhost:5174 with real auth. ` +
+    `localhost:5173, .env.test/mock auth, deployed URLs, and wrong CDP tabs are invalid evidence.`,
+  ];
+  evidence.completedAt = new Date().toISOString();
+  evidence.pass = false;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+  process.exit(1);
+}
+
+if (USE_FAKE_AUDIO_CAPTURE && !RESOLVED_FAKE_AUDIO_FILE) {
+  evidence.blockers = [
+    `INVALID_SETUP fake-audio-capture requires STT_FAKE_AUDIO_FILE. ` +
+    `Chrome fake mic input is fixed at browser launch, so implicit per-fixture audio would produce invalid WER evidence.`,
+  ];
+  evidence.completedAt = new Date().toISOString();
+  evidence.runnerPass = false;
+  evidence.gatePass = false;
+  evidence.pass = false;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+  process.exit(1);
+}
+
+// Pad the fake-audio source with trailing silence so Chrome's looping mic source cannot replay the
+// fixture opening inside the record window. The env var keeps pointing at the REAL fixture (so the
+// fixture-match guard in playFixture holds); the padded derivative is only the launch-time mic source.
+let fakeAudioLaunchFile = RESOLVED_FAKE_AUDIO_FILE;
+let fakeAudioPadCleanupPath = null;
+if (USE_FAKE_AUDIO_CAPTURE && RESOLVED_FAKE_AUDIO_FILE) {
+  try {
+    const pad = await buildPaddedFakeAudioWav(RESOLVED_FAKE_AUDIO_FILE, FAKE_AUDIO_PAD_MS);
+    fakeAudioLaunchFile = pad.paddedPath;
+    fakeAudioPadCleanupPath = pad.paddedPath;
+    if (evidence.fakeAudioCapture && typeof evidence.fakeAudioCapture === 'object') {
+      evidence.fakeAudioCapture.padding = {
+        originalFixtureDurationMs: pad.originalDurationMs,
+        paddedFixtureDurationMs: pad.paddedDurationMs,
+        paddedSilenceMs: pad.silenceMs,
+        paddedFile: pad.paddedPath,
+        note: 'Chrome loops the fake-audio file; trailing silence makes over-capture silent, not looped fixture speech.',
+      };
+    }
+  } catch (error) {
+    evidence.blockers = [
+      `INVALID_SETUP fake-audio padding failed: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+    evidence.completedAt = new Date().toISOString();
+    evidence.runnerPass = false;
+    evidence.gatePass = false;
+    evidence.pass = false;
+    await writeFile(OUT, JSON.stringify(evidence, null, 2));
+    console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+    process.exit(1);
+  }
+}
+
+let browser = null;
+try {
+  browser = await chromium.launch({
+    channel: 'chrome',
+    headless: HEADLESS,
+    args: [
+      '--autoplay-policy=no-user-gesture-required',
+      '--disable-blink-features=AutomationControlled',
+      ...(DISABLE_WEBGPU ? [
+        '--disable-webgpu',
+        '--disable-features=Vulkan,WebGPU',
+      ] : []),
+      ...(USE_FAKE_AUDIO_CAPTURE ? [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        `--use-file-for-fake-audio-capture=${fakeAudioLaunchFile}`,
+      ] : []),
+    ],
+  });
+} catch (error) {
+  if (isSandboxProcessControlEperm(error)) {
+    Object.assign(evidence, buildSandboxProcessControlEpermArtifact({
+      error,
+      command: 'chromium.launch',
+    }), {
+      completedAt: new Date().toISOString(),
+      runnerPass: false,
+      gatePass: false,
+      pass: false,
+    });
+    await writeFile(OUT, JSON.stringify(evidence, null, 2));
+    console.log(`STT_CORPUS_EVIDENCE ${JSON.stringify({
+      out: OUT,
+      runnerPass: false,
+      gatePass: false,
+      resultCount: evidence.results.length,
+      invalidReason: evidence.reason,
+    })}`);
+    process.exit(78);
+  }
+  throw error;
+}
 
 try {
   const fixtures = await loadFixtures();
@@ -700,11 +1835,16 @@ try {
 
   page.on('console', (message) => {
     const text = message.text();
-    if (/STT|Speech|Transcription|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
+    if (/STT|Speech|Transcription|Transformers|onnx|wasm|webgpu|\bv4\b|fallback|decode|transcrib|exceeded|EmptyTranscript|runtime|provider|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
       evidence.consoleEvents.push({ type: message.type(), text });
+      // Un-blind (diagnostic observability only): forward relevant browser console to the run log.
+      console.log(`[BROWSER:${message.type()}] ${text}`);
     }
   });
-  page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+  page.on('pageerror', (error) => {
+    evidence.pageErrors.push(error.message);
+    console.log(`[BROWSER:pageerror] ${error.message}`);
+  });
   page.on('requestfailed', (request) => evidence.failedRequests.push({
     url: request.url(),
     errorText: request.failure()?.errorText,
@@ -742,6 +1882,10 @@ try {
           mode,
           fixture: fixture.id,
           error: error instanceof Error ? error.message : String(error),
+          playbackFailure: error?.playbackFailure,
+          invalidForSttEvidence: Boolean(error?.playbackFailure || error?.invalidForSttEvidence),
+          invalidReason: error?.invalidReason ?? (error?.playbackFailure ? error.playbackFailure.reason : undefined),
+          preflight: error?.preflight,
           currentUrl: page.url(),
           bodyText: compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1200),
         });
@@ -751,15 +1895,48 @@ try {
 } catch (error) {
   evidence.error = error instanceof Error ? error.message : String(error);
 } finally {
-  evidence.completedAt = new Date().toISOString();
-  evidence.runnerPass = evidence.results.length > 0 && evidence.results.every((result) => !result.error);
-  evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
-    result.journeyPass === true &&
-    result.inputLikelyContaminated !== true &&
-    result.fillerPass !== false &&
-    (MAX_WER == null || result.meetsWerThreshold === true)
-  ));
-  evidence.pass = evidence.gatePass;
+  if (fakeAudioPadCleanupPath) {
+    await unlink(fakeAudioPadCleanupPath).catch(() => {});
+  }
+  const markEvidence = () => {
+    evidence.completedAt = new Date().toISOString();
+    evidence.runnerPass = evidence.sandboxEperm === true
+      ? false
+      : evidence.results.length > 0 && evidence.results.every((result) => !result.error);
+    evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
+      result.journeyPass === true &&
+      result.inputLikelyContaminated !== true &&
+      result.fillerPass !== false &&
+      (MAX_WER == null || result.meetsWerThreshold === true)
+    ));
+    evidence.pass = evidence.gatePass;
+  };
+
+  markEvidence();
+  evidence.preBrowserCloseEvidenceWritten = true;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.log(`STT_CORPUS_EVIDENCE_PRE_CLOSE ${JSON.stringify({
+    out: OUT,
+    runnerPass: evidence.runnerPass,
+    gatePass: evidence.gatePass,
+    resultCount: evidence.results.length,
+    maxWer: MAX_WER,
+    invalidReason: evidence.reason,
+  })}`);
+
+  const closeError = browser
+    ? await browser.close().then(() => null).catch((error) => error)
+    : null;
+  if (closeError && isSandboxProcessControlEperm(closeError)) {
+    Object.assign(evidence, buildSandboxProcessControlEpermArtifact({
+      error: closeError,
+      command: 'browser.close',
+    }));
+  } else if (closeError) {
+    evidence.browserCloseWarning = closeError instanceof Error ? closeError.message : String(closeError);
+  }
+
+  markEvidence();
   await writeFile(OUT, JSON.stringify(evidence, null, 2));
   console.log(`STT_CORPUS_EVIDENCE ${JSON.stringify({
     out: OUT,
@@ -767,10 +1944,10 @@ try {
     gatePass: evidence.gatePass,
     resultCount: evidence.results.length,
     maxWer: MAX_WER,
+    invalidReason: evidence.reason,
   })}`);
-  await browser.close().catch(() => undefined);
 }
 
 if (!evidence.pass) {
-  process.exitCode = 1;
+  process.exitCode = evidence.sandboxEperm === true ? 78 : 1;
 }

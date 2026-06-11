@@ -29,9 +29,9 @@ describe('useSpeechRecognition utils', () => {
   });
 
   describe('createChunk', () => {
-    it('should create chunk with transcript and unique id', () => {
+    it('should create chunk with a capitalized transcript start and unique id', () => {
       const chunk = createChunk('test');
-      expect(chunk.transcript).toBe('test');
+      expect(chunk.transcript).toBe('Test');
       expect(typeof chunk.id).toBe('number');
     });
   });

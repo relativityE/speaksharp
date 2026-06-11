@@ -16,7 +16,7 @@ import { type UserGoals } from '@/types/goals';
 
 interface EditGoalsDialogProps {
     goals: UserGoals;
-    onSave: (goals: UserGoals) => void;
+    onSave: (goals: UserGoals) => void | Promise<void>;
 }
 
 export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave }) => {

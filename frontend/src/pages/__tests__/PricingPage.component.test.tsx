@@ -3,11 +3,13 @@ import { render, screen, waitFor } from '../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
 import { PricingPage } from '../PricingPage';
 import * as supabaseClient from '@/lib/supabaseClient';
+import * as UserProfileHook from '@/hooks/useUserProfile';
 
 // Mock modules
 vi.mock('@/lib/supabaseClient');
 
 const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);
+const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
 
 describe('PricingPage', () => {
     const mockInvoke = vi.fn();
@@ -21,6 +23,12 @@ describe('PricingPage', () => {
                 invoke: mockInvoke,
             },
         } as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
+        mockUseUserProfile.mockReturnValue({
+            data: {
+                id: 'mock-user-id',
+                subscription_status: 'free',
+            },
+        } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
     });
 
     const renderPricingPage = () => {
@@ -32,7 +40,9 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
-            expect(screen.getByText(/Start free with browser transcription/)).toBeInTheDocument();
+            expect(screen.getByText(/Start free with instant Browser transcription/)).toBeInTheDocument();
+            expect(screen.getByText(/accuracy varies by browser and environment/)).toBeInTheDocument();
+            expect(screen.getByRole('heading', { name: 'Paid early access' })).toBeInTheDocument();
         });
 
         it('should render Free tier', () => {
@@ -55,22 +65,20 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText(/mins of practice per month/)).toBeInTheDocument();
-            expect(screen.getByText('Starter analytics')).toBeInTheDocument();
+            expect(screen.getByText('Core practice feedback metrics')).toBeInTheDocument();
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
-            expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
-            expect(screen.getByText('Free may include privacy-respecting sponsor messages outside practice')).toBeInTheDocument();
         });
 
         it('should render Pro tier features', () => {
             renderPricingPage();
 
             expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
-            expect(screen.getByText('Practice analytics and trends')).toBeInTheDocument();
+            expect(screen.getByText('Practice analytics, trends, and coaching reports')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
-            expect(screen.getByText('Private transcription')).toBeInTheDocument();
-            expect(screen.getByText('Cloud transcription for serious workflows')).toBeInTheDocument();
-            expect(screen.getByText('More AI feedback and PDF export capacity')).toBeInTheDocument();
+            expect(screen.getByText('Private transcription after one-time local model setup')).toBeInTheDocument();
+            expect(screen.getByText('Cloud transcription when enabled for Pro workflows')).toBeInTheDocument();
+            expect(screen.getByText('Semantic AI coaching and expanded PDF export capacity')).toBeInTheDocument();
         });
 
         it('should render CTA buttons', () => {
@@ -78,6 +86,15 @@ describe('PricingPage', () => {
 
             expect(screen.getByText('Start Free')).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
+        });
+
+        it('should render paid early-access cancellation and refund support copy', () => {
+            renderPricingPage();
+
+            expect(screen.getByText(/Pro is offered as paid early access/i)).toBeInTheDocument();
+            expect(screen.getByText(/cancel from billing management/i)).toBeInTheDocument();
+            expect(screen.getByText(/Refund or cancellation questions/i)).toBeInTheDocument();
+            expect(screen.getByText(/Pro unlocks only after Stripe confirmation/i)).toBeInTheDocument();
         });
     });
 
@@ -182,6 +199,42 @@ describe('PricingPage', () => {
             });
 
             consoleSpy.mockRestore();
+        });
+
+        it('should open Stripe billing portal for paid Pro accounts', async () => {
+            const user = userEvent.setup();
+            mockUseUserProfile.mockReturnValue({
+                data: {
+                    id: 'mock-user-id',
+                    subscription_status: 'pro',
+                    stripe_subscription_id: 'sub_123',
+                    stripe_customer_id: 'cus_123',
+                },
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+            mockInvoke.mockResolvedValue({
+                data: { portalUrl: 'https://billing.stripe.com/session/test' },
+                error: null,
+            });
+
+            const originalLocation = window.location;
+            Object.defineProperty(window, 'location', {
+                value: { href: '', origin: 'http://localhost' },
+                writable: true,
+            });
+
+            renderPricingPage();
+
+            await user.click(screen.getByText('Manage billing'));
+
+            await waitFor(() => {
+                expect(mockInvoke).toHaveBeenCalledWith('stripe-billing-portal');
+                expect(window.location.href).toBe('https://billing.stripe.com/session/test');
+            });
+
+            Object.defineProperty(window, 'location', {
+                value: originalLocation,
+                writable: true,
+            });
         });
     });
 

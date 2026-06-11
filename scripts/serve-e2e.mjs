@@ -26,17 +26,30 @@ app.get('*', (req, res) => {
 const host = process.env.E2E_HOST || '127.0.0.1';
 const port = Number(process.env.E2E_PORT || 4173);
 const invalidArtifactPath = resolve('test-results/sandbox-eperm-preview-bind.json');
+const fallbackInvalidArtifactPath = '/private/tmp/speaksharp-sandbox-eperm-preview-bind.json';
 
 function writeSandboxEpermArtifact(error) {
-  fs.mkdirSync(resolve('test-results'), { recursive: true });
-  fs.writeFileSync(
-    invalidArtifactPath,
-    JSON.stringify(buildSandboxEpermArtifact({
-      host,
-      port,
-      error,
-    }), null, 2)
-  );
+  const content = JSON.stringify(buildSandboxEpermArtifact({
+    host,
+    port,
+    error,
+  }), null, 2);
+
+  try {
+    fs.mkdirSync(resolve('test-results'), { recursive: true });
+    fs.writeFileSync(invalidArtifactPath, content);
+    console.error(`Sandbox EPERM evidence written to ${invalidArtifactPath}`);
+    return;
+  } catch (writeError) {
+    console.error(`Could not write sandbox EPERM evidence to ${invalidArtifactPath}: ${writeError.message}`);
+  }
+
+  try {
+    fs.writeFileSync(fallbackInvalidArtifactPath, content);
+    console.error(`Sandbox EPERM evidence written to ${fallbackInvalidArtifactPath}`);
+  } catch (fallbackError) {
+    console.error(`Could not write sandbox EPERM fallback evidence: ${fallbackError.message}`);
+  }
 }
 
 const server = app.listen(port, host, () => {

@@ -20,6 +20,8 @@ describe('useSessionStore', () => {
             fillerData: {},
             elapsedTime: 0,
             startTime: null,
+            frozenTranscriptAtStop: null,
+            isTranscriptFinalizing: false,
         });
     });
 
@@ -109,7 +111,23 @@ describe('useSessionStore', () => {
 
             const state = useSessionStore.getState();
             expect(state.transcript.transcript).toBe('Complete text');
-            expect(state.transcript.partial).toBe('typing...');
+            expect(state.transcript.partial).toBe('Typing...');
+        });
+    });
+
+    describe('setSTTMode', () => {
+        it('does not clear visible transcript while stop finalization is preserving it', () => {
+            useSessionStore.getState().updateTranscript('Already committed', 'still speaking');
+            useSessionStore.getState().setTranscriptFinalizing(true);
+            useSessionStore.getState().freezeTranscriptAtStop('Already committed still speaking');
+
+            useSessionStore.getState().setSTTMode('private');
+
+            expect(useSessionStore.getState().transcript).toEqual({
+                transcript: 'Already committed',
+                partial: 'Still speaking',
+            });
+            expect(useSessionStore.getState().frozenTranscriptAtStop).toBe('Already committed still speaking');
         });
     });
 

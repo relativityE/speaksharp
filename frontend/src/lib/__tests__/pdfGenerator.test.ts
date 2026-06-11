@@ -170,7 +170,7 @@ describe('generateSessionPdf', () => {
 
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
-        ['Transcription Mode', 'Private (whisper-tiny.en, transformers-js-2.17, cpu)'],
+        ['Transcription Mode', 'Private'],
         ['Silence Percentage', '0.0%'],
         ['Short Pauses (0.5-1.5s)', '0'],
         ['Long Pauses (>1.5s)', '0'],
@@ -278,7 +278,7 @@ describe('generateSessionPdf', () => {
     });
     const savedPdf = await getSavedPdf();
 
-    expect(savedPdf.text).toContain('(AI-Powered Suggestions) Tj');
+    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
     expect(savedPdf.text).toContain('(You used a clear opening and can improve pacing.) Tj');
     expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
   });

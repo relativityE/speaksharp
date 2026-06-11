@@ -1,4 +1,5 @@
 import logger from '../../../lib/logger';
+import { redactTranscript } from '../../../lib/logRedaction';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, Result } from './types';
 import { TranscriptionError } from '../errors';
 import { IPrivateSTTEngine, EngineType } from '../../../contracts/IPrivateSTTEngine';
@@ -7,6 +8,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
+import { registerNativeProductionFormatter } from './nativeDeterministicCleanup';
 
 declare global {
   interface Window {
@@ -19,13 +21,22 @@ declare global {
 
 type NativeParallelMicCapture = {
   createdAt: string;
+  startedAt: string;
+  endedAt: string;
   samples: number;
   durationSec: number;
   sampleRate: number;
   rms: number;
   peak: number;
+  speechStartMs: number | null;
+  speechEndMs: number | null;
+  speechDurationMs: number;
+  segmentCount: number;
+  speechSegments: Array<{ startMs: number; endMs: number; rms: number; peak: number }>;
   wavDataUrl: string;
 };
+
+const NATIVE_BROWSER_TRACE_LIMIT = 5_000;
 
 function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): void {
   if (typeof window === 'undefined') return;
@@ -46,7 +57,7 @@ function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): 
     ...safePayload,
   });
 
-  if (window.__NATIVE_BROWSER_TRACE__.length > 500) {
+  if (window.__NATIVE_BROWSER_TRACE__.length > NATIVE_BROWSER_TRACE_LIMIT) {
     window.__NATIVE_BROWSER_TRACE__.shift();
   }
 }
@@ -83,6 +94,62 @@ function concatenateFrames(frames: Float32Array[]): Float32Array {
   }
 
   return output;
+}
+
+function analyzeSpeechSegments(audio: Float32Array, sampleRate: number) {
+  const windowSize = Math.max(1, Math.round(sampleRate * 0.05));
+  const minSegmentMs = 120;
+  const mergeGapMs = 180;
+  const energy = summarizeAudioEnergy(audio);
+  const threshold = Math.max(0.006, energy.rms * 1.8);
+  const windows: Array<{ startMs: number; endMs: number; rms: number; peak: number; speech: boolean }> = [];
+
+  for (let start = 0; start < audio.length; start += windowSize) {
+    const end = Math.min(audio.length, start + windowSize);
+    const slice = audio.subarray(start, end);
+    const sliceEnergy = summarizeAudioEnergy(slice);
+    windows.push({
+      startMs: (start / sampleRate) * 1000,
+      endMs: (end / sampleRate) * 1000,
+      rms: sliceEnergy.rms,
+      peak: sliceEnergy.peak,
+      speech: sliceEnergy.rms >= threshold || sliceEnergy.peak >= threshold * 3,
+    });
+  }
+
+  const segments: Array<{ startMs: number; endMs: number; rms: number; peak: number }> = [];
+  for (const window of windows) {
+    if (!window.speech) continue;
+    const previous = segments[segments.length - 1];
+    if (previous && window.startMs - previous.endMs <= mergeGapMs) {
+      previous.endMs = window.endMs;
+      previous.rms = Math.max(previous.rms, window.rms);
+      previous.peak = Math.max(previous.peak, window.peak);
+    } else {
+      segments.push({
+        startMs: window.startMs,
+        endMs: window.endMs,
+        rms: window.rms,
+        peak: window.peak,
+      });
+    }
+  }
+
+  const filtered = segments
+    .filter(segment => segment.endMs - segment.startMs >= minSegmentMs)
+    .map(segment => ({
+      startMs: Math.round(segment.startMs),
+      endMs: Math.round(segment.endMs),
+      rms: Number(segment.rms.toFixed(6)),
+      peak: Number(segment.peak.toFixed(6)),
+    }));
+  return {
+    speechStartMs: filtered[0]?.startMs ?? null,
+    speechEndMs: filtered[filtered.length - 1]?.endMs ?? null,
+    speechDurationMs: Math.round(filtered.reduce((sum, segment) => sum + segment.endMs - segment.startMs, 0)),
+    segmentCount: filtered.length,
+    speechSegments: filtered,
+  };
 }
 
 function encodePcm16WavDataUrl(audio: Float32Array, sampleRate: number): string {
@@ -194,6 +261,13 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private isSupported: boolean = true;
   private isListening: boolean = false;
   private isRestarting: boolean = false;
+  /**
+   * True after an explicit user Stop. Hard-stops the transcript: any subsequent
+   * onresult (the stopping cycle's final flush OR a stray second recognition cycle,
+   * e.g. "Hey Dad" spoken after Stop) is dropped, never appended to the completed
+   * session. Reset on the next onStart.
+   */
+  private stopRequested: boolean = false;
   public onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
   public onReady?: () => void;
   public onError?: (error: TranscriptionError) => void;
@@ -207,6 +281,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private parallelCaptureDisposer: (() => void) | null = null;
   private parallelCaptureFrames: Float32Array[] = [];
   private parallelCaptureSampleRate = 0;
+  private parallelCaptureStartedAtMs = 0;
   private recognitionCycleId = 0;
   private cycleStartedAtMs = 0;
   private cycleAudioStartedAtMs = 0;
@@ -219,6 +294,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private cycleErrorCount = 0;
   private resultStallRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private resultStallRestartCount = 0;
+  private noResultSpeechRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  private noResultSpeechRestartCount = 0;
   private preserveInterimOnNextStart = false;
   private terminatePromise: Promise<void> | null = null;
 
@@ -231,6 +308,20 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.onError = options.onError;
     this.serviceId = options.serviceId || 'unknown';
     this.runId = options.runId || 'unknown';
+
+    // Activate the trusted Native punctuation/casing formatter on the REAL production
+    // construction path. Production builds engines via STTStrategyFactory (NOT
+    // EngineSelector/EngineFactory, which has no production callers), so the formatter
+    // was never registered and __NATIVE_FORMATTER_LAST__ came back null. Registering
+    // here guarantees a real Native session restores punctuation on the saved
+    // transcript. Production-gated: skip for injected mock engines / E2E.
+    if (!mockEngine && !ENV.isE2E) {
+      try {
+        registerNativeProductionFormatter('native');
+      } catch (err) {
+        logger.warn({ err }, '[NativeBrowser] Native formatter registration skipped');
+      }
+    }
   }
 
   private get modeOptions(): TranscriptionModeOptions | null {
@@ -410,6 +501,19 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {
+        // Hard-stop guard: after an explicit user Stop, the transcript is frozen.
+        // Drop the stopping cycle's trailing final flush AND any stray second
+        // recognition cycle (e.g. "Hey Dad" spoken after Stop) so nothing can
+        // append to the completed session. Reset on the next onStart.
+        if (this.stopRequested) {
+          pushNativeTrace('onresult_dropped_after_stop', {
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            cycleId: this.recognitionCycleId,
+          });
+          return;
+        }
         this.updateHeartbeat();
         const strategy = this.browserStrategy ?? resolveNativeBrowserStrategy({
           hasSpeechRecognition: true,
@@ -422,6 +526,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         this.cycleResultCount += 1;
         if (finalTranscript) this.cycleFinalResultCount += 1;
         if (interimTranscript) this.cycleInterimResultCount += 1;
+        if (finalTranscript || interimTranscript) {
+          this.cancelNoResultSpeechRestart('result');
+        }
         pushNativeTrace('onresult_raw', {
           sId: this.serviceId,
           rId: this.runId,
@@ -455,7 +562,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             eId: this.instanceId,
             finalTranscript,
           });
-          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, finalTranscript }, '[NativeBrowser] Final transcript received');
+          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, finalTranscript: redactTranscript(finalTranscript) }, '[NativeBrowser] Final transcript received');
         }
         if (interimTranscript) {
           pushNativeTrace('interim_candidate', {
@@ -464,7 +571,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             eId: this.instanceId,
             interimTranscript,
           });
-          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, interimTranscript }, '[NativeBrowser] Interim transcript received');
+          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, interimTranscript: redactTranscript(interimTranscript) }, '[NativeBrowser] Interim transcript received');
         }
 
         if (this.onTranscriptUpdate) {
@@ -492,9 +599,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
               pendingInterim.length > trimmedFinal.length
               ? pendingInterim
               : trimmedFinal;
-            const finalForEmission = this.interimTranscriptBuffer
-              ? NativeBrowser.appendTranscriptSegment(this.interimTranscriptBuffer, bestFinalCandidate)
-              : bestFinalCandidate;
+            const finalForEmission = bestFinalCandidate;
             this.lastInterim = '';
             this.interimTranscriptBuffer = '';
             this.currentTranscript = this.currentTranscript
@@ -504,8 +609,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
               sId: this.serviceId,
               rId: this.runId,
               eId: this.instanceId,
-              finalTranscript: finalForEmission,
-              currentTranscript: this.currentTranscript,
+              finalTranscript: redactTranscript(finalForEmission),
+              currentTranscript: redactTranscript(this.currentTranscript),
             });
             this.onTranscriptUpdate({ 
                 transcript: { final: finalForEmission }
@@ -597,6 +702,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       pushNativeTrace('onspeechstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId }, '[NativeBrowser] onspeechstart');
       this.signalAcousticReady('onspeechstart');
+      this.scheduleNoResultSpeechRestart('speechstart');
     };
 
     this.recognition.onspeechend = () => {
@@ -612,6 +718,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onend = () => {
       this.logRecognitionCycleSummary('onend');
+      this.cancelNoResultSpeechRestart('onend');
       pushNativeTrace('onend', {
         sId: this.serviceId,
         rId: this.runId,
@@ -717,7 +824,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       isListening: this.isListening,
     });
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] start called');
-    
+
+    // New recording session: clear the explicit-stop guard so onresult is accepted again.
+    this.stopRequested = false;
+
     // E2E Test Bridge (Strict Zero)
     const win = window as unknown as Record<string, unknown>;
 
@@ -742,8 +852,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.interimTranscriptBuffer = '';
       this.lastMeaningfulInterim = '';
       this.resultStallRestartCount = 0;
+      this.noResultSpeechRestartCount = 0;
       this.preserveInterimOnNextStart = false;
       this.cancelResultStallRestart('mock-start');
+      this.cancelNoResultSpeechRestart('mock-start');
       this.acousticReadySignaled = false;
       return;
     }
@@ -760,8 +872,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.interimTranscriptBuffer = '';
       this.lastMeaningfulInterim = '';
       this.resultStallRestartCount = 0;
+      this.noResultSpeechRestartCount = 0;
       this.preserveInterimOnNextStart = false;
       this.cancelResultStallRestart('start');
+      this.cancelNoResultSpeechRestart('start');
       this.acousticReadySignaled = false;
       try {
         this.startParallelCapture(_mic);
@@ -873,6 +987,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
   protected async onStop(): Promise<void> {
     if (this.isTerminated) return;
+    // Freeze the transcript the instant Stop is requested, before awaiting the
+    // browser's recognition.stop(). onresult fires synchronously off the recognizer,
+    // so this flag must be set ahead of any await to reject post-stop results.
+    this.stopRequested = true;
     pushNativeTrace('onStop_enter', {
       sId: this.serviceId,
       rId: this.runId,
@@ -883,6 +1001,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     });
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
     this.cancelResultStallRestart('stop');
+    this.cancelNoResultSpeechRestart('stop');
     this.flushParallelCapture();
     
     if (this.mockEngine) {
@@ -993,6 +1112,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.flushParallelCapture();
     this.parallelCaptureFrames = [];
     this.parallelCaptureSampleRate = mic?.sampleRate ?? 0;
+    this.parallelCaptureStartedAtMs = 0;
 
     if (!isNativeParallelCaptureEnabled() || !mic || typeof mic.onFrame !== 'function') {
       pushNativeTrace('parallel_capture_skipped', {
@@ -1006,6 +1126,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return;
     }
 
+    this.parallelCaptureStartedAtMs = Date.now();
     this.parallelCaptureDisposer = mic.onFrame((frame: Float32Array) => {
       this.parallelCaptureFrames.push(frame.slice(0));
     });
@@ -1033,13 +1154,19 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     const sampleRate = this.parallelCaptureSampleRate || 16000;
     const audio = concatenateFrames(this.parallelCaptureFrames);
     const energy = summarizeAudioEnergy(audio);
+    const speech = analyzeSpeechSegments(audio, sampleRate);
+    const endedAtMs = Date.now();
+    const startedAtMs = this.parallelCaptureStartedAtMs || endedAtMs - (audio.length / sampleRate) * 1000;
     const capture: NativeParallelMicCapture = {
       createdAt: new Date().toISOString(),
+      startedAt: new Date(startedAtMs).toISOString(),
+      endedAt: new Date(endedAtMs).toISOString(),
       samples: audio.length,
       durationSec: audio.length / sampleRate,
       sampleRate,
       rms: Number(energy.rms.toFixed(6)),
       peak: Number(energy.peak.toFixed(6)),
+      ...speech,
       wavDataUrl: encodePcm16WavDataUrl(audio, sampleRate),
     };
 
@@ -1054,6 +1181,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       sampleRate: capture.sampleRate,
       rms: capture.rms,
       peak: capture.peak,
+      speechStartMs: capture.speechStartMs,
+      speechEndMs: capture.speechEndMs,
+      speechDurationMs: capture.speechDurationMs,
+      segmentCount: capture.segmentCount,
     });
     logger.info({
       sId: this.serviceId,
@@ -1068,6 +1199,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.parallelCaptureFrames = [];
     this.parallelCaptureSampleRate = 0;
+    this.parallelCaptureStartedAtMs = 0;
   }
 
   private getLatestInterimTranscript(nextInterim: string): string {
@@ -1084,28 +1216,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return '';
     }
 
-    const previousInterim = this.lastInterim.trim();
-    if (
-      previousInterim &&
-      this.isMeaningfulInterimTranscript(previousInterim) &&
-      !NativeBrowser.isSameInterimWindow(previousInterim, normalizedNext)
-    ) {
-      this.interimTranscriptBuffer = NativeBrowser.appendTranscriptSegment(
-        this.interimTranscriptBuffer,
-        previousInterim,
-      );
-      pushNativeTrace('interim_window_committed', {
-        sId: this.serviceId,
-        rId: this.runId,
-        eId: this.instanceId,
-        previousInterim,
-        normalizedNext,
-        interimTranscriptBuffer: this.interimTranscriptBuffer,
-      });
-    }
-
     this.lastInterim = normalizedNext;
-    const visibleInterim = NativeBrowser.appendTranscriptSegment(this.interimTranscriptBuffer, normalizedNext);
+    this.interimTranscriptBuffer = '';
+    const visibleInterim = normalizedNext;
     if (
       this.isMeaningfulInterimTranscript(visibleInterim) &&
       visibleInterim.length >= this.lastMeaningfulInterim.length
@@ -1154,6 +1267,73 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       rId: this.runId,
       eId: this.instanceId,
       reason,
+    });
+  }
+
+  private cancelNoResultSpeechRestart(reason: string): void {
+    if (!this.noResultSpeechRestartTimer) return;
+    clearTimeout(this.noResultSpeechRestartTimer);
+    this.noResultSpeechRestartTimer = null;
+    pushNativeTrace('no_result_speech_restart_cancelled', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      reason,
+    });
+  }
+
+  private scheduleNoResultSpeechRestart(reason: string): void {
+    if (!this.recognition || !this.isListening) return;
+    if (this.cycleResultCount > 0 || this.currentTranscript.trim()) return;
+    if (this.noResultSpeechRestartCount >= NATIVE_STT.NO_RESULT_SPEECH_RESTART_MAX_ATTEMPTS) {
+      pushNativeTrace('no_result_speech_restart_limit_reached', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        reason,
+        noResultSpeechRestartCount: this.noResultSpeechRestartCount,
+      });
+      return;
+    }
+
+    this.cancelNoResultSpeechRestart(`reschedule:${reason}`);
+    const scheduledCycleId = this.recognitionCycleId;
+    this.noResultSpeechRestartTimer = setTimeout(() => {
+      this.noResultSpeechRestartTimer = null;
+      if (!this.recognition || !this.isListening || scheduledCycleId !== this.recognitionCycleId) return;
+      if (this.cycleResultCount > 0 || this.currentTranscript.trim()) return;
+
+      this.noResultSpeechRestartCount += 1;
+      pushNativeTrace('no_result_speech_restart_stop_requested', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        reason,
+        cycleId: this.recognitionCycleId,
+        attempt: this.noResultSpeechRestartCount,
+      });
+      logger.info({
+        ...this.getRecognitionCycleSummary('no-result-speech-restart'),
+        attempt: this.noResultSpeechRestartCount,
+      }, '[NativeBrowser] speech detected but no transcript result yet; restarting recognition to prompt browser flush');
+      try {
+        this.recognition.stop();
+      } catch (err) {
+        pushNativeTrace('no_result_speech_restart_stop_throw', {
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }, NATIVE_STT.NO_RESULT_SPEECH_RESTART_MS);
+    pushNativeTrace('no_result_speech_restart_scheduled', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      reason,
+      cycleId: this.recognitionCycleId,
+      delayMs: NATIVE_STT.NO_RESULT_SPEECH_RESTART_MS,
     });
   }
 
@@ -1219,6 +1399,23 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       const pendingTranscript = this.lastMeaningfulInterim.trim();
       if (pendingTranscript && !NativeBrowser.normalizeForComparison(this.currentTranscript).includes(NativeBrowser.normalizeForComparison(pendingTranscript))) {
         const transcript = NativeBrowser.mergeFinalWithPendingInterim(this.currentTranscript, pendingTranscript);
+        if (NativeBrowser.normalizeForComparison(transcript) === NativeBrowser.normalizeForComparison(this.currentTranscript)) {
+          pushNativeTrace('native_interim_append_skipped_duplicate', {
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            reason,
+            pendingTranscript,
+            currentTranscript: this.currentTranscript,
+          });
+          logger.info({
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            reason,
+          }, '[NativeBrowser] Skipped duplicate pending interim transcript on stop');
+          return;
+        }
         this.currentTranscript = transcript;
         pushNativeTrace('native_interim_appended_to_final', {
           sId: this.serviceId,
@@ -1309,6 +1506,29 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return previousNormalized.startsWith(nextNormalized) || nextNormalized.startsWith(previousNormalized);
   }
 
+  private static wordOverlapRatio(base: string, candidate: string): number {
+    const baseWords = new Set(NativeBrowser.wordsForComparison(base));
+    const candidateWords = NativeBrowser.wordsForComparison(candidate);
+    if (candidateWords.length === 0) return 0;
+
+    const overlappingWords = candidateWords.filter((word) => baseWords.has(word)).length;
+    return overlappingWords / candidateWords.length;
+  }
+
+  private static isSubstantiallyDuplicatePendingInterim(finalTranscript: string, pendingInterim: string): boolean {
+    const finalWords = NativeBrowser.wordsForComparison(finalTranscript);
+    const pendingWords = NativeBrowser.wordsForComparison(pendingInterim);
+    if (finalWords.length === 0 || pendingWords.length === 0) return false;
+
+    const shorterLength = Math.min(finalWords.length, pendingWords.length);
+    const longerLength = Math.max(finalWords.length, pendingWords.length);
+    const comparableLengthRatio = shorterLength / longerLength;
+    const pendingOverlap = NativeBrowser.wordOverlapRatio(finalTranscript, pendingInterim);
+    const finalOverlap = NativeBrowser.wordOverlapRatio(pendingInterim, finalTranscript);
+
+    return comparableLengthRatio >= 0.75 && pendingOverlap >= 0.75 && finalOverlap >= 0.75;
+  }
+
   private static appendTranscriptSegment(base: string, segment: string): string {
     const baseText = base.trim();
     const segmentText = segment.trim();
@@ -1354,6 +1574,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return pendingText;
     }
     if (finalNormalized.includes(pendingNormalized)) {
+      return finalText;
+    }
+    if (NativeBrowser.isSubstantiallyDuplicatePendingInterim(finalText, pendingText)) {
       return finalText;
     }
 
@@ -1446,7 +1669,12 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         return engineWithGet.getTranscript();
     }
     const transcript = await super.getTranscript();
-    return transcript || this.lastMeaningfulInterim || this.interimTranscriptBuffer;
+    const saved = transcript || this.lastMeaningfulInterim || this.interimTranscriptBuffer;
+    // RAW-FIRST (Native async formatting): return the raw transcript so Stop/save
+    // are never blocked on the network formatter. The trusted punctuation/casing
+    // formatter runs ASYNCHRONOUSLY after save (see formatNativeSessionInBackground),
+    // and only replaces the saved transcript when it succeeds word-preservingly.
+    return saved;
   }
 
   public getLastHeartbeatTimestamp(): number {

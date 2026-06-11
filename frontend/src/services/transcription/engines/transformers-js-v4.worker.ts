@@ -1,9 +1,10 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
+import { detectWebGPUSupport } from '../utils/webgpuSupport';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean }
+    | { id: number; type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string }
     | { id: number; type: 'transcribe'; audio: Float32Array }
     | { id: number; type: 'destroy' };
 
@@ -27,19 +28,25 @@ function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
 
-function getPreferredDevice(): string | undefined {
+async function getPreferredDevice(): Promise<string | undefined> {
     if (PRIV_STT_V4.DEVICE) {
         return PRIV_STT_V4.DEVICE;
     }
 
-    return typeof navigator !== 'undefined' && 'gpu' in navigator ? 'webgpu' : undefined;
+    // WebGPU only when a REAL adapter is acquired. `'gpu' in navigator` is mere
+    // presence, not capability: adapter-less / headless Chrome exposes navigator.gpu
+    // but requestAdapter() returns null, and choosing 'webgpu' there leaves the
+    // pipeline unable to initialize — which (with the model download + init timeout)
+    // strands the engine with Start disabled and NO CPU fallback. Validate the
+    // adapter; otherwise fall straight to CPU/wasm so the engine always becomes ready.
+    return (await detectWebGPUSupport()).supported ? 'webgpu' : undefined;
 }
 
 function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-        return_timestamps: false,
+        return_timestamps: true,
     };
 
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
@@ -50,7 +57,7 @@ function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     return options;
 }
 
-async function createPipeline(progress_callback: (data: unknown) => void): Promise<{ pipe: Pipeline; device: string }> {
+async function createPipeline(progress_callback: (data: unknown) => void, modelId: string, dtype: unknown, deviceOverride?: string): Promise<{ pipe: Pipeline; device: string }> {
     const transformers = await import('@huggingface/transformers');
     const { pipeline, env, LogLevel } = transformers;
 
@@ -59,9 +66,14 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
     env.useBrowserCache = true;
     env.logLevel = LogLevel.ERROR;
 
-    const preferredDevice = getPreferredDevice();
+    // DEV/TEST device override (root-cause A/B): 'wasm' forces CPU/WASM, 'webgpu' forces GPU.
+    const preferredDevice = deviceOverride === 'wasm'
+        ? undefined
+        : deviceOverride === 'webgpu'
+            ? 'webgpu'
+            : await getPreferredDevice();
     const options: Record<string, unknown> = {
-        dtype: PRIV_STT_V4.DTYPE,
+        dtype,
         progress_callback,
     };
     if (preferredDevice) {
@@ -70,7 +82,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
 
     try {
         return {
-            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, options),
+            pipe: await pipeline('automatic-speech-recognition', modelId, options),
             device: preferredDevice ?? 'wasm-default',
         };
     } catch (error) {
@@ -81,7 +93,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
         const fallbackOptions = { ...options };
         delete fallbackOptions.device;
         return {
-            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, fallbackOptions),
+            pipe: await pipeline('automatic-speech-recognition', modelId, fallbackOptions),
             device: 'wasm-fallback',
         };
     }
@@ -101,7 +113,7 @@ async function warmUp(id: number): Promise<void> {
     post({ id, type: 'warmed', warmupMs: Math.round(performance.now() - start) });
 }
 
-async function init(id: number, isE2E: boolean): Promise<void> {
+async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown, deviceOverride?: string): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -122,16 +134,22 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     };
 
     const loadStart = performance.now();
-    const loaded = await createPipeline(progress_callback);
+    const loaded = await createPipeline(progress_callback, modelId, dtype, deviceOverride);
     transcriber = loaded.pipe;
     post({
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
-        model: PRIV_STT_V4.MODEL_ID,
+        model: modelId,
         device: loaded.device,
     });
-    await warmUp(id);
+    try {
+        await warmUp(id);
+    } catch {
+        // Warm-up is an optimization, not a readiness gate. If the model loaded
+        // successfully, let the engine start and surface any real decode errors
+        // during transcription instead of stranding Private v4 in init-failed.
+    }
     post({ id, type: 'ready' });
 }
 
@@ -166,7 +184,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E);
+                    await init(request.id, request.isE2E, request.model ?? PRIV_STT_V4.MODEL_ID, request.dtype ?? PRIV_STT_V4.DTYPE, request.device);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio);

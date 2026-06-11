@@ -18,7 +18,7 @@ describe('StatusNotificationBar', () => {
         cleanup();
     });
 
-    it('displays the padlock icon (Vault Mode) when active engine is private', () => {
+    it('displays the padlock icon when active engine is private', () => {
         vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
             const state = {
                 activeEngine: 'private',
@@ -30,7 +30,7 @@ describe('StatusNotificationBar', () => {
         render(<StatusNotificationBar status={{ type: 'recording', message: 'Recording' }} />);
 
         // Check for the padlock title or icon
-        const padlock = screen.getByTitle(/Vault Mode: On-Device Processing/i);
+        const padlock = screen.getByTitle(/Private transcription: on-device processing/i);
         expect(padlock).toBeDefined();
     });
 
@@ -45,7 +45,7 @@ describe('StatusNotificationBar', () => {
 
         render(<StatusNotificationBar status={{ type: 'recording', message: 'Recording' }} />);
 
-        expect(screen.queryByTitle(/Vault Mode: On-Device Processing/i)).toBeNull();
+        expect(screen.queryByTitle(/Private transcription: on-device processing/i)).toBeNull();
     });
 
     it('uses neutral styling for ready state instead of a full green alert band', () => {
@@ -107,10 +107,11 @@ describe('StatusNotificationBar', () => {
             return typeof selector === 'function' ? selector(state) : state;
         });
 
-        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.' }} />);
+        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model setup required.' }} />);
 
         expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private model required/i);
-        expect(screen.getByText(/Download once to use private local transcription/i)).toBeInTheDocument();
+        expect(screen.getByText(/Set up the Private model in this browser/i)).toBeInTheDocument();
+        expect(screen.getByText(/All audio processing remains local/i)).toBeInTheDocument();
         expect(screen.queryByTestId('status-download-model-button')).toBeNull();
     });
 
@@ -123,7 +124,7 @@ describe('StatusNotificationBar', () => {
             return typeof selector === 'function' ? selector(state) : state;
         });
 
-        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.', progress: 100 }} />);
+        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model setup required.', progress: 100 }} />);
 
         expect(screen.queryByTestId('status-download-model-button')).toBeNull();
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Complete');

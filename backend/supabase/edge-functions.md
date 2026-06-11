@@ -10,8 +10,10 @@ This project includes multiple Edge Functions to handle server-side logic:
 - `assemblyai-token`: Securely issue tokens for AssemblyAI.
 - `check-usage-limit`: Enforce subscription limits.
 - `create-user`: Provision users (detailed below as a primary example).
+- `format-transcript`: Restore punctuation/casing for Native/Cloud saved transcripts with word-preservation and Private hard-rejection. Enforces a per-user daily cost guard via `consume_formatter_quota` (degrade-open). Env: `FORMATTER_MODEL` (default `gemini-3.5-flash`), `FORMATTER_TIMEOUT_MS` (default `28000`), `FORMATTER_DAILY_LIMIT` (default `200`), `GEMINI_API_KEY`.
 - `get-ai-suggestions`: Retrieve AI-generated feedback.
 - `stripe-checkout`: Initiate Stripe checkout sessions.
+- `stripe-billing-portal`: Open Stripe-hosted billing management for paid customers.
 - `stripe-webhook`: Handle Stripe webhooks.
 
 ### Database RPCs (Core Runtime Logic)
@@ -20,7 +22,8 @@ While most logic resides in Edge Functions, the **Deterministic Speech Runtime**
 
 - `create_session_and_update_usage`: Atomic lock + usage increment + session creation.
 - `heartbeat_session`: Incremental usage sync and session expiry extension.
-- `complete_session`: Finalizes session with `completed` or `failed` status and reasons.
+- `complete_session`: Finalizes session with `completed` or `failed` status and reasons. Writes `transcript = COALESCE(p_final_transcript, transcript)`.
+- `consume_formatter_quota`: Atomic per-user daily cost guard for `format-transcript` (`formatter_usage_daily` table, SECURITY DEFINER). Returns `{ allowed, remaining, limit, used }`; the Edge Function degrades open if it errors.
 
 ### Example: `create-user` (Synchronized Auth)
 

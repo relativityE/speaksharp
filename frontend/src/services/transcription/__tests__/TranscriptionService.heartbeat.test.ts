@@ -45,7 +45,7 @@ class MockHeartbeatEngine extends STTEngine {
     async transcribe() { return Result.ok('test'); }
 
     public override async getTranscript() { return 'test'; }
-    public override getEngineType() { return 'whisper-turbo'; }
+    public override getEngineType() { return 'transformers-js'; }
     setHeartbeat(ts: number) { this.lastHeartbeat = ts; }
 }
 
@@ -73,7 +73,7 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         registry = (await import('../STTRegistry')).sttRegistry;
 
         // Override registry with heartbeat-specific engine at all keys
-        registry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         registry.register('assemblyai', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         registry.register('native-browser', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         registry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
@@ -132,6 +132,42 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         // Ensure mode didn't drift
         expect(service.getMode()).toBe('mock');
         
+        vi.useRealTimers();
+    });
+
+    it('does NOT emit a frozen warning for Native on heartbeat drift (Web Speech pauses are not freezes)', async () => {
+        vi.useFakeTimers();
+        const onStatusChange = vi.fn();
+
+        service = new TranscriptionServiceClass({
+            onTranscriptUpdate: vi.fn(),
+            onModelLoadProgress: vi.fn(),
+            onReady: vi.fn(),
+            onStatusChange,
+            session: null,
+            navigate: vi.fn() as unknown as NavigateFunction,
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
+            mockMic,
+            policy: {
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: false,
+                preferredMode: 'native',
+                allowFallback: false,
+                executionIntent: 'test'
+            }
+        }, undefined, 50, 8000);
+
+        await service.init();
+        await service.startTranscription();
+        expect(service.getMode()).toBe('native');
+
+        // Native heartbeat only updates on result events; a natural speaking pause exceeds the
+        // threshold but is NOT a freeze (Native has its own result-stall restart).
+        await vi.advanceTimersByTimeAsync(9000);
+
+        expect(onStatusChange).not.toHaveBeenCalledWith(expect.objectContaining({ isFrozen: true }));
+
         vi.useRealTimers();
     });
 

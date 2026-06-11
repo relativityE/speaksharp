@@ -53,6 +53,7 @@ vi.mock('@/hooks/useUserProfile', () => ({
 
 vi.mock('@/lib/logger', () => ({
     default: {
+        debug: vi.fn(),
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),

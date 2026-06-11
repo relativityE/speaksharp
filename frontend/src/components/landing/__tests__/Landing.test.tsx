@@ -45,6 +45,7 @@ vi.mock('lucide-react', () => ({
     Mic: () => <div data-testid="icon-mic" />,
     Zap: () => <div data-testid="icon-zap" />,
     Shield: () => <div data-testid="icon-shield" />,
+    ShieldCheck: () => <div data-testid="icon-shield-check" />,
     BarChart3: () => <div data-testid="icon-chart" />,
     Star: () => <div data-testid="icon-star" />,
     Quote: () => <div data-testid="icon-quote" />,

@@ -44,11 +44,16 @@ const MIN_RELIABLE_SCORING_WORDS = ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WOR
 export const countTranscriptWords = (transcript: string): number =>
     transcript.match(/\b[\p{L}\p{N}][\p{L}\p{N}'-]*\b/gu)?.length ?? 0;
 
-export const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number =>
-    Object.entries(fillerWords || {}).reduce(
-        (sum, [word, data]) => word === 'total' ? sum : sum + (data.count || 0),
-        0
-    );
+export const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
+    if (!fillerWords) return 0;
+
+    let sum = 0;
+    for (const word in fillerWords) {
+        if (word === 'total') continue;
+        sum += fillerWords[word]?.count || 0;
+    }
+    return sum;
+};
 
 export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
     const persistedTotal = fillerWords?.total?.count;

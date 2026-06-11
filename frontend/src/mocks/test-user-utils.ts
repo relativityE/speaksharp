@@ -30,8 +30,9 @@ export function createMockSession(overrides: Partial<Session> = {}, userType: 'f
     email: userType === 'pro' ? 'pro@example.com' : userType === 'basic' ? 'basic@example.com' : 'free@example.com'
   });
 
-  // Harden: Generate a tier-specific mock token for deterministic MSW branching
-  const fakeAccessToken = `mock-${userType}-token-${now}`;
+  // Harden: keep E2E tokens tier-specific for deterministic route branching
+  // while preserving the basic JWT shape required by AuthProvider validation.
+  const fakeAccessToken = `mock-${userType}.token.${now}`;
 
   return {
     access_token: fakeAccessToken,

@@ -8,6 +8,7 @@ import { STTStrategy } from './STTStrategy';
 import { STTStrategyFactory } from './STTStrategyFactory';
 import { STTNegotiator } from './STTNegotiator';
 import logger from '@/lib/logger';
+import { redactTranscript } from '@/lib/logRedaction';
 import { toast } from '@/lib/toast';
 import {
   TranscriptionPolicy,
@@ -30,6 +31,8 @@ import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
 import type { LifecycleToken } from '../SpeechRuntimeController';
+export { sanitizeTranscriptText } from './transcriptSanitizer';
+import { sanitizeTranscriptText } from './transcriptSanitizer';
 
 import {
   saveSession,
@@ -41,6 +44,8 @@ declare global {
   interface Window {
     __TRANSCRIPTION_SERVICE_INTERNAL__?: TranscriptionService;
     __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
+    __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
+    __SS_TRANSCRIPT_TRACE_SEQ__?: number;
   }
 }
 
@@ -48,18 +53,89 @@ declare global {
 const isPrivateTranscriptTraceEnabled = () =>
   typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
 
-/**
- * Strip STT metadata tokens such as [MUSIC], [BLANK_AUDIO], or (applause)
- * while preserving the spoken transcript text around them.
- */
-export function sanitizeTranscriptText(raw: string): string {
-  return raw
-    .replace(/>>/g, '')
-    .replace(/\[[A-Z_\s]+\]/gi, '')
-    .replace(/\([a-z\s]+\)/gi, '')
-    .replace(/\s{2,}/g, ' ')
+const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
+  if (typeof window === 'undefined') return;
+  window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
+  window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+  window.__SS_TRANSCRIPT_TRACE__.push({
+    sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
+    t: Number(performance.now().toFixed(1)),
+    stage,
+    timestamp: Date.now(),
+    ...payload,
+  });
+  if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
+    window.__SS_TRANSCRIPT_TRACE__.shift();
+  }
+};
+
+const normalizeTranscriptForMerge = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[^\w\s']/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
-}
+
+const appendTranscriptSegment = (base: string, segment: string): string => {
+  const baseText = base.replace(/\s+/g, ' ').trim();
+  const segmentText = segment.replace(/\s+/g, ' ').trim();
+  if (!baseText) return segmentText;
+  if (!segmentText) return baseText;
+
+  const baseWords = baseText.split(/\s+/);
+  const segmentWords = segmentText.split(/\s+/);
+  const normalizedBaseWords = normalizeTranscriptForMerge(baseText).split(/\s+/).filter(Boolean);
+  const normalizedSegmentWords = normalizeTranscriptForMerge(segmentText).split(/\s+/).filter(Boolean);
+
+  let overlap = 0;
+  const maxOverlap = Math.min(normalizedBaseWords.length, normalizedSegmentWords.length);
+  for (let size = 1; size <= maxOverlap; size += 1) {
+    const baseTail = normalizedBaseWords.slice(-size).join(' ');
+    const segmentHead = normalizedSegmentWords.slice(0, size).join(' ');
+    if (baseTail === segmentHead) overlap = size;
+  }
+
+  return [baseWords.join(' '), segmentWords.slice(overlap).join(' ')].filter(Boolean).join(' ').trim();
+};
+
+const mergeFinalTranscriptUpdate = (currentTranscript: string, nextFinal: string): string => {
+  const currentText = currentTranscript.trim();
+  const nextText = nextFinal.trim();
+  if (!currentText) return nextText;
+  if (!nextText) return currentText;
+
+  const currentNormalized = normalizeTranscriptForMerge(currentText);
+  const nextNormalized = normalizeTranscriptForMerge(nextText);
+
+  if (currentNormalized === nextNormalized || currentNormalized.endsWith(nextNormalized)) {
+    return currentText;
+  }
+
+  if (nextNormalized.startsWith(currentNormalized)) {
+    return nextText;
+  }
+
+  return appendTranscriptSegment(currentText, nextText);
+};
+
+/**
+ * Apply an incoming `final` to the accumulated transcript.
+ *
+ * A whole-utterance REPLACEMENT final (Private's post-Stop full re-decode, flagged
+ * `replacesRollingTranscript`) supersedes the accumulated rolling finals wholesale — it is a complete
+ * re-transcription, not an incremental segment, so the generic prefix/suffix/append merge would wrongly
+ * concatenate rolling + final. An empty/whitespace replacement is IGNORED (never wipes good text).
+ * Every other final (rolling, Native, Cloud) merges incrementally via `mergeFinalTranscriptUpdate`.
+ *
+ * Exported only so the replace-vs-append contract is unit-testable without standing up the service.
+ */
+export const applyFinalTranscriptUpdate = (
+  currentTranscript: string,
+  nextFinal: string,
+  replacesRollingTranscript?: boolean,
+): string => (replacesRollingTranscript && nextFinal.trim().length > 0)
+  ? nextFinal.trim()
+  : mergeFinalTranscriptUpdate(currentTranscript, nextFinal);
 
 /**
  * @deprecated Use SpeechRuntimeController as the sole manager of service instances.
@@ -145,6 +221,10 @@ export default class TranscriptionService {
   private readonly MIN_RECORDING_DURATION_MS = 100;
   private downloadController: AbortController | null = null;
   private modelLoadingProgress: number | null = 0;
+  // MAXDEPTH Part 3: last integer percent pushed to the store, for source-level dedupe in
+  // processModelLoadProgress (suppress duplicate-percent progress events). -1 = nothing emitted yet
+  // (distinct from both null "reset" and 0..100), so the first real event always passes.
+  private lastProcessedPercent: number | null = -1;
   private privateModelReady: boolean = false;
   private privateDownloadAlternativeToastShown: boolean = false;
   private activeSubscriberId: string | null = null;
@@ -203,14 +283,13 @@ export default class TranscriptionService {
     }, 5000);
   }
 
-  private markPrivateModelInitFailed(error: unknown): void {
+  private markPrivateModelInitFailed(_error: unknown): void {
     if (this.mode !== 'private') return;
 
     this.privateModelReady = false;
     this.modelLoadingProgress = null;
     this.setEngineReady(false);
 
-    const err = error instanceof Error ? error : new Error(String(error));
     const state = (useSessionStore as unknown as {
       getState: () => {
         setModelLoadingProgress: (p: number | null) => void;
@@ -222,8 +301,8 @@ export default class TranscriptionService {
       state.setModelLoadingProgress(null);
       state.setSTTStatus({
         type: 'init-failed',
-        message: 'Private setup failed. Retry setup.',
-        detail: err.message || 'The local model could not finish initializing.'
+        message: 'Private transcription could not finish setup.',
+        detail: 'Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.'
       });
     }
   }
@@ -343,6 +422,12 @@ export default class TranscriptionService {
     this.strategyCallbacks = {
       onTranscriptUpdate: (data) => {
         if (this.isTerminated) return;
+        pushTranscriptLifecycleTrace('engine:emit', {
+          engine: this.mode,
+          type: data.transcript.final ? 'final' : 'partial',
+          textLength: (data.transcript.final || data.transcript.partial || '').length,
+          preview: redactTranscript(data.transcript.final || data.transcript.partial),
+        });
         if (isPrivateTranscriptTraceEnabled()) {
           logger.info({
             serviceId: this.serviceId,
@@ -549,6 +634,9 @@ export default class TranscriptionService {
         },
         onError: (err) => {
           if (this.activeStrategyId !== tempId) return;
+          if (mode === 'private') {
+            this.failureManager.recordPrivateFailure();
+          }
           this.strategyCallbacks.onError?.(err);
         }
       };
@@ -627,7 +715,7 @@ export default class TranscriptionService {
         pushE2EEvent('ENGINE_READY', { serviceId: this.serviceId, source: 'TranscriptionService', sessionId: this.sessionId });
       }
     } catch (error: unknown) {
-      console.error('[DIAGNOSTIC HEARTBEAT ERROR]', error);
+      logger.error({ error }, '[DIAGNOSTIC HEARTBEAT ERROR]');
       const err = error as { code?: string; message?: string };
       // CACHE_MISS can be thrown or returned during init
       if (err?.code === 'CACHE_MISS' || err?.message?.includes('CACHE_MISS')) {
@@ -645,6 +733,7 @@ export default class TranscriptionService {
       }
 
       if (mode === 'private') {
+        this.failureManager.recordPrivateFailure();
         logger.warn({
           errorName: err?.constructor?.name,
           errorMessage: err?.message,
@@ -664,7 +753,7 @@ export default class TranscriptionService {
         this.options.onStatusChange?.({
           type: 'download-required',
           message: 'Private model setup did not complete.',
-          detail: 'Try the offline model download again, or switch to Native from the speech mode control.',
+          detail: 'Retry the local model setup. Check browser storage if setup fails again. Your audio stays on your machine.',
           progress: 0
         });
         return;
@@ -1038,7 +1127,10 @@ export default class TranscriptionService {
         // Streaming providers can expose useful live text as partial turns until
         // the final turn arrives. Stop/save must preserve that visible transcript
         // instead of treating a missing provider final as an empty session.
-        transcript = strategyTranscript || this.currentTranscript || this.partialTranscript;
+        const visibleTranscript = (this.currentTranscript || this.partialTranscript).trim();
+        transcript = visibleTranscript.length > strategyTranscript.length
+          ? visibleTranscript
+          : strategyTranscript || visibleTranscript;
         logger.info({
           sId: this.serviceId,
           rId: this.runId,
@@ -1513,19 +1605,32 @@ export default class TranscriptionService {
       if (drift > timeout) {
         if (!this.isFrozen) {
           this.isFrozen = true;
-          this.options.onStatusChange?.({
-            type: 'warning',
-            message: 'Speech recognition is taking a moment (Engine Frozen)',
-            isFrozen: true
-          });
+          // Native (Web Speech) only heartbeats on result events, which are naturally sparse during
+          // speaking pauses — heartbeat drift is NOT a freeze for Native (it has its own result-stall
+          // restart). Do not surface a scary "frozen" warning during healthy Native recognition.
+          // For Private/Cloud (continuous heartbeat expected) show a calm, actionable notice.
+          if (this.mode === 'native') {
+            logger.warn(
+              { driftMs: drift, mode: this.mode },
+              '[TranscriptionService] Native heartbeat drift (likely a speaking pause; no user-facing warning)'
+            );
+          } else {
+            this.options.onStatusChange?.({
+              type: 'warning',
+              message: 'Transcription is taking longer than expected. You can keep recording, or switch to Private transcription.',
+              isFrozen: true
+            });
+          }
         }
       } else if (this.isFrozen) {
         this.isFrozen = false;
-        this.options.onStatusChange?.({
-          type: 'info',
-          message: 'Speech recognition recovered',
-          isFrozen: false
-        });
+        if (this.mode !== 'native') {
+          this.options.onStatusChange?.({
+            type: 'info',
+            message: 'Speech recognition recovered',
+            isFrozen: false
+          });
+        }
       }
     }, this.watchdogIntervalMs);
   }
@@ -1545,6 +1650,12 @@ export default class TranscriptionService {
    */
   private processTranscript(update: TranscriptUpdate): void {
     logger.debug(`[TRACE] ENGINE_DATA ${!!update.transcript.final}`);
+    pushTranscriptLifecycleTrace('service:receive', {
+      engine: this.mode,
+      type: update.transcript.final ? 'final' : 'partial',
+      textLength: (update.transcript.final || update.transcript.partial || '').length,
+      preview: redactTranscript(update.transcript.final || update.transcript.partial),
+    });
 
     if (this.fsm.is('TERMINATED') || this.fsm.is('CLEANING_UP') || this.isTerminated) {
       logger.debug('[TranscriptionService] 🛡️ Guard: Dropping transcript update because service is terminated');
@@ -1578,23 +1689,28 @@ export default class TranscriptionService {
       store.updateTranscript(store.transcript.transcript, transcript.partial);
     }
 
-    // Only forward if there's actually something left after sanitization
-    if (transcript.final || transcript.partial) {
-
-      if (transcript.final) {
-        this.currentTranscript = transcript.final;
-        this.partialTranscript = '';
-      } else if (transcript.partial) {
-        this.partialTranscript = transcript.partial;
-      }
-
+    if (transcript.final) {
+      // Whole-utterance replacement finals (Private post-Stop) replace the rolling transcript;
+      // incremental finals (rolling/Native/Cloud) keep merging. See applyFinalTranscriptUpdate.
+      this.currentTranscript = applyFinalTranscriptUpdate(
+        this.currentTranscript,
+        transcript.final,
+        transcript.replacesRollingTranscript,
+      );
+      this.partialTranscript = '';
       this.options.onTranscriptUpdate?.({
-        transcript: {
-          final: this.currentTranscript,
-          partial: this.partialTranscript
-        }
+        transcript: { final: this.currentTranscript }
       });
-    } else {
+    }
+
+    if (transcript.partial) {
+      this.partialTranscript = transcript.partial;
+      this.options.onTranscriptUpdate?.({
+        transcript: { partial: this.partialTranscript }
+      });
+    }
+
+    if (!transcript.final && !transcript.partial) {
       logger.warn('[TranscriptionService] Transcript EMPTY after sanitization; dropping.');
     }
   }
@@ -1605,6 +1721,15 @@ export default class TranscriptionService {
    */
   private processModelLoadProgress(progress: number | null): void {
     const percent = progress !== null ? Math.max(0, Math.min(100, Math.round(progress > 0 && progress <= 1 ? progress * 100 : progress))) : null;
+    // MAXDEPTH FIX (Part 3, root cause from the trace): the worker emits ~hundreds of
+    // progress events during base.en download but only ~100 DISTINCT integer percents.
+    // Without this guard every event wrote modelLoadingProgress (directly, bypassing the
+    // controller coalescing) AND a NEW sttStatus object — flooding the store (~423 + ~429
+    // mutations measured) and driving the React render storm / "Maximum update depth".
+    // Emit only when the integer percent actually changes (null transitions always pass),
+    // capping both fields to <=101 writes and eliminating duplicate-percent churn.
+    if (percent === this.lastProcessedPercent) return;
+    this.lastProcessedPercent = percent;
     this.options.onModelLoadProgress(percent);
     this.modelLoadingProgress = percent; // Keep internal state in sync
     const state = (useSessionStore as unknown as {
@@ -1629,7 +1754,7 @@ export default class TranscriptionService {
         } else {
           if (!this.privateDownloadAlternativeToastShown && percent > 0) {
             this.privateDownloadAlternativeToastShown = true;
-            toast.info('Private is setting up in the background. You can choose Browser, or Cloud if included in your plan, while it downloads.', {
+            toast.info('Private transcription is setting up in this browser. Keep this tab open; your audio stays on your machine.', {
               id: 'private-model-alternative-stt',
               duration: 5000,
             });
@@ -1637,7 +1762,7 @@ export default class TranscriptionService {
           state.setSTTStatus({
             type: 'downloading',
             message: `Downloading private model... ${percent}%`,
-            detail: 'Keep this tab open until the model is cached.',
+            detail: 'Keep this tab open until the local model is cached. Your audio stays on your machine.',
             progress: percent
           });
         }
@@ -1724,8 +1849,8 @@ export default class TranscriptionService {
       }; break;
       case 'INIT_FAILED': status = {
         type: 'init-failed',
-        message: 'Private setup failed. Retry setup.',
-        detail: this.lastError?.message || 'The local model could not finish initializing.'
+        message: 'Private transcription could not finish setup.',
+        detail: 'Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.'
       }; break;
       case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Recording could not start. Check microphone permission and try again.' }; break;
       case 'STOPPING':

@@ -12,13 +12,15 @@ import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
-import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isActiveTrialProfile, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -33,7 +35,7 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
     }
 
     if (mode === 'private') {
-        return 'Private transcription could not start. Try again, or switch to Native for this session.';
+        return 'Private transcription could not finish setup. Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.';
     }
 
     if (mode === 'cloud') {
@@ -60,11 +62,11 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
-    const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
-    const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isProUser;
-    const canUseCloudStt = (isProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
-    const shouldForceNativeMode = !canUsePrivateStt;
+    const privateSampleRemainingSeconds = Math.max(0, usageLimit?.private_sample_seconds_remaining ?? 0);
+    const hasPrivateSampleEntitlement = usageLimit?.private_sample_available === true && privateSampleRemainingSeconds > 0;
+    const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
+    const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
+    const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
     const sttStatus = useSessionStore(state => state.sttStatus);
@@ -73,12 +75,19 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    const defaultMode: TranscriptionMode = shouldForceNativeMode ? 'native' : 'private';
+    // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
+    // on the instant Browser/Native path so a new user never hits the Private model-
+    // setup wall before their first transcript. Private stays available as an explicit
+    // user-selected mode. No mode persistence in this release — every new session
+    // defaults to Native; a Pro user opts into Private per session.
+    const defaultMode: TranscriptionMode = 'native';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
         return document.documentElement.getAttribute('data-model-status') || 'idle';
     });
+    const isPrivateStartBlockedByModelState = effectiveMode === 'private'
+        && ['download-required', 'loading', 'init-failed', 'error'].includes(privateModelStatus);
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
@@ -106,11 +115,11 @@ export const useSessionLifecycle = () => {
 
     const isListening = useSessionStore(state => state.isListening);
     const history = useSessionStore(state => state.history);
-    const shouldPromoteNativeDefaultToPrivate = profileReadyForStt
-        && !isListening
-        && !shouldForceNativeMode
-        && sttMode === 'native'
-        && modeSourceRef.current === null;
+    // First-use trust fix (Option A): do NOT auto-promote a fresh Native default to
+    // Private. Private is now an explicit user choice, so a new user is never pushed
+    // into the model-setup wall before their first transcript. Kept as a named flag
+    // so the dependent effects and their dependency arrays are otherwise unchanged.
+    const shouldPromoteNativeDefaultToPrivate = false;
 
     const speechRecognition = useSpeechRecognition(speechConfig);
     const {
@@ -139,10 +148,14 @@ export const useSessionLifecycle = () => {
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
-        if (isProcessingRef.current && !isListening) return;
+        const latestSessionState = useSessionStore.getState();
+        const latestRuntimeState = latestSessionState.runtimeState;
+        const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
+
+        if (isProcessingRef.current && !shouldStop) return;
         isProcessingRef.current = true;
 
-        if (isListening) {
+        if (shouldStop) {
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
@@ -169,6 +182,17 @@ export const useSessionLifecycle = () => {
                 }
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
+                analyticsBuffer.push('session_saved', {
+                    mode: effectiveMode,
+                    duration_seconds: elapsedTime,
+                    word_count: metrics.wordCount,
+                    wpm: metrics.wpm,
+                    filler_count: metrics.fillerCount,
+                    clarity_score: Math.round(metrics.clarityScore),
+                    is_new_streak_day: streakResult.isNewDay,
+                    streak_count: streakResult.currentStreak,
+                    ...getSessionCoachingExperimentProperties(),
+                }, 'HIGH');
 
                 if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
@@ -181,6 +205,12 @@ export const useSessionLifecycle = () => {
 
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
                 void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+                // Single-session detail cache: useSession(sessionId) keys on ['session', id]
+                // with a 5-min staleTime and is read by the analytics detail view. Without
+                // this invalidation it keeps serving the record-start placeholder transcript
+                // (' '), so the detail transcript renders empty even though complete_session
+                // wrote the real transcript. Mode-agnostic (affects Native + Private).
+                void queryClient.invalidateQueries({ queryKey: ['session'] });
                 void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
                 setShowAnalyticsPrompt(true);
 
@@ -233,7 +263,8 @@ export const useSessionLifecycle = () => {
                     }
                 }
 
-                if (runtimeState === 'ENGINE_INITIALIZING' || runtimeState === 'INITIATING') {
+                const currentRuntimeState = useSessionStore.getState().runtimeState;
+                if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
                     await speechRuntimeController.whenStable();
                 }
 
@@ -242,7 +273,12 @@ export const useSessionLifecycle = () => {
                 const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode, { allowCloud: canUseCloudStt });
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
-                posthog.capture('session_started', { mode: latestMode });
+                posthog.capture('session_started', {
+                    mode: latestMode,
+                    requested_mode: requestedMode,
+                    user_tier: effectiveSubscriptionStatus,
+                    ...getSessionCoachingExperimentProperties(),
+                });
             } catch (error) {
                 const err = error as Error;
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -269,6 +305,7 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     error_name: err?.name || 'Error',
                     error_message: err?.message || 'Unknown',
+                    ...getSessionCoachingExperimentProperties(),
                 });
                 try {
                     await speechRuntimeController.reset('start_failed');
@@ -280,7 +317,27 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUsePrivateStt, canUseCloudStt, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState, effectiveSubscriptionStatus]);
+    }, [
+        isListening,
+        elapsedTime,
+        updateStreak,
+        queryClient,
+        isProUser,
+        canUsePrivateStt,
+        canUseCloudStt,
+        usageLimit,
+        defaultMode,
+        effectiveMode,
+        isLockHeldByOther,
+        setSTTStatus,
+        userFillerWords,
+        runtimeState,
+        effectiveSubscriptionStatus,
+        metrics.clarityScore,
+        metrics.fillerCount,
+        metrics.wordCount,
+        metrics.wpm,
+    ]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
@@ -318,11 +375,19 @@ export const useSessionLifecycle = () => {
     }, []);
 
 
-    // Tier enforcement: Auto-stop and 5-minute warning for any tier with a finite daily cap.
+    // Tier enforcement: auto-stop paid practice limits and the one-session
+    // unpaid Private sample. The sample has its own countdown/copy so users do
+    // not confuse it with the free Browser path.
     useEffect(() => {
         if (!isVerified || !usageLimit) return;
 
-        const sourceRemaining = isProUser && typeof usageLimit.daily_remaining === 'number'
+        const isPrivateSampleRecording = effectiveMode === 'private'
+            && !isProUser
+            && usageLimit.private_sample_available === true
+            && typeof usageLimit.private_sample_seconds_remaining === 'number';
+        const sourceRemaining = isPrivateSampleRecording
+            ? usageLimit.private_sample_seconds_remaining
+            : isProUser && typeof usageLimit.daily_remaining === 'number'
             ? usageLimit.daily_remaining
             : usageLimit.remaining_seconds;
 
@@ -330,17 +395,20 @@ export const useSessionLifecycle = () => {
 
         if (isListening && typeof sourceRemaining === 'number' && sourceRemaining > 0) {
             const remaining = sourceRemaining - elapsedTime;
+            const warningThresholdSeconds = isPrivateSampleRecording ? 60 : 300;
 
-            // 5-minute warning (300 seconds)
-            if (remaining > 0 && remaining <= 300) {
+            if (remaining > 0 && remaining <= warningThresholdSeconds) {
                 const minutes = Math.ceil(remaining / 60);
-                const tierLabel = isProUser ? 'Pro ' : '';
-                const warningMsg = `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${tierLabel}practice limit.`;
+                const warningMsg = isPrivateSampleRecording
+                    ? '1 minute left in your Private sample. We’ll stop and save when time runs out.'
+                    : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
                     posthog.capture('session_limit_warning', {
                         remaining_seconds: remaining,
                         tier: isProUser ? 'pro' : 'free',
+                        limit_type: isPrivateSampleRecording ? 'private_sample' : 'daily',
+                        ...getSessionCoachingExperimentProperties(),
                     });
                 }
             } else if (remaining <= 0) {
@@ -349,17 +417,21 @@ export const useSessionLifecycle = () => {
 
                 logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
 
-                const isMonthly = usageLimit.monthly_remaining <= 0;
-                setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
+                if (!isPrivateSampleRecording) {
+                    const isMonthly = usageLimit.monthly_remaining <= 0;
+                    setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
+                }
 
                 void handleStartStopRef.current?.({
-                    stopReason: isProUser
+                    stopReason: isPrivateSampleRecording
+                        ? 'Your Private sample ended. We stopped and saved your session. Browser transcription is still available.'
+                        : isProUser
                         ? "⛔ Pro daily practice limit reached."
                         : "⛔ Daily usage limit reached."
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
+    }, [elapsedTime, effectiveMode, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);
@@ -506,7 +578,7 @@ export const useSessionLifecycle = () => {
         canUseCloudStt,
         activeEngine,
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState)
-            || (effectiveMode === 'private' && privateModelStatus !== 'ready'),
+            || isPrivateStartBlockedByModelState,
         usageLimit,
         history,
         profileLoading: false,

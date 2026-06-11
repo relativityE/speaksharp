@@ -20,17 +20,24 @@ import { MicStream } from '@/services/transcription/utils/types';
 
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
+import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
+import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type UnknownRecord = Record<string, unknown>;
+type WhisperDecodeOptions = Record<string, unknown>;
+type WorkerRequest =
+    | { type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
+    | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
+    | { type: 'destroy' };
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string }
+    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device?: string; threads?: number; crossOriginIsolated?: boolean }
     | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
@@ -41,11 +48,54 @@ type PendingWorkerRequest = {
     timeoutId: ReturnType<typeof setTimeout>;
 };
 
+interface TranscriptionResult {
+    text?: string;
+    transcript?: string;
+}
+
+declare global {
+    interface Window {
+        /**
+         * Test/release proof hook only. Lets browser proofs A/B supported Whisper
+         * generation options without changing product defaults. Ignored unless set.
+         */
+        __PRIVATE_STT_DECODE_OPTIONS__?: UnknownRecord;
+    }
+}
+
 const isPrivateTranscriptTraceEnabled = () =>
     typeof window !== 'undefined' &&
     Boolean((window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__);
 
-export const TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS = 60_000;
+export const TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS = 120_000;
+
+const ALLOWED_DECODE_OPTIONS = new Set([
+    'return_timestamps',
+    'condition_on_previous_text',
+    'compression_ratio_threshold',
+    'logprob_threshold',
+    'no_speech_threshold',
+    'no_repeat_ngram_size',
+    'temperature',
+]);
+
+function readPrivateDecodeOptionsOverride(): WhisperDecodeOptions | undefined {
+    if (typeof window === 'undefined') return undefined;
+    const source = window.__PRIVATE_STT_DECODE_OPTIONS__;
+    if (!source || typeof source !== 'object') return undefined;
+
+    const out: WhisperDecodeOptions = {};
+    for (const [key, value] of Object.entries(source)) {
+        if (!ALLOWED_DECODE_OPTIONS.has(key)) continue;
+        if (typeof value === 'boolean' || typeof value === 'number') {
+            out[key] = value;
+        } else if (Array.isArray(value) && value.every((item) => typeof item === 'number')) {
+            out[key] = value;
+        }
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function summarizeRawResult(result: unknown): UnknownRecord {
     if (typeof result === 'string') {
@@ -53,7 +103,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
             kind: 'string',
             length: result.length,
             trimLength: result.trim().length,
-            preview: result.slice(0, 120),
+            preview: redactTranscript(result),
         };
     }
 
@@ -76,7 +126,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
                 type: 'string',
                 length: value.length,
                 trimLength: value.trim().length,
-                preview: value.slice(0, 120),
+                preview: redactTranscript(value),
             };
         } else if (Array.isArray(value)) {
             summary[key] = { type: 'array', length: value.length };
@@ -94,6 +144,19 @@ export class TransformersJSEngine extends STTEngine {
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
+
+    private async warmUpTranscriber(): Promise<void> {
+        if (!this.transcriber || ENV.isTest || ENV.isE2E) return;
+
+        const warmupAudio = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+        const options: Record<string, unknown> = {
+            chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+            stride_length_s: 0,
+            return_timestamps: false,
+        };
+
+        await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options);
+    }
 
     constructor(options?: TranscriptionModeOptions) {
         super(options);
@@ -153,8 +216,10 @@ export class TransformersJSEngine extends STTEngine {
             env.allowLocalModels = true;
             env.localModelPath = '/models/';
 
-            // Prefer bundled assets, but allow a production Hugging Face fallback if the
-            // local model bundle is missing or corrupt.
+            // STRICT NO-HF (release policy): Private STT is self-hosted. Load ONLY from the bundled
+            // local assets and never reach out to Hugging Face. allowRemoteModels stays false for the
+            // engine's whole lifetime (matches transformers-js.worker.ts), so a missing/misnamed local
+            // model fails closed with a clear error instead of silently fetching from huggingface.co.
             env.allowRemoteModels = false;
 
             // Browser cache is only available in a real browser, not Happy-DOM/Node
@@ -183,11 +248,15 @@ export class TransformersJSEngine extends STTEngine {
                 }
             };
 
+            // Selected-model-aware: honor the resolved Private model's LOCAL asset dir (base.en default /
+            // tiny.en fallback), not a hardcoded model — mirrors the worker path.
+            const selectedModel = resolvePrivateModel();
+            const localModelId = PRIV_STT_MODELS.CANDIDATES[selectedModel].localId;
             const loadStart = performance.now();
             try {
                 this.transcriber = await pipeline(
                     'automatic-speech-recognition',
-                    'whisper-tiny.en', // Use the local directory name in public/models/
+                    localModelId, // local directory name in public/models/ — local-only (allowRemoteModels=false)
                     {
                         // Use quantized model for faster loading
                         quantized: true,
@@ -195,27 +264,21 @@ export class TransformersJSEngine extends STTEngine {
                     }
                 );
             } catch (localError) {
-                if (ENV.isE2E) {
-                    throw localError;
-                }
-
-                logger.warn({
+                // STRICT NO-HF: do NOT fall back to Hugging Face. Keep allowRemoteModels=false and fail
+                // loudly with a clear, actionable local-model-unavailable error, so the no-HF/self-host
+                // guarantee holds even when the worker path is unavailable (this main-thread fallback).
+                logger.error({
                     sId: this.serviceId,
                     rId: this.runId,
                     eId: this.instanceId,
+                    model: localModelId,
                     errorName: localError instanceof Error ? localError.name : typeof localError,
                     errorMessage: localError instanceof Error ? localError.message : String(localError),
-                }, '[TransformersJS] Local model load failed. Retrying from Hugging Face.');
-
-                env.allowRemoteModels = true;
-                this.transcriber = await pipeline(
-                    'automatic-speech-recognition',
-                    'Xenova/whisper-tiny.en',
-                    {
-                        quantized: true,
-                        revision: 'main',
-                        progress_callback
-                    }
+                }, '[TransformersJS] Local model load failed; NOT falling back to Hugging Face (strict no-HF).');
+                throw new Error(
+                    `PRIVATE_LOCAL_MODEL_UNAVAILABLE: could not load local Private model "${localModelId}" from ` +
+                    `${env.localModelPath}. Private STT is self-hosted and does not fetch from Hugging Face. ` +
+                    `Original: ${localError instanceof Error ? localError.message : String(localError)}`,
                 );
             }
 
@@ -225,10 +288,21 @@ export class TransformersJSEngine extends STTEngine {
                 rId: this.runId,
                 eId: this.instanceId,
                 event: 'model_loaded',
-                model: 'whisper-tiny.en',
+                model: localModelId,
                 load_time_ms: Math.round(loadTime),
                 engine: 'transformersjs',
             }, '[TransformersJS] Engine initialized successfully.');
+
+            const warmupStart = performance.now();
+            await this.warmUpTranscriber();
+            logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                event: 'warmup_complete',
+                latency_ms: Math.round(performance.now() - warmupStart),
+                engine: 'transformersjs',
+            }, '[TransformersJS] Engine warm-up complete.');
 
             if (options.onModelLoadProgress) {
                 options.onModelLoadProgress(100);
@@ -328,8 +402,9 @@ export class TransformersJSEngine extends STTEngine {
         try {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
+                const decodeOptions = readPrivateDecodeOptionsOverride();
                 const response = await this.sendWorkerRequest(
-                    { type: 'transcribe', audio: workerAudio },
+                    { type: 'transcribe', audio: workerAudio, decodeOptions },
                     [workerAudio.buffer],
                 );
                 if (response.type !== 'result') {
@@ -359,7 +434,7 @@ export class TransformersJSEngine extends STTEngine {
                         raw_result: {
                             kind: 'worker-result',
                             resultShape: response.resultShape,
-                            preview: response.transcript.slice(0, 120),
+                            preview: redactTranscript(response.transcript),
                         },
                     }, '[PRIVATE_DIAG] transformers_worker_result_shape');
                 }
@@ -370,18 +445,15 @@ export class TransformersJSEngine extends STTEngine {
             }
 
             const start = performance.now();
-            interface TranscriptionResult {
-                text?: string;
-                transcript?: string;
-            }
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
             const modelName = 'whisper-tiny.en';
             const isEnglishOnly = modelName.endsWith('.en');
             const options: Record<string, unknown> = {
                 chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
                 stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-                return_timestamps: false,
+                return_timestamps: true,
             };
+            Object.assign(options, readPrivateDecodeOptionsOverride());
             if (!isEnglishOnly) {
                 options.task = 'transcribe';
                 options.language = 'english';
@@ -442,6 +514,10 @@ export class TransformersJSEngine extends STTEngine {
 
     private async initWorker(isMock?: boolean): Promise<void> {
         const options = (this.options || {}) as TranscriptionModeOptions;
+        // STT-P6-HUMAN: reject an explicitly-requested-but-unsupported `?privateModel=` flag here,
+        // before any worker/model load, instead of silently running tiny (which made invalid model
+        // requests look honored). No flag or a valid candidate → no-op (default path unchanged).
+        assertValidPrivateModelSelection();
         this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
@@ -459,7 +535,24 @@ export class TransformersJSEngine extends STTEngine {
                     model: response.model,
                     load_time_ms: response.loadTimeMs,
                     engine: 'transformersjs-worker',
+                    device: response.device,
+                    threads: response.threads,
+                    crossOriginIsolated: response.crossOriginIsolated,
                 }, '[TransformersJS] Worker engine initialized successfully.');
+                // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
+                const loadedModelKey = resolvePrivateModel();
+                publishPrivateModelTelemetry({
+                    model: loadedModelKey,
+                    runtime: 'transformers-js',
+                    approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
+                    overridden: isPrivateModelOverridden(),
+                    selectionSource: resolvePrivateModelSource(),
+                    loadTimeMs: response.loadTimeMs,
+                    // Default tiny is bundled (local→remote fallback); candidates are remote-only.
+                    fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+                    // Privacy invariant: Private STT never routes to Cloud.
+                    cloudFallbackAttempted: false,
+                });
                 return;
             }
 
@@ -483,14 +576,32 @@ export class TransformersJSEngine extends STTEngine {
             this.pendingWorkerRequests.clear();
         };
 
-        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock) });
+        // Model-eval flag (OFF by default => production whisper-tiny.en, byte-identical).
+        // A flag-selected candidate is resolved on the main thread and passed to the worker.
+        const selectedModel = resolvePrivateModel();
+        const modelCfg = PRIV_STT_MODELS.CANDIDATES[selectedModel];
+        publishPrivateModelTelemetry({
+            model: selectedModel,
+            runtime: 'transformers-js',
+            approxMB: modelCfg.approxMB,
+            overridden: isPrivateModelOverridden(),
+            selectionSource: resolvePrivateModelSource(),
+            loadTimeMs: null,
+            fallbackPath: selectedModel === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+            cloudFallbackAttempted: false,
+        });
+        const response = await this.sendWorkerRequest({
+            type: 'init',
+            isE2E: Boolean(isMock),
+            model: { key: selectedModel, localId: modelCfg.localId, remoteId: modelCfg.remoteId },
+        });
         if (response.type !== 'ready') {
             throw new Error(`Unexpected TransformersJS worker init response: ${response.type}`);
         }
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
+        request: WorkerRequest,
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {

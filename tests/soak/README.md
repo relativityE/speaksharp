@@ -1,7 +1,7 @@
-# SpeakSharp Soak & Load Testing Architecture
+# SpeakSharp Stress & Endurance Testing Architecture
 
 ## Overview
-This directory contains the infrastructure for stress testing the SpeakSharp application. We use a **Tiered Testing Strategy** to isolate backend performance from browser overhead.
+This directory contains the infrastructure for backend stress and browser endurance evidence. The directory name is historical; the active workflow is `.github/workflows/stress-endurance.yml`.
 
 ## Architecture
 
@@ -14,18 +14,18 @@ Traditional end-to-end (E2E) testing with Playwright involves spinning up a full
 ### The Solution: Tiered Verification (Path B)
 We split the testing into two distinct layers:
 
-#### Tier 1: API Stress (The "Load" Test)
-- **Tool**: Native Node.js (`test:soak:api:cloud`) using `fetch`.
-- **Concurrency**: 10 - 100+ Users.
-- **Purpose**: Hits Supabase Auth, Database, and API endpoints directly.
+#### Tier 1: API Stress
+- **Tool**: Native Node.js (`test:stress:backend`) using Supabase client calls.
+- **Concurrency**: The provisioned soak registry (`soak-test0..4` Free plus `soak-test25..34` Pro by default).
+- **Purpose**: Hits Supabase Auth, the `check-usage-limit` Edge Function, and the current `create_session_and_update_usage` RPC directly.
 - **Resource Cost**: <5MB per user.
-- **Verifies**: Backend throughput, database locking, API latency.
+- **Verifies**: Auth availability, RLS-visible Edge behavior, current session-save RPC compatibility, database locking, and API latency.
 
-#### Tier 2: UI Smoke (The "Integration" Test)
-- **Tool**: Playwright (`test:soak`).
-- **Concurrency**: 3 Users.
-- **Purpose**: Verifies that the Frontend React app correctly integrates with the backend.
-- **Verifies**: Client-side hydration, WebSocket connections, UI rendering.
+#### Tier 2: Browser Endurance
+- **Tool**: Playwright (`test:endurance:browser`).
+- **Concurrency**: 2 isolated browser contexts by default.
+- **Purpose**: Verifies that the Frontend React app can run an extended Browser/Native STT session without leaking state or memory.
+- **Verifies**: Client-side hydration, authenticated routing, Native-mode selection, recording controls, sustained Native recording state, analytics navigation, and browser stability.
 
 ---
 
@@ -33,9 +33,9 @@ We split the testing into two distinct layers:
 
 | File | Purpose |
 |------|---------|
-| **`api-load-test.ts`** | **The Core Load Test**. A lightweight Node.js script that orchestrates N concurrent users. It performs the full user journey (Auth -> Create Session -> Patch Transcript) using raw HTTP requests, bypassing the browser. |
-| **`soak-test.spec.ts`** | **The UI Smoke Test**. A Playwright test suite limited to 3 users. It verifies that the "Golden Path" (Login -> Record -> Analyze) works in a real browser. |
-| **`verify-users.ts`** | **Pre-flight Check**. A 10-second script/tool to verify that all 10 test users (`soak-test0`..`soak-test9`) can authenticate with the configured password. |
+| **`backend-api-stress-test.ts`** | **The Core Load Test**. A lightweight Node.js script that orchestrates the provisioned soak users. It performs the current backend path (Auth -> check usage -> create session via current RPC) using unprivileged Supabase anon credentials. |
+| **`soak-test.spec.ts`** | **The Stress/Endurance Coordinator**. A Playwright coordinator that runs backend stress first, then verifies the Native browser recording path in isolated browsers. |
+| **`verify-users.ts`** | **Pre-flight Check**. A 10-second script/tool to verify that all provisioned soak users can authenticate with the configured password. |
 | **`verify-soak-users.sh`** | **Shell Alternative**. A bash version of the verification script, useful for CI environments without a Node runtime setup. |
 | **`metrics-collector.ts`** | **Shared Logic**. Collects performance metrics (latency, success rates) and generates the console summary report. |
 
@@ -43,7 +43,7 @@ We split the testing into two distinct layers:
 
 ## 🚀 Usage Guide & Security Mapping (Crucial Design)
 
-Both phases of the Soak Test are strictly using **Frontend Credentials** (the `SUPABASE_ANON_KEY`), and that is a deliberate and crucial security design!
+Both phases of the stress/endurance checks use **Frontend Credentials** (the `SUPABASE_ANON_KEY`), and that is a deliberate and crucial security design.
 
 Here is exactly how the credentials map:
 
@@ -53,22 +53,23 @@ Even though it's a backend Node script hammering the database, it initializes it
 *   **Why?** If we used the `SUPABASE_SERVICE_ROLE_KEY` (the true backend admin key), Supabase would entirely bypass our Row Level Security (RLS) policies and rate limits. The test would succeed, but it would be a "fake" success because it wouldn't be subject to the real throttling that regular users face.
 *   By using the `ANON_KEY`, the 30 headless simulated users look exactly like 30 real web browsers to Supabase's Edge network, ensuring we actually test the rate limits protecting the Free tier.
 
-### 2. The UI Memory Check (Playwright)
-This phase boots up actual Chromium browsers. In `soak-test.yml`, we inject `SOAK_TEST_PASSWORD`.
+### 2. The Browser Endurance Check (Playwright)
+This phase boots up actual Chromium browsers. In `stress-endurance.yml`, we inject `SOAK_TEST_PASSWORD`.
 
 *   **Why?** Playwright automatically navigates to `speaksharp.app`, types in `soak-test0@test.com` and your `SOAK_TEST_PASSWORD` into the standard login form, and clicks "Sign In". It runs exactly as a real human user would, purely through the frontend React interface.
 
-**In Summary:** The entire soak test suite operates from the perspective of an external, untrusted web client. We never use admin privileges to bypass the tests!
+**In Summary:** The stress/endurance suite operates from the perspective of an external, untrusted web client. We never use admin privileges to bypass the tests.
 
 ---
 
 ### Database Provisioning & Accounts
 
-There are exactly 36 existing soak test accounts in the remote Supabase database (`soak-test0@test.com` through `soak-test34@test.com`, plus one `soak-test-0@example.com`).
+The stress/endurance registry uses a bounded set of remote Supabase accounts. API stress users and browser endurance users are intentionally separated so one evidence phase cannot consume another phase's active-session quota.
 
 To avoid unnecessary account creation and churn during testing, we explicitly map the users as follows in `tests/constants.ts` and `scripts/setup-test-users.mjs`:
 - **Free Users (5 total):** `soak-test0` through `soak-test4`
 - **Pro Users (10 total):** `soak-test25` through `soak-test34`
+- **Browser Endurance Users (2 total):** `soak-test45` and `soak-test46`
 
 If you change the counts in `constants.ts`, ensure you update `scripts/setup-test-users.mjs` to map to sequential, existing indices to avoid hitting Supabase anti-bot rate limits during account creation.
 
@@ -76,10 +77,9 @@ If you change the counts in `constants.ts`, ensure you update `scripts/setup-tes
 
 ### Execution Constraints & CI
 
-To protect developer machines and live databases from accidental load spikes, **the Soak Test can only run from the GitHub Cloud Server**.
+To protect developer machines and live databases from accidental load spikes, scheduled stress/endurance evidence should come from GitHub Actions. Local runs are useful for debugging only when explicitly configured with a short duration and live test credentials.
 
-- A hard environmental guard (`test.skip(!process.env.CI)`) is implemented in `soak-test.spec.ts`. If executed locally, the test suite will instantly abort.
-- It relies entirely on GitHub Actions injecting `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SOAK_TEST_PASSWORD` secrets at runtime to conduct the tests.
+- It relies on GitHub Actions injecting `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SOAK_TEST_PASSWORD` secrets at runtime to conduct the tests.
 
 **Step B: Provision Users**
 If verification fails, run the setup script. Ensure your `.env.development` has the Service Role Key.
@@ -89,14 +89,14 @@ pnpm tsx scripts/setup-test-users.mjs
 
 ### 3. Run the Tests
 
-**Run Tier 1: Backend Stress (10 Users/5 Min)**
+**Run Tier 1: Backend Stress**
 ```bash
-pnpm test:soak:api
+pnpm test:stress:backend
 ```
 
-**Run Tier 2: Frontend Integration (3 Users/5 Min)**
+**Run Tier 2: Browser Endurance**
 ```bash
-pnpm test:soak
+pnpm test:endurance:browser
 ```
 
 ---
@@ -108,7 +108,7 @@ pnpm test:soak
 - **Request Failure Rate**: 0%
 - **Throughput**: Sustained ~5 ops/sec per user
 
-### UI Smoke (Frontend)
+### Browser Endurance (Frontend)
 - **Stability**: 100% Pass Rate
 - **Hydration**: Elements appear < 15s
 - **Memory**: Browser context < 200MB growth

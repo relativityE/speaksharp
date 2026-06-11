@@ -12,11 +12,18 @@ describe('soft release tester instructions', () => {
         expect(instructions).not.toMatch(/promo\s*code|promo-code|redeem/i);
     });
 
-    it('keeps Cloud STT out of the trial-account tester task list', () => {
+    it('keeps Cloud STT out of the free-account sample tester task list', () => {
         const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
 
-        expect(instructions).toMatch(/Cloud STT is available with Pro\. Trial access includes Private STT/i);
+        expect(instructions).toMatch(/Cloud STT is a paid Early Access feature/i);
         expect(instructions).not.toMatch(/optionally try cloud/i);
+    });
+
+    it('matches the current database-backed Private sample duration', () => {
+        const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
+
+        expect(instructions).toMatch(/one short Private transcription sample/i);
+        expect(instructions).not.toMatch(/1 hour of trial access|24 hours of trial access|24-hour Pro trial|60-minute Pro trial/i);
     });
 
     it('sets Private first-text expectations before testers record', () => {
@@ -29,7 +36,7 @@ describe('soft release tester instructions', () => {
     it('explicitly covers the current human tester protocol', () => {
         const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
 
-        expect(instructions).toMatch(/Download Private Model/i);
+        expect(instructions).toMatch(/Set Up|Download Private Model/i);
         expect(instructions).toMatch(/Export a PDF/i);
         expect(instructions).toMatch(/Custom Words/i);
         expect(instructions).toMatch(/saved analytics\/session detail/i);
@@ -52,7 +59,7 @@ describe('release candidate gate evidence contract', () => {
     it('folds the STT binary gates into their parent RC gates with named artifacts', () => {
         const readiness = readReleaseDoc('RELEASE_STATUS.md');
 
-        expect(readiness).toMatch(/G6 Fresh Trial Private STT Transcript\/Save\/History Path/i);
+        expect(readiness).toMatch(/Private sample recording/i);
         expect(readiness).toMatch(/SESSION_LIFECYCLE_WARMUP/i);
         expect(readiness).toMatch(/speaksharp-private-human-\[timestamp\]\.json/i);
         expect(readiness).toMatch(/onspeechstart -> first onresult/i);

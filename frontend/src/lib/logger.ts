@@ -2,13 +2,24 @@
 // Note: Vite automatically resolves this to pino/browser.js via the 'browser' field in pino/package.json
 import pino from 'pino';
 import { LoggerOptions } from 'pino';
+import { resolveLoggerLevel } from './loggerConfig';
 
-const options: LoggerOptions = {
-  level: 'info'
+const readViteEnv = (key: string): string | undefined => {
+  return (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.[key];
 };
 
-// Safely determine mode regardless of whether we are in Vite or Node context (e.g. Playwright tests)
-const mode = (typeof process !== 'undefined' && process.env?.NODE_ENV) || 'development';
+const mode =
+  readViteEnv('MODE') ||
+  (typeof process !== 'undefined' && process.env?.NODE_ENV) ||
+  'production';
+const explicitLevel =
+  readViteEnv('VITE_LOG_LEVEL') ||
+  (typeof process !== 'undefined' && process.env?.LOG_LEVEL) ||
+  null;
+
+const options: LoggerOptions = {
+  level: resolveLoggerLevel({ explicitLevel, mode }),
+};
 
 if (mode === 'development') {
   // Only use pino-pretty if we are running in Vite (browser via import.meta.env).
@@ -23,8 +34,6 @@ if (mode === 'development') {
       },
     };
   }
-} else if (mode === 'test') {
-  options.level = (typeof process !== 'undefined' && process.env?.LOG_LEVEL) || 'warn';
 }
 
 const logger = pino(options);

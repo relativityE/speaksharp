@@ -116,7 +116,7 @@ Every RC-counted test must identify the independent source of truth it enforces.
 | State machine | Browser/STT/session lifecycle | `onend` while listening restarts once after debounce |
 | Message protocol | Workers, engines, Edge Functions | `transcribe` request returns `result` or `error`, never silence |
 | Security/product rule | Tiering, quota, auth, CORS, Stripe | Free Cloud token returns 403 and provider is not called |
-| Human journey | UX smoke and live tester paths | Fresh trial user can record, review analytics, save, and reopen history |
+| Human journey | UX smoke and live tester paths | Fresh Browser-first user can intentionally try the Private sample, record, review analytics, save, and reopen history |
 
 Existing tests whose expected values were copied from the current implementation are **suspect**. They can remain in the suite, but they should not be promoted to RC-counted evidence until reviewed against one of the contract sources above.
 
@@ -136,10 +136,10 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/e2e/goal-setting.e2e.spec.ts` | Gate 5 | Human journey | Goal-setting UX remains usable; advisory unless current release scope includes goals. |
 | `tests/e2e/analytics-suite.e2e.spec.ts` | Gate 1 | Product truth / math | Analytics page aggregates meaningful session data; secondary to `analytics-truth` when overlapping. |
 | `tests/e2e/infra.probe.e2e.spec.ts` | Gate 1 baseline | Message/probe contract | Built app boots with expected readiness markers; not product proof alone. |
-| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, expired trial, and over-quota are fail-closed. |
+| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, Private-sample, and over-quota users are fail-closed. |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Gate 1 / Gate 3 | Human journey / running app | Real Pro STT path creates transcript, save/history/detail, AI feedback, and PDF artifact. |
 | `tests/live/private-cache.live.spec.ts` | Gate 1 / Gate 3 | State machine / running app | Private model/cache path starts and remains usable across repeated starts. |
-| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh active-trial tester can reach Private STT path and produce release evidence. |
+| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh tester starts Browser-first, intentionally enters the bounded Private sample path, records, saves, and reopens history. |
 | `tests/live/user-filler-words-persistence.live.spec.ts` | Gate 1 / Gate 3 | Product rule / persistence | Custom filler words persist in the deployed app and are retrievable for the same user. |
 | `tests/live/stt-switching-contract.live.spec.ts` | Gate 3 | State machine / running app | Deployed STT mode switching follows entitlement and lifecycle rules. |
 | `tests/live/stripe-checkout-readiness.live.spec.ts` | Gate 3 | Running app / payment rule | Stripe checkout readiness works in test mode without production-charge assumptions. |
@@ -163,7 +163,7 @@ These unit/component files currently count toward RC because they enforce a prod
 | `backend/supabase/functions/stripe-webhook/index.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Stripe webhook happy path mutates state through the expected contract. |
 | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Duplicate/replayed webhook events are idempotent and safe. |
 | `backend/supabase/functions/get-ai-suggestions/index.test.ts` | Gate 2 | Security/product rule | AI suggestion function validates auth/input and returns structured errors. |
-| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Free, future Basic, active trial, expired trial, and Pro tier semantics match product access. |
+| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Free, future Basic, legacy trial timestamp, Private sample, and paid Pro tier semantics match product access. |
 | `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Gate 1 / Gate 2 | State machine / product rule | Session lifecycle enforces STT entitlement and mode availability rules. |
 | `frontend/src/config/__tests__/env.test.ts` | Gate 2 | Security/product rule | Test/E2E flags do not leak into production assumptions. |
 | `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` | Gate 1 / Gate 5 | State machine | Native Web Speech start/stop/restart/error/interim/final behavior follows the browser strategy contract. |
@@ -301,7 +301,7 @@ Not folded by default: visual polish tests unless the issue makes onboarding/cor
 | `pro-stt-artifact-matrix.yml` | Gate 1/Gate 3 Pro STT artifact path | Counted release-time evidence. |
 | `observability-api-smoke.yml` | Public launch observability/support evidence | Advisory for controlled tester release; counted for public launch readiness. |
 | `benchmarks.yml` | STT/model/provider performance ceiling | Advisory; counted only when changing engine/model/performance SLA. |
-| `soak-test.yml` | Durability/stability | Advisory unless stability is the current release risk. |
+| `stress-endurance.yml` | Durability/stability | Advisory unless stability is the current release risk. |
 | `setup-test-users.yml` | Test data utility | Utility, not a gate. |
 
 ## Tests Added Or Tightened In The Latest Release Push
@@ -330,7 +330,7 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | `pro-stt-artifact-matrix.yml` | Manual | Pro STT artifact path. | Yes, release-time or STT changes. |
 | `observability-api-smoke.yml` | Manual | Sentry/PostHog API readback. | Yes, release-time/advisory depending launch scope. |
 | `benchmarks.yml` | Schedule/manual | STT ceiling benchmarks. | Advisory, required only for engine/model changes. |
-| `soak-test.yml` | Schedule/manual | Durability/memory/API stress. | Advisory unless investigating stability. |
+| `stress-endurance.yml` | Schedule/manual | Backend stress/browser endurance. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test user provisioning. | Utility, not a correctness gate. |
 
 ## Script Inventory
@@ -342,7 +342,7 @@ Scripts are maintained only when they are invoked by package scripts, workflows,
 | Gate runners / CI orchestration | `test-audit.sh`, `run-ci.mjs`, `ci.config.js`, `aggregate-ci.mjs`, `aggregate-playwright.mjs`, `aggregate-vitest.mjs`, `merge-reports.mjs`, `report-ci-timing.mjs`, `run-metrics.sh`, `vitest-ci-reporter.mjs`, `playwright-telemetry-reporter.mjs`, `verify-artifacts.sh`, `verify-build.sh`, `verify-ci-stability.sh` | Maintained Gate 1 / CI evidence plumbing. |
 | Gate 2 security / production hardening | `rc-secret-scan.mjs`, `rc-production-hardening.mjs`, `verify-secret-digest.mjs`, `check-eslint-disable.sh`, `check-test-anti-spy.mjs`, `test-integrity-audit.mjs`, `validate-env.mjs`, `preflight.sh`, `pnpm-only.mjs`, `preinstall.sh` | Maintained Gate 2 / safety plumbing. |
 | Gate 3 / live environment utilities | `setup-test-users.mjs`, `provision-canary.mjs`, `trigger-canary.mjs`, `trigger-soak.mjs`, `live-observability-proof.mjs`, `stripe-price-audit.mjs` | Maintained live/deployed evidence utilities. |
-| Build / local serving utilities | `build.config.js`, `build.config.d.ts`, `serve-e2e.mjs`, `start-server.js`, `generate-lhci-config.js`, `parse-lighthouse.mjs`, `process-lighthouse-report.js`, `print-metrics.mjs`, `update-prd-metrics.mjs`, `validate-tailwind.mjs` | Maintained workflow/support utilities. |
+| Build / local serving utilities | `build.config.js`, `build.config.d.ts`, `serve-e2e.mjs`, `start-server.js`, `generate-lhci-config.js`, `parse-lighthouse.mjs`, `process-lighthouse-report.js`, `print-metrics.mjs`, `write-software-quality-evidence.mjs`, `update-prd-metrics.mjs` compatibility wrapper, `validate-tailwind.mjs` | Maintained workflow/support utilities. |
 | STT/model/audio benchmark utilities | `benchmark-assemblyai-ceiling.mts`, `benchmark-filler-ceiling.mts`, `benchmark-whisper-ceiling.mts`, `generate-filler-audio.sh`, `generate-fixtures.sh`, `generate-harvard-audio.mjs`, `download-whisper-model.sh`, `check-whisper-update.sh`, `manual-native-chrome-proof.mjs`, `tools/benchmark-highlighting.ts` | Advisory unless an STT model/provider/performance SLA changes; `manual-native-chrome-proof.mjs` produces Gate 1 evidence when run for RC. |
 | Developer recovery / impact tooling | `detect-impact-automation.mjs`, `detect-impacted-tests.mjs`, `ci/impact-validator.mjs`, `ci-telemetry-utils.mjs`, `dev-init.sh`, `env-stabilizer.sh`, `git-pull-fix.sh`, `vm-recovery.sh`, `tools/inspect-db.ts`, `tools/postinstall-check.ts` | Utility only. Destructive recovery scripts require explicit approval and never count as release evidence. |
 
@@ -393,7 +393,7 @@ Retired during RC cleanup because they were unreferenced, broken, obsolete, or s
 | `ModelManager.ts` had very low coverage. | Model availability/download/cache choices can break Private first-use. | Initial decision-table tests now cover no cache, empty cache, unrelated cache, partial Whisper cache, and complete model cache. Remaining gap: download/status/error event behavior. |
 | Native Browser still depends on real browser evidence. | Web Speech behavior cannot be fully mocked. | Keep unit tests for strategy/restart; require latest Chrome trace artifact for RC green. |
 | Analytics UI has some 0% component coverage. | Scoring math is covered better than user interpretation surfaces. | Prioritize tests around exact displayed guidance, not decorative charts. |
-| PRD/SQM metrics aggregation has known reporting caveats. | Raw Lighthouse/coverage artifacts are valid; generated PRD artifact may show stale/null Lighthouse. | Treat raw CI artifacts as source of truth until aggregator is fixed. |
+| Software quality metrics aggregation is advisory evidence. | Raw Lighthouse/coverage artifacts remain valid; generated quality evidence is uploaded separately and no longer rewrites the PRD. | Treat raw CI artifacts as source of truth when generated summaries disagree. |
 
 ## Redundancy / Waste Candidates
 

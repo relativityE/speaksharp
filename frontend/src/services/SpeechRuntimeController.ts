@@ -3,6 +3,7 @@ import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState,
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
+import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -22,7 +23,12 @@ import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
+import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
+import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
+import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
+import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
 declare global {
     interface Window {
@@ -34,6 +40,8 @@ declare global {
         Result?: typeof Result;
         __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
         __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>>;
+        __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
+        __SS_TRANSCRIPT_TRACE_SEQ__?: number;
     }
 }
 
@@ -49,6 +57,39 @@ const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> 
     });
 };
 
+const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
+    if (typeof window === 'undefined') return;
+    window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
+    window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+    window.__SS_TRANSCRIPT_TRACE__.push({
+        sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
+        t: Number(performance.now().toFixed(1)),
+        stage,
+        timestamp: Date.now(),
+        ...payload,
+    });
+    if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
+        window.__SS_TRANSCRIPT_TRACE__.shift();
+    }
+};
+
+const getVisibleTranscriptText = (transcript: { transcript: string; partial: string }): string =>
+    [transcript.transcript.trim(), transcript.partial.trim()]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
+const hasMeaningfulTranscriptText = (text: string): boolean => {
+    const normalized = text
+        .toLowerCase()
+        .replace(/[^a-z0-9'\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized) return false;
+    if (NATIVE_NOISE_TRANSCRIPTS.has(normalized)) return false;
+    return normalized.split(' ').filter(Boolean).length >= 2;
+};
+
 const normalizeTranscriptPrefix = (text: string): string =>
     text
         .toLowerCase()
@@ -61,6 +102,61 @@ const hasProviderFullTranscriptPrefix = (currentTranscript: string, finalTranscr
     const normalizedFinal = normalizeTranscriptPrefix(finalTranscript);
     return Boolean(normalizedCurrent && normalizedFinal.startsWith(normalizedCurrent));
 };
+
+const TERMINAL_PUNCTUATION_RE = /[.!?]["')\]]?$/;
+
+const sentenceCaseStart = (text: string): string => {
+    const firstLetterIndex = text.search(/[A-Za-z]/);
+    if (firstLetterIndex === -1) return text;
+    return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
+};
+
+const normalizeStandaloneFirstPerson = (text: string): string =>
+    text.replace(/\bi\b/g, 'I');
+
+const addConservativeCommas = (text: string): string =>
+    text
+        .replace(/^(Today|First|Next|Finally|However|Meanwhile|Overall|Eventually)\s+/i, '$1, ')
+        .replace(/^(For example|For instance|In short|Most importantly|By the way)\s+/i, '$1, ');
+
+const ensureTerminalPunctuation = (text: string): string => {
+    const trimmed = text.trim();
+    if (!trimmed) return trimmed;
+    const sentenceCased = addConservativeCommas(normalizeStandaloneFirstPerson(sentenceCaseStart(trimmed)));
+    if (TERMINAL_PUNCTUATION_RE.test(sentenceCased)) return sentenceCased;
+    if (/[,:;]$/.test(sentenceCased)) return `${sentenceCased.slice(0, -1)}.`;
+    return `${sentenceCased}.`;
+};
+
+const appendFinalTranscriptText = (currentTranscript: string, finalTranscript: string): string => {
+    const finalWithPunctuation = ensureTerminalPunctuation(finalTranscript);
+    if (!currentTranscript.trim()) return finalWithPunctuation;
+    return `${ensureTerminalPunctuation(currentTranscript)} ${finalWithPunctuation}`;
+};
+
+const createControllerOwnedServiceCallbacks = (
+    callbacks: Partial<TranscriptionServiceOptions>,
+    handlers: Required<Pick<
+        TranscriptionServiceOptions,
+        | 'onTranscriptUpdate'
+        | 'onModelLoadProgress'
+        | 'onReady'
+        | 'onAudioData'
+        | 'onModeChange'
+        | 'onStatusChange'
+        | 'onError'
+    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate'>
+): Partial<TranscriptionServiceOptions> => ({
+    ...callbacks,
+    onTranscriptUpdate: handlers.onTranscriptUpdate,
+    onHistoryUpdate: handlers.onHistoryUpdate,
+    onError: handlers.onError,
+    onStatusChange: handlers.onStatusChange,
+    onModelLoadProgress: handlers.onModelLoadProgress,
+    onReady: handlers.onReady,
+    onAudioData: handlers.onAudioData,
+    onModeChange: handlers.onModeChange,
+});
 
 const NATIVE_NOISE_TRANSCRIPTS = new Set([
     'stop',
@@ -135,6 +231,34 @@ export interface LifecycleToken {
     cancelled: boolean;
 }
 
+type TranscriptLifecycleSource =
+    | 'service_result'
+    | 'committed_final'
+    | 'visible_snapshot'
+    | 'best_meaningful_partial'
+    | 'store_visible_snapshot'
+    | 'empty';
+
+interface TranscriptLifecycleState {
+    committedFinal: string;
+    currentPartial: string;
+    bestMeaningfulPartial: string;
+    visibleTranscript: string;
+    lastVisibleTranscriptAtStop: string | null;
+    selectedTranscriptForSave: string | null;
+    selectedTranscriptSource: TranscriptLifecycleSource | null;
+}
+
+const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
+    committedFinal: '',
+    currentPartial: '',
+    bestMeaningfulPartial: '',
+    visibleTranscript: '',
+    lastVisibleTranscriptAtStop: null,
+    selectedTranscriptForSave: null,
+    selectedTranscriptSource: null,
+});
+
 /**
  * LIFECYCLE CONTRACT (v2 — Emission Control)
  * Any async work via enqueue() may be aborted if lifecycleVersion changes.
@@ -183,6 +307,11 @@ export class SpeechRuntimeController {
     private isSubscriberReady: boolean = false;
     private isEmissionsSafe: boolean = false;
     private transcriptEmissionSequence = 0;
+    private transcriptLifecycle: TranscriptLifecycleState = createEmptyTranscriptLifecycleState();
+    // Authoritative save-candidate decision from the last Stop (debug-only; surfaced
+    // via window.__SPEECH_RUNTIME_DEBUG__().saveCandidate so proofs read ground truth
+    // instead of scraping status/placeholder banners out of the transcript DOM).
+    private lastSaveCandidateDebug: Record<string, unknown> | null = null;
 
     // Segmented Emission Queue
     private emissionQueue: TranscriptUpdate[] = [];
@@ -229,7 +358,20 @@ export class SpeechRuntimeController {
                 sessionId: this.sessionId,
                 lifecycleVersion: this.lifecycleVersion,
                 transcriptLength: this.getStoreTranscriptLength(),
+                // Authoritative save-candidate decision from the last Stop, so proofs
+                // can distinguish a real empty save from DOM-banner extraction noise.
+                saveCandidate: this.lastSaveCandidateDebug,
+                selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
+                selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
             });
+
+            // STT-EVIDENCE-SCHEMA step 2: read-only proof accessor. window.__STT_EVIDENCE__(overrides?)
+            // aggregates the existing diagnostic globals into the normalized SttEvidence schema
+            // (PASS/FAIL/INVALID/BLOCKED). Diagnostic only — never gates product behavior.
+            installSttEvidenceCollector(window);
+            // STT-IDENTITY-DIAG: read-only window.__STT_IDENTITY__() — consolidated engine/model
+            // identity for the dev/test badge + proof artifacts (also folded into __STT_EVIDENCE__().identity).
+            installSttIdentityAccessor(window);
 
             // Fix 1 Correction: Programmatic Mode Switch
             (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
@@ -278,6 +420,39 @@ export class SpeechRuntimeController {
      */
     public getStore() {
         return useSessionStore;
+    }
+
+    /**
+     * UX-NAV-1: synchronously persist the in-progress transcript as a recovery draft.
+     *
+     * Called from the App-level hard-navigation/unload guard (`beforeunload`/`pagehide`),
+     * where the normal async stop→decode→save path cannot run to completion before the
+     * page is torn down. `localStorage.setItem` is synchronous, so the draft is durably
+     * written before unload; `SessionPage`'s recovery effect restores it on next load via
+     * `getSessionRecoveryDraft()`. The draft is cleared on a successful stop+save
+     * (`clearSessionRecoveryDraft`), so this never resurrects an already-saved session.
+     *
+     * No-op unless actively RECORDING with a known sessionId and non-empty transcript.
+     */
+    public persistActiveRecoveryDraft(): void {
+        if (this.state !== 'RECORDING') return;
+        const sessionId = this.sessionId;
+        if (!sessionId) return;
+
+        const store = useSessionStore.getState();
+        const { transcript: committed, partial } = store.transcript;
+        const transcript = [committed, partial].filter(Boolean).join(' ').trim();
+        if (!transcript) return;
+
+        const startTime = store.startTime;
+        const durationSeconds = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
+
+        saveSessionRecoveryDraft({
+            sessionId,
+            transcript,
+            durationSeconds,
+            mode: this.service?.getMode?.() ?? store.sttMode ?? 'unknown',
+        });
     }
 
     /**
@@ -442,12 +617,9 @@ export class SpeechRuntimeController {
         if (callbacks.getAssemblyAIToken) this.getAssemblyAIToken = callbacks.getAssemblyAIToken;
 
         if (this.service) {
-            this.service.updateCallbacks({
-                ...callbacks,
-                onTranscriptUpdate: (data) => this.handleTranscriptUpdate(data),
-                onHistoryUpdate: (history) => this.handleHistoryUpdate(history),
-                onError: (error) => this.handleError(error),
-            });
+            this.service.updateCallbacks(
+                createControllerOwnedServiceCallbacks(callbacks, this.serviceCallbacks as Required<typeof this.serviceCallbacks>)
+            );
         }
     }
 
@@ -575,9 +747,15 @@ export class SpeechRuntimeController {
         return this.state;
     }
 
-    private updateSessionPersisted(persisted: boolean): void {
+    private updateSessionPersisted(
+        persisted: boolean,
+        details?: { sessionId?: string | null; mode?: string | null },
+    ): void {
         useSessionStore.getState().setSessionSaved(persisted);
-        syncSessionPersisted(persisted);
+        if (useSessionStore.getState().sessionSaved !== persisted) {
+            useSessionStore.setState({ sessionSaved: persisted });
+        }
+        syncSessionPersisted(persisted, details);
     }
 
     /**
@@ -785,8 +963,17 @@ export class SpeechRuntimeController {
     }
 
     private handleTranscriptUpdate(data: TranscriptUpdate) {
+        pushTranscriptLifecycleTrace('controller:receive', {
+            type: data.transcript.final ? 'final' : 'partial',
+            textLength: (data.transcript.final || data.transcript.partial || '').length,
+            preview: (data.transcript.final || data.transcript.partial || '').slice(0, 80),
+        });
+        // Keep the visible transcript store current even if the React subscriber
+        // temporarily detaches/remounts during long idle or recognition restart
+        // windows. Callback delivery can wait; user-visible text should not.
+        this.pushTranscriptToStore(data);
+
         if (this.isSubscriberReady) {
-            this.pushTranscriptToStore(data);
             this.subscriberCallbacks.onTranscriptUpdate?.(data);
             this.emitTranscriptPulse(data);
         } else {
@@ -834,9 +1021,32 @@ export class SpeechRuntimeController {
         void this.checkRecordingInvariant();
     }
 
+    private pendingModelProgress: number | null = null;
+    private modelProgressFlushScheduled = false;
+
+    // Coalesce model-load PROGRESS events. A large base.en download — amplified by multiple
+    // worker progress streams during init — fires a rapid burst; pushing each one straight to
+    // the store floods React with synchronous re-renders and trips "Maximum update depth
+    // exceeded" during DOWNLOAD_REQUIRED->ENGINE_INITIALIZING. We keep only the LATEST value and
+    // flush at most once per animation frame, so a burst can never storm the renderer.
+    // (SELFHOST-MODELS-MAXDEPTH — fixes the progress-flood render storm.)
     private handleModelLoadProgress(progress: number | null) {
-        useSessionStore.getState().setModelLoadingProgress(progress);
-        this.subscriberCallbacks.onModelLoadProgress?.(progress);
+        this.pendingModelProgress = progress;
+        if (this.modelProgressFlushScheduled) return;
+        this.modelProgressFlushScheduled = true;
+
+        const flush = () => {
+            this.modelProgressFlushScheduled = false;
+            const value = this.pendingModelProgress;
+            useSessionStore.getState().setModelLoadingProgress(value);
+            this.subscriberCallbacks.onModelLoadProgress?.(value);
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(flush);
+        } else {
+            setTimeout(flush, 0);
+        }
     }
 
     private isModeAllowedByCurrentPolicy(mode: TranscriptionMode | null): boolean {
@@ -887,6 +1097,14 @@ export class SpeechRuntimeController {
         if (status.type === 'ready') {
             this.setEngineReady(true);
         }
+        // P0.2: surface engine-originated local finalization status to the store so
+        // the UI shows "Processing speech locally…" during STOPPING instead of the
+        // stale "Recording active". Scoped to informational status while a session
+        // is stopping/active; engine ready/recording/error remain owned by the
+        // lifecycle transitions, so this does not disturb the status machine.
+        if (status.type === 'info' && (this.state === 'STOPPING' || this.state === 'RECORDING')) {
+            useSessionStore.getState().setSTTStatus(status);
+        }
         this.subscriberCallbacks.onStatusChange?.(status);
     }
 
@@ -896,7 +1114,10 @@ export class SpeechRuntimeController {
 
     private resetAnalysisStateForNewRecording(): void {
         const store = useSessionStore.getState();
+        this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
+        store.freezeTranscriptAtStop(null);
+        store.setTranscriptFinalizing(false);
         store.updateFillerData({});
         store.setChunks([]);
         store.setPauseMetrics({
@@ -916,7 +1137,6 @@ export class SpeechRuntimeController {
         while (this.emissionQueue.length > 0) {
             const data = this.emissionQueue.shift();
             if (data) {
-                this.pushTranscriptToStore(data);
                 this.subscriberCallbacks.onTranscriptUpdate?.(data);
                 this.emitTranscriptPulse(data);
             }
@@ -930,6 +1150,39 @@ export class SpeechRuntimeController {
                 });
             }
         }
+    }
+
+    private syncTranscriptLifecycleFromStore(): void {
+        const { transcript } = useSessionStore.getState();
+        const committedFinal = transcript.transcript.trim();
+        const currentPartial = transcript.partial.trim();
+        const visibleTranscript = getVisibleTranscriptText(transcript);
+
+        this.transcriptLifecycle.committedFinal = committedFinal;
+        this.transcriptLifecycle.currentPartial = currentPartial;
+        this.transcriptLifecycle.visibleTranscript = visibleTranscript;
+        if (hasMeaningfulTranscriptText(currentPartial)) {
+            this.transcriptLifecycle.bestMeaningfulPartial = currentPartial;
+        }
+    }
+
+    private resetTranscriptLifecycle(): void {
+        this.transcriptLifecycle = createEmptyTranscriptLifecycleState();
+    }
+
+    private freezeTranscriptLifecycleAtStop(): string {
+        this.syncTranscriptLifecycleFromStore();
+        const frozen =
+            this.transcriptLifecycle.visibleTranscript ||
+            this.transcriptLifecycle.bestMeaningfulPartial ||
+            this.transcriptLifecycle.currentPartial ||
+            this.transcriptLifecycle.committedFinal;
+
+        this.transcriptLifecycle.lastVisibleTranscriptAtStop = frozen || null;
+        const store = useSessionStore.getState();
+        store.freezeTranscriptAtStop(frozen || null);
+        store.setTranscriptFinalizing(true);
+        return frozen;
     }
 
     private pushTranscriptToStore(data: TranscriptUpdate): void {
@@ -970,17 +1223,27 @@ export class SpeechRuntimeController {
 
         if (data.transcript.final) {
             this.transcriptEmissionSequence += 1;
-            const finalTranscript = data.transcript.final.trim();
+            const rawFinalTranscript = data.transcript.final.trim();
+            const finalTranscript = ensureTerminalPunctuation(rawFinalTranscript);
             const currentTrimmed = currentTranscript.trim();
-            if (!finalTranscript) {
+            const currentNormalized = normalizeTranscriptPrefix(currentTrimmed);
+            const finalNormalized = normalizeTranscriptPrefix(finalTranscript);
+            if (!rawFinalTranscript) {
                 pushNativeStoreTrace('store_skip_empty_final');
                 return;
             }
 
             const lastChunk = store.chunks[store.chunks.length - 1];
-            if (lastChunk?.isFinal && lastChunk.transcript.trim() === finalTranscript) {
+            if (lastChunk?.isFinal && normalizeTranscriptPrefix(lastChunk.transcript) === finalNormalized) {
                 pushNativeStoreTrace('store_skip_duplicate_last_chunk', {
                     finalTranscript,
+                });
+                store.updateTranscript(currentTranscript || finalTranscript, data.transcript.partial || '');
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_duplicate',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
                 });
                 return;
             }
@@ -992,22 +1255,36 @@ export class SpeechRuntimeController {
                 }, '[PRIVATE_TRACE] store_final_transcript_apply');
             }
 
-            if (currentTrimmed === finalTranscript || currentTrimmed.endsWith(finalTranscript)) {
+            if (currentNormalized === finalNormalized || currentNormalized.endsWith(finalNormalized)) {
                 pushNativeStoreTrace('store_skip_final_already_present', {
                     currentTrimmed,
                     finalTranscript,
                 });
+                store.updateTranscript(currentTranscript || finalTranscript, data.transcript.partial || '');
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_already_present',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                });
                 return;
             }
 
-            if (currentTrimmed && hasProviderFullTranscriptPrefix(currentTrimmed, finalTranscript)) {
-                const suffix = finalTranscript.slice(currentTrimmed.length).trim();
+            if (currentTrimmed && hasProviderFullTranscriptPrefix(currentTrimmed, rawFinalTranscript)) {
+                const suffix = ensureTerminalPunctuation(rawFinalTranscript.slice(currentTrimmed.length).trim());
                 pushNativeStoreTrace('store_replace_with_provider_full_final', {
                     suffix,
                     finalTranscript,
                     normalizedPrefixMatch: true,
                 });
-                store.updateTranscript(finalTranscript, '');
+                store.updateTranscript(finalTranscript, data.transcript.partial || '');
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_replace',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                    preview: finalTranscript.slice(0, 80),
+                });
                 if (suffix) {
                     store.addChunk({
                         transcript: suffix,
@@ -1018,12 +1295,19 @@ export class SpeechRuntimeController {
                 return;
             }
 
-            const newFullText = currentTranscript ? `${currentTranscript} ${finalTranscript}` : finalTranscript;
+            const newFullText = appendFinalTranscriptText(currentTranscript, finalTranscript);
             pushNativeStoreTrace('store_apply_final', {
                 finalTranscript,
                 newFullText,
             });
-            store.updateTranscript(newFullText, '');
+            store.updateTranscript(newFullText, data.transcript.partial || '');
+            this.syncTranscriptLifecycleFromStore();
+            pushTranscriptLifecycleTrace('store:update', {
+                type: 'final',
+                committedLength: useSessionStore.getState().transcript.transcript.length,
+                partialLength: useSessionStore.getState().transcript.partial.length,
+                preview: newFullText.slice(0, 80),
+            });
             store.addChunk({
                 transcript: finalTranscript,
                 timestamp: Date.now(),
@@ -1043,6 +1327,13 @@ export class SpeechRuntimeController {
             });
             if (partialSequence === this.transcriptEmissionSequence) {
                 store.updateTranscript(currentTranscript, data.transcript.partial);
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'partial',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                    preview: data.transcript.partial.slice(0, 80),
+                });
             } else {
                 pushNativeStoreTrace('store_skip_stale_partial', {
                     partialTranscript: data.transcript.partial,
@@ -1131,10 +1422,10 @@ export class SpeechRuntimeController {
 
             if (!this.service) {
                 pushNativeRuntimeTrace('controller_start_create_service');
-                this.service = getTranscriptionService({
-                    ...this.serviceCallbacks,
-                    ...this.subscriberCallbacks,
-                }, this.lock);
+                this.service = getTranscriptionService(
+                    createControllerOwnedServiceCallbacks(this.subscriberCallbacks, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                    this.lock
+                );
             }
 
             pushE2EEvent('SR_START_ENTER');
@@ -1260,7 +1551,7 @@ export class SpeechRuntimeController {
                     const idempotencyKey = recordingId;
                     const metadata = service.getMetadata?.() || (
                         mode === 'private'
-                            ? { engineVersion: 'transformers-js', modelName: 'whisper-tiny.en', deviceType: 'browser' }
+                            ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
                             : mode === 'cloud'
                                 ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
                                 : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
@@ -1297,6 +1588,10 @@ export class SpeechRuntimeController {
 
                     if (saveResult?.usageExceeded) {
                         throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
+                    }
+
+                    if (!dbSession) {
+                        throw new Error('SESSION_SAVE_FAILED');
                     }
 
                     const currentState = this.getState();
@@ -1361,6 +1656,7 @@ export class SpeechRuntimeController {
 
         this.serviceUnsubscribe = null;
         this.setEngineReady(false);
+        this.resetTranscriptLifecycle();
         syncRuntimeState('IDLE', null);
         useSessionStore.getState().setRuntimeState('IDLE');
         this.updateSessionPersisted(false);
@@ -1421,13 +1717,27 @@ export class SpeechRuntimeController {
                 }
                 return null;
             }
+            const stopSnapshotStore = useSessionStore.getState();
+            const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
+            pushTranscriptLifecycleTrace('lifecycle:stop', {
+                mode: stopEntryMode,
+                visibleAtStopLength: frozenAtStop.length,
+                committedLength: stopSnapshotStore.transcript.transcript.length,
+                partialLength: stopSnapshotStore.transcript.partial.length,
+                preview: frozenAtStop.slice(0, 80),
+            });
             const wasRecording = this.state === 'RECORDING';
             await this.transition('STOPPING', undefined, token);
-            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+            if (token.cancelled || token.version !== this.lifecycleVersion) {
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
+                return null;
+            }
             try {
                 this.stopHeartbeat();
                 this.stopWatchdog();
                 const service = this.service;
+                let sessionCompleted = false;
                 if (!service) {
                     if (stopEntryMode === 'cloud') {
                         logger.warn({
@@ -1441,14 +1751,20 @@ export class SpeechRuntimeController {
                         }, '[CLOUD_SAVE_DECISION]');
                     }
                     await this.transition('READY', undefined, token);
+                    useSessionStore.getState().setTranscriptFinalizing(false);
+                    useSessionStore.getState().freezeTranscriptAtStop(null);
                     return null;
                 }
 
                 let result = null;
                 let guardedStopStatus: SttStatus | null = null;
+                // Identity-bearing persisted-session marker (blocker #5): captured on
+                // successful completion so the post-READY persistence write can carry
+                // the exact session id + mode for proofs (data-session-persisted-id).
+                let persistedSessionMarker: { sessionId: string; mode: string | null } | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
-                    const sessionId = this.sessionId;
+                    let sessionId = this.sessionId;
                     const startTime = service.getStartTime();
                     result = await service.stopTranscription();
                     logger.info({
@@ -1469,10 +1785,10 @@ export class SpeechRuntimeController {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
                             sessionId,
-                            resultSuccess: result?.success ?? null,
-                            resultTranscriptLength: result?.transcript?.length ?? 0,
-                            storeTranscriptLength: this.getStoreTranscriptLength(),
-                        }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
+                        resultSuccess: result?.success ?? null,
+                        resultTranscriptLength: result?.transcript?.length ?? 0,
+                        storeTranscriptLength: this.getStoreTranscriptLength(),
+                    }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
                     }
                     if (token.version !== this.lifecycleVersion) {
                         logger.warn({
@@ -1486,6 +1802,61 @@ export class SpeechRuntimeController {
                         }, '[DEBUG-STOP] Lifecycle version changed after stop result; continuing session finalization for captured session');
                     }
 
+                    if (result && !sessionId) {
+                        const supabase = getSupabaseClient();
+                        const { data: { session } } = await supabase.auth.getSession();
+                        const userId = session?.user?.id || this.capturedUserId;
+
+                        if (userId) {
+                            const mode = service.getMode() || stopEntryMode || 'unknown';
+                            const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                            const metadata = service.getMetadata?.() || (
+                                mode === 'private'
+                                    ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
+                                    : mode === 'cloud'
+                                        ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
+                                        : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
+                            );
+                            this.syncTranscriptLifecycleFromStore();
+                            const fallbackTranscript =
+                                result.transcript?.trim() ||
+                                this.transcriptLifecycle.lastVisibleTranscriptAtStop ||
+                                this.transcriptLifecycle.visibleTranscript ||
+                                this.transcriptLifecycle.bestMeaningfulPartial ||
+                                ' ';
+                            const fallbackSessionData = {
+                                user_id: userId,
+                                title: `Session ${new Date().toLocaleString()}`,
+                                duration: Math.round(duration),
+                                transcript: fallbackTranscript,
+                                total_words: 0,
+                                engine: mode,
+                            };
+                            const saveResult = await saveSession(
+                                fallbackSessionData,
+                                { id: userId } as UserProfile,
+                                mode,
+                                undefined,
+                                metadata
+                            );
+
+                            if (saveResult?.session?.id) {
+                                sessionId = saveResult.session.id;
+                                this.sessionId = sessionId;
+                                service.setSessionId?.(sessionId);
+                                logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
+                            }
+
+                            if (saveResult?.usageExceeded) {
+                                throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
+                            }
+
+                            if (!saveResult?.session?.id) {
+                                throw new Error('SESSION_SAVE_FAILED');
+                            }
+                        }
+                    }
+
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
@@ -1496,12 +1867,43 @@ export class SpeechRuntimeController {
 
                     if (result && sessionId) {
                         const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                        this.syncTranscriptLifecycleFromStore();
                         const store = useSessionStore.getState();
                         const chunkTranscript = store.chunks.map(chunk => chunk.transcript).join(' ').trim();
                         const storeTranscript = store.transcript.transcript.trim();
+                        const storePartialTranscript = store.transcript.partial.trim();
+                        const visibleStoreTranscript = [storeTranscript, storePartialTranscript]
+                            .filter(Boolean)
+                            .join(' ')
+                            .trim();
+                        const frozenStopTranscript = store.frozenTranscriptAtStop?.trim() || '';
                         const resultTranscript = result.transcript?.trim() || '';
-                        const finalTranscript = [resultTranscript, chunkTranscript, storeTranscript]
-                            .sort((a, b) => b.split(/\s+/).filter(Boolean).length - a.split(/\s+/).filter(Boolean).length)[0] || '';
+                        const modeForFinalization = service.getMode?.() ?? stopEntryMode;
+                        const candidates: Array<{ source: TranscriptLifecycleSource; text: string }> = [
+                            { source: 'service_result', text: resultTranscript },
+                            { source: 'committed_final', text: this.transcriptLifecycle.committedFinal || chunkTranscript || storeTranscript },
+                            { source: 'visible_snapshot', text: this.transcriptLifecycle.lastVisibleTranscriptAtStop || frozenStopTranscript },
+                            { source: 'best_meaningful_partial', text: this.transcriptLifecycle.bestMeaningfulPartial || storePartialTranscript },
+                            { source: 'store_visible_snapshot', text: visibleStoreTranscript },
+                        ];
+                        const preparedCandidates = candidates
+                            .map(candidate => ({ ...candidate, text: candidate.text.trim() }))
+                            .filter(candidate => Boolean(candidate.text));
+                        const candidatePassesSaveQuality = (text: string): boolean => {
+                            if (!hasMeaningfulTranscriptText(text)) return false;
+                            return modeForFinalization !== 'native' || getNativeSaveQualityFailureReason(text) === null;
+                        };
+                        const selectedCandidate =
+                            preparedCandidates.find(candidate => candidatePassesSaveQuality(candidate.text)) ??
+                            preparedCandidates.find(candidate => hasMeaningfulTranscriptText(candidate.text)) ??
+                            preparedCandidates[0] ??
+                            { source: 'empty' as const, text: '' };
+                        const finalTranscript = selectedCandidate.text
+                            ? ensureTerminalPunctuation(selectedCandidate.text)
+                            : '';
+                        const saveCandidateReason = selectedCandidate.source;
+                        this.transcriptLifecycle.selectedTranscriptForSave = finalTranscript || null;
+                        this.transcriptLifecycle.selectedTranscriptSource = saveCandidateReason;
                         const meaningfulTranscript = finalTranscript
                             .replace(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi, '')
                             .trim();
@@ -1514,12 +1916,55 @@ export class SpeechRuntimeController {
                             resultTranscriptLength: resultTranscript.length,
                             chunkTranscriptLength: chunkTranscript.length,
                             storeTranscriptLength: storeTranscript.length,
+                            storePartialTranscriptLength: storePartialTranscript.length,
+                            visibleStoreTranscriptLength: visibleStoreTranscript.length,
+                            frozenStopTranscriptLength: frozenStopTranscript.length,
+                            saveCandidateReason,
                             finalTranscriptLength: finalTranscript.length,
                             finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
                             meaningfulWordCount,
                             fillerCount: getFillerTotal(store.fillerData),
                             userWordsCount: this.userWords.length,
                         }, '[DEBUG-STOP] finalization transcript decision');
+                        // Expose the AUTHORITATIVE save-candidate decision so proof
+                        // harnesses read ground truth instead of scraping the
+                        // transcript-container DOM (which includes status/placeholder
+                        // banners like "Processing speech locally…" / "Listening...").
+                        // Surfaced via window.__SPEECH_RUNTIME_DEBUG__().saveCandidate.
+                        // A+ repetition-risk DETECTOR (non-mutating): Whisper can loop phrases on
+                        // short/ambiguous audio. Per the team's data-integrity decision we do NOT
+                        // delete possibly-genuine repeats — we only FLAG the risk here for evidence/
+                        // telemetry. The saved transcript is the raw model output, unaltered. The
+                        // principled fix for the loops (VAD/segmentation) is a queued STT lane.
+                        const repetitionRisk = detectRepetitionRisk(finalTranscript);
+                        if (repetitionRisk.repetitionRisk) {
+                            logger.warn({
+                                sessionId,
+                                mode: service.getMode?.() ?? stopEntryMode,
+                                repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+                                repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
+                            }, '[REPETITION_RISK] saved transcript shows a repetition-loop signature (flagged, not altered)');
+                        }
+                        this.lastSaveCandidateDebug = {
+                            sessionId,
+                            saveCandidateReason,
+                            selectedForSave: finalTranscript,
+                            selectedForSaveLength: finalTranscript.length,
+                            finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
+                            meaningfulWordCount,
+                            resultTranscriptLength: resultTranscript.length,
+                            chunkTranscriptLength: chunkTranscript.length,
+                            storeTranscriptLength: storeTranscript.length,
+                            storePartialTranscriptLength: storePartialTranscript.length,
+                            visibleStoreTranscriptLength: visibleStoreTranscript.length,
+                            frozenStopTranscriptLength: frozenStopTranscript.length,
+                            candidateLengths: preparedCandidates.map((c) => ({ source: c.source, length: c.text.length })),
+                            // Evidence-only repetition flags (never mutate saved text):
+                            repetitionRisk: repetitionRisk.repetitionRisk,
+                            repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+                            repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
+                            capturedAt: Date.now(),
+                        };
                         if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
                             logger.warn({
                                 willSave: Boolean(result && sessionId && finalTranscript),
@@ -1534,11 +1979,20 @@ export class SpeechRuntimeController {
                                 resultTranscriptLength: resultTranscript.length,
                                 chunkTranscriptLength: chunkTranscript.length,
                                 storeTranscriptLength: storeTranscript.length,
+                                storePartialTranscriptLength: storePartialTranscript.length,
+                                visibleStoreTranscriptLength: visibleStoreTranscript.length,
+                                frozenStopTranscriptLength: frozenStopTranscript.length,
+                                saveCandidateReason,
                                 sessionId,
                             }, '[CLOUD_SAVE_DECISION]');
                         }
+                        pushTranscriptLifecycleTrace('save:candidate', {
+                            mode: service.getMode?.() ?? stopEntryMode,
+                            selectedLength: finalTranscript.length,
+                            reason: saveCandidateReason,
+                            preview: finalTranscript.slice(0, 80),
+                        });
 
-                        const modeForFinalization = service.getMode?.() ?? stopEntryMode;
                         const nativeSaveQualityFailureReason = modeForFinalization === 'native'
                             ? getNativeSaveQualityFailureReason(meaningfulTranscript)
                             : null;
@@ -1586,7 +2040,7 @@ export class SpeechRuntimeController {
                                     ? "We didn't capture enough speech to save this session."
                                     : "We didn't detect enough speech to save this session.",
                                 detail: nativeSaveQualityFailureReason
-                                    ? 'Try recording again or switch to Private or Cloud transcription.'
+                                    ? 'Try recording again and speak clearly for at least a few seconds.'
                                     : 'Try recording again and speak for at least a few seconds.'
                             };
                             store.setSTTStatus(guardedStopStatus);
@@ -1597,7 +2051,13 @@ export class SpeechRuntimeController {
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,
-                                fillerData: getFillerTotal(store.fillerData) > 0 ? store.fillerData : undefined,
+                                // STT-P1: derive the saved/scored filler count from the FINAL
+                                // transcript, NOT the live store.fillerData — the live count is
+                                // accumulated incrementally and can be stale/undercount (e.g. a
+                                // saved "Umm" reported um:0). calculateCoreSessionMetrics re-counts
+                                // via countFillerWords when fillerData is omitted, so the count
+                                // matches the authoritative saved transcript ("Umm" -> "um").
+                                fillerData: undefined,
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;
@@ -1605,12 +2065,7 @@ export class SpeechRuntimeController {
                             const wpm = sessionMetrics.wpm;
                             const accuracy = result.stats.accuracy;
                             const clarityScore = sessionMetrics.clarityScore;
-                            const currentStoreTranscript = store.transcript.transcript.trim();
-                            const currentStorePartial = store.transcript.partial.trim();
-                            const isPromotingOnlyPartial =
-                                currentStorePartial &&
-                                !currentStoreTranscript &&
-                                finalTranscript === currentStorePartial;
+                            const currentStoreTranscript = useSessionStore.getState().transcript.transcript.trim();
 
                             if (store.chunks.length === 0) {
                                 store.setChunks([{
@@ -1618,9 +2073,6 @@ export class SpeechRuntimeController {
                                     timestamp: startTime || Date.now(),
                                     isFinal: true
                                 }]);
-                                if (isPromotingOnlyPartial) {
-                                    store.updateTranscript(finalTranscript, '');
-                                }
                             } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
                                 const currentTranscript = store.transcript.transcript.trim();
                                 const correctionSuffix = currentTranscript && finalTranscript.startsWith(currentTranscript)
@@ -1634,8 +2086,17 @@ export class SpeechRuntimeController {
                                         isFinal: true,
                                         isCorrection: true
                                     });
-                                    store.updateTranscript(finalTranscript, '');
                                 }
+                            }
+                            if (finalTranscript && finalTranscript !== currentStoreTranscript) {
+                                store.updateTranscript(finalTranscript, '');
+                                this.syncTranscriptLifecycleFromStore();
+                                pushTranscriptLifecycleTrace('store:update', {
+                                    type: 'selected_for_save',
+                                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                                    partialLength: useSessionStore.getState().transcript.partial.length,
+                                    preview: finalTranscript.slice(0, 80),
+                                });
                             }
 
                             const supabase = getSupabaseClient();
@@ -1656,12 +2117,59 @@ export class SpeechRuntimeController {
                                 clarityScore,
                                 accuracy,
                             }, '[DEBUG-STOP] completeSession completed-status starting');
-                            await completeSession(sessionId, {
+                            saveSessionRecoveryDraft({
+                                sessionId,
+                                userId,
+                                transcript: finalTranscript,
+                                durationSeconds: Math.round(duration),
+                                mode: modeForFinalization ?? 'unknown',
+                            });
+
+                            const completion = await completeSession(sessionId, {
                                 status: 'completed',
                                 transcript: finalTranscript,
                                 duration: Math.round(duration)
                             });
+                            if (!completion.success) {
+                                throw new Error('SESSION_COMPLETION_FAILED');
+                            }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
+                            sessionCompleted = true;
+                            persistedSessionMarker = sessionId
+                                ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
+                                : null;
+                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
+                            useSessionStore.getState().setSessionSaved(true);
+
+                            // Native RAW-FIRST async formatting: the raw transcript is now saved.
+                            // Punctuation/casing is restored in the BACKGROUND and replaces the saved
+                            // transcript only on word-preserving success — Stop/save/history/detail
+                            // never wait on the network formatter. Private/Cloud are unaffected.
+                            if ((modeForFinalization ?? stopEntryMode) === 'native') {
+                                // Threshold-only "tidying up punctuation…" notice: mark pending now;
+                                // the panel surfaces copy ONLY if this stays pending past ~1.5s, so the
+                                // common sub-second case is silent (no perceived slowness).
+                                useSessionStore.getState().setNativeFormatting({ status: 'pending', startedAt: Date.now() });
+                                void formatNativeSessionInBackground({
+                                    sessionId,
+                                    rawTranscript: finalTranscript,
+                                    onUpdated: (formatted) => {
+                                        const liveStore = useSessionStore.getState();
+                                        // Only refresh the display if it still shows this session's raw
+                                        // final (don't clobber a newly started session).
+                                        if (liveStore.transcript.transcript.trim() === finalTranscript.trim()) {
+                                            liveStore.updateTranscript(formatted, '');
+                                        }
+                                    },
+                                }).then((formattingState) => {
+                                    useSessionStore.getState().setNativeFormatting({
+                                        status: formattingState.status === 'failed' ? 'failed' : 'complete',
+                                        startedAt: null,
+                                    });
+                                }).catch(() => {
+                                    useSessionStore.getState().setNativeFormatting({ status: 'failed', startedAt: null });
+                                });
+                            }
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -1680,7 +2188,7 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
-                            await updateSession(sessionId, {
+                            const updateResult = await updateSession(sessionId, {
                                 total_words: wordCount,
                                 filler_words: fillerWords as unknown as FillerCounts,
                                 custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
@@ -1692,7 +2200,21 @@ export class SpeechRuntimeController {
                                 clarity_score: clarityScore,
                                 accuracy
                             });
-                            logger.info('[DEBUG-STOP] updateSession done');
+                            if (!updateResult.success) {
+                                logger.warn({
+                                    sessionId,
+                                    error: updateResult.error ?? null,
+                                }, '[DEBUG-STOP] metrics update failed after transcript completion; preserving completed session');
+                                guardedStopStatus = {
+                                    type: 'warning',
+                                    message: 'Session saved.',
+                                    detail: 'Your transcript was saved, but some analysis metrics could not be updated yet.',
+                                };
+                                store.setSTTStatus(guardedStopStatus);
+                            } else {
+                                logger.info('[DEBUG-STOP] updateSession done');
+                            }
+                            clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
 
@@ -1709,7 +2231,7 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
-                            this.updateSessionPersisted(true);
+                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
                         }
                     }
@@ -1719,9 +2241,15 @@ export class SpeechRuntimeController {
                 this.stopWatchdog();
                 await service.destroy();
                 this.service = null;
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                if (sessionCompleted) {
+                    this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
+                    useSessionStore.getState().setSessionSaved(true);
+                }
                 if (guardedStopStatus) {
                     useSessionStore.getState().setSTTStatus(guardedStopStatus);
                 }
@@ -1729,6 +2257,7 @@ export class SpeechRuntimeController {
                 return result;
             } catch (err: unknown) {
                 logger.error({ err }, '[DEBUG-STOP] ERROR caught');
+                const hasRecoveryDraftSignal = this.getStoreTranscriptLength() > 0;
                 if (this.sessionId) {
                     completeSession(this.sessionId, {
                         status: 'failed',
@@ -1742,6 +2271,15 @@ export class SpeechRuntimeController {
                     });
                 }
                 await this.transition('FAILED', err as Error, token);
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
+                if (hasRecoveryDraftSignal) {
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'warning',
+                        message: 'Session was not saved yet.',
+                        detail: 'A local recovery draft was kept in this browser after a save issue.',
+                    });
+                }
                 throw err;
             }
         });
@@ -1756,13 +2294,15 @@ export class SpeechRuntimeController {
         }
 
         if (!this.service) {
-            this.service = getTranscriptionService({
-                ...this.serviceCallbacks,
-                navigate: this.navigate,
-                session: this.session,
-                getAssemblyAIToken: this.getAssemblyAIToken,
-                userWords: this.userWords
-            }, this.lock);
+            this.service = getTranscriptionService(
+                createControllerOwnedServiceCallbacks({
+                    navigate: this.navigate,
+                    session: this.session,
+                    getAssemblyAIToken: this.getAssemblyAIToken,
+                    userWords: this.userWords
+                }, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                this.lock
+            );
         }
 
         if (options.skipIfDownloadPending && this.service.fsm?.is('DOWNLOAD_REQUIRED')) {
@@ -1836,6 +2376,7 @@ export class SpeechRuntimeController {
 
     private startWatchdog(service: TranscriptionService): void {
         const version = ++this.watchdogVersion;
+        const watchdogStartedAt = Date.now();
         this.stopWatchdog();
         this.watchdogInterval = setInterval(() => {
             if (version !== this.watchdogVersion) {
@@ -1845,8 +2386,21 @@ export class SpeechRuntimeController {
             const strategy = service.getStrategy();
             if (!strategy || !this.isEngineReady) return;
             if (this.state !== 'INITIATING' && this.state !== 'ENGINE_INITIALIZING' && this.state !== 'RECORDING') return;
+            const now = Date.now();
             const lastHeartbeat = service.getLastHeartbeatTimestamp();
-            const drift = Date.now() - lastHeartbeat;
+            const hasValidHeartbeat =
+                Number.isFinite(lastHeartbeat) &&
+                lastHeartbeat > 0 &&
+                lastHeartbeat <= now + 1000;
+            // Some private/browser engines can briefly report a zero/invalid inner
+            // heartbeat while a ready cached model is being rebound to a fresh mic
+            // start. Treat that as "no pulse yet" for one normal heartbeat window,
+            // not as a dead worker. If it never produces a valid pulse, the same
+            // threshold still trips from watchdog start.
+            const effectiveLastHeartbeat = hasValidHeartbeat
+                ? Math.min(lastHeartbeat, now)
+                : watchdogStartedAt;
+            const drift = now - effectiveLastHeartbeat;
             if (drift > this.HEARTBEAT_THRESHOLD_MS) {
                 this.handleHeartbeatFailure(new Error(`STT_HEARTBEAT_FAILURE: ${drift}ms`));
             }
@@ -1866,6 +2420,22 @@ export class SpeechRuntimeController {
         this.stopIdleTimer();
         this.idleTimeout = setTimeout(() => {
             if (this.state === 'IDLE' || this.state === 'READY') {
+                const serviceMode = this.service?.getMode();
+                const selectedMode = useSessionStore.getState().sttMode;
+                const shouldPreserveReadyPrivateEngine =
+                    this.state === 'READY' &&
+                    this.isEngineReady &&
+                    serviceMode === 'private' &&
+                    selectedMode === 'private';
+
+                if (shouldPreserveReadyPrivateEngine) {
+                    logger.info({
+                        state: this.state,
+                        serviceMode,
+                        selectedMode,
+                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready Private engine');
+                    return;
+                }
                 void this.reset('idle_reclamation');
             }
         }, this.IDLE_RECLAMATION_MS);

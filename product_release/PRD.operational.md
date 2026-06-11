@@ -12,6 +12,12 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 
 ---
 
+## 0. Product Feature Inventory
+
+The working product feature list lives in `PRODUCT_FEATURES.operational.md`. This PRD remains the user-visible product contract: guarantees, failure behavior, and operational constraints.
+
+---
+
 ## 1. User-Visible Guarantees (The Contract)
 
 ### Core Persistence & Reliability
@@ -28,7 +34,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 ### UX Expectations
 - **Supported Browser Positioning**: Chrome desktop is recommended for Browser transcription. Availability and accuracy vary by browser. Edge/Safari/iOS must not be claimed as verified unless a browser-specific proof passes start, transcript, save, history/detail, and analytics.
 - **Offline Mode**: Private STT requires an initial download but must function without internet thereafter.
-- **CI Reporting**: Local CI/SQM scripts print generated coverage and quality metrics to the console. Markdown coverage tables are not automatically rewritten during local runs.
+- **Quality Evidence Reporting**: The PRD states product promises. Coverage, Lighthouse, bundle metrics, flaky counts, and stress/endurance evidence live in the operational evidence system, not in dynamically rewritten PRD sections.
 
 ---
 
@@ -55,11 +61,13 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 
 ---
 
-## 4. SLO/SLA Expectations
+## 4. Service-Level Expectations
 
-- **Session Restoration**: 95% of sessions interrupted by refresh should be resumable.
-- **Export Durability**: 99.9% success rate for PDF generation from valid active transcript/report state and persisted session metrics.
-- **Uptime Assumption**: 99.5% availability for the primary recording path.
+Service-level definitions, target classification, industry comparisons, evidence sources, and current status live in `SERVICE_LEVELS.operational.md`. This PRD keeps the product-level intent only:
+
+- Sessions interrupted by refresh should be recoverable when enough browser/session state still exists.
+- PDF exports should be reliable from valid active transcript/report state and persisted session metrics.
+- The primary recording path should remain available enough for controlled soft-release testers to complete the scripted human path.
 
 ---
 
@@ -72,57 +80,6 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 
 ---
 
-<!-- SQM:START -->
-## 6. Software Quality Metrics
+## 6. Software Quality Evidence
 
-**Last Updated:** 2026-05-15
-
-**Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
-
-**Metric Definitions:**
-- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
-- **Total Project Size:** Total disk footprint including node_modules and assets.
-- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
-- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
-
----
-
-### Test Suite State
-
-| Metric                  | Value |
-| ----------------------- | ----- |
-| Total tests             | 706 (677 unit + 29 E2E) |
-| Unit tests              | 677   |
-| E2E tests (Playwright)  | 29  |
-| Passing tests           | 705 (676 unit + 29 E2E)   |
-| Failing tests           | 0   |
-| Disabled/skipped tests  | 1   |
-| Passing unit tests      | 676/677 (99.9%)   |
-| Passing E2E tests       | 29/29 (100.0%)   |
-| Total runtime           | 4m 28s   |
-
----
-
-### Coverage Summary
-
-| Metric     | Value |
-| ---------- | ----- |
-| Statements | 67.62%   |
-| Branches   | 74.89%   |
-| Functions  | 67.51%   |
-| Lines      | 67.62%   |
-
----
-
-### Code Bloat & Performance
-
-| Metric              | Value |
-| ------------------- | ----- |
-| Total Source Size   | 49M   |
-| Total Project Size  | 2.9G   |
-| Initial Chunk Size  | 416K   |
-| Code Bloat Index    | 0.82%   |
-| Lighthouse Scores   | P: 98, A: 94, BP: 100, SEO: 100 |
-
----
-<!-- SQM:END -->
+Software quality targets, evidence taxonomy, raw artifact locations, and generated quality-evidence rules live in `SOFTWARE_QUALITY.operational.md`. Latest generated artifacts are produced under `product_release/evidence/` during CI and uploaded as workflow artifacts; they are not PRD content.

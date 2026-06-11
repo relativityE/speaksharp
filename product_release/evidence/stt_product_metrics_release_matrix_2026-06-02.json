@@ -1,0 +1,377 @@
+{
+  "lastUpdatedAt": "2026-06-04T15:50:00Z",
+  "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
+  "classifications": {
+    "cloud": {
+      "status": "closest_to_release_green_baseline_only_lower_priority_than_native_private",
+      "reason": "Cloud baseline is near corrected AssemblyAI target and is the paid quality path. Current-head deployed smoke passed; standard-filler keyterms work is stopped by product decision.",
+      "next": "Pause further Cloud work until Native/Private blockers move, unless product explicitly requests a richer baseline metrics proof."
+    },
+    "private_v2": {
+      "status": "not_release_green",
+      "reason": "2026-06-04 human proof after explicit setup consent produced 56.36% accuracy / 43.64% WER, missed um, substituted expected main idea/every transcript with memory transcript, and detail transcript was empty before the #29 fix was re-proven. Product bar: Private must meet/beat the better of same-model/drop-in and Native human Chrome mic baseline.",
+      "next": "test-release-agent: rerun same human script on current main to verify #29 detail fix and Fix-A-v2 behavior. @dev-agent: fix content loss/substitution and first-visible draft gating; any Fix-A-v2/VAD/model candidate must be named/flagged and browser-proven against drop-in and Native baseline."
+    },
+    "private_v4": {
+      "status": "not_24h_path",
+      "reason": "Prior browser worker/runtime attempts have not produced a scoreable non-empty save candidate.",
+      "next": "Hold unless product reopens v4 runtime work."
+    },
+    "native": {
+      "status": "not_release_green",
+      "reason": "2026-06-04 real Chrome mic proof captured and saved full 55-word script; formatter invoked quickly (853ms, no error, word-preserving) but output still had bad truecasing (Starts Now) and detail transcript was empty before current-main fixes were re-proven.",
+      "next": "test-release-agent: rerun real mic on current main to verify #29 detail fix, truecasing/readability, and trust-label spacing."
+    }
+  },
+  "currentArtifacts": {
+    "nativeHuman": "/private/tmp/speaksharp-native-human-20260604-rerun2.json",
+    "privateHuman": "/private/tmp/speaksharp-private-human-20260604-rerun.json",
+    "privateHumanJsonl": "/private/tmp/speaksharp-private-human-20260604-rerun.jsonl",
+    "privateInjectedConv01Diagnostic": "/private/tmp/private-corpus-conv01-f9b21005.json",
+    "privateDecodeParamAb": "/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth"
+  },
+  "latestNativeHumanProof": {
+    "status": "fail_detail_and_readability",
+    "realMic": true,
+    "savedWordCount": 55,
+    "detailTranscriptEmpty": true,
+    "formatter": {
+      "attempted": true,
+      "latencyMs": 853,
+      "errorCode": null,
+      "fallbackToRaw": false,
+      "wordPreserving": true
+    },
+    "badTruecasing": ["Starts Now"],
+    "trustLabelSpacingBug": "Prior artifact showed glued copy: Draft transcriptText may change before the final transcript is saved. Current main includes spacing fix cd4b677d and should be re-proofed with data-transcript-text-only."
+  },
+  "latestNativeFormatterPlumbingProof": {
+    "status": "automated_plumbing_verified_quality_still_open",
+    "frontendFormatterTests": {
+      "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/services/transcription/__tests__/nativeAsyncFormatter.test.ts frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts frontend/src/services/transcription/modes/__tests__/nativeGeminiFormatter.test.ts",
+      "testFilesPassed": 3,
+      "testsPassed": 35
+    },
+    "edgeFunctionTests": {
+      "command": "pnpm test:edge",
+      "testsPassed": 11,
+      "stepsPassed": 73
+    },
+    "verified": [
+      "raw-first async saved-transcript update",
+      "4s client timeout fallback to raw",
+      "word-preservation guard",
+      "__NATIVE_FORMATTER_LAST__ telemetry",
+      "Private privacy guard",
+      "format-transcript auth/engine/quota/error/no-log coverage"
+    ],
+    "notClosed": [
+      "human proof still needs detail transcript non-empty",
+      "human proof still needs general truecasing/readability improvement for Starts Now-style casing"
+    ]
+  },
+  "latestPrivateHumanProof": {
+    "status": "fail_accuracy_detail_live_trust",
+    "setupConsentProven": true,
+    "accuracy": 0.5636,
+    "wer": 0.4364,
+    "referenceWordCount": 55,
+    "savedWordCount": 39,
+    "fillerRecall": 0.6667,
+    "falseFillerInsertions": 0,
+    "semanticSubstitution": {
+      "expected": "the main idea is that every transcript",
+      "actual": "the memory transcript"
+    },
+    "detailTranscriptEmpty": true,
+    "duplicateSentenceDetected": false
+  },
+  "latestPrivateInjectedConv01Diagnostic": {
+    "status": "diagnostic_fail_filler_normalization_live_draft_quality",
+    "releaseProofEligibleEnvironment": true,
+    "humanProofReplacement": false,
+    "artifact": "/private/tmp/private-corpus-conv01-f9b21005.json",
+    "fixture": "conv_01",
+    "truth": "Um. Basically, we should literally like, wait.",
+    "firstUsefulTextMs": 2826,
+    "visibleAtStopTranscript": "Um, basically. Umm, basically, we should literally like. wait.",
+    "selectedForSave": "Umm, basically, we should literally like, wait.",
+    "accuracy": 0.8571,
+    "wer": 0.1429,
+    "stopFinalizationMs": 1983,
+    "decodeMs": 1515.5,
+    "drainWaitMs": 383.6,
+    "runtime": {
+      "provider": "transformers-js",
+      "runtime": "wasm-singlethread",
+      "wasmThreadCount": 1,
+      "cloudFallbackAttempted": false
+    },
+    "journey": {
+      "sessionPersisted": true,
+      "historyVisible": true,
+      "detailVisible": true,
+      "detailMatchesSelectedForSave": true
+    },
+    "trustUi": {
+      "draftVisibleDuringLive": true,
+      "processingSpeechLocallyShownWhileStopping": true,
+      "finalStateClearedBanners": true
+    },
+    "fillerMetric": {
+      "expected": {
+        "um": 1,
+        "basically": 1,
+        "literally": 1,
+        "like": 1
+      },
+      "observed": {
+        "um": 0,
+        "basically": 1,
+        "literally": 1,
+        "like": 1
+      },
+      "finding": "Final text used Umm; filler metric treated it as non-um and would under-coach a user-perceived filler."
+    },
+    "findings": [
+      "Live draft repeated provisional text before Stop, while final save was cleaner.",
+      "Filler normalization missed Umm as um.",
+      "Save/history/detail passed in this diagnostic, suggesting #29 detail fix works in this path but still needs human re-proof."
+    ]
+  },
+  "latestPrivateDecodeParameterAb": {
+    "status": "candidate_rejected",
+    "fixture": "h1_6",
+    "browserWorkerProof": true,
+    "baseline": {
+      "accuracy": 0.75,
+      "wer": 0.25,
+      "selectedForSave": "A. Like. Told Wild Tales to Frighten."
+    },
+    "antiHallucinationCandidate": {
+      "decodeOptions": {
+        "return_timestamps": true,
+        "condition_on_previous_text": false,
+        "compression_ratio_threshold": 2.4,
+        "no_repeat_ngram_size": 3,
+        "temperature": [0, 0.2, 0.4]
+      },
+      "accuracy": 0,
+      "wer": 1,
+      "selectedForSave": "They, like, told Wild Tales to Fridonham, they, like. Told Wild Tales To Fridinham."
+    },
+    "conclusion": "Do not ship this anti-hallucination decode configuration. It worsened h1_6; keep current defaults unless dev proposes a new candidate."
+  },
+  "privateVadPrototypeGate": {
+    "status": "test_plan_complete_execution_waits_for_dev_flag",
+    "owner": "test-release-agent / Codex",
+    "requiredFlag": "A named runtime flag such as PRIVATE_VAD_PROTOTYPE=1, with candidate thresholds recorded in artifacts.",
+    "fixtures": [
+      "h1_1",
+      "h1_6",
+      "h1_8",
+      "h1_10",
+      "washington_01",
+      "latest Private human script",
+      "silence-leading fixture >=5s pre-speech silence",
+      "low-energy tail fixture"
+    ],
+    "requiredMetrics": [
+      "speech_start_detected",
+      "speechStartOffsetMs",
+      "retainedPrerollMs",
+      "peakBufferedSeconds",
+      "utteranceSeconds",
+      "lowEnergyPauseTailThreshold",
+      "silenceThreshold",
+      "timeToFirstProvisionalMs",
+      "timeToFirstFinalMs",
+      "finalizeWaitMs",
+      "finalizePrepMs",
+      "finalizeDecodeMs",
+      "RTF",
+      "WER/accuracy",
+      "word completeness",
+      "semantic substitutions",
+      "filler recall",
+      "false filler insertion",
+      "visible transcript",
+      "saveCandidate",
+      "history/detail",
+      "duplicate detection"
+    ],
+    "passRule": "Improve or preserve baseline accuracy on h1_6 and the human script, preserve onset/tail words and fillers, and avoid >10% timing regression. Onset clipping, tail loss, or worse semantic substitution fails."
+  },
+  "latestSessionAnalyticsCoherenceProof": {
+    "status": "automated_coherence_verified",
+    "owner": "test-release-agent / Codex",
+    "targetedVitest": {
+      "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/components/__tests__/AnalyticsDashboard.component.test.tsx frontend/src/components/session/__tests__/LiveCoachingScoreCard.test.tsx frontend/src/pages/__tests__/AnalyticsPage.component.test.tsx frontend/src/hooks/__tests__/useAnalytics.test.tsx frontend/src/utils/__tests__/speakingScore.test.ts",
+      "testFilesPassed": 5,
+      "testsPassed": 66
+    },
+    "browserProof": [
+      {
+        "command": "pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-session-analytics-coherence",
+        "testsPassed": 9
+      },
+      {
+        "command": "pnpm exec playwright test tests/e2e/analytics-suite.e2e.spec.ts tests/e2e/analytics-truth.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-analytics-theme-proof",
+        "testsPassed": 13
+      }
+    ],
+    "verified": [
+      "SpeakSharp Score explanation and transcript-quality confidence caveat",
+      "Analytics dashboard/page renders coherent tool groups",
+      "Filler/readability/transcript-quality signals are present in analytics",
+      "Session metrics persist into analytics detail after save and reload",
+      "Analytics truth values change from transcript events and survive reload/export",
+      "Detail navigation returns to dashboard"
+    ],
+    "bugsFound": [],
+    "caveat": "This closes session-to-analytics coherence under automated/mock proofs. It does not close the underlying STT quality blockers: Native/Private detail empties from human proofs, Private substitution, Private missed filler, and Native truecasing/readability."
+  },
+  "latestBrowserUxBugHunt": {
+    "status": "automated_ux_sweep_passed_no_new_bug",
+    "owner": "test-release-agent / Codex",
+    "command": "pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/user-filler-words.e2e.spec.ts tests/e2e/goal-setting.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-browser-ux-bug-hunt",
+    "testsPassed": 19,
+    "coverage": [
+      "Free/Pro primary session journeys",
+      "user feature matrix and history/detail navigation",
+      "custom filler-word management",
+      "goal-setting analytics",
+      "error-state handling"
+    ],
+    "bugsFound": [],
+    "caveat": "This automated sweep does not replace human real-mic Private/Native proofs. Known human-found STT blockers remain open with dev: Native detail/readability/trust spacing and Private substitution/detail/live progress."
+  },
+  "latestCloudBaselineProof": {
+    "status": "local_contract_verified_deployed_smoke_passed_full_metrics_deferred",
+    "owner": "test-release-agent / Codex",
+    "policy": "Cloud baseline only for launch; no standard-filler keyterms work.",
+    "localContractProof": {
+      "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false tests/private/sttTiming.test.ts tests/cloud/assemblyaiAbUrl.test.ts frontend/src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts frontend/src/services/transcription/providers/cloud/__tests__/AssemblyAICloudProvider.test.ts",
+      "testFilesPassed": 4,
+      "testsPassed": 44,
+      "verified": [
+        "baseline URL has no prompt/keyterms",
+        "AssemblyAI provider parses Begin/Turn/Termination/Error messages",
+        "Cloud stop awaits deterministic shutdown/tail termination",
+        "Cloud trace reader derives first partial/final and stop-to-termination timing"
+      ]
+    },
+    "liveAppPathGate": {
+      "command": "gh workflow run live-release-matrix.yml -f suite=cloud-artifact",
+      "runId": "26960691857",
+      "jobId": "79549905302",
+      "commit": "4216b2d1",
+      "artifactId": "7415247192",
+      "result": "passed",
+      "testsPassed": 1,
+      "duration": "46.2s",
+      "verified": [
+        "deployed Pro auth reached session",
+        "Cloud mode started with AssemblyAI token HTTP 200",
+        "provider emitted partial, final, and terminated events",
+        "stop selected result transcriptLength=362",
+        "recording duration=25.062s",
+        "final wordCount=67",
+        "fillerCount=6",
+        "willSave=true",
+        "analytics history rendered"
+      ],
+      "newFinding": "Pre-fix smoke on 4216b2d1 included glued trust-copy text: Draft transcriptText may change.... Current main includes spacing fix cd4b677d and should be re-proofed using data-transcript-text-only before assigning new dev work."
+    },
+    "stillRequiredForGreen": [
+      "__CLOUD_STT_TIMELINE__",
+      "stopToTerminationMs",
+      "first partial/final timing",
+      "tail words preserved",
+      "WER/accuracy",
+      "filler recall and false filler insertion",
+      "punctuation/readability metrics",
+      "save/history/detail equality",
+      "clean transcript-only evidence without trust-label glue"
+    ]
+  },
+  "latestReportBacklogHygiene": {
+    "status": "complete",
+    "owner": "test-release-agent / Codex",
+    "changes": [
+      "Marked all seven test-release tasks with current completion/gating status.",
+      "Pruned stale backlog signals for completed analytics review, Native formatter quota #35, Private provisional quality #36, and sanitizer #38.",
+      "Preserved post-launch live meeting overlay backlog item.",
+      "Kept active STT reports focused on current blockers, owners, artifacts, and proof gates."
+    ]
+  },
+  "privateProductBar": {
+    "status": "active_release_gate",
+    "rule": "Private is not allowed to be private but worse; Private must become private and credible.",
+    "mustMeetOrBeat": [
+      "same-model/drop-in Private equivalent",
+      "Native human Chrome mic baseline"
+    ],
+    "requiredFields": [
+      "app vs drop-in delta",
+      "app vs Native baseline delta",
+      "WER / accuracy",
+      "filler recall and false filler insertion",
+      "readability",
+      "firstProgressMs",
+      "firstDraftMs",
+      "finalAtMs",
+      "stopFinalizationMs",
+      "save/history/detail equality",
+      "no Cloud fallback"
+    ],
+    "implementationPolicy": {
+      "fixAV2": "Interim RMS/threshold patch only; may ship only with focused browser proof and no h1/human-like guard regression.",
+      "vad": "Intended architecture direction; prototype behind named flag before replacing RMS gating.",
+      "segmentTrust": "Do not ship cosmetic-only segment trust; segment work must move toward real segment-level finalization and saved transcript integrity.",
+      "privateFormatter": "Deferred for release; no Gemini/server formatter and no second local punctuation model unless separately approved.",
+      "modelPolicy": "whisper-tiny.en remains acceptable only if it meets the bar; larger/local models require browser proof of accuracy/timing/download/memory/setup cost.",
+      "setupCta": "Show model size, not estimated setup time."
+    }
+  },
+  "trustCopyContract": {
+    "private": {
+      "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
+      "forbidden": ["Gemini/server formatter by default", "punctuation cleanup that hides semantic substitutions"]
+    },
+    "nativeCloud": {
+      "allowed": ["Draft transcript", "Processing transcript…", "Finalizing transcript…", "normal final transcript styling"],
+      "forbidden": ["local", "locally", "on this device for STT processing"]
+    }
+  },
+  "ownership": {
+    "devAgent": [
+      "Private content loss/substitution",
+      "Private first-visible draft gating",
+      "#30 Private setup CTA",
+      "return_timestamps audit for >30s final decode",
+      "named VAD prototype flag",
+      "Private Fix-A-v2/VAD/model candidates must be named, flagged, and proven against drop-in plus Native baseline"
+    ],
+    "testReleaseAgent": [
+      "Private decode-parameter A/B h1_6 completed; expand only for a new candidate config",
+      "Native raw-first async formatter plumbing verified; rerun human proof on current main for #29/detail, truecasing/readability, and trust spacing",
+      "Private VAD prototype test plan complete; execute after dev ships a named VAD flag",
+      "Session-to-Analytics coherence complete under targeted automated proof",
+      "Browser UX bug hunt complete under automated proof",
+      "Cloud baseline local contract and deployed smoke complete; richer metrics deferred behind Native/Private",
+      "Report/backlog hygiene complete; active files pruned to current release signals",
+      "Rerun Native real mic on current main",
+      "Rerun Private human proof on current main",
+      "Run v4 containment proof",
+      "Run Fix-A-v2 focused proof",
+      "Run richer Cloud baseline metrics proof only after higher-priority Native/Private blockers move",
+      "Rerun Private app-vs-drop-in and app-vs-Native-baseline comparisons after any named Private candidate lands"
+    ],
+    "product": [
+      "Cloud baseline only for launch; no standard-filler keyterms",
+      "Private formatter must remain local-only",
+      "Decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves"
+    ]
+  }
+}

@@ -1,0 +1,200 @@
+/**
+ * Private STT corpus acceptance validator.
+ *
+ * Encodes the test-agent report's gate as code so dev "done" claims map to the
+ * SAME acceptance criteria the test agent applies, instead of just unit tests.
+ *
+ * A focused Private CPU row FAILS acceptance if any of:
+ *   - structured runtime telemetry is missing (privateRuntime/privateProvider null)
+ *   - cloud fallback was attempted (privacy violation) or not provably false
+ *   - the final transcript is wrong (truth-preserving substrings missing)
+ *   - stop finalization exceeded the hard latency limit
+ *
+ * Pure + dependency-free so it runs with no browser. Used both by the artifact
+ * validator test and (optionally) by the corpus harness to gate a run.
+ */
+
+export const PRIVATE_ACCEPTANCE = {
+  STOP_FINALIZATION_HARD_LIMIT_MS: 8000,
+  FIRST_TEXT_HARD_LIMIT_MS: 5000,
+};
+
+const asArray = (value) => Array.isArray(value) ? value : [];
+const eventName = (event) => String(event?.event ?? event?.name ?? event?.type ?? '');
+const finiteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+const isSpeechFixture = (row) => {
+  if (row?.expectedSpeech === false || row?.expectedSilence === true) return false;
+  const fixture = String(row?.fixture ?? '').toLowerCase();
+  return !/(silence|near[-_ ]?silence|tone|empty)/i.test(fixture);
+};
+
+const readPrivateHarnessSignals = (row) => {
+  const privateTrace = [
+    ...asArray(row?.privateTrace),
+    ...asArray(row?.privateTimeline),
+  ];
+  const privateAudioChunks = [
+    ...asArray(row?.privateAudioChunks),
+    ...asArray(row?.privateUtteranceAudioChunks),
+  ];
+  const hasProofFields = privateTrace.length > 0
+    || privateAudioChunks.length > 0
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateTrace')
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateTimeline')
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateAudioChunks')
+    || Object.prototype.hasOwnProperty.call(row ?? {}, 'privateUtteranceAudioChunks');
+  const hasProcessAudioReady = privateTrace.some((event) => eventName(event) === 'process_audio_ready');
+  const hasSpeechStart = privateTrace.some((event) => eventName(event) === 'speech_start_detected');
+  const energyValues = privateAudioChunks
+    .flatMap((chunk) => [chunk.rms, chunk.peak])
+    .filter(finiteNumber);
+
+  return {
+    privateTrace,
+    privateAudioChunks,
+    hasProofFields,
+    hasProcessAudioReady,
+    hasSpeechStart,
+    energyValues,
+    hasPositiveEnergy: energyValues.length === 0 || energyValues.some((value) => value > 0),
+    speechExpected: isSpeechFixture(row),
+  };
+};
+
+/**
+ * Build the compact precheck block that proof artifacts should write before
+ * judging model accuracy. Unlike the legacy validator compatibility path, this
+ * function requires current harness proof fields and returns INVALID when they
+ * are missing.
+ */
+export function buildPrivateHarnessPrecheck(row) {
+  if (!row || typeof row !== 'object') {
+    return {
+      status: 'HARNESS_PRECHECK_INVALID',
+      valid: false,
+      reason: 'row_missing',
+      checks: {},
+    };
+  }
+
+  const signals = readPrivateHarnessSignals(row);
+  let reason = null;
+
+  if (!signals.hasProofFields) {
+    reason = 'invalid_harness_proof_missing';
+  } else if (finiteNumber(row.stopFinalizationMs) && row.stopFinalizationMs <= 0) {
+    reason = `invalid_impossible_timing:${row.stopFinalizationMs}`;
+  } else if (signals.privateAudioChunks.length === 0) {
+    reason = 'invalid_no_audio_delivered';
+  } else if (!signals.hasProcessAudioReady) {
+    reason = 'invalid_process_audio_ready_missing';
+  } else if (signals.energyValues.length > 0 && !signals.hasPositiveEnergy) {
+    reason = 'invalid_zero_audio_energy';
+  } else if (signals.speechExpected && signals.privateTrace.length > 0 && !signals.hasSpeechStart) {
+    reason = 'invalid_no_speech_start_detected';
+  }
+
+  const valid = reason == null;
+  return {
+    status: valid ? 'HARNESS_PRECHECK_PASS' : 'HARNESS_PRECHECK_INVALID',
+    valid,
+    reason,
+    checks: {
+      fixture: row.fixture ?? null,
+      proofFieldsPresent: signals.hasProofFields,
+      audioChunkCount: signals.privateAudioChunks.length,
+      processAudioReady: signals.hasProcessAudioReady,
+      speechStartDetected: signals.hasSpeechStart,
+      positiveEnergy: signals.hasPositiveEnergy,
+      speechExpected: signals.speechExpected,
+      stopFinalizationMs: finiteNumber(row.stopFinalizationMs) ? row.stopFinalizationMs : null,
+    },
+  };
+}
+
+/**
+ * Classify invalid harness/audio-delivery evidence before model accuracy.
+ *
+ * This intentionally runs only when the row includes audio/timeline/timing proof
+ * fields. Older artifact rows without those fields still validate via the legacy
+ * acceptance checks; current proof rows with zero audio must be INVALID, never a
+ * model FAIL.
+ */
+export function classifyPrivateAudioValidity(row) {
+  if (!row || typeof row !== 'object') {
+    return { valid: false, reason: 'row_missing' };
+  }
+
+  const { hasProofFields } = readPrivateHarnessSignals(row);
+
+  if (!hasProofFields) {
+    return { valid: true, reason: null };
+  }
+
+  const precheck = buildPrivateHarnessPrecheck(row);
+  return { valid: precheck.valid, reason: precheck.reason };
+}
+
+/**
+ * Validate a single corpus result row. `requiredFinalSubstrings` lets the caller
+ * assert truth-preserving fragments (e.g. ['pepper spoils'] for h1_2).
+ */
+export function validatePrivateRow(row, requiredFinalSubstrings = []) {
+  const failures = [];
+
+  if (!row || typeof row !== 'object') {
+    return { fixture: row?.fixture ?? 'unknown', pass: false, failures: ['row_missing'] };
+  }
+
+  const audioValidity = classifyPrivateAudioValidity(row);
+  if (!audioValidity.valid) {
+    return {
+      fixture: row.fixture,
+      pass: false,
+      invalid: true,
+      invalidReason: audioValidity.reason,
+      failures: [audioValidity.reason],
+    };
+  }
+
+  // Runtime telemetry must be structurally present (the P0.1 gate).
+  if (row.privateRuntime == null) failures.push('runtime_telemetry_null');
+  if (row.privateProvider == null) failures.push('provider_telemetry_null');
+
+  // Privacy invariant: cloud fallback must be provably false (never null/true).
+  if (row.privateCloudFallbackAttempted !== false) failures.push('cloud_fallback_not_proven_false');
+
+  // Final transcript correctness (truth-preserving fragments).
+  const finalText = String(row.detailTranscript ?? row.postStopTranscript ?? '').toLowerCase();
+  for (const fragment of requiredFinalSubstrings) {
+    if (!finalText.includes(String(fragment).toLowerCase())) {
+      failures.push(`final_missing:${fragment}`);
+    }
+  }
+
+  // Latency gate.
+  if (typeof row.stopFinalizationMs === 'number' && row.stopFinalizationMs > PRIVATE_ACCEPTANCE.STOP_FINALIZATION_HARD_LIMIT_MS) {
+    failures.push(`stop_finalization_over_limit:${row.stopFinalizationMs}`);
+  }
+
+  return { fixture: row.fixture, pass: failures.length === 0, failures };
+}
+
+/**
+ * Validate a whole corpus artifact. `expectations` maps fixtureId ->
+ * requiredFinalSubstrings[]. Returns per-row results plus an overall verdict.
+ */
+export function validatePrivateCorpusArtifact(artifact, expectations = {}) {
+  const results = Array.isArray(artifact?.results) ? artifact.results : [];
+  const rows = results
+    .filter((row) => row && row.mode !== 'native' && row.fixture)
+    .map((row) => validatePrivateRow(row, expectations[row.fixture] ?? []));
+
+  return {
+    rowCount: rows.length,
+    passCount: rows.filter((r) => r.pass).length,
+    failCount: rows.filter((r) => !r.pass).length,
+    pass: rows.length > 0 && rows.every((r) => r.pass),
+    rows,
+  };
+}

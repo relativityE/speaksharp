@@ -1,7 +1,7 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,6 +32,8 @@ const mapError = (message: string) => {
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
+  const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+  const postAuthPath = `${fromLocation?.pathname || '/session'}${fromLocation?.search || ''}`;
 
   // Determine initial view from URL path
   const getInitialView = (): AuthView => {
@@ -92,7 +94,8 @@ export default function AuthPage() {
           return;
         }
 
-        // Credentials succeeded. The backend provisions the 60-minute Pro trial.
+        // Credentials succeeded. The backend provisions the free profile; Private
+        // access is offered later as one intentional sample session.
         setInlineError(null);
 
         // Post-signup sign-in to get the session (Supabase quirk)
@@ -153,7 +156,7 @@ export default function AuthPage() {
   }
 
   if (session && !isSubmitting) {
-    return <Navigate to="/session" replace />;
+    return <Navigate to={postAuthPath} replace />;
   }
 
 
@@ -178,7 +181,7 @@ export default function AuthPage() {
             </CardTitle>
             <CardDescription className="text-base">
               {view === 'sign_in' && 'Enter your credentials to access your account'}
-              {view === 'sign_up' && 'Start free, then upgrade to Pro when you want deeper coaching.'}
+              {view === 'sign_up' && 'Start free with Browser transcription. Upgrade when you want deeper coaching.'}
               {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
@@ -191,6 +194,7 @@ export default function AuthPage() {
                     data-testid="email-input"
                     id="email"
                     type="email"
+                    autoComplete="email"
                     placeholder="name@example.com"
                     value={email}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
@@ -227,9 +231,9 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">Start with a 60-minute Pro trial</p>
+                    <p className="text-sm font-semibold text-foreground">Start free with instant Browser transcription</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Try Private transcription, analytics, and feedback. Cloud transcription is available on Pro.
+                      Try the product immediately. You can also try one Private sample session and record up to 5 minutes with local transcription so you can compare it with Browser transcription. Cloud STT is a paid Early Access feature.
                     </p>
                     {inlineError && (
                       <p
@@ -315,7 +319,7 @@ export default function AuthPage() {
         </Card>
 
         <p className="text-center text-sm text-muted-foreground px-8">
-          By clicking continue, you agree to our <a href="#" className="underline underline-offset-4 hover:text-primary">Terms of Service</a> and <a href="#" className="underline underline-offset-4 hover:text-primary">Privacy Policy</a>.
+          By clicking continue, you agree to our <Link to="/terms" className="underline underline-offset-4 hover:text-primary">Terms of Service</Link> and <Link to="/privacy" className="underline underline-offset-4 hover:text-primary">Privacy Policy</Link>.
         </p>
       </div>
     </div>

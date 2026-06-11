@@ -21,16 +21,17 @@ describe('ErrorBoundary', () => {
         );
 
         expect(screen.getByText(/Oops! Something went wrong/i)).toBeInTheDocument();
-        expect(screen.getByText(/Test Error/i)).toBeInTheDocument();
+        expect(screen.getByText(/The page hit a temporary problem/i)).toBeInTheDocument();
+        expect(screen.queryByText(/Test Error/i)).not.toBeInTheDocument();
     });
 
-    it('should reload the page when Refresh button is clicked', () => {
-        const reloadMock = vi.fn();
+    it('should send the user home when recovery is clicked', () => {
+        const assignMock = vi.fn();
 
         // Use vitest stubbing for window.location to avoid type errors
         vi.stubGlobal('location', {
             ...window.location,
-            reload: reloadMock
+            assign: assignMock
         });
 
         render(
@@ -39,8 +40,8 @@ describe('ErrorBoundary', () => {
             </ErrorBoundary>
         );
 
-        fireEvent.click(screen.getByRole('button', { name: /Refresh Page/i }));
-        expect(reloadMock).toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: /Go Home/i }));
+        expect(assignMock).toHaveBeenCalledWith('/');
 
         vi.unstubAllGlobals();
     });

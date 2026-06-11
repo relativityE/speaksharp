@@ -28,6 +28,17 @@ interface AuthProviderProps {
   initialSession?: Session | null;
 }
 
+const isStructurallyValidSession = (session: unknown): session is Session => {
+  if (!session || typeof session !== 'object') return false;
+  const candidate = session as Partial<Session> & { user?: Partial<User> };
+  if (!candidate.access_token || typeof candidate.access_token !== 'string') return false;
+  if (!candidate.user || typeof candidate.user !== 'object') return false;
+  if (!candidate.user.id || typeof candidate.user.id !== 'string') return false;
+  if (!candidate.user.email || typeof candidate.user.email !== 'string') return false;
+  if (candidate.access_token.split('.').length !== 3) return false;
+  return true;
+};
+
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
   const supabase = getSupabaseClient();
   const queryClient = useQueryClient();
@@ -49,7 +60,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       const raw = window.localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.access_token && parsed?.user) return parsed;
+        if (isStructurallyValidSession(parsed)) return parsed;
+        logger.warn({ storageKey }, '[AuthProvider] Ignoring malformed stored auth session');
       }
     } catch (err: unknown) {
       logger.error({ err }, '[AuthProvider] Error reading sync session');
@@ -58,34 +70,17 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   }, [initialSession]);
 
   const [sessionState, setSessionState] = useState<Session | null | undefined>(getInjectedSession);
+  const sessionStateRef = useRef<Session | null | undefined>(sessionState);
   // In E2E mock mode with no real session, skip the loading state entirely.
   const isE2EMockMode = ENV.isE2E;
   const [loading, setLoading] = useState(!getInjectedSession() && !isE2EMockMode);
 
   useEffect(() => {
-    if (import.meta.env.DEV && window.location.search.includes('devBypass=true')) {
-      logger.info('[AuthProvider] DEV BYPASS ENABLED - using mock session');
-      const devUserId = '00000000-0000-0000-0000-000000000000';
-      const mockSession = {
-        access_token: 'dev-bypass-token',
-        refresh_token: 'dev-bypass-refresh',
-        expires_in: 3600,
-        expires_at: Math.floor(Date.now() / 1000) + 3600,
-        token_type: 'bearer',
-        user: {
-          id: devUserId,
-          email: 'dev@speaksharp.app',
-          aud: 'authenticated',
-          role: 'authenticated',
-          app_metadata: {},
-          user_metadata: {},
-          created_at: new Date().toISOString(),
-        }
-      } as Session;
-      setSessionState(mockSession);
-      setLoading(false);
-      return;
-    }
+    sessionStateRef.current = sessionState;
+  }, [sessionState]);
+
+  useEffect(() => {
+    const injectedSession = getInjectedSession();
 
     if (!supabase) {
       logger.error('[AuthProvider] Supabase client is not available.');
@@ -100,7 +95,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       const initStartTime = Date.now();
       try {
         // If we already have a session (from initialSession or sync), skip fetch
-        if (initialSession || getInjectedSession()) {
+        if (initialSession || injectedSession) {
           setLoading(false);
           return;
         }
@@ -112,6 +107,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
           logger.error({ error: error.message, durationMs: duration }, '[AuthProvider] getSession fallback failed');
         } else if (session) {
           logger.info({ userId: session.user.id, durationMs: duration }, '[AuthProvider] getSession fallback resolved');
+          sessionStateRef.current = session;
           setSessionState(session);
         }
       } catch (err: unknown) {
@@ -129,7 +125,11 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       setLoading(currentLoading => {
         if (currentLoading) {
           logger.warn({ timeout: AUTH_TIMEOUT }, '[AuthProvider] Safety timeout reached, forcing boot');
-          setSessionState(prev => prev === undefined ? null : prev);
+          setSessionState(prev => {
+            const next = prev === undefined ? null : prev;
+            sessionStateRef.current = next;
+            return next;
+          });
           return false;
         }
         return currentLoading;
@@ -139,8 +139,13 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
         const timestamp = new Date().toISOString();
-        if (event === 'INITIAL_SESSION' && initialSession && !newSession) {
-          logger.debug('[AuthProvider] 🧪 E2E: Ignoring INITIAL_SESSION(null) because initialSession is present');
+        const assignSession = (nextSession: Session | null) => {
+          sessionStateRef.current = nextSession;
+          setSessionState(nextSession);
+        };
+
+        if (event === 'INITIAL_SESSION' && !newSession && (initialSession || sessionStateRef.current)) {
+          logger.debug('[AuthProvider] Ignoring INITIAL_SESSION(null) because a session is already present');
           return;
         }
 
@@ -151,24 +156,27 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
           timestamp
         }, `[Supabase Auth] 🔐 Auth event: ${event}`);
 
-        setSessionState(newSession);
-
         switch (event) {
           case 'SIGNED_OUT':
             logger.info({ timestamp }, '[AuthProvider] User signed out or refresh failed, clearing state');
+            assignSession(null);
             setLoading(false);
             break;
           case 'TOKEN_REFRESHED':
             logger.info({ expiresAt: newSession?.expires_at, timestamp }, '[AuthProvider] Token successfully refreshed');
+            assignSession(newSession);
             break;
           case 'USER_UPDATED':
             logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User metadata updated');
+            assignSession(newSession);
             break;
           case 'SIGNED_IN':
             logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User signed in');
+            assignSession(newSession);
             setLoading(false);
             break;
           case 'INITIAL_SESSION':
+            assignSession(newSession);
             setLoading(false);
             break;
         }
@@ -185,10 +193,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   useEffect(() => {
     // Fast-path: In E2E mock mode with no real session, signal auth readiness immediately.
     // The Core Probe validates infrastructure only — it does not require a real Supabase session.
-    // NOTE: Must read window.__SS_E2E__?.isActive directly — ENV.isE2E is a frozen IIFE snapshot
-    // evaluated at module load time, before Playwright's addInitScript injects __SS_E2E__.
-    const isE2ELive = typeof window !== 'undefined' && !!window.__SS_E2E__?.isActive;
-    if (isE2ELive && !sessionState) {
+    if (ENV.isE2E && !sessionState) {
       useReadinessStore.getState().setReady('auth');
       logger.info('[AuthProvider] ✅ Auth Ready Signal (E2E Mock Mode — no session required)');
       return;
@@ -213,6 +218,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     } catch (err: unknown) {
       logger.error({ err }, '[AuthProvider] Error during signOut');
     }
+    sessionStateRef.current = null;
     setSessionState(null);
   }, [supabase, queryClient]);
 
@@ -221,7 +227,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     user: sessionState?.user ?? null,
     loading,
     signOut,
-    setSession: (s: Session | null) => setSessionState(s),
+    setSession: (s: Session | null) => {
+      sessionStateRef.current = s;
+      setSessionState(s);
+    },
   }), [sessionState, loading, signOut]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

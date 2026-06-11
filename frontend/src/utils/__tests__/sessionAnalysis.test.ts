@@ -20,6 +20,19 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
     });
 
+    it('STT-P1: re-counts respelled fillers ("Umm") from the final transcript when no live fillerData is supplied', () => {
+        // The save/score path (SpeechRuntimeController) now omits the live store.fillerData so the
+        // persisted count is derived from the authoritative final transcript. A saved "Umm" must
+        // therefore count as a user-perceived "um" (regex normalizes umm/ummm/uhm -> um), not um:0.
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'Umm, basically we should ship it.',
+            durationSeconds: 20,
+        });
+
+        expect(metrics.fillerData.um.count).toBe(1);
+        expect(metrics.fillerCount).toBeGreaterThanOrEqual(1);
+    });
+
     it('does not report perfect clarity for missing speech', () => {
         const metrics = calculateCoreSessionMetrics({
             transcript: '',

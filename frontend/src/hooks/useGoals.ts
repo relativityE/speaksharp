@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { safeLocalStorageGet, safeLocalStorageSet, safeLocalStorageRemove } from '@/lib/safeStorage';
+import { safeLocalStorageSet, safeLocalStorageRemove, safeLocalStorageGetJSON } from '@/lib/safeStorage';
 import { goalsService } from '@/services/domainServices';
 import logger from '../lib/logger';
 import { GOALS_STORAGE_KEY, DEFAULT_GOALS } from '@/config/env';
@@ -26,8 +26,7 @@ export function useGoals() {
         queryKey: ['userGoals', user?.id],
         queryFn: async () => {
             if (!user) {
-                const stored = safeLocalStorageGet(GOALS_STORAGE_KEY);
-                return stored ? JSON.parse(stored) : DEFAULT_GOALS;
+                return safeLocalStorageGetJSON(GOALS_STORAGE_KEY, DEFAULT_GOALS);
             }
 
             try {
@@ -40,8 +39,7 @@ export function useGoals() {
                 logger.info({ err }, '[useGoals] Fetch failed; falling back to local defaults');
             }
 
-            const stored = safeLocalStorageGet(GOALS_STORAGE_KEY);
-            return stored ? JSON.parse(stored) : DEFAULT_GOALS;
+            return safeLocalStorageGetJSON(GOALS_STORAGE_KEY, DEFAULT_GOALS);
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -52,7 +50,12 @@ export function useGoals() {
             safeLocalStorageSet(GOALS_STORAGE_KEY, JSON.stringify(newGoals));
 
             if (user) {
-                return await goalsService.upsert(user.id, newGoals);
+                try {
+                    return await goalsService.upsert(user.id, newGoals);
+                } catch (err) {
+                    logger.info({ err }, '[useGoals] Remote goal sync failed; keeping local goals');
+                    return newGoals;
+                }
             }
             return newGoals;
         },

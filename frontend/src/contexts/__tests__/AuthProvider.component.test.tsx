@@ -173,6 +173,69 @@ describe('AuthProvider', () => {
         await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('refreshed-user'));
     });
 
+    it('does not let INITIAL_SESSION(null) overwrite an existing session', async () => {
+        const mockSession = { user: { id: 'user-123' } };
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
+
+        let authStateCallback: (event: string, session: unknown) => void;
+        mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
+            authStateCallback = callback;
+            return { data: { subscription: { unsubscribe: vi.fn() } } };
+        });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+
+        act(() => {
+            authStateCallback('INITIAL_SESSION', null);
+        });
+
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+    });
+
+    it('ignores devBypass query parameters in the manual auth provider path', async () => {
+        window.history.pushState({}, '', '/session?devBypass=true');
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+        expect(screen.queryByText('dev@speaksharp.app')).not.toBeInTheDocument();
+    });
+
+    it('ignores malformed stored sessions before they can pollute backend requests', async () => {
+        const projectRef = new URL(import.meta.env.VITE_SUPABASE_URL).hostname.split('.')[0];
+        window.localStorage.setItem(`sb-${projectRef}-auth-token`, JSON.stringify({
+            access_token: 'dev-token',
+            user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@speaksharp.app' },
+        }));
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+        expect(screen.queryByText('dev@speaksharp.app')).not.toBeInTheDocument();
+    });
+
     it('handles session expiry via onAuthStateChange', async () => {
         const mockSession = { user: { id: 'user-123' } };
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });

@@ -615,14 +615,19 @@ export async function setupE2EMocks(
         emptySessions?: boolean;
         /** Hard override status. If not set, uses base statefulProfile. */
         userType?: 'free' | 'basic' | 'pro';
+        profile?: Record<string, unknown>;
     } = {}
 ): Promise<void> {
-    const { strictMode = false, emptySessions = false, userType } = options;
+    const { strictMode = false, emptySessions = false, userType, profile } = options;
 
     // Inject profile override if userType is explicitly set
     if (userType) {
         await page.addInitScript((status: string) => {
-            (window as Window & { __E2E_MOCK_PROFILE__?: { subscription_status: string } }).__E2E_MOCK_PROFILE__ = { subscription_status: status };
+            (window as Window & { __E2E_MOCK_PROFILE__?: Record<string, unknown> }).__E2E_MOCK_PROFILE__ = {
+                subscription_status: status,
+                stripe_subscription_id: status === 'pro' ? 'sub_e2e_pro_cloud' : null,
+                subscription_id: status === 'pro' ? 'sub_e2e_pro_cloud' : null,
+            };
         }, userType);
     }
 
@@ -631,6 +636,16 @@ export async function setupE2EMocks(
     state.profile = { ...MOCK_USER_PROFILE };
     if (userType) {
         state.profile.subscription_status = userType;
+        if (userType === 'pro') {
+            state.profile = {
+                ...state.profile,
+                stripe_subscription_id: 'sub_e2e_pro_cloud',
+                subscription_id: 'sub_e2e_pro_cloud',
+            } as typeof MOCK_USER_PROFILE;
+        }
+    }
+    if (profile) {
+        state.profile = { ...state.profile, ...profile } as typeof MOCK_USER_PROFILE;
     }
     state.userWords = [];
     state.sessions = emptySessions ? [] : MOCK_SESSION_HISTORY.map(s => createMockSession(s as Partial<MockSession>));
@@ -685,9 +700,9 @@ export async function setupE2EMocks(
 /**
  * Update the mock profile for a page (Node-side only)
  */
-export async function updateMockProfile(page: Page, profile: Partial<typeof MOCK_USER_PROFILE>) {
+export async function updateMockProfile(page: Page, profile: Record<string, unknown>) {
     const state = getPageState(page);
-    state.profile = { ...state.profile, ...profile };
+    state.profile = { ...state.profile, ...profile } as typeof MOCK_USER_PROFILE;
     mockLog('[E2E MOCK] Node-side profile updated:', JSON.stringify(state.profile));
 }
 

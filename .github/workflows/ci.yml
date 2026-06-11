@@ -10,6 +10,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+  VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
 jobs:
   prepare:
     name: prepare
@@ -161,11 +169,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: health-check-report
-          path: |
-            test-results/playwright-infra
-            blob-report
+          path: test-results/playwright-infra
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
@@ -193,7 +199,7 @@ jobs:
 
       - name: Run E2E Test Shard
         env:
-          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STT_ENGINE: mock
         run: pnpm ci:test ${{ matrix.shard }}
@@ -337,7 +343,8 @@ jobs:
             artifacts/ci-metrics.json
             artifacts/ci-wall-clock.json
             artifacts/ci-job-timing.json
-            product_release/PRD.operational.md
+            product_release/evidence/software-quality.latest.json
+            product_release/evidence/software-quality-summary.latest.md
           retention-days: 30
           if-no-files-found: warn
 

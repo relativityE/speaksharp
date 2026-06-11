@@ -1,11 +1,14 @@
 /**
  * Benchmark: Private — TransformersJS (CPU)
  */
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate, attachPrivateBenchmarkEvidence } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
+
+const HARVARD_BENCHMARK_AUDIO_MS = 34_600;
+const AUDIO_COMPLETION_MARGIN_MS = 2_000;
 
 test.use({
     launchOptions: {
@@ -18,8 +21,12 @@ test.use({
     }
 });
 
+test.afterEach(async ({ page }, testInfo) => {
+    await attachPrivateBenchmarkEvidence(page, testInfo, 'private-cpu');
+});
+
 test('measure TransformersJS (CPU)', async ({ page }) => {
-    test.setTimeout(240_000); // 4 minutes overall to allow for 3min WASM load + audio recording
+    test.setTimeout(180_000);
 
     const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
     const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
@@ -34,11 +41,13 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
         window.REAL_WHISPER_TEST = true;
         window.__FORCE_TRANSFORMERS_JS__ = true;
         window.__STT_LOAD_TIMEOUT__ = 180000;
+        (window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__ = true;
     });
 
     // Real Authentication Flow to ensure real WASM engines are loaded
     await page.goto('/auth/signin');
     await page.waitForSelector(`[data-testid="auth-form"]`, { timeout: 15_000 });
+    await logBenchmarkPhase(page, 'SETUP_AUTH_TIER_FORM_VISIBLE');
 
     await page.getByTestId('email-input').fill(testEmail);
     await page.getByTestId('password-input').fill(testPassword);
@@ -48,6 +57,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     );
     await page.getByTestId('sign-in-submit').click();
     await loginPromise;
+    await logBenchmarkPhase(page, 'SETUP_AUTH_TIER_LOGIN_SUCCESS');
 
     // Navigate to the session page where the STT WASM engines actually initialize.
     await waitForBenchmarkSession(page);
@@ -55,23 +65,28 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
 
     await selectBenchmarkMode(page, 'private');
 
-    // Ensure the Private engine is fully initialized (WASM downloaded and booted) BEFORE starting.
-    await waitForPrivateEngineReady(page, 180_000);
+    // Ensure the Private engine/model is downloaded and fully initialized BEFORE starting.
+    await preparePrivateModelIfPrompted(page, 90_000);
 
     await page.getByTestId('session-start-stop-button').click();
+    const recordingStartedAt = Date.now();
     await expectBenchmarkRecordingStarted(page, 'private-cpu');
 
     // Fast-fail: assert the engine is producing output during the recording window
     // We use word count because transcript-container shows placeholder text ("Listening...")
     await expectBenchmarkTranscriptOutput(page, 'private-cpu', 20_000);
 
-    // Wait for the remainder of the audio fixture (35s total - 15s elapsed avg)
-    await page.waitForTimeout(20_000);
+    // Wait for the full injected fixture before scoring completeness. The prior
+    // "first text + 20s" timing stopped early when first text appeared quickly,
+    // producing false 60-ish-word under-capture artifacts against the 87-word truth.
+    const elapsedSinceStartMs = Date.now() - recordingStartedAt;
+    await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
 
     // Stop and collect transcript
     await page.getByTestId('session-start-stop-button').click();
-    await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
-    const transcriptText = (await page.getByTestId('transcript-container').textContent() ?? '')
+    await logBenchmarkPhase(page, 'PROOF_JOURNEY_STOP_CLICKED_PRIVATE_CPU');
+    const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-cpu');
+    const transcriptText = (saveCandidate.selectedForSave ?? '')
         .toLowerCase()
         .replace(/[^\w\s]/g, '')
         .replace(/\s+/g, ' ')
@@ -82,9 +97,11 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     const wer = calculateWordErrorRate(HARVARD_FULL, transcriptText);
 
     if (wordCount < referenceWordCount * 0.3) {
+        await logBenchmarkPhase(page, 'PROOF_ACCURACY_FINAL_COMPLETENESS_FAIL_PRIVATE_CPU');
         throw new Error(
-            `Benchmark aborted: transcript has only ${wordCount} words against ` +
+            `PROOF_FAIL proof.accuracy.final_completeness under_capture: transcript has only ${wordCount} words against ` +
             `${referenceWordCount} expected. Engine likely did not initialize. ` +
+            `saveCandidate=${JSON.stringify(saveCandidate)} ` +
             `WER of ${(wer * 100).toFixed(1)}% would be meaningless and must not ` +
             `be committed as a ceiling.`
         );

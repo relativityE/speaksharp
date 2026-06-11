@@ -4,9 +4,10 @@
  * ============================================================================
  * 
  * Abstraction layer for on-device speech-to-text engines.
- * Enables dual-engine architecture: whisper-turbo (fast) + transformers.js (safe)
- * 
- * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
+ * On-device engines: transformers.js (v2 CPU, default) + transformers.js v4 (experimental).
+ * (whisper-turbo / WebGPU was retired pre-beta.)
+ *
+ * @see docs/ARCHITECTURE.md - "Private STT"
  */
 
 import { Result } from '@/services/transcription/modes/types';
@@ -14,7 +15,7 @@ import { Result } from '@/services/transcription/modes/types';
 /**
  * Engine type identifier
  */
-export type EngineType = 'whisper-turbo' | 'transformers-js' | 'transformers-js-v4' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai' | 'deepgram';
+export type EngineType = 'transformers-js' | 'transformers-js-v4' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai' | 'deepgram';
 
 /**
  * Callbacks for engine lifecycle events
@@ -29,7 +30,7 @@ export interface EngineCallbacks {
 
 /**
  * Interface for Private STT engines.
- * Both whisper-turbo and transformers.js adapters implement this.
+ * The transformers.js adapters (v2 + v4) implement this.
  */
 export interface IPrivateSTTEngine {
     /**

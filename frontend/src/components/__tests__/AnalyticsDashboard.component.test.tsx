@@ -101,7 +101,7 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard-empty-state')).toBeInTheDocument();
     });
 
-    it('hides the upgrade prompt when effective trial access is Pro even if the profile has not hydrated it yet', () => {
+    it('hides the upgrade prompt when effective entitlement is Pro even if the profile has not hydrated it yet', () => {
         renderComponent({
             sessionHistory: [],
             isProUser: true,
@@ -117,11 +117,90 @@ describe('AnalyticsDashboard', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
-        expect(screen.getByTestId('stat-card-total_sessions')).toBeInTheDocument();
+        expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
+        expect(screen.getByText('Delivery Control')).toBeInTheDocument();
+        expect(screen.getByText('Why these tools are here')).toBeInTheDocument();
+        expect(screen.getByText(/evidence behind SpeakSharp Score/i)).toBeInTheDocument();
+        expect(screen.getByText(/Delivery Control shows which ingredient to improve/i)).toBeInTheDocument();
+        expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-speaking_pace')).toBeInTheDocument();
 
         // Verify session list is rendered
         const sessionItems = screen.getAllByTestId(/session-history-item-/);
         expect(sessionItems.length).toBeGreaterThan(0);
+    });
+
+    it.each([
+        {
+            id: 'delivery_control',
+            label: 'Delivery Control',
+            outcome: /steadier and more controlled/i,
+            statCards: ['stat-card-speaking_pace', 'stat-card-filler_words_per_min', 'stat-card-clarity_score', 'stat-card-total_practice_time'],
+            hasTranscriptQuality: false,
+        },
+        {
+            id: 'message_clarity',
+            label: 'Message Clarity',
+            outcome: /tighten the opening/i,
+            statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+            hasTranscriptQuality: false,
+        },
+        {
+            id: 'habit_progress',
+            label: 'Habit Progress',
+            outcome: /speaking habit is improving/i,
+            statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min'],
+            hasTranscriptQuality: false,
+        },
+        {
+            id: 'session_proof',
+            label: 'Session Proof',
+            outcome: /what changed between practice attempts/i,
+            statCards: ['stat-card-total_sessions', 'stat-card-speaking_pace', 'stat-card-clarity_score', 'stat-card-filler_words_per_min'],
+            hasTranscriptQuality: false,
+        },
+        {
+            id: 'transcript_quality',
+            label: 'Transcript Quality',
+            outcome: /delivery or capture quality/i,
+            statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+            hasTranscriptQuality: true,
+        },
+    ])('renders the $label analytics focus as a coherent user story', ({ id, label, outcome, statCards, hasTranscriptQuality }) => {
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', id);
+
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
+        expect(screen.getByText(outcome)).toBeInTheDocument();
+        expect(screen.getByText(`Evidence for ${label}`)).toBeInTheDocument();
+        expect(screen.getByText(`${label} Tools`)).toBeInTheDocument();
+        expect(screen.getByText(new RegExp(`${label} shows which ingredient to improve`, 'i'))).toBeInTheDocument();
+        for (const testId of statCards) {
+            expect(screen.getByTestId(testId)).toBeInTheDocument();
+        }
+
+        const accuracyComparison = screen.queryByTestId('accuracy-comparison');
+        expect(Boolean(accuracyComparison)).toBe(hasTranscriptQuality);
+    });
+
+    it('supports a custom toolkit when users want specific tools outside predefined groups', () => {
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', 'custom');
+        localStorage.setItem('speaksharp_custom_stat_cards_v1', JSON.stringify(['total_sessions', 'clarity_score']));
+        localStorage.setItem('speaksharp_custom_analysis_slides_v1', JSON.stringify(['stt_comparison']));
+
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        expect(screen.getByText('Custom Toolkit')).toBeInTheDocument();
+        expect(screen.getByText(/inspect the specific signals/i)).toBeInTheDocument();
+        expect(screen.getByText(/Custom tools answer their own question/i)).toBeInTheDocument();
+        expect(screen.getByText(/Selected tools are interpreted independently/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-total_sessions')).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
+        expect(screen.queryByTestId('stat-card-speaking_pace')).not.toBeInTheDocument();
+        expect(screen.getByTestId('accuracy-comparison')).toBeInTheDocument();
     });
 
     it('uses persisted WPM and clarity values for session comparison instead of recalculating legacy fields', () => {
@@ -274,9 +353,14 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'Private (whisper-tiny.en, transformers-js-2.17, cpu)'
-        );
+        // item-8: user-facing copy shows ONLY the friendly mode (no model names); the exact
+        // technical identity is preserved on data-* attributes for tests/telemetry.
+        const engineMetadata = screen.getByTestId('session-engine-metadata');
+        expect(engineMetadata).toHaveTextContent('Private');
+        expect(engineMetadata).not.toHaveTextContent('whisper-tiny.en');
+        expect(engineMetadata).toHaveAttribute('data-model', 'whisper-tiny.en');
+        expect(engineMetadata).toHaveAttribute('data-engine-version', 'transformers-js-2.17');
+        expect(engineMetadata).toHaveAttribute('data-device-type', 'cpu');
     });
 
     it('normalizes native metadata and hides placeholder details in detail view', () => {
@@ -298,8 +382,96 @@ describe('AnalyticsDashboard', () => {
         });
 
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'Native Browser'
+            'Browser'
         );
+    });
+
+    it('renders the saved Native transcript in the session detail view and exposes it for proofs', () => {
+        renderComponent({
+            sessionId: 'native-session',
+            sessionHistory: [
+                {
+                    id: 'native-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 6,
+                    engine: 'native',
+                    transcript: 'native browser microphone proof works',
+                },
+            ],
+        });
+
+        const detail = screen.getByTestId('session-detail-transcript');
+        expect(detail).toHaveTextContent('native browser microphone proof works');
+        expect(detail).toHaveAttribute('data-session-detail-transcript', 'native browser microphone proof works');
+    });
+
+    it('REGRESSION: a whitespace-only placeholder transcript shows the empty fallback, not a blank panel', () => {
+        // A session that started (placeholder `transcript: " "`) but was never finalized
+        // must not render a silent blank panel that looks like a lost transcript.
+        renderComponent({
+            sessionId: 'placeholder-session',
+            sessionHistory: [
+                {
+                    id: 'placeholder-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 5,
+                    total_words: 0,
+                    engine: 'native',
+                    transcript: ' ',
+                },
+            ],
+        });
+
+        const detail = screen.getByTestId('session-detail-transcript');
+        expect(detail).toHaveTextContent('No transcript available for this session.');
+        expect(detail).toHaveAttribute('data-session-detail-transcript', '');
+    });
+
+    it('shows a transcript-quality caveat in the detail view for a weak (Native) saved session', () => {
+        renderComponent({
+            sessionId: 'native-weak',
+            sessionHistory: [
+                {
+                    id: 'native-weak',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 36,
+                    wpm: 110,
+                    clarity_score: 80,
+                    engine: 'native',
+                    transcript: 'This is a clear practice sentence. It has proper punctuation throughout. I am speaking about my project update today. There are several distinct sentences here. That should be more than enough words to score this sample.',
+                },
+            ],
+        });
+
+        const caveat = screen.getByTestId('session-detail-quality-caveat');
+        expect(caveat).toBeInTheDocument();
+        expect(caveat).toHaveTextContent(/directional|filler/i);
+    });
+
+    it('does NOT show the quality caveat for a clean, trusted (Private) saved session', () => {
+        renderComponent({
+            sessionId: 'private-clean',
+            sessionHistory: [
+                {
+                    id: 'private-clean',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 16,
+                    wpm: 120,
+                    clarity_score: 90,
+                    engine: 'private',
+                    transcript: 'This is a clear sentence. Here is another one. And a third, just to be sure.',
+                },
+            ],
+        });
+
+        expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
     });
 
     it('shows PDF export in saved session detail without script upload controls', () => {
@@ -359,7 +531,7 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByTestId('session-engine-badge-cloud-session')).toHaveTextContent('Cloud');
         expect(screen.getByTestId('session-engine-badge-private-session')).toHaveTextContent('Private');
-        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Native Browser');
+        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Browser');
     });
 
     it('shows an explicit open-session link on each history item so testers can verify saved sessions', () => {

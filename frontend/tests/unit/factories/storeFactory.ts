@@ -21,6 +21,8 @@ const initialState: SessionState = {
     isLockHeldByOther: false,
     history: [],
     chunks: [],
+    frozenTranscriptAtStop: null,
+    isTranscriptFinalizing: false,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -31,6 +33,7 @@ const initialState: SessionState = {
         extendedPauses: 0,
     },
     sessionSaved: false,
+    nativeFormatting: { status: 'idle', startedAt: null },
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
 };
@@ -141,6 +144,11 @@ export function createTestSessionStore(
                 sessionSaved: saved,
             })),
 
+        setNativeFormatting: vi.fn((nativeFormatting) =>
+            set({
+                nativeFormatting,
+            })),
+
         setSunsetModal: vi.fn((sunsetModal) =>
             set({
                 sunsetModal,
@@ -162,6 +170,16 @@ export function createTestSessionStore(
         setChunks: vi.fn((chunks) =>
             set({
                 chunks,
+            })),
+
+        freezeTranscriptAtStop: vi.fn((frozenTranscriptAtStop) =>
+            set({
+                frozenTranscriptAtStop,
+            })),
+
+        setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
+            set({
+                isTranscriptFinalizing,
             })),
 
         setPauseMetrics: vi.fn((pauseMetrics) =>

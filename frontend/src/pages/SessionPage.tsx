@@ -1,17 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
-import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
-import { ClarityScoreCard } from '@/components/session/ClarityScoreCard';
-import { SpeakingRateCard } from '@/components/session/SpeakingRateCard';
 import { FillerWordsCard } from '@/components/session/FillerWordsCard';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
-import { SpeakingTipsCard } from '@/components/session/SpeakingTipsCard';
+import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
@@ -19,6 +17,12 @@ import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import {
+    getSessionCoachingAssignment,
+} from '@/services/sessionCoachingExperiment';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
+import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * ARCHITECTURE:
@@ -31,6 +35,13 @@ export const SessionPage: React.FC = () => {
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
+    const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
+    const { data: usageLimit } = useUsageLimit();
+    const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
+    const setRecoveredChunks = useSessionStore(state => state.setChunks);
+    const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
+    const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
+    const nativeFormatting = useSessionStore(state => state.nativeFormatting);
 
     const {
         isListening,
@@ -38,7 +49,6 @@ export const SessionPage: React.FC = () => {
         metrics,
         sttStatus,
         modelLoadingProgress,
-        privateModelStatus,
         mode,
         setMode,
         recordingIntent,
@@ -60,6 +70,24 @@ export const SessionPage: React.FC = () => {
         isButtonDisabled,
         history
     } = useSessionLifecycle();
+
+    useEffect(() => {
+        if (isListening || transcriptContent.trim()) return;
+        const draft = getSessionRecoveryDraft();
+        if (!draft) return;
+
+        updateRecoveredTranscript(draft.transcript, '');
+        setRecoveredChunks([{
+            transcript: draft.transcript,
+            timestamp: new Date(draft.savedAt).getTime() || Date.now(),
+            isFinal: true,
+        }]);
+        setRecoveredStatus({
+            type: 'warning',
+            message: 'Recovered unsaved session draft.',
+            detail: 'Your last transcript was kept on this device after a save issue.',
+        });
+    }, [isListening, setRecoveredChunks, setRecoveredStatus, transcriptContent, updateRecoveredTranscript]);
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
@@ -116,31 +144,31 @@ export const SessionPage: React.FC = () => {
         if (showAnalyticsPrompt) {
             return {
                 type: 'ready',
-                message: '✓ Session saved. Click Analytics above to review.'
+                message: '✓ Session saved. Review it in Analytics when you are ready.'
             } as SttStatus;
         }
         return sttStatus as SttStatus;
     };
 
     const baseStatus = getBaseStatus();
+    const privateSampleSecondsRemaining = usageLimit?.private_sample_available
+        ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
+        : 0;
+    const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
+        ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
+        : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
+            ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
+        : undefined;
+    const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 
     const visibleModelLoadingProgress =
         isProUser && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
+        detail: baseStatus.detail ?? (shouldShowPrivateSampleDetail ? privateSampleStatusDetail : undefined),
         progress: visibleModelLoadingProgress ?? undefined
     };
-    const showPrivateDownloadHeaderAction =
-        mode === 'private' &&
-        privateModelStatus !== 'ready' &&
-        visibleModelLoadingProgress === null &&
-        isProUser &&
-        !isListening;
-    const handlePrivateSetup = () => {
-        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
-    };
-
     return (
         <main 
             aria-label="Practice Session" 
@@ -148,40 +176,49 @@ export const SessionPage: React.FC = () => {
             className="min-h-screen bg-background pt-20"
         >
             {/* Page Header */}
-            <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
-                <div className="text-center md:col-start-2">
+            <div className="py-4 px-6 max-w-7xl mx-auto">
+                <div className="text-center">
                     <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                     <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
-                </div>
-
-                <div className="flex justify-center md:col-start-3 md:justify-end">
-                    {showPrivateDownloadHeaderAction && (
-                        <Button
-                            type="button"
-                            onClick={handlePrivateSetup}
-                            className="h-10 w-full max-w-xs gap-2 bg-primary text-xs font-bold text-primary-foreground cta-shadow hover:bg-primary/90 md:w-auto"
-                            data-testid="download-model-button"
-                        >
-                            <Download className="h-4 w-4" />
-                            Download Private Model
-                        </Button>
-                    )}
                 </div>
             </div>
 
             {/* Status Bar - Spans full width of the main content area */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 <StatusNotificationBar status={displayStatus} />
+                {showAnalyticsPrompt && (
+                    <div
+                        className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        data-testid="post-save-review-actions"
+                    >
+                        <span className="font-medium text-foreground/80">
+                            Your session is saved. Review trends, transcript detail, and coaching notes in Analytics.
+                        </span>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            {mode === 'native' && isProUser && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setMode('private')}
+                                    data-testid="post-save-private-cta"
+                                >
+                                    Set up Private for cleaner local transcription
+                                </Button>
+                            )}
+                            <Button asChild size="sm" data-testid="post-save-review-session-link">
+                                <Link to="/analytics">View analytics</Link>
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* Main Content — recording/transcript workspace with filler words as a right rail */}
+            {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
-                {/* Workspace grid is isolated so the sticky filler rail cannot overlap stats below. */}
-                <div className="grid grid-cols-1 items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
-
-                    <div className="contents lg:block lg:space-y-6">
-                        {/* === WORKSPACE LEFT: Recording Control === */}
-                        <div className="order-1 lg:order-none">
+                <div className="pt-6">
+                    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+                        <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode || 'native'}
@@ -192,6 +229,7 @@ export const SessionPage: React.FC = () => {
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
                                     isProUser={isProUser}
+                                    isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
                                     statusMessage={sttStatus.message}
@@ -200,13 +238,12 @@ export const SessionPage: React.FC = () => {
                                     isButtonDisabled={isButtonDisabled}
                                     onModeChange={setMode}
                                     onStartStop={() => { void handleStartStop(); }}
-                                    className="min-h-[300px] md:min-h-[340px]"
+                                    onDownloadModel={() => {
+                                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+                                    }}
                                 />
                             </LocalErrorBoundary>
-                        </div>
 
-                        {/* === WORKSPACE LEFT: Live Transcript === */}
-                        <div className="order-3 lg:order-none">
                             <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel
                                     transcript={transcriptContent}
@@ -217,20 +254,37 @@ export const SessionPage: React.FC = () => {
                                     micLevel={micLevel}
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
-                                    className="min-h-[360px] h-full"
+                                    isFinalizing={isTranscriptFinalizing}
+                                    nativeFormatting={nativeFormatting}
+                                    className="min-h-[340px] h-full"
                                 />
                             </LocalErrorBoundary>
                         </div>
+
+                        <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
+                            <LiveCoachingScoreCard
+                                transcript={transcriptContent}
+                                wordCount={metrics.wordCount}
+                                wpm={metrics.wpm}
+                                clarityScore={metrics.clarityScore}
+                                fillerCount={metrics.fillerCount}
+                                elapsedSeconds={elapsedTime}
+                                pauseMetrics={pauseMetrics}
+                                engine={mode || 'native'}
+                                isListening={isListening}
+                                experimentAssignment={coachingAssignment}
+                                className="h-full min-h-0 self-stretch"
+                            />
+                        </LocalErrorBoundary>
                     </div>
 
-                    {/* === WORKSPACE RIGHT: Filler Words Rail === */}
-                    <aside className="order-2 self-start lg:sticky lg:top-24 lg:order-none">
+                    <div className="mt-6">
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
-                                className="min-h-[300px] md:min-h-[340px] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+                                className="min-h-0"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -251,51 +305,7 @@ export const SessionPage: React.FC = () => {
                                 }
                             />
                         </LocalErrorBoundary>
-                    </aside>
-                </div>
-
-                {/* === ROW 3: Secondary Metrics === */}
-                <div
-                    className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3"
-                    data-testid="metrics-panel"
-                    data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
-                >
-                    <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                        <ClarityScoreCard
-                            clarityScore={metrics.clarityScore}
-                            clarityLabel={metrics.clarityLabel}
-                            clarityExplanation={metrics.clarityExplanation}
-                            isClarityScorable={metrics.isClarityScorable}
-                            className="h-full"
-                        />
-                    </LocalErrorBoundary>
-                    <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                        <SpeakingRateCard
-                            wpm={metrics.wpm}
-                            wpmLabel={metrics.wpmLabel}
-                            wpmExplanation={metrics.wpmExplanation}
-                            className="h-full"
-                        />
-                    </LocalErrorBoundary>
-                    <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
-                        <PauseMetricsDisplay
-                            metrics={pauseMetrics}
-                            className="h-full"
-                        />
-                    </LocalErrorBoundary>
-                </div>
-
-                {/* === ROW 4: Full-Width Quick Tips === */}
-                <div className="mt-6">
-                    <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                        <SpeakingTipsCard
-                            wpm={metrics.wpm}
-                            fillerCount={metrics.fillerCount}
-                            clarityScore={metrics.clarityScore}
-                            pauseMetrics={pauseMetrics}
-                            className="compact"
-                        />
-                    </LocalErrorBoundary>
+                    </div>
                 </div>
             </div>
 

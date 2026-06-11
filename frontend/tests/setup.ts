@@ -1,6 +1,5 @@
 import { beforeEach, afterEach, beforeAll, afterAll, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
-import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
 import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { server } from './support/mocks/server';
 import { PORTS } from '../../scripts/build.config.js';
@@ -70,7 +69,7 @@ vi.mock('@/services/transcription/utils/AudioProcessor', () => {
 // Mock heavy dependencies that trigger Worker chains
 vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
     class MockPrivateWhisper {
-        public readonly type = 'whisper-turbo';
+        public readonly type = 'transformers-js';
         private readonly privateSTT?: {
             init?: (timeoutMs?: number, isMock?: boolean) => Promise<{ isOk?: boolean; error?: Error }>;
             start?: (...args: unknown[]) => Promise<void>;
@@ -98,7 +97,7 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
         public async getTranscript() { return this.privateSTT?.getTranscript?.() ?? ''; }
         public async checkAvailability() { return this.privateSTT?.checkAvailability?.() ?? { isAvailable: true }; }
         public getLastHeartbeatTimestamp() { return Date.now(); }
-        public getEngineType() { return this.privateSTT?.getEngineType?.() ?? 'whisper-turbo'; }
+        public getEngineType() { return this.privateSTT?.getEngineType?.() ?? 'transformers-js'; }
         public updateOptions(...args: unknown[]) { this.privateSTT?.updateOptions?.(...args); }
     }
     return {
@@ -308,7 +307,10 @@ if (typeof window !== 'undefined') {
     // Mock environment variables for consistent testing
     vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon-key');
-    vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_test_');
+    // Fake LIVE-class key (format-only) so component tests exercise the payments-ENABLED
+    // UI path under the live-only gate (arePaymentsEnabledFor). The test/missing -> hidden
+    // behavior is asserted deterministically in appRuntimeConfig.test.ts.
+    vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_live_FAKE_FOR_TESTS');
     vi.stubEnv('VITE_DEV_PREMIUM_ACCESS', 'false');
     // crypto.randomUUID polyfill (JSDOM requirement)
     if (typeof crypto === 'undefined' || !crypto.randomUUID) {

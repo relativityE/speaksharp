@@ -15,6 +15,8 @@ export interface MockSession {
     total_words: number;
 }
 
+const MOCK_SESSIONS_STORAGE_KEY = '__SS_MOCK_SESSIONS__';
+
 /**
  * Enhanced Mock Injection Helper
  * 
@@ -32,31 +34,31 @@ export async function mockRecentSessions(
 ) {
     const { count = 5, daysBack = 7, baseSession = {} } = options;
 
+    const sessions = Array.from({ length: count }, (_, i) => {
+        const now = new Date();
+        const template = MOCK_SESSION_HISTORY[i % MOCK_SESSION_HISTORY.length] || {};
+
+        return {
+            ...template,
+            id: `dynamic-session-${now.getTime()}-${i}`,
+            user_id: 'test-user-123',
+            created_at: new Date(
+                now.getTime() - (i * (daysBack / count) * 24 * 60 * 60 * 1000)
+            ).toISOString(),
+            ...baseSession,
+        };
+    });
+
+    await page.evaluate(
+        ({ key, value }) => window.sessionStorage.setItem(key, JSON.stringify(value)),
+        { key: MOCK_SESSIONS_STORAGE_KEY, value: sessions }
+    );
+
     // Explicitly unroute existing handlers to avoid conflicts
     // (Playwright LIFO mostly handles this, but explicit is safer)
     await page.unroute('**/rest/v1/sessions*');
 
     await page.route('**/rest/v1/sessions*', async (route) => {
-        const now = new Date();
-
-        // Generate sessions based on MOCK_SESSION_HISTORY patterns but with fresh dates
-        const sessions = Array.from({ length: count }, (_, i) => {
-            // Cycle through existing mock templates or use defaults
-            const template = MOCK_SESSION_HISTORY[i % MOCK_SESSION_HISTORY.length] || {};
-
-            return {
-                ...template,
-                id: `dynamic-session-${now.getTime()}-${i}`,
-                user_id: 'test-user-123',
-                // Spread calculated date to guarantee window inclusion
-                created_at: new Date(
-                    now.getTime() - (i * (daysBack / count) * 24 * 60 * 60 * 1000)
-                ).toISOString(),
-                // Allow overrides
-                ...baseSession,
-            };
-        });
-
         await route.fulfill({
             status: 200,
             contentType: 'application/json',

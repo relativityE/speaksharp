@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Lock, Mic, Square, ChevronDown, Shield } from 'lucide-react';
+import { AlertCircle, Download, Lock, Mic, Square, ChevronDown } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
+import { PRIV_STT_MODELS } from '@/services/transcription/sttConstants';
+import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 
 
 export type RecordingMode = 'cloud' | 'native' | 'private' | 'mock';
@@ -22,6 +24,7 @@ interface LiveRecordingCardProps {
     isListening: boolean;
     isReady: boolean;
     isProUser: boolean;
+    isPaidProUser?: boolean;
     canUseCloudStt?: boolean;
     statusMessage?: string; // Optional message from the STT service
     formattedTime: string;
@@ -36,10 +39,11 @@ interface LiveRecordingCardProps {
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
+    onDownloadModel?: () => void;
 }
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
-import { SESSION_SURFACE_CLASS, SESSION_INSET_SURFACE_CLASS } from '@/components/session/sessionSurface';
+import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 
 /**
  * The main recording control panel with mode selector, mic indicator,
@@ -51,6 +55,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
+    isPaidProUser = isProUser,
     canUseCloudStt = isProUser,
     statusMessage: _statusMessage,
     formattedTime,
@@ -64,6 +69,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     className = "",
     onModeChange,
     onStartStop,
+    onDownloadModel,
 }) => {
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -74,15 +80,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         ? (ACTIVE_INDICATOR_STATES.includes(fsmState) || ACTIVE_INDICATOR_TYPES.includes(sttStatusType || '') || isPaused)
         : (isListening || isPaused) && isReady;
 
+    const isStopControlVisible = isListening || recordingIntent;
     // data-recording: Pure intent signal for E2E tests and accessibility
-    const isRecordingSignal = recordingIntent ? 'true' : 'false';
+    const isRecordingSignal = isStopControlVisible ? 'true' : 'false';
 
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
-        displayStatusMessage = 'Private not ready';
+        displayStatusMessage = 'Private model setup';
     } else if (/^error occurred$/i.test(_statusMessage?.trim() || '')) {
         displayStatusMessage = 'Recording could not start';
     }
@@ -93,32 +100,84 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
-    const modeDescriptions: Record<RecordingMode, string> = {
-        native: "Browser transcription uses your browser's built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.",
-        private: 'On-device. One-time local model setup required. Nothing leaves your browser after setup.',
-        cloud: 'Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.',
+    const modeHint: Record<RecordingMode, string> = {
+        native: 'Starts instantly with browser speech recognition. Accuracy depends on browser and room.',
+        private: 'Runs locally after model setup. All audio processing remains local.',
+        cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
         mock: 'Test transcription mode.',
     };
-    const privateModeDescription = isProUser
-        ? 'On-device. One-time local model setup required. Nothing leaves your browser after setup.'
-        : 'On-device. Available with active trial or Pro.';
+    const hasPrivateSampleAccess = isProUser && !isPaidProUser;
+    const privateModeDescription = isPaidProUser
+        ? 'Private transcription keeps transcription local after model setup. All audio processing remains local.'
+        : isProUser
+            ? 'Try one Private sample session. Record up to 5 minutes with local transcription so you can compare it with Browser transcription.'
+            : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
+    const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
+    const cloudModeDescription = canUseCloudStt
+        ? 'Pro cloud transcription workflow. Audio is sent to the cloud STT provider.'
+        : 'Cloud STT is a paid Early Access feature.';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`${SESSION_SURFACE_CLASS} relative z-10 h-full flex flex-col text-center gap-6 p-6 surface-shadow-primary sm:p-8 ${className}`} data-testid="live-recording-card">
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/12 border border-success/30 text-[10px] font-semibold text-success" data-state="secure">
-                            <Shield className="h-2.5 w-2.5 fill-success/10" />
-                            <span>SECURE</span>
+            <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex w-[min(100%,260px)] items-start gap-2">
+                        {isPrivateDownloadRequired && (
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
+                                <Lock className="h-3.5 w-3.5" />
+                            </div>
+                        )}
+                        <div>
+                            <p className="text-sm font-bold leading-snug text-primary">
+                                {isPrivateDownloadRequired
+                                    ? 'Set up Private transcription on this computer. All audio processing remains local.'
+                                    : modeHint[mode]}
+                            </p>
+                            {!isPrivateDownloadRequired && mode === 'native' && isProUser && !isListening && (
+                                <div className="mt-1 space-y-0.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => onModeChange('private')}
+                                        className="text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                                        data-testid="first-run-setup-private"
+                                    >
+                                        {hasPrivateSampleAccess
+                                            ? 'Try one Private sample session'
+                                            : 'Set up Private transcription for better local accuracy →'}
+                                    </button>
+                                    {hasPrivateSampleAccess && (
+                                        <p className="text-[10px] font-medium leading-snug text-foreground/60">
+                                            Record up to 5 minutes with local transcription so you can compare it with Browser transcription.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                            {isPrivateDownloadRequired && (
+                                <p
+                                    className="mt-1 text-[11px] font-medium leading-snug text-foreground/60"
+                                    data-testid="private-model-size-note"
+                                >
+                                    {`One-time download of the on-device speech model (about ${PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
+                                </p>
+                            )}
+                            {isPrivateDownloadRequired && (
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    {onDownloadModel && (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={onDownloadModel}
+                                            className="h-6 gap-1 rounded-md px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
+                                            data-testid="download-model-button-inline"
+                                        >
+                                            <Download className="h-3 w-3" />
+                                            Set Up
+                                        </Button>
+                                    )}
+                                </div>
+                            )}
                         </div>
-                        <p className="max-w-72 text-xs font-medium leading-snug text-foreground/70">
-                            {isPrivateDownloadRequired
-                                ? 'Download the private model to start recording locally.'
-                                : modeDescriptions[mode]}
-                        </p>
                     </div>
-
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild disabled={isListening}>
                             <Button
@@ -136,61 +195,55 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-72">
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                                <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
-                                    <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
-                                <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Browser transcription uses your browser&apos;s built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
-                                        </span>
-                                    </span>
+                                <DropdownMenuRadioItem
+                                    value="native"
+                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                    title={nativeModeDescription}
+                                >
+                                    Browser
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="items-start py-2.5"
+                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!isProUser}
+                                    title={privateModeDescription}
                                 >
-                                    <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private {!isProUser ? '(Pro)' : ''}</span>
-                                        <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            {privateModeDescription}
-                                        </span>
+                                    <span className="flex items-center gap-1.5">
+                                        {!isProUser && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Private
                                     </span>
+                                    {!isProUser && (
+                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                            Private transcription is part of Early Access
+                                        </span>
+                                    )}
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="items-start py-2.5"
+                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
+                                    title={cloudModeDescription}
                                 >
-                                    <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
-                                        <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.
-                                        </span>
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Cloud
                                     </span>
+                                    {!canUseCloudStt && (
+                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                                            Paid Early Access feature
+                                        </span>
+                                    )}
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
 
-                <div className="flex flex-1 flex-col items-center justify-center gap-5">
-                    <div className="flex flex-col items-center gap-4">
-                        {isPrivateDownloadRequired && (
-                            <div className="flex flex-col items-center gap-2 text-center">
-                                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-primary/35 bg-primary/12 text-primary">
-                                    <Lock className="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold text-foreground">Private not ready</p>
-                                    <p className="mt-1 max-w-xs text-xs font-medium leading-snug text-foreground/70">
-                                        Download the private model to start recording locally.
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
+                <div className="flex flex-col items-center justify-center gap-2 text-center">
+                    <div className="flex flex-col items-center gap-2">
                         <div className="relative">
                             {isListening && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -198,7 +251,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </div>
                             )}
 
-                            {!isListening ? (
+                            {!isStopControlVisible ? (
                                 <Button
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
@@ -206,9 +259,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-recording={isRecordingSignal}
                                     aria-label="Start Recording"
                                     title={isPrivateDownloadRequired ? 'Download required' : 'Start Recording'}
-                                    className="w-14 h-14 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-slate-200 disabled:text-slate-500 disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-slate-300"
+                                    className="w-12 h-12 rounded-full bg-primary text-primary-foreground ring-1 ring-primary/35 hover:bg-primary/90 cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-primary disabled:text-primary-foreground disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-primary/35"
                                 >
-                                    <Mic className="w-6 h-6" />
+                                    <span className="relative flex h-6 w-6 items-center justify-center text-primary-foreground">
+                                        <Mic className="h-5 w-5" />
+                                        <span className="absolute h-0.5 w-7 -rotate-45 rounded-full bg-primary-foreground" aria-hidden="true" />
+                                    </span>
                                 </Button>
                             ) : (
                                 <Button
@@ -217,7 +273,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Stop Recording"
-                                    className="w-14 h-14 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
+                                    className="w-12 h-12 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
                                     <Square className="w-5 h-5 fill-current" />
                                 </Button>
@@ -226,20 +282,21 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                         {/* Timer (Matching Mic weight) */}
                         <div className="flex flex-col items-center">
-                            <div className="text-4xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
+                            <div className="text-3xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className={`mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full ${SESSION_INSET_SURFACE_CLASS}`}>
+                            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-3 py-1">
                                 <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
                                 <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label">
-                                    {displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
+                                    {isPrivateDownloadRequired
+                                        ? 'Ready'
+                                        : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Stream Indicator (Refined) */}
                 <div className="h-4 w-full max-w-[140px] self-center flex items-center justify-center gap-0.5 overflow-hidden opacity-60">
                     {isIndicatorVisible && (
                         <div

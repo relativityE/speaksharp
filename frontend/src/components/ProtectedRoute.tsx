@@ -31,7 +31,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   // 🧪 INTEGRITY BYPASS: Allow System Probe to reach protected routes without real Auth
   if (!user && !ENV.isE2E) {
-    logger.info({ from: location.pathname }, '[ProtectedRoute] No user, redirecting to /auth');
+    logger.info({ from: `${location.pathname}${location.search}` }, '[ProtectedRoute] No user, redirecting to /auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
@@ -39,4 +39,3 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   return <>{children}</>;
 };
-

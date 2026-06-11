@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { createMockSupabase } from '../mockSupabase';
 
 // Mock dependencies
 vi.mock('@supabase/supabase-js', () => ({
     createClient: vi.fn(),
-}));
-vi.mock('../mockSupabase', () => ({
-    createMockSupabase: vi.fn(),
 }));
 
 describe('supabaseClient.ts', () => {
@@ -21,6 +17,7 @@ describe('supabaseClient.ts', () => {
 
     afterEach(() => {
         process.env = originalEnv;
+        vi.unstubAllEnvs();
         delete window.supabase;
         vi.useRealTimers();
     });
@@ -41,23 +38,21 @@ describe('supabaseClient.ts', () => {
         expect(client).toBe(mockWindowClient);
     });
 
-    it('should create mock client if VITE_USE_MOCK_AUTH is true', async () => {
+    it('should fail loudly if VITE_USE_MOCK_AUTH is true in the runtime app', async () => {
         vi.stubEnv('VITE_USE_MOCK_AUTH', 'true');
+        vi.stubEnv('VITE_ALLOW_MOCK_AUTH_IN_TESTS', 'false');
         vi.stubEnv('VITE_SUPABASE_URL', 'https://example.com');
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'key');
 
-        const mockClient = { auth: {} };
-        vi.mocked(createMockSupabase).mockReturnValue(mockClient as unknown as ReturnType<typeof createMockSupabase>);
-
         const module = await reImportModule();
-        const client = module.getSupabaseClient();
 
-        expect(createMockSupabase).toHaveBeenCalled();
-        expect(client).toBe(mockClient);
+        expect(() => module.getSupabaseClient()).toThrow('Mock auth is not available from the runtime app');
+        expect(createClient).not.toHaveBeenCalled();
     });
 
     it('should create real client with valid env vars', async () => {
         vi.stubEnv('VITE_USE_MOCK_AUTH', 'false');
+        vi.stubEnv('VITE_AUTH_MODE', 'real');
         vi.stubEnv('VITE_SUPABASE_URL', 'https://real-project.supabase.co');
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'real-key');
 
@@ -83,6 +78,7 @@ describe('supabaseClient.ts', () => {
 
     it('should throw error if env vars are missing', async () => {
         vi.stubEnv('VITE_USE_MOCK_AUTH', 'false');
+        vi.stubEnv('VITE_AUTH_MODE', 'real');
         vi.stubEnv('VITE_SUPABASE_URL', '');
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
 
@@ -91,8 +87,21 @@ describe('supabaseClient.ts', () => {
         expect(() => module.getSupabaseClient()).toThrow('Missing Supabase environment variables');
     });
 
+    it('should fail loudly if real Supabase URL is paired with mock anon key', async () => {
+        vi.stubEnv('VITE_USE_MOCK_AUTH', 'false');
+        vi.stubEnv('VITE_AUTH_MODE', 'real');
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://real-project.supabase.co');
+        vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'mock_anon_key');
+
+        const module = await reImportModule();
+
+        expect(() => module.getSupabaseClient()).toThrow('real Supabase URL is paired with a mock/test anon key');
+        expect(createClient).not.toHaveBeenCalled();
+    });
+
     it('should return cached client on subsequent calls', async () => {
         vi.stubEnv('VITE_USE_MOCK_AUTH', 'false');
+        vi.stubEnv('VITE_AUTH_MODE', 'real');
         vi.stubEnv('VITE_SUPABASE_URL', 'https://real-project.supabase.co');
         vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'real-key');
 

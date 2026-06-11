@@ -1,4 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const sessionCoachingMock = vi.hoisted(() => ({
+    getSessionCoachingAssignment: vi.fn(() => ({
+        variant: 'treatment',
+        source: 'default',
+        flag: 'session_live_coaching_score',
+    })),
+    trackSessionCoachingCardViewed: vi.fn(),
+    trackSessionCoachingNumericScoreShown: vi.fn(),
+}));
+
 vi.mock('@/components/LocalErrorBoundary', () => ({
     LocalErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -7,6 +17,8 @@ vi.mock('@sentry/react', () => ({
     withScope: vi.fn((cb) => cb({ setTag: vi.fn(), setContext: vi.fn() })),
     captureException: vi.fn(),
 }));
+
+vi.mock('@/services/sessionCoachingExperiment', () => sessionCoachingMock);
 
 import { render, screen, cleanup } from '../../../tests/support/test-utils';
 import { SessionPage } from '../SessionPage';
@@ -25,10 +37,6 @@ vi.mock('@/components/session/LiveRecordingCard', () => ({
             <div>{formattedTime}</div>
         </div>
     ),
-}));
-
-vi.mock('@/components/session/PauseMetricsDisplay', () => ({
-    PauseMetricsDisplay: () => <div data-testid="pause-metrics-display">Pause Metrics</div>,
 }));
 
 vi.mock('@/components/session/StatusNotificationBar', () => ({
@@ -57,28 +65,6 @@ vi.mock('@/components/session/FillerWordsCard', () => ({
 
 vi.mock('@/components/session/UserFillerWordsManager', () => ({
     UserFillerWordsManager: () => <div data-testid="user-filler-words-manager">User Filler Words Manager</div>,
-}));
-
-vi.mock('@/components/session/ClarityScoreCard', () => ({
-    ClarityScoreCard: ({ clarityScore }: { clarityScore: number }) => (
-        <div data-testid="clarity-score-card">
-            <span>Clarity Score</span>
-            Clarity: {clarityScore}
-        </div>
-    ),
-}));
-
-vi.mock('@/components/session/SpeakingRateCard', () => ({
-    SpeakingRateCard: ({ wpm }: { wpm: number }) => (
-        <div data-testid="speaking-rate-card">
-            <span>Speaking Pace</span>
-            WPM: {wpm}
-        </div>
-    ),
-}));
-
-vi.mock('@/components/session/SpeakingTipsCard', () => ({
-    SpeakingTipsCard: () => <div data-testid="speaking-tips-card">Speaking Tips</div>,
 }));
 
 vi.mock('@/components/session/MobileActionBar', () => ({
@@ -128,6 +114,13 @@ describe('SessionPage Rendering', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        window.sessionStorage.clear();
+        window.history.pushState({}, '', '/session');
+        sessionCoachingMock.getSessionCoachingAssignment.mockReturnValue({
+            variant: 'treatment',
+            source: 'default',
+            flag: 'session_live_coaching_score',
+        });
         mockUseSessionLifecycle.mockReturnValue(defaultLifecycle as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
     });
 
@@ -154,16 +147,13 @@ describe('SessionPage Rendering', () => {
         expect(screen.getByText('Ready to record')).toBeInTheDocument();
     });
 
-    it('should render metrics cards', () => {
+    it('should render filler words as the bottom evidence band without legacy metric cards', () => {
         render(<SessionPage />);
-        expect(screen.getByText('Clarity Score')).toBeInTheDocument();
-        expect(screen.getByText('Speaking Pace')).toBeInTheDocument();
         expect(screen.getByText('Filler Words')).toBeInTheDocument();
-    });
-
-    it('should render pause metrics display', () => {
-        render(<SessionPage />);
-        expect(screen.getByTestId('pause-metrics-display')).toBeInTheDocument();
+        expect(screen.queryByText('Clarity Score')).not.toBeInTheDocument();
+        expect(screen.queryByText('Speaking Pace')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('pause-metrics-display')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('speaking-tips-card')).not.toBeInTheDocument();
     });
 
     it('should render Add User Word settings button', () => {
@@ -171,6 +161,33 @@ describe('SessionPage Rendering', () => {
         // The settings button is passed as headerAction to FillerWordsCard
         expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();
         expect(screen.getByText('Custom')).toBeInTheDocument();
+    });
+
+    it('renders live coaching in the feedback rail by default', () => {
+        sessionCoachingMock.getSessionCoachingAssignment.mockReturnValue({
+            variant: 'treatment',
+            source: 'default',
+            flag: 'session_live_coaching_score',
+        });
+        mockUseSessionLifecycle.mockReturnValue({
+            ...defaultLifecycle,
+            isListening: true,
+            elapsedTime: 45,
+            metrics: {
+                ...defaultLifecycle.metrics,
+                wordCount: 85,
+                wpm: 132,
+                clarityScore: 84,
+                fillerCount: 2,
+            },
+            transcriptContent: 'Today I want to explain the update clearly and lead with the main point before giving examples.',
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('live-coaching-score-card')).toBeInTheDocument();
+        expect(screen.getByTestId('filler-words-card')).toBeInTheDocument();
+        expect(screen.getByText('SpeakSharp Score*')).toBeInTheDocument();
     });
 
 });
@@ -231,14 +248,23 @@ describe('Metrics Display', () => {
         expect(screen.getByText('01:05')).toBeInTheDocument();
     });
 
-    it('should display WPM from metrics', () => {
+    it('should feed WPM into live coaching', () => {
+        sessionCoachingMock.getSessionCoachingAssignment.mockReturnValue({
+            variant: 'treatment',
+            source: 'default',
+            flag: 'session_live_coaching_score',
+        });
         mockUseSessionLifecycle.mockReturnValue({
             ...defaultLifecycle,
-            metrics: { ...defaultLifecycle.metrics, wpm: 145 },
+            isListening: true,
+            elapsedTime: 45,
+            metrics: { ...defaultLifecycle.metrics, wordCount: 85, wpm: 145 },
+            transcriptContent: 'Today I want to explain the main point clearly before moving into the example.',
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
         render(<SessionPage />);
-        expect(screen.getByText(/145/)).toBeInTheDocument();
+        expect(screen.getByTestId('live-coaching-score-card')).toBeInTheDocument();
+        expect(screen.queryByText('Speaking Pace')).not.toBeInTheDocument();
     });
 
     it('should display filler word count from metrics', () => {

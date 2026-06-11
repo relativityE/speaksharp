@@ -1,0 +1,90 @@
+{
+  "id": "stt-p5-vad-current-main-reproof",
+  "createdAt": "2026-06-05T11:32:00Z",
+  "purpose": "Re-run STT-P5 Silero VAD browser proof after setup CTA proof-harness hardening.",
+  "codeUnderTest": {
+    "testBranch": "test/stt-p5-vad-current-main",
+    "base": "dev/private-vad-silero-main merged with main@c34bbd33",
+    "note": "This branch was used only for proof. It was not merged to main."
+  },
+  "commands": {
+    "focusedTests": "pnpm exec vitest run --config frontend/vitest.config.mjs frontend/src/services/transcription/utils/__tests__/privateVadFlag.test.ts frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts --reporter=dot --coverage=false",
+    "manualServer": "set -a; . frontend/.env.production; set +a; VITE_AUTH_MODE=real pnpm dev",
+    "browserProof": "STT_AUTH=fresh STT_MODES=private STT_FIXTURES=h1_6 STT_INJECT_MIC_AUDIO=true STT_PRIVATE_VAD=1 STT_CORPUS_OUT=/private/tmp/stt-p5-vad-current-main-h1_6.json HEADLESS=true BASE_URL=http://localhost:5174 node scripts/manual-stt-corpus-proof.mjs"
+  },
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true,
+    "invalidReasons": []
+  },
+  "focusedTests": {
+    "status": "pass",
+    "passed": 49,
+    "failed": 0
+  },
+  "browserProof": {
+    "status": "recording_save_detail_reached_but_vad_fell_back_to_rms",
+    "rawArtifact": "/private/tmp/stt-p5-vad-current-main-h1_6.json",
+    "fixture": "h1_6",
+    "truth": "They, like, told wild tales to frighten him.",
+    "transcript": "Day. Like, told Wild Tales to frighten him.",
+    "detailTranscript": "Day. Like, told Wild Tales to frighten him.",
+    "wer": 0.125,
+    "accuracyPct": 87.5,
+    "firstTextMs": 6403,
+    "stopFinalizationMs": 2999,
+    "sessionPersisted": true,
+    "journeyPass": true,
+    "privateReadiness": {
+      "before": {
+        "modelStatus": "download-required",
+        "downloadVisible": true,
+        "downloadButtonText": "Set Up"
+      },
+      "after": {
+        "modelStatus": "ready",
+        "downloadVisible": false,
+        "transformerCacheName": "transformers-cache",
+        "transformerCacheKeyCount": 7
+      }
+    }
+  },
+  "privateVadTelemetry": {
+    "vadEnabled": true,
+    "vadModel": "silero-vad",
+    "vadRuntime": "onnxruntime-web",
+    "vadRuntimeVersion": null,
+    "vadOnsetMs": 3659.3,
+    "vadMeanSpeechProb": null,
+    "vadSpeechSegments": [],
+    "vadFellBackToRms": true
+  },
+  "consoleAndNetworkSignals": {
+    "pageErrors": [],
+    "failedRequests": [
+      {
+        "url": "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/check-usage-limit",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "http://localhost:5174/onnxruntime/ort-wasm-simd-threaded.jsep.mjs?import",
+        "errorText": "net::ERR_ABORTED"
+      },
+      {
+        "url": "https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions?select=*&user_id=eq.e7b71718-bab2-49bc-9997-75e41f5f5e67&or=%28status.is.null%2Cstatus.eq.completed%29",
+        "errorText": "net::ERR_ABORTED"
+      }
+    ],
+    "notableSignal": "The browser still requested /onnxruntime/ort-wasm-simd-threaded.jsep.mjs?import and the VAD telemetry still reports RMS fallback."
+  },
+  "result": {
+    "setupBlockerCleared": true,
+    "vadProofValid": false,
+    "why": "The proof reached recording, stop, save, history/detail, but Silero VAD never produced runtime version, speech probabilities, or speech segments and fell back to RMS.",
+    "nextDevAsk": "Fix VAD runtime/model activation so vadFellBackToRms=false and vadRuntimeVersion, vadMeanSpeechProb, and vadSpeechSegments are populated. Then rerun RMS-vs-VAD A/B."
+  }
+}

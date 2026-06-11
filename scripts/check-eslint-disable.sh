@@ -3,8 +3,12 @@ set -euo pipefail
 
 echo "🔍 Checking for banned 'eslint-disable' directives..."
 
-# Exclude node_modules, .git, dist, and this script itself
-# We also exclude external/vendor files if any (e.g. minified libs)
+# Exclude node_modules, .git, dist, and this script itself.
+# We also exclude external/vendor files if any (e.g. minified libs).
+# Data/evidence files (JSON) and the release docs/evidence tree are excluded too: they can
+# legitimately contain the literal string "eslint-disable" (e.g. a test-evidence JSON that
+# describes THIS very gate), which is not a real lint-suppression directive and must not trip the
+# scan. eslint-disable directives only ever live in JS/TS source comments. (RC-LH-1 false positive.)
 # Grep returns 0 if found (fail), 1 if not found (pass)
 
 if grep -r "eslint-disable" . \
@@ -19,12 +23,15 @@ if grep -r "eslint-disable" . \
     --exclude-dir=docs \
     --exclude-dir=brain \
     --exclude-dir=.agent \
+    --exclude-dir=product_release \
+    --exclude-dir=test-results \
     --exclude="check-eslint-disable.sh" \
     --exclude="package.json" \
     --exclude="pnpm-lock.yaml" \
     --exclude="mockServiceWorker.js" \
     --exclude="test-audit.sh" \
     --exclude="*.md" \
+    --exclude="*.json" \
     --exclude="*.log" \
     --exclude="run-ci.mjs"; then
     

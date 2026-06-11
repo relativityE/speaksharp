@@ -2,8 +2,18 @@ import React from 'react';
 import { Lock, Cloud } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
+import { splitSettledActiveTranscript } from './liveTranscriptUtils';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
+
+declare global {
+    interface Window {
+        /** #33 Native trust-disclaimer proof: latest trust-state snapshot. */
+        __SS_TRUST_STATE__?: Record<string, unknown>;
+        /** #33: append-only trace of trust-state snapshots (bounded). */
+        __SS_TRUST_TRACE__?: Array<Record<string, unknown>>;
+    }
+}
 
 interface LiveTranscriptPanelProps {
     transcript: string;
@@ -16,7 +26,22 @@ interface LiveTranscriptPanelProps {
     userWords?: string[];
     className?: string;
     history?: Array<{ mode: string; text: string }>;
+    /**
+     * True while the engine is running the whole-utterance final decode after Stop.
+     * Drives the "Processing speech locally…" state so the user is not staring at
+     * stale/low-confidence draft text during multi-second CPU finalization.
+     */
+    isFinalizing?: boolean;
+    /**
+     * Native raw-first async formatting status (post-stop). Drives the threshold-only
+     * "tidying up punctuation…" notice; defaults to idle (no notice). Only ever surfaces
+     * in the `final` state for native mode, and only if formatting stays pending > ~1.5s.
+     */
+    nativeFormatting?: { status: 'idle' | 'pending' | 'complete' | 'failed'; startedAt: number | null };
 }
+
+/** Discrete UI state for the live transcript, exposed via data-transcript-state. */
+type LiveTranscriptUiState = 'listening' | 'drafting' | 'finalizing' | 'final' | 'idle';
 
 const WaveformMeter: React.FC<{ level: number; isProcessing: boolean }> = ({ level, isProcessing }) => {
     const visibleLevel = Math.max(0.08, Math.min(level, 1));
@@ -53,20 +78,149 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     userWords = [],
     className = "",
     history = [],
+    isFinalizing = false,
+    nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
+    const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
     const hasTranscript = transcript.trim() !== '';
     const displayInterimTranscript =
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
-    const showPrivateFeedback = sttMode === 'private' && isListening;
+    // Option 1 (live-view segment finalization): show completed draft sentences as
+    // settled/recognized so a long speech is not one giant Draft block, while the
+    // trailing in-progress sentence stays clearly Draft. Display only — saved path
+    // (whole-utterance final) is untouched.
+    const { settled: settledDraft, active: activeDraft } = splitSettledActiveTranscript(displayInterimTranscript);
+    const hasSettledDraft = settledDraft !== '';
+    // What the trailing Draft line shows: the in-progress sentence when we have
+    // settled sentences, else the whole draft (prior single-Draft behaviour).
+    const draftLineText = hasSettledDraft ? activeDraft : displayInterimTranscript;
+
+    // Discrete UI state for styling + browser-test assertions.
+    const uiState: LiveTranscriptUiState = isFinalizing
+        ? 'finalizing'
+        : isListening
+            ? (hasInterimTranscript || hasTranscript ? 'drafting' : 'listening')
+            : (hasTranscript ? 'final' : 'idle');
+    const normalizedSttMode = (sttMode ?? '').toLowerCase();
+    const isPrivateMode = normalizedSttMode === 'private';
+    const isDrafting = uiState === 'drafting';
+    const showDraftTrustBanner = isListening && !isFinalizing;
+    const showPrivateFeedback = isPrivateMode && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
+    const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
+    const finalizingBannerText = isPrivateMode ? 'Processing speech locally…' : 'Processing transcript…';
+    const finalizingEmptyTitle = isPrivateMode ? 'Finalizing local transcript…' : 'Finalizing transcript…';
+    const finalizingEmptyDescription = isPrivateMode
+        ? 'Your final transcript will appear here when local processing finishes.'
+        : 'Your final transcript will appear here when processing finishes.';
+    const listeningEmptyText = isPrivateMode
+        ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
+        : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
+
+    const setScrollContainerRef = React.useCallback((node: HTMLDivElement | null) => {
+        scrollContainerRef.current = node;
+        if (containerRef) {
+            (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+    }, [containerRef]);
+
+    // Threshold-only Native formatting notice: post-stop, the raw transcript is already
+    // saved+shown; punctuation/casing is polished in the background. We surface a notice
+    // ONLY if that polish is still pending past ~1.5s, so the common sub-second case stays
+    // silent and the UI never feels slow. Idle/complete/failed → no notice.
+    const NATIVE_FORMATTING_NOTICE_DELAY_MS = 1500;
+    const isNativeMode = normalizedSttMode === 'native';
+    const [showFormattingNotice, setShowFormattingNotice] = React.useState(false);
+    React.useEffect(() => {
+        if (uiState !== 'final' || !isNativeMode || nativeFormatting.status !== 'pending') {
+            setShowFormattingNotice(false);
+            return;
+        }
+        const elapsed = nativeFormatting.startedAt ? Date.now() - nativeFormatting.startedAt : 0;
+        const remaining = Math.max(0, NATIVE_FORMATTING_NOTICE_DELAY_MS - elapsed);
+        const timerId = window.setTimeout(() => setShowFormattingNotice(true), remaining);
+        return () => window.clearTimeout(timerId);
+    }, [uiState, isNativeMode, nativeFormatting.status, nativeFormatting.startedAt]);
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined' || !visibleTranscript) return;
+        const traceWindow = window as Window & {
+            __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
+            __SS_TRANSCRIPT_TRACE_SEQ__?: number;
+        };
+        traceWindow.__SS_TRANSCRIPT_TRACE__ = traceWindow.__SS_TRANSCRIPT_TRACE__ ?? [];
+        traceWindow.__SS_TRANSCRIPT_TRACE_SEQ__ = (traceWindow.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+        traceWindow.__SS_TRANSCRIPT_TRACE__.push({
+            sequence: traceWindow.__SS_TRANSCRIPT_TRACE_SEQ__,
+            t: Number(performance.now().toFixed(1)),
+            stage: 'ui:visible',
+            timestamp: Date.now(),
+            textLength: visibleTranscript.length,
+            preview: visibleTranscript.slice(0, 80),
+        });
+        if (traceWindow.__SS_TRANSCRIPT_TRACE__.length > 1000) {
+            traceWindow.__SS_TRANSCRIPT_TRACE__.shift();
+        }
+    }, [visibleTranscript]);
+
+    React.useEffect(() => {
+        const node = scrollContainerRef.current;
+        if (!node) return;
+        node.scrollTop = node.scrollHeight;
+    }, [visibleTranscript, history.length, uiState]);
+
+    // #33 Native trust-disclaimer proof hooks: publish a timestamped trust-state
+    // snapshot (+ append-only trace) so the harness can prove WHEN each trust state
+    // became visible without DOM polling. Test-only telemetry; no behavior change.
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const w = window as Window & {
+            __SS_TRUST_STATE__?: Record<string, unknown>;
+            __SS_TRUST_TRACE__?: Array<Record<string, unknown>>;
+        };
+        const snapshot = {
+            uiState,
+            draftBannerVisible: showDraftTrustBanner,
+            processingVisible: isFinalizing,
+            finalStateVisible: uiState === 'final',
+            listeningVisible: uiState === 'listening',
+            sttMode: sttMode ?? null,
+            at: Date.now(),
+            t: Number(performance.now().toFixed(1)),
+        };
+        w.__SS_TRUST_STATE__ = snapshot;
+        w.__SS_TRUST_TRACE__ = w.__SS_TRUST_TRACE__ ?? [];
+        w.__SS_TRUST_TRACE__.push(snapshot);
+        if (w.__SS_TRUST_TRACE__.length > 500) w.__SS_TRUST_TRACE__.shift();
+    }, [uiState, showDraftTrustBanner, isFinalizing, sttMode]);
 
     return (
         <div
             className={`${SESSION_SURFACE_CLASS} p-4 flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
+            // #33 Native trust-disclaimer proof hooks: explicit booleans so the test
+            // harness can assert each trust state without scraping nested DOM.
+            data-draft-banner-visible={showDraftTrustBanner ? 'true' : 'false'}
+            data-processing-visible={isFinalizing ? 'true' : 'false'}
+            data-final-state-visible={uiState === 'final' ? 'true' : 'false'}
+            data-listening-visible={uiState === 'listening' ? 'true' : 'false'}
         >
+            {/*
+              Clean transcript surface for tests: ONLY the committed user transcript —
+              no Draft/Processing/Listening/helper copy, no interim text. Scraping the
+              visible container mixes those in (the `basically3um2like2…` contamination);
+              read this instead. Visually hidden; never affects layout/UX.
+            */}
+            <span
+                data-testid="transcript-text-only"
+                data-transcript-text-only={transcript.trim()}
+                className="sr-only"
+                aria-hidden="true"
+            >
+                {transcript.trim()}
+            </span>
             <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                     <div className="w-1 h-5 bg-primary rounded"></div>
@@ -80,14 +234,44 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 )}
             </div>
             <div
-                ref={containerRef}
-                className={`live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all min-h-[160px]`}
+                ref={setScrollContainerRef}
+                className={`live-transcript-scroll h-[18rem] sm:h-[20rem] lg:h-[22rem] overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all`}
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
+                data-autoscroll-transcript="true"
+                data-transcript-state={uiState}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
                 role="log"
             >
+                {/* Finalizing banner: post-Stop whole-utterance decode in progress.
+                    Keeps the user informed during multi-second CPU finalization so
+                    stale draft text is never mistaken for the saved result. */}
+                {isFinalizing && (
+                    <div
+                        className="sticky top-0 z-20 mb-3 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
+                        data-testid="live-transcript-finalizing"
+                    >
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+                        {finalizingBannerText}
+                    </div>
+                )}
+
+                {showDraftTrustBanner && (
+                    <div
+                        className="sticky top-0 z-20 mb-3 rounded-md border border-dashed border-primary/30 bg-background/95 px-3 py-2 text-sm text-foreground/80 shadow-sm backdrop-blur"
+                        data-testid="live-transcript-trust-banner"
+                        data-transcript-trust="draft"
+                        aria-label="Draft transcript notice"
+                    >
+                        <span className="font-semibold text-primary">Draft transcript</span>
+                        {/* Real whitespace text node so extracted/AT text reads
+                            "Draft transcript Text may change…" not glued "transcriptText". */}
+                        {' '}
+                        <span className="ml-2 text-xs text-foreground/60">Text may change before the final transcript is saved.</span>
+                    </div>
+                )}
+
                 {/* Segmented History (Chapters) */}
                 {history.map((segment, idx) => (
                     <div key={`history-${idx}`} className="mb-6 last:mb-4 group">
@@ -124,21 +308,25 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
                 {/* Current Active Segment */}
                 {isListening && !hasTranscript && !hasInterimTranscript ? (
-                    sttMode === 'private' ? (
+                    isPrivateMode ? (
                         <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-foreground/80">
                             <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border border-primary/25 bg-primary/5 ${hasSpeechActivity ? 'shadow-[0_0_0_8px_hsl(var(--primary)/0.08)]' : ''}`}>
                                 {hasSpeechActivity && <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" />}
                                 <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
                             </div>
                             <p className={hasSpeechActivity ? 'text-primary font-medium' : 'animate-pulse'}>
-                                {hasSpeechActivity ? 'Processing locally...' : 'Listening...'}
+                                {listeningEmptyText}
                             </p>
                         </div>
                     ) : (
-                        <p className="text-sm font-semibold text-foreground/75 animate-pulse">Listening...</p>
+                        <p className="text-sm font-semibold text-foreground/75 animate-pulse">{listeningEmptyText}</p>
                     )
                 ) : hasTranscript || hasInterimTranscript ? (
-                    <div className="text-foreground text-lg leading-relaxed">
+                    <div
+                        className={`text-foreground text-lg leading-relaxed ${isDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
+                        data-transcript-draft={isDrafting ? 'true' : undefined}
+                        aria-label={isDrafting ? 'Draft transcript, still being recognized' : undefined}
+                    >
                         {tokens.map((token) => {
                             if (token.type === 'error') {
                                 return (
@@ -160,12 +348,50 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             }
                             return <span key={token.id}>{token.transcript}</span>;
                         })}
-                        {hasInterimTranscript && (
-                            <span className="text-foreground/70">
+                        {/* Settled: completed draft sentences read as recognized, not
+                            a wall of Draft. Display only — saved path is unchanged. */}
+                        {isListening && hasSettledDraft && (
+                            <span
+                                className="text-foreground/80"
+                                data-testid="live-transcript-settled"
+                                data-transcript-settled="true"
+                                aria-label="Recognized so far"
+                            >
                                 {hasTranscript ? ' ' : ''}
-                                {displayInterimTranscript}
+                                {settledDraft}
                             </span>
                         )}
+                        {/* Active: the in-progress sentence stays clearly Draft. */}
+                        {isListening && draftLineText.trim() !== '' && (
+                            <span
+                                className="italic text-foreground/60"
+                                data-testid="live-transcript-current-line"
+                                data-transcript-draft="true"
+                                aria-label="Draft transcript, still being recognized"
+                            >
+                                {(hasTranscript || hasSettledDraft) ? ' ' : ''}
+                                {draftLineText}
+                            </span>
+                        )}
+                        {showFormattingNotice && (
+                            <div
+                                className="mt-2 text-xs font-medium text-foreground/55"
+                                data-native-formatting-notice="true"
+                                aria-live="polite"
+                            >
+                                Saved — tidying up punctuation…
+                            </div>
+                        )}
+                    </div>
+                ) : isFinalizing ? (
+                    <div
+                        className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
+                        data-testid="live-transcript-finalizing-empty"
+                    >
+                        <p className="text-sm font-semibold text-primary">{finalizingEmptyTitle}</p>
+                        <p className="max-w-sm text-xs text-foreground/60">
+                            {finalizingEmptyDescription}
+                        </p>
                     </div>
                 ) : (
                     <p className="text-sm font-semibold text-foreground/75">Start recording and your words will appear here.</p>

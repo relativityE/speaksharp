@@ -16,14 +16,18 @@
  * 
  * CONFIGURATION:
  * - Production: ALLOWED_ORIGIN env var set in Supabase Dashboard (e.g., https://speaksharp.vercel.app)
- * - Development: Falls back to localhost:5173 (matches scripts/build.config.js PORTS.DEV)
+ * - Development/manual proof: falls back to localhost:5174 (`pnpm dev`, real auth)
  */
 
 // Port configuration for local development fallback (sync with scripts/build.config.js)
-const DEV_PORT = 5173;
+const DEV_PORT = 5174;
 
-// Read from environment, default to localhost for development
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? `http://localhost:${DEV_PORT}`;
+const DEFAULT_DEV_ORIGIN = `http://localhost:${DEV_PORT}`;
+const CONFIGURED_ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGIN") ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const FALLBACK_ALLOWED_ORIGIN = CONFIGURED_ALLOWED_ORIGINS[0] ?? DEFAULT_DEV_ORIGIN;
 
 export const corsHeaders = (req?: Request) => {
   const origin = req?.headers.get("Origin");
@@ -48,9 +52,9 @@ export const corsHeaders = (req?: Request) => {
     }
   }
 
-  // Fallback to configured ALLOWED_ORIGIN
+  // Fallback to the first configured origin, or localhost for local development.
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+    "Access-Control-Allow-Origin": FALLBACK_ALLOWED_ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
@@ -58,8 +62,8 @@ export const corsHeaders = (req?: Request) => {
 
 function originalMatches(origin: string): boolean {
   return (
-    origin.endsWith(".vercel.app") ||
+    /^https:\/\/(?:speaksharp(?:-[a-z0-9-]+)?)\.vercel\.app$/.test(origin) ||
     origin.endsWith("speaksharp.ai") ||
-    origin === ALLOWED_ORIGIN
+    CONFIGURED_ALLOWED_ORIGINS.includes(origin)
   );
 }

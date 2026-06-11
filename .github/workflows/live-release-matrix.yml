@@ -16,10 +16,18 @@ on:
           - cloud-artifact
           - stt-switching-contract
           - private-cache
+          - v4-app-path-proof
           - first-time-tester-private-trial
           - stripe-webhook-readiness
           - stripe-checkout-readiness
+          - stripe-billing-portal-readiness
+          - stripe-paid-soft-launch-runtime
           - stripe-price-audit
+      zero_hf_audit:
+        description: 'Require Private model requests to stay same-origin /models with no HuggingFace traffic'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -108,7 +116,7 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BASE_URL: https://speaksharp-public.vercel.app/
@@ -183,8 +191,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -224,6 +232,7 @@ jobs:
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+          ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
         run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload Private Cache Artifacts
@@ -250,11 +259,45 @@ jobs:
         with:
           install-playwright: 'true'
 
+      - name: Assert required live proof env
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=0
+          for key in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "::error title=Missing required env::$key is required for first-time tester Private sample proof"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Start release-proof local app on 5174
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BASE_URL: http://localhost:5174
+        run: |
+          pnpm dev:real > "${RUNNER_TEMP}/first-time-private-sample-vite.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/first-time-private-sample-vite.pid"
+          pnpm exec wait-on --timeout 120000 "$BASE_URL"
+
       - name: Run First-Time Tester Private Trial Proof
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          BASE_URL: https://speaksharp-public.vercel.app/
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BASE_URL: http://localhost:5174
         run: pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload First-Time Tester Private Trial Artifacts
@@ -263,6 +306,104 @@ jobs:
         with:
           name: live-first-time-tester-private-trial-artifacts
           path: |
+            ${{ runner.temp }}/first-time-private-sample-vite.log
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-v4-app-path-proof:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'v4-app-path-proof' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: live-v4-app-path-proof
+      cancel-in-progress: false
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Assert required live proof env
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+        run: |
+          missing=0
+          for key in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY PRO_TEST_EMAIL PRO_TEST_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error title=Missing required env::$key is required for v4 app-path proof"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Start release-proof local app on 5174
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BASE_URL: http://localhost:5174
+        run: |
+          pnpm dev:real > "${RUNNER_TEMP}/v4-vite.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/v4-vite.pid"
+          pnpm exec wait-on --timeout 120000 "$BASE_URL"
+
+      - name: Run v4 record-stop-save-history proof
+        env:
+          BASE_URL: http://localhost:5174
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          STT_AUTH: existing
+          STT_MODES: private
+          STT_FIXTURES: h1_6
+          STT_EXTRA_QUERY: v4ForceAuto=1
+          STT_INJECT_MIC_AUDIO: 'true'
+          STT_INJECT_MIC_AUDIO_LOOP: 'true'
+          STT_POST_PLAYBACK_WAIT_MS: '15000'
+          STT_FIRST_TEXT_TIMEOUT_MS: '45000'
+          HEADLESS: 'true'
+          STT_CORPUS_OUT: ${{ runner.temp }}/v4-stage-b-apppath-proof.json
+        run: node scripts/manual-stt-corpus-proof.mjs
+
+      - name: Print v4 proof summary
+        if: always()
+        env:
+          STT_CORPUS_OUT: ${{ runner.temp }}/v4-stage-b-apppath-proof.json
+        run: |
+          if [ -f "$STT_CORPUS_OUT" ]; then
+            node -e "const fs=require('fs'); const p=process.env.STT_CORPUS_OUT; const j=JSON.parse(fs.readFileSync(p,'utf8')); console.log(JSON.stringify({pass:j.pass, blockers:j.blockers, environmentProof:j.environmentProof, privateEngine:j.privateEngine, results:(j.results||[]).map(r=>({mode:r.mode,fixture:r.fixture,verdict:r.verdict,journeyPass:r.journeyPass,firstText:r.firstText,sessionPersisted:r.sessionPersisted,historyVisible:r.historyVisible,detailVisible:r.detailVisible,privateProvider:r.privateProvider,privateRuntime:r.privateRuntime,privateWebgpuAvailable:r.privateWebgpuAvailable,privateRuntimePath:r.privateRuntimePath,wer:r.wer,accuracyPct:r.accuracyPct}))}, null, 2));"
+          else
+            echo "No proof artifact written at $STT_CORPUS_OUT"
+          fi
+
+      - name: Upload v4 App-Path Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-v4-app-path-proof-artifacts
+          path: |
+            ${{ runner.temp }}/v4-stage-b-apppath-proof.json
+            ${{ runner.temp }}/v4-vite.log
             blob-report/live/
             playwright-report/
             test-results/live/
@@ -281,7 +422,7 @@ jobs:
 
       - name: Run Stripe Webhook Readiness Proof
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: pnpm exec playwright test tests/live/stripe-webhook-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -309,7 +450,7 @@ jobs:
 
       - name: Run Stripe Checkout Readiness Proof
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
@@ -320,6 +461,73 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-checkout-readiness-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-stripe-billing-portal-readiness:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-billing-portal-readiness' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Run Stripe Billing Portal Readiness Proof
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+        run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Stripe Billing Portal Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-stripe-billing-portal-readiness-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-stripe-paid-soft-launch-runtime:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-paid-soft-launch-runtime' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Stripe Test-Mode Paid Soft Launch Runtime Proof
+        env:
+          BASE_URL: https://speaksharp-public.vercel.app/
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+        run: pnpm exec playwright test tests/live/stripe-paid-soft-launch-runtime.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Stripe Paid Soft Launch Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-stripe-paid-soft-launch-runtime-artifacts
           path: |
             blob-report/live/
             playwright-report/

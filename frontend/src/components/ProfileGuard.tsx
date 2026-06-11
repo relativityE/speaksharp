@@ -2,7 +2,7 @@ import React from 'react';
 import { ENV } from '../config/TestFlags';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useAuthProvider } from '../contexts/AuthProvider';
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { ProfileProvider } from '../contexts/ProfileContext';
 import { useReadinessStore } from '@/stores/useReadinessStore';
@@ -26,10 +26,20 @@ interface ProfileGuardProps {
  * 3. E2E Stability: Provides a clear signal ('app-loaded') for tests to wait for.
  */
 export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
-    const { session, loading: authLoading } = useAuthProvider();
+    const { session, loading: authLoading, signOut } = useAuthProvider();
     const { data: profile, isLoading: profileLoading, error: profileError, refetch } = useUserProfile();
     const setReady = useReadinessStore((state) => state.setReady);
     const loggedProfileErrorRef = React.useRef(false);
+
+    // #C1 onboarding: a brand-new user can have a valid session BEFORE their
+    // user_profiles row finishes provisioning (create-user lag). useUserProfile then
+    // resolves to null (NOT an error), which previously fell straight into the scary
+    // "Profile Sync Failed" screen. We instead poll a bounded number of times and only
+    // surface the error if the row never appears.
+    const PROFILE_PROVISION_MAX_ATTEMPTS = 5;
+    const PROFILE_PROVISION_RETRY_MS = 1500;
+    const provisioningAttemptsRef = React.useRef(0);
+    const [provisioningExhausted, setProvisioningExhausted] = React.useState(false);
 
     // Signal Profile Readiness for E2E stability
     React.useEffect(() => {
@@ -66,10 +76,52 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         logger.error({ error: profileError, userId: session?.user?.id }, '[ProfileGuard] Profile fetch failed after retries');
     }, [profileError, session?.user?.id]);
 
+    // #C1: bounded auto-retry while the profile row is still provisioning (valid
+    // session, no error, null profile). Resets when the profile arrives or a real
+    // error occurs; after MAX attempts we fall through to the error screen.
+    React.useEffect(() => {
+        const missingButNoError = !!session && !profileLoading && !profileError && !profile;
+        if (!missingButNoError) {
+            if (profile || profileError) {
+                provisioningAttemptsRef.current = 0;
+                if (provisioningExhausted) setProvisioningExhausted(false);
+            }
+            return;
+        }
+        if (provisioningAttemptsRef.current >= PROFILE_PROVISION_MAX_ATTEMPTS) {
+            if (!provisioningExhausted) {
+                logger.warn(
+                    { userId: session?.user?.id, attempts: provisioningAttemptsRef.current },
+                    '[ProfileGuard] Profile row still missing after provisioning retries; showing error',
+                );
+                setProvisioningExhausted(true);
+            }
+            return;
+        }
+        const timer = setTimeout(() => {
+            provisioningAttemptsRef.current += 1;
+            void refetch();
+        }, PROFILE_PROVISION_RETRY_MS);
+        return () => clearTimeout(timer);
+    }, [session, profileLoading, profileError, profile, refetch, provisioningExhausted]);
+
     // 🧪 Ensure ProfileContext integrity for E2E System Probes
     // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 
     // invariant for protected routes like /session when no real session exists.
-    const isE2EMockMode = ENV.isE2E && import.meta.env.MODE !== 'production';
+    const isE2EMockMode = ENV.isE2E;
+
+    React.useEffect(() => {
+        if (!isE2EMockMode || authLoading || session) {
+            return;
+        }
+
+        loggedProfileErrorRef.current = false;
+        setReady('profile');
+        syncProfileReady(true);
+        window.dispatchEvent(new CustomEvent('app-hydration-complete', {
+            detail: { profileId: '__E2E_GUEST_USER__' }
+        }));
+    }, [authLoading, isE2EMockMode, session, setReady]);
 
     // 1. Auth is still initializing (Supabase getSession)
     if (authLoading) {
@@ -119,7 +171,23 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         );
     }
 
-    // 4. Critical Profile Fetch Error
+    // 4a. New user: valid session but the profile row is still provisioning (no error).
+    // Friendly wait + bounded auto-retry instead of a scary "Profile Sync Failed".
+    if (!profile && !profileError && !provisioningExhausted) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="profile-provisioning">
+                <div className="relative">
+                    <div className="absolute inset-0 blur-xl bg-primary/20 rounded-full animate-pulse" />
+                    <Loader2 className="h-12 w-12 animate-spin text-primary relative z-10" />
+                </div>
+                <h2 className="mt-8 text-xl font-bold text-foreground">Setting up your account</h2>
+                <p className="mt-2 text-sm text-muted-foreground">This only takes a moment for new accounts…</p>
+            </div>
+        );
+    }
+
+    // 4. Critical Profile Fetch Error (genuine fetch failure, or profile still missing
+    // after provisioning retries).
     if (profileError || !profile) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="app-error">
@@ -128,15 +196,19 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
                 </div>
                 <h2 className="text-2xl font-bold text-foreground mb-2">Profile Sync Failed</h2>
                 <p className="text-center text-muted-foreground max-w-md mb-8">
-                    We couldn't load your profile settings. This is usually a temporary connection issue.
+                    We couldn't load your profile settings. Retry sync first. If it keeps failing, sign out and sign back in to refresh your account session.
                 </p>
-                <div className="flex gap-4">
-                    <Button variant="outline" onClick={() => window.location.reload()}>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Refresh App
-                    </Button>
+                <div className="flex flex-wrap justify-center gap-4">
                     <Button onClick={() => { void refetch(); }}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
                         Retry Sync
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => { void signOut(); }}
+                    >
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Sign Out
                     </Button>
                 </div>
             </div>

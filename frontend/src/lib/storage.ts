@@ -72,14 +72,12 @@ export const getSessionHistory = async (
 
     if (error) {
       logger.error({ error }, `Error fetching session history from ${requestUrl}:`);
-      throw new Error(`Failed to fetch sessions from ${requestUrl}: ${error.message}`);
+      throw new Error('Unable to load your session history. Please refresh and try again.');
     }
     return (data || []) as unknown as PracticeSession[];
   } catch (fetchError) {
-    const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
     logger.error({ error: fetchError, requestUrl }, '[getSessionHistory] Failed to fetch sessions');
-    // Re-throw with descriptive message including the URL
-    throw new Error(`Failed to fetch sessions from ${requestUrl}: ${errorMessage}`);
+    throw new Error('Unable to load your session history. Please refresh and try again.');
   }
 };
 
@@ -108,12 +106,12 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
         return null;
       }
       logger.error({ error }, `Error fetching session by ID ${sessionId}:`);
-      throw new Error(`Failed to fetch session ${sessionId}: ${error.message}`);
+      throw new Error('Unable to load this session. Please refresh and try again.');
     }
     return data as unknown as PracticeSession | null;
   } catch (fetchError) {
     logger.error({ error: fetchError, sessionId }, '[getSessionById] Failed');
-    throw new Error(`Failed to fetch session ${sessionId}: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
+    throw new Error('Unable to load this session. Please refresh and try again.');
   }
 };
 

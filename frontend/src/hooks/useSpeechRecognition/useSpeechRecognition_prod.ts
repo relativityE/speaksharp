@@ -31,8 +31,8 @@ function getCloudTokenFailureMessage(err: unknown): string {
     const message = errorLike?.message ?? String(err);
     const status = errorLike?.context?.status ?? errorLike?.status;
 
-    if (status === 403 || /Cloud STT is available with Pro|Trial access includes Private STT/i.test(message)) {
-        return 'Cloud STT is available with Pro. Trial access includes Private STT.';
+    if (status === 403 || /Cloud STT is (available (with Pro|as a Pro feature)|a Pro feature)|paid Early Access/i.test(message)) {
+        return 'Cloud STT is a paid Early Access feature. Browser transcription is still available.';
     }
 
     if (status === 401 || /Invalid or expired token|Missing Authorization/i.test(message)) {
@@ -104,10 +104,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         elapsedTime,
     } = store;
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
-    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
-    const isEffectiveProUser = isPro(effectiveSubscriptionStatus) || isDevUser;
-    const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isEffectiveProUser;
-    const canUseCloudStt = (isEffectiveProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
+    const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
+    const canUseCloudStt = isEffectiveProUser && hasCloudSttEntitlement(profile);
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';

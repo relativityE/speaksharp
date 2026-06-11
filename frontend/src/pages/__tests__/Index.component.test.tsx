@@ -20,12 +20,25 @@ vi.mock('@/components/landing/BenefitsSection', () => ({
 vi.mock('@/components/landing/CTASection', () => ({
     CTASection: () => <div data-testid="cta-section">CTASection</div>,
 }));
+vi.mock('@/components/BrowserWarning', () => ({
+    BrowserWarning: ({ supportError }: { supportError?: string }) => (
+        <div data-testid="browser-warning">{supportError || 'Not Supported'}</div>
+    )
+}));
+
+const mockUseBrowserSupport = vi.fn<() => { isSupported: boolean; error: string | null }>(
+    () => ({ isSupported: true, error: null })
+);
+vi.mock('@/hooks/useBrowserSupport', () => ({
+    useBrowserSupport: () => mockUseBrowserSupport()
+}));
 
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 
 describe('Index', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockUseBrowserSupport.mockReturnValue({ isSupported: true, error: null });
     });
 
     describe('Loading State', () => {
@@ -80,6 +93,19 @@ describe('Index', () => {
             expect(screen.getByTestId('hero-section')).toBeInTheDocument();
             expect(screen.getByTestId('features-section')).toBeInTheDocument();
             expect(screen.getByTestId('landing-footer')).toBeInTheDocument();
+        });
+
+        it('shows a browser compatibility warning without blocking landing content', () => {
+            mockUseBrowserSupport.mockReturnValue({
+                isSupported: false,
+                error: 'Speech recognition not supported in this browser.'
+            });
+
+            render(<Index />);
+
+            expect(screen.getByTestId('browser-warning')).toHaveTextContent('Speech recognition not supported');
+            expect(screen.getByTestId('hero-section')).toBeInTheDocument();
+            expect(screen.getByTestId('cta-section')).toBeInTheDocument();
         });
 
         it('should have correct page structure', () => {

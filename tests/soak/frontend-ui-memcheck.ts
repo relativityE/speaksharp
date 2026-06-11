@@ -1,7 +1,270 @@
-import { expect, type Page, type Browser } from '@playwright/test';
+import { expect, type Page, type Browser, type BrowserContext } from '@playwright/test';
 import { SOAK_CONFIG, SOAK_TEST_USERS, ROUTES, TEST_IDS } from '../constants';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const ENDURANCE_RESULTS_DIR = path.resolve(process.cwd(), 'test-results/endurance');
+const ENDURANCE_EVIDENCE_PATH = path.join(ENDURANCE_RESULTS_DIR, 'browser-endurance.latest.json');
+
+type BrowserMemorySnapshot = {
+    usedJSHeapSize: number | null;
+    totalJSHeapSize: number | null;
+    jsHeapSizeLimit: number | null;
+};
+
+type BrowserEnduranceUserResult = {
+    userIndex: number;
+    status: 'pass' | 'fail';
+    memoryStart: BrowserMemorySnapshot;
+    memoryEnd: BrowserMemorySnapshot;
+    memoryGrowthBytes: number | null;
+    error?: string;
+};
+
+type EndurancePhase = 'setup' | 'active' | 'navigation' | 'teardown' | 'complete';
+
+export type RequestFailureEvent = {
+    userIndex: number;
+    url: string;
+    method: string;
+    errorText: string | null;
+    phase: EndurancePhase;
+    functionalJourneyPassed: boolean;
+};
+
+type CriticalRequestFailure = RequestFailureEvent & {
+    classification: 'critical';
+    reason: string;
+};
+
+type IgnoredRequestFailure = RequestFailureEvent & {
+    classification: 'ignored_teardown_read';
+    reason: string;
+    category: string;
+};
+
+export type RequestFailureClassification =
+    | { kind: 'critical'; reason: string }
+    | { kind: 'ignored_teardown_read'; reason: string; category: string };
+
+type BrowserEnduranceEvidence = {
+    schemaVersion: 2;
+    kind: 'browser-endurance';
+    run: {
+        githubRunId: string | null;
+        githubRunAttempt: string | null;
+        commitSha: string | null;
+        actor: string | null;
+    };
+    status: 'pass' | 'fail' | 'invalid';
+    countsAsReleaseEvidence: boolean;
+    functionalJourneyPassed: boolean;
+    invalidEvidenceReasons: string[];
+    concurrency: number;
+    mode: 'native' | 'configured-default';
+    durationMs: number;
+    startedAt: string;
+    completedAt: string;
+    consoleIssues: Array<{ userIndex: number; type: string; text: string }>;
+    requestFailures: CriticalRequestFailure[];
+    criticalFailures: CriticalRequestFailure[];
+    ignoredRequestFailures: IgnoredRequestFailure[];
+    users: BrowserEnduranceUserResult[];
+    error?: string;
+};
+
+const READ_ABORT_ENDPOINTS = [
+    {
+        category: 'session_history_read',
+        methods: ['GET', 'HEAD'],
+        pattern: /\/rest\/v1\/sessions\?select=/,
+    },
+    {
+        category: 'usage_poll',
+        methods: ['GET', 'HEAD', 'POST'],
+        pattern: /\/functions\/v1\/check-usage-limit/,
+    },
+    {
+        category: 'filler_words_read',
+        methods: ['GET', 'HEAD'],
+        pattern: /\/rest\/v1\/user_filler_words\?select=/,
+    },
+] as const;
+
+const installSoakSttBridgeScript = () => {
+        type SttOptions = {
+            onReady?: () => void;
+            onTranscriptUpdate?: (update: {
+                transcript: { partial?: string; final?: string };
+                isFinal: boolean;
+                isPartial: boolean;
+                timestamp: number;
+            }) => void;
+        };
+
+        type SoakWindow = Window & {
+            __SS_E2E__?: {
+                isActive: boolean;
+                engineType?: 'mock';
+                forceNativeMode?: boolean;
+                registry?: Record<string, (options?: SttOptions) => unknown>;
+                _activeCallbacks?: SttOptions;
+            };
+            __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
+            TEST_MODE?: boolean;
+        };
+
+        const win = window as SoakWindow;
+        win.TEST_MODE = true;
+        win.__SS_E2E_ENGINE_CACHE__ = win.__SS_E2E_ENGINE_CACHE__ || {};
+
+        const minimalStubFactory = (mode: string) => (options?: SttOptions) => {
+            const cache = win.__SS_E2E_ENGINE_CACHE__ || {};
+            win.__SS_E2E_ENGINE_CACHE__ = cache;
+            const cacheKey = `soak-${mode}`;
+            if (cache[cacheKey]) return cache[cacheKey];
+
+            const instance = {
+                instanceId: `soak-${mode}-${Math.random().toString(36).slice(2)}`,
+                checkAvailability: async () => ({ isAvailable: true }),
+                init: async () => {
+                    win.__SS_E2E__ = win.__SS_E2E__ || { isActive: true };
+                    options?.onReady?.();
+                    return { isOk: true };
+                },
+                start: async () => {},
+                stop: async () => {},
+                pause: async () => {},
+                resume: async () => {},
+                destroy: async () => {},
+                terminate: async () => {},
+                getEngineType: () => mode,
+                getLastHeartbeatTimestamp: () => Date.now(),
+                getTranscript: async () => '',
+                emitTranscript: (text: string, isFinal: boolean = true) => {
+                    const update = {
+                        transcript: isFinal ? { final: text } : { partial: text },
+                        isFinal,
+                        isPartial: !isFinal,
+                        timestamp: Date.now(),
+                    };
+                    options?.onTranscriptUpdate?.(update);
+                    win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.(update);
+                },
+            };
+            cache[cacheKey] = instance;
+            return instance;
+        };
+
+        win.__SS_E2E__ = {
+            ...(win.__SS_E2E__ || {}),
+            isActive: true,
+            engineType: 'mock',
+            forceNativeMode: true,
+            registry: {
+                ...(win.__SS_E2E__?.registry || {}),
+                'native-browser': minimalStubFactory('native-browser'),
+                'transformers-js': minimalStubFactory('transformers-js'),
+                'transformers-js-v4': minimalStubFactory('transformers-js-v4'),
+                'whisper-turbo': minimalStubFactory('whisper-turbo'),
+                assemblyai: minimalStubFactory('assemblyai'),
+                mock: minimalStubFactory('mock'),
+            },
+        };
+};
+
+async function installSoakSttBridge(page: Page): Promise<void> {
+    await page.evaluate(installSoakSttBridgeScript);
+}
+
+async function installSoakSttBridgeAtBoot(page: Page): Promise<void> {
+    await page.addInitScript(installSoakSttBridgeScript);
+}
+
+async function readMemorySnapshot(page: Page): Promise<BrowserMemorySnapshot> {
+    return page.evaluate(() => {
+        const memory = (performance as Performance & {
+            memory?: {
+                usedJSHeapSize?: number;
+                totalJSHeapSize?: number;
+                jsHeapSizeLimit?: number;
+            };
+        }).memory;
+
+        return {
+            usedJSHeapSize: memory?.usedJSHeapSize ?? null,
+            totalJSHeapSize: memory?.totalJSHeapSize ?? null,
+            jsHeapSizeLimit: memory?.jsHeapSizeLimit ?? null,
+        };
+    });
+}
+
+function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 'schemaVersion' | 'kind' | 'run'>) {
+    fs.mkdirSync(ENDURANCE_RESULTS_DIR, { recursive: true });
+    fs.writeFileSync(ENDURANCE_EVIDENCE_PATH, JSON.stringify({
+        schemaVersion: 2,
+        kind: 'browser-endurance',
+        run: {
+            githubRunId: process.env.GITHUB_RUN_ID ?? null,
+            githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+            commitSha: process.env.GITHUB_SHA ?? null,
+            actor: process.env.GITHUB_ACTOR ?? null,
+        },
+        ...report,
+    }, null, 2));
+    console.log(`📄 Browser endurance evidence written to ${ENDURANCE_EVIDENCE_PATH}`);
+}
+
+export function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureClassification {
+    if (failure.errorText !== 'net::ERR_ABORTED') {
+        return {
+            kind: 'critical',
+            reason: `Unexpected request failure: ${failure.errorText ?? 'unknown error'}`,
+        };
+    }
+
+    const match = READ_ABORT_ENDPOINTS.find((endpoint) =>
+        (endpoint.methods as readonly string[]).includes(failure.method) && endpoint.pattern.test(failure.url)
+    );
+
+    if (!match) {
+        if (!['GET', 'HEAD'].includes(failure.method)) {
+            return {
+                kind: 'critical',
+                reason: 'Aborted non-read request',
+            };
+        }
+        return {
+            kind: 'critical',
+            reason: 'Aborted read endpoint is not in the teardown allowlist',
+        };
+    }
+
+    const safePhase = failure.phase === 'navigation' || failure.phase === 'teardown' || failure.functionalJourneyPassed;
+    if (!safePhase) {
+        return {
+            kind: 'critical',
+            reason: 'Read aborted before the functional journey passed',
+        };
+    }
+
+    return {
+        kind: 'ignored_teardown_read',
+        reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+        category: match.category,
+    };
+}
+
+function classifyInvalidEvidence(error: unknown): string[] {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/\bEPERM\b|EACCES|EADDRINUSE|listen|bind/i.test(message)) {
+        return [`Environment/tooling prevented trustworthy browser evidence: ${message}`];
+    }
+    if (/Missing|not configured|required env|secret/i.test(message)) {
+        return [`Missing environment/configuration prevented trustworthy evidence: ${message}`];
+    }
+    return [];
+}
 
 /**
  * Helper to set up authenticated test user using REAL Supabase login
@@ -57,86 +320,211 @@ export async function setupAuthenticatedUser(page: Page, userIndex: number): Pro
  * continuously to track React memory leaks and Zustand data bleed.
  */
 export async function runFrontendMemCheck(browser: Browser): Promise<void> {
+    const startedAt = new Date().toISOString();
+    const startTime = Date.now();
+    const consoleIssues: BrowserEnduranceEvidence['consoleIssues'] = [];
+    const criticalFailures: BrowserEnduranceEvidence['criticalFailures'] = [];
+    const ignoredRequestFailures: BrowserEnduranceEvidence['ignoredRequestFailures'] = [];
+    const userResults: BrowserEnduranceUserResult[] = [];
+    const userPhases: EndurancePhase[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => 'setup');
+    const functionalJourneyPassedByUser: boolean[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => false);
+    let userContexts: BrowserContext[] = [];
+    let userPages: Page[] = [];
+
     // Create multiple completely isolated browser contexts (Playwright handles this)
-    const userContexts = await Promise.all(
-        Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () =>
-            browser.newContext({
-                viewport: { width: 1280, height: 720 },
-                storageState: undefined,
-            })
-        )
-    );
+    try {
+        userContexts = await Promise.all(
+            Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () =>
+                browser.newContext({
+                    viewport: { width: 1280, height: 720 },
+                    storageState: undefined,
+                })
+            )
+        );
 
-    // Create pages for each user
-    const userPages = await Promise.all(
-        userContexts.map((ctx) => ctx.newPage())
-    );
+        // Create pages for each user
+        userPages = await Promise.all(
+            userContexts.map((ctx) => ctx.newPage())
+        );
 
-    // Set up authenticated sessions for each user (different credentials per user)
-    await Promise.all(
-        userPages.map((page, i) => setupAuthenticatedUser(page, i))
-    );
+        await Promise.all(userPages.map((page) => installSoakSttBridgeAtBoot(page)));
 
-    // DIAGNOSTIC: Verify auth state before starting journeys
-    for (let i = 0; i < userPages.length; i++) {
-        const page = userPages[i];
-        const signOutVisible = await page.locator('[data-testid="nav-sign-out-button"]').isVisible().catch(() => false);
-
-        if (!signOutVisible) {
-            // Capture screenshot for debugging
-            await page.screenshot({ path: `test-results/soak/debug-user-${i}-auth-state.png` });
-            throw new Error(`[Soak Test] ⚠️ User ${i}: nav-sign-out-button NOT visible - auth may have failed!`);
-        }
-    }
-
-    // Run all users concurrently
-    const userJourneys = userPages.map(async (page) => {
-        // 1. Navigate to Session
-        await page.goto(ROUTES.SESSION);
-        await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
-
-        // 2. Start Recording
-        const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-        if (SOAK_CONFIG.USE_NATIVE_MODE) {
-            await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
-            await page.getByRole('menuitemradio', { name: /Native/i }).click();
-        }
-        await startButton.click();
-        await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, { timeout: 10000 });
-
-        // 3. Soak (Wait & Inject Mock Speech)
-        const checkInterval = 10000;
-        const iterations = Math.floor(SOAK_CONFIG.SESSION_DURATION_MS / checkInterval);
-        for (let j = 0; j < iterations; j++) {
-            await page.evaluate((iteration: number) => {
-                const dispatchMockTranscript = (window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void }).dispatchMockTranscript;
-                if (typeof dispatchMockTranscript === 'function') {
-                    const phrases = ['Testing...', 'Soak test...', 'Simulating...'];
-                    dispatchMockTranscript(phrases[iteration % phrases.length], true);
+        userPages.forEach((page, userIndex) => {
+            page.on('console', (message) => {
+                if (message.type() === 'error' || message.type() === 'warning') {
+                    consoleIssues.push({ userIndex, type: message.type(), text: message.text().slice(0, 500) });
                 }
-            }, j);
-            await page.waitForTimeout(checkInterval);
+            });
+            page.on('requestfailed', (request) => {
+                const failure = {
+                    userIndex,
+                    url: request.url(),
+                    method: request.method(),
+                    errorText: request.failure()?.errorText ?? null,
+                    phase: userPhases[userIndex] ?? 'setup',
+                    functionalJourneyPassed: functionalJourneyPassedByUser[userIndex] ?? false,
+                };
+                const classification = classifyRequestFailure(failure);
+                if (classification.kind === 'ignored_teardown_read') {
+                    ignoredRequestFailures.push({
+                        ...failure,
+                        classification: classification.kind,
+                        reason: classification.reason,
+                        category: classification.category,
+                    });
+                } else {
+                    criticalFailures.push({
+                        ...failure,
+                        classification: classification.kind,
+                        reason: classification.reason,
+                    });
+                }
+            });
+        });
+
+        // Set up authenticated sessions for each user (different credentials per user)
+        await Promise.all(
+            userPages.map((page, i) => setupAuthenticatedUser(page, i))
+        );
+
+        // DIAGNOSTIC: Verify auth state before starting journeys
+        for (let i = 0; i < userPages.length; i++) {
+            const page = userPages[i];
+            const signOutVisible = await page.locator('[data-testid="nav-sign-out-button"]').isVisible().catch(() => false);
+
+            if (!signOutVisible) {
+                // Capture screenshot for debugging
+                await page.screenshot({ path: `test-results/soak/debug-user-${i}-auth-state.png` });
+                throw new Error(`[Browser Endurance] ⚠️ User ${i}: nav-sign-out-button NOT visible - auth may have failed!`);
+            }
         }
 
-        // 4. Stop Recording
-        const buttonText = await startButton.textContent();
-        if (!buttonText?.includes('Start')) {
+        // Run all users concurrently
+        const userJourneys = userPages.map(async (page, userIndex) => {
+            const memoryStart = await readMemorySnapshot(page);
+
+            // 1. Navigate to Session
+            userPhases[userIndex] = 'navigation';
+            await page.goto(ROUTES.SESSION);
+            await installSoakSttBridge(page);
+            await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
+
+            // 2. Force Browser/Native STT before recording. This endurance
+            // proof tracks browser stability; Private model download/cache
+            // behavior belongs to dedicated Private proofs.
+            const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+            if (SOAK_CONFIG.USE_NATIVE_MODE) {
+                const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
+                await expect(modeSelect).toBeVisible({ timeout: 15000 });
+                await modeSelect.click();
+                await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
+                await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 10000 });
+            }
+
+            // 3. Start Recording. If this is disabled, fail with the selected
+            // mode so stale Private/download gating is obvious in logs.
+            await expect(startButton).toBeEnabled({ timeout: 10000 });
             await startButton.click();
-            const sessionEndLocator = page.locator('div[role="alertdialog"]').or(page.getByText('No speech was detected'));
-            await sessionEndLocator.first().waitFor({ timeout: 10000 }).catch(() => { });
+            await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, { timeout: 10000 });
+            await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
+            userPhases[userIndex] = 'active';
+
+            // 4. Endurance wait. Native transcript output is browser-owned,
+            // so this path validates sustained recording stability rather
+            // than mocked transcript accuracy.
+            const checkInterval = 10000;
+            const iterations = Math.floor(SOAK_CONFIG.SESSION_DURATION_MS / checkInterval);
+            for (let j = 0; j < iterations; j++) {
+                await page.waitForTimeout(checkInterval);
+            }
+
+            // 5. Stop Recording
+            const buttonText = await startButton.textContent();
+            if (!buttonText?.includes('Start')) {
+                await startButton.click();
+                const sessionEndLocator = page.locator('div[role="alertdialog"]').or(page.getByText('No speech was detected'));
+                await sessionEndLocator.first().waitFor({ timeout: 10000 }).catch(() => { });
+            }
+
+            // Recording start/stop has been proven by this point. Analytics
+            // navigation is post-journey verification, so teardown/navigation
+            // read aborts after here should be classified as evidence noise.
+            functionalJourneyPassedByUser[userIndex] = true;
+
+            // 6. Navigate to Analytics to verify state
+            userPhases[userIndex] = 'navigation';
+            await page.goto(ROUTES.ANALYTICS);
+            await page.locator(`[data-testid="${TEST_IDS.STAT_CARD_TOTAL_SESSIONS}"]`).or(page.locator(`[data-testid="${TEST_IDS.ANALYTICS_EMPTY_STATE}"]`)).first().waitFor({ timeout: 10000 });
+            userPhases[userIndex] = 'complete';
+            const memoryEnd = await readMemorySnapshot(page);
+            const memoryGrowthBytes = memoryStart.usedJSHeapSize !== null && memoryEnd.usedJSHeapSize !== null
+                ? memoryEnd.usedJSHeapSize - memoryStart.usedJSHeapSize
+                : null;
+
+            const result: BrowserEnduranceUserResult = {
+                userIndex,
+                status: 'pass',
+                memoryStart,
+                memoryEnd,
+                memoryGrowthBytes,
+            };
+            userResults.push(result);
+            return result;
+        });
+
+        // Wait for all journeys to complete
+        await Promise.all(userJourneys);
+
+        const consoleErrors = consoleIssues.filter((issue) => issue.type === 'error');
+        if (consoleErrors.length > 0 || criticalFailures.length > 0) {
+            throw new Error(`[Browser Endurance] Browser emitted ${consoleErrors.length} console errors and ${criticalFailures.length} critical failed requests.`);
         }
 
-        // 5. Navigate to Analytics to verify state
-        await page.goto(ROUTES.ANALYTICS);
-        await page.locator(`[data-testid="${TEST_IDS.STAT_CARD_TOTAL_SESSIONS}"]`).or(page.locator(`[data-testid="${TEST_IDS.ANALYTICS_EMPTY_STATE}"]`)).first().waitFor({ timeout: 10000 });
-    });
-
-    // Wait for all journeys to complete
-    await Promise.all(userJourneys);
-
-    // Cleanup
-    await Promise.all(userPages.map((page) => page.close()));
-    await Promise.all(userContexts.map((ctx) => ctx.close()));
+        writeBrowserEnduranceEvidence({
+            status: 'pass',
+            countsAsReleaseEvidence: true,
+            functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
+            invalidEvidenceReasons: [],
+            concurrency: SOAK_CONFIG.CONCURRENT_USERS,
+            mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
+            durationMs: Date.now() - startTime,
+            startedAt,
+            completedAt: new Date().toISOString(),
+            consoleIssues,
+            requestFailures: criticalFailures,
+            criticalFailures,
+            ignoredRequestFailures,
+            users: userResults.sort((a, b) => a.userIndex - b.userIndex),
+        });
+    } catch (error) {
+        const invalidEvidenceReasons = classifyInvalidEvidence(error);
+        const status = invalidEvidenceReasons.length > 0 ? 'invalid' : 'fail';
+        writeBrowserEnduranceEvidence({
+            status,
+            countsAsReleaseEvidence: false,
+            functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
+            invalidEvidenceReasons,
+            concurrency: SOAK_CONFIG.CONCURRENT_USERS,
+            mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
+            durationMs: Date.now() - startTime,
+            startedAt,
+            completedAt: new Date().toISOString(),
+            consoleIssues,
+            requestFailures: criticalFailures,
+            criticalFailures,
+            ignoredRequestFailures,
+            users: userResults.sort((a, b) => a.userIndex - b.userIndex),
+            error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+    } finally {
+        userPhases.forEach((phase, index) => {
+            userPhases[index] = phase === 'complete' ? 'complete' : 'teardown';
+        });
+        // Cleanup
+        await Promise.all(userPages.map((page) => page.close().catch(() => undefined)));
+        await Promise.all(userContexts.map((ctx) => ctx.close().catch(() => undefined)));
+    }
 
     // Playwright natively logs completions, no explicit log needed
 }

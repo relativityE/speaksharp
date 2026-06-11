@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { loadEnv, getChromeWithMic, getChromeBasic, baseConfig, urls } from './playwright.base.config';
+import { loadEnv, getChromeWithMemoryProfiling, baseConfig, urls } from './playwright.base.config';
 import { SOAK_CONFIG } from './tests/constants';
 
 /**
@@ -8,8 +8,8 @@ import { SOAK_CONFIG } from './tests/constants';
  * Purpose: Run long-running concurrent user simulation tests
  * Usage: pnpm exec playwright test --config=playwright.soak.config.ts
  * 
- * NOTE: Uses dev server (matching PORTS.DEV) with real Supabase credentials.
- * Assumes dev server is already running: pnpm dev
+ * NOTE: Uses the mocked E2E server mode with live Supabase credentials injected
+ * by the workflow when VITE_USE_LIVE_DB=true.
  */
 
 // Load development environment for real Supabase (dynamically managed in Cloud)
@@ -18,6 +18,7 @@ loadEnv('development');
 export default defineConfig({
     ...baseConfig,
     testDir: './tests/soak',
+    testMatch: '**/*.spec.ts',
     outputDir: './test-results/soak',
     timeout: SOAK_CONFIG.PLAYWRIGHT_TIMEOUT_MS,
     expect: { timeout: 30_000 },
@@ -32,11 +33,13 @@ export default defineConfig({
         navigationTimeout: 30_000,
     },
     webServer: process.env.CI ? {
-        command: 'pnpm dev',
+        command: 'pnpm dev:test',
         url: urls.dev,
         reuseExistingServer: false,
         timeout: 120 * 1000,
         env: {
+            VITE_AUTH_MODE: 'real',
+            VITE_USE_MOCK_AUTH: 'false',
             VITE_TEST_MODE: 'true',
             VITE_USE_LIVE_DB: 'true',
         },
@@ -44,7 +47,7 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: getChromeBasic(),
+            use: getChromeWithMemoryProfiling(),
         },
     ],
 });

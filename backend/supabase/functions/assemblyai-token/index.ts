@@ -18,7 +18,7 @@ type UserProfile = {
   subscription_id?: string | null;
 };
 
-function hasPaidCloudEntitlement(profile: UserProfile | null): boolean {
+function hasCloudProFeatureEntitlement(profile: UserProfile | null): boolean {
   if (profile?.subscription_status !== "pro") return false;
   return Boolean(
     profile.stripe_subscription_id?.trim() || profile.subscription_id?.trim(),
@@ -94,7 +94,7 @@ export async function handler(
 
     const userProfile = profile as UserProfile | null;
 
-    // 3. Verify usage eligibility before issuing a paid Cloud token.
+    // 3. Verify usage eligibility before issuing a Cloud STT token.
     const { data: usageLimit, error: usageError } = await supabase.rpc(
       "check_usage_limit",
     );
@@ -112,13 +112,13 @@ export async function handler(
       );
     }
 
-    if (!hasPaidCloudEntitlement(userProfile)) {
+    if (!hasCloudProFeatureEntitlement(userProfile)) {
       console.warn(
-        `🚫 Token request rejected: User ${user.id} does not have paid Cloud entitlement (stored: ${userProfile?.subscription_status ?? "unknown"}, trial_expires_at: ${userProfile?.trial_expires_at ?? "none"})`,
+        `🚫 Token request rejected: User ${user.id} does not have Cloud STT Pro feature entitlement (stored: ${userProfile?.subscription_status ?? "unknown"}, trial_expires_at: ${userProfile?.trial_expires_at ?? "none"})`,
       );
       return new Response(
         JSON.stringify({
-          error: "Cloud STT is available with Pro. Trial access includes Private STT.",
+          error: "Cloud STT is a paid Early Access feature. Browser transcription is still available.",
         }),
         {
           status: 403,
@@ -160,7 +160,6 @@ export async function handler(
       return new Response(
         JSON.stringify({
           error: "Failed to generate AssemblyAI token",
-          details: errData,
         }),
         {
           status: resp.status,

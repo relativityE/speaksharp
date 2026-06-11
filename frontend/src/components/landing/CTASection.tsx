@@ -41,7 +41,7 @@ export const CTASection = () => {
                             className="px-8 h-12 text-base"
                             asChild
                         >
-                            <Link to="/analytics">See feedback analytics</Link>
+                            <Link to="/auth/signup">Create Account to View Analytics</Link>
                         </Button>
                     </div>
                 </div>

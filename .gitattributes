@@ -16,3 +16,6 @@ node_modules/ export-ignore
 # Exclude secrets
 .env export-ignore
 .env.* export-ignore
+
+# Git LFS: large model binaries only (NOT small JSON/tokenizer/txt — those stay normal Git
+# for diffable PR review). Self-hosted models are served from /models/ (no HuggingFace at runtime).

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
+import { corsHeaders } from "../_shared/cors.ts"
 
 type SupabaseClient = any;
 type StripeClient = any;
@@ -15,12 +16,30 @@ function actionForPlan(plan: BillingPlan) {
   return plan === 'basic' ? 'activate_basic' : 'upgrade_to_pro';
 }
 
+function normalizeStripeObjectId(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (value && typeof value === "object" && "id" in value) {
+    const id = (value as { id?: unknown }).id;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  return null;
+}
+
 export async function handler(
   req: Request,
   stripe: StripeClient,
   supabase: SupabaseClient,
   webhookSecret: string
 ) {
+  const responseHeaders = corsHeaders(req)
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: responseHeaders })
+  }
+
   const signature = req.headers.get("Stripe-Signature")
   const body = await req.text()
 
@@ -30,15 +49,17 @@ export async function handler(
     console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
 
     let action = 'none';
-    let userId = null;
-    let subscriptionId = null;
+    let userId: string | null = null;
+    let subscriptionId: string | null = null;
+    let stripeCustomerId: string | null = null;
     let plan: BillingPlan = 'pro';
 
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object
         userId = session.metadata?.userId
-        subscriptionId = session.subscription
+        subscriptionId = normalizeStripeObjectId(session.subscription)
+        stripeCustomerId = normalizeStripeObjectId(session.customer)
         plan = normalizeBillingPlan(session.metadata?.plan)
 
         if (!userId) {
@@ -46,7 +67,7 @@ export async function handler(
           return createErrorResponse(
             ErrorCodes.VALIDATION_MISSING_METADATA,
             "Missing userId metadata",
-            {}
+            responseHeaders
           )
         }
         action = actionForPlan(plan);
@@ -56,19 +77,21 @@ export async function handler(
       case "customer.subscription.deleted": {
         const subscription = event.data.object
         subscriptionId = subscription.id
-        action = 'downgrade_to_basic';
+        stripeCustomerId = normalizeStripeObjectId(subscription.customer)
+        action = 'downgrade_to_free';
         break;
       }
 
       case "customer.subscription.updated": {
         const subscription = event.data.object
         subscriptionId = subscription.id
+        stripeCustomerId = normalizeStripeObjectId(subscription.customer)
         const status = subscription.status
         userId = subscription.metadata?.userId ?? null
         plan = normalizeBillingPlan(subscription.metadata?.plan)
 
         if (status === "canceled" || status === "unpaid" || status === "past_due") {
-          action = 'downgrade_to_basic';
+          action = 'downgrade_to_free';
         } else if (status === "active" && userId) {
           action = actionForPlan(plan);
         }
@@ -77,11 +100,12 @@ export async function handler(
 
       case "invoice.payment_failed": {
         const invoice = event.data.object
-        subscriptionId = invoice.subscription
+        subscriptionId = normalizeStripeObjectId(invoice.subscription)
+        stripeCustomerId = normalizeStripeObjectId(invoice.customer)
         const attemptCount = invoice.attempt_count || 0
 
         if (attemptCount >= 3 && subscriptionId) {
-          action = 'downgrade_to_basic';
+          action = 'downgrade_to_free';
         }
         break;
       }
@@ -93,42 +117,47 @@ export async function handler(
       p_event_type: event.type,
       p_action: action,
       p_user_id: userId,
-      p_subscription_id: subscriptionId
+      p_subscription_id: subscriptionId,
+      p_stripe_customer_id: stripeCustomerId
     });
 
     if (error) {
       console.error(`[Stripe Webhook] RPC execution failed for ${event.id}:`, error)
-      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Processing failed", {})
+      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Processing failed", responseHeaders)
     }
 
     if (data?.skipped) {
       console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`)
-      return createSuccessResponse({ received: true, skipped: true }, {})
+      return createSuccessResponse({ received: true, skipped: true }, responseHeaders)
     }
 
     if (data?.success === false) {
        console.error(`[Stripe Webhook] RPC action failed for ${event.id}:`, data.error)
-       return createErrorResponse(ErrorCodes.DATABASE_ERROR, data.error || "Action failed", {})
+       return createErrorResponse(ErrorCodes.DATABASE_ERROR, data.error || "Action failed", responseHeaders)
+    }
+
+    if (data?.warning) {
+      console.warn(`[Stripe Webhook] ⚠️ Event ${event.id} processed with warning:`, data.warning)
     }
 
     if (action === 'upgrade_to_pro') {
       console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
     } else if (action === 'activate_basic') {
       console.log(`[Stripe] ✅ User ${userId} activated paid Basic successfully`)
-    } else if (action === 'downgrade_to_basic') {
+    } else if (action === 'downgrade_to_free') {
       console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded to Free successfully`)
     }
 
     console.log(`[Stripe Webhook] ✅ Event ${event.id} processed successfully`);
-    return createSuccessResponse({ received: true }, {})
+    return createSuccessResponse({ received: true }, responseHeaders)
 
   } catch (err) {
     const error = err as Error
     console.error(`[Stripe Webhook] Error:`, error)
     return createErrorResponse(
       ErrorCodes.STRIPE_WEBHOOK_INVALID,
-      error.message || "Webhook processing failed",
-      {}
+      "Webhook processing failed",
+      responseHeaders
     )
   }
 }

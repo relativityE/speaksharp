@@ -2,10 +2,11 @@
  * @file PrivateSTT.spec.ts
  * @description Unit Test for the "Routing Logic" (Facade).
  * @verification_scope
- * - Verifies `WebGPU` capability detection via `navigator.gpu`.
+ * - Verifies WebGPU presence NEVER promotes off the CPU floor (whisper-turbo /
+ *   WebGPU acceleration was retired pre-beta).
  * - Verifies correct engine selection:
- *   - WebGPU available -> WhisperTurboEngine (Fast Path)
- *   - WebGPU missing -> TransformersJSEngine (Safe Path)
+ *   - default / WebGPU present -> TransformersJSEngine (CPU floor)
+ *   - explicit forceEngine='transformers-js-v4' -> V4 (experimental, opt-in)
  *   - `window.__SS_E2E__` -> MockEngine (Reliable Path)
  */
 // @vitest-environment happy-dom
@@ -18,7 +19,6 @@ import { STTEngine } from '../../../../contracts/STTEngine';
 import { PRIV_STT_V4 } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
-vi.mock('whisper-turbo', () => ({}));
 vi.mock('@xenova/transformers', () => ({}));
 
 // Inject dynamic ENV mock to bypass static IIFE in TestFlags.ts
@@ -42,10 +42,14 @@ vi.mock('@/config/TestFlags', async (importOriginal) => {
 const mockWTEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockTJInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockV4Init = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
+// Construction spy: proves the v4 engine object is never even instantiated on the flag-off path.
+const mockV4Construct = vi.fn();
 const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 
+// A stub registered under a NON-CONFIGURED provider key, to prove PrivateSTT never
+// auto-selects a stray registry entry (the key 'whisper-turbo' was retired).
 class StubWTE extends STTEngine {
-    type = 'whisper-turbo' as const;
+    type = 'transformers-js-v4' as const;
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = mockWTEInit;
     onStart = vi.fn().mockResolvedValue(undefined);
@@ -70,6 +74,10 @@ class StubTJ extends STTEngine {
 
 class StubV4 extends STTEngine {
     type = 'transformers-js-v4' as const;
+    constructor(options?: ConstructorParameters<typeof STTEngine>[0]) {
+        super(options);
+        mockV4Construct();
+    }
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = mockV4Init;
     onStart = vi.fn().mockResolvedValue(undefined);
@@ -104,7 +112,7 @@ describe('PrivateSTT (Routing Logic)', () => {
 
         // 2. Inject Test Stubs into SSOT Registry
         const { sttRegistry } = await import('../../STTRegistry');
-        sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
+        sttRegistry.register('unconfigured-provider', (options) => new StubWTE(options));
         sttRegistry.register('transformers-js', (options) => new StubTJ(options));
         sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
         sttRegistry.register('mock', (options) => new StubE(options));
@@ -122,6 +130,7 @@ describe('PrivateSTT (Routing Logic)', () => {
     let pstt: PrivateSTTType | null = null;
 
     afterEach(async () => {
+        vi.unstubAllEnvs();
         if (pstt) {
             await pstt.terminate();
             pstt = null;
@@ -130,6 +139,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             const win = window as unknown as Record<string, unknown>;
             delete win.__SS_E2E__;
             window.localStorage.clear();
+            try { window.history.replaceState({}, '', '/'); } catch { /* happy-dom location reset */ }
         }
     });
 
@@ -150,7 +160,9 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(gotType, `[TRACE-PSTT] wrong engine type — ${traceEnv}, gotType=${gotType}`).toBe('mock');
     });
 
-    it('selects TransformersJSEngine by default even when WebGPU is available', async () => {
+    it('stays on TransformersJSEngine when navigator.gpu lacks a usable adapter', async () => {
+        // navigator.gpu present but WITHOUT requestAdapter is NOT real WebGPU
+        // support; detectWebGPUSupport must treat it as unsupported and keep CPU.
         if (window.__SS_E2E__) {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
@@ -162,6 +174,54 @@ describe('PrivateSTT (Routing Logic)', () => {
         await pstt.init();
 
         expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockWTEInit).not.toHaveBeenCalled();
+    });
+
+    it('stays on CPU (transformers-js) even when WebGPU is usable — turbo/WebGPU promotion retired', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        const { ModelManager } = await import('../../ModelManager');
+        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(false);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockWTEInit).not.toHaveBeenCalled();
+    });
+
+    it('flag-off (default): auto path stays v2-base and NEVER constructs or initializes the v4 engine — even with WebGPU usable', async () => {
+        // PostHog is uninitialized in unit tests, so getV4FlagState() reads every v4 flag as OFF —
+        // exactly the production default. This nails the explicit pre-merge item:
+        // "flag off -> no v4 constructor / load / model request".
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        // WebGPU IS usable — proves it is the FLAG (off), not WebGPU-absence, keeping us on v2-base.
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        const { ModelManager } = await import('../../ModelManager');
+        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(false);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js'); // v2-base default
+        expect(mockV4Construct).not.toHaveBeenCalled();        // v4 engine never constructed
+        expect(mockV4Init).not.toHaveBeenCalled();             // no v4 init / load / model request
     });
 
     it('selects TransformersJSEngine (Safe Path) when WebGPU is missing', async () => {
@@ -178,19 +238,52 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(pstt.getEngineType()).toBe('transformers-js');
     });
 
-    it('selects WhisperTurboEngine only with explicit forceEngine override', async () => {
-        // Must set engineType='real' so ENV.disableWasm=false, enabling the GPU path
+    it('P0.1: publishes structured runtime telemetry on window.__PRIVATE_STT_RUNTIME_DEBUG__ after the auto path runs', async () => {
         if (window.__SS_E2E__) {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
         }
-        Object.defineProperty(navigator, 'gpu', { value: {}, writable: true, configurable: true });
+        delete (window as unknown as Record<string, unknown>).__PRIVATE_STT_RUNTIME_DEBUG__;
 
         const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'whisper-turbo' } as never);
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
-        expect(pstt.getEngineType()).toBe('whisper-turbo');
+        const debugObj = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: Record<string, unknown> }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(debugObj).toBeDefined();
+        // Every release-proof field must be populated (non-null), not inferred.
+        expect(debugObj?.runtime).toBeDefined();
+        expect(debugObj?.provider).toBe('transformers-js');
+        expect(debugObj?.acceleration).toBe('cpu');
+        expect(typeof debugObj?.crossOriginIsolated).toBe('boolean');
+        expect(typeof debugObj?.wasmThreadCount).toBe('number');
+        expect(debugObj?.cloudFallbackAttempted).toBe(false);
+        expect(debugObj?.selectedAt).toBeDefined();
+        // getRuntimePath() exposes the same decision for in-app/harness reads.
+        expect(pstt.getRuntimePath()?.provider).toBe('transformers-js');
+    });
+
+    it('P0.1: publishes structured runtime telemetry for explicit transformers-js override', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        delete (window as unknown as Record<string, unknown>).__PRIVATE_STT_RUNTIME_DEBUG__;
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+        await pstt.init();
+
+        const debugObj = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: Record<string, unknown> }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(debugObj).toBeDefined();
+        expect(debugObj?.runtime).toBeDefined();
+        expect(debugObj?.provider).toBe('transformers-js');
+        expect(debugObj?.acceleration).toBe('cpu');
+        expect(typeof debugObj?.crossOriginIsolated).toBe('boolean');
+        expect(typeof debugObj?.wasmThreadCount).toBe('number');
+        expect(debugObj?.cloudFallbackAttempted).toBe(false);
+        expect(debugObj?.selectedAt).toBeDefined();
+        expect(pstt.getRuntimePath()?.provider).toBe('transformers-js');
     });
 
     it('contract: selects experimental v4 only with explicit forceEngine override', async () => {
@@ -226,6 +319,52 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(mockTJInit).not.toHaveBeenCalled();
     });
 
+    // ---- MERGE-SAFETY: the public ?privateEngine / localStorage override is dev/test-only ----
+    // A normal production build must NOT let a public URL or localStorage value bypass the
+    // PostHog v4 flag. Production is simulated by DEV=false + not-E2E + not-unit (__TEST__=false).
+    it('merge-safety: PRODUCTION ignores ?privateEngine=transformers-js-v4 override -> v2-base (no flag bypass)', async () => {
+        vi.stubEnv('DEV', false);
+        globalThis.__TEST__ = false;
+        if (window.__SS_E2E__) window.__SS_E2E__.isActive = false;
+        window.history.replaceState({}, '', '?privateEngine=transformers-js-v4');
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js'); // override ignored in production
+        expect(mockV4Construct).not.toHaveBeenCalled();        // v4 never constructed
+        expect(mockV4Init).not.toHaveBeenCalled();             // v4 never initialized
+    });
+
+    it('merge-safety: PRODUCTION ignores localStorage private-engine override -> v2-base (no flag bypass)', async () => {
+        vi.stubEnv('DEV', false);
+        globalThis.__TEST__ = false;
+        if (window.__SS_E2E__) window.__SS_E2E__.isActive = false;
+        window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockV4Construct).not.toHaveBeenCalled();
+        expect(mockV4Init).not.toHaveBeenCalled();
+    });
+
+    it('dev/test: ?privateEngine / localStorage override STILL forces v4 (override remains a dev/test affordance)', async () => {
+        // Unit context: __TEST__ = true (beforeEach) => ENV.isTest true => override allowed.
+        if (window.__SS_E2E__) { window.__SS_E2E__.isActive = true; window.__SS_E2E__.engineType = 'real'; }
+        window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // honored in dev/test
+        expect(mockV4Init).toHaveBeenCalled();
+    });
+
     it('contract: availability is a pure cache probe and does not instantiate registry engines', async () => {
         const factory = vi.fn((options) => new StubTJ(options));
         const { sttRegistry } = await import('../../STTRegistry');
@@ -258,7 +397,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         await setupStrictZero();
         const { sttRegistry } = await import('../../STTRegistry');
         sttRegistry.clear();
-        sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
+        sttRegistry.register('unconfigured-provider', (options) => new StubWTE(options));
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

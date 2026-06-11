@@ -32,9 +32,9 @@ describe('AISuggestions Integration', () => {
         it('renders with call-to-action when no suggestions', () => {
             render(<AISuggestions transcript="Hello world" />);
 
-            expect(screen.getByText(/AI-Powered Suggestions/i)).toBeInTheDocument();
+            expect(screen.getByText(/AI Coaching Suggestions/i)).toBeInTheDocument();
             expect(screen.getByRole('button', { name: /get suggestions/i })).toBeInTheDocument();
-            expect(screen.getByText(/click the button to get ai-powered feedback/i)).toBeInTheDocument();
+            expect(screen.getByText(/click the button to request ai coaching/i)).toBeInTheDocument();
         });
 
         it('disables button when no transcript provided', () => {
@@ -161,8 +161,9 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByRole('heading', { name: /error/i })).toBeInTheDocument();
-                expect(screen.getByText(/network error/i)).toBeInTheDocument();
+                expect(screen.getByRole('heading', { name: /ai coaching unavailable/i })).toBeInTheDocument();
+                expect(screen.getByText(/ai coaching could not connect/i)).toBeInTheDocument();
+                expect(screen.queryByText(/network error/i)).not.toBeInTheDocument();
             });
         });
 
@@ -179,7 +180,8 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByText(/rate limit exceeded/i)).toBeInTheDocument();
+                expect(screen.getByText(/ai coaching is temporarily rate limited/i)).toBeInTheDocument();
+                expect(screen.queryByText(/rate limit exceeded/i)).not.toBeInTheDocument();
             });
         });
 
@@ -192,7 +194,8 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByText(/supabase client not available/i)).toBeInTheDocument();
+                expect(screen.getByText(/ai coaching is unavailable right now/i)).toBeInTheDocument();
+                expect(screen.queryByText(/supabase client not available/i)).not.toBeInTheDocument();
             });
         });
     });
@@ -208,7 +211,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByText(/"Initial summary"/i)).toBeInTheDocument();
             expect(screen.getByText("Initial title")).toBeInTheDocument();
             expect(screen.getByText("Initial description")).toBeInTheDocument();
-            expect(screen.queryByText(/click the button to get ai-powered feedback/i)).not.toBeInTheDocument();
+            expect(screen.queryByText(/click the button to request ai coaching/i)).not.toBeInTheDocument();
         });
     });
 

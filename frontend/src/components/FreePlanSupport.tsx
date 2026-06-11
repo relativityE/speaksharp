@@ -2,6 +2,7 @@ import { ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getUpgradeUrl, trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
 import { canShowFreePlanSupport, type FreePlanSupportPlacement, type FreePlanSupportTier } from '@/services/freePlanSupport';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -9,10 +10,9 @@ interface FreePlanSupportProps {
   tier: FreePlanSupportTier;
   placement: FreePlanSupportPlacement;
   isRecording?: boolean;
-  isTrialPeriod?: boolean;
 }
 
-export function FreePlanSupport({ tier, placement, isRecording = false, isTrialPeriod = false }: FreePlanSupportProps) {
+export function FreePlanSupport({ tier, placement, isRecording = false }: FreePlanSupportProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const visible = canShowFreePlanSupport({
@@ -20,7 +20,6 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
     placement,
     route: location.pathname,
     isRecording,
-    isTrialPeriod,
   });
 
   useEffect(() => {
@@ -46,13 +45,15 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
         <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
         Free plan support
       </div>
-      <p className="text-sm font-semibold text-foreground">Free may include privacy-respecting sponsor messages outside practice.</p>
+      <p className="text-sm font-semibold text-foreground">Free practice stays focused on your speaking work.</p>
       <p className="mt-2 text-sm text-muted-foreground">
-        Your transcript and speaking data are never used for ads. Pro is ad-free.
+        Pro supports expanded limits and capacity when you need more room to practice.
       </p>
-      <Button variant="outline" size="sm" className="mt-4" onClick={handleUpgrade}>
-        Upgrade to Pro
-      </Button>
+      {arePaymentsEnabled() && (
+        <Button variant="outline" size="sm" className="mt-4" onClick={handleUpgrade}>
+          Upgrade to Pro
+        </Button>
+      )}
     </aside>
   );
 }

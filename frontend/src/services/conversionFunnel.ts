@@ -1,4 +1,5 @@
 import { analyticsBuffer } from './AnalyticsBuffer';
+import { getSessionCoachingExperimentProperties } from './sessionCoachingExperiment';
 
 export type BillingPlan = 'free' | 'basic' | 'pro';
 export type CheckoutPlan = 'pro';
@@ -26,7 +27,7 @@ type ConversionContext = {
 
 export function getUpgradeUrl(source: ConversionSource, plan?: BillingPlan): string {
   const params = new URLSearchParams({
-    utm_source: source === 'free_plan_support' ? 'house_ad' : 'app_cta',
+    utm_source: source === 'free_plan_support' ? 'app_support' : 'app_cta',
     utm_medium: source,
     utm_campaign: 'upgrade',
   });
@@ -41,7 +42,7 @@ export function buildCheckoutBody(plan: CheckoutPlan, source: ConversionSource) 
     returnUrlOrigin: window.location.origin,
     conversionSource: source,
     utm: {
-      source: source === 'free_plan_support' ? 'house_ad' : 'app_cta',
+      source: source === 'free_plan_support' ? 'app_support' : 'app_cta',
       medium: source,
       campaign: 'upgrade',
     },
@@ -67,6 +68,7 @@ function getConversionProperties(context: ConversionContext): Record<string, unk
     route: context.route ?? getCurrentRoute(),
     tier: context.tier ?? null,
     trial_state: context.trialState ?? 'unknown',
+    ...getSessionCoachingExperimentProperties(),
   };
 }
 

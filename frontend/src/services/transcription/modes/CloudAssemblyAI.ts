@@ -7,6 +7,7 @@ import { ENV } from '../../../config/TestFlags';
 import { TranscriptionError } from '../errors';
 import { CLOUD_STT } from '../sttConstants';
 import logger from '../../../lib/logger';
+import { redactTranscript } from '../../../lib/logRedaction';
 import type { MicStream } from '../utils/types';
 import {
   AssemblyAICloudProvider,
@@ -19,6 +20,27 @@ import type {
 
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
+const traceTextSample = (text: string | undefined) =>
+  text ? redactTranscript(text) : undefined;
+
+/**
+ * Inert browser-side cloud lifecycle trace for timing decomposition. Mirrors the
+ * Native/Private trace globals so `scripts/lib/sttTiming.ts` readCloudStreamTiming
+ * can derive socket-open→partial/final latency and the stop→termination tail wait.
+ * Events: socket_open, first_partial, first_final, termination, stop_invoked.
+ */
+declare global {
+  interface Window {
+    __CLOUD_STT_TIMELINE__?: Array<Record<string, unknown>>;
+  }
+}
+function pushCloudTrace(event: string, payload: Record<string, unknown> = {}): void {
+  if (typeof window === 'undefined') return;
+  window.__CLOUD_STT_TIMELINE__ = window.__CLOUD_STT_TIMELINE__ ?? [];
+  window.__CLOUD_STT_TIMELINE__.push({ t: Number(performance.now().toFixed(1)), event, ...payload });
+  if (window.__CLOUD_STT_TIMELINE__.length > 500) window.__CLOUD_STT_TIMELINE__.shift();
+}
 
 /**
  * ARCHITECTURE:
@@ -54,6 +76,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private sentAudioChunks: number = 0;
   private receivedMessageCounts: Record<string, number> = {};
   private isManualStop: boolean = false;
+  private terminateResolve: (() => void) | null = null;
+  // Cloud lifecycle trace bookkeeping (first-event flags + stop timestamp).
+  private cloudFirstPartialTraced: boolean = false;
+  private cloudFirstFinalTraced: boolean = false;
+  private stopInvokedAtMs: number | null = null;
   private providerReady: boolean = false;
   private readyEmitted: boolean = false;
   private providerSessionId: string | null = null;
@@ -126,8 +153,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     if (!session && !this.isE2EEnvironment()) {
       return {
         isAvailable: false,
-        reason: 'NO_API_KEY', // Semantic mapping to "Not Authenticated"
-        message: 'Cloud transcription requires authentication. Please sign in.'
+        reason: 'NO_API_KEY',
+        message: 'Cloud STT is available only for signed-in Pro accounts with Cloud entitlement.'
       };
     }
 
@@ -341,6 +368,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.metadata = this.buildProviderMetadata();
 
       ws.onopen = () => {
+        // Cloud trace: new session lifecycle starts. Reset first-event flags.
+        this.cloudFirstPartialTraced = false;
+        this.cloudFirstFinalTraced = false;
+        pushCloudTrace('socket_open', { connectionId: currentConnectionId });
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
           logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
@@ -459,6 +490,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         provider: this.provider.id,
         eventType: event.type,
         textLength: 'text' in event ? event.text.length : 0,
+        textSample: 'text' in event ? traceTextSample(event.text) : undefined,
         counts: this.receivedMessageCounts,
         error: event.type === 'error' ? event.message : undefined,
       }, '[CloudAssemblyAI] provider event received');
@@ -483,6 +515,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           break;
 
         case 'partial':
+          if (!this.cloudFirstPartialTraced) { this.cloudFirstPartialTraced = true; pushCloudTrace('first_partial'); }
           this.updateHeartbeat();
           this.onTranscriptUpdate?.({
             transcript: { partial: event.text },
@@ -490,6 +523,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           break;
 
         case 'final':
+          if (!this.cloudFirstFinalTraced) { this.cloudFirstFinalTraced = true; pushCloudTrace('first_final'); }
           this.updateHeartbeat();
           this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${event.text}` : event.text;
           this.onTranscriptUpdate?.({
@@ -502,9 +536,16 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
         case 'terminated':
           this.terminationReason = 'provider-terminated';
+          pushCloudTrace('termination', {
+            stopToTerminationMs: this.stopInvokedAtMs != null ? Math.round(performance.now() - this.stopInvokedAtMs) : null,
+          });
           this.metadata = this.buildProviderMetadata();
           logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by provider.');
-          void this.onStop();
+          if (this.terminateResolve) {
+            this.terminateResolve();
+          } else {
+            void this.onStop();
+          }
           break;
 
         case 'error':
@@ -567,14 +608,18 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.reconnectTimer = null;
     }
 
-    if (this.socket) {
+    const ws = this.socket;
+    if (ws) {
       // Send termination message if open
-      if (this.socket.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN) {
         try {
           await this.flushAudioQueue({ forceTail: true });
           const terminateMessage = this.provider.buildTerminateMessage();
           if (terminateMessage) {
-            this.socket.send(terminateMessage);
+            ws.send(terminateMessage);
+            // Mark stop for the stop→termination tail measurement.
+            this.stopInvokedAtMs = performance.now();
+            pushCloudTrace('stop_invoked');
           }
         } catch (err) {
           logger.warn({
@@ -582,40 +627,60 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
             rId: this.instanceId,
             eId: this.instanceId,
             err,
-            socketReadyState: this.socket.readyState,
+            socketReadyState: ws.readyState,
             pendingAudioSamples: this.pendingAudioSamples,
             queuedAudioFrames: this.audioQueue.length,
           }, '[CloudAssemblyAI] Failed to flush tail audio or send terminate message during shutdown');
         }
       }
 
-      // DETERMINISTIC SHUTDOWN: Await the actual 'close' event
-      if (this.socket.readyState !== WebSocket.CLOSED) {
-        // Silencing listeners EXCEPT for onclose (the resolve trigger)
-        this.socket.onmessage = null;
-        this.socket.onopen = null;
-        this.socket.onerror = null;
-
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            logger.warn('[CloudAssemblyAI] Socket close timed out. Forcing closure.');
-            resolve();
-          }, CLOUD_STT.SOCKET_CLOSE_TIMEOUT_MS);
-
-          if (this.socket) {
-            this.socket.onclose = () => {
+      // DETERMINISTIC SHUTDOWN: Await the actual 'close' event or termination ack
+      if (ws.readyState !== WebSocket.CLOSED) {
+        if (this.isTerminated) {
+          // Nuclear/immediate shutdown: close immediately and do not wait for provider termination
+          ws.close();
+        } else {
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timeout);
               resolve();
             };
-            this.socket.close();
-          } else {
-            resolve();
-          }
-        });
+            const timeout = setTimeout(() => {
+              logger.warn({ stopToTerminationBudgetMs: CLOUD_STT.STOP_TERMINATION_TIMEOUT_MS },
+                '[CloudAssemblyAI] Provider final/termination not received before budget; forcing closure (tail may be lost).');
+              finish();
+            }, CLOUD_STT.STOP_TERMINATION_TIMEOUT_MS);
+            this.terminateResolve = finish;
+
+            const originalOnClose = ws.onclose;
+            ws.onclose = (event) => {
+              if (originalOnClose) {
+                originalOnClose.call(ws, event);
+              }
+              finish();
+            };
+          });
+
+          this.terminateResolve = null;
+        }
+
+        ws.onmessage = null;
+        ws.onopen = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState !== WebSocket.CLOSED) {
+          ws.close();
+        }
+        if (this.socket === ws) {
+          this.socket = null;
+        }
       }
       
-      if (this.socket) {
-          this.socket.onclose = null;
+      if (this.socket === ws) {
+          ws.onclose = null;
           this.socket = null;
       }
     }

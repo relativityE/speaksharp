@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { motion } from 'framer-motion';
-import { Mic, BarChart3, Target } from 'lucide-react';
+import { Mic, BarChart3, ShieldCheck } from 'lucide-react';
 
 interface FeatureCardProps {
   icon: React.ReactNode;
@@ -37,22 +37,22 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, ico
 const features = [
   {
     icon: <Mic className="size-8" />,
-    title: "Real-time Analysis",
-    description: "Get live practice feedback on speech patterns, filler words, and clarity as you speak.",
+    title: "Instant Free Practice",
+    description: "Start with Browser transcription for quick feedback. Accuracy depends on your browser and room, so Pro adds stronger paths when precision matters.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
     icon: <BarChart3 className="size-8" />,
-    title: "Progress Tracking",
-    description: "Review saved sessions and compare speaking metrics as you practice over time.",
+    title: "Coaching That Goes Deeper",
+    description: "Review pacing, fillers, structure, vocabulary variety, and audience impact so practice becomes repeatable progress.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
-    icon: <Target className="size-8" />,
-    title: "Goal Setting",
-    description: "Set specific speaking goals and track your progress towards better communication.",
+    icon: <ShieldCheck className="size-8" />,
+    title: "Private Transcription",
+    description: "Try one short Private sample, then continue with paid Early Access. It runs locally after one-time setup, keeping sensitive practice audio in your browser.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   }

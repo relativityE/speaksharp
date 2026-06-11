@@ -17,7 +17,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | Area | Status | Risk | Launch Impact | Deferred? |
 | :--- | :--- | :--- | :--- | :--- |
 | **Quota Gate** | ✅ CONTROLLED/PUBLIC LEDGER EVIDENCE GREEN | Fail-closed quota and usage-token behavior are covered by current release evidence; keep regression coverage in CI. | **Critical**: Revenue leakage if regressed | No |
-| **Trial Abuse Guard** | ✅ PUBLIC TRIAL LIFECYCLE PASS | Public trial activation/reuse and expired trial downgrade evidence are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P0**: Tester trial access can be brute-forced without this | No |
+| **Private Sample Guard** | 🟡 UPDATED POLICY / PROOF PENDING | Public trial lifecycle is superseded by one server-backed Private sample for Free users. | **P0**: Private sample access can leak if server enforcement regresses | No |
 | **Stripe Webhook**| 🟡 TEST-MODE PASS / LIVE KEYS PENDING | Test-mode checkout/webhook entitlement evidence is recorded; live `cs_live_...` checkout and live webhook propagation remain public-launch blockers. | **P0**: Users cannot upgrade | No |
 | **Safari Mic** | 🟡 PENDING | Potential silent failure on resume | **P1**: Degraded mobile UX | Yes |
 | **Sentry Ingest** | ✅ OBSERVABILITY API SMOKE PASS | Frontend, Edge, and PostHog provider readback evidence is recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **High**: Blind to launch errors if regressed | No |
@@ -26,6 +26,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | **GitHub Canary** | 🟡 CURRENT RUNS MUST BE READ FROM STATUS SSOT | Canary/CI/RC evidence changes frequently and must not be copied here. Use `RELEASE_STATUS.md` for current workflow posture. | **P1**: Keep this green after every deploy | No |
 | **STT Benchmarks** | 🟡 PUBLIC CLAIMS LIMITED | Private v2, Private v4, and Cloud are the benchmarkable engines in our control. Native Browser STT is browser-dependent convenience STT and must not be marketed as corpus/WER validated unless the exact browser audio route is separately proven. | **P1 only if benchmark claims are marketed** | Yes |
 | **Private Model Cache/Progress** | ✅ CONTROLLED TESTER PASS | Private remains the primary validated Pro path for controlled testers; public ledger records Private artifact evidence. | **P1**: Required for Private STT first-use/second-use trust | No |
+| **Private STT Processing Bridge** | 🟡 BACKLOG AFTER FINAL ACCURACY PROOF | Consider showing an explicit listening/processing state while local Whisper is converging, so users know transcription is still working during v2 CPU/WASM latency. Do not use this to mask bad final transcripts; only ship after final phrase/stop decode accuracy is trusted. | **P1**: UX polish after Private final text accuracy/timing is verified | No |
 | **Theme / Toast UX** | ✅ CONTROLLED TESTER PASS / P2 POLISH REMAINS | Desktop status/toast/session stability passed controlled burn-down; further visual tuning is post-release unless a new blocker is observed. | **P2**: Polish after tester release | Yes |
 | **AI Parsing** | ✅ PUBLIC LEDGER PASS | AI feedback provider evidence and graceful fallback expectations are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P1**: Avoids 500 error on Analytics if regressed | No |
 | **Pro Session Warning** | 🟡 FIX APPLIED / VALIDATION PENDING | Pro users with finite daily remaining time now receive the 5-minute warning; local hook test passes | **P1**: Prevents paid-user surprise at daily cap | No |
@@ -45,7 +46,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; record changing run IDs only in `RELEASE_STATUS.md`.
 6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited to engines with current benchmark evidence. Native Browser STT is not a corpus/WER release benchmark.
 7. **Usage Edge CORS**: Verify `check-usage-limit` returns request-aware CORS headers for allowed production origins after Edge deploys.
-8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; ask testers to create a fresh account; the one-hour trial is automatic.
+8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; ask testers to create a fresh account; Browser is free and the Private sample is server-backed.
 9. **Production Env Flag Check**: Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester invites.
 10. **Private STT CPU-First Validation**: Ask testers to start with Private STT, then verify live transcript, analytics, save/history/detail, and cached second start where possible.
 11. **Private STT WebGPU Validation**: Separately validate the explicit WebGPU/WhisperTurbo accelerated path on supported hardware. This is release evidence for acceleration, not the launch-critical first-use path.

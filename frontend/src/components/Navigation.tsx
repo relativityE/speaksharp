@@ -8,6 +8,7 @@ import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { getEffectiveSubscriptionStatus, isPro } from "@/constants/subscriptionTiers";
+import { arePaymentsEnabled } from "@/config/appRuntimeConfig";
 import logger from "@/lib/logger";
 import {
   buildCheckoutBody,
@@ -15,6 +16,9 @@ import {
   trackConversionCtaClicked,
   trackConversionCtaViewed,
 } from "@/services/conversionFunnel";
+import { IssueReportDialog } from "@/components/IssueReportDialog";
+import { toast } from '@/lib/toast';
+import { useSessionStore } from "@/stores/useSessionStore";
 
 const Navigation = () => {
   const location = useLocation();
@@ -22,6 +26,10 @@ const Navigation = () => {
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
   const { data: usageLimit } = useUsageLimit();
+  // Issue reports are anonymous and never carry the auto transcript (Option C): the user types the
+  // exact snippet they want to share inside the dialog. We pass only non-PII session context.
+  const reportSttMode = useSessionStore(state => state.sttMode);
+  const reportRuntimeState = useSessionStore(state => state.runtimeState);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
   const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
@@ -33,6 +41,7 @@ const Navigation = () => {
 
   const handleUpgrade = async () => {
     if (!session) return;
+    if (!arePaymentsEnabled()) return; // payments not configured — entry points are hidden, no broken checkout
     setIsUpgrading(true);
     try {
       trackConversionCtaClicked({ source: 'nav_upgrade', plan: 'pro', tier: effectiveSubscriptionStatus });
@@ -53,6 +62,7 @@ const Navigation = () => {
       }
     } catch (err) {
       logger.error({ err }, 'Upgrade failed');
+      toast.error('Unable to start checkout. Please try again or contact support if it continues.');
       setIsUpgrading(false);
     }
   };
@@ -105,6 +115,7 @@ const Navigation = () => {
 
   const isFreeUser = Boolean(session && !isEffectiveProUser);
   const showNavUpgrade = Boolean(
+    arePaymentsEnabled() &&
     profile &&
     isFreeUser &&
     location.pathname !== '/session' &&
@@ -184,6 +195,12 @@ const Navigation = () => {
                       PRO
                     </Badge>
                   )}
+                  <IssueReportDialog
+                    userId={session.user?.id ?? null}
+                    plan={effectiveSubscriptionStatus}
+                    sttMode={reportSttMode}
+                    runtimeState={reportRuntimeState}
+                  />
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
                   </span>

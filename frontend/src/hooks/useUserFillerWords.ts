@@ -18,6 +18,19 @@ interface UserWord {
 const MAX_USER_FILLER_WORD_LENGTH = 50;
 const SAFE_CUSTOM_WORD_PATTERN = /^[\p{L}\p{N}'’\- ]+$/u;
 
+/**
+ * Thrown for input-validation failures whose message is intentionally customer-safe
+ * (e.g. "Word already in list"). The add-word handler shows these verbatim, but masks any
+ * other error (raw Supabase/Postgres/network messages) behind a generic toast so backend
+ * internals never leak to users (P2 message-leak hardening).
+ */
+export class FillerWordValidationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'FillerWordValidationError';
+    }
+}
+
 const hasControlCharacter = (value: string): boolean => {
     for (let index = 0; index < value.length; index += 1) {
         const code = value.charCodeAt(index);
@@ -54,19 +67,19 @@ export const validateUserFillerWord = (
     isPro: boolean
 ): string => {
     const cleanedWord = normalizeUserFillerWord(word);
-    if (!cleanedWord) throw new Error('Word cannot be empty');
+    if (!cleanedWord) throw new FillerWordValidationError('Word cannot be empty');
     if (cleanedWord.length > MAX_USER_FILLER_WORD_LENGTH) {
-        throw new Error(`Word must be ${MAX_USER_FILLER_WORD_LENGTH} characters or fewer`);
+        throw new FillerWordValidationError(`Word must be ${MAX_USER_FILLER_WORD_LENGTH} characters or fewer`);
     }
     if (!SAFE_CUSTOM_WORD_PATTERN.test(cleanedWord) || hasControlCharacter(cleanedWord)) {
-        throw new Error('Use letters, numbers, spaces, hyphens, or apostrophes only.');
+        throw new FillerWordValidationError('Use letters, numbers, spaces, hyphens, or apostrophes only.');
     }
 
     const exists = existingWords.some(w => normalizeUserFillerWord(w.word) === cleanedWord);
-    if (exists) throw new Error('Word already in list');
+    if (exists) throw new FillerWordValidationError('Word already in list');
 
     if (existingWords.length >= maxWords) {
-        throw new Error(isPro
+        throw new FillerWordValidationError(isPro
             ? `Pro limit reached (${maxWords} words).`
             : `Free limit reached (${maxWords} words). Upgrade to Pro to add more.`
         );
@@ -146,7 +159,12 @@ export const useUserFillerWords = () => {
         },
         onError: (err: Error) => {
             logger.error({ err }, '[useUserFillerWords] Add error');
-            toast.error(err.message);
+            // Show customer-safe validation messages verbatim; mask any other error
+            // (raw Supabase/Postgres/network message) behind a generic toast.
+            const message = err instanceof FillerWordValidationError
+                ? err.message
+                : 'Could not add word. Please try again.';
+            toast.error(message);
         }
     });
 

@@ -92,10 +92,10 @@ describe('STT Safeguards Unit Tests', () => {
             protected async onStop() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
         }
         
-        sttRegistry.register('whisper-turbo', () => new MockEngine());
+        sttRegistry.register('transformers-js', () => new MockEngine());
         sttRegistry.register('transformers-js', () => new MockEngine());
         sttRegistry.register('mock', () => new MockEngine());
 
@@ -325,7 +325,7 @@ describe('STT Safeguards Unit Tests', () => {
 
         expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'completed',
-            transcript: 'Yes, I agree'
+            transcript: 'Yes, I agree.'
         }));
         expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             total_words: 3
@@ -369,5 +369,47 @@ describe('STT Safeguards Unit Tests', () => {
             pause_metrics: expect.any(Object),
             clarity_score: expect.any(Number)
         }));
+    });
+
+    it('keeps a completed transcript saved when the later metrics update fails', async () => {
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'sess-123' },
+            usageExceeded: false
+        });
+        storageMocks.updateSession.mockResolvedValue({
+            success: false,
+            error: 'metrics table temporarily unavailable'
+        });
+
+        vi.spyOn(service, 'stopTranscription').mockResolvedValue({
+            success: true,
+            transcript: 'um hello world this transcript should stay saved',
+            stats: {
+                transcript: 'um hello world this transcript should stay saved',
+                total_words: 7,
+                accuracy: 0.95,
+                duration: 6
+            }
+        });
+
+        await controller.startRecording(mockPolicy);
+        controller.confirmSubscriberHandshake();
+        await controller.whenStable();
+        storageMocks.completeSession.mockClear();
+
+        await vi.advanceTimersByTimeAsync(6000);
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.completeSession).toHaveBeenCalledTimes(1);
+        expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'completed',
+            transcript: 'Um hello world this transcript should stay saved.'
+        }));
+        expect(storageMocks.completeSession).not.toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'failed'
+        }));
+        expect(storageMocks.updateSession).toHaveBeenCalled();
+        expect(document.documentElement.getAttribute('data-session-persisted')).toBe('true');
     });
 });

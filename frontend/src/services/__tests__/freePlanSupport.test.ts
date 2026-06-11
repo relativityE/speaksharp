@@ -11,7 +11,7 @@ describe('canShowFreePlanSupport', () => {
     })).toBe(true);
   });
 
-  it('keeps paid Basic and Pro ad-free', () => {
+  it('keeps free-plan support off paid Basic and Pro tiers', () => {
     for (const tier of ['basic', 'pro'] as const) {
       expect(canShowFreePlanSupport({
         enabled: true,
@@ -43,19 +43,12 @@ describe('canShowFreePlanSupport', () => {
     })).toBe(false);
   });
 
-  it('honors trial, recording, and kill-switch protections', () => {
+  it('honors recording and kill-switch protections', () => {
     expect(canShowFreePlanSupport({
       enabled: false,
       tier: 'free',
       placement: 'pricing-inline',
       route: '/pricing',
-    })).toBe(false);
-    expect(canShowFreePlanSupport({
-      enabled: true,
-      tier: 'free',
-      placement: 'pricing-inline',
-      route: '/pricing',
-      isTrialPeriod: true,
     })).toBe(false);
     expect(canShowFreePlanSupport({
       enabled: true,

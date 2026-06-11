@@ -21,19 +21,30 @@ function useCountUp(target: number, duration: number = 2000) {
     const [count, setCount] = useState(0);
 
     useEffect(() => {
-        const startTime = Date.now();
+        const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (prefersReducedMotion) {
+            setCount(target);
+            return;
+        }
+
+        const startTime = performance.now();
+        let frameId = 0;
         const animate = () => {
-            const elapsed = Date.now() - startTime;
+            const elapsed = performance.now() - startTime;
             const progress = Math.min(elapsed / duration, 1);
             // Ease out cubic
             const eased = 1 - Math.pow(1 - progress, 3);
             setCount(Math.floor(eased * target));
 
             if (progress < 1) {
-                requestAnimationFrame(animate);
+                frameId = requestAnimationFrame(animate);
             }
         };
-        requestAnimationFrame(animate);
+        frameId = requestAnimationFrame(animate);
+
+        return () => {
+            cancelAnimationFrame(frameId);
+        };
     }, [target, duration]);
 
     return count;

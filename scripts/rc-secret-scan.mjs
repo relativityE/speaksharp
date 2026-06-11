@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
@@ -35,6 +36,12 @@ for (const scanRoot of scanRoots) {
   walk(join(root, scanRoot));
 }
 
+// HARDENING (2026-06-08): also fail on provider secrets committed in TRACKED `.env*` files.
+// The frontend walk above never inspects env files, which is how tracked `.env.test` secrets
+// (SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY, …) slipped past this scan. `.example` templates
+// and public-only env files (VITE_ANON/PUBLISHABLE/POSTHOG/SENTRY) are intentionally allowed.
+scanTrackedEnvFiles();
+
 if (findings.length > 0) {
   console.error('RC_SECRET_SCAN_FINDINGS');
   for (const finding of findings) {
@@ -44,6 +51,34 @@ if (findings.length > 0) {
 }
 
 console.log('RC_SECRET_SCAN_OK provider secrets are not referenced by frontend runtime files.');
+
+function scanTrackedEnvFiles() {
+  let tracked = [];
+  try {
+    tracked = execSync('git ls-files', { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
+  } catch {
+    return; // not a git checkout / git unavailable — skip silently
+  }
+  const envFiles = tracked.filter((p) => {
+    const base = p.split('/').at(-1) ?? '';
+    return /^\.env(\.|$)/.test(base) && !base.endsWith('.example');
+  });
+  for (const rel of envFiles) {
+    let contents;
+    try {
+      contents = readFileSync(join(root, rel), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const [index, line] of contents.split(/\r?\n/).entries()) {
+      const matches = blockedPatterns.flatMap((pattern) => [...line.matchAll(pattern)].map((m) => m[0]));
+      for (const match of matches) {
+        if (allowedPatterns.some((pattern) => pattern.test(match))) continue;
+        findings.push({ path: rel, line: index + 1, match: `tracked-env-secret:${match}` });
+      }
+    }
+  }
+}
 
 function walk(path) {
   let stats;

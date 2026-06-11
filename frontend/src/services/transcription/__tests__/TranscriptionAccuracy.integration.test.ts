@@ -80,9 +80,9 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
             
             // Register both private engine keys: PrivateSTT routes to transformers-js when
             // ENV.disableWasm=true (test env without real GPU), whisper-turbo when GPU is available.
-            registry.register('whisper-turbo', (opts: TranscriptionModeOptions) => {
-                instances['whisper-turbo'] = new MockEngine('whisper-turbo', opts);
-                return instances['whisper-turbo'];
+            registry.register('transformers-js', (opts: TranscriptionModeOptions) => {
+                instances['transformers-js'] = new MockEngine('transformers-js', opts);
+                return instances['transformers-js'];
             });
             registry.register('transformers-js', (opts: TranscriptionModeOptions) => {
                 instances['transformers-js'] = new MockEngine('transformers-js', opts);

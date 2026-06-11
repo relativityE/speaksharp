@@ -52,12 +52,9 @@ export const SUBSCRIPTION_LIMITS = {
   BASIC_MONTHLY_MINUTES: 30,
 } as const;
 
-export const ADS_CONFIG = {
-  // Soft release keeps sponsor surfaces dark until explicitly enabled.
+export const FREE_PLAN_SUPPORT_CONFIG = {
+  // Soft release keeps free-plan support surfaces dark until explicitly enabled.
   ENABLE_FREE_PLAN_SUPPORT: import.meta.env.VITE_ENABLE_FREE_PLAN_SUPPORT === 'true',
-  PROVIDER: 'house',
-  MAX_SLOTS_PER_PAGE: 1,
-  ALLOW_THIRD_PARTY_SCRIPTS: false,
 } as const;
 
 export const STT_CONFIG = {

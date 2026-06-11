@@ -127,8 +127,16 @@ async function signUp(page: Page, accountEmail: string, accountPassword: string)
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
+      const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
+      throw new Error(
+        `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
+        `Private model setup requires an explicit user click; this human proof must not auto-download.\n` +
+        `${JSON.stringify(snapshot, null, 2)}`
+      );
+    }
     await downloadButton.click();
   }
 
@@ -136,7 +144,7 @@ async function preparePrivateModelIfPrompted(page: Page) {
     const root = document.documentElement;
     return (
       root.getAttribute('data-stt-ready') === 'true' ||
-      root.getAttribute('data-runtime-state') === 'READY' ||
+      root.getAttribute('data-runtime-state') === 'RECORDING' ||
       root.getAttribute('data-model-status') === 'ready'
     );
   }, { timeout: 180_000 });
@@ -156,7 +164,12 @@ async function recordKnownAudioSession(page: Page, mode: SttMode) {
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 60_000 });
 
   const afterStopTranscript = normalizeTranscript(await page.getByTestId('transcript-container').textContent());
+  const transcriptTextOnly = await page.getByTestId('transcript-text-only').textContent()
+    .then(normalizeTranscript)
+    .catch(() => null);
   const fillerText = normalizeTranscript(await page.getByTestId('filler-words-list').textContent());
+  const fillerRows = await readFillerRows(page);
+  const runtimeDiagnostics = await readRuntimeDiagnostics(page);
   const after = await collectBenchmarkPreconditionSnapshot(page, `${mode}-after-stop`);
 
   return {
@@ -166,7 +179,10 @@ async function recordKnownAudioSession(page: Page, mode: SttMode) {
     before,
     liveTranscript,
     afterStopTranscript,
+    transcriptTextOnly,
     fillerText,
+    fillerRows,
+    runtimeDiagnostics,
     after,
   };
 }
@@ -211,10 +227,40 @@ function expectNativeFixtureTranscript(evidence: Awaited<ReturnType<typeof recor
 }
 
 function expectKnownFixtureFillers(evidence: Awaited<ReturnType<typeof recordKnownAudioSession>>, mode: SttMode) {
-  const fillerWords = normalizeWords(evidence.fillerText);
+  const fillerWords = evidence.fillerRows.length > 0
+    ? evidence.fillerRows.map((row) => row.word)
+    : normalizeWords(evidence.fillerText);
   const found = EXPECTED_FILLERS.filter((word) => fillerWords.includes(word));
 
   expect(found, `${mode} filler card should include conv_01 fillers. Filler UI="${evidence.fillerText}"`).toEqual(EXPECTED_FILLERS);
+}
+
+async function readFillerRows(page: Page) {
+  return page.locator('[data-filler-word]').evaluateAll((nodes) => nodes.map((node) => {
+    const element = node as HTMLElement;
+    return {
+      word: (element.getAttribute('data-filler-word') ?? element.textContent ?? '').trim().toLowerCase(),
+      count: Number(element.getAttribute('data-filler-count') ?? '0'),
+      text: element.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+    };
+  }));
+}
+
+async function readRuntimeDiagnostics(page: Page) {
+  return page.evaluate(() => {
+    const win = window as unknown as Window & {
+      __PRIVATE_TIMING__?: unknown;
+      __PRIVATE_STT_TIMELINE__?: Array<{ event?: string; payload?: unknown; epochMs?: number; perfMs?: number }>;
+      __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: unknown };
+    };
+    const privateTimeline = win.__PRIVATE_STT_TIMELINE__ ?? [];
+    return {
+      privateTiming: win.__PRIVATE_TIMING__ ?? null,
+      stopPredecodeBreakdown: privateTimeline.filter((entry) => entry.event === 'stop_predecode_breakdown'),
+      privateTimelineTail: privateTimeline.slice(-20),
+      saveCandidate: win.__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null,
+    };
+  });
 }
 
 function attachBrowserEvidence(page: Page) {

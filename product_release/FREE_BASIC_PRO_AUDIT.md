@@ -10,7 +10,7 @@ SpeakSharp now needs three distinct user types:
 |---|---|---:|---|
 | `free` | Unpaid public signup and default baseline | $0 | Active soft-release entry path |
 | `basic` | Future paid Basic plan | $4.99 placeholder | Not offered; checkout blocked |
-| `pro` | Paid Pro plan | $9.99 | Active upgrade path |
+| `pro` | Pro plan | $9.99 | Active upgrade path |
 
 The important correction is that `subscription_status = basic` must not mean "free user." If Basic becomes a paid product later, unpaid historical users must already be distinguishable as `free`, otherwise revenue, churn, and entitlement reporting will miscount Free users as $4.99 Basic users.
 

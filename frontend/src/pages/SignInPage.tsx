@@ -1,7 +1,7 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,10 +9,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Mail } from 'lucide-react';
 import logger from '../lib/logger';
 
+const getSafeSignInError = (err: unknown): string => {
+    const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+    const message = rawMessage.toLowerCase();
+
+    if (err instanceof TypeError && message.includes('failed to fetch')) {
+        return 'Unable to reach sign-in. Check your connection and try again.';
+    }
+    if (message.includes('invalid login') || message.includes('invalid credentials') || message.includes('email not confirmed')) {
+        return 'Email or password not recognized. Check your details or use a sign-in link.';
+    }
+    if (message.includes('rate') || message.includes('too many')) {
+        return 'Too many sign-in attempts. Please wait a moment and try again.';
+    }
+
+    return 'Sign-in could not be completed. Please try again.';
+};
+
+const getSafeMagicLinkError = (err: unknown): string => {
+    const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+    const message = rawMessage.toLowerCase();
+
+    if (err instanceof TypeError && message.includes('failed to fetch')) {
+        return 'Unable to send a sign-in link. Check your connection and try again.';
+    }
+    if (message.includes('rate') || message.includes('too many')) {
+        return 'Too many sign-in link requests. Please wait a moment and try again.';
+    }
+
+    return 'Sign-in link could not be sent. Please try again.';
+};
+
 // Sign In page – supports both password and magic link
 export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
     const navigate = useNavigate();
+    const location = useLocation();
+    const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+    const postAuthPath = `${fromLocation?.pathname || '/session'}${fromLocation?.search || ''}`;
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -33,16 +67,11 @@ export default function SignInPage() {
             if (data.session) {
                 setSession(data.session);
                 // Redirect to session page after successful login
-                navigate('/session');
+                navigate(postAuthPath);
             }
         } catch (err: unknown) {
             logger.error({ err }, '[SignInPage] handleSubmit failed');
-            // Provide more descriptive error messages for common failure modes
-            if (err instanceof TypeError && err.message === 'Failed to fetch') {
-                setError('Unable to connect to authentication server. Check your network connection and Supabase configuration.');
-            } else {
-                setError(err instanceof Error ? err.message : 'An unexpected error occurred');
-            }
+            setError(getSafeSignInError(err));
         } finally {
             setIsSubmitting(false);
         }
@@ -61,14 +90,14 @@ export default function SignInPage() {
             const { error: otpError } = await supabase.auth.signInWithOtp({
                 email,
                 options: {
-                    emailRedirectTo: `${window.location.origin}/`
+                    emailRedirectTo: `${window.location.origin}${postAuthPath}`
                 }
             });
             if (otpError) throw otpError;
             setMessage('Magic link sent! Check your email for a login link.');
         } catch (err: unknown) {
             logger.error({ err }, '[SignInPage] handleMagicLink failed');
-            setError(err instanceof Error ? err.message : 'Failed to send magic link');
+            setError(getSafeMagicLinkError(err));
         } finally {
             setIsSendingMagicLink(false);
         }
@@ -81,7 +110,7 @@ export default function SignInPage() {
             </div>
         );
     }
-    if (session) return <Navigate to="/" replace />;
+    if (session) return <Navigate to={postAuthPath} replace />;
 
     return (
         <div className="min-h-screen bg-background px-4 pb-16 pt-28">
@@ -102,6 +131,7 @@ export default function SignInPage() {
                                 <Input
                                     id="email"
                                     type="email"
+                                    autoComplete="email"
                                     placeholder="name@example.com"
                                     required
                                     value={email}

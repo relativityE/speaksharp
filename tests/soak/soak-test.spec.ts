@@ -1,17 +1,18 @@
 import { test, expect } from '@playwright/test';
 import logger from '../../frontend/src/lib/logger';
-import { SOAK_CONFIG } from '../constants';
+import { SOAK_API_TEST_USERS, SOAK_CONFIG } from '../constants';
 import * as fs from 'fs';
 import { runApiLoadTest } from './backend-api-stress-test';
 import { runFrontendMemCheck } from './frontend-ui-memcheck';
 
-test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
-    // ⚠️ CRITICAL: Run tests sequentially. Execute the Backend Soak Test first, then the Frontend Soak Test.
-    // This file serves strictly as a coordinator orchestrating the two distinct soak tests.
+test.describe('Stress/Endurance Coordinator: Backend + Browser Evidence', () => {
+    // Run sequentially: backend stress first, then browser endurance.
+    // This file coordinates the two evidence paths while the individual
+    // scripts write structured artifacts for release review.
     test.describe.configure({ mode: 'serial' });
 
     // Enforce CI-only execution to protect developer machines and live databases from accidental load
-    // Soak tests are intensive; ensure local machine has sufficient RAM when running.
+    // Stress/endurance checks are intensive; prefer GitHub Actions for release evidence.
 
     test.beforeAll(() => {
         // Ensure results directory exists
@@ -35,12 +36,13 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
 
 
     // =========================================================================
-    // PRONG 1: Backend Soak Test
+    // PRONG 1: Backend Stress
     // =========================================================================
-    test('Backend Soak Test: API Stress (Headless)', async () => {
+    test('Backend Stress: API path under concurrent users', async () => {
         // We override the default concurrency just for this specific headless test
         // 100 concurrent requests over the Thundering Herd phases
-        const API_CONCURRENCY = parseInt(process.env.API_LOAD_CONCURRENCY || '100', 10);
+        const requestedConcurrency = parseInt(process.env.API_LOAD_CONCURRENCY || String(SOAK_API_TEST_USERS.length), 10);
+        const API_CONCURRENCY = Math.min(requestedConcurrency, SOAK_API_TEST_USERS.length);
 
         logger.info(`\n=================================================`);
         logger.info(`[START] Phase 1 - Headless API Load (${API_CONCURRENCY} Users)`);
@@ -49,22 +51,23 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
         const result = await runApiLoadTest(API_CONCURRENCY);
 
         expect(result.success).toBe(true);
-        expect(result.authSuccess).toBeGreaterThan(0);
+        expect(result.authSuccess).toBe(API_CONCURRENCY);
+        expect(result.edgeSuccess).toBe(API_CONCURRENCY);
+        expect(result.rpcSuccess).toBe(API_CONCURRENCY);
 
         logger.info(`\n⭐ Phase 1 Complete. Moving to UI Memory Check.\n`);
     });
 
     // =========================================================================
-    // PRONG 2: Frontend Soak Test
+    // PRONG 2: Browser Endurance
     // =========================================================================
-    test('Frontend Soak Test: UI Memory Check (Real Browser)', async ({ browser }) => {
+    test('Browser Endurance: Native recording stability', async ({ browser }) => {
         logger.info(`\n=================================================`);
         logger.info(`[START] Phase 2 - Frontend UI Memory Check`);
         logger.info(`=================================================\n`);
 
         await runFrontendMemCheck(browser);
 
-        logger.info(`\n⭐ Phase 2 Complete. Soak Test Finished.\n`);
+        logger.info(`\n⭐ Phase 2 Complete. Stress/endurance checks finished.\n`);
     });
 });
-

@@ -15,6 +15,13 @@ interface UsageLimitResponse {
     trial_started_at?: string | null;
     trial_expires_at?: string | null;
     trial_seconds_remaining?: number;
+    private_sample_available?: boolean;
+    private_sample_limit_seconds?: number;
+    private_sample_seconds_used?: number;
+    private_sample_seconds_remaining?: number;
+    private_sample_started_at?: string | null;
+    private_sample_completed_at?: string | null;
+    private_sample_session_id?: string | null;
     error?: string;
 }
 
@@ -100,10 +107,9 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
     } catch (error) {
         console.error('Error checking usage limit:', error);
-        const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
         return createErrorResponse(
             ErrorCodes.INTERNAL_ERROR,
-            errorMessage,
+            'Unable to verify usage limit',
             headers,
             {
                 can_start: false,

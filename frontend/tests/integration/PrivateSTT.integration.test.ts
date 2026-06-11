@@ -8,9 +8,11 @@ import { STTEngine } from '../../src/contracts/STTEngine';
 import { EngineCallbacks } from '../../src/contracts/IPrivateSTTEngine';
 import { PrivateSTTInitOptions } from '../../src/contracts/IPrivateSTT';
 
-// Stub Engines for contract checking
-class StubWhisperTurbo extends STTEngine {
-    public readonly type = 'whisper-turbo';
+// Stub Engines for contract checking. StubUnconfigured is registered under a
+// NON-CONFIGURED provider key to prove PrivateSTT ignores stray registry entries
+// (the 'whisper-turbo' provider was retired).
+class StubUnconfigured extends STTEngine {
+    public readonly type = 'transformers-js-v4';
     protected async onInit(_t?: number): Promise<Result<void, Error>> { return { isOk: true, data: undefined }; }
     protected async onStart(): Promise<void> { }
     protected async onStop(): Promise<void> { }
@@ -110,13 +112,13 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
     });
 
     it('should prefer TransformersJS CPU path by default even when WebGPU is available', async () => {
-        const mockInstance = new StubWhisperTurbo();
+        const mockInstance = new StubUnconfigured();
         const { privateSTT, sttRegistry } = await setupTest(
             { engineType: 'real' },
             mockCallbacks as PrivateSTTInitOptions
         );
         
-        sttRegistry.registerStatic('whisper-turbo', mockInstance);
+        sttRegistry.registerStatic('unconfigured-provider', mockInstance);
         
         // Add Safe Engine to registry to prevent total failure if fallback happens
         sttRegistry.registerStatic('transformers-js', new StubTransformersJS());
@@ -127,8 +129,8 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(privateSTT.getEngineType()).toBe('transformers-js');
     });
 
-    it('should fallback to TransformersJS if WhisperTurbo fails', async () => {
-        const mockFastInstance = new StubWhisperTurbo();
+    it('ignores a registered non-configured engine and uses TransformersJS (turbo retired)', async () => {
+        const mockFastInstance = new StubUnconfigured();
         (mockFastInstance as unknown as { onInit: unknown }).onInit = vi.fn().mockResolvedValue({ isOk: false, error: new Error('WebGPU Init Failed') });
 
         const mockSafeInstance = new StubTransformersJS();
@@ -138,7 +140,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
             mockCallbacks as PrivateSTTInitOptions
         );
 
-        sttRegistry.registerStatic('whisper-turbo', mockFastInstance);
+        sttRegistry.registerStatic('unconfigured-provider', mockFastInstance);
         sttRegistry.registerStatic('transformers-js', mockSafeInstance);
 
         const result = await privateSTT.init();
@@ -197,9 +199,9 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         spy.mockRestore();
     });
 
-    it('should handle WhisperTurbo initialization failure', async () => {
-        // WhisperTurbo fails
-        const mockFastInstance = new StubWhisperTurbo();
+    it('never routes to a registered non-configured engine, even if present (turbo retired)', async () => {
+        // The non-configured engine's init fails
+        const mockFastInstance = new StubUnconfigured();
         (mockFastInstance as unknown as { onInit: unknown }).onInit = vi.fn().mockResolvedValue({ isOk: false, error: new Error('Low-level WASM crash') });
 
         // TransformersJS succeeds
@@ -210,7 +212,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
             mockCallbacks as PrivateSTTInitOptions
         );
 
-        sttRegistry.registerStatic('whisper-turbo', mockFastInstance);
+        sttRegistry.registerStatic('unconfigured-provider', mockFastInstance);
         sttRegistry.registerStatic('transformers-js', mockSafeInstance);
 
         const result = await privateSTT.init();

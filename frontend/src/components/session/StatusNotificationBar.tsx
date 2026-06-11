@@ -135,7 +135,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Downloading private model...';
                 break;
             case 'init-failed':
-                displayMessage = 'Private setup failed. Retry setup.';
+                displayMessage = 'Private transcription could not finish setup.';
                 break;
             case 'info':
                 displayMessage = 'Information';
@@ -147,7 +147,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     const displayDetail = (
         status.type === 'download-required'
-            ? 'Download once to use private local transcription in this browser.'
+            ? 'Set up the Private model in this browser. All audio processing remains local.'
+            : status.type === 'init-failed'
+                ? status.detail || 'Check microphone permission and browser storage, then retry setup. All audio processing remains local.'
             : status.detail || ''
     );
     const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];
@@ -172,9 +174,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         <Icon className={`h-5 w-5 ${config.iconClass} ${isAnimated ? 'animate-spin' : ''}`} />
                     )}
 
-                    {/* Vault Mode Indicator (Padlock) */}
+                    {/* Private transcription indicator (padlock) */}
                     {activeEngine === 'private' && (
-                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 surface-shadow border border-[hsl(var(--border-strong))]" title="Vault Mode: On-Device Processing">
+                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 surface-shadow border border-[hsl(var(--border-strong))]" title="Private transcription: on-device processing">
                             <Lock className="h-2 w-2 text-success fill-success/20" />
                         </div>
                     )}
@@ -197,7 +199,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md surface-shadow hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
                     data-action="switch-to-native"
                 >
-                    Switch to Native (Free)
+                    Switch to Browser
                 </button>
             )}
 

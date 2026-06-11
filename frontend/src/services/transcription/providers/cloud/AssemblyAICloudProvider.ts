@@ -67,7 +67,7 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
       confidenceScores: true,
       wordTimestamps: true,
       speakerLabels: false,
-      customTerms: true,
+      customTerms: false,
       punctuation: true,
     };
   }
@@ -88,8 +88,7 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
         return { token: callbackToken };
       }
 
-      const supabase = getSupabaseClient();
-      const session = context.session ?? (await supabase.auth.getSession()).data.session;
+      const session = context.session ?? (await getSupabaseClient().auth.getSession()).data.session;
       const accessToken = session?.access_token;
 
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
@@ -154,10 +153,10 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
       token: context.token.token,
     });
 
-    const keyterms = buildAssemblyAICloudKeyterms(context.customTerms);
-    if (keyterms.length > 0) {
-      connectionParams.set('keyterms_prompt', JSON.stringify(keyterms));
-    }
+    // Launch-safe path: keep the v3 Universal Streaming connection on the
+    // provider baseline URL. Prompt/keyterms are preserved as helpers for future
+    // experiments, but standalone A/B evidence showed they can suppress Turn
+    // output for the $0.15/hr universal-streaming-english path.
 
     return `wss://streaming.assemblyai.com/v3/ws?${connectionParams.toString()}`;
   }
@@ -212,7 +211,9 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
         }];
 
       case 'Turn': {
-        const text = this.extractTurnText(data);
+        const text = data.end_of_turn
+          ? this.extractTurnText(data)
+          : this.extractLiveTurnText(data);
         if (!text) return [];
         const eventType = data.end_of_turn ? 'final' : 'partial';
         return [{
@@ -261,6 +262,14 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
       return directText.trim();
     }
 
+    return this.extractWordText(data);
+  }
+
+  private extractLiveTurnText(data: AssemblyAIMessage): string {
+    return this.extractTurnText(data) || this.extractWordText(data);
+  }
+
+  private extractWordText(data: AssemblyAIMessage): string {
     const wordText = data.words
       ?.map((word) => word.text?.trim() ?? '')
       .filter(Boolean)
@@ -284,4 +293,13 @@ export function buildAssemblyAICloudKeyterms(userWords: string[] = []): string[]
       return true;
     })
     .map((word) => word.toLowerCase());
+}
+
+export function buildAssemblyAICloudPrompt(keyterms: string[]): string {
+  const highlightedTerms = keyterms.slice(0, 30).join(', ');
+  return [
+    'Transcribe verbatim for speech coaching.',
+    'Preserve filler words, repetitions, self-corrections, and disfluencies when spoken.',
+    highlightedTerms ? `Pay special attention to these coaching terms: ${highlightedTerms}.` : '',
+  ].filter(Boolean).join(' ');
 }

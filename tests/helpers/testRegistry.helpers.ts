@@ -90,6 +90,10 @@ export async function registerMockInE2E(
             if (manifest.registry) {
                 manifest.registry[mode] = factory;
             }
+            const cache = win.__SS_E2E_ENGINE_CACHE__ as Record<string, unknown> | undefined;
+            if (cache) {
+                delete cache[mode];
+            }
             
             console.log(`[E2E Help] Populated __SS_E2E__.registry.${mode}`);
         },
@@ -98,6 +102,32 @@ export async function registerMockInE2E(
             factoryStr: mockImplementationFactoryString
         }
     );
+
+    // Some fixtures authenticate before a spec registers a mode-specific mock.
+    // Keep the already-loaded page's registry in sync too, so those specs do
+    // not silently keep the default stub for the rest of the journey.
+    await page.evaluate(
+        ({ mode, factoryStr }) => {
+            const win = window as unknown as Record<string, unknown>;
+            const factory = eval(factoryStr);
+            const manifest = win.__SS_E2E__ as { registry?: Record<string, unknown> } | undefined;
+            if (manifest?.registry) {
+                manifest.registry[mode] = factory;
+            }
+            const cache = win.__SS_E2E_ENGINE_CACHE__ as Record<string, unknown> | undefined;
+            if (cache) {
+                delete cache[mode];
+            }
+            console.log(`[E2E Help] Updated live __SS_E2E__.registry.${mode}`);
+        },
+        {
+            mode,
+            factoryStr: mockImplementationFactoryString
+        }
+    ).catch(() => {
+        // The init script above is authoritative before first navigation; this
+        // live sync is best-effort for pages that are already on an app origin.
+    });
 }
 
 /**

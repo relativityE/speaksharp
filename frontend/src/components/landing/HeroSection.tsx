@@ -73,7 +73,7 @@ export const HeroSection = () => {
             {/* Buttons + Trust badges share the same max-width so edges align */}
             <div className="max-w-md w-full pt-4 space-y-4">
               <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:gap-4">
-                <Button size="lg" className="flex-1 h-14 text-base" asChild>
+                <Button size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
                   <Link
                     to="/auth/signup"
                     data-testid="start-free-session-button"
@@ -84,9 +84,9 @@ export const HeroSection = () => {
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
-                <Button variant="secondary" size="lg" className="flex-1 h-14 text-base" asChild>
-                  <Link to="/analytics" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
-                    See How Feedback Works
+                <Button variant="secondary" size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
+                  <Link to="/auth/signup" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
+                    Create Account to View Feedback
                   </Link>
                 </Button>
               </motion.div>

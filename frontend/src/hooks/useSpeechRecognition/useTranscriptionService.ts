@@ -77,12 +77,12 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // 2. Callback Management (Stable References for Controller)
   const callbacks: Partial<TranscriptionServiceOptions> = useMemo(() => ({
     onTranscriptUpdate: (update: TranscriptUpdate) => {
-      console.warn('[TRACE] CALLBACK_DATA', !!update.transcript.final);
+      logger.debug({ isFinal: Boolean(update.transcript.final) }, '[useTranscriptionService] callback transcript update');
       optionsRef.current.onTranscriptUpdate(update);
     },
     onModelLoadProgress: (progress: number | null) => optionsRef.current.onModelLoadProgress?.(progress),
     onReady: () => {
-      console.warn('[TRACE] CALLBACK_READY');
+      logger.debug('[useTranscriptionService] callback ready');
       // Logic removed: FSM handles setReady(true) via controller.confirmSubscriberHandshake() or transition
       optionsRef.current.onReady?.();
     },

@@ -1,6 +1,5 @@
 import React, { ReactNode, ErrorInfo } from 'react';
 import logger from '../lib/logger';
-import { ErrorDisplay } from './ErrorDisplay';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
@@ -40,11 +39,10 @@ class ErrorBoundary extends React.Component<Props, State> {
                 </CardHeader>
                 <CardContent>
                     <p className="text-muted-foreground mb-4">
-                        An unexpected error occurred. Please try refreshing the page.
+                        The page hit a temporary problem. Go home, then open the page again.
                     </p>
-                    <ErrorDisplay error={this.state.error} />
-                    <Button onClick={() => window.location.reload()}>
-                        Refresh Page
+                    <Button onClick={() => window.location.assign('/')}>
+                        Go Home
                     </Button>
                 </CardContent>
             </Card>

@@ -27,11 +27,37 @@ Deno.test("stripe-webhook handlers", async (t) => {
     body: JSON.stringify(event)
   });
 
+  await t.step("handles OPTIONS preflight without Stripe signature verification", async () => {
+    let constructed = false;
+    const stripe = {
+      webhooks: {
+        constructEvent: () => {
+          constructed = true;
+          throw new Error("should not construct Stripe events for preflight");
+        }
+      }
+    };
+
+    const response = await handler(
+      new Request("http://localhost", {
+        method: "OPTIONS",
+        headers: { Origin: "https://speaksharp-public.vercel.app" }
+      }),
+      stripe,
+      createMockSupabase({ data: { success: true }, error: null }),
+      "secret"
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(constructed, false);
+    assertEquals(response.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
+  });
+
   await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {
     const event = {
       id: "evt_1",
       type: "checkout.session.completed",
-      data: { object: { metadata: { userId: "user_1" }, subscription: "sub_1" } }
+      data: { object: { metadata: { userId: "user_1" }, subscription: "sub_1", customer: "cus_1" } }
     };
 
     let capturedArgs: any;
@@ -47,13 +73,15 @@ Deno.test("stripe-webhook handlers", async (t) => {
     assertEquals(response.status, 200);
     assertEquals(capturedArgs.p_action, "upgrade_to_pro");
     assertEquals(capturedArgs.p_user_id, "user_1");
+    assertEquals(capturedArgs.p_subscription_id, "sub_1");
+    assertEquals(capturedArgs.p_stripe_customer_id, "cus_1");
   });
 
   await t.step("handleCheckoutCompleted - activates paid Basic without Pro upgrade", async () => {
     const event = {
       id: "evt_basic",
       type: "checkout.session.completed",
-      data: { object: { metadata: { userId: "user_1", plan: "basic" }, subscription: "sub_basic" } }
+      data: { object: { metadata: { userId: "user_1", plan: "basic" }, subscription: "sub_basic", customer: "cus_basic" } }
     };
 
     let capturedArgs: any;
@@ -70,6 +98,7 @@ Deno.test("stripe-webhook handlers", async (t) => {
     assertEquals(capturedArgs.p_action, "activate_basic");
     assertEquals(capturedArgs.p_user_id, "user_1");
     assertEquals(capturedArgs.p_subscription_id, "sub_basic");
+    assertEquals(capturedArgs.p_stripe_customer_id, "cus_basic");
   });
 
   await t.step("handleCheckoutCompleted - fails without userId", async () => {
@@ -103,7 +132,7 @@ Deno.test("stripe-webhook handlers", async (t) => {
     const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
 
     assertEquals(response.status, 200);
-    assertEquals(capturedArgs.p_action, "downgrade_to_basic");
+    assertEquals(capturedArgs.p_action, "downgrade_to_free");
   });
 
   await t.step("handles RPC error", async () => {
@@ -144,7 +173,7 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
     const event = {
       id: "evt_1",
       type: "customer.subscription.updated",
-      data: { object: { id: "sub_1", status, metadata: { userId: "user_1", plan } } }
+      data: { object: { id: "sub_1", status, customer: "cus_1", metadata: { userId: "user_1", plan } } }
     };
 
     let capturedArgs: any;
@@ -156,27 +185,56 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
     };
 
     await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-    return capturedArgs.p_action;
+    return capturedArgs;
   };
 
   await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
-    assertEquals(await getArgs("canceled"), "downgrade_to_basic");
+    const args = await getArgs("canceled");
+    assertEquals(args.p_action, "downgrade_to_free");
+    assertEquals(args.p_stripe_customer_id, "cus_1");
   });
 
   await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
-    assertEquals(await getArgs("unpaid"), "downgrade_to_basic");
+    assertEquals((await getArgs("unpaid")).p_action, "downgrade_to_free");
   });
 
   await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
-    assertEquals(await getArgs("past_due"), "downgrade_to_basic");
+    assertEquals((await getArgs("past_due")).p_action, "downgrade_to_free");
   });
 
   await t.step("handleSubscriptionUpdated - no action on active status", async () => {
-    assertEquals(await getArgs("active"), "upgrade_to_pro");
+    assertEquals((await getArgs("active")).p_action, "upgrade_to_pro");
   });
 
   await t.step("handleSubscriptionUpdated - restores paid Basic on active status", async () => {
-    assertEquals(await getArgs("active", "basic"), "activate_basic");
+    assertEquals((await getArgs("active", "basic")).p_action, "activate_basic");
+  });
+
+  await t.step("handleSubscriptionUpdated - signed no-op (active, no userId) acks 200 without mutation", async () => {
+    // Mirrors the live signed-webhook readiness no-op: a valid, signed subscription
+    // event that resolves to no actionable user must be acknowledged (200 received),
+    // not surfaced as a DB failure, and must not mutate entitlement (p_action 'none').
+    const event = {
+      id: "evt_noop_1",
+      type: "customer.subscription.updated",
+      data: { object: { id: "sub_noop_1", status: "active" } }
+    };
+
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
+      }
+    };
+
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+    const body = await response.json();
+
+    assertEquals(response.status, 200);
+    assertEquals(body.received, true);
+    assertEquals(capturedArgs.p_action, "none");
+    assertEquals(capturedArgs.p_user_id, null);
   });
 });
 
@@ -211,7 +269,7 @@ Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
   });
 
   await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
-    assertEquals(await getArgs(3), "downgrade_to_basic");
+    assertEquals(await getArgs(3), "downgrade_to_free");
   });
 
 });

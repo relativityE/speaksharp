@@ -16,6 +16,15 @@ interface TranscriptState {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 
+export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
+
+export interface NativeFormattingUiState {
+    status: NativeFormattingUiStatus;
+    /** Epoch ms when post-stop formatting began; null when idle/terminal. Drives the
+     *  threshold-only "tidying up punctuation…" notice (shown only if pending > ~1.5s). */
+    startedAt: number | null;
+}
+
 export interface SessionState {
     runtimeState: RuntimeState;
     isLockHeldByOther: boolean;
@@ -32,8 +41,11 @@ export interface SessionState {
     activeEngine: TranscriptionMode | 'none' | null;
     history: Array<HistorySegment>;
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
+    frozenTranscriptAtStop: string | null;
+    isTranscriptFinalizing: boolean;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
+    nativeFormatting: NativeFormattingUiState;
     sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
     isBooting: boolean;
 }
@@ -59,9 +71,12 @@ interface SessionActions {
     addChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean }) => void;
     appendChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }) => void;
     setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
+    freezeTranscriptAtStop: (transcript: string | null) => void;
+    setTranscriptFinalizing: (finalizing: boolean) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
+    setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
@@ -87,6 +102,8 @@ const initialState: SessionState = {
     activeEngine: null,
     history: [],
     chunks: [],
+    frozenTranscriptAtStop: null,
+    isTranscriptFinalizing: false,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -97,6 +114,7 @@ const initialState: SessionState = {
         extendedPauses: 0,
     },
     sessionSaved: false,
+    nativeFormatting: { status: 'idle', startedAt: null },
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
 };
@@ -107,12 +125,23 @@ const normalizeModelLoadingProgress = (progress: number | null): number | null =
     return Math.max(0, Math.min(100, Math.round(percent)));
 };
 
+const sentenceCaseStart = (text: string): string => {
+    const firstLetterIndex = text.search(/[A-Za-z]/);
+    if (firstLetterIndex === -1) return text;
+    return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
+};
+
 export const useSessionStore = create<SessionStore>((set) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
         (window as unknown as { __LAST_STORE_ID__: string }).__LAST_STORE_ID__ = instanceId;
+        // Diagnostic identity marker. Runs at STORE CREATION (module init), so it must
+        // not assume a fully-shaped logger — tests that mock `logger` without `.debug`
+        // would otherwise crash on import. Keep it dev-only behind the env gate (the
+        // original guard) so it never executes in test/prod; the instance id is also
+        // always available on window.__LAST_STORE_ID__.
         if (import.meta.env.DEV) {
-            console.warn(`[STORE-IDENTITY] SessionStore Instance Created: [${instanceId}]`);
+            logger.debug(`[STORE-IDENTITY] SessionStore Instance Created: [${instanceId}]`);
         }
     }
 
@@ -167,8 +196,8 @@ export const useSessionStore = create<SessionStore>((set) => {
     updateTranscript: (transcriptText, partial = '') => {
         set({
             transcript: {
-                transcript: transcriptText,
-                partial,
+                transcript: sentenceCaseStart(transcriptText),
+                partial: sentenceCaseStart(partial),
             },
         });
     },
@@ -213,9 +242,24 @@ export const useSessionStore = create<SessionStore>((set) => {
                 syncForensicAnchors(state.runtimeState, mode);
                 return state;
             }
+            const resetVisibleSession =
+                state.runtimeState !== 'RECORDING' &&
+                !state.isTranscriptFinalizing &&
+                !state.frozenTranscriptAtStop;
             const next = {
                 ...state,
                 sttMode: mode,
+                ...(resetVisibleSession ? {
+                    transcript: { transcript: '', partial: '' },
+                    chunks: [],
+                    fillerData: {},
+                    elapsedTime: 0,
+                    startTime: null,
+                    activeEngine: null,
+                    sessionSaved: false,
+                    pauseMetrics: initialState.pauseMetrics,
+                    sttStatus: { type: 'ready', message: 'Ready to record' } as SttStatus,
+                } : {}),
             };
             // Immediate intent signal using next-state snapshot (Invariant I2)
             syncForensicAnchors(next.runtimeState, mode);
@@ -265,6 +309,9 @@ export const useSessionStore = create<SessionStore>((set) => {
     resetSession: () =>
         set(initialState),
 
+    setNativeFormatting: (nativeFormatting) =>
+        set({ nativeFormatting }),
+
     addChunk: (chunk) =>
         set((state) => ({
             chunks: [...state.chunks, chunk],
@@ -278,6 +325,16 @@ export const useSessionStore = create<SessionStore>((set) => {
     setChunks: (chunks) =>
         set({
             chunks,
+        }),
+
+    freezeTranscriptAtStop: (frozenTranscriptAtStop) =>
+        set({
+            frozenTranscriptAtStop,
+        }),
+
+    setTranscriptFinalizing: (isTranscriptFinalizing) =>
+        set({
+            isTranscriptFinalizing,
         }),
 
     setPauseMetrics: (pauseMetrics) =>

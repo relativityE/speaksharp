@@ -15,9 +15,9 @@ const COLOR_PALETTE = [
     '#F87171', // Red 400
     '#FB923C', // Orange 400
     '#FACC15', // Yellow 400
-    '#A3E635', // Lime 400
-    '#4ADE80', // Green 400
-    '#34D399', // Emerald 400
+    '#65A30D', // Lime 600
+    '#15803D', // Green 700
+    '#047857', // Emerald 700
     '#22D3EE', // Cyan 400
     '#60A5FA', // Blue 400
     '#818CF8', // Indigo 400

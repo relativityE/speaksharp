@@ -1,0 +1,77 @@
+{
+  "id": "STT-V4R",
+  "capturedAt": "2026-06-05T04:45:00Z",
+  "testedBranch": "test/stt-v4r-exact-contract@b9f6448c",
+  "candidateBranch": "dev/v4-recovery@b9f6448c",
+  "server": "http://127.0.0.1:5174",
+  "probePage": "/v4-decode-probe.html",
+  "inputWav": "tests/fixtures/stt-isomorphic/audio/h1_6.wav",
+  "rawArtifacts": [
+    "/private/tmp/stt-v4r-b9-q8-result.json",
+    "/private/tmp/stt-v4r-b9-a2-matrix.json"
+  ],
+  "matrix": [
+    {
+      "backend": "wasm",
+      "encoderDtype": "fp32",
+      "decoderDtype": "q8",
+      "threads": 1,
+      "proxy": false,
+      "ok": false,
+      "modelId": "onnx-community/whisper-tiny.en",
+      "error": "Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear",
+      "modelFilesLoaded": [
+        "onnx/encoder_model.onnx",
+        "onnx/decoder_model_merged_quantized.onnx"
+      ]
+    },
+    {
+      "backend": "wasm",
+      "encoderDtype": "q8",
+      "decoderDtype": "q8",
+      "threads": 1,
+      "proxy": false,
+      "ok": false,
+      "modelId": "onnx-community/whisper-tiny.en",
+      "error": "Can't create a session. ERROR_CODE: 1, ERROR_MESSAGE: qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale for node: model.decoder.embed_tokens.weight_transposed_DequantizeLinear",
+      "modelFilesLoaded": [
+        "onnx/encoder_model_quantized.onnx",
+        "onnx/decoder_model_merged_quantized.onnx"
+      ]
+    },
+    {
+      "backend": "wasm",
+      "encoderDtype": "fp32",
+      "decoderDtype": "q4",
+      "threads": 1,
+      "proxy": false,
+      "ok": false,
+      "modelId": "onnx-community/whisper-tiny.en",
+      "error": "invalid data location: undefined for input \"a\"",
+      "modelFilesLoaded": [
+        "onnx/encoder_model.onnx",
+        "onnx/decoder_model_merged_q4.onnx"
+      ]
+    }
+  ],
+  "contractObservation": {
+    "fieldsPresent": [
+      "ok",
+      "modelId",
+      "transformersVersion",
+      "onnxRuntimeVersion",
+      "backend",
+      "encoderDtype",
+      "decoderDtype",
+      "proxy",
+      "threads",
+      "modelFilesLoaded",
+      "error"
+    ],
+    "blankFieldsOnFailure": [
+      "transformersVersion",
+      "onnxRuntimeVersion"
+    ]
+  },
+  "verdict": "v4 remains browser-runtime blocked; no WASM dtype cell produced a non-empty transcript; keep v4 out of release A/B."
+}

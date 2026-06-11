@@ -87,11 +87,12 @@ describe('transformers-js.worker protocol contract', () => {
                 expect.objectContaining({
                     id: 6,
                     type: 'error',
-                    errorMessage: 'model artifact unavailable',
+                    errorMessage: expect.stringContaining('MODEL_LOAD_FAILED'),
                 }),
             ]);
         });
-        expect(pipeline).toHaveBeenCalledTimes(2);
+        expect(postedMessages[0]?.errorMessage).toContain('model artifact unavailable');
+        expect(pipeline).toHaveBeenCalledTimes(1);
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 6, type: 'ready' }));
     });
 
@@ -138,7 +139,55 @@ describe('transformers-js.worker protocol contract', () => {
         expect(observedOptions).toMatchObject({
             chunk_length_s: 30,
             stride_length_s: 0,
-            return_timestamps: false,
+            return_timestamps: true,
+        });
+    });
+
+    it('contract: transcribe requests may override allowed decode options for A/B proofs', async () => {
+        let observedOptions: Record<string, unknown> | null = null;
+        const transcriber = vi.fn(async (_audio: Float32Array, options: Record<string, unknown>) => {
+            observedOptions = options;
+            return { text: 'ab proof transcript' };
+        });
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@xenova/transformers', () => ({
+            env: {},
+            pipeline,
+        }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 7, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({ id: 7, type: 'ready' }));
+        });
+
+        dispatchWorkerMessage({
+            id: 8,
+            type: 'transcribe',
+            audio: new Float32Array(16_000),
+            decodeOptions: {
+                condition_on_previous_text: false,
+                compression_ratio_threshold: 2.4,
+                no_repeat_ngram_size: 3,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 8,
+                type: 'result',
+                transcript: 'ab proof transcript',
+            }));
+        });
+
+        expect(observedOptions).toMatchObject({
+            chunk_length_s: 30,
+            stride_length_s: 0,
+            return_timestamps: true,
+            condition_on_previous_text: false,
+            compression_ratio_threshold: 2.4,
+            no_repeat_ngram_size: 3,
         });
     });
 

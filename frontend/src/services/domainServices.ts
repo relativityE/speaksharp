@@ -288,7 +288,7 @@ export const goalsService = {
                 logger.debug({ userId }, '[goalsService.get] Goals not found');
                 return null;
             }
-            logger.error({ error, userId }, '[goalsService.get]');
+            logger.info({ error, userId }, '[goalsService.get] Goals unavailable; falling back to local defaults');
             throw error;
         }
 

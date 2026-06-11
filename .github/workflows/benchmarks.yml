@@ -9,6 +9,30 @@ on:
         description: 'Write results to tests/STT_BENCHMARKS.json and open a PR'
         type: boolean
         default: true
+      run_cloud_ceiling:
+        description: 'Run the legacy AssemblyAI ceiling benchmark before the streaming A/B proof'
+        type: boolean
+        default: true
+      run_cloud_streaming_ab:
+        description: 'Run the AssemblyAI streaming A/B proof'
+        type: boolean
+        default: true
+      run_private_browser:
+        description: 'Run Private browser benchmarks in this workflow'
+        type: boolean
+        default: true
+      run_private_exact_buffer:
+        description: 'Run one-row Private app-buffer capture proof for replay diagnostics'
+        type: boolean
+        default: false
+      streaming_ab_variants:
+        description: 'Comma-separated AssemblyAI streaming variants; baseline is the launch default, keyterms/prompt are optional experiments'
+        type: string
+        default: 'baseline'
+      streaming_ab_fixtures:
+        description: 'Comma-separated AssemblyAI streaming A/B fixture ids'
+        type: string
+        default: ''
 
 jobs:
   benchmark-cloud:
@@ -33,13 +57,33 @@ jobs:
           bash scripts/generate-fixtures.sh
 
       - name: Run cloud STT ceiling benchmark
+        id: cloud-ceiling
+        continue-on-error: true
+        if: inputs.run_cloud_ceiling != false
         env:
           ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
           RUN_BENCHMARKS: 'true'
         run: pnpm benchmark:cloud
 
+      - name: Run AssemblyAI streaming prompt/keyterms A/B proof
+        if: inputs.run_cloud_streaming_ab != false
+        env:
+          ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
+          ASSEMBLYAI_STREAMING_AB_OUT: /tmp/assemblyai-streaming-ab-proof.json
+          ASSEMBLYAI_STREAMING_AB_VARIANTS: ${{ inputs.streaming_ab_variants }}
+          ASSEMBLYAI_STREAMING_AB_FIXTURES: ${{ inputs.streaming_ab_fixtures }}
+        run: pnpm benchmark:cloud:streaming-ab
+
+      - name: Upload AssemblyAI streaming A/B proof
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: assemblyai-streaming-ab-proof
+          path: /tmp/assemblyai-streaming-ab-proof.json
+          if-no-files-found: warn
+
       - name: Open PR with updated benchmarks
-        if: success() && inputs.write_results != false
+        if: success() && steps.cloud-ceiling.outcome == 'success' && inputs.write_results != false
         uses: peter-evans/create-pull-request@v6
         with:
           commit-message: 'chore: update AssemblyAI STT ceiling benchmark'
@@ -50,8 +94,15 @@ jobs:
           branch: 'chore/benchmark-assemblyai'
           add-paths: tests/STT_BENCHMARKS.json
 
+      - name: Fail if cloud ceiling benchmark regressed
+        if: inputs.run_cloud_ceiling != false && steps.cloud-ceiling.outcome != 'success'
+        run: |
+          echo "Cloud ceiling benchmark failed; streaming A/B artifact was still collected for review."
+          exit 1
+
   benchmark-private-browser:
     name: Private Browser Benchmarks (v2 + v4)
+    if: inputs.run_private_browser != false || inputs.run_private_exact_buffer == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,14 +123,86 @@ jobs:
           sudo apt-get install -y espeak-ng ffmpeg
           bash scripts/generate-fixtures.sh
 
-      - name: Run Private browser benchmark suite
+      - name: Run Private exact app-buffer capture proof
+        if: github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true
         env:
+          BASE_URL: http://127.0.0.1:5173
+          LIVE_VITE_MODE: test
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          STT_MODES: private
+          STT_FIXTURES: h1_6
+          STT_INJECT_MIC_AUDIO: 'true'
+          STT_PRIVATE_ENGINE: transformers-js
+          STT_INCLUDE_AUDIO_DATA_URL: 'true'
+          STT_DISABLE_WEBGPU: 'true'
+          STT_POST_PLAYBACK_WAIT_MS: '5000'
+          STT_CORPUS_OUT: /tmp/speaksharp-private-h1_6-exact-buffer-current.json
+          HEADLESS: 'true'
+        run: |
+          cd frontend
+          pnpm vite --port 5173 --mode test --logLevel error &
+          server_pid=$!
+          cd ..
+          for i in {1..60}; do
+            if curl -fsS "$BASE_URL" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          pnpm exec tsx scripts/manual-stt-corpus-proof.mjs
+          kill "$server_pid" || true
+
+      - name: Run Private browser benchmark suite
+        if: inputs.run_private_browser != false
+        env:
+          LIVE_VITE_MODE: test
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          # This job injects checked-in fake-audio fixtures, not human speech.
+          # Include replayable audio so Private browser-vs-Node accuracy gaps can
+          # be classified as audio-buffer vs runtime/config issues.
+          STT_INCLUDE_AUDIO_DATA_URL: 'true'
         # Native Web Speech is intentionally excluded: it is browser-dependent
         # convenience STT, not a corpus-grade benchmark engine.
         run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
+
+      - name: Upload Private exact app-buffer capture proof
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true
+        uses: actions/upload-artifact@v6
+        with:
+          name: private-exact-app-buffer-proof
+          path: /tmp/speaksharp-private-h1_6-exact-buffer-current.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Private browser benchmark artifacts
+        if: always() && inputs.run_private_browser != false
+        uses: actions/upload-artifact@v6
+        with:
+          name: private-browser-benchmark-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
 
       - name: Open PR with results
         if: success() && inputs.write_results != false

@@ -5,6 +5,36 @@ This document provides the definitive, step-by-step instructions for executing t
 
 ---
 
+## Evidence Model
+
+SpeakSharp test evidence follows this chain:
+
+```text
+tests produce facts
+scripts summarize facts
+workflows run them authoritatively
+artifacts preserve evidence
+docs interpret the evidence
+```
+
+GitHub Actions is the authoritative execution environment for release evidence because it has controlled runners, repository secrets, uploaded artifacts, and stable run IDs. Local runs are useful for debugging and fast feedback, but local-only output does not close release evidence unless a release document explicitly says so.
+
+| Evidence Type | Source |
+|---|---|
+| Unit correctness | Vitest unit/component tests inside CI |
+| Browser flow correctness | Playwright E2E tests inside CI |
+| Live deployed behavior | Live Playwright workflows |
+| Production smoke | Production smoke workflow, currently `.github/workflows/canary.yml` |
+| Backend stress | Stress workflow/script |
+| Browser endurance | Endurance workflow/spec |
+| API stack health | Ops-health workflow |
+| Security/dependency posture | Edge tests, audit, SAST/SCA gates |
+| Software quality | Coverage, Lighthouse, bundle metrics, flaky count |
+
+Workflow naming note: backend durability and browser endurance evidence now run through `stress-endurance.yml`. The production smoke workflow currently named `canary.yml` should also be renamed in a later commit to a more literal name such as `production-smoke.yml`.
+
+---
+
 ## 🛠️ Environment Prerequisites
 
 Most tests (except for ordinary Unit and E2E Mock) require real backend credentials.
@@ -38,7 +68,7 @@ Most tests (except for ordinary Unit and E2E Mock) require real backend credenti
     - `SUPABASE_*`: Required for live DB and Auth tests.
     - `STRIPE_*`: Required for billing flow tests.
 
-2.  **Dispatcher Security**: Remote tasks (`ci:dispatch:soak`) pass secrets directly to the GitHub runner memory, bypassing local file systems.
+2.  **Dispatcher Security**: Remote tasks (`ci:dispatch:stress-endurance`, with `ci:dispatch:soak` retained as a legacy alias) pass secrets directly to the GitHub runner memory, bypassing local file systems.
 3.  **Auditor Verification**: The `gh run view --log` command allows you to verify that secrets were injected (look for masked `***` values) without ever exposing them to your terminal.
 
 ---
@@ -55,11 +85,11 @@ Most tests (except for ordinary Unit and E2E Mock) require real backend credenti
 3.  **Audits**: Runs `lint`, `typecheck`, and `vitest`.
 4.  **E2E (Mocked)**: Runs all 4 Playwright shards.
 5.  **Lighthouse**: Runs Lighthouse CI audits.
-6.  **SQM**: Generates and prints metrics to console.
+6.  **Quality Metrics**: Generates and prints software quality metrics to console/artifacts.
 
-### 1b. Cloud Dispatch (`ci:dispatch:deploy` / `ci:dispatch:soak`)
-**Commands**: `pnpm ci:dispatch:deploy`, `pnpm ci:dispatch:soak`
-**Description**: Each dispatches a single GitHub Actions workflow (deploy smoke or soak test) via the `gh` CLI. Requires `gh auth login`.
+### 1b. Cloud Dispatch (`ci:dispatch:deploy` / `ci:dispatch:stress-endurance`)
+**Commands**: `pnpm ci:dispatch:deploy`, `pnpm ci:dispatch:stress-endurance`
+**Description**: Each dispatches a single GitHub Actions workflow (deploy smoke or stress/endurance evidence) via the `gh` CLI. Requires `gh auth login`.
 
 ### 1c. The Agent-Safe Pipeline (`test:agent`)
 **Command**: `pnpm test:agent`
@@ -71,18 +101,20 @@ Most tests (except for ordinary Unit and E2E Mock) require real backend credenti
 - Only tests mapped to changed files are executed, saving massive compute time for agents.
 - **Maintenance**: If you add new feature areas or test files, you **MUST** update `test-impact-map.json` to map the source directory to the E2E spec files, otherwise the automated pipeline will not run those tests optimally.
 
-### 2. Backend Load Test (`test:soak:api:cloud`)
-**Command**: `pnpm test:soak:api:cloud`
-**Description**: To verify that the Supabase Edge network and RLS policies can handle concurrent traffic without connection pool exhaustion or significant latency spikes. Bypassing the browser allows for 10x higher concurrency at 1% of the resource cost.
+### 2. Backend Stress Test (`test:stress:backend`)
+**Command**: `pnpm test:stress:backend`
+**Legacy Alias**: `pnpm test:soak:api:cloud`
+**Description**: Verifies that the provisioned stress users can authenticate, call the live `check-usage-limit` Edge Function, and save sessions through the current `create_session_and_update_usage` RPC using unprivileged Supabase anon credentials. The script accepts either `SUPABASE_URL`/`SUPABASE_ANON_KEY` or the local `VITE_`-prefixed equivalents. This is backend durability evidence, not vendor-STT availability evidence. It writes structured evidence to `test-results/stress/backend-stress.latest.json`.
 
 **Custom Load**:
 ```bash
-NUM_BASIC_USERS=20 NUM_PRO_USERS=10 pnpm test:soak:api:cloud
+API_LOAD_CONCURRENCY=15 pnpm test:stress:backend
 ```
 
-### 3. UI Soak Memory Test (`test:soak:ui:cloud`)
-**Command**: `pnpm test:soak:ui:cloud`
-**Description**: Focuses on **Browser Stability (OOM/Memory Leaks)**. Orchestrates multiple tabs to ensure the application does not crash under extended use. Detects memory pressure and garbage collection patterns using `performance.memory` APIs.
+### 3. Browser Endurance Test (`test:endurance:browser`)
+**Command**: `pnpm test:endurance:browser`
+**Legacy Alias**: `pnpm test:soak:ui:cloud`
+**Description**: Focuses on **Browser Stability (OOM/Memory Leaks)**. Orchestrates multiple authenticated browser contexts, explicitly selects Browser/Native STT, records for an extended interval, injects mock speech, and verifies Analytics navigation. Private model download/cache behavior belongs to dedicated Private proofs, not this endurance check. It writes structured evidence to `test-results/endurance/browser-endurance.latest.json`.
 
 #### 🧩 Terminology & Configuration
 - **`SOAK_MEMORY_DURATION_MS`**: The module-level **"Source of Truth"** in `tests/constants.ts`. Update this single value to scale the test duration globally.
@@ -100,31 +132,31 @@ NUM_BASIC_USERS=20 NUM_PRO_USERS=10 pnpm test:soak:api:cloud
 
 The soak suite uses a tiered script structure in `package.json` to ensure a clean and modular environment:
 
-1.  **`pretest:soak`**: Runs automatically before any soak command.
+1.  **`pretest:soak`**: Legacy pre-hook retained for compatibility with old soak aliases.
     *   **Action**: `npx kill-port 5173 || true`.
     *   **Why**: Ensures port 5173 (Vite) is available so Playwright can spin up a fresh server or take ownership without "Port in use" conflicts.
-2.  **`test:soak:api:cloud`**: Standalone Backend Stress.
+2.  **`test:stress:backend`**: Standalone Backend Stress.
     *   **Action**: `dotenv -e .env.development -- tsx tests/soak/backend-api-stress-test.ts`.
     *   **Why**: Executes the "Thundering Herd" auth and RPC stress test without browser overhead. Essential for backend latency benchmarks.
 3.  **`test:soak:verify:local`**: Post-Run Data Audit.
     *   **Action**: `dotenv -e .env.development -- tsx tests/soak/verify-users.ts`.
     *   **Why**: Verifies that the records created during the soak session (e.g., transcripts) are present and accurate in Supabase, acting as a data integrity gate.
-4.  **`test:soak:ui:cloud`**: Unified Coordinator.
-    *   **Action**: The main coordinator (`soak-test.spec.ts`) that orchestrates both the API stress and the UI memory check in sequence.
+4.  **`test:endurance:browser`**: Unified coordinator.
+    *   **Action**: The main coordinator (`soak-test.spec.ts`) that orchestrates both the API stress and browser endurance checks in sequence.
 
 ##### A. Local Verification (RAM Intensive)
 1. **Sync Duration**: Ensure `tests/constants.ts` has the desired `SOAK_MEMORY_DURATION_MS`.
 2. **Setup Credentials**: Create a local `.env.development` with valid Supabase keys (if running against live DB).
 3. **Execute**:
    ```bash
-   pnpm test:soak:ui:cloud
+   pnpm test:endurance:browser
    ```
 
 ##### B. Authoritative Cloud Execution (Recommended)
 This uses the repository's GitHub Cloud infrastructure and secrets.
 1. **Trigger Remote Run**:
    ```bash
-   gh workflow run soak-test.yml
+   gh workflow run stress-endurance.yml
    ```
 2. **Monitor Progress**:
    ```bash
@@ -189,16 +221,16 @@ pnpm test:deploy:local
 pnpm test:deploy:prod
 ```
 
-### 7. Production Forced Check (`test:deploy:prod`)
+### 7. Production Smoke Check (`test:deploy:prod`)
 **Command**: `pnpm test:deploy:prod`
 **Description**: A hard check against the canonical production URL (`speaksharp-public.vercel.app`).
-**Audit Note**: This test executes on every `main` branch push via `canary.yml`. It handles the full lifecycle: **Attempt Create User -> Run Test -> Cleanup Env**.
+**Audit Note**: This test executes on every `main` branch push via `.github/workflows/canary.yml`. The workflow is production smoke evidence; `canary.yml` is a legacy name and should be renamed to something more literal such as `production-smoke.yml`.
 
-### 8. Remote Soak Dispatch (`ci:dispatch:soak`)
+### 8. Remote Stress/Endurance Dispatch (`ci:dispatch:stress-endurance`)
 **Command**: `pnpm ci:dispatch:soak:wait`
-**Description**: To execute high-load stress tests (Soak) using GitHub's cloud compute power rather than local resources. This allows for testing with 15+ concurrent users without crashing the local developer machine, while safely accessing production-grade secrets stored in GitHub.
+**Description**: Executes backend stress and browser endurance checks using GitHub's cloud compute power rather than local resources. Backend stress verifies concurrent auth, usage Edge Function, and session-save RPC behavior. Browser endurance verifies longer Native recording stability, state isolation, and memory behavior.
 
-- **Playbook Structure**: Deployed via YAML (`.github/workflows/soak-test.yml`).
+- **Playbook Structure**: Deployed via `.github/workflows/stress-endurance.yml`.
 
 #### Remote Monitoring & Oversight (Non-Visual CLI)
 Every remote execution can be monitored and audited entirely from the terminal:
@@ -209,7 +241,7 @@ Every remote execution can be monitored and audited entirely from the terminal:
     ```
 2.  **Monitor Progress**:
     - **Interactive Watch**: `gh run watch` (Allows selecting and following the active run).
-    - **Current Status**: `gh run list --workflow 214853920 --limit 1` (Checks the latest outcome for the Soak Test).
+    - **Current Status**: `gh run list --workflow stress-endurance.yml --limit 1` (Checks the latest outcome for the stress/endurance workflow).
 3.  **Review Forensic Logs**:
     - **Tail Logs**: `gh run view --log` (Streams all logs for the current/latest run).
     - **Specific Run Audit**: `gh run view <ID> --log` (Targets a specific historical run).
@@ -233,17 +265,12 @@ Avoid the `script` command for TTY emulation, as it has incompatible syntax acro
 - **Zero-Shadowing Policy**: Never place `.lighthouserc.js` or `.lighthouserc.yml` in the root if you are using dynamic `.json` generation.
 - **Authority**: The `lighthouserc.json` generated by `scripts/generate-lhci-config.js` is the single source of truth for CI.
 
-### 4. SQM Metric Protection
-The Software Quality Metrics in `docs/PRD.md` are protected by markers.
-- **Format**: 
-  ```markdown
-  <!-- SQM:START -->
-  <!-- do not remove - used by sqm script -->>
-  ...
-  <!-- SQM:END -->
-  <!-- do not remove - used by sqm script -->>
-  ```
-- **Constraint**: Do not move the disclaimer comments to the same line as the markers; keep them separate to allow the `update-prd-metrics.mjs` script to match exact marker signatures.
+### 4. Software Quality Evidence
+Software quality metrics are evidence, not PRD content. The PRD states product promises; generated quality evidence belongs in `product_release/evidence/` and is interpreted by `SOFTWARE_QUALITY.operational.md` and `RELEASE_STATUS.md`.
+
+- **Local runs**: print software quality metrics to the console and local artifacts only.
+- **GitHub runs**: write/upload software quality evidence artifacts with stable run IDs.
+- **Do not** dynamically rewrite `PRD.operational.md` with coverage, Lighthouse, bundle, or test-count churn.
 
 ---
 

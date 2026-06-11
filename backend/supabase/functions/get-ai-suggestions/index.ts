@@ -1,13 +1,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+const MAX_TRANSCRIPT_CHARS = 8000;
+const AI_SUGGESTION_DAILY_LIMIT = 20;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -19,6 +16,14 @@ interface SuggestionItem {
 interface AISuggestions {
   summary: string;
   suggestions: SuggestionItem[];
+}
+
+interface QuotaResult {
+  allowed?: boolean;
+  remaining?: number;
+  limit?: number;
+  used?: number;
+  error?: string;
 }
 
 const FALLBACK_SUGGESTIONS: AISuggestions = {
@@ -77,8 +82,10 @@ function parseSuggestions(rawText: string): AISuggestions | null {
 
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
+  const responseHeaders = buildCorsHeaders(req);
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: responseHeaders });
   }
 
   try {
@@ -97,13 +104,13 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       // PGRST116 = "No rows returned" which means no authenticated user (RLS blocked)
       if (profileError.code === 'PGRST116') {
         return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
           status: 401,
         });
       }
       console.error('Profile fetch error:', profileError);
       return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 500,
       });
     }
@@ -111,12 +118,39 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     const isPro = profile?.subscription_status === 'pro';
     if (!isPro) {
       return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 403,
       });
     }
 
     const { transcript, metrics, sessionId } = await req.json();
+
+    if (!transcript) {
+      return new Response(JSON.stringify({ error: 'Transcript is required' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
+
+    if (typeof transcript !== 'string') {
+      return new Response(JSON.stringify({ error: 'Transcript must be text' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
+
+    const transcriptForPrompt = transcript.length > MAX_TRANSCRIPT_CHARS
+      ? `${transcript.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Transcript truncated for coaching request length.]`
+      : transcript;
+
+    const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+    const userId = userData?.user?.id ?? null;
+    if (userError || !userId) {
+      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      });
+    }
 
     // 1. OPTIMIZATION: Check for existing suggestions if sessionId is provided
     if (sessionId) {
@@ -124,29 +158,47 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         .from('sessions')
         .select('ai_suggestions')
         .eq('id', sessionId)
+        .eq('user_id', userId)
         .single();
 
       if (!sessionError && session?.ai_suggestions) {
         return new Response(JSON.stringify({ suggestions: session.ai_suggestions }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
           status: 200,
         });
       }
-    }
-
-    if (!transcript) {
-      return new Response(JSON.stringify({ error: 'Transcript is required' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      });
     }
 
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       console.error('GEMINI_API_KEY is not set.');
       return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
+      });
+    }
+
+    const { data: quota, error: quotaError } = await supabaseClient.rpc('consume_ai_suggestion_quota', {
+      p_limit: AI_SUGGESTION_DAILY_LIMIT,
+    });
+
+    if (quotaError) {
+      console.error('AI suggestion quota check failed:', quotaError);
+      return new Response(JSON.stringify({ error: 'Unable to verify AI coaching quota. Please try again.' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 503,
+      });
+    }
+
+    const quotaResult = quota as QuotaResult | null;
+    if (quotaResult && quotaResult.allowed === false) {
+      return new Response(JSON.stringify({
+        error: 'Daily AI coaching limit reached. Try again tomorrow.',
+        remaining: quotaResult.remaining ?? 0,
+        limit: quotaResult.limit ?? AI_SUGGESTION_DAILY_LIMIT,
+      }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 429,
       });
     }
 
@@ -161,21 +213,28 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     ` : '';
 
     const prompt = `
-      You are an expert public speaking coach. Analyze the following speech transcript and metrics to provide constructive, data-driven feedback.
-      The user wants to improve their communication skills. Focus on clarity, pacing, filler words, and overall impact.
+      You are an expert public speaking coach. Analyze the following speech transcript and metrics as if the user wants practical coaching they can use in the next practice session.
+      Go beyond delivery metrics. Evaluate the speech content's logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact in addition to pacing, clarity, pauses, and filler words.
+
+      Coaching rules:
+      - Be specific and evidence-based. Reference short phrases or patterns from the transcript when useful.
+      - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
+      - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
+      - If the transcript is too short for a category, say what additional evidence would make that category measurable.
+      - Keep every description concise enough to display in the app.
 
       Transcript:
-      "${transcript}"
+      "${transcriptForPrompt}"
       ${metricsText}
 
       Your response MUST be a JSON object with the following structure:
       {
         "summary": "A one-sentence overall summary of the feedback.",
         "suggestions": [
-          { "title": "Clarity", "description": "Specific feedback on clarity based on score and transcript." },
-          { "title": "Pacing", "description": "Specific feedback on pacing based on WPM and pauses." },
-          { "title": "Filler Words", "description": "Specific feedback on filler word usage." },
-          { "title": "Engagement", "description": "Specific feedback on audience engagement and tone." }
+          { "title": "Structure & Flow", "description": "Assess opening, logical order, transitions, and conclusion. Include one concrete improvement." },
+          { "title": "Vocabulary & Variety", "description": "Assess repeated wording, sentence variety, specificity, and word choice. Suggest one stronger phrasing option if useful." },
+          { "title": "Audience Impact", "description": "Assess whether the message is clear, memorable, and persuasive for a listener. Suggest one way to make it land better." },
+          { "title": "Delivery & Clutter", "description": "Use metrics for pacing, pauses, filler words, and clarity. Give one next-practice drill." }
         ]
       }
     `;
@@ -208,7 +267,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     if (!suggestions) {
       console.error('Gemini response did not contain valid suggestions JSON.');
       return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
     }
@@ -218,7 +277,8 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       const { error: updateError } = await supabaseClient
         .from('sessions')
         .update({ ai_suggestions: suggestions })
-        .eq('id', sessionId);
+        .eq('id', sessionId)
+        .eq('user_id', userId);
 
       if (updateError) {
         console.error('Failed to save AI suggestions to cache:', updateError);
@@ -226,15 +286,14 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     }
 
     return new Response(JSON.stringify({ suggestions }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
   } catch (error) {
     console.error('Error getting AI suggestions:', error);
-    const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
-    return new Response(JSON.stringify({ error: `Failed to get AI suggestions. ${errorMessage}` }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify({ error: 'Failed to get AI suggestions. Please try again.' }), {
+      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
   }

@@ -98,14 +98,14 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
       };
     });
 
-    logger.info(`[useReadinessStore] Signal set: ${key}`);
+    logger.debug(`[useReadinessStore] Signal set: ${key}`);
   },
 
   setAppState: (appState) => {
     const current = get().appState;
     if (current === appState) return;
 
-    logger.info(`[ReadinessStore] App State Transition: ${current} -> ${appState}`);
+    logger.debug(`[ReadinessStore] App State Transition: ${current} -> ${appState}`);
 
     set((state) => {
       const newTimestamps = {
@@ -143,11 +143,11 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     if (typeof window !== 'undefined') {
       setAppVisibleReady(false);
     }
-    logger.info('[useReadinessStore] Router readiness reset (navigation initiated)');
+    logger.debug('[useReadinessStore] Router readiness reset (navigation initiated)');
   },
 
   reset: () => {
-    logger.info('[ReadinessStore] Resetting readiness signals');
+    logger.debug('[ReadinessStore] Resetting readiness signals');
     const resetTimestamps = { reset: performance.now() };
     set({
       signals: { ...INITIAL_SIGNALS },

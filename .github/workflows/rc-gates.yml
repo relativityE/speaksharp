@@ -40,10 +40,13 @@ jobs:
           install-playwright: 'true'
       - name: Run Product Truth Gate
         env:
-          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          # Public Supabase build env (required by validate-env/build:test).
+          # Non-secret client values; never the service-role key.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STT_ENGINE: mock
-          BASE_URL: ${{ github.event.inputs.base_url }}
         run: pnpm rc:gate:1:product
 
   gate-2-sast:
@@ -74,8 +77,8 @@ jobs:
           install-playwright: 'true'
       - name: Run DAST Local Gate
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -85,7 +88,7 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:dast:local
       - name: Verify Stripe Webhook Secret Digest
@@ -96,7 +99,7 @@ jobs:
         run: node scripts/verify-secret-digest.mjs
       - name: Verify live test-user profile rows
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
@@ -104,8 +107,8 @@ jobs:
       - name: Run DAST Live Gate
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -113,11 +116,13 @@ jobs:
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
           BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:dast:live
 
@@ -146,5 +151,9 @@ jobs:
           install-playwright: 'true'
       - name: Run UX Gate
         env:
+          # Public Supabase build env (required by validate-env/build:test).
+          # Non-secret client values; never the service-role key.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           STT_ENGINE: mock
         run: pnpm rc:gate:5:ux

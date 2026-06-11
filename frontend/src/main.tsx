@@ -5,15 +5,19 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
 import logger from './lib/logger';
+import { scrubConsoleBreadcrumb } from './lib/logRedaction';
 import { AuthProvider } from './contexts/AuthProvider';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import type { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
+import InvalidEnvironmentPage from "./pages/InvalidEnvironmentPage";
 import App from './App';
 import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
+import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
+import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
 
 declare global {
   interface Window {
@@ -22,6 +26,11 @@ declare global {
     __e2e_e2e_msw_ready_fired__?: boolean;
   }
 }
+
+// STT release-proof config-discipline: publish the canonical runtime environment
+// (port/mode/auth/releaseProofEligible) so the test-agent proof preflight can validate it
+// before recording. releaseProofEligible is true only for manual mode on 5174 with real auth.
+publishAppRuntimeConfig();
 
 // 🛡️ INITIAL BOOT BARRIER: Set to false before any rendering logic starts.
 if (typeof document !== 'undefined') {
@@ -38,14 +47,17 @@ if (ENV.isTest) {
     seed = (seed * 16807) % 2147483647;
     return (seed - 1) / 2147483646;
   };
-  logger.info('[main.tsx] Seeded random initialized for CI/E2E');
+  logger.debug('[main.tsx] Seeded random initialized for CI/E2E');
 }
 
+// Only the env that the CORE app genuinely cannot run without gates boot.
+// Supabase (auth + DB) is mandatory. Stripe and Sentry are intentionally NOT
+// here: Sentry already no-ops without a DSN (see init below), and payment
+// surfaces are hidden when the Stripe key is missing (arePaymentsEnabled),
+// so the app boots and core STT works without either configured.
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
-  'VITE_STRIPE_PUBLISHABLE_KEY',
-  'VITE_SENTRY_DSN',
 ];
 
 const areEnvVarsPresent = (): boolean => {
@@ -73,31 +85,39 @@ const queryClient = new QueryClient({
 if (ENV.isTest) {
   (window as unknown as { queryClient: typeof queryClient }).queryClient = queryClient;
 }
-logger.info('[React Query] ✅ QueryClient initialized');
+logger.debug('[React Query] QueryClient initialized');
 
 // CRITICAL: Initialize Sentry FIRST before any async operations
 // This ensures errors during initialization are captured
 const sentryDSN = import.meta.env.VITE_SENTRY_DSN;
 const isTestMode = ENV.isTest || import.meta.env.VITE_TEST_MODE === 'true';
 const skipSentry = isTestMode || !sentryDSN || sentryDSN.includes('example.invalid');
+const enableSentryTracing = import.meta.env.VITE_ENABLE_SENTRY_TRACING === 'true';
+const enableSentryReplay = import.meta.env.VITE_ENABLE_SENTRY_REPLAY === 'true';
+const enableSentryConsoleCapture = import.meta.env.VITE_ENABLE_SENTRY_CONSOLE_CAPTURE === 'true';
 
-logger.info({ isTestMode, sentryDSN, skipSentry }, '[main.tsx] Sentry Initialization Check');
+logger.debug({ isTestMode, hasSentryDsn: Boolean(sentryDSN), skipSentry }, '[main.tsx] Sentry Initialization Check');
 
 if (!skipSentry) {
   try {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
       integrations: [
-        Sentry.browserTracingIntegration(),
-        Sentry.replayIntegration(),
+        ...(enableSentryTracing ? [Sentry.browserTracingIntegration()] : []),
+        ...(enableSentryReplay ? [Sentry.replayIntegration()] : []),
       ],
       environment: import.meta.env.MODE,
-      tracesSampleRate: 1.0,
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-      sendDefaultPii: true,
+      tracesSampleRate: enableSentryTracing ? 0.1 : 0,
+      replaysSessionSampleRate: enableSentryReplay ? 0.1 : 0,
+      replaysOnErrorSampleRate: enableSentryReplay ? 1.0 : 0,
+      // Privacy: never PII by default. Transcript text (esp. Private mode) must not
+      // leave the device via Sentry. sendDefaultPii previously true — disabled.
+      sendDefaultPii: false,
+      // Drop ALL console breadcrumbs so transcript text logged to console can never
+      // be exfiltrated to Sentry on error (defense layer 2; layer 1 is redactTranscript).
+      beforeBreadcrumb: scrubConsoleBreadcrumb,
     });
-    logger.info('[Sentry] Initialized successfully (early init)');
+    logger.debug('[Sentry] Initialized successfully (early init)');
   } catch (err) {
     logger.warn({ err }, '[Sentry] ⚠️ Failed to initialize');
   }
@@ -116,10 +136,27 @@ setupGlobalErrorHandlers();
 const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
-    logger.info('[main.tsx] Starting app render...');
+    logger.debug('[main.tsx] Starting app render...');
 
     if (areEnvVarsPresent()) {
-      logger.info({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
+      logger.debug({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
+
+      const devEnvironmentStatus = getDevEnvironmentStatus();
+      if (!devEnvironmentStatus.valid) {
+        logger.error({ devEnvironmentStatus }, '[main.tsx] Invalid local environment blocked');
+        root.render(
+          <StrictMode>
+            <InvalidEnvironmentPage status={devEnvironmentStatus} />
+          </StrictMode>
+        );
+
+        if (typeof document !== 'undefined') {
+          document.documentElement.setAttribute('data-app-ready', 'true');
+          document.documentElement.setAttribute('data-app-visible-ready', 'true');
+          window.__APP_BOOTED__ = true;
+        }
+        return;
+      }
 
       // 🛑 Skip ALL analytics in test mode (Sentry already initialized above)
       if (!isTestMode) {
@@ -129,10 +166,14 @@ const renderApp = async (initialSession: Session | null = null) => {
             try {
               posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
                 api_host: import.meta.env.VITE_POSTHOG_HOST,
-                capture_exceptions: true,
+                autocapture: false,
+                capture_pageview: false,
+                capture_exceptions: enableSentryConsoleCapture,
+                capture_performance: false,
+                disable_session_recording: true,
                 debug: import.meta.env.MODE === 'development',
               });
-              logger.info('[PostHog] Initialized successfully');
+              logger.debug('[PostHog] Initialized successfully');
             } catch (error) {
               logger.warn({ error }, "PostHog failed to initialize:");
             }
@@ -151,7 +192,7 @@ const renderApp = async (initialSession: Session | null = null) => {
           if (session && !sessionToUse) {
             // This is a race condition fallback, but atomic injection 
             // via localStorage is the primary source of truth.
-            logger.info('[E2E] Bridge session resolved asynchronously');
+            logger.debug('[E2E] Bridge session resolved asynchronously');
           }
         }).catch((err) => {
           logger.error({ err }, '[E2E] Failed to initialize e2e-bridge');
@@ -203,7 +244,7 @@ const renderApp = async (initialSession: Session | null = null) => {
 const startInitializing = async () => {
   // Bootstrap: Initialize E2E Environment if in test mode
 
-  logger.info('[main.tsx] Initialize started');
+  logger.debug('[main.tsx] Initialize started');
 
   // Defer heavy WASM initialization to avoid competing with React hydration
   const initSTT = () => {
@@ -211,7 +252,7 @@ const startInitializing = async () => {
     void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
       speechRuntimeController.initializeInfrastructure()
         .then(() => {
-          logger.info('[main.tsx] STT Infrastructure Ready');
+          logger.debug('[main.tsx] STT Infrastructure Ready');
         })
         .catch(err => {
           logger.error({ err }, '[main.tsx] ❌ SpeechRuntimeController failed');

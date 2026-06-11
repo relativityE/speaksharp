@@ -1,8 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import logger from '../lib/logger';
 import { toast } from '@/lib/toast';
 import { useUserProfile } from '@/hooks/useUserProfile';
@@ -36,7 +38,7 @@ import {
 
 // --- Sub-components ---
 
-const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () => void }> = ({ isPro, sessionId, onUpgrade }) => {
+const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading: boolean; onUpgrade: () => void }> = ({ isPro, sessionId, upgradeLoading, onUpgrade }) => {
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
@@ -45,19 +47,22 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
         ? 'A detailed breakdown of your recent practice session.'
         : 'Track your speaking progress and improvements';
 
+    // Only surface/track the upgrade CTA when payments are live — otherwise it is a dead/no-op button.
+    const showUpgrade = !isSessionView && !isPro && arePaymentsEnabled();
+
     useEffect(() => {
-        if (!isSessionView && !isPro) {
+        if (showUpgrade) {
             trackConversionCtaViewed({ source: 'analytics_overview_banner', plan: 'pro' });
         }
-    }, [isSessionView, isPro]);
+    }, [showUpgrade]);
 
     return (
         <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
             <p className="mb-4 text-sm font-medium text-foreground/70 sm:text-base">{description}</p>
 
-            {/* Plan Banner - Only show on dashboard view, not session view */}
-            {!isSessionView && !isPro && (
+            {/* Plan Banner — upgrade CTA only when payments are live (no dead/no-op button) */}
+            {showUpgrade && (
                 <div
                     className="w-full flex flex-col gap-3 rounded-lg border border-l-4 border-border border-l-primary bg-card px-4 py-4 text-left surface-shadow sm:flex-row sm:items-center sm:justify-between sm:px-6"
                 >
@@ -75,10 +80,11 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                     <button
                         type="button"
                         onClick={onUpgrade}
+                        disabled={upgradeLoading}
                         className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto"
                         data-testid="analytics-page-upgrade-button"
                     >
-                        Upgrade to Pro
+                        {upgradeLoading ? 'Starting checkout...' : 'Upgrade to Pro'}
                     </button>
                 </div>
             )}
@@ -93,9 +99,11 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
+    const queryClient = useQueryClient();
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
+    const [upgradeLoading, setUpgradeLoading] = useState(false);
 
     const { setReady } = useReadinessStore();
 
@@ -106,7 +114,23 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         }
     }, [loading, isProfileLoading, setReady]);
 
+    useEffect(() => {
+        if (sessionId) return;
+        const sessionJustPersisted =
+            typeof document !== 'undefined'
+            && document.documentElement.getAttribute('data-session-persisted') === 'true';
+        if (!sessionJustPersisted) return;
+
+        void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
+        void queryClient.invalidateQueries({ queryKey: ['analyticsSummary'] });
+    }, [queryClient, sessionId]);
+
     const handleUpgrade = async (source: ConversionSource = 'analytics_overview_banner') => {
+        if (upgradeLoading) return;
+        if (!arePaymentsEnabled()) return; // payments not configured — no broken checkout
+        setUpgradeLoading(true);
+
         try {
             trackConversionCtaClicked({ source, plan: 'pro' });
             trackCheckoutStarted({ source, plan: 'pro' });
@@ -124,11 +148,19 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         } catch (err: unknown) {
             logger.error({ err }, 'Error creating Stripe checkout session:');
             toast.error('Unable to start upgrade process. Please try again or contact support.');
+            setUpgradeLoading(false);
         }
     };
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
+
+    const handleRetryAnalytics = () => {
+        void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
+        void queryClient.invalidateQueries({ queryKey: ['analyticsSummary'] });
+        void queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+    };
 
     // Show loading state while fetching data
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
@@ -136,14 +168,15 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
     // Show error state if either query failed
     if (error || profileError) {
+        logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
                 <p className="mb-6 font-medium text-foreground/70">
-                    {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
+                    We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
                 </p>
-                <Button onClick={() => window.location.reload()}>
-                    Refresh Page
+                <Button onClick={handleRetryAnalytics}>
+                    Retry Analytics
                 </Button>
             </div>
         );
@@ -164,7 +197,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }
     return (
         <div>
-            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
+            <PageHeader isPro={isProUser} sessionId={sessionId} upgradeLoading={upgradeLoading} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
             <AnalyticsDashboard
                 profile={profile || null}
                 isProUser={isProUser}

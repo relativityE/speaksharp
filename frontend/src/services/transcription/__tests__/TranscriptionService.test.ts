@@ -133,12 +133,37 @@ describe('TranscriptionService', () => {
 
         expect(toast.info).toHaveBeenCalledTimes(1);
         expect(toast.info).toHaveBeenCalledWith(
-            expect.stringMatching(/choose Browser, or Cloud if included in your plan/i),
+            expect.stringMatching(/Private transcription is setting up/i),
             expect.objectContaining({ id: 'private-model-alternative-stt', duration: 5000 })
         );
         expect(toast.success).not.toHaveBeenCalled();
 
         await privateService.destroy();
+    });
+
+    it('MAXDEPTH Part 3: dedupes duplicate integer-percent progress (no store/callback flood)', async () => {
+        const onProgress = vi.fn();
+        const svc = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
+            onTranscriptUpdate: vi.fn(),
+            onModelLoadProgress: onProgress,
+            onReady: vi.fn(),
+            session: null,
+            navigate: vi.fn(),
+            getAssemblyAIToken: mockGetToken,
+        });
+        const p = (svc as unknown as { processModelLoadProgress: (n: number | null) => void });
+        // Worker floods the SAME integer percent many times; only DISTINCT percents should emit.
+        p.processModelLoadProgress(37);
+        p.processModelLoadProgress(37);
+        p.processModelLoadProgress(37);
+        p.processModelLoadProgress(38);
+        p.processModelLoadProgress(38);
+        // 37 once + 38 once = 2 (not 5) — the duplicate-percent churn that drove ~423/429 store
+        // mutations and the render storm is suppressed at the source.
+        expect(onProgress).toHaveBeenCalledTimes(2);
+        expect(onProgress).toHaveBeenNthCalledWith(1, 37);
+        expect(onProgress).toHaveBeenNthCalledWith(2, 38);
+        await svc.destroy();
     });
 
     it('should sanitize transcripts effectively', async () => {
@@ -154,7 +179,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
             
             public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
                 (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
@@ -173,12 +198,12 @@ describe('TranscriptionService', () => {
             }
         });
 
-        expect(mockOnTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
-            transcript: {
-                final: 'Hello world',
-                partial: ''
-            }
-        }));
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(1, {
+            transcript: { final: 'Hello world' }
+        });
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(2, {
+            transcript: { partial: 'thinking...' }
+        });
     });
 
     it('should reject startTranscription when strategy start fails', async () => {
@@ -195,7 +220,7 @@ describe('TranscriptionService', () => {
             protected async onResume() {}
             protected async onDestroy() {}
             async transcribe() { return Result.ok('test'); }
-            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
         }
 
         const failingEngine = new FailingStartEngine({} as unknown as TranscriptionModeOptions);
@@ -206,10 +231,146 @@ describe('TranscriptionService', () => {
         expect(service.getState()).toBe('FAILED');
     });
 
+    it('starts the selected strategy exactly once for one recording start', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+        sttRegistry.clear();
+        const onStart = vi.fn();
+
+        class CountingStartEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() { onStart(); }
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
+        }
+
+        sttRegistry.registerStatic('mock', new CountingStartEngine({} as unknown as TranscriptionModeOptions));
+
+        await service.startTranscription();
+
+        expect(onStart).toHaveBeenCalledTimes(1);
+    });
+
     it('should sanitize bracketed and parenthetical transcript metadata tags', () => {
         expect(sanitizeTranscriptText('[MUSIC] Hello  (applause) world [BLANK_AUDIO]')).toBe('Hello world');
         expect(sanitizeTranscriptText('Testing (laughter) one [SILENCE] two')).toBe('Testing one two');
         expect(sanitizeTranscriptText('>> On the stale smell')).toBe('On the stale smell');
+        expect(sanitizeTranscriptText('*Spits* Stay, my told wild tales to frightened him.')).toBe('Stay, my told wild tales to frightened him.');
+        expect(sanitizeTranscriptText('Basically, a dash of peppers, oil, beef stew. 1.2, 1.5.')).toBe('Basically, a dash of peppers, oil, beef stew.');
+    });
+
+    it('REGRESSION: forwards later partials without re-sending stale final transcript', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({ transcript: { final: 'already committed final text' } });
+        mockEngine.triggerTranscript({ transcript: { partial: 'new live partial words' } });
+
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { partial: 'new live partial words' },
+        });
+    });
+
+    it('REGRESSION: accumulates sentence-sized final updates instead of replacing prior finals', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({ transcript: { final: 'private local microphone proof starts now' } });
+        mockEngine.triggerTranscript({ transcript: { final: 'I want to make one simple point before we move on' } });
+        mockEngine.triggerTranscript({ transcript: { final: 'with a clear next step' } });
+
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: {
+                final: 'private local microphone proof starts now I want to make one simple point before we move on with a clear next step',
+            },
+        });
+    });
+
+    it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({
+            transcript: {
+                final: 'committed final words',
+                partial: 'current interim window',
+            },
+        });
+
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(1, {
+            transcript: { final: 'committed final words' },
+        });
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(2, {
+            transcript: { partial: 'current interim window' },
+        });
     });
 
     it('should synchronously rehydrate transcript and recording status on subscription', () => {
@@ -318,7 +479,7 @@ describe('TranscriptionService', () => {
         sttRegistry.register('mock', () => ({
             checkAvailability: async () => ({ isAvailable: false, reason: 'UNKNOWN', message: 'Injected failure' }),
             init: async () => Result.ok(undefined),
-            getEngineType: () => 'whisper-turbo'
+            getEngineType: () => 'transformers-js'
         } as unknown as STTEngine));
 
         const failingService = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
