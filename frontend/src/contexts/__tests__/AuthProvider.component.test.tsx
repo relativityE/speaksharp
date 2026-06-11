@@ -14,6 +14,10 @@ vi.mock('../../utils/fetchWithRetry', () => ({
     fetchWithRetry: vi.fn((fn) => fn()),
 }));
 
+// Account-linked analytics identity (PostHog/Sentry) — assert the AuthProvider identifies by user.id.
+const analyticsMock = vi.hoisted(() => ({ identify: vi.fn(), resetIdentity: vi.fn() }));
+vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: analyticsMock }));
+
 // Test consumer component
 const TestConsumer = () => {
     const context = useContext(AuthContext);
@@ -107,6 +111,40 @@ describe('AuthProvider', () => {
         screen.getByText('Sign Out').click();
 
         await waitFor(() => expect(mockSupabase.auth.signOut).toHaveBeenCalled());
+    });
+
+    it('identifies the authenticated user to analytics by user.id ONLY (no email/PII)', async () => {
+        const mockSession = { user: { id: 'user-123', email: 'tester@example.com' } };
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(analyticsMock.identify).toHaveBeenCalledWith('user-123'));
+        // The session has an email, but it must NOT be forwarded to analytics.
+        expect(analyticsMock.identify).not.toHaveBeenCalledWith('user-123', expect.objectContaining({ email: expect.anything() }));
+    });
+
+    it('resets analytics identity on sign out', async () => {
+        const mockSession = { user: { id: 'user-123' } };
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(analyticsMock.identify).toHaveBeenCalledWith('user-123'));
+        screen.getByText('Sign Out').click();
+        await waitFor(() => expect(analyticsMock.resetIdentity).toHaveBeenCalled());
     });
 
     it('handles getSession error gracefully', async () => {
