@@ -80,6 +80,20 @@ node scripts/manual-stt-corpus-proof.mjs
 
 > Gate A closes the **technical value** question only — NOT the product-flag question.
 
+## Gate A — candidate bakeoff: base_q4 vs distil_q4 (REQUIRED before v4 exposure)
+Run BOTH candidates under the identical command above, switching only the variant:
+```bash
+STT_V4_VARIANT=base_q4   ... node scripts/manual-stt-corpus-proof.mjs   # baseline (default)
+STT_V4_VARIANT=distil_q4 ... node scripts/manual-stt-corpus-proof.mjs   # accuracy tier
+```
+`STT_V4_VARIANT` → `?v4Variant=base_q4|distil_q4` is a **DEV/TEST-HARNESS-ONLY** selector: honored only
+with `STT_V4_FORCE_AUTO=1`, **allowlisted to exactly those two values** (unknown ⇒ fails closed to
+base_q4), **inert in production**, and reported as `selectionSource=dev_harness`. It is NOT a
+PostHog/prod selector — the real distil control plane is the `private_stt_v4_distil_enabled` flag.
+Capture both artifacts (WER/RTF/firstText/modelLoad/save-detail) and pick the winner per the selection
+rule: **distil wins only if WER ≤ base +0.02 AND RTF ≥25–30% faster, no fallback, clean save/detail** —
+else base_q4 stays the candidate. Only the winner enters the PostHog A/B vs v2-base.
+
 ## Gate A — fallback safety variant (optional, same session)
 Force a broken decoder dtype so v4 fails and must fall back:
 ```bash

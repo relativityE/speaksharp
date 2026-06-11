@@ -206,6 +206,33 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         expect(dbg?.v4Variant).toBe('distil_q4');
     });
 
+    it('F1c: DEV/TEST forceAuto + v4Variant=base_q4 selects the base Gate A candidate (dev_harness)', async () => {
+        flagState.v4Enabled = false; setGpu(true);
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
+        window.localStorage.setItem('speaksharp.v4.variant', 'base_q4');
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('transformers-js-v4');
+        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; v4Variant?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(dbg?.selectionSource).toBe('dev_harness');
+        expect(dbg?.v4Variant).toBe('base_q4');
+    });
+
+    // Allowlist FAIL-CLOSED: an unknown v4Variant must never load an arbitrary model — it falls back to
+    // the base_q4 floor. Guards the security invariant that the bakeoff knob is a 2-value allowlist only.
+    it('F1d: DEV/TEST forceAuto + UNKNOWN v4Variant fails closed to base_q4 (no arbitrary model)', async () => {
+        flagState.v4Enabled = false; setGpu(true);
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
+        window.localStorage.setItem('speaksharp.v4.variant', 'evil-org/secret-model'); // not allowlisted
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // forceAuto still selects v4 (base floor)
+        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { v4Variant?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(dbg?.v4Variant, 'unknown variant must fall closed to base_q4, never a custom model').toBe('base_q4');
+    });
+
     // Case F2 — PRODUCTION/BETA: the SAME real forceAuto key is INERT. Even with WebGPU usable, a
     // production build ignores `speaksharp.v4.forceAuto` (override gated `import.meta.env.DEV || isTest`)
     // -> v2-base, no v4 construct, selectionSource='default' (never dev_harness). Proves the localStorage
