@@ -1064,6 +1064,10 @@ async function collectTraceSnapshot(page, mode) {
     privateRuntimePath: currentMode === 'private'
       ? window.__PRIVATE_STT_RUNTIME_DEBUG__ ?? null
       : undefined,
+    // Whole-utterance decode timing (PrivateTimingSummary) — source for the ONE canonical RTF.
+    privateTiming: currentMode === 'private'
+      ? window.__PRIVATE_TIMING__ ?? null
+      : undefined,
     privateEngineVariant: currentMode === 'private'
       ? document.body?.getAttribute('data-engine-variant') ?? null
       : undefined,
@@ -1494,6 +1498,32 @@ async function runFixture(page, mode, fixture) {
   const postStopMetric = buildWerMetric(fixture.transcript, postStopTranscript);
   const selectedForSaveMetric = buildWerMetric(fixture.transcript, selectedForSaveTranscript);
 
+  // ONE canonical RTF for bakeoff / A-B records, so RTF is never cited inconsistently again.
+  // Definition: whole-utterance decode time / captured speech duration — both from the
+  // PrivateTimingSummary (window.__PRIVATE_TIMING__), which is the saved-transcript authority.
+  const privateTiming = traceSnapshot.privateTiming ?? null;
+  const capturedAudioMs = privateTiming?.utteranceSeconds != null
+    ? Math.round(privateTiming.utteranceSeconds * 1000)
+    : null;
+  const finalizeDecodeMs = privateTiming?.finalizeDecodeMs ?? null;
+  const finalizePrepMs = privateTiming?.finalizePrepMs ?? null;
+  const finalizeWaitMs = privateTiming?.finalizeWaitMs ?? null;
+  const totalFinalizeMs = finalizeDecodeMs != null
+    ? Number(((finalizeWaitMs ?? 0) + (finalizePrepMs ?? 0) + finalizeDecodeMs).toFixed(1))
+    : null;
+  const rtf = {
+    rtfDefinition: 'finalizeDecodeMs / capturedAudioMs — whole-utterance decode RTF (saved-transcript authority)',
+    canonicalRtf: (finalizeDecodeMs != null && capturedAudioMs) ? Number((finalizeDecodeMs / capturedAudioMs).toFixed(4)) : null,
+    capturedAudioMs,
+    finalizeDecodeMs,
+    finalizePrepMs,
+    finalizeWaitMs,
+    totalFinalizeMs,
+    firstTextMs: firstText?.timestampMs ?? null,
+    timeToFirstFinalMs: privateTiming?.timeToFirstFinalMs ?? null,
+    modelLoadMs: null, // not yet instrumented in PrivateTimingSummary — emitted explicitly so it is not silently mixed in
+  };
+
   const result = {
     mode,
     fixture: fixture.id,
@@ -1515,6 +1545,8 @@ async function runFixture(page, mode, fixture) {
     postStopAccuracyPct: postStopMetric.accuracyPct,
     selectedForSaveWer: selectedForSaveMetric.wer,
     selectedForSaveAccuracyPct: selectedForSaveMetric.accuracyPct,
+    rtf, // ONE canonical RTF + its timing inputs (see rtf.rtfDefinition) — use this for bakeoff/A-B records
+    privateTiming,
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
     customWord: customWordEvidence ? {
