@@ -173,4 +173,20 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         expect(attemptPayload, 'canonical private_stt_v4_attempt event with real-flag selectionSource')
             .toMatchObject({ selectionSource: 'posthog_flag' });
     });
+
+    // Case F — Gate A honesty (the WebGPU VALUE proof path). forceAuto (flag OFF) + usable WebGPU
+    // selects v4, but the artifact MUST label it selectionSource:'dev_harness' — NOT posthog_flag —
+    // even though `reason` reads `webgpu_available_v4_flag` on real WebGPU (it's identical for flag
+    // AND forceAuto there). This locks the Gate A (dev_harness) vs Gate B (posthog_flag) distinction.
+    it('F: forceAuto + WebGPU (flag OFF) -> v4 selected, runtime debug selectionSource=dev_harness (NOT posthog_flag)', async () => {
+        flagState.v4Enabled = false; setGpu(true);
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // dev/test-gated forceAuto shim (Gate A)
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('transformers-js-v4'); // forceAuto selects v4 in dev/test
+        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; reason?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(dbg?.selectionSource, 'forceAuto value run must be labelled dev_harness, never posthog_flag').toBe('dev_harness');
+        expect(dbg?.reason, 'reason is the conflated signal; proves selectionSource is the honest one').toBe('webgpu_available_v4_flag');
+    });
 });

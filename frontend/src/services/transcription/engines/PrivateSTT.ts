@@ -280,7 +280,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             webgpuPromotionAllowed: false,
             turboModelCached: false,
             v4: (v4Flags.v4Enabled || forceAuto)
-                ? { enabled: true, distilEnabled: v4Flags.distilEnabled, forceAuto }
+                ? {
+                    enabled: true,
+                    distilEnabled: v4Flags.distilEnabled,
+                    forceAuto,
+                    // Honest provenance: the REAL flag wins when on (even if forceAuto is also set);
+                    // forceAuto-only is the dev/test harness shim. This — not `reason` — drives the
+                    // artifact's selectionSource, since on real WebGPU `reason` is identical for both.
+                    selectionSource: v4Flags.v4Enabled ? 'posthog_flag' : 'dev_harness',
+                  }
                 : undefined,
         });
         this.runtimePath = decision;
@@ -312,9 +320,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 v4FlagEnabled: flags.v4Enabled,
                 distilFlagEnabled: flags.distilEnabled,
                 // Provenance of the selection so evidence can distinguish a REAL PostHog-flag
-                // selection from the dev/test forceAuto shim (a flagged app-path run that used
-                // forceAuto is NOT an operational PostHog proof).
-                selectionSource: d?.reason === 'v4_forced_auto' ? 'dev_harness' : 'posthog_flag',
+                // selection from the dev/test forceAuto shim. Read from the decision (computed at
+                // selection time from flag-vs-forceAuto) — NOT derived from `reason`, which on real
+                // WebGPU reads `webgpu_available_v4_flag` for forceAuto too and would mislabel it.
+                selectionSource: d?.selectionSource ?? 'posthog_flag',
                 selectedVariant: variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
