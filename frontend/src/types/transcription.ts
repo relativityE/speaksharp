@@ -24,6 +24,15 @@ export interface TranscriptUpdate {
         partial?: string;
         final?: string;
         speaker?: string;
+        /**
+         * When true, this `final` is a COMPLETE re-transcription that REPLACES the accumulated
+         * rolling transcript — not an incremental segment to append. Set ONLY by Private's post-Stop
+         * whole-utterance decode; rolling finals, partials, and Native/Cloud finals must leave it
+         * unset. Without it the generic prefix/suffix/append merge concatenates rolling preview +
+         * final decode (duplication / inflated WER). An empty/whitespace final never wipes existing
+         * text even when this is true. Defaults to append.
+         */
+        replacesRollingTranscript?: boolean;
     };
     chunks?: { timestamp: [number, number]; text: string }[];
 }
