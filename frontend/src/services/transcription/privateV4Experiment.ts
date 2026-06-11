@@ -26,7 +26,13 @@ export interface V4ExperimentOverrides {
     device?: V4ExperimentDevice;
     /** Override decoder_model_merged dtype (the suspected q4-on-WASM failure). */
     decoderDtype?: V4ExperimentDecoderDtype;
-    /** Select the v4 model tier for Gate A candidate selection. Honored only with forceAuto. */
+    /**
+     * DEV/TEST-HARNESS-ONLY Gate A candidate selector (the base_q4 vs distil_q4 bakeoff). Honored
+     * ONLY with forceAuto, allowlisted to EXACTLY the two known candidates (unknown values fail
+     * closed to base_q4 — never an arbitrary model/path), and inert in production. NOT a PostHog/prod
+     * selector: the real distil control plane is the `private_stt_v4_distil_enabled` flag. Do NOT
+     * widen this allowlist or accept arbitrary model IDs/dtypes/devices here.
+     */
     variant?: V4ExperimentVariant;
     /** Force the main-thread pipeline (no Web Worker) to isolate worker-specific issues. */
     noWorker: boolean;
