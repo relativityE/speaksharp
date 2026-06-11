@@ -128,6 +128,27 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         expect(v4Construct).not.toHaveBeenCalled();
     });
 
+    // Case C — PRODUCTION cannot be bypassed by localStorage experiment keys.
+    it('C: PRODUCTION ignores localStorage v4 bypass attempts -> v2-base, no v4 construct', async () => {
+        vi.stubEnv('DEV', false);
+        (globalThis as { __TEST__?: boolean }).__TEST__ = false;
+        if (window.__SS_E2E__) (window.__SS_E2E__ as { isActive: boolean }).isActive = false;
+        flagState.v4Enabled = false; setGpu(true);
+        window.localStorage.setItem('privateEngine', 'transformers-js-v4');
+        window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+        window.localStorage.setItem('stt_engine', 'v4');
+        window.localStorage.setItem('v4ForceAuto', '1');
+        window.localStorage.setItem('privateModel', 'v4');
+        window.localStorage.setItem('v4Variant', 'base_q4');
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(v4Construct).not.toHaveBeenCalled();
+    });
+
     // Case D — the ACTUAL posthog.capture payloads carry NO PII and record selectionSource.
     it('D: PostHog capture payloads contain NO PII/secrets and record selectionSource', async () => {
         flagState.v4Enabled = true; setGpu(true);
@@ -137,7 +158,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         await pstt.init();
 
         expect(posthogCapture, 'PrivateSTT must emit a flagged v4 telemetry event').toHaveBeenCalled();
-        let sawAttempt = false;
+        let attemptPayload: Record<string, unknown> | undefined;
         // PII safety applies to EVERY captured event; selectionSource lives on the canonical attempt event.
         for (const [event, payload] of posthogCapture.mock.calls as Array<[string, Record<string, unknown>]>) {
             expect(String(event)).toMatch(/^private_stt_v4_/);
@@ -146,12 +167,10 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
                 expect(blob, `posthog "${event}" payload must not contain "${bad}"`).not.toContain(bad);
             }
             expect(blob, 'no @-style email values').not.toMatch(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/);
-            if (event === 'private_stt_v4_attempt') {
-                sawAttempt = true;
-                expect(payload).toHaveProperty('selectionSource');
-                expect(payload.selectionSource, 'flag-driven (not forceAuto) -> real flag').toBe('posthog_flag');
-            }
+            if (event === 'private_stt_v4_attempt') attemptPayload = payload;
         }
-        expect(sawAttempt, 'canonical private_stt_v4_attempt event must be emitted').toBe(true);
+        // flag-driven (not forceAuto) -> the canonical attempt event records the REAL flag source.
+        expect(attemptPayload, 'canonical private_stt_v4_attempt event with real-flag selectionSource')
+            .toMatchObject({ selectionSource: 'posthog_flag' });
     });
 });
