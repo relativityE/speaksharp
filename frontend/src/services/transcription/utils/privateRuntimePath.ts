@@ -68,6 +68,14 @@ export interface PrivateRuntimeDecision {
   fallbackAvailable: boolean;
   /** Privacy invariant: cloud is never an automatic fallback. Always false. */
   cloudFallbackAttempted: false;
+  /**
+   * Honest provenance of a v4 selection: 'posthog_flag' when the real PostHog flag drove it,
+   * 'dev_harness' when only the dev/test `forceAuto` shim did. Undefined on the v2/CPU path.
+   * NOTE: on real WebGPU `reason` reads `webgpu_available_v4_flag` for BOTH the flag AND forceAuto
+   * (because `webgpuAvailable===true`), so THIS field — not `reason` — is the honest selection-source
+   * signal for proofs/telemetry. Gate A (forceAuto value run) ⇒ 'dev_harness'; Gate B (real flag) ⇒ 'posthog_flag'.
+   */
+  selectionSource?: 'posthog_flag' | 'dev_harness';
 }
 
 export interface ResolvePrivateRuntimePathOptions {
@@ -97,6 +105,8 @@ export interface ResolvePrivateRuntimePathOptions {
     distilEnabled: boolean;
     /** DEV/TEST-only: attempt v4 even WITHOUT WebGPU (headless-CI AUTO fallback proof). */
     forceAuto?: boolean;
+    /** Honest selection provenance the caller computed (real PostHog flag vs dev/test forceAuto shim). */
+    selectionSource?: 'posthog_flag' | 'dev_harness';
   };
 }
 
@@ -151,6 +161,8 @@ export async function resolvePrivateRuntimePath(
         v4Variant,
         acceleration: webgpuAvailable ? 'gpu' : 'cpu',
         reason: webgpuAvailable ? 'webgpu_available_v4_flag' : 'v4_forced_auto',
+        // Honest provenance — independent of `reason` (which conflates flag vs forceAuto on real WebGPU).
+        selectionSource: options.v4.selectionSource ?? (options.v4.forceAuto ? 'dev_harness' : 'posthog_flag'),
         webgpuAvailable,
         turboCached: options.turboModelCached,
         crossOriginIsolated: isolated,
