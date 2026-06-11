@@ -1,7 +1,14 @@
 # v4 PostHog Readiness Proof (Dev → Test handoff)
 
-**Candidate SHA:** `dev/v4-decode-fallback@e5122e43`
-**Unit proof:** 62/62 across the 5 v4-surface suites; `tsc --noEmit` clean.
+**Candidate SHA:** `dev/v4-integration@b2b8d82a` (v4 engine fixes + Test's corrected harness).
+**Unit proof:** the v4-surface suites; `tsc --noEmit` clean.
+**Operational PostHog proof (headless CI):** `privateV4FlagOperationalProof.test.ts` — flag-off→v2/no
+v4 construct, production ignores `?v4ForceAuto`/`?engine`/`?privateEngine`/localStorage, the REAL
+`posthog.capture` payloads carry no PII/secrets, flag-on+no-WebGPU→v2; `selectionSource`
+distinguishes a real `posthog_flag` selection from the dev/test `dev_harness` shim.
+
+> ⚠️ `?privateEngine` / `?v4ForceAuto` / `STT_V4_*` are dev/test-gated harness knobs, **inert in
+> production** — NOT a valid beta/prod selection or proof. v2/v4 selection is PostHog-flag-only.
 **Decode evidence (app-path):** GitHub run `27305398130` — v4 base_q4 **decodes on WASM**
 (real transcript, `sessionPersisted:true`, `historyVisible:true`).
 

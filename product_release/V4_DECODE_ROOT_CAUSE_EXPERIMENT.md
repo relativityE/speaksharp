@@ -3,6 +3,12 @@
 Owner: Dev. Purpose: isolate the root cause of the v4 decode failure surfaced by the app-path
 proof, WITHOUT blocking the already-shipped AUTO-path decode fallback (`dev/v4-decode-fallback`).
 
+> ⚠️ **DEV/TEST HARNESS ONLY.** Every knob in this doc (`STT_V4_FORCE_AUTO` / `?v4ForceAuto`,
+> `STT_V4_DEVICE`, `STT_V4_DECODER_DTYPE`, `?privateEngine`) is dev/test-gated
+> (`import.meta.env.DEV || ENV.isTest`) and **inert in a production build**. None of these is a
+> valid PostHog/beta/prod engine selection or proof — the ONLY real v2/v4 control plane is the
+> PostHog flag (production ignores all of them; proven in `privateV4FlagOperationalProof.test.ts`).
+
 ## The failing path (confirmed from code + proof evidence)
 
 ```
