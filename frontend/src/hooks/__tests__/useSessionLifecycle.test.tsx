@@ -430,6 +430,173 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('warns an unpaid user at one minute remaining in the Private sample', async () => {
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            elapsedTime: 240,
+            isListening: true,
+            startTime: Date.now() - 240000,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'ready', message: 'Recording' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                ...baseUsageLimit,
+                can_start: true,
+                remaining_seconds: -1,
+                subscription_status: 'free',
+                is_pro: false,
+                private_sample_available: true,
+                private_sample_limit_seconds: 300,
+                private_sample_seconds_used: 0,
+                private_sample_seconds_remaining: 300,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttStatus).toEqual({
+                type: 'info',
+                message: '1 minute left in your Private sample. We’ll stop and save when time runs out.'
+            });
+        });
+    });
+
+    it('auto-stops and saves gracefully when the unpaid Private sample reaches five minutes', async () => {
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(speechRuntimeController.stopRecording).mockResolvedValueOnce({
+            transcript: 'final private sample transcript',
+            total_words: 4,
+            accuracy: 100,
+            duration: 300,
+        } as TranscriptStats);
+
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            elapsedTime: 300,
+            isListening: true,
+            startTime: Date.now() - 300000,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: {
+                transcript: 'final private sample transcript',
+                total_words: 4,
+                accuracy: 100,
+                duration: 300,
+            },
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'ready', message: 'Recording' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                ...baseUsageLimit,
+                can_start: true,
+                remaining_seconds: -1,
+                subscription_status: 'free',
+                is_pro: false,
+                private_sample_available: true,
+                private_sample_limit_seconds: 300,
+                private_sample_seconds_used: 0,
+                private_sample_seconds_remaining: 300,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        }, { timeout: 2000 });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttStatus).toEqual({
+                type: 'info',
+                message: 'Your Private sample ended. We stopped and saved your session. Browser transcription is still available.'
+            });
+        });
+        expect(mockStore.getState().sunsetModal.open).toBe(false);
+    });
+
     it('should honor can_start=false for stale Pro or unavailable sample users', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
