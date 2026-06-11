@@ -135,8 +135,44 @@ describe('LiveTranscriptPanel', () => {
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
         expect(transcriptContainer).toHaveAttribute('data-scrollable-transcript', 'true');
+        expect(transcriptContainer).toHaveAttribute('data-autoscroll-transcript', 'true');
         expect(transcriptContainer).toHaveClass('overflow-y-auto');
         expect(transcriptContainer).toHaveClass('live-transcript-scroll');
+        expect(transcriptContainer).toHaveClass('h-[18rem]');
+        expect(transcriptContainer).toHaveClass('sm:h-[20rem]');
+        expect(transcriptContainer).toHaveClass('lg:h-[22rem]');
+    });
+
+    it('keeps new transcript text pinned inside the fixed scroll region', async () => {
+        const { rerender } = render(
+            <LiveTranscriptPanel
+                transcript="first sentence"
+                interimTranscript=""
+                isListening={true}
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        Object.defineProperty(transcriptContainer, 'scrollHeight', {
+            configurable: true,
+            value: 1200,
+        });
+        Object.defineProperty(transcriptContainer, 'clientHeight', {
+            configurable: true,
+            value: 320,
+        });
+        transcriptContainer.scrollTop = 0;
+
+        rerender(
+            <LiveTranscriptPanel
+                transcript={Array.from({ length: 80 }, (_, index) => `sentence ${index + 1}`).join(' ')}
+                interimTranscript="latest words"
+                isListening={true}
+            />
+        );
+
+        await act(async () => {});
+        expect(transcriptContainer.scrollTop).toBe(1200);
     });
 
     it('shows Private-only processing feedback before transcript text arrives', () => {

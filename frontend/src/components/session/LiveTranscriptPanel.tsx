@@ -82,6 +82,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
+    const scrollContainerRef = React.useRef<HTMLDivElement | null>(null);
     const hasTranscript = transcript.trim() !== '';
     const displayInterimTranscript =
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
@@ -117,6 +118,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const listeningEmptyText = isPrivateMode
         ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
         : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
+
+    const setScrollContainerRef = React.useCallback((node: HTMLDivElement | null) => {
+        scrollContainerRef.current = node;
+        if (containerRef) {
+            (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+    }, [containerRef]);
 
     // Threshold-only Native formatting notice: post-stop, the raw transcript is already
     // saved+shown; punctuation/casing is polished in the background. We surface a notice
@@ -156,6 +164,12 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             traceWindow.__SS_TRANSCRIPT_TRACE__.shift();
         }
     }, [visibleTranscript]);
+
+    React.useEffect(() => {
+        const node = scrollContainerRef.current;
+        if (!node) return;
+        node.scrollTop = node.scrollHeight;
+    }, [visibleTranscript, history.length, uiState]);
 
     // #33 Native trust-disclaimer proof hooks: publish a timestamped trust-state
     // snapshot (+ append-only trace) so the harness can prove WHEN each trust state
@@ -220,10 +234,11 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 )}
             </div>
             <div
-                ref={containerRef}
-                className={`live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all min-h-[160px]`}
+                ref={setScrollContainerRef}
+                className={`live-transcript-scroll h-[18rem] sm:h-[20rem] lg:h-[22rem] overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all`}
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
+                data-autoscroll-transcript="true"
                 data-transcript-state={uiState}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
