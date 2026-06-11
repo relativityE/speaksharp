@@ -1,5 +1,17 @@
 # v4 WebGPU proof — turnkey runbook (TWO separate gates)
 
+## Test Agent state reset — supersedes old v4 assumptions
+
+Before running anything, acknowledge this reset:
+
+- v4 is hidden/off-flag/experimental. Beta/paid spine remains Private v2-base default + v2-tiny fallback.
+- Keep **Gate A** and **Gate B** separate. Gate A proves WebGPU value via `dev_harness`; Gate B proves real PostHog targeting via `posthog_flag`.
+- Do **not** infer selection source from `reason`. `reason=webgpu_available_v4_flag` can occur for both real PostHog selection and forceAuto on a real GPU. Use `selectionSource`.
+- URL/localStorage overrides are not beta/prod proof and must be ignored outside dev/test harness mode. The real forceAuto localStorage key is `speaksharp.v4.forceAuto`; old `v4ForceAuto` localStorage tests are insufficient.
+- Headless CI can prove control-plane safety, no-bypass behavior, no-WebGPU fallback, and telemetry cleanliness. It cannot prove real WebGPU WER/RTF.
+- Official Gate B targeting must be operator-controlled: Product/Test sets `isInternalTester=true` on the disposable PostHog person, or Product explicitly authorizes a temporary single-user condition on flag `709644`.
+- Route back to Dev only for wrong `selectionSource`, production URL/localStorage bypass, unsafe telemetry, flag-on/no-WebGPU forcing broken v4, or v4 failure after valid WebGPU/audio setup.
+
 **Why this exists:** the v4 decode + app-path + flag/telemetry contracts are unit-proven, but two
 things can only be confirmed on a real GPU machine + real PostHog. They are **different questions**
 and must be closed as **two independent gates** (do not conflate them):
@@ -22,8 +34,10 @@ reason:'webgpu_available_v4_flag'` **whether v4 came from the real flag OR from 
 (`privateRuntimePath.ts`: `if (webgpuAvailable || forceAuto)`). So `reason=webgpu_available_v4_flag`
 proves **WebGPU was used**, NOT that the flag selected it. The honest selection-source signal is the
 new `selectionSource` field on the decision (`__PRIVATE_STT_RUNTIME_DEBUG__.selectionSource`):
-`dev_harness` when forceAuto-only drove it, `posthog_flag` when the real flag did. Locked by
-`privateV4FlagOperationalProof.test.ts` Case F.
+`dev_harness` when forceAuto-only drove it, `posthog_flag` when the real flag did, `default` on v2.
+`selectionSource` is REQUIRED on every decision (never inferred from `reason`). Locked by
+`privateV4FlagOperationalProof.test.ts` Case F1 (dev/test forceAuto → `dev_harness`) and Case F2
+(production ignores the real `speaksharp.v4.forceAuto` localStorage key → v2-base, `default`).
 
 ## Pre-req (one-time)
 - A machine whose Chrome reports WebGPU: open `chrome://gpu` → "WebGPU: Hardware accelerated".
@@ -82,9 +96,20 @@ Goal: prove the production flag selects v4 for a targeted tester and stays off f
 **Flag targeting (verified via PostHog MCP):**
 - `private_stt_v4_enabled` — id **709644** — targets person property `isInternalTester == "true"` @ 100%.
 - As of 2026-06-11 **no person has `isInternalTester=true`** → a tester must be targeted first.
-- Targeting options (Product decision): (A) Dev adds a single-email release condition to flag 709644
-  via MCP — one user, no rollout-% change, logged; (B) Product sets the person property manually;
-  (C) reuse an existing targeted user (none exist yet). Do NOT broaden rollout beyond the one tester.
+
+**Targeting (owner-decided): operator-controlled only — users never self-grant internal status.**
+1. **Create a disposable Pro test account** via the Test Account Factory workflow
+   (`.github/workflows/setup-test-users.yml`, `action=create … create_tier=pro`). **Operator/Test action** —
+   account creation + password entry + credential storage are NOT Dev actions; store
+   `PRO_TEST_EMAIL`/`PRO_TEST_PASSWORD` **locally only**, never in the repo or CI logs.
+2. **PREFERRED — Product/operator sets `isInternalTester=true`** on that exact disposable PostHog person
+   (PostHog UI or a server-side/operator process). This is the most faithful test of the real flag rule.
+   ⚠️ Do NOT use a public browser `$identify` to self-set `isInternalTester` — users must never grant
+   themselves internal-cohort eligibility; it's a diagnostic at best, not the official path.
+3. **FALLBACK (only if Product cannot set the property) — Dev adds a temporary single-user condition** to
+   flag 709644 via MCP: **single email/distinct_id only, temporary, logged, removed after the proof,
+   never a percentage rollout**, and only with explicit owner authorization.
+- Do NOT broaden rollout beyond the one tester.
 
 ```bash
 # shell 2 — NO STT_V4_* knobs; auth as the TARGETED user:
@@ -120,7 +145,8 @@ posthogFlagState (Gate B), capturedPosthogPayloadKeys (Gate B)
 
 ## What's already proven (don't re-do)
 - Unit: flag-off→v2/no-init, flag-on→v4-only-on-WebGPU, prod no-bypass, telemetry safety, event
-  coverage, decode/empty/hang fallback, **forceAuto→dev_harness honesty (Case F)** —
+  coverage, decode/empty/hang fallback, **forceAuto→dev_harness honesty + production ignores the real
+  localStorage forceAuto key (Cases F1/F2)** —
   `product_release/V4_POSTHOG_READINESS_PROOF.md`.
 - App-path journey incl. detail — run `27308000513`.
 - v4 model quality basis — the base_q4 bakeoff (LibriSpeech test-other).
