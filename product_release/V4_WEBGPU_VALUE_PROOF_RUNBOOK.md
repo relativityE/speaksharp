@@ -8,7 +8,7 @@ needs a real GPU (Metal/WebGPU) **and** an authenticated session. This runbook m
 
 **Who runs it:** a human (or Test) on a real **WebGPU-capable** browser/machine. Not headless CI.
 
-**Candidate SHA:** `dev/v4-integration@df19b164`.
+**Candidate SHA:** `dev/v4-integration@32ac20a5`.
 
 ## What we are proving
 1. On real WebGPU, the resolver selects **v4 base_q4** (`runtime: 'webgpu'`, `reason:
@@ -31,8 +31,12 @@ appear below only to *force conditions* (Run B failure injection) or as **guardr
 
 ## Run A — v4 selected by the PostHog FLAG + transcript quality (WebGPU)
 **v4 must be selected by the PostHog FLAG, not a URL/forceAuto bypass.** Before running, enable the
-v4 flag (`stt_v4_enabled`) for the Pro test user in PostHog (target `isInternalTester=true`). Do
-NOT pass `STT_V4_FORCE_AUTO` here — that is a dev/test CI shortcut, not the operational control
+v4 flags for the Pro test user in PostHog (target `isInternalTester=true`):
+- `private_stt_v4_enabled=true`
+- `private_stt_v4_internal_only=true`
+- optional accuracy-tier run: `private_stt_v4_distil_enabled=true`
+
+Do NOT pass `STT_V4_FORCE_AUTO` here — that is a dev/test CI shortcut, not the operational control
 plane. On a real WebGPU machine the resolver then selects v4 from the flag.
 ```bash
 git checkout dev/v4-integration
@@ -74,7 +78,7 @@ Instead of `STT_V4_FORCE_AUTO`, drive the **real PostHog flag**:
 - v4 model quality basis — the base_q4 bakeoff that selected it (LibriSpeech test-other).
 
 ## Required preconditions (state these or the run is INVALID)
-- **Branch/SHA:** `dev/v4-integration@1c678b50` (or later if code changed).
+- **Branch/SHA:** `dev/v4-integration@32ac20a5` (or later if code changed).
 - **App:** local `pnpm dev:real` on `http://localhost:5174`, `VITE_USE_LIVE_DB=true`, `VITE_AUTH_MODE=real`.
 - **Account role:** the **Pro** test user (`PRO_TEST_EMAIL`/`PRO_TEST_PASSWORD`); v4 + history/detail need Pro entitlement.
 - **Browser:** Chrome where `chrome://gpu` shows **"WebGPU: Hardware accelerated"**; `HEADLESS=false`.
