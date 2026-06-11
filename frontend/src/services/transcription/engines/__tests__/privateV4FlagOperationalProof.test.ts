@@ -137,7 +137,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         window.localStorage.setItem('privateEngine', 'transformers-js-v4');
         window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
         window.localStorage.setItem('stt_engine', 'v4');
-        window.localStorage.setItem('v4ForceAuto', '1');
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // the REAL forceAuto key (not a phantom)
         window.localStorage.setItem('privateModel', 'v4');
         window.localStorage.setItem('v4Variant', 'base_q4');
 
@@ -174,11 +174,11 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
             .toMatchObject({ selectionSource: 'posthog_flag' });
     });
 
-    // Case F — Gate A honesty (the WebGPU VALUE proof path). forceAuto (flag OFF) + usable WebGPU
-    // selects v4, but the artifact MUST label it selectionSource:'dev_harness' — NOT posthog_flag —
-    // even though `reason` reads `webgpu_available_v4_flag` on real WebGPU (it's identical for flag
-    // AND forceAuto there). This locks the Gate A (dev_harness) vs Gate B (posthog_flag) distinction.
-    it('F: forceAuto + WebGPU (flag OFF) -> v4 selected, runtime debug selectionSource=dev_harness (NOT posthog_flag)', async () => {
+    // Case F1 — DEV/TEST harness: the real localStorage forceAuto key (`speaksharp.v4.forceAuto`) +
+    // usable WebGPU selects v4, and the artifact labels it selectionSource:'dev_harness' — NOT
+    // posthog_flag — even though `reason` reads `webgpu_available_v4_flag` on real WebGPU (identical
+    // for flag AND forceAuto there). Locks the Gate A (dev_harness) vs Gate B (posthog_flag) distinction.
+    it('F1: DEV/TEST forceAuto (real localStorage key) + WebGPU -> v4 selected, selectionSource=dev_harness (NOT posthog_flag)', async () => {
         flagState.v4Enabled = false; setGpu(true);
         window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // dev/test-gated forceAuto shim (Gate A)
         const { PrivateSTT } = await import('../PrivateSTT');
@@ -188,5 +188,24 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; reason?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
         expect(dbg?.selectionSource, 'forceAuto value run must be labelled dev_harness, never posthog_flag').toBe('dev_harness');
         expect(dbg?.reason, 'reason is the conflated signal; proves selectionSource is the honest one').toBe('webgpu_available_v4_flag');
+    });
+
+    // Case F2 — PRODUCTION/BETA: the SAME real forceAuto key is INERT. Even with WebGPU usable, a
+    // production build ignores `speaksharp.v4.forceAuto` (override gated `import.meta.env.DEV || isTest`)
+    // -> v2-base, no v4 construct, selectionSource='default' (never dev_harness). Proves the localStorage
+    // forceAuto shim can never become a production engine-selection bypass.
+    it('F2: PRODUCTION ignores the real localStorage forceAuto key -> v2-base, selectionSource=default (NOT dev_harness)', async () => {
+        vi.stubEnv('DEV', false);
+        (globalThis as { __TEST__?: boolean }).__TEST__ = false;
+        if (window.__SS_E2E__) (window.__SS_E2E__ as { isActive: boolean }).isActive = false;
+        flagState.v4Enabled = false; setGpu(true);
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // real key — must be inert in production
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('transformers-js'); // forceAuto ignored in production
+        expect(v4Construct).not.toHaveBeenCalled();
+        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(dbg?.selectionSource, 'production v2 path is selectionSource=default, never dev_harness').toBe('default');
     });
 });

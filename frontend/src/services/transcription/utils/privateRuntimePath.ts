@@ -55,6 +55,13 @@ export interface PrivateRuntimeDecision {
   v4Variant: PrivSttV4VariantId | null;
   /** Acceleration class. */
   acceleration: 'gpu' | 'cpu';
+  /**
+   * Runtime ELIGIBILITY reason — why this runtime path was available/chosen. This is NOT the
+   * selection source: do not infer `selectionSource` from it (on real WebGPU this reads
+   * `webgpu_available_v4_flag` for BOTH a real-flag selection AND a dev/test forceAuto run).
+   * Examples: WebGPU available + v4 flag, no WebGPU, cross-origin isolation. See `selectionSource`
+   * for WHO selected the engine.
+   */
   reason: PrivateRuntimeReason;
   /** Whether a usable WebGPU adapter was detected (probed only when promotion is allowed). */
   webgpuAvailable: boolean;
@@ -69,13 +76,18 @@ export interface PrivateRuntimeDecision {
   /** Privacy invariant: cloud is never an automatic fallback. Always false. */
   cloudFallbackAttempted: false;
   /**
-   * Honest provenance of a v4 selection: 'posthog_flag' when the real PostHog flag drove it,
-   * 'dev_harness' when only the dev/test `forceAuto` shim did. Undefined on the v2/CPU path.
+   * WHO/WHAT selected the engine — an ORTHOGONAL dimension to `reason` (which explains runtime
+   * ELIGIBILITY, not who selected). Explicit data, NEVER inferred from `reason`:
+   *   - 'posthog_flag' : the real PostHog flag drove a v4 selection (Gate B / production v4).
+   *   - 'dev_harness'  : only the dev/test `forceAuto` shim drove it (Gate A value run; never production).
+   *   - 'default'      : the v2-base default path (flag off, flag on but no WebGPU, or promotion not allowed).
    * NOTE: on real WebGPU `reason` reads `webgpu_available_v4_flag` for BOTH the flag AND forceAuto
-   * (because `webgpuAvailable===true`), so THIS field — not `reason` — is the honest selection-source
-   * signal for proofs/telemetry. Gate A (forceAuto value run) ⇒ 'dev_harness'; Gate B (real flag) ⇒ 'posthog_flag'.
+   * (because `webgpuAvailable===true`), so THIS field — not `reason` — is the honest selection signal.
+   * Gate A (forceAuto) ⇒ 'dev_harness'; Gate B (real flag) ⇒ 'posthog_flag'; v2 ⇒ 'default'.
+   * Decode-time FALLBACK is a separate outcome (orthogonal again): it's recorded via the telemetry
+   * `fallbackReason`/`finalProvider` so we keep WHO originally selected v4, not collapse it to 'fallback'.
    */
-  selectionSource?: 'posthog_flag' | 'dev_harness';
+  selectionSource: 'posthog_flag' | 'dev_harness' | 'default';
 }
 
 export interface ResolvePrivateRuntimePathOptions {
@@ -125,6 +137,7 @@ function cpuDecision(crossOriginIsolated: boolean, webgpuAvailable: boolean, tur
     wasmThreadCount: multithread ? threads : 1,
     fallbackAvailable: false, // CPU is the floor — nothing safer to fall back to.
     cloudFallbackAttempted: false,
+    selectionSource: 'default', // v2-base default path (flag off / no WebGPU / promotion not allowed).
   };
 }
 
@@ -198,6 +211,7 @@ export async function resolvePrivateRuntimePath(
         wasmThreadCount: 0, // N/A on the GPU path.
         fallbackAvailable: true, // GPU can safely fall back to the CPU floor.
         cloudFallbackAttempted: false,
+        selectionSource: 'default', // parked legacy-turbo GPU promotion — not flag/forceAuto driven.
       };
     }
 
