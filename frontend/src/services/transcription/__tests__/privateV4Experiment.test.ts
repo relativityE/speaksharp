@@ -20,9 +20,9 @@ describe('getV4ExperimentOverrides — dev/test-gated v4 decode A/B knobs', () =
         expect(getV4ExperimentOverrides(mockWin(''))).toEqual({ noWorker: false, forceAuto: false });
     });
 
-    it('reads device + decoderDtype + noWorker from query params', () => {
-        expect(getV4ExperimentOverrides(mockWin('?v4Device=wasm&v4DecoderDtype=fp32&v4NoWorker=1')))
-            .toEqual({ device: 'wasm', decoderDtype: 'fp32', noWorker: true, forceAuto: false });
+    it('reads device + decoderDtype + variant + noWorker from query params', () => {
+        expect(getV4ExperimentOverrides(mockWin('?v4Device=wasm&v4DecoderDtype=fp32&v4Variant=distil_q4&v4NoWorker=1')))
+            .toEqual({ device: 'wasm', decoderDtype: 'fp32', variant: 'distil_q4', noWorker: true, forceAuto: false });
     });
 
     it('reads v4ForceAuto (the headless-CI AUTO fallback knob)', () => {
@@ -31,12 +31,12 @@ describe('getV4ExperimentOverrides — dev/test-gated v4 decode A/B knobs', () =
     });
 
     it('falls back to localStorage when no query param', () => {
-        expect(getV4ExperimentOverrides(mockWin('', { 'speaksharp.v4.device': 'webgpu', 'speaksharp.v4.decoderDtype': 'int8', 'speaksharp.v4.forceAuto': '1' })))
-            .toEqual({ device: 'webgpu', decoderDtype: 'int8', noWorker: false, forceAuto: true });
+        expect(getV4ExperimentOverrides(mockWin('', { 'speaksharp.v4.device': 'webgpu', 'speaksharp.v4.decoderDtype': 'int8', 'speaksharp.v4.variant': 'base_q4', 'speaksharp.v4.forceAuto': '1' })))
+            .toEqual({ device: 'webgpu', decoderDtype: 'int8', variant: 'base_q4', noWorker: false, forceAuto: true });
     });
 
-    it('rejects invalid device/dtype values', () => {
-        expect(getV4ExperimentOverrides(mockWin('?v4Device=banana&v4DecoderDtype=fp64'))).toEqual({ noWorker: false, forceAuto: false });
+    it('rejects invalid device/dtype/variant values', () => {
+        expect(getV4ExperimentOverrides(mockWin('?v4Device=banana&v4DecoderDtype=fp64&v4Variant=turbo'))).toEqual({ noWorker: false, forceAuto: false });
     });
 
     it('undefined window -> no overrides', () => {

@@ -275,14 +275,19 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const v4Flags = getV4FlagState();
         // DEV/TEST-only force-AUTO knob: attempt v4 on the AUTO path even without WebGPU so
         // headless CI can prove the decode-fallback contract. Inert in production.
-        const forceAuto = getV4ExperimentOverrides().forceAuto;
+        const v4Experiment = getV4ExperimentOverrides();
+        const forceAuto = v4Experiment.forceAuto;
+        // Gate A candidate selection uses the dev/test forceAuto shim and must be able to compare
+        // base_q4 vs distil_q4 under identical WebGPU conditions. This variant override is honored
+        // ONLY when forceAuto is active; real PostHog selection still uses the real distil flag.
+        const distilEnabled = v4Flags.distilEnabled || (forceAuto && v4Experiment.variant === 'distil_q4');
         const decision = await resolvePrivateRuntimePath({
             webgpuPromotionAllowed: false,
             turboModelCached: false,
             v4: (v4Flags.v4Enabled || forceAuto)
                 ? {
                     enabled: true,
-                    distilEnabled: v4Flags.distilEnabled,
+                    distilEnabled,
                     forceAuto,
                     // Honest provenance: the REAL flag wins when on (even if forceAuto is also set);
                     // forceAuto-only is the dev/test harness shim. This — not `reason` — drives the
