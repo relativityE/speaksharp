@@ -311,6 +311,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const payload = {
                 v4FlagEnabled: flags.v4Enabled,
                 distilFlagEnabled: flags.distilEnabled,
+                // Provenance of the selection so evidence can distinguish a REAL PostHog-flag
+                // selection from the dev/test forceAuto shim (a flagged app-path run that used
+                // forceAuto is NOT an operational PostHog proof).
+                selectionSource: d?.reason === 'v4_forced_auto' ? 'dev_harness' : 'posthog_flag',
                 selectedVariant: variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,
