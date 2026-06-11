@@ -6,6 +6,7 @@ import { ENV } from '../config/TestFlags';
 import logger from '../lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useReadinessStore } from '@/stores/useReadinessStore';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -43,6 +44,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const supabase = getSupabaseClient();
   const queryClient = useQueryClient();
   const initialCheckRef = useRef(false);
+  const identifiedAnalyticsUserRef = useRef<string | null>(null);
 
   const getInjectedSession = useCallback(() => {
     if (initialSession) return initialSession;
@@ -78,6 +80,25 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   useEffect(() => {
     sessionStateRef.current = sessionState;
   }, [sessionState]);
+
+  // Account-linked analytics identity. Identify the authenticated user to PostHog/Sentry by the
+  // stable Supabase user.id ONLY — NO email or other PII (privacy-first posture; matches the v4
+  // telemetry sanitizer that drops email). This gives PostHog an account-linked person so feature
+  // flags can be targeted via an operator cohort on user.id; on sign-out we reset to a fresh
+  // anonymous id so a shared device never inherits the prior account's identity/flags.
+  useEffect(() => {
+    const userId = sessionState?.user?.id ?? null;
+    if (!userId) {
+      if (identifiedAnalyticsUserRef.current) {
+        analyticsBuffer.resetIdentity();
+        identifiedAnalyticsUserRef.current = null;
+      }
+      return;
+    }
+    if (identifiedAnalyticsUserRef.current === userId) return;
+    analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
+    identifiedAnalyticsUserRef.current = userId;
+  }, [sessionState?.user?.id]);
 
   useEffect(() => {
     const injectedSession = getInjectedSession();
