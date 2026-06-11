@@ -1,8 +1,9 @@
 import { chromium } from 'playwright';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import dotenv from 'dotenv';
 import {
   buildSandboxProcessControlEpermArtifact,
@@ -41,6 +42,10 @@ const FIXTURE_LIST = (process.env.STT_FIXTURES || 'h1_1')
   .filter(Boolean);
 const PLAYBACK_GRACE_MS = Number(process.env.STT_PLAYBACK_GRACE_MS || 800);
 const POST_PLAYBACK_WAIT_MS = Number(process.env.STT_POST_PLAYBACK_WAIT_MS || 10_000);
+// Trailing silence appended to the fake-audio file so Chrome's looping source can never replay the
+// fixture OPENING inside the record window (the loop-over-capture that produced repeated_span / bad WER).
+// Must exceed (record window − fixture duration) ≈ preroll + grace + POST_PLAYBACK_WAIT; default is generous.
+const FAKE_AUDIO_PAD_MS = Number(process.env.STT_FAKE_AUDIO_PAD_MS || (POST_PLAYBACK_WAIT_MS + 30_000));
 const FIRST_TEXT_TIMEOUT_MS = Number(process.env.STT_FIRST_TEXT_TIMEOUT_MS || 20_000);
 const AFPLAY_RETRIES = Number(process.env.STT_AFPLAY_RETRIES || 2);
 const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_DELAY_MS || 0);
@@ -69,6 +74,7 @@ const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
 const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
 const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
 const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
+const RESOLVED_FAKE_AUDIO_FILE = FAKE_AUDIO_FILE ? path.resolve(FAKE_AUDIO_FILE) : '';
 const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
 const INJECT_MIC_AUDIO_LOOP = process.env.STT_INJECT_MIC_AUDIO_LOOP === 'true';
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
@@ -136,20 +142,98 @@ function stripTranscriptChrome(text) {
 
 async function getPcmWavDurationMs(audioPath) {
   const wav = await readFile(audioPath);
-  const channels = wav.readUInt16LE(22);
-  const sampleRate = wav.readUInt32LE(24);
-  const bitsPerSample = wav.readUInt16LE(34);
+  if (wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`Unsupported WAV file: ${audioPath}`);
+  }
+  let format = null;
+  let dataChunkSize = null;
   let offset = 12;
   while (offset + 8 <= wav.length) {
     const chunkId = wav.toString('ascii', offset, offset + 4);
     const chunkSize = wav.readUInt32LE(offset + 4);
+    if (chunkId === 'fmt ') {
+      format = {
+        audioFormat: wav.readUInt16LE(offset + 8),
+        channels: wav.readUInt16LE(offset + 10),
+        sampleRate: wav.readUInt32LE(offset + 12),
+        byteRate: wav.readUInt32LE(offset + 16),
+        bitsPerSample: wav.readUInt16LE(offset + 22),
+      };
+    }
     if (chunkId === 'data') {
-      const bytesPerSecond = sampleRate * channels * (bitsPerSample / 8);
-      return Math.ceil((chunkSize / bytesPerSecond) * 1000);
+      dataChunkSize = chunkSize;
+      break;
     }
     offset += 8 + chunkSize + (chunkSize % 2);
   }
-  return 0;
+  if (!format || dataChunkSize == null || !Number.isFinite(format.byteRate) || format.byteRate <= 0) {
+    throw new Error(`Unable to determine WAV duration for ${audioPath}`);
+  }
+  return Math.ceil((dataChunkSize / format.byteRate) * 1000);
+}
+
+// Build a temp PCM WAV = source fixture + `trailingSilenceMs` of silence, used as Chrome's
+// --use-file-for-fake-audio-capture source. Chrome LOOPS that file; padding with silence longer than
+// the record window guarantees over-capture is SILENCE (transcribed as nothing) rather than the looped
+// fixture opening (which contaminated WER with a repeated span). PCM 16-bit silence = zero bytes.
+async function buildPaddedFakeAudioWav(srcPath, trailingSilenceMs) {
+  const src = await readFile(srcPath);
+  if (src.toString('ascii', 0, 4) !== 'RIFF' || src.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`Unsupported WAV for padding: ${srcPath}`);
+  }
+  let fmt = null;
+  let dataOffset = null;
+  let dataSize = null;
+  let offset = 12;
+  while (offset + 8 <= src.length) {
+    const id = src.toString('ascii', offset, offset + 4);
+    const size = src.readUInt32LE(offset + 4);
+    if (id === 'fmt ') {
+      fmt = {
+        audioFormat: src.readUInt16LE(offset + 8),
+        channels: src.readUInt16LE(offset + 10),
+        sampleRate: src.readUInt32LE(offset + 12),
+        bitsPerSample: src.readUInt16LE(offset + 22),
+      };
+    } else if (id === 'data') {
+      dataOffset = offset + 8;
+      dataSize = Math.min(size, src.length - dataOffset);
+    }
+    if (fmt && dataOffset != null) break;
+    offset += 8 + size + (size % 2);
+  }
+  if (!fmt || dataOffset == null) throw new Error(`Cannot parse WAV for padding: ${srcPath}`);
+  if (fmt.audioFormat !== 1) throw new Error(`Fake-audio padding supports PCM only (audioFormat=${fmt.audioFormat}): ${srcPath}`);
+  const blockAlign = fmt.channels * (fmt.bitsPerSample / 8);
+  const byteRate = fmt.sampleRate * blockAlign;
+  if (!(byteRate > 0)) throw new Error(`Invalid WAV byteRate for padding: ${srcPath}`);
+  const pcm = src.subarray(dataOffset, dataOffset + dataSize);
+  let silenceBytes = Math.round((byteRate * trailingSilenceMs) / 1000);
+  silenceBytes -= silenceBytes % blockAlign; // keep frame alignment
+  const silence = Buffer.alloc(Math.max(0, silenceBytes)); // zeros = PCM-16 silence
+  const totalData = dataSize + silence.length;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + totalData, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(fmt.channels, 22);
+  header.writeUInt32LE(fmt.sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(fmt.bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(totalData, 40);
+  const paddedPath = path.join(os.tmpdir(), `stt-fakeaudio-padded-${Date.now()}-${path.basename(srcPath)}`);
+  await writeFile(paddedPath, Buffer.concat([header, pcm, silence]));
+  return {
+    paddedPath,
+    originalDurationMs: Math.ceil((dataSize / byteRate) * 1000),
+    paddedDurationMs: Math.ceil((totalData / byteRate) * 1000),
+    silenceMs: Math.round((silence.length / byteRate) * 1000),
+  };
 }
 
 async function installInjectedMicAudio(page, audioPath) {
@@ -818,7 +902,20 @@ async function playFixture(audioPath) {
     // (~10s), so only the first few seconds of a 65.8s fixture were captured and full-reference WER
     // was inflated by the uncaptured tail (the Gate A `WER 0.801` capture artifact). Wait the fixture
     // duration (mirrors the INJECT_MIC_AUDIO branch) so the whole fixture is captured before Stop.
-    const file = FAKE_AUDIO_FILE || audioPath;
+    if (!RESOLVED_FAKE_AUDIO_FILE) {
+      const error = new Error('STT_USE_FAKE_AUDIO_CAPTURE requires STT_FAKE_AUDIO_FILE because Chrome fake mic input is fixed at browser launch.');
+      error.invalidForSttEvidence = true;
+      error.invalidReason = 'missing_fake_audio_file';
+      throw error;
+    }
+    const expectedFixtureAudio = path.resolve(audioPath);
+    if (RESOLVED_FAKE_AUDIO_FILE !== expectedFixtureAudio) {
+      const error = new Error(`STT_FAKE_AUDIO_FILE must match the scored fixture audio. fake=${RESOLVED_FAKE_AUDIO_FILE} fixture=${expectedFixtureAudio}`);
+      error.invalidForSttEvidence = true;
+      error.invalidReason = 'fake_audio_file_fixture_mismatch';
+      throw error;
+    }
+    const file = RESOLVED_FAKE_AUDIO_FILE;
     const durationMs = await getPcmWavDurationMs(file);
     await new Promise(resolve => setTimeout(resolve, durationMs + PLAYBACK_GRACE_MS));
     return { source: 'chrome-fake-audio-capture', audioPath: file, durationMs };
@@ -1591,7 +1688,7 @@ const evidence = {
   },
   fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE ? {
     enabled: true,
-    file: FAKE_AUDIO_FILE || null,
+    file: RESOLVED_FAKE_AUDIO_FILE || null,
     validForNativeWebSpeechWer: false,
     invalidReason: 'Chrome Web Speech uses Google server-side live recognition; Playwright fake-audio capture is not a valid WER route for Native because the file stream is launch-time, looped, and not paced to recognition start.',
   } : {
@@ -1634,6 +1731,53 @@ if (!evidence.environmentProof.releaseProofEligible) {
   process.exit(1);
 }
 
+if (USE_FAKE_AUDIO_CAPTURE && !RESOLVED_FAKE_AUDIO_FILE) {
+  evidence.blockers = [
+    `INVALID_SETUP fake-audio-capture requires STT_FAKE_AUDIO_FILE. ` +
+    `Chrome fake mic input is fixed at browser launch, so implicit per-fixture audio would produce invalid WER evidence.`,
+  ];
+  evidence.completedAt = new Date().toISOString();
+  evidence.runnerPass = false;
+  evidence.gatePass = false;
+  evidence.pass = false;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+  process.exit(1);
+}
+
+// Pad the fake-audio source with trailing silence so Chrome's looping mic source cannot replay the
+// fixture opening inside the record window. The env var keeps pointing at the REAL fixture (so the
+// fixture-match guard in playFixture holds); the padded derivative is only the launch-time mic source.
+let fakeAudioLaunchFile = RESOLVED_FAKE_AUDIO_FILE;
+let fakeAudioPadCleanupPath = null;
+if (USE_FAKE_AUDIO_CAPTURE && RESOLVED_FAKE_AUDIO_FILE) {
+  try {
+    const pad = await buildPaddedFakeAudioWav(RESOLVED_FAKE_AUDIO_FILE, FAKE_AUDIO_PAD_MS);
+    fakeAudioLaunchFile = pad.paddedPath;
+    fakeAudioPadCleanupPath = pad.paddedPath;
+    if (evidence.fakeAudioCapture && typeof evidence.fakeAudioCapture === 'object') {
+      evidence.fakeAudioCapture.padding = {
+        originalFixtureDurationMs: pad.originalDurationMs,
+        paddedFixtureDurationMs: pad.paddedDurationMs,
+        paddedSilenceMs: pad.silenceMs,
+        paddedFile: pad.paddedPath,
+        note: 'Chrome loops the fake-audio file; trailing silence makes over-capture silent, not looped fixture speech.',
+      };
+    }
+  } catch (error) {
+    evidence.blockers = [
+      `INVALID_SETUP fake-audio padding failed: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+    evidence.completedAt = new Date().toISOString();
+    evidence.runnerPass = false;
+    evidence.gatePass = false;
+    evidence.pass = false;
+    await writeFile(OUT, JSON.stringify(evidence, null, 2));
+    console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+    process.exit(1);
+  }
+}
+
 let browser = null;
 try {
   browser = await chromium.launch({
@@ -1649,7 +1793,7 @@ try {
       ...(USE_FAKE_AUDIO_CAPTURE ? [
         '--use-fake-ui-for-media-stream',
         '--use-fake-device-for-media-stream',
-        `--use-file-for-fake-audio-capture=${FAKE_AUDIO_FILE}`,
+        `--use-file-for-fake-audio-capture=${fakeAudioLaunchFile}`,
       ] : []),
     ],
   });
@@ -1747,6 +1891,9 @@ try {
 } catch (error) {
   evidence.error = error instanceof Error ? error.message : String(error);
 } finally {
+  if (fakeAudioPadCleanupPath) {
+    await unlink(fakeAudioPadCleanupPath).catch(() => {});
+  }
   const markEvidence = () => {
     evidence.completedAt = new Date().toISOString();
     evidence.runnerPass = evidence.sandboxEperm === true
