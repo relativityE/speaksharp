@@ -21,6 +21,14 @@ needs a real GPU (Metal/WebGPU) **and** an authenticated session. This runbook m
 - A machine whose Chrome reports WebGPU: open `chrome://gpu` → "WebGPU: Hardware accelerated".
 - Pro test credentials in env: `PRO_TEST_EMAIL`, `PRO_TEST_PASSWORD`; `VITE_SUPABASE_URL` + anon key.
 
+## ⚠️ Dev/test harness knobs are NOT a production/beta selection or proof
+`STT_V4_FORCE_AUTO` / `?v4ForceAuto`, `STT_V4_DEVICE`, `STT_V4_DECODER_DTYPE`, and the
+`?privateEngine` / localStorage override are **dev/test-gated** (`import.meta.env.DEV || ENV.isTest`)
+— **inert in a production build** and **not** a valid PostHog/beta/prod selection or proof. They
+appear below only to *force conditions* (Run B failure injection) or as **guardrails to reject**
+(Run C). The ONLY real v2/v4 control plane is the **PostHog flag** (proven in
+`privateV4FlagOperationalProof.test.ts`: prod ignores all of them → v2-base).
+
 ## Run A — v4 selected by the PostHog FLAG + transcript quality (WebGPU)
 **v4 must be selected by the PostHog FLAG, not a URL/forceAuto bypass.** Before running, enable the
 v4 flag (`stt_v4_enabled`) for the Pro test user in PostHog (target `isInternalTester=true`). Do
