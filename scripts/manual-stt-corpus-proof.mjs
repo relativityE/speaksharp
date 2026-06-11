@@ -67,6 +67,7 @@ const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
 const V4_FORCE_AUTO = process.env.STT_V4_FORCE_AUTO === '1' || process.env.STT_V4_FORCE_AUTO === 'true';
 const V4_DEVICE = (process.env.STT_V4_DEVICE || '').trim();
 const V4_DECODER_DTYPE = (process.env.STT_V4_DECODER_DTYPE || '').trim();
+const V4_VARIANT = (process.env.STT_V4_VARIANT || '').trim();
 const V4_NO_WORKER = process.env.STT_V4_NO_WORKER === '1' || process.env.STT_V4_NO_WORKER === 'true';
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
@@ -1388,6 +1389,9 @@ async function runFixture(page, mode, fixture) {
   }
   if (mode === 'private' && V4_DECODER_DTYPE) {
     sessionUrl.searchParams.set('v4DecoderDtype', V4_DECODER_DTYPE);
+  }
+  if (mode === 'private' && V4_VARIANT) {
+    sessionUrl.searchParams.set('v4Variant', V4_VARIANT);
   }
   if (mode === 'private' && V4_NO_WORKER) {
     sessionUrl.searchParams.set('v4NoWorker', '1');

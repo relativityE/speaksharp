@@ -41,7 +41,7 @@ const v4Construct = vi.fn();
 const v4Init = vi.fn();
 class StubV4 extends STTEngine {
     type = 'transformers-js-v4' as const;
-    constructor(o?: ConstructorParameters<typeof STTEngine>[0]) { super(o); v4Construct(); }
+    constructor(o?: ConstructorParameters<typeof STTEngine>[0]) { super(o); v4Construct(o); }
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = v4Init;
     onStart = vi.fn().mockResolvedValue(undefined);
@@ -120,7 +120,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         (globalThis as { __TEST__?: boolean }).__TEST__ = false;
         if (window.__SS_E2E__) (window.__SS_E2E__ as { isActive: boolean }).isActive = false;
         flagState.v4Enabled = false; setGpu(true);
-        window.history.replaceState({}, '', '?v4ForceAuto=1&engine=v4&privateEngine=transformers-js-v4&variant=base_q4');
+        window.history.replaceState({}, '', '?v4ForceAuto=1&engine=v4&privateEngine=transformers-js-v4&v4Variant=distil_q4');
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
@@ -139,7 +139,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         window.localStorage.setItem('stt_engine', 'v4');
         window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // the REAL forceAuto key (not a phantom)
         window.localStorage.setItem('privateModel', 'v4');
-        window.localStorage.setItem('v4Variant', 'base_q4');
+        window.localStorage.setItem('speaksharp.v4.variant', 'distil_q4');
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
@@ -190,6 +190,22 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         expect(dbg?.reason, 'reason is the conflated signal; proves selectionSource is the honest one').toBe('webgpu_available_v4_flag');
     });
 
+    it('F1b: DEV/TEST forceAuto + v4Variant=distil_q4 selects the distil Gate A candidate', async () => {
+        flagState.v4Enabled = false; setGpu(true);
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
+        window.localStorage.setItem('speaksharp.v4.variant', 'distil_q4');
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js-v4');
+        expect(v4Construct).toHaveBeenCalledWith(expect.objectContaining({ v4Variant: 'distil_q4' }));
+        const dbg = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { selectionSource?: string; v4Variant?: string } }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(dbg?.selectionSource).toBe('dev_harness');
+        expect(dbg?.v4Variant).toBe('distil_q4');
+    });
+
     // Case F2 — PRODUCTION/BETA: the SAME real forceAuto key is INERT. Even with WebGPU usable, a
     // production build ignores `speaksharp.v4.forceAuto` (override gated `import.meta.env.DEV || isTest`)
     // -> v2-base, no v4 construct, selectionSource='default' (never dev_harness). Proves the localStorage
@@ -200,6 +216,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         if (window.__SS_E2E__) (window.__SS_E2E__ as { isActive: boolean }).isActive = false;
         flagState.v4Enabled = false; setGpu(true);
         window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // real key — must be inert in production
+        window.localStorage.setItem('speaksharp.v4.variant', 'distil_q4'); // real variant key — also inert in production
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
