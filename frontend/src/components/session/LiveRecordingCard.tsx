@@ -49,6 +49,14 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
  * timer, and start/stop button.
  * Extracted from SessionPage for better reusability and testability.
  */
+// Decorative "recording active" indicator bar heights (px). Deterministic on purpose:
+// the previous implementation used Math.random() evaluated during render, which (a) only changed
+// on a React re-render — so it froze between renders and jumped abruptly rather than animating, and
+// (b) implied a live volume meter it never was. These fixed heights + a CSS `animate-pulse` give a
+// smooth, compositor-driven activity cue with zero render coupling. A real RMS-driven meter
+// (rAF + ref, no per-frame React state) is tracked as a separate enhancement.
+const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
+
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
     isListening,
@@ -286,18 +294,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 <div className="h-4 w-full max-w-[140px] self-center flex items-center justify-center gap-0.5 overflow-hidden opacity-60">
                     {isIndicatorVisible && (
                         <div
-                            className="flex items-center gap-0.5"
+                            className={`flex items-center gap-0.5 ${isPaused ? '' : 'animate-pulse'}`}
                             data-testid="recording-indicator"
                             data-recording={isRecordingSignal}
                             data-paused={isPaused}
                         >
-                            {[...Array(10)].map((_, i) => (
+                            {RECORDING_BAR_HEIGHTS.map((barHeight, i) => (
                                 <div
                                     key={i}
                                     className={`w-0.5 rounded-full ${isPaused ? 'bg-amber-500/40' : 'bg-primary/40'}`}
-                                    style={{
-                                        height: isPaused ? '4px' : `${Math.max(4, Math.random() * 14 + 4)}px`,
-                                    }}
+                                    style={{ height: isPaused ? '4px' : `${barHeight}px` }}
                                 />
                             ))}
                         </div>
