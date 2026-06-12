@@ -15,14 +15,14 @@ import type { TranscriptionPolicy } from '../TranscriptionPolicy';
  */
 
 // Top-level mock for storage to ensure deterministic resolution
-vi.mock('@/lib/storage', () => ({
+vi.mock('@/lib/sessionRepository', () => ({
     saveSession: vi.fn(),
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn().mockResolvedValue({ success: true }),
     updateSession: vi.fn().mockResolvedValue({ success: true }),
 }));
 
-import type * as StorageModule from '@/lib/storage';
+import type * as StorageModule from '@/lib/sessionRepository';
 type MockedStorage = {
     [K in keyof typeof StorageModule]: import('vitest').Mock;
 };
@@ -67,7 +67,7 @@ describe('STT Safeguards Unit Tests', () => {
         } as unknown as SupabaseClient;
 
         // Step 3: Storage Mocking
-        const storage = await import('@/lib/storage');
+        const storage = await import('@/lib/sessionRepository');
         storageMocks = storage as unknown as MockedStorage;
         storageMocks.saveSession.mockResolvedValue({ session: { id: 'sess-123' }, usageExceeded: false });
 

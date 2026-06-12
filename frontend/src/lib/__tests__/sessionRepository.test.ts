@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { getSessionHistory, saveSession, deleteSession, exportData } from '../storage';
+import { getSessionHistory, saveSession, deleteSession, exportData } from '../sessionRepository';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
 import { UserProfile } from '@/types/user';

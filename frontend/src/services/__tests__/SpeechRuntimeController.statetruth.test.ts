@@ -13,7 +13,7 @@ vi.mock('../../lib/logger', () => ({
     }
 }));
 
-vi.mock('../../lib/storage', () => ({
+vi.mock('../../lib/sessionRepository', () => ({
     saveSession: vi.fn().mockResolvedValue({ session: { id: 'test-sess' }, usageExceeded: false }),
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn(),

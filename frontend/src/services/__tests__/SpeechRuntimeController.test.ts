@@ -16,7 +16,7 @@ vi.mock('../../lib/logger', () => ({
     }
 }));
 
-vi.mock('../../lib/storage', () => ({
+vi.mock('../../lib/sessionRepository', () => ({
     saveSession: vi.fn().mockResolvedValue({ session: { id: 'test-sess' }, usageExceeded: false }),
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
     completeSession: vi.fn().mockResolvedValue({ success: true }),
@@ -389,7 +389,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it.each(['native', 'private', 'cloud'] as const)(
         'preserves visible partial transcript through stop/save for %s',
         async (mode) => {
-            const storage = await import('../../lib/storage');
+            const storage = await import('../../lib/sessionRepository');
             const visiblePartial = 'today i expect live transcript text to remain after stop';
             window.__SS_TRANSCRIPT_TRACE__ = [];
             vi.mocked(storage.completeSession).mockClear();
@@ -452,7 +452,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     );
 
     it('flags repetitionRisk on the save candidate for a Whisper loop WITHOUT altering the saved transcript', async () => {
-        const storage = await import('../../lib/storage');
+        const storage = await import('../../lib/sessionRepository');
         window.__SS_TRANSCRIPT_TRACE__ = [];
         vi.mocked(storage.completeSession).mockClear();
 

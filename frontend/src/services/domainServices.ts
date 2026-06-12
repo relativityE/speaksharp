@@ -85,7 +85,7 @@ export const sessionService = {
      * Create a new session
      */
     async create(session: Partial<PracticeSession> & { user_id: string }, idempotencyKey?: string): Promise<PracticeSession> {
-        const { saveSession } = await import('@/lib/storage');
+        const { saveSession } = await import('@/lib/sessionRepository');
         const { session: newSession, usageExceeded } = await saveSession(
             session,
             { subscription_status: 'free' } as UserProfile, // Mock profile for now

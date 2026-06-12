@@ -50,7 +50,7 @@ describe('TranscriptionService', () => {
         const flagsModule = await import('../../../config/TestFlags');
         ENV = flagsModule.ENV;
 
-        const storageModule = await import('../../../lib/storage');
+        const storageModule = await import('../../../lib/sessionRepository');
         vi.spyOn(storageModule, 'saveSession').mockResolvedValue({ 
             session: { id: 'test-sess', user_id: 'u1', created_at: '', duration: 0 } as unknown as PracticeSession, 
             usageExceeded: false 

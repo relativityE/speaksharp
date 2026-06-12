@@ -5,7 +5,7 @@ import TranscriptionService, { getTranscriptionService } from '@/services/transc
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { useReadinessStore } from '@/stores/useReadinessStore';
-import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
+import { saveSession, completeSession, heartbeatSession } from '@/lib/sessionRepository';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
@@ -24,7 +24,7 @@ import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
-import { updateSession } from '@/lib/storage';
+import { updateSession } from '@/lib/sessionRepository';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';

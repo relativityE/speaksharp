@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import logger from '../lib/logger';
-import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData, updateSession } from '../lib/storage';
+import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData, updateSession } from '../lib/sessionRepository';
 import type { PracticeSession } from '../types/session';
 import { useUserProfile } from './useUserProfile';
 

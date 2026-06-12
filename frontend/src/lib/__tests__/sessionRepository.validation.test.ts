@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { saveSession } from '../storage';
+import { saveSession } from '../sessionRepository';
 import { getSupabaseClient } from '../supabaseClient';
 import type { PracticeSession } from '../../types/session';
 import type { UserProfile } from '../../types/user';
