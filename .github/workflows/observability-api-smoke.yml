@@ -82,7 +82,6 @@ jobs:
 
       - name: Inspect PostHog STT A/B targeting
         env:
-          STT_AB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
           STT_AB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
@@ -101,7 +100,6 @@ jobs:
 
       - name: Verify PostHog STT A/B authenticated user targeting
         env:
-          STT_AB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
           STT_AB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
