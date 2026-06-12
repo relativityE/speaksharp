@@ -108,9 +108,12 @@ export const TIER_LIMITS = {
         maxSessionDuration: Infinity, // No session-level cap, only daily
     },
     [SUBSCRIPTION_TIERS.PRO]: {
-        dailySeconds: Infinity,
+        // 2h/day — MUST match the effective enforcement source: DB tier_configs 'pro'
+        // (daily_limit_seconds = 7200, monthly 180000). Pro is NOT unlimited for this release;
+        // raising it is a deliberate Product/pricing decision, not a stale-config drift.
+        dailySeconds: 7200,
         maxCustomWords: 100,
-        maxSessionDuration: Infinity,
+        maxSessionDuration: Infinity, // No session-level cap, only daily
     },
 } as const;
 

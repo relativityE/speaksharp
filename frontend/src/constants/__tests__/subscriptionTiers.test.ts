@@ -183,7 +183,8 @@ describe('subscriptionTiers', () => {
 
         it('Limits have Infinity where appropriate', () => {
             const proLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.PRO];
-            expect(proLimits.dailySeconds).toBe(Infinity);
+            // Pro daily usage is NOT unlimited: it is capped, matching the DB enforcement source.
+            expect(proLimits.dailySeconds).toBe(7200);
             expect(proLimits.maxSessionDuration).toBe(Infinity);
 
             const basicLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC];
@@ -195,7 +196,7 @@ describe('subscriptionTiers', () => {
         it('getDailyLimit returns correct values', () => {
             expect(getDailyLimit('free')).toBe(3600);
             expect(getDailyLimit('basic')).toBe(3600);
-            expect(getDailyLimit('pro')).toBe(Infinity);
+            expect(getDailyLimit('pro')).toBe(7200);
         });
 
         it('getMaxFillerWords returns 100 for all active tiers', () => {
@@ -223,7 +224,21 @@ describe('subscriptionTiers', () => {
         it('PRO tier has correct alpha launch limits', () => {
             const proLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.PRO];
             expect(proLimits.maxCustomWords).toBe(100);
-            expect(proLimits.dailySeconds).toBe(Infinity);
+            expect(proLimits.dailySeconds).toBe(7200);
+        });
+    });
+
+    // Entitlement consistency guard: the front-end tier-limit config MUST match the effective
+    // DB enforcement source (backend tier_configs). These caps are the release-of-record values;
+    // Pro is NOT unlimited. If the DB tier_configs change, update these AND the constant together.
+    describe('config matches DB tier_configs (no stale "unlimited" drift)', () => {
+        it('FREE/BASIC daily = 3600s, PRO daily = 7200s (finite, not unlimited)', () => {
+            expect(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE].dailySeconds).toBe(3600);
+            expect(TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC].dailySeconds).toBe(3600);
+            expect(TIER_LIMITS[SUBSCRIPTION_TIERS.PRO].dailySeconds).toBe(7200);
+        });
+        it('PRO daily limit is a finite number (never Infinity for this release)', () => {
+            expect(Number.isFinite(TIER_LIMITS[SUBSCRIPTION_TIERS.PRO].dailySeconds)).toBe(true);
         });
     });
 });
