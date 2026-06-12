@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuthProvider } from "../contexts/AuthProvider";
-import { getSessionHistory, PaginationOptions } from "../lib/storage";
+import { getSessionHistory, PaginationOptions } from "../lib/sessionRepository";
 
 export const usePracticeHistory = (
   options: PaginationOptions & { enabled?: boolean } = {}

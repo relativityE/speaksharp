@@ -6,12 +6,12 @@ import { useSession } from '../useSession';
 import { useParams } from 'react-router-dom';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { getSessionCount } from '../../lib/storage';
+import { getSessionCount } from '../../lib/sessionRepository';
 
 // Mock dependencies
 vi.mock('../usePracticeHistory');
 vi.mock('../useSession');
-vi.mock('../../lib/storage', () => ({
+vi.mock('../../lib/sessionRepository', () => ({
     getAnalyticsSummary: vi.fn(),
     getSessionCount: vi.fn(),
 }));
