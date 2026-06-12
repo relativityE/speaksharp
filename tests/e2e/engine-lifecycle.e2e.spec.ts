@@ -1,6 +1,5 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute, waitForModelReady, programmaticLoginWithRoutes, selectTranscriptionEngine } from './helpers';
-import { registerEdgeFunctionMock } from './mock-routes';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 
@@ -120,6 +119,11 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   // free users now flows from the Private sample entitlement (one ≤5-min session) reported
   // by the usage-limit RPC. An available sample unlocks Private; Cloud stays Pro-only.
   test('Tier Control: free user with an available Private sample can use Private but not Cloud', async ({ page }) => {
+    // Sample-entitlement contract: an available sample (seconds remaining) unlocks Private.
+    // The sample fields are set on mockProfile so the FIRST usage-limit hydration already
+    // reflects the sample — the default check-usage-limit mock reads them from the page
+    // profile, avoiding a late override the app would only see after caching the generic
+    // Free response.
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
       mockProfile: {
@@ -127,27 +131,11 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
         stripe_subscription_id: null,
         subscription_id: null,
         preferred_mode: 'native',
+        private_sample_available: true,
+        private_sample_limit_seconds: 300,
+        private_sample_seconds_used: 0,
+        private_sample_seconds_remaining: 300,
       },
-    });
-
-    // Sample-entitlement contract: an available sample (seconds remaining) unlocks Private.
-    await registerEdgeFunctionMock(page, 'check-usage-limit', {
-      can_start: true,
-      remaining_seconds: 3600,
-      limit_seconds: 3600,
-      used_seconds: 0,
-      daily_remaining: 3600,
-      daily_limit: 3600,
-      monthly_remaining: 90000,
-      monthly_limit: 90000,
-      subscription_status: 'free',
-      is_pro: false,
-      user_type: 'free',
-      streak_count: 0,
-      private_sample_available: true,
-      private_sample_limit_seconds: 300,
-      private_sample_seconds_used: 0,
-      private_sample_seconds_remaining: 300,
     });
 
     await navigateToRoute(page, '/session');
@@ -158,6 +146,8 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   });
 
   test('Tier Control: free user with no available Private sample cannot use Private or Cloud', async ({ page }) => {
+    // Sample already consumed/unavailable: Private locks back to Pro-only, same as Cloud.
+    // Set on mockProfile so the first usage-limit hydration reflects the consumed sample.
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
       mockProfile: {
@@ -165,27 +155,11 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
         stripe_subscription_id: null,
         subscription_id: null,
         preferred_mode: 'native',
+        private_sample_available: false,
+        private_sample_limit_seconds: 300,
+        private_sample_seconds_used: 300,
+        private_sample_seconds_remaining: 0,
       },
-    });
-
-    // Sample already consumed/unavailable: Private locks back to Pro-only, same as Cloud.
-    await registerEdgeFunctionMock(page, 'check-usage-limit', {
-      can_start: true,
-      remaining_seconds: 3600,
-      limit_seconds: 3600,
-      used_seconds: 0,
-      daily_remaining: 3600,
-      daily_limit: 3600,
-      monthly_remaining: 90000,
-      monthly_limit: 90000,
-      subscription_status: 'free',
-      is_pro: false,
-      user_type: 'free',
-      streak_count: 0,
-      private_sample_available: false,
-      private_sample_limit_seconds: 300,
-      private_sample_seconds_used: 300,
-      private_sample_seconds_remaining: 0,
     });
 
     await navigateToRoute(page, '/session');
