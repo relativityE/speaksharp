@@ -207,7 +207,11 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     expect(() => analyticsBuffer.identify('user-123')).not.toThrow();
 
     expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
-    expect(posthog.capture).toHaveBeenCalledWith('account_identified', { source: 'auth_provider' });
+    expect(posthog.capture).toHaveBeenCalledWith(
+      'account_identified',
+      { source: 'auth_provider' },
+      { send_instantly: true },
+    );
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // still runs despite capture failure
     expect(Sentry.setUser).toHaveBeenCalledWith({ id: 'user-123' }); // still runs despite capture failure
   });

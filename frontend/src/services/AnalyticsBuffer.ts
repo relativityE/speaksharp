@@ -60,6 +60,17 @@ class AnalyticsBuffer {
   public readonly MAX_QUEUE_SIZE = 1000;
   private readonly BATCH_SIZE = 10;
 
+  // Non-PII identity observability probe (mirrored to window.__SS_ANALYTICS_IDENTITY__) so a deployed
+  // proof can confirm EXACTLY which step of the identify path ran — without guessing from network
+  // traces. Strictly mechanism counters/booleans: NO user.id, email, transcript, or any PII.
+  private readonly identityProbe = {
+    identifyCalls: 0,
+    accountIdentifiedAttempts: 0,
+    accountIdentifiedSendInstantly: false,
+    lastAccountIdentifiedError: null as string | null,
+    lastUpdated: 0,
+  };
+
   private constructor() {
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', () => this.drainSynchronously());
@@ -190,6 +201,7 @@ class AnalyticsBuffer {
    */
   public identify(userId: string, properties?: Record<string, unknown>): void {
 
+    this.identityProbe.identifyCalls += 1;
     try {
       posthog.identify(userId, properties);
       // Materialize a SERVER-SIDE PostHog person (Gate B / flag targeting) — see
@@ -204,6 +216,21 @@ class AnalyticsBuffer {
       logger.debug({ userId }, '[AnalyticsBuffer] User identified');
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to identify user');
+    } finally {
+      this.publishIdentityProbe();
+    }
+  }
+
+  /** Mirror the non-PII identity probe to window so a deployed proof can read it. Never throws. */
+  private publishIdentityProbe(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      this.identityProbe.lastUpdated = Date.now();
+      (window as unknown as { __SS_ANALYTICS_IDENTITY__?: unknown }).__SS_ANALYTICS_IDENTITY__ = {
+        ...this.identityProbe,
+      };
+    } catch {
+      /* observability must never affect app behavior */
     }
   }
 
@@ -217,6 +244,8 @@ class AnalyticsBuffer {
    * non-fatal and never prevents the caller's flag reload / Sentry update.
    */
   private captureAccountIdentified(): void {
+    this.identityProbe.accountIdentifiedAttempts += 1;
+    this.identityProbe.accountIdentifiedSendInstantly = true;
     try {
       // send_instantly:true SKIPS the batched request queue and POSTs the event to /e/ immediately.
       // Required for Gate B: a login is often followed quickly by navigation/page-close, and the
@@ -225,7 +254,10 @@ class AnalyticsBuffer {
       // user.id). NOTE: posthog-js 1.298.1 has NO public flush() — the prior flush() attempt was a
       // silent no-op — so the per-event send_instantly option is the correct, documented mechanism.
       posthog.capture('account_identified', { source: 'auth_provider' }, { send_instantly: true });
+      this.identityProbe.lastAccountIdentifiedError = null;
     } catch (err) {
+      // Record only the error NAME (never the message) to keep the probe strictly PII-free.
+      this.identityProbe.lastAccountIdentifiedError = err instanceof Error ? err.name : 'unknown';
       logger.warn({ err }, '[AnalyticsBuffer] Failed to send account_identified event');
     }
   }
