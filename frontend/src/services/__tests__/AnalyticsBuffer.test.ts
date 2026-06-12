@@ -10,8 +10,7 @@ vi.mock('posthog-js', () => ({
     identify: vi.fn(),
     reset: vi.fn(),
     reloadFeatureFlags: vi.fn(),
-    _isIdentified: vi.fn(),
-    flush: vi.fn()
+    _isIdentified: vi.fn()
   }
 }));
 
@@ -179,11 +178,15 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
   });
 
-  it('identify() emits ONE minimal non-PII materialization event under the identified id (Gate B person creation)', () => {
+  it('identify() emits ONE minimal non-PII materialization event sent INSTANTLY (Gate B person creation)', () => {
     analyticsBuffer.identify('user-123');
-    // Guarantees a server-ingested web event so PostHog materializes a queryable person at user.id
-    // (identified_only mode); without this, a lone $identify can fail to ingest in short sessions.
-    expect(posthog.capture).toHaveBeenCalledWith('account_identified', { source: 'auth_provider' });
+    // send_instantly skips the batch queue so the /e/ request fires immediately and PostHog
+    // materializes a queryable person at user.id (identified_only mode) even on a short session.
+    expect(posthog.capture).toHaveBeenCalledWith(
+      'account_identified',
+      { source: 'auth_provider' },
+      { send_instantly: true },
+    );
     // STRICT no-PII: the materialization event must never carry email/name/transcript/audio/etc.
     const payload = JSON.stringify(vi.mocked(posthog.capture).mock.calls);
     expect(payload).not.toMatch(/email|@|transcript|audio|password|token|name/i);
@@ -194,16 +197,6 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     const captureOrder = vi.mocked(posthog.capture).mock.invocationCallOrder[0];
     const reloadOrder = vi.mocked(posthog.reloadFeatureFlags).mock.invocationCallOrder[0];
     expect(captureOrder).toBeLessThan(reloadOrder);
-  });
-
-  it('flushes IMMEDIATELY after the materialization capture so the event is sent, not batch-queued', () => {
-    const phFlush = (posthog as unknown as { flush: ReturnType<typeof vi.fn> }).flush;
-    analyticsBuffer.identify('user-123');
-    expect(phFlush).toHaveBeenCalled();
-    // flush must come after the capture (send the queued account_identified event now).
-    const captureOrder = vi.mocked(posthog.capture).mock.invocationCallOrder[0];
-    const flushOrder = vi.mocked(phFlush).mock.invocationCallOrder[0];
-    expect(flushOrder).toBeGreaterThan(captureOrder);
   });
 
   it('keeps the materialization capture NON-FATAL: a capture throw must not block flag reload / Sentry', () => {
