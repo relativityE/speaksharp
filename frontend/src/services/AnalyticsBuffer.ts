@@ -192,13 +192,35 @@ class AnalyticsBuffer {
 
     try {
       posthog.identify(userId, properties);
-      // Explicitly re-evaluate feature flags for the now-identified user so the app never keeps the
+      // Materialize a SERVER-SIDE PostHog person (Gate B / flag targeting) — see
+      // captureAccountIdentified(). It is ISOLATED in its own try/catch so a capture failure can
+      // NEVER block the reloadFeatureFlags()/Sentry.setUser() below: flag reload after identify is
+      // the load-bearing step and must always run.
+      this.captureAccountIdentified();
+      // Explicitly re-evaluate feature flags AFTER identify + capture so the app never keeps the
       // prior anonymous flag state (the Gate B stale-flag gotcha — flags must reflect the account).
       posthog.reloadFeatureFlags();
       Sentry.setUser({ id: userId, ...properties });
       logger.debug({ userId }, '[AnalyticsBuffer] User identified');
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to identify user');
+    }
+  }
+
+  /**
+   * Emit ONE minimal, NON-PII event under the now-identified distinct_id to materialize a queryable
+   * server-side PostHog person (Gate B / feature-flag targeting). posthog-js (1.298.1 deployed)
+   * defaults person_profiles to 'identified_only', so a person is created only once an INGESTED event
+   * is tied to the identified distinct_id; the lone $identify did not reliably ingest in short
+   * sessions. STRICT no-PII: a constant source tag only — never email, name, transcript, audio,
+   * secrets, or the raw auth/session object. Self-contained try/catch so a capture failure is
+   * non-fatal and never prevents the caller's flag reload / Sentry update.
+   */
+  private captureAccountIdentified(): void {
+    try {
+      posthog.capture('account_identified', { source: 'auth_provider' });
+    } catch (err) {
+      logger.warn({ err }, '[AnalyticsBuffer] Failed to send account_identified event');
     }
   }
 

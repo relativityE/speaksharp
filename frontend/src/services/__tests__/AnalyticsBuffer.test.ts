@@ -1,6 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { analyticsBuffer } from '../AnalyticsBuffer';
 import posthog from 'posthog-js';
+import * as Sentry from '@sentry/react';
 
 // Mock PostHog
 vi.mock('posthog-js', () => ({
@@ -12,6 +13,9 @@ vi.mock('posthog-js', () => ({
     _isIdentified: vi.fn()
   }
 }));
+
+// Mock Sentry so identity-path assertions (setUser) are observable.
+vi.mock('@sentry/react', () => ({ setUser: vi.fn() }));
 
 describe('AnalyticsBuffer (Hardened Background Asset)', () => {
   beforeEach(() => {
@@ -172,6 +176,36 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     analyticsBuffer.identify('user-123');
     expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
+  });
+
+  it('identify() emits ONE minimal non-PII materialization event under the identified id (Gate B person creation)', () => {
+    analyticsBuffer.identify('user-123');
+    // Guarantees a server-ingested web event so PostHog materializes a queryable person at user.id
+    // (identified_only mode); without this, a lone $identify can fail to ingest in short sessions.
+    expect(posthog.capture).toHaveBeenCalledWith('account_identified', { source: 'auth_provider' });
+    // STRICT no-PII: the materialization event must never carry email/name/transcript/audio/etc.
+    const payload = JSON.stringify(vi.mocked(posthog.capture).mock.calls);
+    expect(payload).not.toMatch(/email|@|transcript|audio|password|token|name/i);
+  });
+
+  it('identify() materializes (capture) BEFORE reloading flags so eval reflects the new person', () => {
+    analyticsBuffer.identify('user-123');
+    const captureOrder = vi.mocked(posthog.capture).mock.invocationCallOrder[0];
+    const reloadOrder = vi.mocked(posthog.reloadFeatureFlags).mock.invocationCallOrder[0];
+    expect(captureOrder).toBeLessThan(reloadOrder);
+  });
+
+  it('keeps the materialization capture NON-FATAL: a capture throw must not block flag reload / Sentry', () => {
+    // The account_identified capture is best-effort; flag reload after identify is the load-bearing
+    // step and must always run, plus identify() must never throw out of its catch.
+    vi.mocked(posthog.capture).mockImplementationOnce(() => { throw new Error('capture boom'); });
+
+    expect(() => analyticsBuffer.identify('user-123')).not.toThrow();
+
+    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    expect(posthog.capture).toHaveBeenCalledWith('account_identified', { source: 'auth_provider' });
+    expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // still runs despite capture failure
+    expect(Sentry.setUser).toHaveBeenCalledWith({ id: 'user-123' }); // still runs despite capture failure
   });
 
   it('resetIdentity() resets PostHog to a fresh anonymous id and reloads flags', () => {
