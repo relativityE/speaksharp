@@ -1,3 +1,16 @@
+/**
+ * Session/profile DATABASE repository (Supabase).
+ *
+ * NOTE ON NAMING: despite the file name, this module is NOT a browser-storage utility — it does not
+ * touch localStorage/sessionStorage. It is the client-side repository/adaptor for persisting and
+ * reading practice sessions, profiles, and history from the Supabase database. For browser
+ * localStorage/sessionStorage wrappers see `safeStorage.ts`.
+ *
+ * A physical rename to `sessionRepository.ts` is intentionally deferred: this module is imported by
+ * actively-edited files (e.g. SpeechRuntimeController) and renaming it now would create avoidable
+ * merge conflicts with in-flight feature branches. Rename as a single coordinated step once those
+ * branches land. Tracked as a follow-up.
+ */
 import { getSupabaseClient } from './supabaseClient';
 import logger from './logger';
 import type { PracticeSession } from '../types/session';
