@@ -160,24 +160,31 @@ const renderApp = async (initialSession: Session | null = null) => {
 
       // 🛑 Skip ALL analytics in test mode (Sentry already initialized above)
       if (!isTestMode) {
-        // Defer PostHog initialization
+        // Initialize PostHog SYNCHRONOUSLY, before root.render() mounts <AuthProvider>.
+        // Gate B / FAIL_AUTH_POSTHOG_IDENTIFY root cause: AuthProvider's identity effect calls
+        // posthog.identify(user.id) on its first commit. When init() was deferred (previously
+        // wrapped in setTimeout(…, 0)), identify() could run BEFORE init on a restored-session
+        // boot — that sets the local distinct_id (so a browser localStorage check passes) but
+        // NEVER sends the server-side $identify event, so no PostHog person is materialized at the
+        // Supabase user.id and feature-flag targeting can never match. Server-side evidence pre-fix:
+        // 0 web $identify events and 0 events under the user.id. Running init() synchronously here
+        // guarantees the SDK is ready before any identify() call. The empirical gate remains runtime
+        // Phase-1 server-ingestion sanity (a web $identify + queryable person at the user.id).
         if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
-          setTimeout(() => {
-            try {
-              posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
-                api_host: import.meta.env.VITE_POSTHOG_HOST,
-                autocapture: false,
-                capture_pageview: false,
-                capture_exceptions: enableSentryConsoleCapture,
-                capture_performance: false,
-                disable_session_recording: true,
-                debug: import.meta.env.MODE === 'development',
-              });
-              logger.debug('[PostHog] Initialized successfully');
-            } catch (error) {
-              logger.warn({ error }, "PostHog failed to initialize:");
-            }
-          }, 0);
+          try {
+            posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
+              api_host: import.meta.env.VITE_POSTHOG_HOST,
+              autocapture: false,
+              capture_pageview: false,
+              capture_exceptions: enableSentryConsoleCapture,
+              capture_performance: false,
+              disable_session_recording: true,
+              debug: import.meta.env.MODE === 'development',
+            });
+            logger.debug('[PostHog] Initialized successfully');
+          } catch (error) {
+            logger.warn({ error }, "PostHog failed to initialize:");
+          }
         }
       } else {
         logger.warn('[E2E MODE] Analytics disabled entirely.');
