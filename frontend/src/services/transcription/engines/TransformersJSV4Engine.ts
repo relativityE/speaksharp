@@ -83,7 +83,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
     return summary;
 }
 
-function getV4AsrOptions(audioLengthSeconds: number): Record<string, unknown> {
+function getV4AsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
@@ -93,6 +93,10 @@ function getV4AsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
         options.language = 'en';
         options.task = 'transcribe';
+    }
+
+    if (decodeOptions) {
+        Object.assign(options, decodeOptions);
     }
 
     return options;
@@ -367,7 +371,7 @@ export class TransformersJSV4Engine extends STTEngine {
             }
 
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-            const options = getV4AsrOptions(audioLengthSeconds);
+            const options = getV4AsrOptions(audioLengthSeconds, readPrivateDecodeOptionsOverride());
 
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
 

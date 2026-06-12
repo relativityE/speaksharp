@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { mockPipeline } = vi.hoisted(() => ({
+    mockPipeline: vi.fn(),
+}));
+
 vi.mock('@/config/TestFlags', () => ({
     ENV: {
         isE2E: false,
@@ -15,6 +19,15 @@ vi.mock('@/lib/logger', () => ({
         warn: vi.fn(),
         error: vi.fn(),
         debug: vi.fn(),
+    },
+}));
+
+vi.mock('@huggingface/transformers', () => ({
+    pipeline: mockPipeline,
+    env: {},
+    LogLevel: {
+        ERROR: 'error',
+        INFO: 'info',
     },
 }));
 
@@ -79,6 +92,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        mockPipeline.mockReset();
+        window.localStorage.clear();
         fakeWorkerMode = 'ready';
         fakeWorkerInstances.length = 0;
         vi.stubGlobal('Worker', FakeWorker);
@@ -89,6 +104,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
 
     afterEach(() => {
         delete (window as typeof window & { __PRIVATE_STT_DECODE_OPTIONS__?: unknown }).__PRIVATE_STT_DECODE_OPTIONS__;
+        window.localStorage.clear();
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
@@ -172,6 +188,40 @@ describe('TransformersJSV4Engine worker message contract', () => {
             }),
             expect.any(Array),
         );
+
+        await engine.destroy();
+    });
+
+    it('contract: applies sanitized decode-option overrides in the v4 main-thread no-worker path', async () => {
+        const mainThreadTranscriber = vi.fn()
+            .mockResolvedValueOnce({ text: '' })
+            .mockResolvedValueOnce({ text: 'v4 main-thread transcript' });
+        mockPipeline.mockResolvedValueOnce(mainThreadTranscriber);
+        window.localStorage.setItem('speaksharp.v4.noWorker', '1');
+        (window as typeof window & { __PRIVATE_STT_DECODE_OPTIONS__?: unknown }).__PRIVATE_STT_DECODE_OPTIONS__ = {
+            condition_on_previous_text: false,
+            no_repeat_ngram_size: 3,
+            unsafe_option: 'ignored',
+        };
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+
+        const init = await engine.init();
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(init.isOk).toBe(true);
+        expect(result).toEqual(expect.objectContaining({
+            isOk: true,
+            data: 'v4 main-thread transcript',
+        }));
+        expect(fakeWorkerInstances).toHaveLength(0);
+        const transcribeOptions = mainThreadTranscriber.mock.calls[mainThreadTranscriber.mock.calls.length - 1]?.[1] as Record<string, unknown>;
+        expect(transcribeOptions).toEqual(expect.objectContaining({
+            condition_on_previous_text: false,
+            no_repeat_ngram_size: 3,
+            return_timestamps: true,
+        }));
+        expect(transcribeOptions).not.toHaveProperty('unsafe_option');
 
         await engine.destroy();
     });
