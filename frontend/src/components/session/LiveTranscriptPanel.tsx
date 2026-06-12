@@ -81,6 +81,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     isFinalizing = false,
     nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
+    const internalContainerRef = React.useRef<HTMLDivElement>(null);
+    const transcriptContainerRef = containerRef ?? internalContainerRef;
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
     const hasTranscript = transcript.trim() !== '';
     const displayInterimTranscript =
@@ -112,6 +114,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     // loops so healthy private-v2 text is unaffected. (Proper fix tracked separately: keep v4
     // streaming hypotheses out of the committed transcript store.)
     const withholdLoopedLive = isPrivateMode
+        && (isListening || isFinalizing)
         && (hasSevereRepetitionLoop(transcript) || hasSevereRepetitionLoop(interimTranscript));
     const isDrafting = uiState === 'drafting';
     const showDraftTrustBanner = isListening && !isFinalizing;
@@ -126,6 +129,10 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const listeningEmptyText = isPrivateMode
         ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
         : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
+    const transcriptViewportClass = uiState === 'final'
+        ? 'max-h-[18rem] sm:max-h-[20rem] lg:max-h-[22rem]'
+        : 'flex-1 min-h-[160px]';
+    const shouldAutoscrollTranscript = uiState !== 'final';
 
     // Threshold-only Native formatting notice: post-stop, the raw transcript is already
     // saved+shown; punctuation/casing is polished in the background. We surface a notice
@@ -165,6 +172,16 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             traceWindow.__SS_TRANSCRIPT_TRACE__.shift();
         }
     }, [visibleTranscript]);
+
+    React.useEffect(() => {
+        const node = transcriptContainerRef.current;
+        if (!node) return;
+        if (uiState === 'final') {
+            node.scrollTop = 0;
+            return;
+        }
+        node.scrollTop = node.scrollHeight;
+    }, [visibleTranscript, history.length, uiState]);
 
     // #33 Native trust-disclaimer proof hooks: publish a timestamped trust-state
     // snapshot (+ append-only trace) so the harness can prove WHEN each trust state
@@ -229,10 +246,11 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 )}
             </div>
             <div
-                ref={containerRef}
-                className={`live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all min-h-[160px]`}
+                ref={transcriptContainerRef}
+                className={`live-transcript-scroll ${transcriptViewportClass} overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all`}
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
+                data-autoscroll-transcript={shouldAutoscrollTranscript ? 'true' : 'false'}
                 data-transcript-state={uiState}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
