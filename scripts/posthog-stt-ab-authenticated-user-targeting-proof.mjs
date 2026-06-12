@@ -3,21 +3,21 @@
 const FLAG_KEY = 'private_stt_v4_enabled';
 const DISTIL_FLAG_KEY = 'private_stt_v4_distil_enabled';
 const FLAG_ID = '709644';
-const DEFAULT_COHORT_NAME = 'v4_gateb_disposable_pro_testers';
+const DEFAULT_COHORT_NAME = 'stt_ab_disposable_pro_testers';
 
-const email = requireEnv('GATEB_TEST_EMAIL');
-const appUserId = requireEnv('GATEB_APP_USER_ID');
+const email = requireEnv('STT_AB_TEST_EMAIL');
+const appUserId = requireEnv('STT_AB_APP_USER_ID');
 const projectId = requireEnv('POSTHOG_PROJECT_ID');
 const personalApiKey = requireEnv('POSTHOG_PERSONAL_API_KEY');
 const projectApiKey = requireEnv('POSTHOG_PROJECT_API_KEY', ['VITE_POSTHOG_KEY']);
 const apiHost = (process.env.POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
 const ingestHost = (process.env.POSTHOG_INGEST_HOST || process.env.VITE_POSTHOG_HOST || apiHost).replace(/\/$/, '');
-const requestedCohortId = process.env.POSTHOG_GATEB_COHORT_ID || '';
-const cohortName = process.env.POSTHOG_GATEB_COHORT_NAME || DEFAULT_COHORT_NAME;
+const requestedCohortId = process.env.POSTHOG_STT_AB_COHORT_ID || '';
+const cohortName = process.env.POSTHOG_STT_AB_COHORT_NAME || DEFAULT_COHORT_NAME;
 
 const evidence = {
   gate: 'POSTHOG-STT-A/B',
-  mode: 'operator_targeting_closeout',
+  mode: 'authenticated_user_targeting_proof',
   checkedAt: new Date().toISOString(),
   posthogEnvironmentIdSource: 'POSTHOG_PROJECT_ID',
   testUser: {
@@ -32,6 +32,7 @@ const evidence = {
   person: null,
   cohort: null,
   flagConfig: null,
+  serverIdentity: null,
   mutations: [],
   flagEvaluationBefore: null,
   flagEvaluationAfter: null,
@@ -41,10 +42,11 @@ const evidence = {
 
 try {
   evidence.person = await findPerson();
+  evidence.serverIdentity = await inspectServerIdentity(evidence.person);
   evidence.flagEvaluationBefore = await evaluateFlags(appUserId);
 
-  if (!evidence.person.found) {
-    evidence.classification = 'BLOCKED_ON_TEST_USER_IDENTIFICATION';
+  if (!evidence.serverIdentity.pass) {
+    evidence.classification = evidence.serverIdentity.classification;
   } else {
     evidence.cohort = await ensureCohort();
     if (!evidence.classification && evidence.cohort?.id) {
@@ -64,7 +66,7 @@ try {
   evidence.error = sanitizeError(error);
 }
 
-console.log(`GATE_B_POSTHOG_CLOSEOUT_EVIDENCE ${JSON.stringify(evidence)}`);
+console.log(`POSTHOG_STT_AB_AUTHENTICATED_USER_TARGETING_PROOF_EVIDENCE ${JSON.stringify(evidence)}`);
 if (evidence.classification === 'FAIL_HARNESS') process.exitCode = 1;
 
 async function findPerson() {
@@ -156,12 +158,83 @@ function personHogqlPlans() {
   ];
 }
 
+async function inspectServerIdentity(personSummary) {
+  const personQueryResult = await hogql(`
+    SELECT p.id, p.created_at, p.properties, p.is_identified, pdi.distinct_id
+    FROM persons p
+    JOIN person_distinct_ids pdi ON pdi.person_id = p.id
+    WHERE pdi.distinct_id = ${sqlString(appUserId)}
+    LIMIT 5
+  `, 'PostHog STT A/B queryable person by app user id');
+
+  const webIdentifyResult = await hogql(`
+    SELECT event, distinct_id, properties['$lib'], timestamp
+    FROM events
+    WHERE distinct_id = ${sqlString(appUserId)}
+      AND event = '$identify'
+    ORDER BY timestamp DESC
+    LIMIT 10
+  `, 'PostHog STT A/B web identify events');
+
+  const appUserEventsResult = await hogql(`
+    SELECT event, distinct_id, properties['$lib'], timestamp
+    FROM events
+    WHERE distinct_id = ${sqlString(appUserId)}
+    ORDER BY timestamp DESC
+    LIMIT 20
+  `, 'PostHog STT A/B app user events');
+
+  const queryErrors = [personQueryResult, webIdentifyResult, appUserEventsResult].filter((result) => (
+    !result.ok || hasQueryErrors(result.body)
+  ));
+  if (queryErrors.length > 0) {
+    return {
+      pass: false,
+      classification: 'FAIL_HARNESS',
+      queryErrors: queryErrors.map((result) => ({
+        status: result.status,
+        ok: result.ok,
+        error: summarizeQueryError(result.body),
+      })),
+    };
+  }
+
+  const personRows = Array.isArray(personQueryResult.body?.results) ? personQueryResult.body.results : [];
+  const personSamples = personRows.map(summarizePersonRow);
+  const webIdentifyRows = Array.isArray(webIdentifyResult.body?.results) ? webIdentifyResult.body.results : [];
+  const appUserEventRows = Array.isArray(appUserEventsResult.body?.results) ? appUserEventsResult.body.results : [];
+  const webIdentifySamples = webIdentifyRows.map(summarizeEventRow);
+  const appUserEventSamples = appUserEventRows.map(summarizeEventRow);
+  const hasWebIdentify = webIdentifySamples.some((event) => event.event === '$identify' && event.lib === 'web');
+  const hasAnyWebEvent = appUserEventSamples.some((event) => event.lib === 'web');
+  const hasEmailProperty = personSamples.some((person) => person.hasEmailProperty);
+  const queryablePerson = personSamples.some((person) => person.distinctIdMatchesExpected);
+  const personLookupAgrees = Boolean(personSummary?.found && personSummary?.hasAppUserDistinctId);
+  const pass = queryablePerson && hasWebIdentify && hasAnyWebEvent && !hasEmailProperty;
+
+  return {
+    pass,
+    classification: pass ? 'PASS' : 'FAIL_AUTH_POSTHOG_IDENTIFY',
+    queryablePerson,
+    personLookupAgrees,
+    hasWebIdentify,
+    hasAnyWebEvent,
+    hasEmailProperty,
+    queryablePersonCount: personSamples.length,
+    webIdentifyCount: webIdentifySamples.length,
+    appUserEventCount: appUserEventSamples.length,
+    personSamples,
+    webIdentifySamples,
+    appUserEventSamples,
+  };
+}
+
 async function ensureCohort() {
   if (requestedCohortId) {
     return {
       id: requestedCohortId,
       name: cohortName,
-      source: 'POSTHOG_GATEB_COHORT_ID',
+      source: 'POSTHOG_STT_AB_COHORT_ID',
       created: false,
       lookupAttempts: [],
     };
@@ -176,7 +249,7 @@ async function ensureCohort() {
 
   const createBody = {
     name: cohortName,
-    description: `Temporary Gate B disposable Pro tester cohort (${appUserId})`,
+    description: `Temporary STT v4 A/B disposable Pro tester cohort (${appUserId})`,
     is_static: true,
     groups: [],
   };
@@ -490,6 +563,28 @@ function summarizeProperty(property) {
   };
 }
 
+function summarizePersonRow(row) {
+  const properties = safeObject(row?.[2]);
+  const propertyKeys = Object.keys(properties).sort();
+  return {
+    idRedacted: redactId(row?.[0]),
+    createdAt: row?.[1] ?? null,
+    isIdentified: row?.[3] ?? null,
+    distinctIdMatchesExpected: row?.[4] === appUserId,
+    hasEmailProperty: propertyKeys.some((key) => String(key).toLowerCase().includes('email')),
+    propertyKeys,
+  };
+}
+
+function summarizeEventRow(row) {
+  return {
+    event: row?.[0] ?? null,
+    distinctIdMatchesExpected: row?.[1] === appUserId,
+    lib: row?.[2] ?? null,
+    timestamp: row?.[3] ?? null,
+  };
+}
+
 function summarizeBody(body) {
   if (!body || typeof body !== 'object') return body == null ? null : '<non-object>';
   return {
@@ -526,7 +621,7 @@ function valueMatches(actual, expected) {
 function redactValue(key, value) {
   if (value == null) return null;
   const keyText = String(key || '').toLowerCase();
-  if (keyText.includes('email')) return valueMatches(value, email) ? '<gateb-email>' : '<email>';
+  if (keyText.includes('email')) return valueMatches(value, email) ? '<stt-ab-email>' : '<email>';
   if (Array.isArray(value)) return `<array:${value.length}>`;
   const text = String(value);
   return text.length > 16 ? `${text.slice(0, 5)}...${text.slice(-5)}` : value;

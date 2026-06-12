@@ -13,8 +13,8 @@ on:
           - frontend-sentry
           - edge-sentry
           - posthog
-          - gate-b-posthog-targeting
-          - gate-b-posthog-closeout
+          - posthog-stt-ab-targeting-inspector
+          - posthog-stt-ab-authenticated-user-targeting-proof
 
 permissions:
   contents: read
@@ -73,42 +73,42 @@ jobs:
           POSTHOG_POLL_TIMEOUT_MS: 900000
         run: node scripts/live-observability-proof.mjs --target=posthog
 
-  gate-b-posthog-targeting:
-    if: ${{ github.event.inputs.target == 'gate-b-posthog-targeting' }}
+  posthog-stt-ab-targeting-inspector:
+    if: ${{ github.event.inputs.target == 'posthog-stt-ab-targeting-inspector' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
-      - name: Inspect Gate B PostHog targeting
+      - name: Inspect PostHog STT A/B targeting
         env:
-          GATEB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
-          GATEB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
+          STT_AB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
+          STT_AB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
           POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           POSTHOG_ENVIRONMENT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-        run: node scripts/gate-b-posthog-targeting-proof.mjs
+        run: node scripts/posthog-stt-ab-targeting-inspector.mjs
 
-  gate-b-posthog-closeout:
-    if: ${{ github.event.inputs.target == 'gate-b-posthog-closeout' }}
+  posthog-stt-ab-authenticated-user-targeting-proof:
+    if: ${{ github.event.inputs.target == 'posthog-stt-ab-authenticated-user-targeting-proof' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
-      - name: Attempt Gate B PostHog operator targeting closeout
+      - name: Verify PostHog STT A/B authenticated user targeting
         env:
-          GATEB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
-          GATEB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
+          STT_AB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
+          STT_AB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
           POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           POSTHOG_ENVIRONMENT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
-          POSTHOG_GATEB_COHORT_ID: ${{ vars.POSTHOG_GATEB_COHORT_ID }}
-          POSTHOG_GATEB_COHORT_NAME: v4_gateb_disposable_pro_testers
-        run: node scripts/gate-b-posthog-closeout.mjs
+          POSTHOG_STT_AB_COHORT_ID: ${{ vars.POSTHOG_STT_AB_COHORT_ID }}
+          POSTHOG_STT_AB_COHORT_NAME: stt_ab_disposable_pro_testers
+        run: node scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs
