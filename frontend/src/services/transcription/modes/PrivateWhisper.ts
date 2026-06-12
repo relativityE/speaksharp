@@ -425,6 +425,13 @@ const SEVERE_COMMIT_LOOP_MIN_TOKENS = 12;
 const SEVERE_COMMIT_LOOP_MAX_NGRAM_COUNT = 4; // healthy max is 2; looped is 28+
 const SEVERE_COMMIT_LOOP_REDUNDANCY = 0.25;   // healthy is <= 0.009; looped is 0.38-0.65
 
+// When deciding whether committing the new segment would FORM a loop at the boundary, inspect only
+// this many trailing words of the already-committed transcript (the "commit seam"), never the full
+// history. A full-history scan made the withhold sticky: one legitimate earlier repeated phrase
+// (e.g. an emphatic "thank you so much" x4) would trip the detector forever and withhold every later
+// CLEAN segment. A bounded seam still catches a loop spanning the segment boundary.
+const COMMIT_SEAM_CONTEXT_WORDS = 24;
+
 export function hasSevereTranscriptRepetitionLoop(text: string): boolean {
   const words = (text || '')
     .toLowerCase()
@@ -1806,13 +1813,18 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         // normal live-commit behavior is unchanged. Independent of (and complementary to) the
         // display-layer withhold guard — defense-in-depth across the store and render boundaries.
         const committedSegment = collapseTranscriptRepetitionLoops(textToEmit);
-        const projectedCommit = this.currentTranscript.trim()
-          ? `${this.currentTranscript} ${committedSegment}`
-          : committedSegment;
+        // Inspect only the COMMIT SEAM (a bounded tail of the already-committed transcript + the new
+        // segment), never the full accumulated transcript. Scanning the whole history made the
+        // withhold sticky — a single legitimate earlier repeated phrase would trip the detector
+        // forever and withhold every later CLEAN segment. The seam window still catches a loop that
+        // forms across the segment boundary.
+        const committedWords = this.currentTranscript.trim().split(/\s+/).filter(Boolean);
+        const commitSeamTail = committedWords.slice(-COMMIT_SEAM_CONTEXT_WORDS).join(' ');
+        const commitSeamWindow = commitSeamTail ? `${commitSeamTail} ${committedSegment}` : committedSegment;
         if (
           !committedSegment.trim() ||
           hasSevereTranscriptRepetitionLoop(committedSegment) ||
-          hasSevereTranscriptRepetitionLoop(projectedCommit)
+          hasSevereTranscriptRepetitionLoop(commitSeamWindow)
         ) {
           pushPrivateTimeline('live_final_severe_loop_withheld_from_commit', {
             serviceId: this.serviceId,

@@ -1201,6 +1201,45 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         });
         expect(engine.currentTranscript).toContain('and the audience listened closely to every word');
     });
+
+    it('REGRESSION (B-P2): a legitimate earlier repeated phrase must NOT withhold later clean segments', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            status: string;
+            currentTranscript: string;
+            audioChunks: Float32Array[];
+            bufferedSampleCount: number;
+            hasDetectedSpeech: boolean;
+            processAudio: (options?: { force?: boolean }) => Promise<void>;
+        };
+
+        // currentTranscript holds an EARLY, legitimate emphatic repeat ("thank you so much" x4) that
+        // trips the loop detector on the FULL text, followed by enough clean speech that the early
+        // repeat sits OUTSIDE the bounded commit seam. Before the seam fix the full-history scan made
+        // the withhold STICKY — every later clean segment got withheld indefinitely.
+        const earlyRepeat = 'thank you so much thank you so much thank you so much thank you so much';
+        const cleanTail = 'and then the team reviewed the quarterly numbers carefully before we agreed on the final plan for shipping the new release to every customer region without any further delay';
+        engine.status = 'transcribing';
+        engine.currentTranscript = `${earlyRepeat} ${cleanTail}`;
+        // Precondition proving this is a real P2 reproduction: the FULL accumulated transcript trips the
+        // detector, so the old full-history scan WOULD withhold the next clean segment.
+        expect(hasSevereTranscriptRepetitionLoop(engine.currentTranscript)).toBe(true);
+
+        const speech = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 4000).fill(0.5);
+        engine.audioChunks = [speech];
+        engine.bufferedSampleCount = speech.length;
+        engine.hasDetectedSpeech = true;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok('which the whole room applauded warmly'));
+
+        await engine.processAudio();
+
+        // The clean new segment MUST be committed — the stale early repeat must not withhold it.
+        expect(engine.currentTranscript).toContain('which the whole room applauded warmly');
+        const finalEmits = (mockCallbacks.onTranscriptUpdate.mock.calls as Array<[{ transcript?: { final?: string } }]>)
+            .map((call) => call[0]?.transcript?.final)
+            .filter((v): v is string => typeof v === 'string');
+        expect(finalEmits.some((f) => /which the whole room applauded warmly/.test(f))).toBe(true);
+    });
 });
 
 describe('hasSevereTranscriptRepetitionLoop (committed-store loop guard, follow-up B)', () => {
