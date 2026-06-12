@@ -6,7 +6,10 @@ import posthog from 'posthog-js';
 vi.mock('posthog-js', () => ({
   default: {
     capture: vi.fn(),
-    identify: vi.fn()
+    identify: vi.fn(),
+    reset: vi.fn(),
+    reloadFeatureFlags: vi.fn(),
+    _isIdentified: vi.fn()
   }
 }));
 
@@ -159,5 +162,39 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     expect(payload).not.toContain('very-sensitive');
     expect(payload).not.toContain('another sensitive');
     expect(payload).not.toContain('nested array transcript');
+  });
+});
+
+describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('identify() passes through the user id (no email) and reloads feature flags', () => {
+    analyticsBuffer.identify('user-123');
+    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
+  });
+
+  it('resetIdentity() resets PostHog to a fresh anonymous id and reloads flags', () => {
+    analyticsBuffer.resetIdentity();
+    expect(posthog.reset).toHaveBeenCalledTimes(1);
+    expect(posthog.reloadFeatureFlags).toHaveBeenCalled();
+  });
+
+  it('isIdentified() reflects PostHog persisted identity state (used to clear stale cross-boot identity)', () => {
+    const isIdentifiedMock = (posthog as unknown as { _isIdentified: ReturnType<typeof vi.fn> })._isIdentified;
+    isIdentifiedMock.mockReturnValue(true);
+    expect(analyticsBuffer.isIdentified()).toBe(true);
+
+    isIdentifiedMock.mockReturnValue(false);
+    expect(analyticsBuffer.isIdentified()).toBe(false);
+  });
+
+  it('isIdentified() never throws and is false when the posthog signal is unavailable', () => {
+    const isIdentifiedMock = (posthog as unknown as { _isIdentified: ReturnType<typeof vi.fn> })._isIdentified;
+    isIdentifiedMock.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    expect(() => analyticsBuffer.isIdentified()).not.toThrow();
+    expect(analyticsBuffer.isIdentified()).toBe(false);
   });
 });
