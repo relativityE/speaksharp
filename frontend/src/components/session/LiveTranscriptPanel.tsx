@@ -181,7 +181,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             return;
         }
         node.scrollTop = node.scrollHeight;
-    }, [visibleTranscript, history.length, uiState]);
+    }, [visibleTranscript, history.length, uiState, transcriptContainerRef]);
 
     // #33 Native trust-disclaimer proof hooks: publish a timestamped trust-state
     // snapshot (+ append-only trace) so the harness can prove WHEN each trust state
