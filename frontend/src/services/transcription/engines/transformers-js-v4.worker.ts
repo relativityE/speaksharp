@@ -5,7 +5,7 @@ type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['p
 
 type WorkerRequest =
     | { id: number; type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string }
-    | { id: number; type: 'transcribe'; audio: Float32Array }
+    | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> }
     | { id: number; type: 'destroy' };
 
 type WorkerResponse =
@@ -42,7 +42,7 @@ async function getPreferredDevice(): Promise<string | undefined> {
     return (await detectWebGPUSupport()).supported ? 'webgpu' : undefined;
 }
 
-function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
+function getAsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
@@ -52,6 +52,12 @@ function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
         options.language = 'en';
         options.task = 'transcribe';
+    }
+
+    // Proof-hook overrides (allow-listed on the main thread) win over defaults. Inert unless the
+    // browser proof sets window.__PRIVATE_STT_DECODE_OPTIONS__ — product defaults are unchanged.
+    if (decodeOptions) {
+        Object.assign(options, decodeOptions);
     }
 
     return options;
@@ -153,7 +159,7 @@ async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown,
     post({ id, type: 'ready' });
 }
 
-async function transcribe(id: number, audio: Float32Array): Promise<void> {
+async function transcribe(id: number, audio: Float32Array, decodeOptions?: Record<string, unknown>): Promise<void> {
     if (!transcriber) {
         throw new Error('TransformersJSV4 worker engine not initialized. Call init() first.');
     }
@@ -162,7 +168,7 @@ async function transcribe(id: number, audio: Float32Array): Promise<void> {
     const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
     const result = await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(
         audio,
-        getAsrOptions(audioLengthSeconds),
+        getAsrOptions(audioLengthSeconds, decodeOptions),
     );
     const transcript = typeof result === 'string'
         ? result
@@ -187,7 +193,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
                     await init(request.id, request.isE2E, request.model ?? PRIV_STT_V4.MODEL_ID, request.dtype ?? PRIV_STT_V4.DTYPE, request.device);
                     break;
                 case 'transcribe':
-                    await transcribe(request.id, request.audio);
+                    await transcribe(request.id, request.audio, request.decodeOptions);
                     break;
                 case 'destroy':
                     transcriber = null;

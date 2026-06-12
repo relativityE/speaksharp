@@ -15,6 +15,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
+import { readPrivateDecodeOptionsOverride } from '@/services/transcription/engines/whisperDecodeOptions';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
@@ -319,7 +320,7 @@ export class TransformersJSV4Engine extends STTEngine {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
                 const response = await this.sendWorkerRequest(
-                    { type: 'transcribe', audio: workerAudio },
+                    { type: 'transcribe', audio: workerAudio, decodeOptions: readPrivateDecodeOptionsOverride() },
                     [workerAudio.buffer],
                 );
                 if (response.type !== 'result') {
@@ -495,7 +496,7 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
+        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string } | { type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> } | { type: 'destroy' },
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {
