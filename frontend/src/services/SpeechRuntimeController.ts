@@ -1,5 +1,6 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import { emitV4SessionSaved } from '@/services/transcription/privateV4Telemetry';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
@@ -749,13 +750,18 @@ export class SpeechRuntimeController {
 
     private updateSessionPersisted(
         persisted: boolean,
-        details?: { sessionId?: string | null; mode?: string | null },
+        details?: { sessionId?: string | null; mode?: string | null; engineType?: string | null },
     ): void {
         useSessionStore.getState().setSessionSaved(persisted);
         if (useSessionStore.getState().sessionSaved !== persisted) {
             useSessionStore.setState({ sessionSaved: persisted });
         }
         syncSessionPersisted(persisted, details);
+        // Stage-B v4 telemetry: one session_saved per save, only for a v4 private session. Non-PII
+        // allowlist (engine/saved/journey flags only); never throws into the save path.
+        if (persisted && details?.engineType === 'transformers-js-v4') {
+            emitV4SessionSaved({ engine: 'transformers-js-v4', saved: true, recordStarted: true, stopSucceeded: true });
+        }
     }
 
     /**
@@ -1761,7 +1767,7 @@ export class SpeechRuntimeController {
                 // Identity-bearing persisted-session marker (blocker #5): captured on
                 // successful completion so the post-READY persistence write can carry
                 // the exact session id + mode for proofs (data-session-persisted-id).
-                let persistedSessionMarker: { sessionId: string; mode: string | null } | null = null;
+                let persistedSessionMarker: { sessionId: string; mode: string | null; engineType?: string | null } | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
                     let sessionId = this.sessionId;
@@ -2136,7 +2142,12 @@ export class SpeechRuntimeController {
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
                             persistedSessionMarker = sessionId
-                                ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
+                                ? {
+                                    sessionId,
+                                    mode: modeForFinalization ?? stopEntryMode,
+                                    // v4-gate for session_saved telemetry — undefined for non-private/v2 strategies.
+                                    engineType: (service.getStrategy?.() as { getEngineType?: () => string } | undefined)?.getEngineType?.() ?? null,
+                                }
                                 : null;
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
