@@ -3,7 +3,6 @@
 const FLAG_KEY = 'private_stt_v4_enabled';
 const FLAG_ID = '709644';
 
-const email = requireEnv('STT_AB_TEST_EMAIL');
 const appUserId = requireEnv('STT_AB_APP_USER_ID');
 const projectId = requireEnv('POSTHOG_PROJECT_ID');
 const personalApiKey = requireEnv('POSTHOG_PERSONAL_API_KEY');
@@ -16,8 +15,13 @@ const evidence = {
   checkedAt: new Date().toISOString(),
   posthogEnvironmentIdSource: 'POSTHOG_PROJECT_ID',
   testUser: {
-    email,
     appUserId,
+  },
+  identityContract: {
+    queryBy: 'distinct_id',
+    distinctId: appUserId,
+    emailTargetingUsed: false,
+    clientSettableInternalTesterUsed: false,
   },
   expectedFlag: {
     id: FLAG_ID,
@@ -32,9 +36,9 @@ const evidence = {
 };
 
 try {
-  const person = await findPersonByEmail(email);
+  const person = await findPersonByDistinctId();
   evidence.person = summarizePerson(person);
-  evidence.flagEvaluation = await evaluateFlag(person);
+  evidence.flagEvaluation = await evaluateFlag();
   const flagConfig = await fetchFlagConfig();
   evidence.flagConfig = summarizeFlag(flagConfig);
   evidence.operatorTargeting = classifyOperatorTargeting(flagConfig, person);
@@ -48,11 +52,11 @@ try {
 console.log(`POSTHOG_STT_AB_TARGETING_INSPECTOR_EVIDENCE ${JSON.stringify(evidence)}`);
 if (evidence.classification === 'FAIL_HARNESS') process.exitCode = 1;
 
-async function findPersonByEmail(targetEmail) {
+async function findPersonByDistinctId() {
   const attempts = [];
   for (const params of [
-    { email: targetEmail },
-    { search: targetEmail },
+    { distinct_id: appUserId },
+    { search: appUserId },
   ]) {
     for (const base of [
       `/api/environments/${encodeURIComponent(projectId)}/persons/`,
@@ -63,27 +67,25 @@ async function findPersonByEmail(targetEmail) {
       attempts.push({ path: redactUrl(url), status: response.status, ok: response.ok });
       if (!response.ok) continue;
       const results = normalizeResults(response.body);
-      const match = results.find((candidate) => personHasEmail(candidate, targetEmail));
+      const match = results.find((candidate) => personMatches(candidate));
       if (match) return { ...match, __attempts: attempts };
-      if (results.length === 1 && params.search) return { ...results[0], __attempts: attempts };
     }
   }
 
   const query = `
-    SELECT id, created_at, properties, is_identified
-    FROM persons
-    WHERE properties.email = ${sqlString(targetEmail)}
-       OR properties.Email = ${sqlString(targetEmail)}
-       OR properties['$email'] = ${sqlString(targetEmail)}
+    SELECT p.id, p.created_at, p.properties, p.is_identified, pdi.distinct_id
+    FROM persons p
+    JOIN person_distinct_ids pdi ON pdi.person_id = p.id
+    WHERE pdi.distinct_id = ${sqlString(appUserId)}
     LIMIT 5
   `;
-  const queryResult = await hogql(query, 'PostHog STT A/B disposable Pro person lookup');
+  const queryResult = await hogql(query, 'PostHog STT A/B person lookup by app user id');
   attempts.push({ path: '/api/projects/<env>/query/', status: queryResult.status, ok: queryResult.ok, mode: 'hogql_person_lookup' });
   if (queryResult.ok) {
     const rows = Array.isArray(queryResult.body?.results) ? queryResult.body.results : [];
     const match = rows
       .map((row) => personFromHogqlRow(row))
-      .find((candidate) => personHasEmail(candidate, targetEmail));
+      .find((candidate) => personMatches(candidate));
     if (match) return { ...match, __attempts: attempts };
   }
   return { __notFound: true, __attempts: attempts };
@@ -112,20 +114,13 @@ async function fetchFlagConfig() {
   return { __notFound: true, __attempts: attempts };
 }
 
-async function evaluateFlag(person) {
-  const distinctIds = [
-    appUserId,
-    ...(Array.isArray(person?.distinct_ids) ? person.distinct_ids : []),
-    person?.uuid,
-    person?.id,
-  ].filter(Boolean).map(String);
-  const distinctId = [...new Set(distinctIds)][0] || appUserId;
+async function evaluateFlag() {
   const response = await fetch(`${ingestHost}/decide/?v=3`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       api_key: projectApiKey,
-      distinct_id: distinctId,
+      distinct_id: appUserId,
     }),
   });
   const body = await parseBody(response);
@@ -133,7 +128,7 @@ async function evaluateFlag(person) {
   return {
     status: response.status,
     ok: response.ok,
-    distinctIdSource: distinctId === appUserId ? 'app_user_id' : 'posthog_person',
+    distinctIdSource: 'app_user_id',
     privateSttV4Enabled: featureFlags[FLAG_KEY] === true,
     distilEnabled: featureFlags.private_stt_v4_distil_enabled === true,
     receivedFlagKeys: Object.keys(featureFlags).sort(),
@@ -149,12 +144,14 @@ function summarizePerson(person) {
     };
   }
   const properties = safeObject(person.properties);
+  const distinctIds = Array.isArray(person.distinct_ids) ? person.distinct_ids.map(String) : [];
   return {
     found: true,
     id: person.id ?? null,
     uuid: person.uuid ?? null,
-    distinctIdCount: Array.isArray(person.distinct_ids) ? person.distinct_ids.length : null,
-    hasExpectedEmail: personHasEmail(person, email),
+    distinctIdCount: distinctIds.length || null,
+    hasAppUserDistinctId: distinctIds.includes(appUserId),
+    hasEmailProperty: Object.keys(properties).some(isEmailPropertyKey),
     isInternalTester: properties.isInternalTester ?? null,
     propertyKeys: Object.keys(properties).sort(),
     lookupAttempts: person.__attempts || [],
@@ -205,26 +202,25 @@ function classifyOperatorTargeting(flag, person) {
     ...(Array.isArray(person?.distinct_ids) ? person.distinct_ids : []),
   ].filter(Boolean).map(String);
 
-  const exactEmailCondition = properties.some((property) => (
-    ['$email', 'email', 'properties.email'].includes(String(property.key)) &&
-    valueMatches(property.raw?.value, email)
-  ));
+  const emailTargetingCondition = properties.some((property) => isEmailPropertyKey(property.key));
   const exactUserCondition = properties.some((property) => (
     ['$distinct_id', 'distinct_id', 'id', 'person_id', 'uuid'].includes(String(property.key)) &&
     personIds.some((id) => valueMatches(property.raw?.value, id))
   ));
   const cohortCondition = properties.some((property) => property.type === 'cohort' || property.key === 'cohort');
   const internalTesterCondition = properties.some((property) => property.key === 'isInternalTester');
-  const verified = exactEmailCondition || exactUserCondition || cohortCondition;
+  const verified = !emailTargetingCondition && (exactUserCondition || cohortCondition);
 
   return {
     verified,
     reason: verified
       ? 'operator_controlled_condition_present'
-      : internalTesterCondition
+      : emailTargetingCondition
+        ? 'email_targeting_condition_seen'
+        : internalTesterCondition
         ? 'only_isInternalTester_condition_seen'
         : 'no_operator_controlled_condition_seen',
-    exactEmailCondition,
+    emailTargetingCondition,
     exactUserCondition,
     cohortCondition,
     internalTesterCondition,
@@ -233,9 +229,10 @@ function classifyOperatorTargeting(flag, person) {
 }
 
 function classify(current) {
-  if (!current.person?.found || !current.person?.hasExpectedEmail) return 'BLOCKED_ON_TEST_USER_IDENTIFICATION';
+  if (!current.person?.found || !current.person?.hasAppUserDistinctId) return 'FAIL_AUTH_POSTHOG_IDENTIFY';
   if (!current.flagEvaluation?.privateSttV4Enabled) return 'BLOCKED_ON_PRODUCT_TARGETING';
   if (!current.flagConfig?.found) return 'FAIL_HARNESS';
+  if (current.operatorTargeting?.emailTargetingCondition) return 'FAIL_FLAG_TARGETING_CONFIG';
   if (!current.operatorTargeting?.verified) return 'BLOCKED_ON_PRODUCT_TARGETING';
   return 'TARGETING_VERIFIED';
 }
@@ -303,15 +300,13 @@ function personFromHogqlRow(row) {
     created_at: row?.[1] ?? null,
     properties: safeObject(row?.[2]),
     is_identified: row?.[3] ?? null,
+    distinct_ids: row?.[4] ? [String(row[4])] : [],
   };
 }
 
-function personHasEmail(person, targetEmail) {
-  const properties = safeObject(person?.properties);
-  const values = [person?.email, properties.email, properties.$email, properties.Email]
-    .filter(Boolean)
-    .map((value) => String(value).toLowerCase());
-  return values.includes(targetEmail.toLowerCase());
+function personMatches(person) {
+  const distinctIds = Array.isArray(person?.distinct_ids) ? person.distinct_ids.map(String) : [];
+  return distinctIds.includes(appUserId) || String(person?.id || '') === appUserId || String(person?.uuid || '') === appUserId;
 }
 
 function extractProperties(group) {
@@ -339,7 +334,7 @@ function valueMatches(actual, expected) {
 function redactValue(key, value) {
   if (value == null) return null;
   const keyText = String(key || '').toLowerCase();
-  if (keyText.includes('email')) return valueMatches(value, email) ? '<stt-ab-email>' : '<email>';
+  if (keyText.includes('email')) return '<email>';
   if (Array.isArray(value)) return `<array:${value.length}>`;
   const text = String(value);
   return text.length > 16 ? `${text.slice(0, 5)}...${text.slice(-5)}` : value;
@@ -352,9 +347,13 @@ function safeObject(value) {
 function redactUrl(url) {
   const parsed = new URL(url);
   for (const key of [...parsed.searchParams.keys()]) {
-    parsed.searchParams.set(key, key === 'email' || key === 'search' ? '<stt-ab-email>' : '<redacted>');
+    parsed.searchParams.set(key, '<redacted>');
   }
   return `${parsed.pathname}${parsed.search}`;
+}
+
+function isEmailPropertyKey(key) {
+  return ['email', '$email', 'user_email', 'properties.email'].includes(String(key || '').toLowerCase());
 }
 
 function sanitizeError(error) {

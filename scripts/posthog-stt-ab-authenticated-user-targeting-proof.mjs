@@ -5,7 +5,6 @@ const DISTIL_FLAG_KEY = 'private_stt_v4_distil_enabled';
 const FLAG_ID = '709644';
 const DEFAULT_COHORT_NAME = 'stt_ab_disposable_pro_testers';
 
-const email = requireEnv('STT_AB_TEST_EMAIL');
 const appUserId = requireEnv('STT_AB_APP_USER_ID');
 const projectId = requireEnv('POSTHOG_PROJECT_ID');
 const personalApiKey = requireEnv('POSTHOG_PERSONAL_API_KEY');
@@ -21,8 +20,13 @@ const evidence = {
   checkedAt: new Date().toISOString(),
   posthogEnvironmentIdSource: 'POSTHOG_PROJECT_ID',
   testUser: {
-    email,
     appUserId,
+  },
+  identityContract: {
+    queryBy: 'distinct_id',
+    distinctId: appUserId,
+    emailTargetingUsed: false,
+    clientSettableInternalTesterUsed: false,
   },
   expectedFlag: {
     id: FLAG_ID,
@@ -75,8 +79,6 @@ async function findPerson() {
   for (const params of [
     { distinct_id: appUserId },
     { search: appUserId },
-    { email },
-    { search: email },
   ]) {
     for (const base of [
       `/api/environments/${encodeURIComponent(projectId)}/persons/`,
@@ -143,18 +145,6 @@ function personHogqlPlans() {
         distinct_ids: [row[4]],
       } : null,
     },
-    {
-      name: 'persons_email_fallback',
-      query: `
-        SELECT id, created_at, properties, is_identified
-        FROM persons
-        WHERE properties.email = ${sqlString(email)}
-           OR properties.Email = ${sqlString(email)}
-           OR properties['$email'] = ${sqlString(email)}
-        LIMIT 5
-      `,
-      map: (row) => row?.[0] ? { id: row[0], created_at: row[1], properties: safeObject(row[2]), is_identified: row[3] } : null,
-    },
   ];
 }
 
@@ -168,7 +158,7 @@ async function inspectServerIdentity(personSummary) {
   `, 'PostHog STT A/B queryable person by app user id');
 
   const webIdentifyResult = await hogql(`
-    SELECT event, distinct_id, properties['$lib'], timestamp
+    SELECT event, distinct_id, properties['$lib'], timestamp, properties
     FROM events
     WHERE distinct_id = ${sqlString(appUserId)}
       AND event = '$identify'
@@ -177,7 +167,7 @@ async function inspectServerIdentity(personSummary) {
   `, 'PostHog STT A/B web identify events');
 
   const appUserEventsResult = await hogql(`
-    SELECT event, distinct_id, properties['$lib'], timestamp
+    SELECT event, distinct_id, properties['$lib'], timestamp, properties
     FROM events
     WHERE distinct_id = ${sqlString(appUserId)}
     ORDER BY timestamp DESC
@@ -207,7 +197,9 @@ async function inspectServerIdentity(personSummary) {
   const appUserEventSamples = appUserEventRows.map(summarizeEventRow);
   const hasWebIdentify = webIdentifySamples.some((event) => event.event === '$identify' && event.lib === 'web');
   const hasAnyWebEvent = appUserEventSamples.some((event) => event.lib === 'web');
-  const hasEmailProperty = personSamples.some((person) => person.hasEmailProperty);
+  const hasEmailPersonProperty = personSamples.some((person) => person.hasEmailProperty);
+  const hasEmailEventProperty = [...webIdentifySamples, ...appUserEventSamples].some((event) => event.hasEmailProperty);
+  const hasEmailProperty = hasEmailPersonProperty || hasEmailEventProperty;
   const queryablePerson = personSamples.some((person) => person.distinctIdMatchesExpected);
   const personLookupAgrees = Boolean(personSummary?.found && personSummary?.hasAppUserDistinctId);
   const pass = queryablePerson && hasWebIdentify && hasAnyWebEvent && !hasEmailProperty;
@@ -216,10 +208,16 @@ async function inspectServerIdentity(personSummary) {
     pass,
     classification: pass ? 'PASS' : 'FAIL_AUTH_POSTHOG_IDENTIFY',
     queryablePerson,
+    queryBy: 'distinct_id',
+    distinctIdMatchesExpected: queryablePerson,
     personLookupAgrees,
     hasWebIdentify,
     hasAnyWebEvent,
+    hasEmailPersonProperty,
+    hasEmailEventProperty,
     hasEmailProperty,
+    emailTargetingUsed: false,
+    clientSettableInternalTesterUsed: false,
     queryablePersonCount: personSamples.length,
     webIdentifyCount: webIdentifySamples.length,
     appUserEventCount: appUserEventSamples.length,
@@ -446,7 +444,7 @@ function summarizePerson(person) {
     uuid: person.uuid ?? null,
     distinctIdCount: distinctIds.length || null,
     hasAppUserDistinctId: distinctIds.includes(appUserId),
-    hasExpectedEmail: personHasEmail(person),
+    hasEmailProperty: hasEmailProperty(person),
     isIdentified: person.is_identified ?? null,
     propertyKeys: Object.keys(properties).sort(),
     lookupSource: person.__source ?? null,
@@ -536,15 +534,12 @@ function normalizeResults(body) {
 
 function personMatches(person) {
   const distinctIds = Array.isArray(person?.distinct_ids) ? person.distinct_ids.map(String) : [];
-  return distinctIds.includes(appUserId) || String(person?.id || '') === appUserId || String(person?.uuid || '') === appUserId || personHasEmail(person);
+  return distinctIds.includes(appUserId) || String(person?.id || '') === appUserId || String(person?.uuid || '') === appUserId;
 }
 
-function personHasEmail(person) {
-  const properties = safeObject(person?.properties);
-  const values = [person?.email, properties.email, properties.$email, properties.Email]
-    .filter(Boolean)
-    .map((value) => String(value).toLowerCase());
-  return values.includes(email.toLowerCase());
+function hasEmailProperty(source) {
+  const properties = safeObject(source?.properties ?? source);
+  return Object.keys(properties).some(isEmailPropertyKey);
 }
 
 function extractProperties(group) {
@@ -571,17 +566,21 @@ function summarizePersonRow(row) {
     createdAt: row?.[1] ?? null,
     isIdentified: row?.[3] ?? null,
     distinctIdMatchesExpected: row?.[4] === appUserId,
-    hasEmailProperty: propertyKeys.some((key) => String(key).toLowerCase().includes('email')),
+    hasEmailProperty: propertyKeys.some(isEmailPropertyKey),
     propertyKeys,
   };
 }
 
 function summarizeEventRow(row) {
+  const properties = safeObject(row?.[4]);
+  const propertyKeys = Object.keys(properties).sort();
   return {
     event: row?.[0] ?? null,
     distinctIdMatchesExpected: row?.[1] === appUserId,
     lib: row?.[2] ?? null,
     timestamp: row?.[3] ?? null,
+    hasEmailProperty: propertyKeys.some(isEmailPropertyKey),
+    propertyKeys,
   };
 }
 
@@ -621,10 +620,14 @@ function valueMatches(actual, expected) {
 function redactValue(key, value) {
   if (value == null) return null;
   const keyText = String(key || '').toLowerCase();
-  if (keyText.includes('email')) return valueMatches(value, email) ? '<stt-ab-email>' : '<email>';
+  if (keyText.includes('email')) return '<email>';
   if (Array.isArray(value)) return `<array:${value.length}>`;
   const text = String(value);
   return text.length > 16 ? `${text.slice(0, 5)}...${text.slice(-5)}` : value;
+}
+
+function isEmailPropertyKey(key) {
+  return ['email', '$email', 'user_email'].includes(String(key || '').toLowerCase());
 }
 
 function redactId(value) {
@@ -636,7 +639,7 @@ function redactId(value) {
 function redactUrl(url) {
   const parsed = new URL(url);
   for (const key of [...parsed.searchParams.keys()]) {
-    parsed.searchParams.set(key, ['email', 'search', 'distinct_id', 'key'].includes(key) ? '<redacted>' : '<redacted>');
+    parsed.searchParams.set(key, '<redacted>');
   }
   return `${parsed.pathname}${parsed.search}`;
 }
