@@ -5,6 +5,20 @@ Source-level verification that the **deployed DB entitlement functions / tier co
 a maintainability note. The "live/prod matches latest migration" confirmation still needs a prod DB
 query (ops) — see *Open / needs-ops* below.
 
+## Release closeout summary (#1 / #4 / #5)
+
+| Item | Status | Where |
+|---|---|---|
+| **#5** AI suggestions server-side quota | ✅ **Verified closed — no code.** Already implemented + enforced (HTTP 429 on exceed, cached bypass, atomic RLS counter). | edge fn `get-ai-suggestions` + `consume_ai_suggestion_quota()` |
+| **#4** Stripe customer-id persistence | ✅ **Verified closed on `main` — no code.** Migration `20260608190000` + webhook extraction + `p_stripe_customer_id` RPC; 11 customer-id test assertions. The `paid-soft-launch-*` branches are **behind main** (only deletions), so nothing to merge from them. | `stripe-webhook/index.ts` + migration |
+| **#1** Entitlement Pro-limit drift | ✅ **Decided + fixed for this release** (consistency fix, **PR #769**). | this doc + PR #769 |
+
+**Release-owner decision (recorded):** **Pro = 2h/day, 50h/month for this release; DB `tier_configs` is the
+source of truth; do NOT raise the DB to unlimited** — that is a separate post-release Product/pricing
+decision. The #1 fix (PR #769) aligns the dead `subscriptionTiers.ts` constant (`Infinity` → `7200`),
+corrects the "Want unlimited sessions?" upsell copy → "Need more recording time?", and adds an
+entitlement-consistency guard test so config can't silently drift back to an "unlimited" claim.
+
 ---
 
 ## Finding 1 (decide): Pro tier daily/monthly limit — policy constant vs deployed DB
