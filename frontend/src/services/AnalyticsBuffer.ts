@@ -219,6 +219,13 @@ class AnalyticsBuffer {
   private captureAccountIdentified(): void {
     try {
       posthog.capture('account_identified', { source: 'auth_provider' });
+      // Flush IMMEDIATELY so the materialization event is sent now, not held in the batch queue.
+      // A login is often followed quickly by navigation; if the batched request never flushes before
+      // the page unloads, PostHog never ingests the event and no server-side person is created (the
+      // Gate B failure: 0 web events under the user.id despite local distinct_id being correct).
+      // flush() exists in the deployed posthog-js (1.298.1); guarded + cast so it is a safe no-op if
+      // a future version drops it, and the surrounding try/catch keeps it non-fatal.
+      (posthog as unknown as { flush?: () => void }).flush?.();
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to send account_identified event');
     }
