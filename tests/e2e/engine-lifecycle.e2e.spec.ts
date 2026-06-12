@@ -139,6 +139,50 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     });
 
     await navigateToRoute(page, '/session');
+    const usageLimitProbe = await page.evaluate(() => {
+      const win = window as unknown as {
+        queryClient?: {
+          getQueryCache?: () => {
+            getAll?: () => Array<{
+              queryKey?: unknown;
+              state?: { data?: unknown; status?: string };
+            }>;
+          };
+        };
+        __E2E_DEPS__?: { fetchUsageLimit?: unknown };
+        supabase?: { functions?: { invoke?: unknown } };
+      };
+      const usageQueries = win.queryClient?.getQueryCache?.().getAll?.()
+        .filter(query => JSON.stringify(query.queryKey).includes('usageLimit'))
+        .map(query => ({
+          queryKey: query.queryKey,
+          status: query.state?.status,
+          data: query.state?.data,
+        })) ?? [];
+
+      return {
+        source: typeof win.__E2E_DEPS__?.fetchUsageLimit === 'function'
+          ? 'window.__E2E_DEPS__.fetchUsageLimit'
+          : win.supabase?.functions?.invoke
+            ? 'window.supabase.functions.invoke'
+            : 'network/default',
+        hasWindowSupabase: !!win.supabase,
+        hasE2EFetchUsageLimit: typeof win.__E2E_DEPS__?.fetchUsageLimit === 'function',
+        usageQueries,
+      };
+    });
+    expect(usageLimitProbe.source).toBe('window.supabase.functions.invoke');
+    expect(usageLimitProbe.usageQueries).toHaveLength(1);
+    expect(usageLimitProbe.usageQueries[0]?.status).toBe('success');
+    expect(usageLimitProbe.usageQueries[0]?.data).toMatchObject({
+      subscription_status: 'free',
+      is_pro: false,
+      private_sample_available: true,
+      private_sample_limit_seconds: 300,
+      private_sample_seconds_remaining: 300,
+      private_sample_session_id: null,
+      private_sample_completed_at: null,
+    });
     await openModeMenu(page);
 
     await expectModeEnabled(page, /Private/i);
