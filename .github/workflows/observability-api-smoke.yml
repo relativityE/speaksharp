@@ -14,6 +14,7 @@ on:
           - edge-sentry
           - posthog
           - gate-b-posthog-targeting
+          - gate-b-posthog-closeout
 
 permissions:
   contents: read
@@ -90,3 +91,24 @@ jobs:
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           POSTHOG_ENVIRONMENT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
         run: node scripts/gate-b-posthog-targeting-proof.mjs
+
+  gate-b-posthog-closeout:
+    if: ${{ github.event.inputs.target == 'gate-b-posthog-closeout' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Attempt Gate B PostHog operator targeting closeout
+        env:
+          GATEB_TEST_EMAIL: speaksharp-gateb-pro-20260611-1781209989779@speaksharp.app
+          GATEB_APP_USER_ID: 22899590-4af1-4a0c-88d6-b00996cb5ae0
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          POSTHOG_ENVIRONMENT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          POSTHOG_GATEB_COHORT_ID: ${{ vars.POSTHOG_GATEB_COHORT_ID }}
+          POSTHOG_GATEB_COHORT_NAME: v4_gateb_disposable_pro_testers
+        run: node scripts/gate-b-posthog-closeout.mjs
