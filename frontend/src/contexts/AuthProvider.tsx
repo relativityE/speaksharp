@@ -89,10 +89,16 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   useEffect(() => {
     const userId = sessionState?.user?.id ?? null;
     if (!userId) {
-      if (identifiedAnalyticsUserRef.current) {
+      // No active session. Clear a persisted PostHog identity if EITHER this mount identified someone
+      // OR PostHog still carries a prior user's account-linked identity from an EARLIER visit. The
+      // ref starts null on every fresh mount, but PostHog persists distinct_id across page loads — so
+      // an anonymous/no-session boot on a shared device or after an expired session would otherwise
+      // keep events/flags attached to the previous user. We gate on isIdentified() so a genuinely
+      // fresh anonymous visitor is left untouched (no needless anonymous-id churn).
+      if (identifiedAnalyticsUserRef.current || analyticsBuffer.isIdentified()) {
         analyticsBuffer.resetIdentity();
-        identifiedAnalyticsUserRef.current = null;
       }
+      identifiedAnalyticsUserRef.current = null;
       return;
     }
     if (identifiedAnalyticsUserRef.current === userId) return;

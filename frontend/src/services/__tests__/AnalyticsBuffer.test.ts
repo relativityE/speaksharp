@@ -8,7 +8,8 @@ vi.mock('posthog-js', () => ({
     capture: vi.fn(),
     identify: vi.fn(),
     reset: vi.fn(),
-    reloadFeatureFlags: vi.fn()
+    reloadFeatureFlags: vi.fn(),
+    _isIdentified: vi.fn()
   }
 }));
 
@@ -177,5 +178,23 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     analyticsBuffer.resetIdentity();
     expect(posthog.reset).toHaveBeenCalledTimes(1);
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled();
+  });
+
+  it('isIdentified() reflects PostHog persisted identity state (used to clear stale cross-boot identity)', () => {
+    const isIdentifiedMock = (posthog as unknown as { _isIdentified: ReturnType<typeof vi.fn> })._isIdentified;
+    isIdentifiedMock.mockReturnValue(true);
+    expect(analyticsBuffer.isIdentified()).toBe(true);
+
+    isIdentifiedMock.mockReturnValue(false);
+    expect(analyticsBuffer.isIdentified()).toBe(false);
+  });
+
+  it('isIdentified() never throws and is false when the posthog signal is unavailable', () => {
+    const isIdentifiedMock = (posthog as unknown as { _isIdentified: ReturnType<typeof vi.fn> })._isIdentified;
+    isIdentifiedMock.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    expect(() => analyticsBuffer.isIdentified()).not.toThrow();
+    expect(analyticsBuffer.isIdentified()).toBe(false);
   });
 });

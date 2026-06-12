@@ -15,7 +15,12 @@ vi.mock('../../utils/fetchWithRetry', () => ({
 }));
 
 // Account-linked analytics identity (PostHog/Sentry) — assert the AuthProvider identifies by user.id.
-const analyticsMock = vi.hoisted(() => ({ identify: vi.fn(), resetIdentity: vi.fn() }));
+// isIdentified() reports whether PostHog still holds a persisted (cross-boot) account-linked identity.
+const analyticsMock = vi.hoisted(() => ({
+    identify: vi.fn(),
+    resetIdentity: vi.fn(),
+    isIdentified: vi.fn(() => false),
+}));
 vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: analyticsMock }));
 
 // Test consumer component
@@ -46,6 +51,9 @@ describe('AuthProvider', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        // clearAllMocks clears call history but not implementations — restore the default so a prior
+        // test's mockReturnValue(true) cannot leak a persisted-identity signal into the next test.
+        analyticsMock.isIdentified.mockReturnValue(false);
 
         // Mock Supabase Client structure
         mockSupabase = {
@@ -145,6 +153,45 @@ describe('AuthProvider', () => {
         await waitFor(() => expect(analyticsMock.identify).toHaveBeenCalledWith('user-123'));
         screen.getByText('Sign Out').click();
         await waitFor(() => expect(analyticsMock.resetIdentity).toHaveBeenCalled());
+    });
+
+    it('clears a PERSISTED PostHog identity on an anonymous boot (shared device / expired session)', async () => {
+        // No session this boot, but PostHog still carries a prior user's account-linked identity
+        // persisted across page loads. The mount ref starts null, so the fix must rely on
+        // isIdentified() to clear the stale identity — otherwise events/flags leak to the prior user.
+        analyticsMock.isIdentified.mockReturnValue(true);
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+        await waitFor(() => expect(analyticsMock.resetIdentity).toHaveBeenCalled());
+        expect(analyticsMock.identify).not.toHaveBeenCalled();
+    });
+
+    it('does NOT reset on a fresh anonymous boot with no persisted identity (no anonymous-id churn)', async () => {
+        // No session and PostHog is already anonymous — resetting here would needlessly mint a new
+        // anonymous distinct_id and fragment returning-anonymous-visitor analytics.
+        analyticsMock.isIdentified.mockReturnValue(false);
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+        expect(analyticsMock.resetIdentity).not.toHaveBeenCalled();
+        expect(analyticsMock.identify).not.toHaveBeenCalled();
     });
 
     it('handles getSession error gracefully', async () => {

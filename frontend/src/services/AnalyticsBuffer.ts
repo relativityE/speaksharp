@@ -203,6 +203,23 @@ class AnalyticsBuffer {
   }
 
   /**
+   * Whether PostHog currently holds an IDENTIFIED (account-linked) distinct id — true after
+   * identify() and until reset(). PostHog persists this across page loads (localStorage/cookie), so
+   * on an anonymous/no-session boot it can still report a PRIOR user's identity. Callers use this to
+   * decide whether a stale persisted identity must be cleared (shared device / expired session)
+   * WITHOUT churning the anonymous id of a genuinely fresh anonymous visitor. Never throws; returns
+   * false if the underlying posthog-js signal is unavailable so callers fall back to ref-only logic.
+   */
+  public isIdentified(): boolean {
+    try {
+      const ph = posthog as unknown as { _isIdentified?: () => boolean };
+      return typeof ph._isIdentified === 'function' ? ph._isIdentified() : false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Clear the identified user on sign-out: reset PostHog to a fresh anonymous distinct id and clear
    * the Sentry user. Pairs with identify() so a shared device does not retain a prior account's
    * identity (and so PostHog feature-flag evaluation reverts to the anonymous/default cohort).
