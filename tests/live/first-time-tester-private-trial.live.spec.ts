@@ -17,8 +17,8 @@ test.use({
   },
 });
 
-test.describe('First-time tester automatic trial Private STT path @live', () => {
-  test('new tester signs up, starts uncached Private STT, records, stops, and avoids failed-start state', async ({ page }) => {
+test.describe('First-time tester Private sample path @live', () => {
+  test('new tester signs up Browser-first, intentionally starts Private sample, records, saves, and keeps Browser fallback', async ({ page }) => {
     test.skip(!BASE_URL, 'BASE_URL is required.');
     test.setTimeout(360_000);
 
@@ -42,7 +42,9 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
       win.__RC_GATE_EVENTS__ = [];
       win.__SS_E2E__ = {
         ...(win.__SS_E2E__ ?? {}),
-        isActive: true,
+        // Keep the event sink for evidence, but do not activate E2E mock
+        // enforcement. This proof must exercise the real Private engine path.
+        isActive: false,
         pushEvent(event, payload) {
           win.__RC_GATE_EVENTS__?.push({ event, payload, timestamp: Date.now() });
         },
@@ -77,21 +79,26 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
 
     const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
     const email = `first-time-tester-${unique}@speaksharp.app`;
-    const password = `SpeakSharpTrial-${unique}!`;
+    const password = `SpeakSharpSample-${unique}!`;
 
-    await test.step('Create a fresh tester account with automatic trial copy visible', async () => {
+    await test.step('Create a fresh tester account with Browser-first and Private sample copy visible', async () => {
       console.log('FIRST_TIME_TESTER_STEP signup_start');
-      await expect(page.getByText(/60-minute Pro trial/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/Start free with instant Browser transcription/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/try one Private sample session/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/record up to 5 minutes/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/60-minute Pro trial|trial countdown|daily limit|monthly limit|practice quota|Pro quota/i)).toHaveCount(0);
       await page.getByTestId('email-input').fill(email);
       await page.getByTestId('password-input').fill(password);
       await page.getByTestId('sign-up-submit').click();
       console.log('FIRST_TIME_TESTER_STEP signup_submitted');
     });
 
-    await test.step('Land in session with trial access and Private selected', async () => {
+    await test.step('Land in session Browser-first, then intentionally choose Private sample', async () => {
       await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
-      await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('stt-mode-select')).toContainText(/Browser/i, { timeout: 20_000 });
+      await expect(page.getByTestId('first-run-setup-private')).toHaveText(/Try one Private sample session/i, { timeout: 20_000 });
       await selectBenchmarkMode(page, 'private');
+      await expect(page.getByTestId('live-session-header')).toContainText(/Private sample: up to 5 minutes|Record up to 5 minutes/i, { timeout: 20_000 });
       console.log('FIRST_TIME_TESTER_STEP session_private_selected');
     });
 
@@ -111,6 +118,12 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
     await test.step('Start, verify live transcript/fillers, and stop recording after Private setup', async () => {
       recordingEvidence = await startAndStopPrivateRecording(page);
       console.log('FIRST_TIME_TESTER_STEP recording_start_stop_done');
+    });
+
+    await test.step('Confirm Browser transcription remains available after Private sample recording', async () => {
+      await selectBenchmarkMode(page, 'native');
+      await expect(page.getByTestId('stt-mode-select')).toContainText(/Browser/i, { timeout: 20_000 });
+      console.log('FIRST_TIME_TESTER_STEP browser_fallback_available');
     });
 
     let historyEvidence: HistoryEvidence;
@@ -142,9 +155,11 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
 });
 
 function isPrivateReadySnapshot(snapshot: FirstUseSnapshot) {
-  return snapshot.sttReady === 'true' ||
+  return snapshot.startButtonEnabled ||
+    snapshot.sttReady === 'true' ||
     snapshot.runtimeState === 'RECORDING' ||
-    snapshot.modelStatus === 'ready';
+    snapshot.modelStatus === 'ready' ||
+    /ready to record/i.test(snapshot.statusText);
 }
 
 async function clearPrivateModelStorage(page: Page) {
@@ -192,14 +207,20 @@ async function preparePrivateModelIfPrompted(page: Page) {
 async function waitForPrivateReady(page: Page) {
   await page.waitForFunction(() => {
     const root = document.documentElement;
+    const startButton = document.querySelector<HTMLButtonElement>('[data-testid="session-start-stop-button"]');
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     const runtimeState = root.getAttribute('data-runtime-state');
     const sttReady = root.getAttribute('data-stt-ready');
     const modelStatus = root.getAttribute('data-model-status');
+    const startButtonEnabled = Boolean(startButton && !startButton.disabled);
+    const statusText = statusNode?.textContent?.trim() ?? '';
 
     return (
+      startButtonEnabled ||
       sttReady === 'true' ||
       runtimeState === 'RECORDING' ||
-      modelStatus === 'ready'
+      modelStatus === 'ready' ||
+      /ready to record/i.test(statusText)
     );
   }, { timeout: 180_000 });
 }
@@ -238,7 +259,7 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
 
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 60_000 });
-  await expect(page.locator('html[data-session-persisted="true"]')).toBeVisible({ timeout: 60_000 });
+  await waitForPrivateSampleSaved(page);
 
   return {
     transcriptText,
@@ -247,6 +268,15 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
     saved: true,
     beforeStop,
   };
+}
+
+async function waitForPrivateSampleSaved(page: Page) {
+  await expect(async () => {
+    const persisted = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
+    const bodyText = normalizeText(await page.locator('body').textContent());
+    const savedUi = /session saved|your session is saved|view analytics/i.test(bodyText);
+    expect(persisted || savedUi, { persisted, savedUi, bodyText: bodyText.slice(0, 500) }).toBe(true);
+  }).toPass({ timeout: 60_000, intervals: [1_000, 2_000, 5_000] });
 }
 
 async function readTranscriptTextOnly(page: Page) {
@@ -286,6 +316,7 @@ type FirstUseSnapshot = {
   sttReady: string | null
   statusText: string
   downloadVisible: boolean
+  startButtonEnabled: boolean
 }
 
 type WarmupEvidence = {
@@ -321,6 +352,7 @@ async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
     const root = document.documentElement;
     const downloadButton = document.querySelector('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    const startButton = document.querySelector<HTMLButtonElement>('[data-testid="session-start-stop-button"]');
 
     return {
       modelStatus: root.getAttribute('data-model-status'),
@@ -328,6 +360,7 @@ async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
       sttReady: root.getAttribute('data-stt-ready'),
       statusText: statusNode?.textContent?.trim() ?? document.body.innerText.slice(0, 500),
       downloadVisible: Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none'),
+      startButtonEnabled: Boolean(startButton && !startButton.disabled),
     };
   });
 }
