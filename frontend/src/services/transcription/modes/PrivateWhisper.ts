@@ -408,6 +408,48 @@ export function collapseTranscriptRepetitionLoops(text: string): string {
   return out.join(' ');
 }
 
+// Conservative, deterministic detector for a SEVERE repetition loop — the v4 (transformers-js-v4 /
+// WebGPU) Whisper rolling/streaming-hypothesis failure mode (drift + repetition within a decode
+// window). Used at the live-final COMMIT boundary to enforce the data-layer invariant: the committed
+// transcript must never carry an unfinalized streaming repetition loop. Signal = frequency of the
+// most-repeated normalized 3-gram and overall 3-gram redundancy.
+//
+// This intentionally MIRRORS hasSevereRepetitionLoop() in
+// components/session/liveTranscriptUtils.ts (the display-layer withhold). The copy is deliberate:
+// the engine/store boundary and the render boundary are defended INDEPENDENTLY (defense-in-depth),
+// so neither layer imports the other. Thresholds are grounded on the real failure artifact
+// (speaksharp-official-stt-ab-targeted-trust-1781263998): a looped decode has a top 3-gram count of
+// 28-29 and redundancy 0.38-0.65, while clean v4-final AND v2 transcripts top out at a 3-gram count
+// of 2 and redundancy <= 0.009 — so the cuts below fire ONLY on a severe loop.
+const SEVERE_COMMIT_LOOP_MIN_TOKENS = 12;
+const SEVERE_COMMIT_LOOP_MAX_NGRAM_COUNT = 4; // healthy max is 2; looped is 28+
+const SEVERE_COMMIT_LOOP_REDUNDANCY = 0.25;   // healthy is <= 0.009; looped is 0.38-0.65
+
+export function hasSevereTranscriptRepetitionLoop(text: string): boolean {
+  const words = (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length < SEVERE_COMMIT_LOOP_MIN_TOKENS) return false;
+
+  const counts = new Map<string, number>();
+  let totalGrams = 0;
+  let maxCount = 0;
+  let repeatedGrams = 0;
+  for (let i = 0; i + 3 <= words.length; i += 1) {
+    const gram = `${words[i]} ${words[i + 1]} ${words[i + 2]}`;
+    const next = (counts.get(gram) ?? 0) + 1;
+    counts.set(gram, next);
+    totalGrams += 1;
+    if (next > maxCount) maxCount = next;
+    if (next > 1) repeatedGrams += 1;
+  }
+  if (totalGrams === 0) return false;
+  const redundancy = repeatedGrams / totalGrams;
+  return maxCount >= SEVERE_COMMIT_LOOP_MAX_NGRAM_COUNT || redundancy >= SEVERE_COMMIT_LOOP_REDUNDANCY;
+}
+
 function appendTranscriptWithoutDuplicate(base: string, segment: string): string {
   const baseText = base.replace(/\s+/g, ' ').trim();
   const segmentText = segment.replace(/\s+/g, ' ').trim();
@@ -1750,6 +1792,51 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             return;
           }
         }
+
+        // DATA-LAYER INVARIANT (LIVE-TRANSCRIPT-REPEATED-DISPLAY follow-up B):
+        // The committed transcript must represent STABLE text — never an unfinalized v4 streaming
+        // repetition loop. The whole-utterance final already collapses loops before it becomes the
+        // saved authority; apply the SAME treatment to the live-final commit, plus a severe-loop
+        // backstop:
+        //   1. collapse in-window loops (identical to the saved-authority path), then
+        //   2. if a SEVERE loop survives collapse, or would form at the commit seam, DO NOT commit —
+        //      route the hypothesis to the interim/partial buffer ONLY and retain the audio so the
+        //      clean whole-utterance final stays the committed authority.
+        // Conservative: healthy v2/v4 text is a collapse no-op and never trips the detector, so the
+        // normal live-commit behavior is unchanged. Independent of (and complementary to) the
+        // display-layer withhold guard — defense-in-depth across the store and render boundaries.
+        const committedSegment = collapseTranscriptRepetitionLoops(textToEmit);
+        const projectedCommit = this.currentTranscript.trim()
+          ? `${this.currentTranscript} ${committedSegment}`
+          : committedSegment;
+        if (
+          !committedSegment.trim() ||
+          hasSevereTranscriptRepetitionLoop(committedSegment) ||
+          hasSevereTranscriptRepetitionLoop(projectedCommit)
+        ) {
+          pushPrivateTimeline('live_final_severe_loop_withheld_from_commit', {
+            serviceId: this.serviceId,
+            runId: this.instanceId,
+            rawPreview: redactTranscript(textToEmit),
+            collapsedPreview: redactTranscript(committedSegment),
+            currentPreview: redactTranscript(this.currentTranscript),
+          });
+          logger.info({
+            sId: this.serviceId,
+            rId: this.instanceId,
+            rawLength: textToEmit.length,
+            collapsedLength: committedSegment.length,
+          }, '[PrivateWhisper] Withholding severe streaming repetition loop from committed transcript (kept as interim; whole-utterance final remains authority)');
+          // Surface as provisional only — a looped hypothesis belongs in the interim buffer, never the
+          // committed store. The display-layer withhold then keeps it off the visible surface too.
+          if (this.onTranscriptUpdate && !this.isStopping) {
+            this.emitProvisionalPartial(textToEmit, 'severe_loop_withheld_from_commit');
+          }
+          this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'severe_loop_withheld_from_commit');
+          return;
+        }
+        // Commit the collapsed (loop-free) segment, not the raw rolling decode.
+        textToEmit = committedSegment;
 
         logger.info({ sId: this.serviceId, rId: this.instanceId, newText: redactTranscript(textToEmit), latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${textToEmit}` : textToEmit;

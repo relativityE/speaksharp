@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
 vi.unmock('../PrivateWhisper');
 
-import PrivateWhisper, { buildPrivateTimingSummary, collapseTranscriptRepetitionLoops } from '../PrivateWhisper';
+import PrivateWhisper, { buildPrivateTimingSummary, collapseTranscriptRepetitionLoops, hasSevereTranscriptRepetitionLoop } from '../PrivateWhisper';
 import { Result } from '../types';
 import { MicStream } from '../../utils/types';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE } from '../../sttConstants';
@@ -1125,6 +1125,99 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
         vi.useRealTimers();
+    });
+
+    // LIVE-TRANSCRIPT-REPEATED-DISPLAY follow-up B (data-layer invariant):
+    // A v4 rolling/streaming decode can loop within its window ("It's a question" x28 in the real
+    // artifact). The committed transcript must represent STABLE text — it must never carry an
+    // unfinalized streaming repetition loop. Before this fix, the live-final commit path appended the
+    // raw rolling decode to currentTranscript and emitted { final } with no loop guard (unlike the
+    // whole-utterance final, which collapses loops), so the user-visible committed transcript looped
+    // during drafting/finalizing. Reproduce-first: drive a looped rolling decode into the commit path
+    // and assert the loop never reaches the committed transcript / { final } emit.
+    it('REGRESSION (B): withholds a severe v4 streaming loop from the live-final committed transcript', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            status: string;
+            currentTranscript: string;
+            audioChunks: Float32Array[];
+            bufferedSampleCount: number;
+            hasDetectedSpeech: boolean;
+            processAudio: (options?: { force?: boolean }) => Promise<void>;
+        };
+
+        const LOOP = "It's a question. ".repeat(28).trim();
+        // A first transcript is already committed (the realistic mid-recording state).
+        engine.status = 'transcribing';
+        engine.currentTranscript = 'Love from a return.';
+        // Strong, clearly-voiced audio so the silence/low-energy gates pass and the decode commits.
+        const speech = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 4000).fill(0.5);
+        engine.audioChunks = [speech];
+        engine.bufferedSampleCount = speech.length;
+        engine.hasDetectedSpeech = true;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok(LOOP));
+
+        await engine.processAudio();
+
+        const countReps = (s: string) => (s.toLowerCase().match(/it'?s a question/g) || []).length;
+
+        // INVARIANT: the committed transcript must not contain the severe streaming loop.
+        expect(countReps(engine.currentTranscript)).toBeLessThan(3);
+
+        // INVARIANT: no committed { final } emit may carry the severe loop. (A looped hypothesis may
+        // still be surfaced as a { partial } interim — the display-layer withhold guard owns that —
+        // but it must never be committed as { final }.)
+        const finalEmits = (mockCallbacks.onTranscriptUpdate.mock.calls as Array<[{ transcript?: { final?: string } }]>)
+            .map((call) => call[0]?.transcript?.final)
+            .filter((v): v is string => typeof v === 'string');
+        for (const emitted of finalEmits) {
+            expect(countReps(emitted)).toBeLessThan(3);
+        }
+    });
+
+    it('REGRESSION (B): still commits a normal (non-looped) rolling decode as { final }', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            status: string;
+            currentTranscript: string;
+            audioChunks: Float32Array[];
+            bufferedSampleCount: number;
+            hasDetectedSpeech: boolean;
+            processAudio: (options?: { force?: boolean }) => Promise<void>;
+        };
+
+        engine.status = 'transcribing';
+        engine.currentTranscript = 'Love from a return.';
+        const speech = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 4000).fill(0.5);
+        engine.audioChunks = [speech];
+        engine.bufferedSampleCount = speech.length;
+        engine.hasDetectedSpeech = true;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok('and the audience listened closely to every word'));
+
+        await engine.processAudio();
+
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: { final: 'and the audience listened closely to every word' },
+        });
+        expect(engine.currentTranscript).toContain('and the audience listened closely to every word');
+    });
+});
+
+describe('hasSevereTranscriptRepetitionLoop (committed-store loop guard, follow-up B)', () => {
+    it('flags a severe v4 streaming repetition loop', () => {
+        expect(hasSevereTranscriptRepetitionLoop("It's a question. ".repeat(28))).toBe(true);
+    });
+    it('does NOT flag clean varied text', () => {
+        expect(hasSevereTranscriptRepetitionLoop('The quick brown fox jumps over the lazy dog and then it runs far away today.')).toBe(false);
+    });
+    it('does NOT flag a clean whole-utterance-style transcript', () => {
+        expect(hasSevereTranscriptRepetitionLoop('Love from a return. I want to talk about why questions matter and how we should ask them.')).toBe(false);
+    });
+    it('does NOT flag short text (below the min-token floor)', () => {
+        expect(hasSevereTranscriptRepetitionLoop("It's a question.")).toBe(false);
+    });
+    it('does NOT flag a benign 2x phrase repeat', () => {
+        expect(hasSevereTranscriptRepetitionLoop('I think I think we should go to the store and buy some milk today')).toBe(false);
     });
 });
 
