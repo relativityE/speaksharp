@@ -356,6 +356,79 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
+    it('keeps enforcing the Private sample window (not the free daily limit) when availability flips false mid-recording', async () => {
+        // Regression for the #770 HOLD: once `private_sample_session_id` is set, the
+        // entitlement refetch returns private_sample_available=false while sample seconds
+        // remain. The countdown/auto-stop must keep using the sample's remaining seconds,
+        // NOT fall back to the free daily remaining (which would prematurely auto-stop the
+        // sample and pop the daily sunset modal).
+        const mockElapsedTime = 31; // past the 30s daily remaining, far under the 300s sample
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: true,
+            elapsedTime: mockElapsedTime,
+            startTime: Date.now() - (mockElapsedTime * 1000),
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'ready', message: 'Recording' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                ...baseUsageLimit,
+                can_start: true,
+                subscription_status: 'free',
+                is_pro: false,
+                remaining_seconds: 30,
+                daily_remaining: 30,
+                private_sample_available: false,        // flips false once session_id is set
+                private_sample_seconds_remaining: 300,  // sample still has the full window left
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        // The daily sunset modal only fires for non-sample auto-stops. With the fix the
+        // sample window (300s) governs, so at 31s elapsed nothing stops and the modal stays
+        // closed. Pre-fix, sourceRemaining fell back to daily (30s) and popped it.
+        expect(mockStore.getState().sunsetModal.open).toBe(false);
+
+        // And it must not have auto-stopped the recording.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
+    });
+
     it('should warn pro users when they are within five minutes of their daily practice limit', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {

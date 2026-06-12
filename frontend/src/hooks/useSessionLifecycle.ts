@@ -381,10 +381,17 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         if (!isVerified || !usageLimit) return;
 
+        // A Private sample recording stays a sample recording for its whole duration.
+        // `private_sample_available` flips to false once `private_sample_session_id` is
+        // set (sample in progress), so a mid-recording entitlement refetch must NOT make
+        // the countdown/auto-stop fall back to the free daily limit. Treat any in-progress
+        // sample (seconds remaining > 0) as a sample recording regardless of the
+        // post-start availability flag.
         const isPrivateSampleRecording = effectiveMode === 'private'
             && !isProUser
-            && usageLimit.private_sample_available === true
-            && typeof usageLimit.private_sample_seconds_remaining === 'number';
+            && typeof usageLimit.private_sample_seconds_remaining === 'number'
+            && (usageLimit.private_sample_available === true
+                || usageLimit.private_sample_seconds_remaining > 0);
         const sourceRemaining = isPrivateSampleRecording
             ? usageLimit.private_sample_seconds_remaining
             : isProUser && typeof usageLimit.daily_remaining === 'number'
