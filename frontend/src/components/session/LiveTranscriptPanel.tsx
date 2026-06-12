@@ -2,7 +2,7 @@ import React from 'react';
 import { Lock, Cloud } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
-import { splitSettledActiveTranscript } from './liveTranscriptUtils';
+import { splitSettledActiveTranscript, hasSevereRepetitionLoop } from './liveTranscriptUtils';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
@@ -104,6 +104,15 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             : (hasTranscript ? 'final' : 'idle');
     const normalizedSttMode = (sttMode ?? '').toLowerCase();
     const isPrivateMode = normalizedSttMode === 'private';
+    // LIVE-TRANSCRIPT-REPEATED-DISPLAY (A+): release containment for the v4 Whisper streaming
+    // repetition-loop failure mode. When the live (committed or interim) text is severely looped,
+    // WITHHOLD it from the surface and show the existing "Processing…" state until the clean
+    // whole-utterance final replaces it. Display-only: no transcript data is mutated/de-duplicated;
+    // gated to private mode so Native/Cloud are untouched, and the detector only fires on v4-grade
+    // loops so healthy private-v2 text is unaffected. (Proper fix tracked separately: keep v4
+    // streaming hypotheses out of the committed transcript store.)
+    const withholdLoopedLive = isPrivateMode
+        && (hasSevereRepetitionLoop(transcript) || hasSevereRepetitionLoop(interimTranscript));
     const isDrafting = uiState === 'drafting';
     const showDraftTrustBanner = isListening && !isFinalizing;
     const showPrivateFeedback = isPrivateMode && isListening;
@@ -306,6 +315,17 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     ) : (
                         <p className="text-sm font-semibold text-foreground/75 animate-pulse">{listeningEmptyText}</p>
                     )
+                ) : withholdLoopedLive ? (
+                    // A+ release containment: a severe v4 streaming repetition loop is withheld from
+                    // the surface; show Processing until the clean whole-utterance final lands.
+                    <div
+                        className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
+                        data-testid="live-transcript-loop-withheld"
+                        data-transcript-loop-withheld="true"
+                    >
+                        <p className="text-sm font-semibold text-primary">{finalizingBannerText}</p>
+                        <p className="max-w-sm text-xs text-foreground/60">{finalizingEmptyDescription}</p>
+                    </div>
                 ) : hasTranscript || hasInterimTranscript ? (
                     <div
                         className={`text-foreground text-lg leading-relaxed ${isDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
