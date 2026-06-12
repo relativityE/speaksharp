@@ -842,7 +842,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     testId={TEST_IDS.ANALYTICS_EMPTY_STATE}
                     // Subtle upgrade option for Free users — only when payments are live (no dead button)
                     secondaryAction={!isProUser && arePaymentsEnabled() ? {
-                        prefix: "Want unlimited sessions?",
+                        prefix: "Need more recording time?",
                         label: "Upgrade to Pro",
                         onClick: onUpgrade,
                         testId: TEST_IDS.ANALYTICS_UPGRADE_BUTTON
