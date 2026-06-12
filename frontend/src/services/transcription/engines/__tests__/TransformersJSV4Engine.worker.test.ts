@@ -88,6 +88,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
     });
 
     afterEach(() => {
+        delete (window as typeof window & { __PRIVATE_STT_DECODE_OPTIONS__?: unknown }).__PRIVATE_STT_DECODE_OPTIONS__;
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
@@ -140,6 +141,35 @@ describe('TransformersJSV4Engine worker message contract', () => {
         }));
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'transcribe', audio: expect.any(Float32Array) }),
+            expect.any(Array),
+        );
+
+        await engine.destroy();
+    });
+
+    it('contract: sends sanitized decode-option overrides from the browser proof hook', async () => {
+        fakeWorkerMode = 'transcribe-result';
+        (window as typeof window & { __PRIVATE_STT_DECODE_OPTIONS__?: unknown }).__PRIVATE_STT_DECODE_OPTIONS__ = {
+            condition_on_previous_text: false,
+            compression_ratio_threshold: 2.4,
+            unsafe_option: 'ignored',
+        };
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+
+        const init = await engine.init();
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(init.isOk).toBe(true);
+        expect(result.isOk).toBe(true);
+        expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'transcribe',
+                decodeOptions: {
+                    condition_on_previous_text: false,
+                    compression_ratio_threshold: 2.4,
+                },
+            }),
             expect.any(Array),
         );
 
