@@ -3,8 +3,8 @@
 const FLAG_KEY = 'private_stt_v4_enabled';
 const FLAG_ID = '709644';
 
-const email = requireEnv('GATEB_TEST_EMAIL');
-const appUserId = requireEnv('GATEB_APP_USER_ID');
+const email = requireEnv('STT_AB_TEST_EMAIL');
+const appUserId = requireEnv('STT_AB_APP_USER_ID');
 const projectId = requireEnv('POSTHOG_PROJECT_ID');
 const personalApiKey = requireEnv('POSTHOG_PERSONAL_API_KEY');
 const projectApiKey = requireEnv('POSTHOG_PROJECT_API_KEY', ['VITE_POSTHOG_KEY']);
@@ -45,7 +45,7 @@ try {
   evidence.error = sanitizeError(error);
 }
 
-console.log(`GATE_B_POSTHOG_TARGETING_EVIDENCE ${JSON.stringify(evidence)}`);
+console.log(`POSTHOG_STT_AB_TARGETING_INSPECTOR_EVIDENCE ${JSON.stringify(evidence)}`);
 if (evidence.classification === 'FAIL_HARNESS') process.exitCode = 1;
 
 async function findPersonByEmail(targetEmail) {
@@ -77,7 +77,7 @@ async function findPersonByEmail(targetEmail) {
        OR properties['$email'] = ${sqlString(targetEmail)}
     LIMIT 5
   `;
-  const queryResult = await hogql(query, 'Gate B disposable Pro person lookup');
+  const queryResult = await hogql(query, 'PostHog STT A/B disposable Pro person lookup');
   attempts.push({ path: '/api/projects/<env>/query/', status: queryResult.status, ok: queryResult.ok, mode: 'hogql_person_lookup' });
   if (queryResult.ok) {
     const rows = Array.isArray(queryResult.body?.results) ? queryResult.body.results : [];
@@ -339,7 +339,7 @@ function valueMatches(actual, expected) {
 function redactValue(key, value) {
   if (value == null) return null;
   const keyText = String(key || '').toLowerCase();
-  if (keyText.includes('email')) return valueMatches(value, email) ? '<gateb-email>' : '<email>';
+  if (keyText.includes('email')) return valueMatches(value, email) ? '<stt-ab-email>' : '<email>';
   if (Array.isArray(value)) return `<array:${value.length}>`;
   const text = String(value);
   return text.length > 16 ? `${text.slice(0, 5)}...${text.slice(-5)}` : value;
@@ -352,7 +352,7 @@ function safeObject(value) {
 function redactUrl(url) {
   const parsed = new URL(url);
   for (const key of [...parsed.searchParams.keys()]) {
-    parsed.searchParams.set(key, key === 'email' || key === 'search' ? '<gateb-email>' : '<redacted>');
+    parsed.searchParams.set(key, key === 'email' || key === 'search' ? '<stt-ab-email>' : '<redacted>');
   }
   return `${parsed.pathname}${parsed.search}`;
 }
