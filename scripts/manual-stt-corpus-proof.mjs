@@ -325,6 +325,8 @@ async function loadFixtures() {
 async function signIn(page) {
   if (AUTH_MODE === 'fresh') {
     await page.goto(`${BASE_URL}/auth/signup`, { waitUntil: 'domcontentloaded' });
+    await waitForAuthFormReady(page, 'sign-up-submit');
+    await assertVisualStylePreflight(page, 'auth_signup_pre_login');
     await page.getByTestId('email-input').fill(SIGNUP_EMAIL);
     await page.getByTestId('password-input').fill(SIGNUP_PASSWORD);
     await Promise.all([
@@ -345,6 +347,8 @@ async function signIn(page) {
   }
 
   await page.goto(`${BASE_URL}/auth/signin`, { waitUntil: 'domcontentloaded' });
+  await waitForAuthFormReady(page, 'sign-in-submit');
+  await assertVisualStylePreflight(page, 'auth_signin_pre_login');
   await page.getByTestId('email-input').fill(EMAIL);
   await page.getByTestId('password-input').fill(PASSWORD);
   await Promise.all([
@@ -352,6 +356,76 @@ async function signIn(page) {
     page.getByTestId('sign-in-submit').click(),
   ]);
   await page.waitForURL(/\/session/, { timeout: 60_000 });
+}
+
+async function waitForAuthFormReady(page, submitTestId) {
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 }).catch(() => undefined);
+  await page.getByTestId(submitTestId).waitFor({ state: 'visible', timeout: 60_000 });
+}
+
+async function collectVisualStyleProof(page, label) {
+  return page.evaluate((proofLabel) => {
+    const button =
+      document.querySelector('[data-testid="session-start-stop-button"]') ||
+      document.querySelector('[data-testid="sign-in-submit"]') ||
+      document.querySelector('[data-testid="sign-up-submit"]') ||
+      document.querySelector('button');
+    const root = document.getElementById('root');
+    const buttonStyle = button ? getComputedStyle(button) : null;
+    const rootRect = root?.getBoundingClientRect();
+    const buttonRect = button?.getBoundingClientRect();
+    const buttonClass = typeof button?.className === 'string' ? button.className : '';
+    const hasExpectedUtilityClasses = /inline-flex/.test(buttonClass)
+      && /rounded/.test(buttonClass)
+      && (/(^|\s)(bg-primary|bg-destructive|bg-secondary)(\s|$)/.test(buttonClass) || /bg-primary/.test(buttonClass));
+    const display = buttonStyle?.display ?? null;
+    const borderRadiusPx = buttonStyle ? Number.parseFloat(buttonStyle.borderRadius || '0') : 0;
+    const paddingLeftPx = buttonStyle ? Number.parseFloat(buttonStyle.paddingLeft || '0') : 0;
+    const widthPx = buttonRect?.width ?? 0;
+    const heightPx = buttonRect?.height ?? 0;
+    const rootLeftPx = rootRect?.left ?? null;
+    const appliedUtilityStyles = Boolean(
+      button &&
+      (display === 'flex' || display === 'inline-flex') &&
+      borderRadiusPx >= 8 &&
+      (paddingLeftPx >= 8 || (widthPx >= 36 && heightPx >= 36)) &&
+      heightPx >= 36
+    );
+    const ok = Boolean(hasExpectedUtilityClasses && appliedUtilityStyles);
+
+    return {
+      label: proofLabel,
+      ok,
+      reason: ok ? null : 'tailwind_utility_styles_not_applied',
+      hasButton: Boolean(button),
+      hasExpectedUtilityClasses,
+      appliedUtilityStyles,
+      display,
+      borderRadiusPx,
+      paddingLeftPx,
+      widthPx,
+      heightPx,
+      rootLeftPx,
+      buttonText: button?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? null,
+      buttonClassSample: buttonClass.slice(0, 240),
+      bodyClass: document.body?.className ?? '',
+      rootTextSample: root?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '',
+    };
+  }, label);
+}
+
+async function assertVisualStylePreflight(page, label) {
+  const proof = await collectVisualStyleProof(page, label);
+  evidence.visualStyleProofs ??= [];
+  evidence.visualStyleProofs.push(proof);
+  if (!proof.ok) {
+    const error = new Error(`VISUAL_STYLE_PREFLIGHT_FAILED ${label}: ${proof.reason}`);
+    error.invalidForSttEvidence = true;
+    error.invalidReason = proof.reason;
+    error.preflight = proof;
+    throw error;
+  }
+  return proof;
 }
 
 async function clearPrivateModelStorage(page) {
@@ -1244,6 +1318,8 @@ async function runFixture(page, mode, fixture) {
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await assertModePreflight(page, mode);
   await selectMode(page, mode);
+  await page.getByTestId('session-start-stop-button').waitFor({ state: 'visible', timeout: 60_000 });
+  await assertVisualStylePreflight(page, 'session_ready_pre_recording');
 
   await page.evaluate(() => {
     window.__STT_CORPUS_PHASES__ = [];
