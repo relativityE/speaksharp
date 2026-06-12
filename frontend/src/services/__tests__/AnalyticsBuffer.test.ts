@@ -174,6 +174,23 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
   });
 
+  it('identify() emits ONE minimal non-PII materialization event under the identified id (Gate B person creation)', () => {
+    analyticsBuffer.identify('user-123');
+    // Guarantees a server-ingested web event so PostHog materializes a queryable person at user.id
+    // (identified_only mode); without this, a lone $identify can fail to ingest in short sessions.
+    expect(posthog.capture).toHaveBeenCalledWith('account_identified', { source: 'auth_provider' });
+    // STRICT no-PII: the materialization event must never carry email/name/transcript/audio/etc.
+    const payload = JSON.stringify(vi.mocked(posthog.capture).mock.calls);
+    expect(payload).not.toMatch(/email|@|transcript|audio|password|token|name/i);
+  });
+
+  it('identify() materializes (capture) BEFORE reloading flags so eval reflects the new person', () => {
+    analyticsBuffer.identify('user-123');
+    const captureOrder = vi.mocked(posthog.capture).mock.invocationCallOrder[0];
+    const reloadOrder = vi.mocked(posthog.reloadFeatureFlags).mock.invocationCallOrder[0];
+    expect(captureOrder).toBeLessThan(reloadOrder);
+  });
+
   it('resetIdentity() resets PostHog to a fresh anonymous id and reloads flags', () => {
     analyticsBuffer.resetIdentity();
     expect(posthog.reset).toHaveBeenCalledTimes(1);

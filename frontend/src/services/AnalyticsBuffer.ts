@@ -192,7 +192,17 @@ class AnalyticsBuffer {
 
     try {
       posthog.identify(userId, properties);
-      // Explicitly re-evaluate feature flags for the now-identified user so the app never keeps the
+      // Materialize a SERVER-SIDE PostHog person for the identified user (Gate B / feature-flag
+      // targeting). posthog-js (1.298.1 deployed) defaults person_profiles to 'identified_only', so
+      // a queryable person is created only once an INGESTED event is tied to the identified
+      // distinct_id. On the deployed build the lone $identify did not reliably ingest (short sessions
+      // never flushed a single batched event) — server-side showed 0 web $identify / 0 events under
+      // the Supabase user.id — so no person appeared and flag targeting could not match. Emit ONE
+      // minimal, NON-PII event under the now-identified distinct_id to guarantee materialization.
+      // STRICT no-PII: a constant source tag only — never email, name, transcript, audio, secrets,
+      // or the raw auth/session object.
+      posthog.capture('account_identified', { source: 'auth_provider' });
+      // Explicitly re-evaluate feature flags AFTER identify + capture so the app never keeps the
       // prior anonymous flag state (the Gate B stale-flag gotcha — flags must reflect the account).
       posthog.reloadFeatureFlags();
       Sentry.setUser({ id: userId, ...properties });
