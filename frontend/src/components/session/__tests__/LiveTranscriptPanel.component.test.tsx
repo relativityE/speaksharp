@@ -5,6 +5,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import {
     collapseAdjacentRepeatedPhrases,
+    hasSevereRepetitionLoop,
     splitSettledActiveTranscript,
     trimOverlappingDraftTranscript
 } from '@/components/session/liveTranscriptUtils';
@@ -666,6 +667,53 @@ describe('LiveTranscriptPanel', () => {
             expect(slot).toContainElement(banner);
             expect(transcriptContainer).not.toContainElement(banner);
             expect(transcriptContainer).toHaveClass('overflow-y-auto');
+        });
+    });
+
+    describe('v4 repetition-loop withholding (LIVE-TRANSCRIPT-REPEATED-DISPLAY)', () => {
+        // Real failure mode from Test artifact speaksharp-official-stt-ab-targeted-trust-1781263998:
+        // the v4 rolling/streaming hypothesis loops ("It's a question" x28) in the COMMITTED store
+        // transcript during drafting/finalizing, while the final whole-utterance decode is clean.
+        // The display must WITHHOLD the looped live text (show Processing) until the clean final
+        // arrives — without mutating any transcript data.
+        const REAL_LOOP = 'Love from a return. ' + "It's a question. ".repeat(28);
+
+        it('withholds a severe v4 loop from the visible surface and shows Processing (private)', () => {
+            render(
+                <LiveTranscriptPanel transcript={REAL_LOOP} interimTranscript="" isListening={false} isFinalizing sttMode="private" />
+            );
+            const container = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+            const visibleReps = (container.textContent?.match(/it'?s a question/gi) || []).length;
+            expect(visibleReps).toBeLessThan(3);
+            expect(screen.getByTestId('live-transcript-loop-withheld')).toBeInTheDocument();
+            expect(container).toHaveTextContent(/processing speech locally/i);
+        });
+
+        it('renders a clean final transcript normally (no withhold)', () => {
+            render(
+                <LiveTranscriptPanel transcript="This is a clean final transcript with varied content and no repetition loops." interimTranscript="" isListening={false} sttMode="private" />
+            );
+            expect(screen.queryByTestId('live-transcript-loop-withheld')).not.toBeInTheDocument();
+            expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('This is a clean final transcript');
+        });
+
+        it('does NOT withhold in native (non-private) mode even with a looped transcript', () => {
+            render(
+                <LiveTranscriptPanel transcript={REAL_LOOP} interimTranscript="" isListening sttMode="native" />
+            );
+            expect(screen.queryByTestId('live-transcript-loop-withheld')).not.toBeInTheDocument();
+        });
+
+        describe('hasSevereRepetitionLoop detector', () => {
+            it('flags a severe repetition loop', () => {
+                expect(hasSevereRepetitionLoop(REAL_LOOP)).toBe(true);
+            });
+            it('does NOT flag clean varied text', () => {
+                expect(hasSevereRepetitionLoop('This is a perfectly normal sentence with varied content and absolutely no loops here.')).toBe(false);
+            });
+            it('does NOT flag short text', () => {
+                expect(hasSevereRepetitionLoop('too short to judge')).toBe(false);
+            });
         });
     });
 });
