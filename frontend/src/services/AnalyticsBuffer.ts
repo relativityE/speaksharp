@@ -192,16 +192,11 @@ class AnalyticsBuffer {
 
     try {
       posthog.identify(userId, properties);
-      // Materialize a SERVER-SIDE PostHog person for the identified user (Gate B / feature-flag
-      // targeting). posthog-js (1.298.1 deployed) defaults person_profiles to 'identified_only', so
-      // a queryable person is created only once an INGESTED event is tied to the identified
-      // distinct_id. On the deployed build the lone $identify did not reliably ingest (short sessions
-      // never flushed a single batched event) — server-side showed 0 web $identify / 0 events under
-      // the Supabase user.id — so no person appeared and flag targeting could not match. Emit ONE
-      // minimal, NON-PII event under the now-identified distinct_id to guarantee materialization.
-      // STRICT no-PII: a constant source tag only — never email, name, transcript, audio, secrets,
-      // or the raw auth/session object.
-      posthog.capture('account_identified', { source: 'auth_provider' });
+      // Materialize a SERVER-SIDE PostHog person (Gate B / flag targeting) — see
+      // captureAccountIdentified(). It is ISOLATED in its own try/catch so a capture failure can
+      // NEVER block the reloadFeatureFlags()/Sentry.setUser() below: flag reload after identify is
+      // the load-bearing step and must always run.
+      this.captureAccountIdentified();
       // Explicitly re-evaluate feature flags AFTER identify + capture so the app never keeps the
       // prior anonymous flag state (the Gate B stale-flag gotcha — flags must reflect the account).
       posthog.reloadFeatureFlags();
@@ -209,6 +204,23 @@ class AnalyticsBuffer {
       logger.debug({ userId }, '[AnalyticsBuffer] User identified');
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to identify user');
+    }
+  }
+
+  /**
+   * Emit ONE minimal, NON-PII event under the now-identified distinct_id to materialize a queryable
+   * server-side PostHog person (Gate B / feature-flag targeting). posthog-js (1.298.1 deployed)
+   * defaults person_profiles to 'identified_only', so a person is created only once an INGESTED event
+   * is tied to the identified distinct_id; the lone $identify did not reliably ingest in short
+   * sessions. STRICT no-PII: a constant source tag only — never email, name, transcript, audio,
+   * secrets, or the raw auth/session object. Self-contained try/catch so a capture failure is
+   * non-fatal and never prevents the caller's flag reload / Sentry update.
+   */
+  private captureAccountIdentified(): void {
+    try {
+      posthog.capture('account_identified', { source: 'auth_provider' });
+    } catch (err) {
+      logger.warn({ err }, '[AnalyticsBuffer] Failed to send account_identified event');
     }
   }
 
