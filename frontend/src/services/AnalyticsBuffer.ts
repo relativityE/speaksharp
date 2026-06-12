@@ -192,10 +192,48 @@ class AnalyticsBuffer {
 
     try {
       posthog.identify(userId, properties);
+      // Explicitly re-evaluate feature flags for the now-identified user so the app never keeps the
+      // prior anonymous flag state (the Gate B stale-flag gotcha — flags must reflect the account).
+      posthog.reloadFeatureFlags();
       Sentry.setUser({ id: userId, ...properties });
       logger.debug({ userId }, '[AnalyticsBuffer] User identified');
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to identify user');
+    }
+  }
+
+  /**
+   * Whether PostHog currently holds an IDENTIFIED (account-linked) distinct id — true after
+   * identify() and until reset(). PostHog persists this across page loads (localStorage/cookie), so
+   * on an anonymous/no-session boot it can still report a PRIOR user's identity. Callers use this to
+   * decide whether a stale persisted identity must be cleared (shared device / expired session)
+   * WITHOUT churning the anonymous id of a genuinely fresh anonymous visitor. Never throws; returns
+   * false if the underlying posthog-js signal is unavailable so callers fall back to ref-only logic.
+   */
+  public isIdentified(): boolean {
+    try {
+      const ph = posthog as unknown as { _isIdentified?: () => boolean };
+      return typeof ph._isIdentified === 'function' ? ph._isIdentified() : false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Clear the identified user on sign-out: reset PostHog to a fresh anonymous distinct id and clear
+   * the Sentry user. Pairs with identify() so a shared device does not retain a prior account's
+   * identity (and so PostHog feature-flag evaluation reverts to the anonymous/default cohort).
+   */
+  public resetIdentity(): void {
+    try {
+      posthog.reset();
+      // Re-evaluate flags for the fresh anonymous id so a signed-out shared device does not retain
+      // the prior account's flag evaluation.
+      posthog.reloadFeatureFlags();
+      Sentry.setUser(null);
+      logger.debug('[AnalyticsBuffer] User identity reset');
+    } catch (err) {
+      logger.warn({ err }, '[AnalyticsBuffer] Failed to reset identity');
     }
   }
 }

@@ -6,6 +6,7 @@ import { ENV } from '../config/TestFlags';
 import logger from '../lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useReadinessStore } from '@/stores/useReadinessStore';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -43,6 +44,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const supabase = getSupabaseClient();
   const queryClient = useQueryClient();
   const initialCheckRef = useRef(false);
+  const identifiedAnalyticsUserRef = useRef<string | null>(null);
 
   const getInjectedSession = useCallback(() => {
     if (initialSession) return initialSession;
@@ -78,6 +80,31 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   useEffect(() => {
     sessionStateRef.current = sessionState;
   }, [sessionState]);
+
+  // Account-linked analytics identity. Identify the authenticated user to PostHog/Sentry by the
+  // stable Supabase user.id ONLY — NO email or other PII (privacy-first posture; matches the v4
+  // telemetry sanitizer that drops email). This gives PostHog an account-linked person so feature
+  // flags can be targeted via an operator cohort on user.id; on sign-out we reset to a fresh
+  // anonymous id so a shared device never inherits the prior account's identity/flags.
+  useEffect(() => {
+    const userId = sessionState?.user?.id ?? null;
+    if (!userId) {
+      // No active session. Clear a persisted PostHog identity if EITHER this mount identified someone
+      // OR PostHog still carries a prior user's account-linked identity from an EARLIER visit. The
+      // ref starts null on every fresh mount, but PostHog persists distinct_id across page loads — so
+      // an anonymous/no-session boot on a shared device or after an expired session would otherwise
+      // keep events/flags attached to the previous user. We gate on isIdentified() so a genuinely
+      // fresh anonymous visitor is left untouched (no needless anonymous-id churn).
+      if (identifiedAnalyticsUserRef.current || analyticsBuffer.isIdentified()) {
+        analyticsBuffer.resetIdentity();
+      }
+      identifiedAnalyticsUserRef.current = null;
+      return;
+    }
+    if (identifiedAnalyticsUserRef.current === userId) return;
+    analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
+    identifiedAnalyticsUserRef.current = userId;
+  }, [sessionState?.user?.id]);
 
   useEffect(() => {
     const injectedSession = getInjectedSession();
