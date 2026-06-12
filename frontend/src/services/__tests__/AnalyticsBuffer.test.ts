@@ -10,7 +10,8 @@ vi.mock('posthog-js', () => ({
     identify: vi.fn(),
     reset: vi.fn(),
     reloadFeatureFlags: vi.fn(),
-    _isIdentified: vi.fn()
+    _isIdentified: vi.fn(),
+    flush: vi.fn()
   }
 }));
 
@@ -193,6 +194,16 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     const captureOrder = vi.mocked(posthog.capture).mock.invocationCallOrder[0];
     const reloadOrder = vi.mocked(posthog.reloadFeatureFlags).mock.invocationCallOrder[0];
     expect(captureOrder).toBeLessThan(reloadOrder);
+  });
+
+  it('flushes IMMEDIATELY after the materialization capture so the event is sent, not batch-queued', () => {
+    const phFlush = (posthog as unknown as { flush: ReturnType<typeof vi.fn> }).flush;
+    analyticsBuffer.identify('user-123');
+    expect(phFlush).toHaveBeenCalled();
+    // flush must come after the capture (send the queued account_identified event now).
+    const captureOrder = vi.mocked(posthog.capture).mock.invocationCallOrder[0];
+    const flushOrder = vi.mocked(phFlush).mock.invocationCallOrder[0];
+    expect(flushOrder).toBeGreaterThan(captureOrder);
   });
 
   it('keeps the materialization capture NON-FATAL: a capture throw must not block flag reload / Sentry', () => {
