@@ -37,13 +37,12 @@ type TierProfile = {
 } | null | undefined;
 
 /**
- * Trial users are effectively Pro until the server-issued trial expiry passes.
+ * Legacy trial timestamps are no longer an entitlement source. Private access
+ * for unpaid users is decided by the server-backed private sample fields from
+ * check_usage_limit; paid access requires Stripe/subscription evidence.
  */
-export function isActiveTrialProfile(profile: TierProfile, nowMs = Date.now()): boolean {
-    if (!profile?.trial_expires_at) return false;
-
-    const expiresAtMs = Date.parse(profile.trial_expires_at);
-    return Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
+export function isActiveTrialProfile(_profile: TierProfile, _nowMs = Date.now()): boolean {
+    return false;
 }
 
 export function hasPaidProEntitlement(profile: TierProfile): boolean {
@@ -64,10 +63,6 @@ export function getEffectiveSubscriptionStatus(
 ): SubscriptionTier {
     if (usageLimitStatus) {
         return normalizeSubscriptionTier(usageLimitStatus);
-    }
-
-    if (isActiveTrialProfile(profile)) {
-        return SUBSCRIPTION_TIERS.PRO;
     }
 
     return normalizeSubscriptionTier(profile?.subscription_status);

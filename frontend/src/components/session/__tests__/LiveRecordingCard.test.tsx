@@ -95,8 +95,8 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByLabelText('Start Recording')).toBeNull();
     });
 
-    it('keeps Cloud disabled for trial-style Pro access without Cloud Pro feature entitlement', async () => {
-        render(<LiveRecordingCard {...defaultProps} isProUser={true} canUseCloudStt={false} />);
+    it('keeps Cloud disabled for Private-sample access without paid Cloud entitlement', async () => {
+        render(<LiveRecordingCard {...defaultProps} isProUser={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
@@ -104,8 +104,7 @@ describe('LiveRecordingCard', () => {
         const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
         expect(cloudOption).toHaveAttribute('data-disabled');
         expect(screen.getByText(/^Cloud$/i)).toBeDefined();
-        expect(cloudOption).toHaveAttribute('title', expect.stringMatching(/Pro feature/i));
-        expect(cloudOption).toHaveAttribute('title', expect.stringMatching(/unavailable for trial/i));
+        expect(cloudOption).toHaveAttribute('title', expect.stringMatching(/paid Early Access/i));
     });
 
     it('sets Private latency and privacy expectations before recording', async () => {
@@ -157,7 +156,15 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/accuracy varies by browser and environment/i));
     });
 
-    it('explains why Private is unavailable for Free or expired-trial users', async () => {
+    it('shows the approved Private sample CTA for sample-entitled users on the Browser path', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} isPaidProUser={false} canUseCloudStt={false} />);
+
+        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
+        expect(screen.getByText(/Record up to 5 minutes with local transcription/i)).toBeDefined();
+        expect(screen.getByText(/compare it with Browser transcription/i)).toBeDefined();
+    });
+
+    it('explains why Private is unavailable after the sample is unavailable', async () => {
         render(<LiveRecordingCard {...defaultProps} isProUser={false} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
@@ -165,12 +172,13 @@ describe('LiveRecordingCard', () => {
         const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
         expect(privateOption).toHaveAttribute('data-disabled');
         expect(privateOption.textContent).toMatch(/^Private/i);
-        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/active trial or Pro/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/Cloud STT is a Pro feature/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/unavailable for trial/i));
+        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/Private transcription is part of Early Access/i));
+        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/full session history, and deeper reports/i));
+        expect(screen.getByText(/Private transcription is part of Early Access/i)).toBeDefined();
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/paid Early Access/i));
     });
 
-    it('lets a trial user switch to Browser while Private setup is downloading', async () => {
+    it('lets a Private-sample user switch to Browser while Private setup is downloading', async () => {
         const onModeChange = vi.fn();
         render(
             <LiveRecordingCard

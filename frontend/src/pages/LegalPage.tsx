@@ -46,7 +46,7 @@ export const TermsPage = () => (
       },
       {
         heading: 'Accounts and Access',
-        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription and Cloud transcription are available according to the plan and trial rules shown in the product. Cloud STT is a Pro feature.',
+        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription includes one short sample before paid Early Access. Cloud STT is a paid Early Access feature.',
       },
       {
         heading: 'Payments',

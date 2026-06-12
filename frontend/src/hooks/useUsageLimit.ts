@@ -20,6 +20,13 @@ export interface UsageLimitCheck {
     trial_started_at?: string | null;
     trial_expires_at?: string | null;
     trial_seconds_remaining?: number;
+    private_sample_available?: boolean;
+    private_sample_limit_seconds?: number;
+    private_sample_seconds_used?: number;
+    private_sample_seconds_remaining?: number;
+    private_sample_started_at?: string | null;
+    private_sample_completed_at?: string | null;
+    private_sample_session_id?: string | null;
     error?: string;
 }
 
@@ -95,6 +102,12 @@ export function updateLocalUsage(userId: string, additionalSeconds: number) {
             ...old,
             daily_remaining: Math.max(0, old.daily_remaining - additionalSeconds),
             remaining_seconds: Math.max(0, old.remaining_seconds - additionalSeconds),
+            private_sample_seconds_remaining: typeof old.private_sample_seconds_remaining === 'number'
+                ? Math.max(0, old.private_sample_seconds_remaining - additionalSeconds)
+                : old.private_sample_seconds_remaining,
+            private_sample_seconds_used: typeof old.private_sample_seconds_used === 'number'
+                ? old.private_sample_seconds_used + additionalSeconds
+                : old.private_sample_seconds_used,
         };
     });
 }

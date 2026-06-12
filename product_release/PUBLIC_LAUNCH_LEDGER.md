@@ -47,7 +47,7 @@ Historical artifact paths in this ledger may contain old `basic` filename slugs 
 | PL-003 | public-signup | Chrome CDP 9222 | manual-chrome-cdp; Stripe test-mode hosted checkout | PASS IN TEST MODE | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json` |
 | PL-004 | public-signup + Stripe test checkout | Chrome CDP 9222 plus deployed webhook HTTP check plus local Deno tests | manual-chrome-cdp; provider-live-api unsigned rejection; local webhook unit/adversarial | PASS IN TEST MODE | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json` |
 | PL-005 | local webhook lifecycle tests | Deno | local webhook unit/adversarial | PASS IN LOCAL/TEST MODE | `deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions/stripe-webhook/index.test.ts backend/supabase/functions/stripe-webhook/adversarial.test.ts`; `4 passed (14 steps)` |
-| PL-006 | public-signup + automatic trial + expired-trial seeded workflow | Chrome CDP 9222; GitHub Actions live smoke | manual-chrome-cdp; trial-activation-ui; provider-live-api/service-role seeded expired trial | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/report.json`; `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; GitHub run `25894288884` |
+| PL-006 | **Superseded access-lifecycle evidence** | Chrome CDP 9222; GitHub Actions live smoke | Historical public-access workflow | SUPERSEDED | Current paid-soft-release policy is #85: Browser-first plus one server-backed Private sample capped at 5 minutes. |
 | PL-007 | Pro admin-created account | Normal Chrome via CDP 9222 with user speaking into physical mic | manual-real-mic + manual-chrome-cdp inspection | PASS | Session `130bbc6c-5d89-465d-91e6-51f5a5951e34`; screenshots `/private/tmp/speaksharp-after-cloud-real-mic-session.png`, `/private/tmp/speaksharp-after-cloud-real-mic-analytics.png`, `/private/tmp/speaksharp-after-cloud-real-mic-detail.png`. Provider-level fallback remains Cloud Live Smoke run `25895378619`, artifact `7008407787`. |
 | PL-008 | saved Pro private session | GitHub Actions live browser workflow | automated-live-ui; provider-live-api `get-ai-suggestions` | PASS | Pro STT artifact matrix run `25894670273`; response logged `GET_AI_SUGGESTIONS_LIVE_RESPONSE` with HTTP 200 and coaching suggestions |
 | PL-009 | saved Pro private session PDF export | GitHub Actions live browser workflow + local PDF parsing | automated-live-ui; downloaded PDF artifact parse | PASS | Pro STT artifact matrix run `25894670273`, artifact `7008146769`; parsed PDF at `/private/tmp/pro-stt-artifact-25894670273/test-results/live/live-pro-stt-artifact-matr-f2fb7-AI-feedback-and-exports-PDF-live-stt-chromium/session_20260515_e62369e1_ef68_417b_a303_f3e0c2eba441.pdf` |
@@ -147,20 +147,19 @@ The billing lifecycle contract is proven at handler/RPC-call level, but broad pu
 | Paid public user downgrades in deployed UI after cancel/failure event | Pending live/test Stripe event |
 | Duplicate/replayed deployed webhook remains idempotent | Covered locally; deployed signed replay pending if required |
 
-## PL-006 Trial Lifecycle Summary
+## PL-006 Access Lifecycle Summary
 
-| Scenario | Result | Evidence |
-|---|---:|---|
-| Automatic public trial access | PASS | Automatic trial is now created by auth/profile provisioning with a 60-minute expiry. |
-| Invalid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/invalid-first-after-submit.png`; user lands on Free with clear `Trial failed: Invalid or inactive trial access` messaging. |
-| Valid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/valid-once-after-submit.png`; public signup lands on Session with `PRO` badge and Pro STT mode surface. |
-| Reuse same one-use trial access | PASS | `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; user lands on Free with clear `Trial failed: Trial access already used` messaging. |
-| Expired trial downgrade | PASS | Current expected behavior is `effectiveSubscriptionStatus:"free"`, `storedSubscriptionStatus:"free"`, Pro hidden, and `sttMode:"native"`; rerun the expired-trial smoke after the Free migration is deployed. |
-| Expired trial artifacts | PASS | GitHub artifact `7008001175`, `expired-trial-live-smoke-artifacts`. |
+PL-006 is retained only as a historical evidence slot. Its original public-access
+proofs are superseded by #85:
 
-### PL-006 Notes
+```text
+Browser-first free path
+-> one server-backed Private sample session capped at 5 minutes
+-> paid Early Access for continued Private/local transcription
+```
 
-The UI proof used public signups and the deployed app. The expired-trial proof uses a seeded expired trial-only account through the dedicated live smoke workflow because expiry requires service-role setup that should not be performed manually through public UI.
+Do not use prior PL-006 artifacts as current paid-soft-release evidence. Current
+closure requires the #85 migration/app-path proof on a real Supabase stack.
 
 ## Next Gate
 

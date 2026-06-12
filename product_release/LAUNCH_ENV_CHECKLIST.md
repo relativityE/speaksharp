@@ -53,14 +53,15 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 
 ## 6. Live Database Entitlement Evidence
 - [ ] **Free Baseline Function**: Live `effective_subscription_tier` falls back to `free` for null/unknown inactive statuses.
-- [ ] **Usage Update Function**: Live `update_user_usage(INT, TEXT)` does not write `subscription_status = 'basic'` as part of a normal Free usage update.
+- [ ] **Usage Update Function**: Live `update_user_usage(INT, TEXT, UUID)` does not write `subscription_status = 'basic'` as part of a normal Free usage update.
 - [ ] **Tier Config Rows**: Live `tier_configs.free` exists. If `tier_configs.basic` exists as a future placeholder, it must be equivalent to Free for current unpaid-baseline behavior or documented as inactive.
-- [ ] **Cloud Policy**: Active trial profile can use Private, but Cloud STT remains a Pro feature and is unavailable for trial.
+- [ ] **Private Sample Policy**: Fresh Free profile gets one server-backed Private sample (`private_sample_limit_seconds = 300`) while Browser transcription remains available before and after the sample.
+- [ ] **Cloud Policy**: Private sample access does not grant Cloud STT. Cloud requires paid Pro entitlement evidence.
 
 ## 7. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).
 - [ ] **SSL/TLS**: Production domain has a valid, active certificate.
-- [ ] **Automatic Trial**: Migration `20260521100000_auto_trial_entitlements.sql` is deployed. A fresh production signup creates `trial_started_at` and `trial_expires_at` without any tester code or admin Edge Function.
+- [ ] **Private Sample Entitlement**: Migration `20260610143000_private_sample_entitlement.sql` is deployed. A fresh production signup creates a Free profile with sample fields and does not create an active Pro trial window.
 
 ---
 

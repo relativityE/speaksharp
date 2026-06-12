@@ -77,7 +77,11 @@ const baseUsageLimit: UsageLimitCheck = {
     remaining_seconds: 30,
     subscription_status: 'free',
     is_pro: false,
-    streak_count: 0
+    streak_count: 0,
+    private_sample_available: false,
+    private_sample_limit_seconds: 300,
+    private_sample_seconds_used: 0,
+    private_sample_seconds_remaining: 300,
 };
 
 const mockUsageLimitQuery = {
@@ -426,7 +430,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should honor can_start=false for stale Pro or expired trial users', async () => {
+    it('should honor can_start=false for stale Pro or unavailable sample users', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
@@ -447,7 +451,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0,
-                error: 'Trial access expired'
+                error: 'Private sample unavailable'
             },
             isLoading: false,
             isError: false,
@@ -478,7 +482,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
         expect(mockStore.getState().sttStatus).toEqual({
             type: 'error',
-            message: '⛔ Trial access expired'
+            message: '⛔ Private sample unavailable'
         });
     });
 
@@ -659,7 +663,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should trust server trial expiration over a future client profile timestamp', async () => {
+    it('should ignore legacy future trial timestamps when the server says the Private sample is unavailable', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -687,6 +691,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 is_pro: false,
                 trial_active: false,
                 trial_seconds_remaining: 0,
+                private_sample_available: false,
+                private_sample_seconds_remaining: 0,
             },
             isLoading: false,
             isError: false,
@@ -711,9 +717,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should allow active server trial users to keep Private selected (not force-downgraded to Native) even when the profile timestamp appears expired locally', async () => {
-        // Option A: the default is the instant Native path, but an entitled (server-trial)
-        // user who has SELECTED Private must not be force-downgraded back to Native.
+    it('should allow a server-backed Private sample user to keep Private selected', async () => {
+        // Option A: the default is the instant Native path, but a user with an
+        // available Private sample who has SELECTED Private must not be forced
+        // back to Native.
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -738,8 +745,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
-                trial_active: true,
-                trial_seconds_remaining: 1800,
+                trial_active: false,
+                trial_seconds_remaining: 0,
+                private_sample_available: true,
+                private_sample_limit_seconds: 300,
+                private_sample_seconds_used: 0,
+                private_sample_seconds_remaining: 300,
             },
             isLoading: false,
             isError: false,

@@ -153,10 +153,10 @@ Deno.serve(async (req: Request) => {
             usageLimit = -1; // Unlimited
         } else if (normalizedStatus === 'basic') {
             tier = 'basic';
-            usageLimit = 3600; // 1 hour default
+            usageLimit = 3600; // Free/Basic Browser practice default
         } else if (normalizedStatus === 'free') {
             tier = 'free';
-            usageLimit = 3600; // 1 hour default
+            usageLimit = 3600; // Free Browser practice default
         } else {
             console.error(`[Provisioning] Invalid subscription status: '${subscription_status}'`);
             return new Response(JSON.stringify({
@@ -168,21 +168,6 @@ Deno.serve(async (req: Request) => {
 
         console.log(`[Provisioning] Decision - Tier: ${tier}, Limit: ${usageLimit} (Input Status: '${subscription_status}')`);
 
-        const normalizedEmail = String(email).trim().toLowerCase();
-        const { data: trialEntitlement, error: trialUpsertError } = await supabase
-            .from('trial_entitlements')
-            .upsert({
-                email: normalizedEmail,
-                user_id: userId,
-            }, { onConflict: 'email' })
-            .select('trial_started_at,trial_expires_at')
-            .single();
-
-        if (trialUpsertError) {
-            console.error("Trial entitlement provisioning failed:", trialUpsertError);
-            return new Response(JSON.stringify({ error: "trial_provision_failed", details: trialUpsertError }), { status: 500 });
-        }
-
         console.log(`Upserting profile for ${userId} (status: ${tier})`);
         // OPTIMIZATION: Combine upsert and select to reduce round-trips
         const { data: verifiedProfile, error: profileError } = await supabase
@@ -190,8 +175,10 @@ Deno.serve(async (req: Request) => {
             .upsert({
                 id: userId,
                 subscription_status: tier,
-                trial_started_at: trialEntitlement?.trial_started_at ?? null,
-                trial_expires_at: trialEntitlement?.trial_expires_at ?? null,
+                trial_started_at: null,
+                trial_expires_at: null,
+                private_sample_limit_seconds: 300,
+                private_sample_seconds_used: 0,
             }, { onConflict: 'id' })
             .select('*')
             .single();

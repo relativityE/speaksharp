@@ -52,7 +52,7 @@ const features = [
   {
     icon: <ShieldCheck className="size-8" />,
     title: "Private Transcription",
-    description: "Pro/trial Private transcription runs locally after one-time setup, keeping sensitive practice audio in your browser.",
+    description: "Try one short Private sample, then continue with paid Early Access. It runs locally after one-time setup, keeping sensitive practice audio in your browser.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   }
