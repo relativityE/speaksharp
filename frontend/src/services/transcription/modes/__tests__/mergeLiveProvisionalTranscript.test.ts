@@ -106,6 +106,29 @@ describe('mergeLiveProvisionalTranscript — no-shrink invariant', () => {
     expect(mergeLiveProvisionalTranscript('', 'hello world')).toBe('hello world');
     expect(mergeLiveProvisionalTranscript('hello world', '')).toBe('hello world');
   });
+
+  it('collapses severe immediate phrase loops before they reach the visible draft', () => {
+    const previous =
+      'washington believed the retreat gave the army time to regroup and continue the campaign';
+    const loop = Array.from({ length: 8 }, () => "It's a question.").join(' ');
+    const merged = mergeLiveProvisionalTranscript(previous, loop);
+
+    expect(merged.toLowerCase()).toContain('gave the army time to regroup');
+    expect((merged.match(/it's a question/gi) ?? []).length).toBe(1);
+  });
+
+  it('collapses severe loops even on the first visible partial', () => {
+    const loop = Array.from({ length: 8 }, () => "It's a question.").join(' ');
+    const merged = mergeLiveProvisionalTranscript('', loop);
+
+    expect((merged.match(/it's a question/gi) ?? []).length).toBe(1);
+  });
+
+  it('keeps ordinary two-time phrase repeats intact', () => {
+    const naturalRepeat = 'I think I think we should continue';
+
+    expect(mergeLiveProvisionalTranscript('', naturalRepeat)).toBe(naturalRepeat);
+  });
 });
 
 describe('shouldPreferVisibleProvisional — quality guard (review F5)', () => {

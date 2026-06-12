@@ -379,12 +379,9 @@ export function collapseTranscriptRepetitionLoops(text: string): string {
     return true;
   };
 
-  // 1. Exact verbatim whole-text doubling (the first half repeated once).
-  if (n % 2 === 0 && n >= 8 && seqEq(0, n / 2, n / 2)) {
-    return tokens.slice(0, n / 2).join(' ');
-  }
-
-  // 2. Immediate multi-word loop: a k-word unit (2..40) repeated >= 3 times.
+  // 1. Immediate multi-word loop: a k-word unit (2..40) repeated >= 3 times.
+  // Run this before whole-text doubling so an 8x phrase loop collapses to one
+  // phrase, not to the first 4x half of the loop.
   const out: string[] = [];
   let i = 0;
   while (i < n) {
@@ -405,7 +402,15 @@ export function collapseTranscriptRepetitionLoops(text: string): string {
       i++;
     }
   }
-  return out.join(' ');
+  const loopCollapsed = out.join(' ');
+  if (out.length !== tokens.length) return loopCollapsed;
+
+  // 2. Exact verbatim whole-text doubling (the first half repeated once).
+  if (n % 2 === 0 && n >= 8 && seqEq(0, n / 2, n / 2)) {
+    return tokens.slice(0, n / 2).join(' ');
+  }
+
+  return loopCollapsed;
 }
 
 function appendTranscriptWithoutDuplicate(base: string, segment: string): string {
@@ -451,8 +456,8 @@ function containsContiguousWordSequence(text: string, sequence: string[]): boole
 export function mergeLiveProvisionalTranscript(previous: string, next: string): string {
   const previousWords = getTranscriptWords(previous);
   const nextWords = getTranscriptWords(next);
-  if (previousWords.length === 0) return next.trim();
-  if (nextWords.length === 0) return previous.trim();
+  if (previousWords.length === 0) return collapseTranscriptRepetitionLoops(next.trim());
+  if (nextWords.length === 0) return collapseTranscriptRepetitionLoops(previous.trim());
 
   const overlap = wordOverlapRatio(previous, next);
   const isLikelyShortOpeningSegment = previousWords.length <= 3 && nextWords.length >= 2;
@@ -488,9 +493,9 @@ export function mergeLiveProvisionalTranscript(previous: string, next: string): 
       !containsContiguousWordSequence(merged, previousWords)
     )
   ) {
-    return appendTranscriptWithoutDuplicate(previous, next);
+    return collapseTranscriptRepetitionLoops(appendTranscriptWithoutDuplicate(previous, next));
   }
-  return merged;
+  return collapseTranscriptRepetitionLoops(merged);
 }
 
 function isUnsupportedPostTranscriptCandidate(candidate: string, currentTranscript: string): boolean {

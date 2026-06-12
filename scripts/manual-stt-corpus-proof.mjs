@@ -728,6 +728,129 @@ function isPlaceholderTranscript(text) {
   return !text || /\b(listening|words appear here|start speaking)\b/i.test(text);
 }
 
+function buildTrustHeaderContinuity(phases = [], stopStatusSnapshots = []) {
+  const snapshots = [
+    ...phases.map((snapshot) => ({ source: 'phase', ...snapshot })),
+    ...stopStatusSnapshots.map((snapshot) => ({ source: 'stopStatusSnapshot', ...snapshot })),
+  ];
+  const trustRequiredStates = new Set(['listening', 'drafting', 'finalizing']);
+  const requiredSnapshots = snapshots.filter((snapshot) => trustRequiredStates.has(snapshot.transcriptState));
+  const missingRequiredTrustHeader = requiredSnapshots
+    .filter((snapshot) => !snapshot.trustHeaderVisible)
+    .map((snapshot) => ({
+      source: snapshot.source,
+      phase: snapshot.phase ?? null,
+      transcriptState: snapshot.transcriptState ?? null,
+      recording: snapshot.recording ?? null,
+      statusText: snapshot.statusText ?? null,
+      trustHeaderKind: snapshot.trustHeaderKind ?? null,
+    }));
+  const finalSnapshotsWithTrustHeader = snapshots
+    .filter((snapshot) => snapshot.transcriptState === 'final' && snapshot.trustHeaderVisible)
+    .map((snapshot) => ({
+      source: snapshot.source,
+      phase: snapshot.phase ?? null,
+      transcriptState: snapshot.transcriptState ?? null,
+      statusText: snapshot.statusText ?? null,
+      trustHeaderKind: snapshot.trustHeaderKind ?? null,
+    }));
+
+  return {
+    definition: 'Top trust surface must be visible for listening/drafting/finalizing and absent once transcriptState=final.',
+    requiredStates: [...trustRequiredStates],
+    requiredSnapshotCount: requiredSnapshots.length,
+    missingRequiredTrustHeader,
+    finalSnapshotsWithTrustHeader,
+    pass: missingRequiredTrustHeader.length === 0 && finalSnapshotsWithTrustHeader.length === 0,
+  };
+}
+
+function normalizeVisibleLoopToken(token) {
+  return String(token || '')
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, '');
+}
+
+function detectImmediateVisibleTranscriptLoop(text) {
+  const raw = compact(text || '');
+  if (!raw) return null;
+  const rawTokens = raw.split(/\s+/);
+  const normalizedTokens = rawTokens.map(normalizeVisibleLoopToken);
+  const tokenCount = normalizedTokens.length;
+  if (tokenCount < 10) return null;
+
+  let strongest = null;
+  for (let index = 0; index < tokenCount; index += 1) {
+    const maxUnit = Math.min(12, Math.floor((tokenCount - index) / 5));
+    for (let unitSize = 2; unitSize <= maxUnit; unitSize += 1) {
+      const unit = normalizedTokens.slice(index, index + unitSize);
+      if (unit.some((token) => !token)) continue;
+
+      let repeatCount = 1;
+      while (index + ((repeatCount + 1) * unitSize) <= tokenCount) {
+        const nextUnit = normalizedTokens.slice(
+          index + (repeatCount * unitSize),
+          index + ((repeatCount + 1) * unitSize),
+        );
+        if (!unit.every((token, offset) => token === nextUnit[offset])) break;
+        repeatCount += 1;
+      }
+
+      if (repeatCount >= 5 && (!strongest || repeatCount * unitSize > strongest.repeatCount * strongest.unitSize)) {
+        const phrase = rawTokens.slice(index, index + unitSize).join(' ');
+        strongest = {
+          phrase,
+          repeatCount,
+          unitSize,
+          startWord: index,
+          repeatedWordCount: repeatCount * unitSize,
+        };
+      }
+    }
+  }
+
+  if (!strongest) return null;
+  const sampleStart = Math.max(0, strongest.startWord - 8);
+  const sampleEnd = Math.min(tokenCount, strongest.startWord + strongest.repeatedWordCount + 8);
+  return {
+    ...strongest,
+    sample: rawTokens.slice(sampleStart, sampleEnd).join(' '),
+  };
+}
+
+function buildVisibleTranscriptRepetitionRisk(phases = [], stopStatusSnapshots = [], transcriptUiState = null) {
+  const snapshots = [
+    ...phases.map((snapshot) => ({ source: 'phase', ...snapshot })),
+    ...stopStatusSnapshots.map((snapshot) => ({ source: 'stopStatusSnapshot', ...snapshot })),
+    ...(transcriptUiState ? [{ source: 'finalUi', ...transcriptUiState }] : []),
+  ];
+  const severeLoops = snapshots
+    .map((snapshot) => {
+      const transcript = compact(snapshot.transcript || snapshot.rawTranscript || '');
+      const loop = detectImmediateVisibleTranscriptLoop(transcript);
+      if (!loop) return null;
+      return {
+        source: snapshot.source,
+        phase: snapshot.phase ?? null,
+        transcriptState: snapshot.transcriptState ?? snapshot.state ?? null,
+        textLength: transcript.length,
+        phrase: loop.phrase,
+        repeatCount: loop.repeatCount,
+        unitSize: loop.unitSize,
+        startWord: loop.startWord,
+        sample: loop.sample,
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    definition: 'User-visible transcript must not contain an immediate multi-word loop repeated five or more times in any phase/stop/final snapshot.',
+    severeLoops,
+    pass: severeLoops.length === 0,
+  };
+}
+
 async function waitForFirstText(page, startedAt) {
   const deadline = Date.now() + FIRST_TEXT_TIMEOUT_MS;
   let lastText = '';
@@ -848,6 +971,10 @@ async function markPhase(page, phase, detail = {}) {
     const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
     window.__STT_CORPUS_PHASES__ = window.__STT_CORPUS_PHASES__ ?? [];
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    const trustBannerNode = document.querySelector('[data-testid="live-transcript-trust-banner"]');
+    const finalizingNode = document.querySelector('[data-testid="live-transcript-finalizing"]');
+    const bannerSlotNode = document.querySelector('[data-testid="live-transcript-banner-slot"]');
+    const trustHeaderNode = trustBannerNode ?? finalizingNode;
     window.__STT_CORPUS_PHASES__.push({
       ...entry,
       perfNow: Number(performance.now().toFixed(1)),
@@ -856,7 +983,14 @@ async function markPhase(page, phase, detail = {}) {
       transcript: extractTranscriptOnly(),
       transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
       draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+      trustHeaderVisible: Boolean(trustHeaderNode),
+      trustHeaderKind: trustBannerNode ? 'draft' : finalizingNode ? 'finalizing' : null,
+      trustHeaderText: trustHeaderNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      trustBannerVisible: Boolean(trustBannerNode),
+      trustBannerText: trustBannerNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      bannerSlotVisible: Boolean(bannerSlotNode),
       finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+      finalizingText: finalizingNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       runtimeState: document.documentElement.getAttribute('data-runtime-state'),
@@ -890,6 +1024,10 @@ async function readUiStatusSnapshot(page) {
     };
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+    const trustBannerNode = document.querySelector('[data-testid="live-transcript-trust-banner"]');
+    const finalizingNode = document.querySelector('[data-testid="live-transcript-finalizing"]');
+    const bannerSlotNode = document.querySelector('[data-testid="live-transcript-banner-slot"]');
+    const trustHeaderNode = trustBannerNode ?? finalizingNode;
     return {
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
@@ -898,7 +1036,14 @@ async function readUiStatusSnapshot(page) {
       transcript: extractTranscriptOnly(transcriptContainer),
       transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
       draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+      trustHeaderVisible: Boolean(trustHeaderNode),
+      trustHeaderKind: trustBannerNode ? 'draft' : finalizingNode ? 'finalizing' : null,
+      trustHeaderText: trustHeaderNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      trustBannerVisible: Boolean(trustBannerNode),
+      trustBannerText: trustBannerNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      bannerSlotVisible: Boolean(bannerSlotNode),
       finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+      finalizingText: finalizingNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     };
@@ -1008,12 +1153,23 @@ async function collectTraceSnapshot(page, mode) {
         ].join(',')).forEach((node) => node.remove());
         return stripTranscriptChrome(clone.textContent ?? '');
       };
+      const trustBannerNode = document.querySelector('[data-testid="live-transcript-trust-banner"]');
+      const finalizingNode = document.querySelector('[data-testid="live-transcript-finalizing"]');
+      const bannerSlotNode = document.querySelector('[data-testid="live-transcript-banner-slot"]');
+      const trustHeaderNode = trustBannerNode ?? finalizingNode;
       return {
         state: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
         rawTranscript: transcriptContainer?.textContent ?? null,
         transcript: extractTranscriptOnly(),
         draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+        trustHeaderVisible: Boolean(trustHeaderNode),
+        trustHeaderKind: trustBannerNode ? 'draft' : finalizingNode ? 'finalizing' : null,
+        trustHeaderText: trustHeaderNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+        trustBannerVisible: Boolean(trustBannerNode),
+        trustBannerText: trustBannerNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+        bannerSlotVisible: Boolean(bannerSlotNode),
         finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+        finalizingText: finalizingNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
         draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       };
     })(),
@@ -1443,7 +1599,20 @@ async function runFixture(page, mode, fixture) {
     result.observedFillers = countFillerOccurrences(selectedForSaveTranscript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
     result.fillerPass = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
   }
-  result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
+  result.trustHeaderContinuity = buildTrustHeaderContinuity(result.phases ?? [], result.stopStatusSnapshots ?? []);
+  result.visibleTranscriptRepetitionRisk = buildVisibleTranscriptRepetitionRisk(
+    result.phases ?? [],
+    result.stopStatusSnapshots ?? [],
+    result.transcriptUiState ?? null,
+  );
+  result.journeyPass = Boolean(
+    result.sessionPersisted &&
+    result.historyVisible &&
+    result.detailVisible &&
+    result.firstText.timestampMs != null &&
+    result.trustHeaderContinuity.pass &&
+    result.visibleTranscriptRepetitionRisk.pass
+  );
   result.processingSpeechLocallyShown = Array.isArray(result.phases)
     ? result.phases.some((phase) => /Processing speech locally/i.test(phase.statusText || ''))
       || (Array.isArray(result.stopStatusSnapshots) && result.stopStatusSnapshots.some((snapshot) => /Processing speech locally/i.test(snapshot.statusText || '')))
