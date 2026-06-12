@@ -211,6 +211,37 @@ describe('LiveTranscriptPanel', () => {
         expect(transcriptContainer.scrollTop).toBe(1200);
     });
 
+    it('does not override parent-managed scroll position when an external container ref is supplied', async () => {
+        const containerRef = React.createRef<HTMLDivElement>();
+        const { rerender } = render(
+            <LiveTranscriptPanel
+                transcript="first sentence"
+                interimTranscript=""
+                isListening={true}
+                containerRef={containerRef}
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        Object.defineProperty(transcriptContainer, 'scrollHeight', {
+            configurable: true,
+            value: 1200,
+        });
+        transcriptContainer.scrollTop = 240;
+
+        rerender(
+            <LiveTranscriptPanel
+                transcript={Array.from({ length: 80 }, (_, index) => `sentence ${index + 1}`).join(' ')}
+                interimTranscript="latest words"
+                isListening={true}
+                containerRef={containerRef}
+            />
+        );
+
+        await act(async () => {});
+        expect(transcriptContainer.scrollTop).toBe(240);
+    });
+
     it('shows Private-only processing feedback before transcript text arrives', () => {
         render(
             <LiveTranscriptPanel
