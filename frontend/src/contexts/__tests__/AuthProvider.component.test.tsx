@@ -194,6 +194,38 @@ describe('AuthProvider', () => {
         expect(analyticsMock.identify).not.toHaveBeenCalled();
     });
 
+    it('does not re-identify the same user on token refresh / re-render (no duplicate identify)', async () => {
+        const mockSession = { user: { id: 'user-123' } };
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: mockSession }, error: null });
+
+        let authStateCallback: (event: string, session: unknown) => void;
+        mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
+            authStateCallback = callback;
+            return { data: { subscription: { unsubscribe: vi.fn() } } };
+        });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(analyticsMock.identify).toHaveBeenCalledWith('user-123'));
+        expect(analyticsMock.identify).toHaveBeenCalledTimes(1);
+
+        // A token refresh for the SAME user id (new session object, identical user.id) must NOT
+        // trigger a second identify — the ref-equality guard short-circuits the effect.
+        act(() => {
+            authStateCallback('TOKEN_REFRESHED', { user: { id: 'user-123' } });
+        });
+
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+        expect(analyticsMock.identify).toHaveBeenCalledTimes(1);
+        expect(analyticsMock.resetIdentity).not.toHaveBeenCalled();
+    });
+
     it('handles getSession error gracefully', async () => {
         mockSupabase.auth.getSession.mockResolvedValue({
             data: { session: null },
