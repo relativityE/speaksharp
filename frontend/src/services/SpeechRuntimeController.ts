@@ -748,6 +748,11 @@ export class SpeechRuntimeController {
         return this.state;
     }
 
+    // Dedupe key so the v4 session_saved telemetry fires EXACTLY ONCE per saved session:
+    // updateSessionPersisted(true, …) is invoked at multiple successful-stop checkpoints for a single
+    // save, so we key on the persisted sessionId.
+    private lastV4SessionSavedId: string | null = null;
+
     private updateSessionPersisted(
         persisted: boolean,
         details?: { sessionId?: string | null; mode?: string | null; engineType?: string | null },
@@ -757,9 +762,16 @@ export class SpeechRuntimeController {
             useSessionStore.setState({ sessionSaved: persisted });
         }
         syncSessionPersisted(persisted, details);
-        // Stage-B v4 telemetry: one session_saved per save, only for a v4 private session. Non-PII
-        // allowlist (engine/saved/journey flags only); never throws into the save path.
-        if (persisted && details?.engineType === 'transformers-js-v4') {
+        // Stage-B v4 telemetry: EXACTLY ONE session_saved per saved v4 session. updateSessionPersisted(true)
+        // fires at multiple successful-stop checkpoints for one save, so dedupe by sessionId. v4-only;
+        // non-PII allowlist (engine/saved/journey flags only); never throws into the save path.
+        if (
+            persisted &&
+            details?.engineType === 'transformers-js-v4' &&
+            details.sessionId &&
+            details.sessionId !== this.lastV4SessionSavedId
+        ) {
+            this.lastV4SessionSavedId = details.sessionId;
             emitV4SessionSaved({ engine: 'transformers-js-v4', saved: true, recordStarted: true, stopSucceeded: true });
         }
     }
