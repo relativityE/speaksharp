@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 // ... existing imports ...
@@ -21,7 +21,7 @@ import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
-import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
@@ -32,6 +32,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
  */
 export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [recoveryDraft, setRecoveryDraft] = useState<SessionRecoveryDraft | null>(null);
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
@@ -71,11 +72,7 @@ export const SessionPage: React.FC = () => {
         history
     } = useSessionLifecycle();
 
-    useEffect(() => {
-        if (isListening || transcriptContent.trim()) return;
-        const draft = getSessionRecoveryDraft();
-        if (!draft) return;
-
+    const restoreRecoveryDraft = useCallback((draft: SessionRecoveryDraft) => {
         updateRecoveredTranscript(draft.transcript, '');
         setRecoveredChunks([{
             transcript: draft.transcript,
@@ -87,7 +84,20 @@ export const SessionPage: React.FC = () => {
             message: 'Recovered unsaved session draft.',
             detail: 'Your last transcript was kept on this device after a save issue.',
         });
-    }, [isListening, setRecoveredChunks, setRecoveredStatus, transcriptContent, updateRecoveredTranscript]);
+        setRecoveryDraft(null);
+    }, [setRecoveredChunks, setRecoveredStatus, updateRecoveredTranscript]);
+
+    useEffect(() => {
+        if (isListening) {
+            setRecoveryDraft(null);
+            return;
+        }
+        const draft = getSessionRecoveryDraft();
+        setRecoveryDraft(draft);
+        if (!draft || transcriptContent.trim()) return;
+
+        restoreRecoveryDraft(draft);
+    }, [isListening, restoreRecoveryDraft, transcriptContent]);
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
@@ -186,6 +196,39 @@ export const SessionPage: React.FC = () => {
             {/* Status Bar - Spans full width of the main content area */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 <StatusNotificationBar status={displayStatus} />
+                {recoveryDraft && !isListening && (
+                    <div
+                        className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        data-testid="session-recovery-actions"
+                    >
+                        <span className="font-medium text-foreground/80">
+                            An unsaved transcript draft is available from this browser.
+                        </span>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => restoreRecoveryDraft(recoveryDraft)}
+                                data-testid="session-recovery-restore"
+                            >
+                                Restore draft
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                    clearSessionRecoveryDraft(recoveryDraft.sessionId);
+                                    setRecoveryDraft(null);
+                                }}
+                                data-testid="session-recovery-dismiss"
+                            >
+                                Dismiss
+                            </Button>
+                        </div>
+                    </div>
+                )}
                 {showAnalyticsPrompt && (
                     <div
                         className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
