@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getSessionById } from "../lib/storage";
+import { getSessionById } from "../lib/sessionRepository";
 import { useAuthProvider } from "../contexts/AuthProvider";
 
 /**

@@ -13,7 +13,7 @@
  * Native ONLY. Never invoked for Private (Private must never call a server formatter).
  */
 import { formatNativeTranscript, getNativeFormatterTelemetry } from './modes/nativeTranscriptFormatter';
-import { updateSession as updateSessionDefault } from '@/lib/storage';
+import { updateSession as updateSessionDefault } from '@/lib/sessionRepository';
 import logger from '@/lib/logger';
 
 export type NativeFormattingStatus = 'not_started' | 'pending' | 'complete' | 'failed';

@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { usePracticeHistory } from '../usePracticeHistory';
 import { useAuthProvider } from '../../contexts/AuthProvider';
-import { getSessionHistory } from '../../lib/storage';
+import { getSessionHistory } from '../../lib/sessionRepository';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, Mock } from 'vitest';
 
@@ -10,7 +10,7 @@ vi.mock('../../contexts/AuthProvider', () => ({
     useAuthProvider: vi.fn(),
 }));
 
-vi.mock('../../lib/storage', () => ({
+vi.mock('../../lib/sessionRepository', () => ({
     getSessionHistory: vi.fn(),
 }));
 

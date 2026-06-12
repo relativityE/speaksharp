@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react';
 import { useSessionManager } from '../useSessionManager';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { useUserProfile } from '../useUserProfile';
-import { saveSession, deleteSession, updateSession } from '../../lib/storage';
+import { saveSession, deleteSession, updateSession } from '../../lib/sessionRepository';
 import { vi, describe, it, expect, beforeEach, Mock } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -29,7 +29,7 @@ vi.mock('../useUserProfile', () => ({
   useUserProfile: vi.fn(),
 }));
 
-vi.mock('../../lib/storage', () => ({
+vi.mock('../../lib/sessionRepository', () => ({
   saveSession: vi.fn(),
   updateSession: vi.fn(),
   deleteSession: vi.fn(),

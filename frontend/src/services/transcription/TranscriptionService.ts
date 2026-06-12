@@ -38,7 +38,7 @@ import {
   saveSession,
   heartbeatSession,
   completeSession,
-} from '@/lib/storage';
+} from '@/lib/sessionRepository';
 
 declare global {
   interface Window {

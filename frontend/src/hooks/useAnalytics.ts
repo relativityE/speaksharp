@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from './usePracticeHistory';
 import { useSession } from './useSession';
-import { getAnalyticsSummary, getSessionCount } from '../lib/storage';
+import { getAnalyticsSummary, getSessionCount } from '../lib/sessionRepository';
 import {
     calculateOverallStats,
     calculateFillerWordTrends,
