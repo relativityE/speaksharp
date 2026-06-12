@@ -15,6 +15,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
+import { readPrivateDecodeOptionsOverride } from '@/services/transcription/engines/whisperDecodeOptions';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
@@ -82,7 +83,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
     return summary;
 }
 
-function getV4AsrOptions(audioLengthSeconds: number): Record<string, unknown> {
+function getV4AsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
@@ -92,6 +93,10 @@ function getV4AsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
         options.language = 'en';
         options.task = 'transcribe';
+    }
+
+    if (decodeOptions) {
+        Object.assign(options, decodeOptions);
     }
 
     return options;
@@ -319,7 +324,7 @@ export class TransformersJSV4Engine extends STTEngine {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
                 const response = await this.sendWorkerRequest(
-                    { type: 'transcribe', audio: workerAudio },
+                    { type: 'transcribe', audio: workerAudio, decodeOptions: readPrivateDecodeOptionsOverride() },
                     [workerAudio.buffer],
                 );
                 if (response.type !== 'result') {
@@ -366,7 +371,7 @@ export class TransformersJSV4Engine extends STTEngine {
             }
 
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-            const options = getV4AsrOptions(audioLengthSeconds);
+            const options = getV4AsrOptions(audioLengthSeconds, readPrivateDecodeOptionsOverride());
 
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
 
@@ -495,7 +500,7 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     private sendWorkerRequest(
-        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
+        request: { type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string } | { type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> } | { type: 'destroy' },
         transfer?: Transferable[],
     ): Promise<WorkerResponse> {
         if (!this.worker) {
