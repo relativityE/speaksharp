@@ -45,6 +45,7 @@ import { TranscriptUpdate, SttStatus } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE, samplesToSeconds, secondsToSamples } from '../sttConstants';
+import { emitV4DecodeComplete, buildV4LifecycleProps } from '../privateV4Telemetry';
 
 // Extend Window interface for E2E test flags
 declare global {
@@ -2334,6 +2335,18 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         if (result.isOk) captured.transcript = rawText;
         else captured.error = result.error?.message;
       }
+    }
+
+    // Stage-B v4 telemetry: exactly one decode_complete per session on the whole-utterance final
+    // decode (authoritative decodeMs/rtf), NOT per rolling decode. v4-gated, non-PII allowlisted,
+    // never throws — telemetry must not affect the transcription path.
+    if (result.isOk && this.privateSTT.getEngineType() === 'transformers-js-v4') {
+      const audioDurationMs = samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE) * 1000;
+      emitV4DecodeComplete(buildV4LifecycleProps({
+        finalEngine: 'transformers-js-v4',
+        decodeMs,
+        rtf: audioDurationMs > 0 ? Number((decodeMs / audioDurationMs).toFixed(4)) : null,
+      }));
     }
 
     if (!result.isOk) {
