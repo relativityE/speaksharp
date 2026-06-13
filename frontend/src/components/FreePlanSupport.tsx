@@ -10,10 +10,9 @@ interface FreePlanSupportProps {
   tier: FreePlanSupportTier;
   placement: FreePlanSupportPlacement;
   isRecording?: boolean;
-  isTrialPeriod?: boolean;
 }
 
-export function FreePlanSupport({ tier, placement, isRecording = false, isTrialPeriod = false }: FreePlanSupportProps) {
+export function FreePlanSupport({ tier, placement, isRecording = false }: FreePlanSupportProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const visible = canShowFreePlanSupport({
@@ -21,7 +20,6 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
     placement,
     route: location.pathname,
     isRecording,
-    isTrialPeriod,
   });
 
   useEffect(() => {

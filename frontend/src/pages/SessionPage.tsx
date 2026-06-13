@@ -20,7 +20,7 @@ import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
-import { formatRemainingTime, useUsageLimit } from '@/hooks/useUsageLimit';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 
@@ -151,20 +151,22 @@ export const SessionPage: React.FC = () => {
     };
 
     const baseStatus = getBaseStatus();
-    const trialSecondsRemaining = usageLimit?.trial_active
-        ? Math.max(0, usageLimit.trial_seconds_remaining ?? 0)
+    const privateSampleSecondsRemaining = usageLimit?.private_sample_available
+        ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
         : 0;
-    const trialStatusDetail = trialSecondsRemaining > 0
-        ? `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private transcription.`
+    const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
+        ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
+        : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
+            ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
         : undefined;
-    const shouldShowTrialDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
+    const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 
     const visibleModelLoadingProgress =
         isProUser && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
-        detail: baseStatus.detail ?? (shouldShowTrialDetail ? trialStatusDetail : undefined),
+        detail: baseStatus.detail ?? (shouldShowPrivateSampleDetail ? privateSampleStatusDetail : undefined),
         progress: visibleModelLoadingProgress ?? undefined
     };
     return (
@@ -227,6 +229,7 @@ export const SessionPage: React.FC = () => {
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
                                     isProUser={isProUser}
+                                    isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
                                     statusMessage={sttStatus.message}

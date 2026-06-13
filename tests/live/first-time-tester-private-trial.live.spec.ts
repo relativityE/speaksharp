@@ -17,8 +17,8 @@ test.use({
   },
 });
 
-test.describe('First-time tester automatic trial Private STT path @live', () => {
-  test('new tester signs up, starts uncached Private STT, records, stops, and avoids failed-start state', async ({ page }) => {
+test.describe('First-time tester Private sample path @live', () => {
+  test('new tester signs up Browser-first, intentionally starts Private sample, records, saves, and keeps Browser fallback', async ({ page }) => {
     test.skip(!BASE_URL, 'BASE_URL is required.');
     test.setTimeout(360_000);
 
@@ -77,21 +77,26 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
 
     const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
     const email = `first-time-tester-${unique}@speaksharp.app`;
-    const password = `SpeakSharpTrial-${unique}!`;
+    const password = `SpeakSharpSample-${unique}!`;
 
-    await test.step('Create a fresh tester account with automatic trial copy visible', async () => {
+    await test.step('Create a fresh tester account with Browser-first and Private sample copy visible', async () => {
       console.log('FIRST_TIME_TESTER_STEP signup_start');
-      await expect(page.getByText(/60-minute Pro trial/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/Start free with instant Browser transcription/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/try one Private sample session/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/record up to 5 minutes/i)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/60-minute Pro trial|trial countdown|daily limit|monthly limit|practice quota|Pro quota/i)).toHaveCount(0);
       await page.getByTestId('email-input').fill(email);
       await page.getByTestId('password-input').fill(password);
       await page.getByTestId('sign-up-submit').click();
       console.log('FIRST_TIME_TESTER_STEP signup_submitted');
     });
 
-    await test.step('Land in session with trial access and Private selected', async () => {
+    await test.step('Land in session Browser-first, then intentionally choose Private sample', async () => {
       await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
-      await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('stt-mode-select')).toContainText(/Browser/i, { timeout: 20_000 });
+      await expect(page.getByText(/Private sample: up to 5 minutes|Try one Private sample session/i)).toBeVisible({ timeout: 20_000 });
       await selectBenchmarkMode(page, 'private');
+      await expect(page.getByText(/Private sample: up to 5 minutes|Record up to 5 minutes/i)).toBeVisible({ timeout: 20_000 });
       console.log('FIRST_TIME_TESTER_STEP session_private_selected');
     });
 
@@ -111,6 +116,12 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
     await test.step('Start, verify live transcript/fillers, and stop recording after Private setup', async () => {
       recordingEvidence = await startAndStopPrivateRecording(page);
       console.log('FIRST_TIME_TESTER_STEP recording_start_stop_done');
+    });
+
+    await test.step('Confirm Browser transcription remains available after Private sample recording', async () => {
+      await selectBenchmarkMode(page, 'native');
+      await expect(page.getByTestId('stt-mode-select')).toContainText(/Browser/i, { timeout: 20_000 });
+      console.log('FIRST_TIME_TESTER_STEP browser_fallback_available');
     });
 
     let historyEvidence: HistoryEvidence;

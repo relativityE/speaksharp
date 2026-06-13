@@ -94,7 +94,8 @@ export default function AuthPage() {
           return;
         }
 
-        // Credentials succeeded. The backend provisions the 60-minute Pro trial.
+        // Credentials succeeded. The backend provisions the free profile; Private
+        // access is offered later as one intentional sample session.
         setInlineError(null);
 
         // Post-signup sign-in to get the session (Supabase quirk)
@@ -230,9 +231,9 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">Start free, with a 60-minute Pro trial</p>
+                    <p className="text-sm font-semibold text-foreground">Start free with instant Browser transcription</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Free practice uses instant Browser transcription. Your trial lets you try Private transcription and deeper feedback. Cloud STT is a Pro feature (unavailable for trial).
+                      Try the product immediately. You can also try one Private sample session and record up to 5 minutes with local transcription so you can compare it with Browser transcription. Cloud STT is a paid Early Access feature.
                     </p>
                     {inlineError && (
                       <p
