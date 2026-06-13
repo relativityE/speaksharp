@@ -521,3 +521,19 @@ code to close out the long-lived `dev/v4-integration` branch. v4 is **not launch
 **Deferred to activation (post-release, not in this convergence):** flag-ON app-path lifecycle proof (#76),
 v4 cross-utterance/decode tuning, the v4 decode-complete telemetry hook in `PrivateWhisper`, and the
 Stage-B `SpeechRuntimeController` telemetry wiring — all to be re-derived/proved when v4 is intentionally enabled.
+
+### v4 activation-readiness — material now on main (convergence), deferred items preserved
+
+To allow deleting all `dev/v4-*` branches while keeping everything needed to ENABLE and PROVE v4 later
+on `main`, the v4 proof material is converged onto main (flag-OFF, dispatch-only):
+- Proof scripts: `posthog-stt-ab-authenticated-user-targeting-proof.mjs`, `posthog-stt-ab-targeting-inspector.mjs`, v4 `manual-stt-corpus-proof.mjs`.
+- Proof CI: `.github/workflows/v4-auto-fallback-proof.yml`, `.github/workflows/v4-app-path-proof.yml` (workflow_dispatch).
+- Flag-on browser-control proof: `tests/e2e/v4-posthog-browser-control.e2e.spec.ts` (skipped unless `RUN_V4_BROWSER_PROOF=1`).
+- Active runbooks on main (current, clean): `V4_APP_PATH_PROOF_RUNBOOK` (#76 flag-on), `V4_POSTHOG_READINESS_PROOF`, `V4_DECODE_ROOT_CAUSE_EXPERIMENT`.
+- **NOT ported (historical only; stale Gate/Option naming + obsolete email/`isInternalTester` targeting; superseded by the contract below):** `V4_WEBGPU_VALUE_PROOF_RUNBOOK`, `V4_GATE_B_TARGETING_MEMO`, `V4_DISTIL_BAKEOFF_KNOB_MEMO`, `GATE_B_IDENTITY_FAILURE_ANALYSIS` — preserved via `archive/*-pre-main-convergence` tags, not required to enable/prove v4.
+
+**v4 flag-on targeting contract (FINAL — the only supported model):** the `private_stt_v4_enabled` PostHog flag is bucketed on `distinct_id`, which equals the Supabase `user.id` (set via `identify(userId)`; no PII). Targeting is an **operator-managed cohort or an exact `user.id` release condition** in PostHog. **No email targeting. No client-settable `isInternalTester`** (the app only *reads* flags; it never grants v4 to itself). Activation = an operator adds the test/cohort `user.id` to the flag condition; deactivation = remove it.
+
+**Deferred to activation — explicitly classified as ACTIVATION BACKLOG/SPEC: NOT required for dormant v4 and NOT required for any flag-on proof.** (Verified empirically: zero references to `session_saved`/`emitV4SessionSaved` or to the #75 UX module across every ported proof — `v4-posthog-browser-control.e2e.spec.ts`, `posthog-stt-ab-*` scripts, `manual-stt-corpus-proof.mjs`, `v4-auto-fallback-proof.yml`, `v4-app-path-proof.yml`, and the app-path runbook #76.) Both are required only at **production v4 activation**, not to enable or prove v4. Preserved via `archive/*-pre-main-convergence` tags; re-derive at #76. So **no required v4 activation/proof material is branch-only.**
+- `SpeechRuntimeController` Stage-B `session_saved` telemetry CALL-SITE — production rollout telemetry only. The `emitV4SessionSaved` module is already on main (#780); the call-site is deferred because wiring it requires threading `engineType` through the shipped save path + pulls in the excluded `storage`→`sessionRepository` rename. No proof depends on it.
+- Customer-safe v4 UX copy + variant-aware download size (#75, incl. the `privateV4Ux` module which lives only on `dev/v4-customer-safe-ux`) — customer-facing copy shown only when v4 is ON. Re-derive flag-gated at activation so no v4/base_q4/distil copy ships while dormant. No proof depends on it.
