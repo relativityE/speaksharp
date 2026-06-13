@@ -238,7 +238,7 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
 
 ];
 
-type AnalyticsToolGroupId = 'delivery_control' | 'message_clarity' | 'habit_progress' | 'session_proof' | 'transcript_quality';
+type AnalyticsToolGroupId = 'speak_clearly' | 'sound_confident' | 'track_progress';
 type AnalyticsFocusId = AnalyticsToolGroupId | 'custom';
 
 type AnalyticsToolGroup = {
@@ -252,53 +252,55 @@ type AnalyticsToolGroup = {
 
 const ANALYTICS_TOOL_GROUPS: AnalyticsToolGroup[] = [
     {
-        id: 'delivery_control',
-        label: 'Delivery Control',
-        purpose: 'Shows whether your pace, pauses, and filler habits make you easy to follow.',
-        outcome: 'Use it when you want the next session to sound steadier and more controlled.',
+        id: 'speak_clearly',
+        label: 'Speak Clearly',
+        purpose: 'Helps you see whether your message is clear, concise, and supported by a trustworthy transcript.',
+        outcome: 'Use it when you want the next take to land with a sharper point and less repetition.',
+        statCardIds: ['clarity_score', 'avg_session_length', 'filler_words_per_min', 'total_sessions'],
+        analysisSlideIds: ['clarity_trend', 'stt_comparison', 'filler_words', 'weekly_activity'],
+    },
+    {
+        id: 'sound_confident',
+        label: 'Sound Confident',
+        purpose: 'Shows whether your pace, pauses, fillers, and delivery habits make you easy to follow.',
+        outcome: 'Use it when you want your next session to sound steadier, calmer, and more confident.',
         statCardIds: ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'],
-        analysisSlideIds: ['pace_trend', 'filler_words', 'clarity_trend', 'weekly_activity'],
-    },
-    {
-        id: 'message_clarity',
-        label: 'Message Clarity',
-        purpose: 'Connects transcript quality, clarity, and coaching notes to whether your point lands.',
-        outcome: 'Use it when you want to tighten the opening, takeaway, or supporting example.',
-        statCardIds: ['clarity_score', 'speaking_pace', 'avg_session_length', 'total_sessions'],
-        analysisSlideIds: ['clarity_trend', 'pace_trend', 'filler_words', 'weekly_activity'],
-    },
-    {
-        id: 'habit_progress',
-        label: 'Habit Progress',
-        purpose: 'Turns practice volume and repeated patterns into a habit loop.',
-        outcome: 'Use it when you want proof that a speaking habit is improving over time.',
-        statCardIds: ['total_sessions', 'total_practice_time', 'avg_session_length', 'filler_words_per_min'],
-        analysisSlideIds: ['weekly_activity', 'filler_words', 'pace_trend', 'clarity_trend'],
-    },
-    {
-        id: 'session_proof',
-        label: 'Session Proof',
-        purpose: 'Prioritizes before/after comparison and reports you can revisit or share.',
-        outcome: 'Use it when you want evidence of what changed between practice attempts.',
-        statCardIds: ['total_sessions', 'speaking_pace', 'clarity_score', 'filler_words_per_min'],
         analysisSlideIds: ['pace_trend', 'clarity_trend', 'filler_words', 'weekly_activity'],
     },
     {
-        id: 'transcript_quality',
-        label: 'Transcript Quality',
-        purpose: 'Separates speaking performance from transcription reliability.',
-        outcome: 'Use it when you need to know whether a low score came from delivery or capture quality.',
-        statCardIds: ['clarity_score', 'speaking_pace', 'avg_session_length', 'total_sessions'],
-        analysisSlideIds: ['stt_comparison', 'clarity_trend', 'pace_trend', 'filler_words'],
+        id: 'track_progress',
+        label: 'Track Progress',
+        purpose: 'Turns saved sessions, goals, comparisons, and reports into evidence that your practice is improving.',
+        outcome: 'Use it when you want proof of what changed and what to try again next.',
+        statCardIds: ['total_sessions', 'total_practice_time', 'avg_session_length', 'clarity_score'],
+        analysisSlideIds: ['weekly_activity', 'clarity_trend', 'pace_trend', 'filler_words'],
     },
 ];
 
-const DEFAULT_ANALYTICS_TOOL_GROUP: AnalyticsToolGroupId = 'delivery_control';
+const DEFAULT_ANALYTICS_TOOL_GROUP: AnalyticsToolGroupId = 'speak_clearly';
 const TOOL_GROUP_STORAGE_KEY = 'speaksharp_analytics_tool_group_v1';
 const CUSTOM_STAT_STORAGE_KEY = 'speaksharp_custom_stat_cards_v1';
 const CUSTOM_ANALYSIS_STORAGE_KEY = 'speaksharp_custom_analysis_slides_v1';
 const DEFAULT_CUSTOM_STAT_CARDS = ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'];
 const DEFAULT_CUSTOM_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'weekly_activity', 'filler_words'];
+
+const LEGACY_ANALYTICS_FOCUS_MAP: Record<string, AnalyticsFocusId> = {
+    delivery_control: 'sound_confident',
+    message_clarity: 'speak_clearly',
+    habit_progress: 'track_progress',
+    session_proof: 'track_progress',
+    transcript_quality: 'speak_clearly',
+    custom_toolkit: 'custom',
+};
+
+const normalizeAnalyticsFocusId = (saved: string | null): AnalyticsFocusId | null => {
+    if (!saved) return null;
+    if (saved === 'custom') return 'custom';
+    if (ANALYTICS_TOOL_GROUPS.some(group => group.id === saved)) {
+        return saved as AnalyticsToolGroupId;
+    }
+    return LEGACY_ANALYTICS_FOCUS_MAP[saved] ?? null;
+};
 
 const normalizeStatCardIds = (ids: string[]): string[] => {
     const validIds = new Set(STAT_CARD_OPTIONS.map(option => option.id));
@@ -509,10 +511,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const [selectedFocusId, setSelectedFocusId] = useState<AnalyticsFocusId>(() => {
         try {
             const saved = localStorage.getItem(TOOL_GROUP_STORAGE_KEY);
-            if (saved && ANALYTICS_TOOL_GROUPS.some(group => group.id === saved)) {
-                return saved as AnalyticsToolGroupId;
-            }
-            if (saved === 'custom') return 'custom';
+            const normalized = normalizeAnalyticsFocusId(saved);
+            if (normalized) return normalized;
         } catch (e) {
             logger.warn('Failed to load saved analytics focus preference');
         }
@@ -613,12 +613,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }, [customAnalysisSlides, isCustomFocus, selectedToolGroup]);
 
     const activeAnalysisIndex = current > 0 ? current - 1 : 0;
-    const focusLabel = isCustomFocus ? 'Custom Toolkit' : selectedToolGroup.label;
+    const focusLabel = isCustomFocus ? 'Custom' : selectedToolGroup.label;
     const focusPurpose = isCustomFocus
-        ? 'Inspect the specific signals you care about without using a predefined coaching bundle.'
+        ? 'Inspect specific metrics when you already know the signal you want to measure.'
         : selectedToolGroup.purpose;
     const focusOutcome = isCustomFocus
-        ? 'Use it when you already know which metric or chart you want to investigate; each selected tool keeps its own interpretation.'
+        ? 'Use it as an advanced measurement view after the main improvement goals answer your first question.'
         : selectedToolGroup.outcome;
 
     const toggleCustomStatCard = (cardId: string) => {
@@ -869,7 +869,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-72">
-                                        <DropdownMenuLabel>Choose one analytics story</DropdownMenuLabel>
+                                        <DropdownMenuLabel>Choose what you want to improve</DropdownMenuLabel>
                                         <DropdownMenuSeparator />
                                         <DropdownMenuRadioGroup
                                             value={selectedFocusId}
@@ -886,8 +886,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                             <DropdownMenuSeparator />
                                             <DropdownMenuRadioItem value="custom" className="items-start">
                                                 <span className="flex flex-col gap-0.5">
-                                                    <span className="font-semibold">Custom Toolkit</span>
-                                                    <span className="text-xs leading-snug text-muted-foreground">Pick specific tools when you want to inspect one signal directly.</span>
+                                                    <span className="font-semibold">Custom</span>
+                                                    <span className="text-xs leading-snug text-muted-foreground">Advanced: choose specific metrics when you already know what to inspect.</span>
                                                 </span>
                                             </DropdownMenuRadioItem>
                                         </DropdownMenuRadioGroup>
@@ -906,7 +906,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                                 <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">
                                     {isCustomFocus
-                                        ? 'Custom tools answer their own question without changing the grouped coaching story.'
+                                        ? 'Custom metrics answer their own question without changing the main coaching story.'
                                         : `${focusLabel} shows which ingredient to improve before your next session.`}
                                 </div>
                             </div>
