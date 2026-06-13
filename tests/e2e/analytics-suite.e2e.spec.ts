@@ -27,12 +27,12 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
     // Verify the default analytics story explains why these signals are grouped.
     await expect(page.getByText('Analytics Focus')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Speak Clearly', exact: true })).toBeVisible();
-    await expect(page.getByText('Evidence for Speak Clearly')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sound Confident', exact: true })).toBeVisible();
+    await expect(page.getByText('Evidence for Sound Confident')).toBeVisible();
     await expect(page.getByText(/These cards are selected together because they support the current focus/i)).toBeVisible();
-    await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();
-    await expect(page.getByTestId('stat-card-avg_session_length')).toBeVisible();
+    await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     await expect(page.getByTestId('stat-card-filler_words_per_min')).toBeVisible();
+    await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();
   });
 
   // SCENARIO 2: Detail Flow (Click-through Analysis)

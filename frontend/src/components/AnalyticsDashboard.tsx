@@ -277,7 +277,10 @@ const ANALYTICS_TOOL_GROUPS: AnalyticsToolGroup[] = [
     },
 ];
 
-const DEFAULT_ANALYTICS_TOOL_GROUP: AnalyticsToolGroupId = 'speak_clearly';
+// Default to Sound Confident (successor of the prior default Delivery Control), so the default
+// dashboard keeps its existing stat cards + charts — only the theme label changes. Unknown/corrupt
+// stored values resolve here too. Speak Clearly stays a primary theme but is not the release default.
+const DEFAULT_ANALYTICS_TOOL_GROUP: AnalyticsToolGroupId = 'sound_confident';
 const TOOL_GROUP_STORAGE_KEY = 'speaksharp_analytics_tool_group_v1';
 const CUSTOM_STAT_STORAGE_KEY = 'speaksharp_custom_stat_cards_v1';
 const CUSTOM_ANALYSIS_STORAGE_KEY = 'speaksharp_custom_analysis_slides_v1';

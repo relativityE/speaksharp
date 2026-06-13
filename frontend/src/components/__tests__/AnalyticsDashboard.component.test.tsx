@@ -118,10 +118,10 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
         expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
-        expect(screen.getByText('Speak Clearly')).toBeInTheDocument();
+        expect(screen.getByText('Sound Confident')).toBeInTheDocument();
         expect(screen.getByText('Why these tools are here')).toBeInTheDocument();
         expect(screen.getByText(/evidence behind SpeakSharp Score/i)).toBeInTheDocument();
-        expect(screen.getByText(/Speak Clearly shows which ingredient to improve/i)).toBeInTheDocument();
+        expect(screen.getByText(/Sound Confident shows which ingredient to improve/i)).toBeInTheDocument();
         expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
         expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
         expect(screen.queryByText('Delivery Control')).not.toBeInTheDocument();
