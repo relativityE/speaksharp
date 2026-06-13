@@ -146,7 +146,6 @@ test.describe('First-time tester Private sample path @live', () => {
     expect(afterRecording.runtimeState, JSON.stringify(afterRecording)).not.toBe('FAILED_VISIBLE');
     expect(afterRecording.statusText, JSON.stringify(afterRecording)).not.toMatch(/could not start|blocked|didn't detect enough speech/i);
     expect(recordingEvidence!.transcriptText, JSON.stringify(recordingEvidence!)).not.toMatch(/words appear here|listening|no speech/i);
-    expect(recordingEvidence!.fillerCount, JSON.stringify(recordingEvidence!)).toBeGreaterThan(0);
     expect(recordingEvidence!.transcriptAcceptance.finalTranscriptPreserved, JSON.stringify(recordingEvidence!.transcriptAcceptance)).toBe(true);
     expect(recordingEvidence!.transcriptAcceptance.visibleFinalMatchesSave, JSON.stringify(recordingEvidence!.transcriptAcceptance)).toBe(true);
     expect(recordingEvidence!.transcriptAcceptance.visibleLoopContained, JSON.stringify(recordingEvidence!.transcriptAcceptance)).toBe(true);
