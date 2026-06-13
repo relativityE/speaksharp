@@ -509,3 +509,17 @@ bloat / post-beta class — **none are new beta-GO blockers.**
 - Edge-function CORS = origin allowlist (no wildcards).
 - No `@stripe/stripe-js` embedded in the shipped app (checkout = redirect).
 - 0 real code smells in `frontend/src`; rotation runbook complete (`SECRET_ROTATION_RUNBOOK.md`).
+
+## Private STT v4 — dormant infrastructure on main (convergence, not launch)
+
+The v4 (transformers-js-v4 / WebGPU) infrastructure is merged to `main` as **dormant, flag-OFF**
+code to close out the long-lived `dev/v4-integration` branch. v4 is **not launched**:
+- `privateV4Flags` resolves **OFF by default** (PostHog flag absent → off; build kill-switch available).
+- With the flag off, Private STT is byte-identical to the v2-base default (`resolvePrivateRuntimePath`
+  never selects v4); Browser/Cloud/sample/save paths are unchanged.
+- Telemetry (`privateV4Telemetry`) is non-PII (strict allowlist; no transcript/audio/email/name).
+- No user-facing v4/base_q4/distil copy.
+
+**Deferred to activation (post-release, not in this convergence):** flag-ON app-path lifecycle proof (#76),
+v4 cross-utterance/decode tuning, the v4 decode-complete telemetry hook in `PrivateWhisper`, and the
+Stage-B `SpeechRuntimeController` telemetry wiring — all to be re-derived/proved when v4 is intentionally enabled.
