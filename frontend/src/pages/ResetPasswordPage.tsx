@@ -32,8 +32,11 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Confirm a valid recovery session exists before showing the form. The reset link establishes one
-  // via detectSessionInUrl / PASSWORD_RECOVERY; without it the link is invalid or expired.
+  // A reset is authorized ONLY by a genuine recovery flow: the recovery link itself (Supabase puts
+  // `type=recovery` / a recovery token in the URL) or a `PASSWORD_RECOVERY` auth event. A normal
+  // persisted/logged-in session is NOT reset authority — otherwise any signed-in user could open
+  // /auth/reset and change the password without the email link. (Security fix: do not gate on
+  // getSession()'s mere existence.)
   useEffect(() => {
     let active = true;
     const supabase = getSupabaseClient();
@@ -42,17 +45,21 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, recoverySession) => {
-      if (!active) return;
-      if (event === 'PASSWORD_RECOVERY' || recoverySession) setPhase('ready');
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    const hasRecoveryToken =
+      /type=recovery/.test(hash) ||
+      /type=recovery/.test(search) ||
+      /[?&#]token_hash=/.test(search) || /[?&]token_hash=/.test(hash) ||
+      /[?&]code=/.test(search); // a code only reaches /auth/reset via the reset redirect
+
+    // Late PASSWORD_RECOVERY (async token exchange) can still authorize.
+    const { data: sub } = supabase.auth.onAuthStateChange((event: string) => {
+      if (active && event === 'PASSWORD_RECOVERY') setPhase('ready');
     });
 
-    supabase.auth.getSession()
-      .then(({ data }: { data: { session: unknown } }) => {
-        if (!active) return;
-        setPhase(prev => (prev === 'success' ? prev : (data?.session ? 'ready' : 'invalid')));
-      })
-      .catch(() => { if (active) setPhase('invalid'); });
+    // No recovery token in the URL ⇒ not a recovery context ⇒ invalid (a plain session is not enough).
+    setPhase(prev => (prev === 'success' ? prev : (hasRecoveryToken ? 'ready' : 'invalid')));
 
     return () => { active = false; sub?.subscription?.unsubscribe?.(); };
   }, []);
