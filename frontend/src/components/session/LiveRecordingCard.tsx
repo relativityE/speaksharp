@@ -23,7 +23,7 @@ interface LiveRecordingCardProps {
     mode: RecordingMode;
     isListening: boolean;
     isReady: boolean;
-    isProUser: boolean;
+    canUsePrivate: boolean;
     isPaidProUser?: boolean;
     canUseCloudStt?: boolean;
     statusMessage?: string; // Optional message from the STT service
@@ -62,9 +62,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
     isListening,
     isReady,
-    isProUser,
-    isPaidProUser = isProUser,
-    canUseCloudStt = isProUser,
+    canUsePrivate,
+    isPaidProUser = canUsePrivate,
+    canUseCloudStt = canUsePrivate,
     statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
@@ -114,10 +114,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
         mock: 'Test transcription mode.',
     };
-    const hasPrivateSampleAccess = isProUser && !isPaidProUser;
+    const hasPrivateSampleAccess = canUsePrivate && !isPaidProUser;
     const privateModeDescription = isPaidProUser
         ? 'Private transcription keeps transcription local after model setup. All audio processing remains local.'
-        : isProUser
+        : canUsePrivate
             ? 'Try one Private sample session. Record up to 5 minutes with local transcription so you can compare it with Browser transcription.'
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
     const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
@@ -140,7 +140,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     ? 'Set up Private transcription on this computer. All audio processing remains local.'
                                     : modeHint[mode]}
                             </p>
-                            {!isPrivateDownloadRequired && mode === 'native' && isProUser && !isListening && (
+                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && (
                                 <div className="mt-1 space-y-0.5">
                                     <button
                                         type="button"
@@ -215,14 +215,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     value="private"
                                     className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
-                                    disabled={!isProUser}
+                                    disabled={!canUsePrivate}
                                     title={privateModeDescription}
                                 >
                                     <span className="flex items-center gap-1.5">
-                                        {!isProUser && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Private
                                     </span>
-                                    {!isProUser && (
+                                    {!canUsePrivate && (
                                         <span className="text-[10px] font-normal normal-case text-muted-foreground">
                                             Private transcription is part of Early Access
                                         </span>

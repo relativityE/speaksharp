@@ -66,6 +66,7 @@ export const SessionPage: React.FC = () => {
         interimTranscript,
         fillerData,
         isProUser,
+        canUsePrivateStt,
         canUseCloudStt,
         activeEngine,
         isButtonDisabled,
@@ -173,7 +174,7 @@ export const SessionPage: React.FC = () => {
     const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 
     const visibleModelLoadingProgress =
-        isProUser && mode === 'private' ? modelLoadingProgress : null;
+        canUsePrivateStt && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
@@ -239,7 +240,7 @@ export const SessionPage: React.FC = () => {
                             Your session is saved. Review trends, transcript detail, and coaching notes in Analytics.
                         </span>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            {mode === 'native' && isProUser && (
+                            {mode === 'native' && canUsePrivateStt && (
                                 <Button
                                     type="button"
                                     variant="outline"
@@ -272,7 +273,7 @@ export const SessionPage: React.FC = () => {
                                     fsmState={runtimeState}
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
-                                    isProUser={isProUser}
+                                    canUsePrivate={canUsePrivateStt}
                                     isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
