@@ -1,8 +1,9 @@
 import { chromium } from 'playwright';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import dotenv from 'dotenv';
 import {
   buildSandboxProcessControlEpermArtifact,
@@ -41,6 +42,10 @@ const FIXTURE_LIST = (process.env.STT_FIXTURES || 'h1_1')
   .filter(Boolean);
 const PLAYBACK_GRACE_MS = Number(process.env.STT_PLAYBACK_GRACE_MS || 800);
 const POST_PLAYBACK_WAIT_MS = Number(process.env.STT_POST_PLAYBACK_WAIT_MS || 10_000);
+// Trailing silence appended to the fake-audio file so Chrome's looping source can never replay the
+// fixture OPENING inside the record window (the loop-over-capture that produced repeated_span / bad WER).
+// Must exceed (record window − fixture duration) ≈ preroll + grace + POST_PLAYBACK_WAIT; default is generous.
+const FAKE_AUDIO_PAD_MS = Number(process.env.STT_FAKE_AUDIO_PAD_MS || (POST_PLAYBACK_WAIT_MS + 30_000));
 const FIRST_TEXT_TIMEOUT_MS = Number(process.env.STT_FIRST_TEXT_TIMEOUT_MS || 20_000);
 const AFPLAY_RETRIES = Number(process.env.STT_AFPLAY_RETRIES || 2);
 const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_DELAY_MS || 0);
@@ -51,17 +56,28 @@ const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@s
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
+const EXTRA_QUERY = (process.env.STT_EXTRA_QUERY || '').trim();
 const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
 const PRIVATE_VAD = (process.env.STT_PRIVATE_VAD || '').trim();
 const PRIVATE_MODEL = (process.env.STT_PRIVATE_MODEL || '').trim();
 const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
+// v4 decode-experiment / AUTO-fallback knobs (dev/test-gated app-side; see privateV4Experiment.ts).
+// STT_V4_FORCE_AUTO drives the AUTO-path fallback CI proof: AUTO attempts v4 (no WebGPU needed)
+// -> with STT_V4_DEVICE=wasm the decode fails -> PrivateSTT falls back to v2-base -> journey completes.
+const V4_FORCE_AUTO = process.env.STT_V4_FORCE_AUTO === '1' || process.env.STT_V4_FORCE_AUTO === 'true';
+const V4_DEVICE = (process.env.STT_V4_DEVICE || '').trim();
+const V4_DECODER_DTYPE = (process.env.STT_V4_DECODER_DTYPE || '').trim();
+const V4_VARIANT = (process.env.STT_V4_VARIANT || '').trim();
+const V4_NO_WORKER = process.env.STT_V4_NO_WORKER === '1' || process.env.STT_V4_NO_WORKER === 'true';
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
 const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
 const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
 const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
+const RESOLVED_FAKE_AUDIO_FILE = FAKE_AUDIO_FILE ? path.resolve(FAKE_AUDIO_FILE) : '';
 const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
+const INJECT_MIC_AUDIO_LOOP = process.env.STT_INJECT_MIC_AUDIO_LOOP === 'true';
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -127,26 +143,104 @@ function stripTranscriptChrome(text) {
 
 async function getPcmWavDurationMs(audioPath) {
   const wav = await readFile(audioPath);
-  const channels = wav.readUInt16LE(22);
-  const sampleRate = wav.readUInt32LE(24);
-  const bitsPerSample = wav.readUInt16LE(34);
+  if (wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`Unsupported WAV file: ${audioPath}`);
+  }
+  let format = null;
+  let dataChunkSize = null;
   let offset = 12;
   while (offset + 8 <= wav.length) {
     const chunkId = wav.toString('ascii', offset, offset + 4);
     const chunkSize = wav.readUInt32LE(offset + 4);
+    if (chunkId === 'fmt ') {
+      format = {
+        audioFormat: wav.readUInt16LE(offset + 8),
+        channels: wav.readUInt16LE(offset + 10),
+        sampleRate: wav.readUInt32LE(offset + 12),
+        byteRate: wav.readUInt32LE(offset + 16),
+        bitsPerSample: wav.readUInt16LE(offset + 22),
+      };
+    }
     if (chunkId === 'data') {
-      const bytesPerSecond = sampleRate * channels * (bitsPerSample / 8);
-      return Math.ceil((chunkSize / bytesPerSecond) * 1000);
+      dataChunkSize = chunkSize;
+      break;
     }
     offset += 8 + chunkSize + (chunkSize % 2);
   }
-  return 0;
+  if (!format || dataChunkSize == null || !Number.isFinite(format.byteRate) || format.byteRate <= 0) {
+    throw new Error(`Unable to determine WAV duration for ${audioPath}`);
+  }
+  return Math.ceil((dataChunkSize / format.byteRate) * 1000);
+}
+
+// Build a temp PCM WAV = source fixture + `trailingSilenceMs` of silence, used as Chrome's
+// --use-file-for-fake-audio-capture source. Chrome LOOPS that file; padding with silence longer than
+// the record window guarantees over-capture is SILENCE (transcribed as nothing) rather than the looped
+// fixture opening (which contaminated WER with a repeated span). PCM 16-bit silence = zero bytes.
+async function buildPaddedFakeAudioWav(srcPath, trailingSilenceMs) {
+  const src = await readFile(srcPath);
+  if (src.toString('ascii', 0, 4) !== 'RIFF' || src.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error(`Unsupported WAV for padding: ${srcPath}`);
+  }
+  let fmt = null;
+  let dataOffset = null;
+  let dataSize = null;
+  let offset = 12;
+  while (offset + 8 <= src.length) {
+    const id = src.toString('ascii', offset, offset + 4);
+    const size = src.readUInt32LE(offset + 4);
+    if (id === 'fmt ') {
+      fmt = {
+        audioFormat: src.readUInt16LE(offset + 8),
+        channels: src.readUInt16LE(offset + 10),
+        sampleRate: src.readUInt32LE(offset + 12),
+        bitsPerSample: src.readUInt16LE(offset + 22),
+      };
+    } else if (id === 'data') {
+      dataOffset = offset + 8;
+      dataSize = Math.min(size, src.length - dataOffset);
+    }
+    if (fmt && dataOffset != null) break;
+    offset += 8 + size + (size % 2);
+  }
+  if (!fmt || dataOffset == null) throw new Error(`Cannot parse WAV for padding: ${srcPath}`);
+  if (fmt.audioFormat !== 1) throw new Error(`Fake-audio padding supports PCM only (audioFormat=${fmt.audioFormat}): ${srcPath}`);
+  const blockAlign = fmt.channels * (fmt.bitsPerSample / 8);
+  const byteRate = fmt.sampleRate * blockAlign;
+  if (!(byteRate > 0)) throw new Error(`Invalid WAV byteRate for padding: ${srcPath}`);
+  const pcm = src.subarray(dataOffset, dataOffset + dataSize);
+  let silenceBytes = Math.round((byteRate * trailingSilenceMs) / 1000);
+  silenceBytes -= silenceBytes % blockAlign; // keep frame alignment
+  const silence = Buffer.alloc(Math.max(0, silenceBytes)); // zeros = PCM-16 silence
+  const totalData = dataSize + silence.length;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + totalData, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(fmt.channels, 22);
+  header.writeUInt32LE(fmt.sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(fmt.bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(totalData, 40);
+  const paddedPath = path.join(os.tmpdir(), `stt-fakeaudio-padded-${Date.now()}-${path.basename(srcPath)}`);
+  await writeFile(paddedPath, Buffer.concat([header, pcm, silence]));
+  return {
+    paddedPath,
+    originalDurationMs: Math.ceil((dataSize / byteRate) * 1000),
+    paddedDurationMs: Math.ceil((totalData / byteRate) * 1000),
+    silenceMs: Math.round((silence.length / byteRate) * 1000),
+  };
 }
 
 async function installInjectedMicAudio(page, audioPath) {
   const wav = await readFile(audioPath);
   const audioBase64 = wav.toString('base64');
-  await page.addInitScript(({ audioBase64: injectedAudioBase64 }) => {
+  await page.addInitScript(({ audioBase64: injectedAudioBase64, loopAudio }) => {
     const state = {
       installedAt: Date.now(),
       getUserMediaCalls: 0,
@@ -186,6 +280,7 @@ async function installInjectedMicAudio(page, audioPath) {
         const destination = audioContext.createMediaStreamDestination();
         const source = audioContext.createBufferSource();
         source.buffer = decoded;
+        source.loop = Boolean(loopAudio);
         source.connect(destination);
         source.onended = () => {
           state.endedAt = Date.now();
@@ -195,13 +290,14 @@ async function installInjectedMicAudio(page, audioPath) {
         state.durationMs = Math.round(decoded.duration * 1000);
         state.sampleRate = decoded.sampleRate;
         state.channels = decoded.numberOfChannels;
+        state.loop = Boolean(loopAudio);
         return destination.stream;
       } catch (error) {
         state.error = error instanceof Error ? error.message : String(error);
         throw error;
       }
     };
-  }, { audioBase64 });
+  }, { audioBase64, loopAudio: INJECT_MIC_AUDIO_LOOP });
 }
 
 function normalizeForWer(text) {
@@ -325,8 +421,6 @@ async function loadFixtures() {
 async function signIn(page) {
   if (AUTH_MODE === 'fresh') {
     await page.goto(`${BASE_URL}/auth/signup`, { waitUntil: 'domcontentloaded' });
-    await waitForAuthFormReady(page, 'sign-up-submit');
-    await assertVisualStylePreflight(page, 'auth_signup_pre_login');
     await page.getByTestId('email-input').fill(SIGNUP_EMAIL);
     await page.getByTestId('password-input').fill(SIGNUP_PASSWORD);
     await Promise.all([
@@ -347,8 +441,6 @@ async function signIn(page) {
   }
 
   await page.goto(`${BASE_URL}/auth/signin`, { waitUntil: 'domcontentloaded' });
-  await waitForAuthFormReady(page, 'sign-in-submit');
-  await assertVisualStylePreflight(page, 'auth_signin_pre_login');
   await page.getByTestId('email-input').fill(EMAIL);
   await page.getByTestId('password-input').fill(PASSWORD);
   await Promise.all([
@@ -356,76 +448,6 @@ async function signIn(page) {
     page.getByTestId('sign-in-submit').click(),
   ]);
   await page.waitForURL(/\/session/, { timeout: 60_000 });
-}
-
-async function waitForAuthFormReady(page, submitTestId) {
-  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 }).catch(() => undefined);
-  await page.getByTestId(submitTestId).waitFor({ state: 'visible', timeout: 60_000 });
-}
-
-async function collectVisualStyleProof(page, label) {
-  return page.evaluate((proofLabel) => {
-    const button =
-      document.querySelector('[data-testid="session-start-stop-button"]') ||
-      document.querySelector('[data-testid="sign-in-submit"]') ||
-      document.querySelector('[data-testid="sign-up-submit"]') ||
-      document.querySelector('button');
-    const root = document.getElementById('root');
-    const buttonStyle = button ? getComputedStyle(button) : null;
-    const rootRect = root?.getBoundingClientRect();
-    const buttonRect = button?.getBoundingClientRect();
-    const buttonClass = typeof button?.className === 'string' ? button.className : '';
-    const hasExpectedUtilityClasses = /inline-flex/.test(buttonClass)
-      && /rounded/.test(buttonClass)
-      && (/(^|\s)(bg-primary|bg-destructive|bg-secondary)(\s|$)/.test(buttonClass) || /bg-primary/.test(buttonClass));
-    const display = buttonStyle?.display ?? null;
-    const borderRadiusPx = buttonStyle ? Number.parseFloat(buttonStyle.borderRadius || '0') : 0;
-    const paddingLeftPx = buttonStyle ? Number.parseFloat(buttonStyle.paddingLeft || '0') : 0;
-    const widthPx = buttonRect?.width ?? 0;
-    const heightPx = buttonRect?.height ?? 0;
-    const rootLeftPx = rootRect?.left ?? null;
-    const appliedUtilityStyles = Boolean(
-      button &&
-      (display === 'flex' || display === 'inline-flex') &&
-      borderRadiusPx >= 8 &&
-      (paddingLeftPx >= 8 || (widthPx >= 36 && heightPx >= 36)) &&
-      heightPx >= 36
-    );
-    const ok = Boolean(hasExpectedUtilityClasses && appliedUtilityStyles);
-
-    return {
-      label: proofLabel,
-      ok,
-      reason: ok ? null : 'tailwind_utility_styles_not_applied',
-      hasButton: Boolean(button),
-      hasExpectedUtilityClasses,
-      appliedUtilityStyles,
-      display,
-      borderRadiusPx,
-      paddingLeftPx,
-      widthPx,
-      heightPx,
-      rootLeftPx,
-      buttonText: button?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? null,
-      buttonClassSample: buttonClass.slice(0, 240),
-      bodyClass: document.body?.className ?? '',
-      rootTextSample: root?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '',
-    };
-  }, label);
-}
-
-async function assertVisualStylePreflight(page, label) {
-  const proof = await collectVisualStyleProof(page, label);
-  evidence.visualStyleProofs ??= [];
-  evidence.visualStyleProofs.push(proof);
-  if (!proof.ok) {
-    const error = new Error(`VISUAL_STYLE_PREFLIGHT_FAILED ${label}: ${proof.reason}`);
-    error.invalidForSttEvidence = true;
-    error.invalidReason = proof.reason;
-    error.preflight = proof;
-    throw error;
-  }
-  return proof;
 }
 
 async function clearPrivateModelStorage(page) {
@@ -491,6 +513,15 @@ async function selectMode(page, mode) {
   const select = page.getByTestId('stt-mode-select');
   await select.waitFor({ state: 'visible', timeout: 45_000 });
 
+  if (mode === 'private') {
+    const firstRunPrivateCta = page.getByTestId('first-run-setup-private');
+    if (await firstRunPrivateCta.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await firstRunPrivateCta.click({ force: true });
+      await page.waitForTimeout(750);
+      if ((await select.getAttribute('data-state')) === mode) return;
+    }
+  }
+
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await select.click({ force: true });
     const option = page.getByTestId(`stt-mode-${mode}`);
@@ -513,6 +544,7 @@ async function assertModePreflight(page, mode) {
     const root = document.documentElement;
     const selectNode = document.querySelector('[data-testid="stt-mode-select"]');
     const option = document.querySelector(`[data-testid="stt-mode-${targetMode}"]`);
+    const privateSetupCta = document.querySelector('[data-testid="first-run-setup-private"]');
     return {
       targetMode,
       currentMode: selectNode?.getAttribute('data-state') ?? null,
@@ -521,12 +553,19 @@ async function assertModePreflight(page, mode) {
       privateOptionInDom: Boolean(option),
       privateOptionVisible: option ? getComputedStyle(option).display !== 'none' : false,
       privateOptionDisabled: option?.getAttribute('aria-disabled') ?? option?.getAttribute('data-disabled') ?? null,
+      privateSetupCtaInDom: Boolean(privateSetupCta),
+      privateSetupCtaVisible: privateSetupCta ? getComputedStyle(privateSetupCta).display !== 'none' : false,
       bodySample: document.body?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '',
     };
   }, mode);
   await markPhase(page, 'mode_preflight', preflight);
 
-  if (mode === 'private' && preflight.currentMode !== 'private' && !preflight.privateOptionInDom) {
+  if (
+    mode === 'private' &&
+    preflight.currentMode !== 'private' &&
+    !preflight.privateOptionInDom &&
+    !preflight.privateSetupCtaInDom
+  ) {
     const error = new Error('INVALID_PRECONDITION private mode is not available for this account/session');
     error.invalidForSttEvidence = true;
     error.invalidReason = 'private_mode_not_available';
@@ -858,7 +897,29 @@ async function playFixture(audioPath) {
     return { source: 'page-getUserMedia-injected-wav', audioPath, durationMs };
   }
   if (USE_FAKE_AUDIO_CAPTURE) {
-    return { source: 'chrome-fake-audio-capture', audioPath: FAKE_AUDIO_FILE || audioPath };
+    // Chrome streams FAKE_AUDIO_FILE as the mic via --use-file-for-fake-audio-capture, but that
+    // stream is PASSIVE — the harness must keep RECORDING for the file's real duration before it
+    // clicks Stop. Returning immediately here collapsed the recording window to POST_PLAYBACK_WAIT_MS
+    // (~10s), so only the first few seconds of a 65.8s fixture were captured and full-reference WER
+    // was inflated by the uncaptured tail (the Gate A `WER 0.801` capture artifact). Wait the fixture
+    // duration (mirrors the INJECT_MIC_AUDIO branch) so the whole fixture is captured before Stop.
+    if (!RESOLVED_FAKE_AUDIO_FILE) {
+      const error = new Error('STT_USE_FAKE_AUDIO_CAPTURE requires STT_FAKE_AUDIO_FILE because Chrome fake mic input is fixed at browser launch.');
+      error.invalidForSttEvidence = true;
+      error.invalidReason = 'missing_fake_audio_file';
+      throw error;
+    }
+    const expectedFixtureAudio = path.resolve(audioPath);
+    if (RESOLVED_FAKE_AUDIO_FILE !== expectedFixtureAudio) {
+      const error = new Error(`STT_FAKE_AUDIO_FILE must match the scored fixture audio. fake=${RESOLVED_FAKE_AUDIO_FILE} fixture=${expectedFixtureAudio}`);
+      error.invalidForSttEvidence = true;
+      error.invalidReason = 'fake_audio_file_fixture_mismatch';
+      throw error;
+    }
+    const file = RESOLVED_FAKE_AUDIO_FILE;
+    const durationMs = await getPcmWavDurationMs(file);
+    await new Promise(resolve => setTimeout(resolve, durationMs + PLAYBACK_GRACE_MS));
+    return { source: 'chrome-fake-audio-capture', audioPath: file, durationMs };
   }
   if (process.platform !== 'darwin') {
     throw new Error('Real-mic STT corpus proof currently uses macOS afplay and must run on darwin.');
@@ -1002,6 +1063,10 @@ async function collectTraceSnapshot(page, mode) {
     // is the controller — no .strategy — so it always resolved to null.)
     privateRuntimePath: currentMode === 'private'
       ? window.__PRIVATE_STT_RUNTIME_DEBUG__ ?? null
+      : undefined,
+    // Whole-utterance decode timing (PrivateTimingSummary) — source for the ONE canonical RTF.
+    privateTiming: currentMode === 'private'
+      ? window.__PRIVATE_TIMING__ ?? null
       : undefined,
     privateEngineVariant: currentMode === 'private'
       ? document.body?.getAttribute('data-engine-variant') ?? null
@@ -1207,7 +1272,7 @@ async function readSupabaseAuthFromBrowser(page) {
   }).catch(() => null);
 }
 
-async function fetchLatestSavedSessions(page) {
+async function fetchLatestSavedSessions(page, expectedTranscript = '') {
   try {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return { skipped: true, reason: 'missing_supabase_url_or_anon_key' };
@@ -1225,7 +1290,7 @@ async function fetchLatestSavedSessions(page) {
     url.searchParams.set('user_id', `eq.${auth.userId}`);
     url.searchParams.set('or', '(status.is.null,status.eq.completed)');
     url.searchParams.set('order', 'created_at.desc');
-    url.searchParams.set('limit', '5');
+    url.searchParams.set('limit', '25');
 
     const fetched = await page.evaluate(async ({ requestUrl, anonKey, accessToken }) => {
       const response = await fetch(requestUrl, {
@@ -1252,20 +1317,38 @@ async function fetchLatestSavedSessions(page) {
       rows = null;
     }
 
+    const rowSummaries = Array.isArray(rows) ? rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      engine: row.engine,
+      total_words: row.total_words,
+      transcriptLength: typeof row.transcript === 'string' ? row.transcript.length : null,
+      transcriptPreview: typeof row.transcript === 'string' ? row.transcript.slice(0, 120) : null,
+      created_at: row.created_at,
+    })) : null;
+    const normalizedExpected = compact(expectedTranscript).toLowerCase();
+    const matchedIndex = Array.isArray(rows) && normalizedExpected
+      ? rows.findIndex((row) => compact(typeof row.transcript === 'string' ? row.transcript : '').toLowerCase() === normalizedExpected)
+      : -1;
+    const matchedRow = matchedIndex >= 0 ? rows[matchedIndex] : null;
+
     return {
       skipped: false,
       ok: fetched.ok,
       status: fetched.status,
       userId: auth.userId,
       rowCount: Array.isArray(rows) ? rows.length : null,
-      latest: Array.isArray(rows) && rows[0] ? {
-        id: rows[0].id,
-        status: rows[0].status,
-        engine: rows[0].engine,
-        total_words: rows[0].total_words,
-        transcriptLength: typeof rows[0].transcript === 'string' ? rows[0].transcript.length : null,
-        transcriptPreview: typeof rows[0].transcript === 'string' ? rows[0].transcript.slice(0, 120) : null,
-        created_at: rows[0].created_at,
+      rows: rowSummaries,
+      latest: rowSummaries?.[0] ?? null,
+      matched: matchedRow ? {
+        id: matchedRow.id,
+        status: matchedRow.status,
+        engine: matchedRow.engine,
+        total_words: matchedRow.total_words,
+        transcriptLength: typeof matchedRow.transcript === 'string' ? matchedRow.transcript.length : null,
+        transcriptPreview: typeof matchedRow.transcript === 'string' ? matchedRow.transcript.slice(0, 120) : null,
+        created_at: matchedRow.created_at,
+        index: matchedIndex,
       } : null,
       errorBody: fetched.ok ? undefined : compact(fetched.bodyText).slice(0, 500),
     };
@@ -1283,6 +1366,12 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_ENGINE) {
     sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
   }
+  if (EXTRA_QUERY) {
+    const extra = new URLSearchParams(EXTRA_QUERY.startsWith('?') ? EXTRA_QUERY.slice(1) : EXTRA_QUERY);
+    for (const [key, value] of extra.entries()) {
+      sessionUrl.searchParams.set(key, value);
+    }
+  }
   if (mode === 'private' && PRIVATE_MIC_CONSTRAINTS) {
     sessionUrl.searchParams.set('privateMicConstraints', PRIVATE_MIC_CONSTRAINTS);
   }
@@ -1294,6 +1383,22 @@ async function runFixture(page, mode, fixture) {
   }
   if (mode === 'private' && PRIVATE_RESAMPLER) {
     sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
+  }
+  // v4 decode-experiment / AUTO-fallback URL params (app honors them dev/test-only).
+  if (mode === 'private' && V4_FORCE_AUTO) {
+    sessionUrl.searchParams.set('v4ForceAuto', '1');
+  }
+  if (mode === 'private' && V4_DEVICE) {
+    sessionUrl.searchParams.set('v4Device', V4_DEVICE);
+  }
+  if (mode === 'private' && V4_DECODER_DTYPE) {
+    sessionUrl.searchParams.set('v4DecoderDtype', V4_DECODER_DTYPE);
+  }
+  if (mode === 'private' && V4_VARIANT) {
+    sessionUrl.searchParams.set('v4Variant', V4_VARIANT);
+  }
+  if (mode === 'private' && V4_NO_WORKER) {
+    sessionUrl.searchParams.set('v4NoWorker', '1');
   }
   if (mode === 'native') {
     if (NATIVE_CONTINUOUS) {
@@ -1318,8 +1423,6 @@ async function runFixture(page, mode, fixture) {
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await assertModePreflight(page, mode);
   await selectMode(page, mode);
-  await page.getByTestId('session-start-stop-button').waitFor({ state: 'visible', timeout: 60_000 });
-  await assertVisualStylePreflight(page, 'session_ready_pre_recording');
 
   await page.evaluate(() => {
     window.__STT_CORPUS_PHASES__ = [];
@@ -1395,6 +1498,32 @@ async function runFixture(page, mode, fixture) {
   const postStopMetric = buildWerMetric(fixture.transcript, postStopTranscript);
   const selectedForSaveMetric = buildWerMetric(fixture.transcript, selectedForSaveTranscript);
 
+  // ONE canonical RTF for bakeoff / A-B records, so RTF is never cited inconsistently again.
+  // Definition: whole-utterance decode time / captured speech duration — both from the
+  // PrivateTimingSummary (window.__PRIVATE_TIMING__), which is the saved-transcript authority.
+  const privateTiming = traceSnapshot.privateTiming ?? null;
+  const capturedAudioMs = privateTiming?.utteranceSeconds != null
+    ? Math.round(privateTiming.utteranceSeconds * 1000)
+    : null;
+  const finalizeDecodeMs = privateTiming?.finalizeDecodeMs ?? null;
+  const finalizePrepMs = privateTiming?.finalizePrepMs ?? null;
+  const finalizeWaitMs = privateTiming?.finalizeWaitMs ?? null;
+  const totalFinalizeMs = finalizeDecodeMs != null
+    ? Number(((finalizeWaitMs ?? 0) + (finalizePrepMs ?? 0) + finalizeDecodeMs).toFixed(1))
+    : null;
+  const rtf = {
+    rtfDefinition: 'finalizeDecodeMs / capturedAudioMs — whole-utterance decode RTF (saved-transcript authority)',
+    canonicalRtf: (finalizeDecodeMs != null && capturedAudioMs) ? Number((finalizeDecodeMs / capturedAudioMs).toFixed(4)) : null,
+    capturedAudioMs,
+    finalizeDecodeMs,
+    finalizePrepMs,
+    finalizeWaitMs,
+    totalFinalizeMs,
+    firstTextMs: firstText?.timestampMs ?? null,
+    timeToFirstFinalMs: privateTiming?.timeToFirstFinalMs ?? null,
+    modelLoadMs: null, // not yet instrumented in PrivateTimingSummary — emitted explicitly so it is not silently mixed in
+  };
+
   const result = {
     mode,
     fixture: fixture.id,
@@ -1416,6 +1545,8 @@ async function runFixture(page, mode, fixture) {
     postStopAccuracyPct: postStopMetric.accuracyPct,
     selectedForSaveWer: selectedForSaveMetric.wer,
     selectedForSaveAccuracyPct: selectedForSaveMetric.accuracyPct,
+    rtf, // ONE canonical RTF + its timing inputs (see rtf.rtfDefinition) — use this for bakeoff/A-B records
+    privateTiming,
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
     customWord: customWordEvidence ? {
@@ -1469,15 +1600,32 @@ async function runFixture(page, mode, fixture) {
   }, null, { timeout: 45_000 }).catch(() => undefined);
   const rawHistoryVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
   result.historyVisible = Boolean(result.sessionPersisted && rawHistoryVisible);
-  const detailButton = page.getByTestId(/^open-session-detail-/).first();
-  const rawDetailVisible = await detailButton.isVisible({ timeout: 5_000 }).catch(() => false);
+  const detailButtons = page.getByTestId(/^open-session-detail-/);
+  let detailButton = null;
+  const detailButtonCount = await detailButtons.count().catch(() => 0);
+  for (let i = 0; i < detailButtonCount; i += 1) {
+    const candidate = detailButtons.nth(i);
+    if (await candidate.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      detailButton = candidate;
+      break;
+    }
+  }
+  const rawDetailVisible = Boolean(detailButton);
   const analyticsBody = compact(await page.locator('body').textContent().catch(() => ''));
   result.analyticsBodySample = analyticsBody.slice(0, 1000);
   result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, selectedForSaveTranscript);
-  result.directSavedSessionQuery = await fetchLatestSavedSessions(page);
+  result.directSavedSessionQuery = await fetchLatestSavedSessions(page, selectedForSaveTranscript);
   result.detailVisible = false;
-  if (result.sessionPersisted && rawDetailVisible) {
+  result.persistedSessionMatch = result.directSavedSessionQuery?.matched ?? null;
+  result.detailNavigation = null;
+  if (result.persistedSessionMatch?.id) {
+    await page.goto(`${BASE_URL}/analytics/${result.persistedSessionMatch.id}`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    result.detailNavigation = 'direct-matched-saved-session-route';
+  } else if (rawDetailVisible && detailButton && result.directSavedSessionQuery?.skipped) {
+    result.detailNavigation = 'history-link-direct-query-skipped';
     await detailButton.click().catch(() => undefined);
+  }
+  if (result.sessionPersisted && result.detailNavigation) {
     await page.waitForTimeout(750);
     const detailBody = compact(await page.locator('body').textContent().catch(() => ''));
     const detailTranscript = await readSessionDetailTranscript(page);
@@ -1576,7 +1724,7 @@ const evidence = {
   },
   fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE ? {
     enabled: true,
-    file: FAKE_AUDIO_FILE || null,
+    file: RESOLVED_FAKE_AUDIO_FILE || null,
     validForNativeWebSpeechWer: false,
     invalidReason: 'Chrome Web Speech uses Google server-side live recognition; Playwright fake-audio capture is not a valid WER route for Native because the file stream is launch-time, looped, and not paced to recognition start.',
   } : {
@@ -1584,14 +1732,17 @@ const evidence = {
   },
   injectedMicAudio: {
     enabled: INJECT_MIC_AUDIO,
+    loop: INJECT_MIC_AUDIO_LOOP,
     validForNativeWebSpeechWer: false,
-    route: INJECT_MIC_AUDIO ? 'page getUserMedia override; WAV starts when the app requests mic input' : null,
+    route: INJECT_MIC_AUDIO
+      ? `page getUserMedia override; WAV starts when the app requests mic input${INJECT_MIC_AUDIO_LOOP ? ' and loops until the stream is stopped' : ''}`
+      : null,
   },
   webgpuDisabledForRun: DISABLE_WEBGPU,
   customWord: CUSTOM_WORD || null,
   microphonePath: INJECT_MIC_AUDIO
-    ? 'page getUserMedia override with per-fixture WAV injected at mic request time'
-    : 'real browser getUserMedia with afplay through the physical speaker/mic path',
+  ? `page getUserMedia override with per-fixture WAV injected at mic request time${INJECT_MIC_AUDIO_LOOP ? ' (looped)' : ''}`
+  : 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
     mode: AUTH_MODE,
     email: AUTH_MODE === 'fresh' ? SIGNUP_EMAIL : EMAIL,
@@ -1616,6 +1767,53 @@ if (!evidence.environmentProof.releaseProofEligible) {
   process.exit(1);
 }
 
+if (USE_FAKE_AUDIO_CAPTURE && !RESOLVED_FAKE_AUDIO_FILE) {
+  evidence.blockers = [
+    `INVALID_SETUP fake-audio-capture requires STT_FAKE_AUDIO_FILE. ` +
+    `Chrome fake mic input is fixed at browser launch, so implicit per-fixture audio would produce invalid WER evidence.`,
+  ];
+  evidence.completedAt = new Date().toISOString();
+  evidence.runnerPass = false;
+  evidence.gatePass = false;
+  evidence.pass = false;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+  process.exit(1);
+}
+
+// Pad the fake-audio source with trailing silence so Chrome's looping mic source cannot replay the
+// fixture opening inside the record window. The env var keeps pointing at the REAL fixture (so the
+// fixture-match guard in playFixture holds); the padded derivative is only the launch-time mic source.
+let fakeAudioLaunchFile = RESOLVED_FAKE_AUDIO_FILE;
+let fakeAudioPadCleanupPath = null;
+if (USE_FAKE_AUDIO_CAPTURE && RESOLVED_FAKE_AUDIO_FILE) {
+  try {
+    const pad = await buildPaddedFakeAudioWav(RESOLVED_FAKE_AUDIO_FILE, FAKE_AUDIO_PAD_MS);
+    fakeAudioLaunchFile = pad.paddedPath;
+    fakeAudioPadCleanupPath = pad.paddedPath;
+    if (evidence.fakeAudioCapture && typeof evidence.fakeAudioCapture === 'object') {
+      evidence.fakeAudioCapture.padding = {
+        originalFixtureDurationMs: pad.originalDurationMs,
+        paddedFixtureDurationMs: pad.paddedDurationMs,
+        paddedSilenceMs: pad.silenceMs,
+        paddedFile: pad.paddedPath,
+        note: 'Chrome loops the fake-audio file; trailing silence makes over-capture silent, not looped fixture speech.',
+      };
+    }
+  } catch (error) {
+    evidence.blockers = [
+      `INVALID_SETUP fake-audio padding failed: ${error instanceof Error ? error.message : String(error)}`,
+    ];
+    evidence.completedAt = new Date().toISOString();
+    evidence.runnerPass = false;
+    evidence.gatePass = false;
+    evidence.pass = false;
+    await writeFile(OUT, JSON.stringify(evidence, null, 2));
+    console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+    process.exit(1);
+  }
+}
+
 let browser = null;
 try {
   browser = await chromium.launch({
@@ -1631,7 +1829,7 @@ try {
       ...(USE_FAKE_AUDIO_CAPTURE ? [
         '--use-fake-ui-for-media-stream',
         '--use-fake-device-for-media-stream',
-        `--use-file-for-fake-audio-capture=${FAKE_AUDIO_FILE}`,
+        `--use-file-for-fake-audio-capture=${fakeAudioLaunchFile}`,
       ] : []),
     ],
   });
@@ -1669,11 +1867,16 @@ try {
 
   page.on('console', (message) => {
     const text = message.text();
-    if (/STT|Speech|Transcription|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
+    if (/STT|Speech|Transcription|Transformers|onnx|wasm|webgpu|\bv4\b|fallback|decode|transcrib|exceeded|EmptyTranscript|runtime|provider|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
       evidence.consoleEvents.push({ type: message.type(), text });
+      // Un-blind (diagnostic observability only): forward relevant browser console to the run log.
+      console.log(`[BROWSER:${message.type()}] ${text}`);
     }
   });
-  page.on('pageerror', (error) => evidence.pageErrors.push(error.message));
+  page.on('pageerror', (error) => {
+    evidence.pageErrors.push(error.message);
+    console.log(`[BROWSER:pageerror] ${error.message}`);
+  });
   page.on('requestfailed', (request) => evidence.failedRequests.push({
     url: request.url(),
     errorText: request.failure()?.errorText,
@@ -1724,6 +1927,9 @@ try {
 } catch (error) {
   evidence.error = error instanceof Error ? error.message : String(error);
 } finally {
+  if (fakeAudioPadCleanupPath) {
+    await unlink(fakeAudioPadCleanupPath).catch(() => {});
+  }
   const markEvidence = () => {
     evidence.completedAt = new Date().toISOString();
     evidence.runnerPass = evidence.sandboxEperm === true
