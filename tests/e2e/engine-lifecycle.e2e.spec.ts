@@ -115,35 +115,94 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await expect(option).not.toHaveAttribute('data-disabled', '');
   }
 
-  // SCENARIO 3: Access Control (trial unlocks Private only; Cloud remains Pro-only)
-  test('Tier Control: active trial can use Private but not Cloud', async ({ page }) => {
+  // SCENARIO 3: Access Control. The 60-minute Pro trial is retired; Private access for
+  // free users now flows from the Private sample entitlement (one ≤5-min session) reported
+  // by the usage-limit RPC. An available sample unlocks Private; Cloud stays Pro-only.
+  test('Tier Control: free user with an available Private sample can use Private but not Cloud', async ({ page }) => {
+    // Sample-entitlement contract: an available sample (seconds remaining) unlocks Private.
+    // The sample fields are set on mockProfile so the FIRST usage-limit hydration already
+    // reflects the sample — the default check-usage-limit mock reads them from the page
+    // profile, avoiding a late override the app would only see after caching the generic
+    // Free response.
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
       mockProfile: {
         subscription_status: 'free',
-        trial_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         stripe_subscription_id: null,
         subscription_id: null,
         preferred_mode: 'native',
+        private_sample_available: true,
+        private_sample_limit_seconds: 300,
+        private_sample_seconds_used: 0,
+        private_sample_seconds_remaining: 300,
       },
     });
 
     await navigateToRoute(page, '/session');
+    const usageLimitProbe = await page.evaluate(() => {
+      const win = window as unknown as {
+        queryClient?: {
+          getQueryCache?: () => {
+            getAll?: () => Array<{
+              queryKey?: unknown;
+              state?: { data?: unknown; status?: string };
+            }>;
+          };
+        };
+        __E2E_DEPS__?: { fetchUsageLimit?: unknown };
+        supabase?: { functions?: { invoke?: unknown } };
+      };
+      const usageQueries = win.queryClient?.getQueryCache?.().getAll?.()
+        .filter(query => JSON.stringify(query.queryKey).includes('usageLimit'))
+        .map(query => ({
+          queryKey: query.queryKey,
+          status: query.state?.status,
+          data: query.state?.data,
+        })) ?? [];
+
+      return {
+        source: typeof win.__E2E_DEPS__?.fetchUsageLimit === 'function'
+          ? 'window.__E2E_DEPS__.fetchUsageLimit'
+          : win.supabase?.functions?.invoke
+            ? 'window.supabase.functions.invoke'
+            : 'network/default',
+        hasWindowSupabase: !!win.supabase,
+        hasE2EFetchUsageLimit: typeof win.__E2E_DEPS__?.fetchUsageLimit === 'function',
+        usageQueries,
+      };
+    });
+    expect(usageLimitProbe.source).toBe('window.supabase.functions.invoke');
+    expect(usageLimitProbe.usageQueries).toHaveLength(1);
+    expect(usageLimitProbe.usageQueries[0]?.status).toBe('success');
+    expect(usageLimitProbe.usageQueries[0]?.data).toMatchObject({
+      subscription_status: 'free',
+      is_pro: false,
+      private_sample_available: true,
+      private_sample_limit_seconds: 300,
+      private_sample_seconds_remaining: 300,
+      private_sample_session_id: null,
+      private_sample_completed_at: null,
+    });
     await openModeMenu(page);
 
     await expectModeEnabled(page, /Private/i);
     await expectModeDisabled(page, /Cloud/i);
   });
 
-  test('Tier Control: expired Free cannot use Private or Cloud', async ({ page }) => {
+  test('Tier Control: free user with no available Private sample cannot use Private or Cloud', async ({ page }) => {
+    // Sample already consumed/unavailable: Private locks back to Pro-only, same as Cloud.
+    // Set on mockProfile so the first usage-limit hydration reflects the consumed sample.
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
       mockProfile: {
         subscription_status: 'free',
-        trial_expires_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
         stripe_subscription_id: null,
         subscription_id: null,
         preferred_mode: 'native',
+        private_sample_available: false,
+        private_sample_limit_seconds: 300,
+        private_sample_seconds_used: 300,
+        private_sample_seconds_remaining: 0,
       },
     });
 

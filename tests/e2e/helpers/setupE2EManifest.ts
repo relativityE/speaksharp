@@ -58,6 +58,7 @@ export interface E2EWindow {
   __SS_E2E__: SSE2EManifest;
   __SS_E2E_ACTIVE_ENGINE__?: unknown;
   __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
+  __SS_E2E_DEBUG__?: Record<string, unknown>;
   __MODEL_CACHED__?: boolean;
   __SS_E2E_BRIDGE__?: {
     emitTranscript: (text: string, isFinal?: boolean) => void;
@@ -383,6 +384,43 @@ export async function setupE2EManifest(
       return builder;
     };
 
+    const buildUsageLimitResponse = () => {
+      const profile = e2eProfile as Record<string, unknown>;
+      const userType = String(profile.subscription_status || 'free');
+      const isPro = userType === 'pro';
+      const sampleLimit = typeof profile.private_sample_limit_seconds === 'number'
+        ? profile.private_sample_limit_seconds
+        : 300;
+      const sampleUsed = typeof profile.private_sample_seconds_used === 'number'
+        ? profile.private_sample_seconds_used
+        : 0;
+      const sampleRemaining = typeof profile.private_sample_seconds_remaining === 'number'
+        ? profile.private_sample_seconds_remaining
+        : Math.max(0, sampleLimit - sampleUsed);
+      const sampleAvailable = profile.private_sample_available === true;
+
+      return {
+        can_start: true,
+        remaining_seconds: isPro ? -1 : 3600,
+        limit_seconds: isPro ? -1 : 3600,
+        used_seconds: 0,
+        daily_remaining: isPro ? -1 : 3600,
+        daily_limit: isPro ? -1 : 3600,
+        monthly_remaining: isPro ? -1 : 90000,
+        monthly_limit: isPro ? -1 : 90000,
+        subscription_status: userType,
+        is_pro: isPro,
+        user_type: userType,
+        streak_count: 0,
+        private_sample_available: sampleAvailable,
+        private_sample_limit_seconds: sampleLimit,
+        private_sample_seconds_used: sampleUsed,
+        private_sample_seconds_remaining: sampleRemaining,
+        private_sample_session_id: profile.private_sample_session_id ?? null,
+        private_sample_completed_at: profile.private_sample_completed_at ?? null,
+      };
+    };
+
     win.supabase = {
       auth: {
         getSession: async () => ({ data: { session: authSession }, error: null }),
@@ -394,6 +432,20 @@ export async function setupE2EManifest(
         signOut: async () => ({ error: null }),
       },
       from: (table: string) => makeQueryBuilder(table),
+      functions: {
+        invoke: async (name: string) => {
+          if (name === 'check-usage-limit') {
+            const data = buildUsageLimitResponse();
+            win.__SS_E2E_DEBUG__ = {
+              ...(win.__SS_E2E_DEBUG__ || {}),
+              usageLimit: data,
+              usageLimitSource: 'window.supabase.functions.invoke',
+            };
+            return { data, error: null };
+          }
+          return { data: { success: true }, error: null };
+        },
+      },
       rpc: async (fn: string, args?: Record<string, unknown>) => {
         if (fn === 'create_session_and_update_usage') {
           const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;

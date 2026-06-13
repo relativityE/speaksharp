@@ -101,7 +101,7 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard-empty-state')).toBeInTheDocument();
     });
 
-    it('hides the upgrade prompt when effective trial access is Pro even if the profile has not hydrated it yet', () => {
+    it('hides the upgrade prompt when effective entitlement is Pro even if the profile has not hydrated it yet', () => {
         renderComponent({
             sessionHistory: [],
             isProUser: true,

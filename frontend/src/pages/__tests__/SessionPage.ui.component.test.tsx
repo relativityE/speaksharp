@@ -173,7 +173,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         expect(setModeSpy).toHaveBeenCalledWith('private');
     });
 
-    it('keeps Browser available while a trial user has Private setup downloading', async () => {
+    it('keeps Browser available while a Private-sample user has Private setup downloading', async () => {
         const user = userEvent.setup({ pointerEventsCheck: 0 });
         const setModeSpy = vi.fn();
 

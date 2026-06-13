@@ -116,7 +116,7 @@ Every RC-counted test must identify the independent source of truth it enforces.
 | State machine | Browser/STT/session lifecycle | `onend` while listening restarts once after debounce |
 | Message protocol | Workers, engines, Edge Functions | `transcribe` request returns `result` or `error`, never silence |
 | Security/product rule | Tiering, quota, auth, CORS, Stripe | Free Cloud token returns 403 and provider is not called |
-| Human journey | UX smoke and live tester paths | Fresh trial user can record, review analytics, save, and reopen history |
+| Human journey | UX smoke and live tester paths | Fresh Browser-first user can intentionally try the Private sample, record, review analytics, save, and reopen history |
 
 Existing tests whose expected values were copied from the current implementation are **suspect**. They can remain in the suite, but they should not be promoted to RC-counted evidence until reviewed against one of the contract sources above.
 
@@ -136,10 +136,10 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/e2e/goal-setting.e2e.spec.ts` | Gate 5 | Human journey | Goal-setting UX remains usable; advisory unless current release scope includes goals. |
 | `tests/e2e/analytics-suite.e2e.spec.ts` | Gate 1 | Product truth / math | Analytics page aggregates meaningful session data; secondary to `analytics-truth` when overlapping. |
 | `tests/e2e/infra.probe.e2e.spec.ts` | Gate 1 baseline | Message/probe contract | Built app boots with expected readiness markers; not product proof alone. |
-| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, expired trial, and over-quota are fail-closed. |
+| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, Private-sample, and over-quota users are fail-closed. |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Gate 1 / Gate 3 | Human journey / running app | Real Pro STT path creates transcript, save/history/detail, AI feedback, and PDF artifact. |
 | `tests/live/private-cache.live.spec.ts` | Gate 1 / Gate 3 | State machine / running app | Private model/cache path starts and remains usable across repeated starts. |
-| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh active-trial tester can reach Private STT path and produce release evidence. |
+| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh tester starts Browser-first, intentionally enters the bounded Private sample path, records, saves, and reopens history. |
 | `tests/live/user-filler-words-persistence.live.spec.ts` | Gate 1 / Gate 3 | Product rule / persistence | Custom filler words persist in the deployed app and are retrievable for the same user. |
 | `tests/live/stt-switching-contract.live.spec.ts` | Gate 3 | State machine / running app | Deployed STT mode switching follows entitlement and lifecycle rules. |
 | `tests/live/stripe-checkout-readiness.live.spec.ts` | Gate 3 | Running app / payment rule | Stripe checkout readiness works in test mode without production-charge assumptions. |
@@ -163,7 +163,7 @@ These unit/component files currently count toward RC because they enforce a prod
 | `backend/supabase/functions/stripe-webhook/index.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Stripe webhook happy path mutates state through the expected contract. |
 | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Duplicate/replayed webhook events are idempotent and safe. |
 | `backend/supabase/functions/get-ai-suggestions/index.test.ts` | Gate 2 | Security/product rule | AI suggestion function validates auth/input and returns structured errors. |
-| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Free, future Basic, active trial, expired trial, and Pro tier semantics match product access. |
+| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Free, future Basic, legacy trial timestamp, Private sample, and paid Pro tier semantics match product access. |
 | `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Gate 1 / Gate 2 | State machine / product rule | Session lifecycle enforces STT entitlement and mode availability rules. |
 | `frontend/src/config/__tests__/env.test.ts` | Gate 2 | Security/product rule | Test/E2E flags do not leak into production assumptions. |
 | `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` | Gate 1 / Gate 5 | State machine | Native Web Speech start/stop/restart/error/interim/final behavior follows the browser strategy contract. |

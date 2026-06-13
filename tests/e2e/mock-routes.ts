@@ -498,6 +498,18 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
         const userType = state.profile.subscription_status || 'free';
         const isPro = userType === 'pro';
 
+        // Private sample entitlement surfaced on the FIRST usage-limit hydration so the
+        // tier-aware UI (Private mode enable/disable) is correct without a late override
+        // that the app would only see after the generic response is already cached.
+        // Tests opt in by setting these fields on mockProfile; default is "no sample".
+        const profile = state.profile as Record<string, unknown>;
+        const sampleLimit = typeof profile.private_sample_limit_seconds === 'number' ? profile.private_sample_limit_seconds : 300;
+        const sampleUsed = typeof profile.private_sample_seconds_used === 'number' ? profile.private_sample_seconds_used : 0;
+        const sampleRemaining = typeof profile.private_sample_seconds_remaining === 'number'
+            ? profile.private_sample_seconds_remaining
+            : Math.max(0, sampleLimit - sampleUsed);
+        const sampleAvailable = profile.private_sample_available === true;
+
         // Access control for Free users in E2E
         // Real logic allows 60 mins/day for Free users.
         await route.fulfill({
@@ -515,7 +527,11 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
                 subscription_status: userType,
                 is_pro: isPro,
                 user_type: userType, // Harden: Extra signal for tier-aware UI
-                streak_count: 0
+                streak_count: 0,
+                private_sample_available: sampleAvailable,
+                private_sample_limit_seconds: sampleLimit,
+                private_sample_seconds_used: sampleUsed,
+                private_sample_seconds_remaining: sampleRemaining,
             }),
         });
     });
