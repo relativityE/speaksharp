@@ -245,7 +245,12 @@ export const useSessionStore = create<SessionStore>((set) => {
             const resetVisibleSession =
                 state.runtimeState !== 'RECORDING' &&
                 !state.isTranscriptFinalizing &&
-                !state.frozenTranscriptAtStop;
+                !state.frozenTranscriptAtStop &&
+                // #772: when a Private sample auto-ends + saves, the app force-switches the mode
+                // to native/browser. Don't wipe the just-saved transcript on that switch — keep it
+                // visible on /session until the next recording (which resets via
+                // resetAnalysisStateForNewRecording). Saved data is untouched either way.
+                !state.sessionSaved;
             const next = {
                 ...state,
                 sttMode: mode,
