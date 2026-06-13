@@ -1,3 +1,31 @@
+import { collapseTranscriptRepetitionLoops } from '@/utils/repetitionRisk';
+
+/**
+ * #772 DISPLAY-ONLY post-stop repetition collapse for the settled (final) view.
+ *
+ * After Stop, the committed store can briefly hold a DOUBLED streaming hypothesis
+ * (a late v4 update re-doubles it), while the SAVED/detail transcript is the clean
+ * collapsed final. The post-stop visible final must match the saved transcript, so
+ * here we collapse the SAME exact whole-text doubling / >=3x adjacent loop accepted in
+ * #773 — purely for rendering. The stored/saved transcript is NEVER mutated. We do NOT
+ * collapse ambiguous interleaved spans, and there is NO fuzzy de-duplication.
+ *
+ * Collapse cuts at the loop seam, which can leave a trailing separator (e.g. the join
+ * comma in "…basically, …basically." -> "…basically,"). Only WHEN a loop was actually
+ * collapsed do we restore terminal punctuation so the visible final matches the saved
+ * transcript (which is terminal-punctuated at the save boundary). A clean, non-looped
+ * transcript is returned untouched.
+ */
+export function collapseRepeatedFinalForDisplay(text: string): string {
+    const raw = (text || '').trim();
+    if (!raw) return raw;
+    const collapsed = collapseTranscriptRepetitionLoops(raw).trim();
+    if (collapsed === raw) return raw; // no loop collapsed — leave display untouched
+    if (/[,:;]$/.test(collapsed)) return `${collapsed.slice(0, -1)}.`;
+    if (!/[.!?]["'’”)\]]?$/.test(collapsed)) return `${collapsed}.`;
+    return collapsed;
+}
+
 /**
  * Split live draft text into completed sentences ("settled" — render calm/recognized)
  * and the trailing in-progress sentence ("active" — render as Draft). Live-view only:

@@ -725,6 +725,64 @@ describe('LiveTranscriptPanel', () => {
             expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent).toMatch(/it'?s a question/i);
         });
 
+        describe('#772 post-stop visible final repetition (display-only)', () => {
+            // Real #772 live-proof shape (run 27468782976): the SAVED/detail transcript is the clean
+            // single sentence, while the committed store briefly holds a DOUBLED streaming hypothesis
+            // after stop (a late v4 update re-doubles it). The post-stop VISIBLE final must match the
+            // SAVED text. The fix is DISPLAY-ONLY: the stored/saved transcript is never mutated.
+            const SAVED = 'We should literally like, wait, um, basically.';
+            const DOUBLED = 'We should literally like, wait, um, basically, we should literally like, wait, um, basically.';
+
+            it('shows the single saved sentence (not the doubled text) in the post-stop final view', () => {
+                render(
+                    <LiveTranscriptPanel
+                        transcript={DOUBLED}
+                        interimTranscript=""
+                        isListening={false}
+                        isFinalizing={false}
+                        sttMode="private"
+                    />
+                );
+                const container = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+                expect(container).toHaveAttribute('data-transcript-state', 'final');
+                // The clean read surface the live proof scrapes equals the SAVED transcript.
+                expect(screen.getByTestId('transcript-text-only').textContent?.trim()).toBe(SAVED);
+                // The looped sentence appears exactly once on the visible surface.
+                const reps = (container.textContent?.match(/we should literally like/gi) || []).length;
+                expect(reps).toBe(1);
+            });
+
+            it('preserves the raw committed store transcript as non-destructive evidence', () => {
+                render(
+                    <LiveTranscriptPanel
+                        transcript={DOUBLED}
+                        interimTranscript=""
+                        isListening={false}
+                        isFinalizing={false}
+                        sttMode="private"
+                    />
+                );
+                // Display-only: the committed store data hook still exposes the raw (doubled) text,
+                // proving nothing was deleted from the stored/saved transcript.
+                expect(screen.getByTestId('transcript-text-only'))
+                    .toHaveAttribute('data-transcript-text-only', DOUBLED.trim());
+            });
+
+            it('does not alter a clean (non-looped) final transcript', () => {
+                const clean = 'We practiced the opening line and the timing felt much better today.';
+                render(
+                    <LiveTranscriptPanel
+                        transcript={clean}
+                        interimTranscript=""
+                        isListening={false}
+                        isFinalizing={false}
+                        sttMode="private"
+                    />
+                );
+                expect(screen.getByTestId('transcript-text-only').textContent?.trim()).toBe(clean);
+            });
+        });
+
         describe('hasSevereRepetitionLoop detector', () => {
             it('flags a severe repetition loop', () => {
                 expect(hasSevereRepetitionLoop('Love from a return. ' + "It's a question. ".repeat(28))).toBe(true);
