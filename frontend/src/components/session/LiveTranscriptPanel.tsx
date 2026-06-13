@@ -2,7 +2,7 @@ import React from 'react';
 import { Lock, Cloud } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
-import { splitSettledActiveTranscript, hasSevereRepetitionLoop } from './liveTranscriptUtils';
+import { splitSettledActiveTranscript, hasSevereRepetitionLoop, collapseRepeatedFinalForDisplay } from './liveTranscriptUtils';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
@@ -83,7 +83,17 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 }) => {
     const internalContainerRef = React.useRef<HTMLDivElement>(null);
     const transcriptContainerRef = containerRef ?? internalContainerRef;
-    const tokens = parseTranscriptForHighlighting(transcript, userWords);
+    // #772 DISPLAY-ONLY: in the settled (post-stop) view, collapse an exact whole-text
+    // repetition doubling so the VISIBLE final matches the SAVED transcript. The committed
+    // store can briefly hold a doubled streaming hypothesis after stop while the saved/detail
+    // transcript is the clean final. This never mutates stored/saved text — only what is
+    // rendered. During listening/finalizing the withhold-loop guard below handles unstable
+    // text, so we leave the raw committed transcript untouched there.
+    const isSettledView = !isListening && !isFinalizing;
+    const committedForDisplay = isSettledView
+        ? collapseRepeatedFinalForDisplay(transcript)
+        : transcript;
+    const tokens = parseTranscriptForHighlighting(committedForDisplay, userWords);
     const hasTranscript = transcript.trim() !== '';
     const displayInterimTranscript =
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
@@ -120,7 +130,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const showDraftTrustBanner = isListening && !isFinalizing;
     const showPrivateFeedback = isPrivateMode && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
-    const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
+    const visibleTranscript = [committedForDisplay.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
     const finalizingBannerText = isPrivateMode ? 'Processing speech locally…' : 'Processing transcript…';
     const finalizingEmptyTitle = isPrivateMode ? 'Finalizing local transcript…' : 'Finalizing transcript…';
     const finalizingEmptyDescription = isPrivateMode
@@ -228,11 +238,14 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             */}
             <span
                 data-testid="transcript-text-only"
+                // Attribute keeps the RAW committed-store text as non-destructive evidence
+                // (proves the #772 fix is display-only); the rendered text is the settled-view
+                // display value that matches the SAVED transcript.
                 data-transcript-text-only={transcript.trim()}
                 className="sr-only"
                 aria-hidden="true"
             >
-                {transcript.trim()}
+                {committedForDisplay.trim()}
             </span>
             <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
