@@ -33,6 +33,7 @@
 import logger from '../../../lib/logger';
 import { redactTranscript } from '../../../lib/logRedaction';
 import { sanitizeTranscriptText } from '../transcriptSanitizer';
+import { collapseTranscriptRepetitionLoops } from '../../../utils/repetitionRisk';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
 import type { PrivateSTTInitOptions } from '../../../contracts/IPrivateSTT';
@@ -351,62 +352,8 @@ function wordOverlapRatio(left: string, right: string): number {
   return overlap / rightWords.length;
 }
 
-/**
- * Collapse Whisper repetition loops in a DECODED transcript. Whisper can loop a
- * phrase/sentence many times on short or ambiguous audio (e.g. "we should wait we
- * should wait we should wait …"), inflating the saved transcript (verdict-A
- * duplication in `service_result`). This collapses an immediately-repeated
- * multi-word unit (>= 2 words repeated >= 3 times back-to-back), and an exact
- * verbatim whole-text doubling, down to a single instance.
- *
- * It is deliberately CONSERVATIVE so it can never alter a legitimate transcript
- * (the evidence layer): a 2+ word phrase repeated 3+ times in a row, or a verbatim
- * first-half doubling, are loop signatures natural speech does not produce. Single
- * words ("no no no") and 2x phrase repeats ("I think, I think") are left untouched.
- */
-export function collapseTranscriptRepetitionLoops(text: string): string {
-  const raw = (text || '').replace(/\s+/g, ' ').trim();
-  if (!raw) return raw;
-  const tokens = raw.split(' ');
-  const n = tokens.length;
-  if (n < 4) return raw;
-
-  const norm = tokens.map((t) => t.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''));
-  const seqEq = (a: number, b: number, k: number): boolean => {
-    for (let x = 0; x < k; x++) {
-      if (norm[a + x] !== norm[b + x]) return false;
-    }
-    return true;
-  };
-
-  // 1. Exact verbatim whole-text doubling (the first half repeated once).
-  if (n % 2 === 0 && n >= 8 && seqEq(0, n / 2, n / 2)) {
-    return tokens.slice(0, n / 2).join(' ');
-  }
-
-  // 2. Immediate multi-word loop: a k-word unit (2..40) repeated >= 3 times.
-  const out: string[] = [];
-  let i = 0;
-  while (i < n) {
-    let collapsed = false;
-    const maxK = Math.min(40, Math.floor((n - i) / 3));
-    for (let k = 2; k <= maxK; k++) {
-      let reps = 1;
-      while (i + (reps + 1) * k <= n && seqEq(i, i + reps * k, k)) reps++;
-      if (reps >= 3) {
-        for (let x = 0; x < k; x++) out.push(tokens[i + x]);
-        i += reps * k;
-        collapsed = true;
-        break;
-      }
-    }
-    if (!collapsed) {
-      out.push(tokens[i]);
-      i++;
-    }
-  }
-  return out.join(' ');
-}
+// collapseTranscriptRepetitionLoops moved to @/utils/repetitionRisk
+// (shared with TranscriptionService's final stop-result guard).
 
 function appendTranscriptWithoutDuplicate(base: string, segment: string): string {
   const baseText = base.replace(/\s+/g, ' ').trim();

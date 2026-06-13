@@ -2,6 +2,7 @@ import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
+import { collapseTranscriptRepetitionLoops } from '@/utils/repetitionRisk';
 
 import { TranscriptionError } from './errors';
 import { STTStrategy } from './STTStrategy';
@@ -1112,6 +1113,12 @@ export default class TranscriptionService {
         transcript = visibleTranscript.length > strategyTranscript.length
           ? visibleTranscript
           : strategyTranscript || visibleTranscript;
+        // Final-result repetition guard (saved-transcript integrity). The length-preferring
+        // selection above can pick a streaming-accumulated `visibleTranscript` that bypassed
+        // the per-segment collapse, producing a near_whole_doubling in the saved transcript
+        // (service_result / selectedForSave). Collapse the authoritative final transcript here
+        // so the persisted value can never contain a whole-text/multi-word repetition loop.
+        transcript = collapseTranscriptRepetitionLoops(transcript);
         logger.info({
           sId: this.serviceId,
           rId: this.runId,

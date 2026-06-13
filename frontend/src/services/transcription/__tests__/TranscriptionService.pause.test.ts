@@ -4,6 +4,7 @@ import { STTStrategy } from '../STTStrategy';
 import { STTStrategyFactory } from '../STTStrategyFactory';
 import { Result } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
+import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 
 vi.mock('../STTStrategyFactory');
 vi.mock('../utils/audioUtils', () => ({
@@ -126,5 +127,23 @@ describe('TranscriptionService Pause/Resume', () => {
     await service.resumeTranscription();
     expect(service.getState()).toBe('RECORDING');
     expect(mockStrategy.resume).not.toHaveBeenCalled();
+  });
+
+  it('collapses a whole-text repetition loop in the final saved transcript (regression: near_whole_doubling)', async () => {
+    // Live Private-sample regression: the final stop transcript (service_result / selectedForSave)
+    // saved a 100% doubled transcript that the per-segment collapse missed. stopTranscription must
+    // collapse-guard the authoritative final transcript so the persisted value has no whole-text loop.
+    const doubled = 'We should literally like, wait, um, basically, we should literally like, wait, um, basically.';
+    expect(detectRepetitionRisk(doubled).repetitionRisk).toBe(true); // sanity: input IS doubled
+    vi.mocked(mockStrategy.getTranscript).mockResolvedValue(doubled);
+    await moveToRecording();
+
+    const result = await service.stopTranscription();
+    const out = result?.transcript ?? '';
+
+    expect(out).toBeTruthy(); // not the empty-catch path
+    expect(out.toLowerCase()).toContain('we should literally like'); // content preserved once
+    expect(detectRepetitionRisk(out).repetitionRisk).toBe(false); // no whole-text loop
+    expect(out.length).toBeLessThan(doubled.length); // collapsed
   });
 });
