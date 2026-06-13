@@ -129,6 +129,48 @@ describe('useSessionStore', () => {
             });
             expect(useSessionStore.getState().frozenTranscriptAtStop).toBe('Already committed still speaking');
         });
+
+        it('keeps the just-saved transcript visible when a Private sample auto-save forces a Browser fallback switch', () => {
+            // When a first-time Private sample auto-ends and saves, the app force-switches the
+            // mode to native/browser. The transcript the tester just recorded must stay visible
+            // on the session page (it is saved + correct in Analytics) until the next recording.
+            useSessionStore.setState({
+                runtimeState: 'READY',
+                sttMode: 'private',
+                sessionSaved: true,
+                transcript: { transcript: 'We should literally like, wait, um, basically.', partial: '' },
+                isTranscriptFinalizing: false,
+                frozenTranscriptAtStop: null,
+            });
+
+            useSessionStore.getState().setSTTMode('native');
+
+            const state = useSessionStore.getState();
+            expect(state.sttMode).toBe('native');
+            expect(state.transcript).toEqual({
+                transcript: 'We should literally like, wait, um, basically.',
+                partial: '',
+            });
+            expect(state.sessionSaved).toBe(true);
+        });
+
+        it('still clears the visible session on an ordinary mode switch before a session is saved', () => {
+            // No save has happened yet: switching modes should reset the in-progress draft as before.
+            useSessionStore.setState({
+                runtimeState: 'READY',
+                sttMode: 'native',
+                sessionSaved: false,
+                transcript: { transcript: 'unsaved draft text', partial: 'still going' },
+                isTranscriptFinalizing: false,
+                frozenTranscriptAtStop: null,
+            });
+
+            useSessionStore.getState().setSTTMode('private');
+
+            const state = useSessionStore.getState();
+            expect(state.sttMode).toBe('private');
+            expect(state.transcript).toEqual({ transcript: '', partial: '' });
+        });
     });
 
     describe('updateFillerData', () => {
