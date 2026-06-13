@@ -12,7 +12,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
 vi.unmock('../PrivateWhisper');
 
-import PrivateWhisper, { buildPrivateTimingSummary, collapseTranscriptRepetitionLoops } from '../PrivateWhisper';
+import PrivateWhisper, { buildPrivateTimingSummary } from '../PrivateWhisper';
+import { collapseTranscriptRepetitionLoops } from '@/utils/repetitionRisk';
 import { Result } from '../types';
 import { MicStream } from '../../utils/types';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE } from '../../sttConstants';
