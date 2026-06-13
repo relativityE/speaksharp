@@ -118,12 +118,17 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
         expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
-        expect(screen.getByText('Delivery Control')).toBeInTheDocument();
+        expect(screen.getByText('Sound Confident')).toBeInTheDocument();
         expect(screen.getByText('Why these tools are here')).toBeInTheDocument();
         expect(screen.getByText(/evidence behind SpeakSharp Score/i)).toBeInTheDocument();
-        expect(screen.getByText(/Delivery Control shows which ingredient to improve/i)).toBeInTheDocument();
+        expect(screen.getByText(/Sound Confident shows which ingredient to improve/i)).toBeInTheDocument();
         expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
-        expect(screen.getByTestId('stat-card-speaking_pace')).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
+        expect(screen.queryByText('Delivery Control')).not.toBeInTheDocument();
+        expect(screen.queryByText('Message Clarity')).not.toBeInTheDocument();
+        expect(screen.queryByText('Habit Progress')).not.toBeInTheDocument();
+        expect(screen.queryByText('Session Proof')).not.toBeInTheDocument();
+        expect(screen.queryByText('Transcript Quality')).not.toBeInTheDocument();
 
         // Verify session list is rendered
         const sessionItems = screen.getAllByTestId(/session-history-item-/);
@@ -132,39 +137,25 @@ describe('AnalyticsDashboard', () => {
 
     it.each([
         {
-            id: 'delivery_control',
-            label: 'Delivery Control',
-            outcome: /steadier and more controlled/i,
+            id: 'speak_clearly',
+            label: 'Speak Clearly',
+            outcome: /sharper point and less repetition/i,
+            statCards: ['stat-card-clarity_score', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min', 'stat-card-total_sessions'],
+            hasTranscriptQuality: false,
+        },
+        {
+            id: 'sound_confident',
+            label: 'Sound Confident',
+            outcome: /steadier, calmer, and more confident/i,
             statCards: ['stat-card-speaking_pace', 'stat-card-filler_words_per_min', 'stat-card-clarity_score', 'stat-card-total_practice_time'],
             hasTranscriptQuality: false,
         },
         {
-            id: 'message_clarity',
-            label: 'Message Clarity',
-            outcome: /tighten the opening/i,
-            statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+            id: 'track_progress',
+            label: 'Track Progress',
+            outcome: /proof of what changed/i,
+            statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-clarity_score'],
             hasTranscriptQuality: false,
-        },
-        {
-            id: 'habit_progress',
-            label: 'Habit Progress',
-            outcome: /speaking habit is improving/i,
-            statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min'],
-            hasTranscriptQuality: false,
-        },
-        {
-            id: 'session_proof',
-            label: 'Session Proof',
-            outcome: /what changed between practice attempts/i,
-            statCards: ['stat-card-total_sessions', 'stat-card-speaking_pace', 'stat-card-clarity_score', 'stat-card-filler_words_per_min'],
-            hasTranscriptQuality: false,
-        },
-        {
-            id: 'transcript_quality',
-            label: 'Transcript Quality',
-            outcome: /delivery or capture quality/i,
-            statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
-            hasTranscriptQuality: true,
         },
     ])('renders the $label analytics focus as a coherent user story', ({ id, label, outcome, statCards, hasTranscriptQuality }) => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', id);
@@ -184,16 +175,36 @@ describe('AnalyticsDashboard', () => {
         expect(Boolean(accuracyComparison)).toBe(hasTranscriptQuality);
     });
 
-    it('supports a custom toolkit when users want specific tools outside predefined groups', () => {
+    it.each([
+        ['delivery_control', 'Sound Confident'],
+        ['message_clarity', 'Speak Clearly'],
+        ['habit_progress', 'Track Progress'],
+        ['session_proof', 'Track Progress'],
+        ['transcript_quality', 'Speak Clearly'],
+        ['custom_toolkit', 'Custom'],
+    ])('maps legacy analytics focus %s to %s without showing old primary labels', (legacyFocus, expectedLabel) => {
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', legacyFocus);
+
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        expect(screen.getByRole('heading', { name: expectedLabel })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Delivery Control' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Message Clarity' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Habit Progress' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Session Proof' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Transcript Quality' })).not.toBeInTheDocument();
+    });
+
+    it('supports custom measurement when users want specific tools outside predefined groups', () => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', 'custom');
         localStorage.setItem('speaksharp_custom_stat_cards_v1', JSON.stringify(['total_sessions', 'clarity_score']));
         localStorage.setItem('speaksharp_custom_analysis_slides_v1', JSON.stringify(['stt_comparison']));
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        expect(screen.getByText('Custom Toolkit')).toBeInTheDocument();
-        expect(screen.getByText(/inspect the specific signals/i)).toBeInTheDocument();
-        expect(screen.getByText(/Custom tools answer their own question/i)).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Custom' })).toBeInTheDocument();
+        expect(screen.getByText(/specific metrics/i)).toBeInTheDocument();
+        expect(screen.getByText(/Custom metrics answer their own question/i)).toBeInTheDocument();
         expect(screen.getByText(/Selected tools are interpreted independently/i)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();
