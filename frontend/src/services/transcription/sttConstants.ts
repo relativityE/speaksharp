@@ -130,6 +130,51 @@ export const PRIV_STT_V4 = {
 } as const;
 
 /**
+ * v4 model TIERS for the flag-gated resolver (v4 = @huggingface/transformers).
+ * Only active when the v4 feature flag is on; flag-off behavior is unchanged.
+ *
+ *  - base_q4   = the universal FLOOR. Works on WASM (RTF ~0.72) and WebGPU
+ *                (~0.094). ~142 MB split download. Default flagged v4 engine.
+ *  - distil_q4 = the WebGPU ACCURACY tier (~21% lower WER than v2-base on hard
+ *                speech). ~251 MB and WebGPU-only — WASM RTF ~2.2 is unusable —
+ *                so it is selected ONLY when WebGPU is confirmed AND the distil
+ *                flag + user qualification are on. Never the universal default.
+ *
+ * dtype is the split scheme (fp32 encoder + q4 decoder), matching the bakeoff
+ * sizes (LibriSpeech test-other, Apple Metal). Selection is via the resolver; the
+ * engine reads the chosen variant. base_q4 is the first flagged rollout floor.
+ */
+export const PRIV_STT_V4_VARIANTS = {
+  base_q4: {
+    id: 'base_q4',
+    MODEL_ID: 'onnx-community/whisper-base.en',
+    DTYPE: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
+    EXPECTED_SPLIT_DOWNLOAD_MB: 142,
+    requiresWebGPU: false,
+  },
+  distil_q4: {
+    id: 'distil_q4',
+    MODEL_ID: 'onnx-community/distil-small.en',
+    DTYPE: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
+    EXPECTED_SPLIT_DOWNLOAD_MB: 251,
+    requiresWebGPU: true,
+  },
+} as const;
+
+export type PrivSttV4VariantId = keyof typeof PRIV_STT_V4_VARIANTS;
+
+/** First flagged rollout floor (reviewer: base_q4 before distil_q4). */
+export const PRIV_STT_V4_DEFAULT_VARIANT: PrivSttV4VariantId = 'base_q4';
+
+/**
+ * Single source of truth for the explicit private-engine override localStorage key.
+ * Shared by `PrivateSTT` (override read) and `sttIdentity` (debug mirror) so the two
+ * cannot drift. NOTE: the override itself is honored only in dev/test/E2E — see
+ * `PrivateSTT.getPrivateEngineOverride`. It is NOT a production user affordance.
+ */
+export const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
+
+/**
  * Private model-eval candidates (flag-gated A/B). The CI Private v2 benchmark showed
  * ~51.7% WER vs a 6.1% ceiling, so decode/model quality — not just onset detection — is
  * the dominant gap. This lets the test agent A/B larger local models against the default

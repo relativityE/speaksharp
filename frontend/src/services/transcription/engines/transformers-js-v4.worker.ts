@@ -4,8 +4,8 @@ import { detectWebGPUSupport } from '../utils/webgpuSupport';
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean }
-    | { id: number; type: 'transcribe'; audio: Float32Array }
+    | { id: number; type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string }
+    | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> }
     | { id: number; type: 'destroy' };
 
 type WorkerResponse =
@@ -42,7 +42,7 @@ async function getPreferredDevice(): Promise<string | undefined> {
     return (await detectWebGPUSupport()).supported ? 'webgpu' : undefined;
 }
 
-function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
+function getAsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
@@ -54,10 +54,16 @@ function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
         options.task = 'transcribe';
     }
 
+    // Proof-hook overrides (allow-listed on the main thread) win over defaults. Inert unless the
+    // browser proof sets window.__PRIVATE_STT_DECODE_OPTIONS__ — product defaults are unchanged.
+    if (decodeOptions) {
+        Object.assign(options, decodeOptions);
+    }
+
     return options;
 }
 
-async function createPipeline(progress_callback: (data: unknown) => void): Promise<{ pipe: Pipeline; device: string }> {
+async function createPipeline(progress_callback: (data: unknown) => void, modelId: string, dtype: unknown, deviceOverride?: string): Promise<{ pipe: Pipeline; device: string }> {
     const transformers = await import('@huggingface/transformers');
     const { pipeline, env, LogLevel } = transformers;
 
@@ -66,9 +72,14 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
     env.useBrowserCache = true;
     env.logLevel = LogLevel.ERROR;
 
-    const preferredDevice = await getPreferredDevice();
+    // DEV/TEST device override (root-cause A/B): 'wasm' forces CPU/WASM, 'webgpu' forces GPU.
+    const preferredDevice = deviceOverride === 'wasm'
+        ? undefined
+        : deviceOverride === 'webgpu'
+            ? 'webgpu'
+            : await getPreferredDevice();
     const options: Record<string, unknown> = {
-        dtype: PRIV_STT_V4.DTYPE,
+        dtype,
         progress_callback,
     };
     if (preferredDevice) {
@@ -77,7 +88,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
 
     try {
         return {
-            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, options),
+            pipe: await pipeline('automatic-speech-recognition', modelId, options),
             device: preferredDevice ?? 'wasm-default',
         };
     } catch (error) {
@@ -88,7 +99,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
         const fallbackOptions = { ...options };
         delete fallbackOptions.device;
         return {
-            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, fallbackOptions),
+            pipe: await pipeline('automatic-speech-recognition', modelId, fallbackOptions),
             device: 'wasm-fallback',
         };
     }
@@ -108,7 +119,7 @@ async function warmUp(id: number): Promise<void> {
     post({ id, type: 'warmed', warmupMs: Math.round(performance.now() - start) });
 }
 
-async function init(id: number, isE2E: boolean): Promise<void> {
+async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown, deviceOverride?: string): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -129,13 +140,13 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     };
 
     const loadStart = performance.now();
-    const loaded = await createPipeline(progress_callback);
+    const loaded = await createPipeline(progress_callback, modelId, dtype, deviceOverride);
     transcriber = loaded.pipe;
     post({
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
-        model: PRIV_STT_V4.MODEL_ID,
+        model: modelId,
         device: loaded.device,
     });
     try {
@@ -148,7 +159,7 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     post({ id, type: 'ready' });
 }
 
-async function transcribe(id: number, audio: Float32Array): Promise<void> {
+async function transcribe(id: number, audio: Float32Array, decodeOptions?: Record<string, unknown>): Promise<void> {
     if (!transcriber) {
         throw new Error('TransformersJSV4 worker engine not initialized. Call init() first.');
     }
@@ -157,7 +168,7 @@ async function transcribe(id: number, audio: Float32Array): Promise<void> {
     const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
     const result = await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(
         audio,
-        getAsrOptions(audioLengthSeconds),
+        getAsrOptions(audioLengthSeconds, decodeOptions),
     );
     const transcript = typeof result === 'string'
         ? result
@@ -179,10 +190,10 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E);
+                    await init(request.id, request.isE2E, request.model ?? PRIV_STT_V4.MODEL_ID, request.dtype ?? PRIV_STT_V4.DTYPE, request.device);
                     break;
                 case 'transcribe':
-                    await transcribe(request.id, request.audio);
+                    await transcribe(request.id, request.audio, request.decodeOptions);
                     break;
                 case 'destroy':
                     transcriber = null;

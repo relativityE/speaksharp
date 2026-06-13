@@ -107,4 +107,32 @@ describe('transformers-js-v4.worker protocol contract', () => {
         });
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 3, type: 'ready' }));
     });
+
+    it('contract: init loads the model/dtype from the load payload (Option B variant threading)', async () => {
+        const transcriber = vi.fn(async () => ({ text: '' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@huggingface/transformers', () => ({
+            env: {},
+            LogLevel: { ERROR: 'error' },
+            pipeline,
+        }));
+
+        await loadWorkerModule();
+        const dtype = { encoder_model: 'fp32', decoder_model_merged: 'q4' };
+        dispatchWorkerMessage({ id: 4, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 4,
+                type: 'loaded',
+                model: 'onnx-community/whisper-base.en',
+            }));
+        });
+        // The worker must use the payload model + dtype, NOT the hardcoded tiny default.
+        expect(pipeline).toHaveBeenCalledWith(
+            'automatic-speech-recognition',
+            'onnx-community/whisper-base.en',
+            expect.objectContaining({ dtype }),
+        );
+    });
 });
