@@ -9,7 +9,7 @@ describe('LiveRecordingCard', () => {
         mode: 'native' as const,
         isListening: false,
         isReady: true,
-        isProUser: false,
+        canUsePrivate: false,
         formattedTime: '00:00',
         elapsedSeconds: 0,
         isButtonDisabled: false,
@@ -96,7 +96,7 @@ describe('LiveRecordingCard', () => {
     });
 
     it('keeps Cloud disabled for Private-sample access without paid Cloud entitlement', async () => {
-        render(<LiveRecordingCard {...defaultProps} isProUser={true} isPaidProUser={false} canUseCloudStt={false} />);
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
@@ -108,7 +108,7 @@ describe('LiveRecordingCard', () => {
     });
 
     it('sets Private latency and privacy expectations before recording', async () => {
-        render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
+        render(<LiveRecordingCard {...defaultProps} mode="private" canUsePrivate={true} canUseCloudStt={false} />);
 
         expect(screen.getByText(/Runs locally after model setup/i)).toBeDefined();
         expect(screen.getByText(/All audio processing remains local/i)).toBeDefined();
@@ -125,7 +125,7 @@ describe('LiveRecordingCard', () => {
             <LiveRecordingCard
                 {...defaultProps}
                 mode="private"
-                isProUser={true}
+                canUsePrivate={true}
                 canUseCloudStt={false}
                 sttStatusType="download-required"
                 isButtonDisabled={true}
@@ -144,7 +144,7 @@ describe('LiveRecordingCard', () => {
     });
 
     it('positions Browser STT as instant and browser-dependent without the old badge copy', async () => {
-        render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} canUseCloudStt={false} />);
+        render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
         expect(screen.getByText(/Starts instantly with browser speech recognition/i)).toBeDefined();
         expect(screen.getByText(/Accuracy depends on browser and room/i)).toBeDefined();
@@ -157,7 +157,7 @@ describe('LiveRecordingCard', () => {
     });
 
     it('shows the approved Private sample CTA for sample-entitled users on the Browser path', () => {
-        render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} isPaidProUser={false} canUseCloudStt={false} />);
+        render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
         expect(screen.getByText(/Record up to 5 minutes with local transcription/i)).toBeDefined();
@@ -165,7 +165,7 @@ describe('LiveRecordingCard', () => {
     });
 
     it('explains why Private is unavailable after the sample is unavailable', async () => {
-        render(<LiveRecordingCard {...defaultProps} isProUser={false} canUseCloudStt={false} />);
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={false} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
@@ -184,7 +184,7 @@ describe('LiveRecordingCard', () => {
             <LiveRecordingCard
                 {...defaultProps}
                 mode="private"
-                isProUser={true}
+                canUsePrivate={true}
                 canUseCloudStt={false}
                 onModeChange={onModeChange}
             />
@@ -203,7 +203,7 @@ describe('LiveRecordingCard', () => {
             <LiveRecordingCard
                 {...defaultProps}
                 mode="private"
-                isProUser={true}
+                canUsePrivate={true}
                 canUseCloudStt={true}
                 onModeChange={onModeChange}
             />

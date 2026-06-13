@@ -581,7 +581,8 @@ export const useSessionLifecycle = () => {
         transcriptContent: transcript.transcript,
         interimTranscript,
         fillerData,
-        isProUser: canUsePrivateStt,
+        isProUser,
+        canUsePrivateStt,
         canUseCloudStt,
         activeEngine,
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState)
