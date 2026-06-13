@@ -11,7 +11,7 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 
 | Lane | Owner | Goal | State |
 |---|---|---|---|
-| #774 db push | Test/Ops | Apply migration + record proof | Done — merged `75fb9ac0`, deploy `27468363004` PASS |
+| #774 db push | Test/Ops | Apply migration + record proof | Done — merged `75fb9ac0`; migration workflow `27470518053` PASS (push-deploy skips DB by design) |
 | #775 merge | Test | Merge after green CI/review | Done — merged `9d4b90be` |
 | #772 visible-final fix | Dev | Fix post-stop visible duplication (display-only) | Done — PR #777 raised; Test to review/merge + rerun proof |
 | #765/#772 proof | Test | Rerun live proof after Dev #772 fix | Pending — rerun on PR #777 |
@@ -28,7 +28,7 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 | #771 recovery actions | Closed — merged | — | `c11789ef` |
 | #773 exact-doubling collapse | Closed — merged (KEEP, do not revert) | — | `8cee74fe` |
 | #774 index dedup + analytics routing | Closed — merged | — | `75fb9ac0` (branch deleted) |
-| #774 migration apply (`supabase db push`) | Closed — merged | — | migration `20260613100000`; Supabase deploy `27468363004` PASS |
+| #774 migration apply (`supabase db push`) | Closed — merged | — | migration `20260613100000`; dispatched migration workflow `27470518053` PASS (deploy-production-db + push-migrations PASS) |
 | #775 canUsePrivate split + SunsetModals fix | Closed — merged | — | `9d4b90be`; deploy `27468389396`, canary `27468389402`, main CI `27468389406` PASS |
 | #772 post-stop visible-final repetition | Open — active Dev→Test (PR #777) | Dev (fix) → Test (proof) | display-only collapse in settled view; panel 48/48, affected 85/85, tsc+eslint+build OK; saved transcript untouched |
 | #765/#772 first-time-sample proof | Open — active Test | Test | rerun live proof on PR #777; expect `visibleFinalMatchesSave=true` (Section C) |
@@ -91,4 +91,4 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 
 Open — active Dev work: **one** — #772 post-stop visible-final repetition (concrete Test-routed failure), fixed display-only in **PR #777**, awaiting Test review/merge + live-proof rerun. After PR #777 lands, Dev returns to review/support-only.
 
-Reopen further Dev work only on: (1) a concrete failure in #777/#765/#772 under the live proof; (2) Test/Ops hits a concrete #774 migration-apply blocker (currently merged + applied, deploy `27468363004` PASS — not expected); (3) release-owner assigns a specific backlog item. Dev will not mutate the saved/stored transcript, implement fuzzy collapse, collapse ambiguous `repeated_span`, broaden the entitlement refactor, touch Group D, reopen #85, or start speculative cleanup. #773 stays (no revert).
+Reopen further Dev work only on: (1) a concrete failure in #777/#765/#772 under the live proof; (2) Test/Ops hits a concrete #774 migration-apply blocker (currently merged + applied, migration workflow `27470518053` PASS — not expected); (3) release-owner assigns a specific backlog item. Dev will not mutate the saved/stored transcript, implement fuzzy collapse, collapse ambiguous `repeated_span`, broaden the entitlement refactor, touch Group D, reopen #85, or start speculative cleanup. #773 stays (no revert).
