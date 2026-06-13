@@ -521,3 +521,16 @@ code to close out the long-lived `dev/v4-integration` branch. v4 is **not launch
 **Deferred to activation (post-release, not in this convergence):** flag-ON app-path lifecycle proof (#76),
 v4 cross-utterance/decode tuning, the v4 decode-complete telemetry hook in `PrivateWhisper`, and the
 Stage-B `SpeechRuntimeController` telemetry wiring — all to be re-derived/proved when v4 is intentionally enabled.
+
+### v4 activation-readiness — material now on main (convergence), deferred items preserved
+
+To allow deleting all `dev/v4-*` branches while keeping everything needed to ENABLE and PROVE v4 later
+on `main`, the v4 proof material is converged onto main (flag-OFF, dispatch-only):
+- Proof scripts: `posthog-stt-ab-authenticated-user-targeting-proof.mjs`, `posthog-stt-ab-targeting-inspector.mjs`, v4 `manual-stt-corpus-proof.mjs`.
+- Proof CI: `.github/workflows/v4-auto-fallback-proof.yml`, `.github/workflows/v4-app-path-proof.yml` (workflow_dispatch).
+- Flag-on browser-control proof: `tests/e2e/v4-posthog-browser-control.e2e.spec.ts` (skipped unless `RUN_V4_BROWSER_PROOF=1`).
+- Runbooks/memos: `V4_WEBGPU_VALUE_PROOF_RUNBOOK`, `V4_APP_PATH_PROOF_RUNBOOK` (#76), `V4_GATE_B_TARGETING_MEMO`, `V4_POSTHOG_READINESS_PROOF`, `V4_DECODE_ROOT_CAUSE_EXPERIMENT`, `V4_DISTIL_BAKEOFF_KNOB_MEMO`, `GATE_B_IDENTITY_FAILURE_ANALYSIS`.
+
+**Deferred to activation (inert while v4 is OFF; preserved via `archive/*-pre-main-convergence` tags, re-derive at #76):**
+- `SpeechRuntimeController` Stage-B `session_saved` telemetry CALL-SITE (the `emitV4SessionSaved` module is already on main; wiring the call-site requires threading `engineType` through the save path + is intentionally not done now to avoid touching the shipped save flow / the excluded `sessionRepository` rename).
+- Customer-safe v4 UX copy + variant-aware download size (#75) — re-derive flag-gated at activation so no v4/base_q4/distil copy ships while dormant.

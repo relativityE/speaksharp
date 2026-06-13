@@ -1,6 +1,6 @@
-# Gate B (`POSTHOG-STT-A/B`) — Failure Chain & Resolution (✅ RESOLVED)
+# Gate B (`POSTHOG-STT-A/B`) — Failure Chain & Resolution Options
 
-**Status:** ✅ **RESOLVED (2026-06-12)** — identity materialized via Option B (real human login); operator targeting applied (Method A); official STT A/B stacked browser proof **PASS** (targeted v4 + negative control). The historical automated-proof status `FAIL_AUTH_POSTHOG_IDENTIFY` was root-caused to PostHog client-side bot filtering of the automation browser, **not an app defect** — full chain + Resolution below.
+**Status:** `FAIL_AUTH_POSTHOG_IDENTIFY` (automated proof). **Decision: Option A primary, Option B fallback** (see below).
 **Last updated:** 2026-06-12 · **PostHog project:** 207400 · **posthog-js:** 1.298.1
 **Target user.id:** `22899590-4af1-4a0c-88d6-b00996cb5ae0` · **Flag:** `private_stt_v4_enabled` (709644)
 
@@ -8,7 +8,7 @@
 Prove that a specific targeted Pro user receives the `private_stt_v4_enabled` flag on the deployed app so v4 STT can roll out to internal testers. The flag is bucketed on `distinct_id`, so PostHog Cloud must hold a **queryable person at the Supabase `user.id`**, created by the deployed app, with **no PII**.
 
 ## TL;DR (calibrated)
-After five PRs that each fixed a real layer, **the deployed app is correctly *instrumented* for real human users based on current evidence** — it identifies by `user.id` (no PII) and emits a non-PII `account_identified` event intended to materialize the person. **The final server-side person-materialization proof is now COMPLETE** (Option B, 2026-06-12): a queryable PostHog person exists at the `user.id` with real `$identify` + `account_identified` web events and `hasEmailProperty=false`. See **Resolution** below.
+After five PRs that each fixed a real layer, **the deployed app is correctly *instrumented* for real human users based on current evidence** — it identifies by `user.id` (no PII) and emits a non-PII `account_identified` event intended to materialize the person. **The final server-side person-materialization proof is NOT yet complete:** it requires either a non-bot browser session or a real human login that lands a `/e/` event server-side.
 
 The remaining automated failure **appears to be a verification-environment cause, not an app defect**: PostHog's client-side bot filtering (on by default) suppresses event capture from automation browsers (`HeadlessChrome` UA and `navigator.webdriver`) while still allowing feature-flag (`/flags`) requests — which matches the observed symptom exactly. The Test harness UA / `navigator.webdriver` has not been directly inspected, so this is a **high-confidence inference**, not a fully proven production success.
 
@@ -49,7 +49,7 @@ if (!(s && !this.config.__preview_capture_bot_pageviews)) { /* …rate-limit… 
 
 ## What is proven vs not (calibrated)
 - **Proven:** identity contract (`user.id` only, no PII, reset on sign-out, reload flags); the app calls `capture('account_identified', {source:'auth_provider'}, {send_instantly:true})` non-fatally, before `reloadFeatureFlags()`, PII-free (unit + real-posthog integration tests).
-- **NOW PROVEN (2026-06-12, Option B):** a non-bot real human login created the **server-side person** at the `user.id` (real `$identify` + `account_identified`, `hasEmailProperty=false`); operator targeting then applied (Method A); official A/B stacked proof PASS. See **Resolution** below.
+- **NOT yet proven:** that a non-bot browser session creates the **server-side person** at the `user.id`. This requires Option A or B below.
 
 ## Options to unblock
 
@@ -78,19 +78,6 @@ flag eval returns private_stt_v4_enabled (after operator targeting)
 hasEmailProperty === false ; mutations === [] before identity pass
 ```
 
-## Independent open items
-- ✅ **Closed:** `private_stt_v4_enabled` no longer targets the client-settable `isInternalTester` — Method A replaced it with a `distinct_id exact` operator condition on the `user.id` (flag 709644 v3), closing the self-grant finding.
-- ✅ **Closed:** the identity fix chain (#749/#750/#752) is on the deploy line.
-
-## Resolution (2026-06-12)
-
-**Outcome: Gate B closed.** The chain above bottomed out at **PostHog client-side bot filtering** (not an app defect): the automation browser's `HeadlessChrome`/`navigator.webdriver` made `_is_bot()` true, so `capture()` was silently dropped while `/flags` still fired. Resolved without touching production analytics semantics (no Option C/D):
-
-1. **Identity materialized (Option B).** A one-time real human login as the disposable Pro user emitted real `/i/v0/e/` events; PostHog now holds a **queryable person** at `distinct_id = 22899590-4af1-4a0c-88d6-b00996cb5ae0` with web `$identify` + `account_identified`, `hasEmailProperty=false`, `mutations=[]` before the identity pass. The #748→#752 fix chain + bot-filter diagnosis are validated end-to-end.
-2. **Operator targeting applied (Method A).** Flag `private_stt_v4_enabled` (709644) → v3: release condition `distinct_id exact "22899590-…"` @100%; the client-settable `isInternalTester` condition **removed**; `private_stt_v4_distil_enabled` (709645) stays OFF. Server-side eval = `true` / `condition_match`.
-3. **Official STT A/B stacked browser proof — PASS.** Against `#754 + #755` (data-layer commit-boundary withhold + P2 seam fix) on the v4 candidate, served via `build:test` + `serve:e2e`:
-   - **Targeted Pro:** `selectionSource=posthog_flag`, provider `transformers-js-v4`, variant `base_q4`, runtime `webgpu`; WER 0.1099; `canonicalRtf=0.0760`; save/history/detail PASS; **post-stop visible integrity PASS** (`postStopWer = selectedForSaveWer = 0.1099`, exact text match, **0** `"It's a question"` repeats); processing-local fallback visible while finalizing.
-   - **Negative control (non-targeted Pro):** stayed default v2 (`selectionSource=default`, `transformers-js`); WER 0.0890; post-stop integrity PASS.
-   - Artifacts: `speaksharp-stacked-latest-targeted-1781278620.json`, `speaksharp-stacked-latest-negative-1781278730.json`.
-
-**Privacy contract held throughout:** PostHog `distinct_id` = Supabase `user.id`; no email/PII; no client-settable targeting. **Remaining work is release-owner merge sequencing of the transcript/audit PRs — no further Dev code required for Gate B.**
+## Independent open items (not blocking this decision)
+- `private_stt_v4_enabled` still targets the **client-settable** `isInternalTester` (self-grant finding) — Product should move targeting to an operator cohort on `user.id` regardless.
+- `dev/v4-integration` must pick up #749 + #750 + #752 before it is ever a deploy candidate.
