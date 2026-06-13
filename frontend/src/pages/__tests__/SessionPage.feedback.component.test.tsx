@@ -191,6 +191,28 @@ describe('SessionPage Feedback Logic', () => {
         expect(screen.getByTestId('session-recovery-dismiss')).toHaveTextContent(/Dismiss/i);
     });
 
+    it('clears the restored local recovery draft so the action resolves', async () => {
+        vi.mocked(getSessionRecoveryDraft).mockReturnValue({
+            sessionId: 'draft-session',
+            transcript: 'Recovered words from a failed save',
+            durationSeconds: 42,
+            mode: 'private',
+            savedAt: new Date('2026-06-12T18:00:00Z').toISOString(),
+        });
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            isListening: false,
+            transcriptContent: 'Visible transcript is still on screen after save failure',
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        fireEvent.click(await screen.findByTestId('session-recovery-restore'));
+
+        expect(clearSessionRecoveryDraft).toHaveBeenCalledWith('draft-session');
+        expect(screen.queryByTestId('session-recovery-actions')).not.toBeInTheDocument();
+    });
+
     it('dismisses only the available local recovery draft', async () => {
         vi.mocked(getSessionRecoveryDraft).mockReturnValue({
             sessionId: 'draft-session',

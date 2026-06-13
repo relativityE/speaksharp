@@ -73,6 +73,7 @@ export const SessionPage: React.FC = () => {
     } = useSessionLifecycle();
 
     const restoreRecoveryDraft = useCallback((draft: SessionRecoveryDraft) => {
+        clearSessionRecoveryDraft(draft.sessionId);
         updateRecoveredTranscript(draft.transcript, '');
         setRecoveredChunks([{
             transcript: draft.transcript,
