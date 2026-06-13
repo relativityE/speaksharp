@@ -109,15 +109,19 @@ export default function AuthPage() {
 
         authResult = { data: signInData, error: null };
       } else { // forgot_password
-        logger.info({ email }, '[AuthPage] Attempting password reset');
+        // Anti-enumeration: never reveal whether the account exists. The provider only emails a
+        // registered, verified address; we ALWAYS show the same neutral response on success AND on
+        // error, and never log the email or the reset token. The link lands on the in-app completion
+        // route (/auth/reset) where the user sets a new password.
+        logger.info('[AuthPage] Password reset requested');
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: `${window.location.origin}/auth/reset`,
         });
         if (resetError) {
-          logger.error({ error: resetError }, '[AuthPage] Password reset error');
-          throw resetError;
+          // Log the error class only (no email, no token); the UI response stays neutral regardless.
+          logger.warn({ name: resetError.name }, '[AuthPage] Password reset request error (suppressed from UI)');
         }
-        setMessage('Password reset link sent if account exists.');
+        setMessage("If an account exists for this email, we'll send reset instructions.");
         return;
       }
 
