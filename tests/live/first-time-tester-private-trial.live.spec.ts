@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -147,6 +147,9 @@ test.describe('First-time tester Private sample path @live', () => {
     expect(afterRecording.statusText, JSON.stringify(afterRecording)).not.toMatch(/could not start|blocked|didn't detect enough speech/i);
     expect(recordingEvidence!.transcriptText, JSON.stringify(recordingEvidence!)).not.toMatch(/words appear here|listening|no speech/i);
     expect(recordingEvidence!.fillerCount, JSON.stringify(recordingEvidence!)).toBeGreaterThan(0);
+    expect(recordingEvidence!.transcriptAcceptance.finalTranscriptPreserved, JSON.stringify(recordingEvidence!.transcriptAcceptance)).toBe(true);
+    expect(recordingEvidence!.transcriptAcceptance.visibleFinalMatchesSave, JSON.stringify(recordingEvidence!.transcriptAcceptance)).toBe(true);
+    expect(recordingEvidence!.transcriptAcceptance.visibleLoopContained, JSON.stringify(recordingEvidence!.transcriptAcceptance)).toBe(true);
     expect(historyEvidence!.historyItemVisible, JSON.stringify(historyEvidence!)).toBe(true);
     expect(historyEvidence!.openedUrl, JSON.stringify(historyEvidence!)).toContain('/analytics/');
   });
@@ -221,6 +224,24 @@ type RecordingEvidence = {
   fillerCount: number
   saved: boolean
   beforeStop: Awaited<ReturnType<typeof collectBenchmarkPreconditionSnapshot>>
+  afterStop: Awaited<ReturnType<typeof collectBenchmarkPreconditionSnapshot>>
+  saveCandidate: Awaited<ReturnType<typeof waitForBenchmarkSaveCandidate>>
+  postStopTranscriptText: string
+  transcriptAcceptance: TranscriptAcceptanceEvidence
+}
+
+type TranscriptAcceptanceEvidence = {
+  selectedForSave: string
+  postStopTranscriptText: string
+  selectedTranscriptSource: string | null
+  repetitionRisk: boolean
+  repetitionRiskReason: string | null
+  repeatedSpanSummary: string | null
+  finalTranscriptPreserved: boolean
+  visibleFinalMatchesSave: boolean
+  visibleLoopContained: boolean
+  repeatedSpanAcceptedAsGuardrail: boolean
+  policy: 'preserve_final_text_no_fuzzy_collapse'
 }
 
 type HistoryEvidence = {
@@ -250,6 +271,11 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 60_000 });
   await expect(page.locator('html[data-session-persisted="true"]')).toBeVisible({ timeout: 60_000 });
+  const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'first-time-private');
+  const afterStop = await collectBenchmarkPreconditionSnapshot(page, 'first-time-private-after-stop');
+  const postStopTranscriptText = await readTranscriptTextOnly(page);
+  const transcriptAcceptance = buildTranscriptAcceptanceEvidence(saveCandidate, postStopTranscriptText);
+  console.log(`FIRST_TIME_TESTER_STEP transcript_acceptance ${JSON.stringify(transcriptAcceptance)}`);
 
   return {
     transcriptText,
@@ -257,6 +283,10 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
     fillerCount,
     saved: true,
     beforeStop,
+    afterStop,
+    saveCandidate,
+    postStopTranscriptText,
+    transcriptAcceptance,
   };
 }
 
@@ -343,6 +373,38 @@ async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
   });
 }
 
-function normalizeText(text: string | null) {
+function normalizeText(text: string | null | undefined) {
   return (text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeForTranscriptCompare(text: string | null | undefined) {
+  return normalizeText(text)
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+([,.!?;:])/g, '$1');
+}
+
+function buildTranscriptAcceptanceEvidence(
+  saveCandidate: Awaited<ReturnType<typeof waitForBenchmarkSaveCandidate>>,
+  postStopTranscriptText: string,
+): TranscriptAcceptanceEvidence {
+  const selectedForSave = normalizeText(saveCandidate.selectedForSave);
+  const visibleFinal = normalizeText(postStopTranscriptText);
+  const selectedTranscriptSource = saveCandidate.saveCandidateReason ?? null;
+  const repetitionRiskReason = saveCandidate.repetitionRiskReason ?? null;
+  const visibleLoopContained = repetitionRiskReason !== 'near_whole_doubling' && repetitionRiskReason !== 'adjacent_loop';
+
+  return {
+    selectedForSave,
+    postStopTranscriptText: visibleFinal,
+    selectedTranscriptSource,
+    repetitionRisk: saveCandidate.repetitionRisk === true,
+    repetitionRiskReason,
+    repeatedSpanSummary: saveCandidate.repeatedSpanSummary ?? null,
+    finalTranscriptPreserved: selectedForSave.length > 0 && selectedTranscriptSource !== 'empty',
+    visibleFinalMatchesSave: normalizeForTranscriptCompare(visibleFinal) === normalizeForTranscriptCompare(selectedForSave),
+    visibleLoopContained,
+    repeatedSpanAcceptedAsGuardrail: repetitionRiskReason === 'repeated_span',
+    policy: 'preserve_final_text_no_fuzzy_collapse',
+  };
 }
