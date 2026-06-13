@@ -471,6 +471,9 @@ type BenchmarkSaveCandidate = {
     visibleStoreTranscriptLength?: number;
     frozenStopTranscriptLength?: number;
     candidateLengths?: Array<{ source: string; length: number }>;
+    repetitionRisk?: boolean;
+    repetitionRiskReason?: 'adjacent_loop' | 'near_whole_doubling' | 'repeated_span' | null;
+    repeatedSpanSummary?: string | null;
 };
 
 export async function attachPrivateBenchmarkEvidence(
