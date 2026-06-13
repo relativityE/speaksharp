@@ -13,8 +13,9 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 |---|---|---|---|
 | #774 db push | Test/Ops | Apply migration + record proof | Done — merged `75fb9ac0`; migration workflow `27470518053` PASS (push-deploy skips DB by design) |
 | #775 merge | Test | Merge after green CI/review | Done — merged `9d4b90be` |
-| #772 visible-final fix | Dev | Fix post-stop visible duplication (display-only) | Done — PR #777 raised; Test to review/merge + rerun proof |
-| #765/#772 proof | Test | Rerun live proof after Dev #772 fix | Pending — rerun on PR #777 |
+| #772 visible-final (doubling) | Dev | Fix post-stop visible duplication (display-only) | Done — PR #777 merged `18b2a30f` |
+| #772 visible-final (empty after sample reset) | release-owner (scope) → Dev/Test | Decide fix vs. relax acceptance | **Pending release-owner decision.** Rerun `27472526881` RED: after a Private sample auto-ends+saves, the forced Browser/native switch clears the visible final (`postStopTranscriptText=""`). Fix is in store mode-switch reset (lifecycle, not display) — brushes "don't broaden architecture". Options: (A) narrow store guard so saved transcript stays visible until next recording; (B) treat reset as intended + Test asserts saved text on detail page instead. Saved transcript correct either way. |
+| #765/#772 proof | Test | Rerun live proof after the above decision | RED — blocked on the #772 empty-visible decision |
 | SLO/SLC | Test | Refresh current-SHA evidence | Done — run `27468651667` PASS on `main@9d4b90be` |
 | Stripe paths/journey | Test (proof) → Ops (cutover) | Prove billing journey + flip live at launch | Journey PROVEN with TEST keys (PASS); live launch = config cutover (swap test→live keys), not a money-test |
 | Backlog ledger | Dev | Convert deferred items into explicit non-blocking entries (this doc) | Done — this doc |
@@ -30,8 +31,9 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 | #774 index dedup + analytics routing | Closed — merged | — | `75fb9ac0` (branch deleted) |
 | #774 migration apply (`supabase db push`) | Closed — merged | — | migration `20260613100000`; dispatched migration workflow `27470518053` PASS (deploy-production-db + push-migrations PASS) |
 | #775 canUsePrivate split + SunsetModals fix | Closed — merged | — | `9d4b90be`; deploy `27468389396`, canary `27468389402`, main CI `27468389406` PASS |
-| #772 post-stop visible-final repetition | Open — active Dev→Test (PR #777) | Dev (fix) → Test (proof) | display-only collapse in settled view; panel 48/48, affected 85/85, tsc+eslint+build OK; saved transcript untouched |
-| #765/#772 first-time-sample proof | Open — active Test | Test | rerun live proof on PR #777; expect `visibleFinalMatchesSave=true` (Section C) |
+| #772 post-stop visible-final repetition (doubling) | Closed — merged | — | PR #777 `18b2a30f`; display-only collapse in settled view; panel 48/48, affected 85/85; saved transcript untouched |
+| #772 post-stop visible-final EMPTY (after sample auto-end) | Open — pending release-owner scope decision | release-owner → Dev/Test | rerun `27472526881` RED: sample-end forced-native switch clears the saved final (`postStopTranscriptText=""`); fix is lifecycle (store reset), not display — Option A (store guard) vs Option B (relax acceptance) |
+| #765/#772 first-time-sample proof | Open — RED (blocked on decision above) | Test | rerun after the empty-visible decision; `repeated_span` accepted as guardrail, not the blocker |
 | SLO/SLC service-level evidence | Closed — verified | — | run `27468651667` PASS on `main@9d4b90be` |
 | `repeated_span` policy | Closed — explicit release-owner disposition | — | Option A non-destructive guardrail (NOT collapsed; no fuzzy de-dup) |
 
@@ -89,6 +91,6 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 
 ## Dev posture
 
-Open — active Dev work: **one** — #772 post-stop visible-final repetition (concrete Test-routed failure), fixed display-only in **PR #777**, awaiting Test review/merge + live-proof rerun. After PR #777 lands, Dev returns to review/support-only.
+Active Dev work: **none in flight; one pending a release-owner decision.** #772 doubling is fixed + merged (PR #777 `18b2a30f`). The live rerun surfaced a *second*, distinct issue — the post-stop visible final goes EMPTY after a Private sample auto-ends (forced Browser/native switch clears it via the store mode-switch reset). The fix is in **session lifecycle (store reset), not display**, so it brushes the "don't broaden transcript architecture" guardrail — Dev is holding for a release-owner scope decision: **(A)** narrow store guard (keep saved transcript visible until next recording) vs **(B)** treat the reset as intended + Test asserts the saved text on the detail page. Dev makes no lifecycle change until that call.
 
-Reopen further Dev work only on: (1) a concrete failure in #777/#765/#772 under the live proof; (2) Test/Ops hits a concrete #774 migration-apply blocker (currently merged + applied, migration workflow `27470518053` PASS — not expected); (3) release-owner assigns a specific backlog item. Dev will not mutate the saved/stored transcript, implement fuzzy collapse, collapse ambiguous `repeated_span`, broaden the entitlement refactor, touch Group D, reopen #85, or start speculative cleanup. #773 stays (no revert).
+Reopen further Dev work only on: (1) the release-owner picks Option A above; (2) a *new* concrete failure in #777/#765/#772; (3) Test/Ops hits a concrete #774 migration-apply blocker (merged + applied, workflow `27470518053` PASS — not expected); (4) release-owner assigns a specific backlog item. Dev will not mutate the saved/stored transcript, implement fuzzy collapse, collapse ambiguous `repeated_span`, broaden the entitlement refactor, touch Group D, reopen #85, or start speculative cleanup. #773 stays (no revert).
