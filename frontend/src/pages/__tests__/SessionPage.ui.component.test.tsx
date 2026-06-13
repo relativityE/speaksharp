@@ -49,6 +49,9 @@ vi.mock('@/hooks/useSessionManager', () => ({
 vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
+vi.mock('@/components/session/SunsetModals', () => ({
+    SunsetModals: ({ open, isPro }: { open: boolean; isPro: boolean }) => open ? <div data-testid="sunset-modal" data-is-pro={String(isPro)} /> : null,
+}));
 
 const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
 const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);
@@ -60,6 +63,7 @@ const DEFAULT_LIFECYCLE_MOCK = {
     isListening: false,
     isReady: true,
     isProUser: false,
+    canUsePrivateStt: false,
     mode: 'native',
     sttStatus: { type: 'ready', message: '' },
     modelLoadingProgress: null,
@@ -137,6 +141,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...DEFAULT_LIFECYCLE_MOCK,
             isProUser: true,
+            canUsePrivateStt: true,
             canUseCloudStt: true
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
@@ -159,6 +164,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         mockUseSessionLifecycle.mockReturnValue({
             ...DEFAULT_LIFECYCLE_MOCK,
             isProUser: true,
+            canUsePrivateStt: true,
             setMode: setModeSpy
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
@@ -181,6 +187,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             ...DEFAULT_LIFECYCLE_MOCK,
             mode: 'private',
             isProUser: true,
+            canUsePrivateStt: true,
             canUseCloudStt: false,
             modelLoadingProgress: 42,
             setMode: setModeSpy
@@ -206,6 +213,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             ...DEFAULT_LIFECYCLE_MOCK,
             mode: 'private',
             isProUser: true,
+            canUsePrivateStt: true,
             canUseCloudStt: true,
             modelLoadingProgress: 42,
             setMode: setModeSpy
@@ -220,5 +228,33 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(cloudItem);
 
         expect(setModeSpy).toHaveBeenCalledWith('cloud');
+    });
+
+    it('enables Private for a free user with an available Private sample (canUsePrivateStt, not paid Pro)', async () => {
+        const user = userEvent.setup({ pointerEventsCheck: 0 });
+        mockUseSessionLifecycle.mockReturnValue({
+            ...DEFAULT_LIFECYCLE_MOCK,
+            isProUser: false,
+            canUsePrivateStt: true,
+            canUseCloudStt: false,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        render(<SessionPage />);
+        await user.click(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+        expect(priv.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
+        expect(cloud.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('passes REAL paid-pro (not the sample capability) to SunsetModals so free sample users keep the upgrade CTA', async () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...DEFAULT_LIFECYCLE_MOCK,
+            isProUser: false,        // free user (not paid pro)
+            canUsePrivateStt: true,  // ...but has an available sample
+            sunsetModal: { type: 'daily', open: true },
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        render(<SessionPage />);
+        const modal = await screen.findByTestId('sunset-modal');
+        expect(modal).toHaveAttribute('data-is-pro', 'false');
     });
 });
