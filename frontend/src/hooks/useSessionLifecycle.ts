@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import posthog from 'posthog-js';
 import * as Sentry from '@sentry/react';
 import logger from '../lib/logger';
 import { useQueryClient } from '@tanstack/react-query';
@@ -273,7 +272,7 @@ export const useSessionLifecycle = () => {
                 const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode, { allowCloud: canUseCloudStt });
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
-                posthog.capture('session_started', {
+                analyticsBuffer.push('session_started', {
                     mode: latestMode,
                     requested_mode: requestedMode,
                     user_tier: effectiveSubscriptionStatus,
@@ -298,7 +297,7 @@ export const useSessionLifecycle = () => {
                     });
                     Sentry.captureException(err);
                 });
-                posthog.capture('recording_start_failed', {
+                analyticsBuffer.push('recording_start_failed', {
                     mode: latestMode,
                     requested_mode: requestedMode,
                     runtime_state: runtimeState,
@@ -411,7 +410,7 @@ export const useSessionLifecycle = () => {
                     : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
-                    posthog.capture('session_limit_warning', {
+                    analyticsBuffer.push('session_limit_warning', {
                         remaining_seconds: remaining,
                         tier: isProUser ? 'pro' : 'free',
                         limit_type: isPrivateSampleRecording ? 'private_sample' : 'daily',
