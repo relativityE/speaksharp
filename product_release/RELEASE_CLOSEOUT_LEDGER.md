@@ -16,7 +16,7 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 | #772 visible-final fix | Dev | Fix post-stop visible duplication (display-only) | Done — PR #777 raised; Test to review/merge + rerun proof |
 | #765/#772 proof | Test | Rerun live proof after Dev #772 fix | Pending — rerun on PR #777 |
 | SLO/SLC | Test | Refresh current-SHA evidence | Done — run `27468651667` PASS on `main@9d4b90be` |
-| Stripe live cutover | Ops/Test/Product | Live paid launch (IS in scope) | Blocked — needs live Stripe keys + real-money authorization |
+| Stripe paths/journey | Test (proof) → Ops (cutover) | Prove billing journey + flip live at launch | Journey PROVEN with TEST keys (PASS); live launch = config cutover (swap test→live keys), not a money-test |
 | Backlog ledger | Dev | Convert deferred items into explicit non-blocking entries (this doc) | Done — this doc |
 | Group D branches | Test/release-owner | Classify keep / delete / backlog | Pending — owner decision (none confirmed merged to `main`) |
 
@@ -70,22 +70,22 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 - **CI:** SLO/SLC workflow (last green run `27441628586` on `b0227ed8`) — re-dispatch on the current release SHA.
 - **Targets present in rig:** auth_p95, usage_edge_p95, session_rpc_p95 (< 2000 ms release floor), stress_failure_rate (0%).
 
-## D. Prep-only checklist — #3 Stripe live cutover (Ops/Test; Dev verified paths, touched NO live keys)
+## D. #3 Stripe — journey PROVEN with TEST-mode keys; going live = config cutover (NOT a money-test)
 
-> Live paid launch IS in scope for this RC (release-owner). BLOCKED until live Stripe keys are provisioned. Dev does NOT enter live keys or run live-money proofs.
+> **Correction (release-owner):** Stripe **live** keys are not — and cannot be — "tested" (no real-money transactions are run as a proof). The checkout → webhook → billing-portal **paths and full journey are proven with Stripe TEST-mode keys**, and they **PASS**. That test-mode journey is the accepted proof. Going to live paid launch is a **deployment/config cutover** (swap test keys for live keys + register the live webhook), performed by Ops at launch on the business go-decision — not a Dev/CI/QA money proof. Dev does not enter live keys.
 
+- **Accepted proof (test mode) — PASS:** `27441691671` test-mode spine, `27441691174` price audit (checkout/webhook/portal journey exercised with `sk_test_…`). No real-money proof exists or is required.
 - **Functions:** `stripe-checkout`, `stripe-billing-portal`, `stripe-webhook` (`backend/supabase/functions/`).
-- **LIVE env vars to set (deploy env):**
+- **Go-live config cutover (Ops, at launch):** swap deploy-env vars from test → live:
   - `STRIPE_SECRET_KEY` = `sk_live_…`
   - `STRIPE_WEBHOOK_SECRET` = live `whsec_…` (from the live webhook endpoint)
   - `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID` = LIVE price IDs
-  - `SITE_URL` = production URL
-  - confirm `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Webhook endpoint:** register `{prod}/functions/v1/stripe-webhook` in the Stripe LIVE dashboard → copy the live `whsec_` → set `STRIPE_WEBHOOK_SECRET`.
-- **Webhook security (already correct):** signature-verified via `constructEventAsync`/`constructEvent` (`stripe-webhook/index.ts:171-175`, secret L188); fails closed (non-2xx → Stripe retries).
+  - `SITE_URL` = production URL; confirm `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Webhook endpoint (cutover step):** register `{prod}/functions/v1/stripe-webhook` in the Stripe LIVE dashboard → copy the live `whsec_` → set `STRIPE_WEBHOOK_SECRET`.
+- **Webhook security (already correct, mode-agnostic):** signature-verified via `constructEventAsync`/`constructEvent` (`stripe-webhook/index.ts:171-175`, secret L188); fails closed (non-2xx → Stripe retries).
 - **Return URLs (already correct):** `success_url`/`cancel_url` server-derived from `SITE_URL` (`stripe-checkout/index.ts:258-259`); portal `return_url` from `SITE_URL`. No client-supplied URLs → open-redirect safe.
-- **Customer-id persistence (already correct):** `process_stripe_webhook_event(p_stripe_customer_id)` (migration `20260608190000`) — verify on one live test event.
-- **Ops/Test live-money proof (NOT Dev):** real checkout → webhook round-trip → subscription status + customer-id persisted → billing-portal open. Safe (test-key) checks already PASS (`27441691174` price audit, `27441691671` test-mode spine).
+- **Customer-id persistence (already correct):** `process_stripe_webhook_event(p_stripe_customer_id)` (migration `20260608190000`) — exercised in the test-mode journey.
+- **Not blocked on a proof.** The journey is proven (test mode). The only remaining item is the business decision to flip live keys at cutover.
 
 ## Dev posture
 
