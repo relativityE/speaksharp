@@ -4,6 +4,7 @@ import {
     sanitizeDecodeOptions,
     readPrivateDecodeOptionsOverride,
     ALLOWED_DECODE_OPTIONS,
+    V4_ANTI_LOOP_DECODE_DEFAULTS,
 } from '../whisperDecodeOptions';
 
 const setHook = (value: unknown) => {
@@ -61,6 +62,21 @@ describe('whisperDecodeOptions (v4 decode-option proof hook, BL-1)', () => {
                 'return_timestamps',
                 'temperature',
             ]);
+        });
+    });
+
+    describe('V4_ANTI_LOOP_DECODE_DEFAULTS (F2 conservative v4 defaults)', () => {
+        it('sets the documented conservative anti-loop values', () => {
+            expect(V4_ANTI_LOOP_DECODE_DEFAULTS).toEqual({
+                condition_on_previous_text: false,
+                no_repeat_ngram_size: 6,
+            });
+        });
+
+        it('uses only allow-listed knobs (so the proof hook can override each one)', () => {
+            for (const key of Object.keys(V4_ANTI_LOOP_DECODE_DEFAULTS)) {
+                expect(ALLOWED_DECODE_OPTIONS.has(key)).toBe(true);
+            }
         });
     });
 
