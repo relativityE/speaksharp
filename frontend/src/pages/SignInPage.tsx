@@ -62,6 +62,10 @@ export default function SignInPage() {
     const [isSendingReset, setIsSendingReset] = useState(false);
 
     const handleForgotPassword = async () => {
+        // Clear any prior error/success message FIRST so an early-return validation error never
+        // leaves a stale success message (e.g. from a previous reset/sign-in-link) on screen.
+        setError(null);
+        setMessage(null);
         const normalizedEmail = email.trim();
         if (!normalizedEmail) {
             setError('Please enter your email address first');
@@ -74,8 +78,6 @@ export default function SignInPage() {
             return;
         }
         setIsSendingReset(true);
-        setError(null);
-        setMessage(null);
         try {
             const supabase = getSupabaseClient();
             // Anti-enumeration: fire the provider reset (only emails a registered, verified address)
@@ -115,6 +117,10 @@ export default function SignInPage() {
     };
 
     const handleMagicLink = async () => {
+        // Clear any prior error/success message FIRST so an early-return validation error never
+        // leaves a stale success message (e.g. from a previous reset/sign-in-link) on screen.
+        setError(null);
+        setMessage(null);
         const normalizedEmail = email.trim();
         if (!normalizedEmail) {
             setError('Please enter your email address first');
@@ -125,8 +131,6 @@ export default function SignInPage() {
             return;
         }
         setIsSendingMagicLink(true);
-        setError(null);
-        setMessage(null);
         try {
             const supabase = getSupabaseClient();
             const { error: otpError } = await supabase.auth.signInWithOtp({
