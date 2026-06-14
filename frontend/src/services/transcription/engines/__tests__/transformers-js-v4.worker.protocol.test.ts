@@ -108,7 +108,7 @@ describe('transformers-js-v4.worker protocol contract', () => {
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 3, type: 'ready' }));
     });
 
-    it('contract: init loads the model/dtype from the load payload (Option B variant threading)', async () => {
+    it('contract: init loads the model/dtype from the load payload (model/dtype variant threading)', async () => {
         const transcriber = vi.fn(async () => ({ text: '' }));
         const pipeline = vi.fn(async () => transcriber);
         vi.doMock('@huggingface/transformers', () => ({
