@@ -30,6 +30,9 @@ const getSafeMagicLinkError = (err: unknown): string => {
     const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
     const message = rawMessage.toLowerCase();
 
+    if (message.includes('invalid email') || (message.includes('email') && message.includes('valid'))) {
+        return 'Email not valid';
+    }
     if (err instanceof TypeError && message.includes('failed to fetch')) {
         return 'Unable to send a sign-in link. Check your connection and try again.';
     }
@@ -39,6 +42,8 @@ const getSafeMagicLinkError = (err: unknown): string => {
 
     return 'Sign-in link could not be sent. Please try again.';
 };
+
+const isEmailFormatValid = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
 // Sign In page – supports both password and magic link
 export default function SignInPage() {
@@ -57,19 +62,28 @@ export default function SignInPage() {
     const [isSendingReset, setIsSendingReset] = useState(false);
 
     const handleForgotPassword = async () => {
-        if (!email) {
+        // Clear any prior error/success message FIRST so an early-return validation error never
+        // leaves a stale success message (e.g. from a previous reset/sign-in-link) on screen.
+        setError(null);
+        setMessage(null);
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail) {
             setError('Please enter your email address first');
             return;
         }
+        // Mirror the magic-link path: block obviously malformed input client-side (format ≠ existence,
+        // so this does not enable enumeration) instead of letting it round-trip to the provider.
+        if (!isEmailFormatValid(normalizedEmail)) {
+            setError('Email not valid');
+            return;
+        }
         setIsSendingReset(true);
-        setError(null);
-        setMessage(null);
         try {
             const supabase = getSupabaseClient();
             // Anti-enumeration: fire the provider reset (only emails a registered, verified address)
             // and ALWAYS show the same neutral response. The link lands on /auth/reset. No email or
             // token is logged.
-            await supabase.auth.resetPasswordForEmail(email, {
+            await supabase.auth.resetPasswordForEmail(normalizedEmail, {
                 redirectTo: `${window.location.origin}/auth/reset`,
             });
         } catch (err: unknown) {
@@ -103,17 +117,24 @@ export default function SignInPage() {
     };
 
     const handleMagicLink = async () => {
-        if (!email) {
+        // Clear any prior error/success message FIRST so an early-return validation error never
+        // leaves a stale success message (e.g. from a previous reset/sign-in-link) on screen.
+        setError(null);
+        setMessage(null);
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail) {
             setError('Please enter your email address first');
             return;
         }
+        if (!isEmailFormatValid(normalizedEmail)) {
+            setError('Email not valid');
+            return;
+        }
         setIsSendingMagicLink(true);
-        setError(null);
-        setMessage(null);
         try {
             const supabase = getSupabaseClient();
             const { error: otpError } = await supabase.auth.signInWithOtp({
-                email,
+                email: normalizedEmail,
                 options: {
                     emailRedirectTo: `${window.location.origin}${postAuthPath}`
                 }
@@ -175,7 +196,7 @@ export default function SignInPage() {
                                         className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
                                         data-testid="forgot-password-button"
                                     >
-                                        {isSendingReset ? 'Sending...' : 'Forgot password?'}
+                                        {isSendingReset ? 'Sending...' : 'Forgot Password? Reset'}
                                     </Button>
                                 </div>
                                 <Input

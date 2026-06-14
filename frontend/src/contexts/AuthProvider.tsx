@@ -197,6 +197,17 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User metadata updated');
             assignSession(newSession);
             break;
+          case 'PASSWORD_RECOVERY':
+            // The user arrived via a password-reset email link. With `detectSessionInUrl: true`
+            // the client consumes the recovery token from the URL and fires this event during app
+            // boot — BEFORE the lazy-loaded /auth/reset page mounts — and then clears the hash. So
+            // record a durable, single-use marker that ResetPasswordPage can read to authorize the
+            // set-new-password form even after the token is gone and the event has already fired.
+            // A normal signed-in user never triggers PASSWORD_RECOVERY, so this stays reset-only.
+            try { sessionStorage.setItem('ss_password_recovery', '1'); } catch { /* sessionStorage may be unavailable */ }
+            assignSession(newSession);
+            setLoading(false);
+            break;
           case 'SIGNED_IN':
             logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User signed in');
             assignSession(newSession);

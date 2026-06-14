@@ -53,13 +53,22 @@ export default function ResetPasswordPage() {
       /[?&#]token_hash=/.test(search) || /[?&]token_hash=/.test(hash) ||
       /[?&]code=/.test(search); // a code only reaches /auth/reset via the reset redirect
 
+    // With `detectSessionInUrl: true` the Supabase client consumes the recovery token from the URL
+    // and fires PASSWORD_RECOVERY during app boot — before this lazy page mounts — then clears the
+    // hash. The global AuthProvider listener records this durable, reset-only marker so we can still
+    // authorize the form after the token is gone and the event already fired. A plain signed-in user
+    // never sets this marker, so a normal session still cannot reach the form (P2 preserved).
+    let hasRecoveryMarker = false;
+    try { hasRecoveryMarker = sessionStorage.getItem('ss_password_recovery') === '1'; } catch { /* sessionStorage may be unavailable */ }
+
     // Late PASSWORD_RECOVERY (async token exchange) can still authorize.
     const { data: sub } = supabase.auth.onAuthStateChange((event: string) => {
       if (active && event === 'PASSWORD_RECOVERY') setPhase('ready');
     });
 
-    // No recovery token in the URL ⇒ not a recovery context ⇒ invalid (a plain session is not enough).
-    setPhase(prev => (prev === 'success' ? prev : (hasRecoveryToken ? 'ready' : 'invalid')));
+    // Authorized only by a genuine recovery flow: a token in the URL, the durable marker, or a live
+    // PASSWORD_RECOVERY event. No recovery evidence ⇒ invalid (a plain session is not enough).
+    setPhase(prev => (prev === 'success' ? prev : ((hasRecoveryToken || hasRecoveryMarker) ? 'ready' : 'invalid')));
 
     return () => { active = false; sub?.subscription?.unsubscribe?.(); };
   }, []);
@@ -89,6 +98,9 @@ export default function ResetPasswordPage() {
         setPhase('invalid');
         return;
       }
+      // Recovery complete — consume the durable marker so a later /auth/reset visit in this tab
+      // (now a normal signed-in session) is no longer treated as a recovery context.
+      try { sessionStorage.removeItem('ss_password_recovery'); } catch { /* sessionStorage may be unavailable */ }
       setPhase('success');
     } catch (err) {
       logger.warn({ err }, '[ResetPassword] update failed');

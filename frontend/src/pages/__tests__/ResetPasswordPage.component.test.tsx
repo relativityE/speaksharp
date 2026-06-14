@@ -19,6 +19,7 @@ describe('ResetPasswordPage (basic password-reset completion)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clearHash();
+        try { sessionStorage.clear(); } catch { /* ignore */ }
         authCb = null;
         mockUpdateUser.mockResolvedValue({ error: null });
         // Default: a session EXISTS — used to prove it is NOT sufficient authority without a recovery flow.
@@ -36,7 +37,7 @@ describe('ResetPasswordPage (basic password-reset completion)', () => {
         } as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
     });
 
-    afterEach(() => clearHash());
+    afterEach(() => { clearHash(); try { sessionStorage.clear(); } catch { /* ignore */ } });
 
     it('shows the set-new-password form (no username field) when arriving via a recovery link', async () => {
         setRecoveryHash();
@@ -52,6 +53,16 @@ describe('ResetPasswordPage (basic password-reset completion)', () => {
         await screen.findByTestId('reset-password-invalid');
         await act(async () => { authCb?.('PASSWORD_RECOVERY', { user: { id: 'uuid-123' } }); });
         expect(await screen.findByTestId('set-new-password-form')).toBeInTheDocument();
+    });
+
+    it('authorizes the form via the durable recovery marker after the URL token was consumed at boot', async () => {
+        // Real prod shape: detectSessionInUrl consumed the hash (URL is now bare `/auth/reset#`) and
+        // the PASSWORD_RECOVERY event fired during app boot before this page mounted. The global
+        // AuthProvider listener recorded the marker; the page must still authorize the form.
+        sessionStorage.setItem('ss_password_recovery', '1');
+        render(<ResetPasswordPage />); // no recovery hash, no live event
+        expect(await screen.findByTestId('set-new-password-form')).toBeInTheDocument();
+        expect(screen.queryByTestId('reset-password-invalid')).not.toBeInTheDocument();
     });
 
     it('SECURITY: a normal signed-in session is NOT reset authority without a recovery flow', async () => {

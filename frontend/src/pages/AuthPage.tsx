@@ -219,7 +219,7 @@ export default function AuthPage() {
                           className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
                           data-testid="forgot-password-button"
                         >
-                          Forgot password?
+                          Forgot Password? Reset
                         </Button>
                       )}
                     </div>

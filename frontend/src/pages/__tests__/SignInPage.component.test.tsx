@@ -285,5 +285,30 @@ describe('SignInPage', () => {
                 });
             });
         });
+
+        it('shows Email not valid for malformed sign-in-link email without calling Supabase', async () => {
+            const user = userEvent.setup();
+
+            renderSignInPage();
+
+            await user.type(screen.getByLabelText(/email/i), 'a');
+            await user.click(screen.getByTestId('magic-link-button'));
+
+            expect(mockSignInWithOtp).not.toHaveBeenCalled();
+            expect(await screen.findByTestId('auth-error-message')).toHaveTextContent('Email not valid');
+        });
+
+        it('maps provider invalid-email responses to Email not valid for sign-in links', async () => {
+            const user = userEvent.setup();
+            mockSignInWithOtp.mockResolvedValue({ error: new Error('Invalid email') });
+
+            renderSignInPage();
+
+            await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+            await user.click(screen.getByTestId('magic-link-button'));
+
+            await waitFor(() => expect(mockSignInWithOtp).toHaveBeenCalledTimes(1));
+            expect(await screen.findByTestId('auth-error-message')).toHaveTextContent('Email not valid');
+        });
     });
 });

@@ -71,4 +71,25 @@ describe('SignInPage — forgot password from the primary sign-in page (P1, anti
         expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
         expect(await screen.findByTestId('auth-error-message')).toHaveTextContent(/enter your email/i);
     });
+
+    it('clears a prior success message when a follow-up malformed email validation fails (no stale success)', async () => {
+        const user = userEvent.setup();
+        mockResetPasswordForEmail.mockResolvedValue({ error: null });
+        render(<SignInPage />);
+
+        // First: a successful reset shows the neutral success message.
+        await user.type(screen.getByTestId('email-input'), 'real@example.com');
+        await user.click(screen.getByTestId('forgot-password-button'));
+        expect(await screen.findByTestId('auth-message')).toHaveTextContent(NEUTRAL);
+
+        // Then: edit to a malformed email and retry — the early-return error must REPLACE the stale
+        // success message, not sit beside it.
+        await user.clear(screen.getByTestId('email-input'));
+        await user.type(screen.getByTestId('email-input'), 'not-an-email');
+        await user.click(screen.getByTestId('forgot-password-button'));
+
+        expect(await screen.findByTestId('auth-error-message')).toHaveTextContent(/email not valid/i);
+        expect(screen.queryByTestId('auth-message')).not.toBeInTheDocument();
+        expect(mockResetPasswordForEmail).toHaveBeenCalledTimes(1); // not called again for malformed input
+    });
 });
