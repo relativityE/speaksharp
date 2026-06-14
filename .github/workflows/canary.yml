@@ -29,8 +29,11 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
-          # Unique email to avoid collision
-          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+          # Stable email so provision-canary.mjs reuses ONE account every run (its idempotent
+          # create-or-sync pattern) instead of minting a new canary-* user each run and bloating
+          # auth.users. The job concurrency guard above (one run per ref, cancel-in-progress) already
+          # prevents overlapping runs, so a fixed email is safe.
+          CANARY_EMAIL: canary@speaksharp.app
         run: node scripts/provision-canary.mjs
 
       - name: Run Smoke Test
@@ -38,7 +41,7 @@ jobs:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
-          CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
+          CANARY_EMAIL: canary@speaksharp.app
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm test:deploy:prod
 
