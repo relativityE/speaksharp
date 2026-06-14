@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import {
   navigateToRoute,
-  waitForTranscriptionService
+  waitForModelReady
 } from './helpers';
 
 /**
@@ -34,7 +34,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
     await expect(page.getByTestId('engine-select-private')).not.toBeVisible();
 
     // Deterministic Sync: Wait for engine handshake before clicking start
-    await waitForTranscriptionService(page, 'ENGINE_READY');
+    await waitForModelReady(page);
     await startButton.click();
 
     await navigateToRoute(page, '/analytics');
@@ -68,7 +68,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
     await expect(startButton).toBeVisible();
 
     // Deterministic Sync: Wait for engine handshake before clicking start
-    await waitForTranscriptionService(page, 'ENGINE_READY');
+    await waitForModelReady(page);
     await startButton.click();
 
     // 3. Navigation to Analytics & Session Selection
