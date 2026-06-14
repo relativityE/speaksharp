@@ -29,6 +29,8 @@ const mapError = (message: string) => {
   return friendlyErrors[message] || 'An unexpected error occurred.';
 };
 
+const isEmailFormatValid = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
@@ -58,9 +60,16 @@ export default function AuthPage() {
 
     try {
       const supabase = getSupabaseClient();
+      const normalizedEmail = email.trim();
       if (!supabase) {
         logger.error('[AuthPage CRITICAL] Supabase client is null/undefined!');
         throw new Error("Supabase client not available");
+      }
+
+      if (view === 'sign_up' && !isEmailFormatValid(normalizedEmail)) {
+        setInlineError('Email not valid');
+        setIsSubmitting(false);
+        return;
       }
 
       if (password.length < 6 && view !== 'forgot_password') {
@@ -83,7 +92,7 @@ export default function AuthPage() {
         logger.info({ event: 'sign_up', phase: 'attempt' }, '[AuthPage] sign-up attempt');
         
         const { error: signUpError } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password
         });
 
@@ -100,7 +109,7 @@ export default function AuthPage() {
         setInlineError(null);
 
         // Post-signup sign-in to get the session (Supabase quirk)
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (signInError) {
           logger.error({ err: signInError }, '[AuthPage] Post-signup sign-in failed');
           setInlineError(mapError(signInError.message));
