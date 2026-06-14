@@ -17,13 +17,10 @@ export const FILLER_WORD_KEYS = {
   SORT_OF: 'Sort Of',
 } as const;
 
-// Session time limits (in seconds)
-export const SESSION_LIMITS = {
-  ANONYMOUS: 120,        // 2 minutes for anonymous users
-  FREE: 1800,             // 30 minutes for free tier
-  BASIC: 1800,            // Reserved for future paid Basic tier
-  PRO: null,             // unlimited for pro users
-} as const;
+// NOTE: session/usage limits are NOT defined here. The authoritative source is the DB
+// `tier_configs` reconciled with `constants/subscriptionTiers.ts` (Pro = 7200s/day, NOT
+// unlimited). A former `SESSION_LIMITS` constant here was dead code carrying a stale
+// "unlimited for pro users" claim; it was removed to avoid drift from the real limits.
 
 // Pause detection configuration
 export const PAUSE_DETECTION = {

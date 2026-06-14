@@ -177,10 +177,11 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
     // Case F1 — DEV/TEST harness: the real localStorage forceAuto key (`speaksharp.v4.forceAuto`) +
     // usable WebGPU selects v4, and the artifact labels it selectionSource:'dev_harness' — NOT
     // posthog_flag — even though `reason` reads `webgpu_available_v4_flag` on real WebGPU (identical
-    // for flag AND forceAuto there). Locks the Gate A (dev_harness) vs Gate B (posthog_flag) distinction.
+    // for flag AND forceAuto there). Locks the dev_harness (forceAuto) vs posthog_flag (real flag)
+    // selectionSource distinction.
     it('F1: DEV/TEST forceAuto (real localStorage key) + WebGPU -> v4 selected, selectionSource=dev_harness (NOT posthog_flag)', async () => {
         flagState.v4Enabled = false; setGpu(true);
-        window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // dev/test-gated forceAuto shim (Gate A)
+        window.localStorage.setItem('speaksharp.v4.forceAuto', '1'); // dev/test-gated forceAuto shim (dev_harness selection)
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
@@ -190,7 +191,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         expect(dbg?.reason, 'reason is the conflated signal; proves selectionSource is the honest one').toBe('webgpu_available_v4_flag');
     });
 
-    it('F1b: DEV/TEST forceAuto + v4Variant=distil_q4 selects the distil Gate A candidate', async () => {
+    it('F1b: DEV/TEST forceAuto + v4Variant=distil_q4 selects the distil candidate via the dev/test forceAuto path', async () => {
         flagState.v4Enabled = false; setGpu(true);
         window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
         window.localStorage.setItem('speaksharp.v4.variant', 'distil_q4');
@@ -206,7 +207,7 @@ describe('v4 PostHog flag — headless operational proof (non-GPU)', () => {
         expect(dbg?.v4Variant).toBe('distil_q4');
     });
 
-    it('F1c: DEV/TEST forceAuto + v4Variant=base_q4 selects the base Gate A candidate (dev_harness)', async () => {
+    it('F1c: DEV/TEST forceAuto + v4Variant=base_q4 selects the base candidate via the dev/test forceAuto path (dev_harness)', async () => {
         flagState.v4Enabled = false; setGpu(true);
         window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
         window.localStorage.setItem('speaksharp.v4.variant', 'base_q4');
