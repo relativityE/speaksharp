@@ -62,8 +62,15 @@ export default function SignInPage() {
     const [isSendingReset, setIsSendingReset] = useState(false);
 
     const handleForgotPassword = async () => {
-        if (!email) {
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail) {
             setError('Please enter your email address first');
+            return;
+        }
+        // Mirror the magic-link path: block obviously malformed input client-side (format ≠ existence,
+        // so this does not enable enumeration) instead of letting it round-trip to the provider.
+        if (!isEmailFormatValid(normalizedEmail)) {
+            setError('Email not valid');
             return;
         }
         setIsSendingReset(true);
@@ -74,7 +81,7 @@ export default function SignInPage() {
             // Anti-enumeration: fire the provider reset (only emails a registered, verified address)
             // and ALWAYS show the same neutral response. The link lands on /auth/reset. No email or
             // token is logged.
-            await supabase.auth.resetPasswordForEmail(email, {
+            await supabase.auth.resetPasswordForEmail(normalizedEmail, {
                 redirectTo: `${window.location.origin}/auth/reset`,
             });
         } catch (err: unknown) {
