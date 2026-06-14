@@ -37,6 +37,10 @@
       "cpu": {
         "expectedAccuracy": 93.89,
         "provider": "TransformersJS",
+        "_floors_note": "Legacy expectedAccuracy (93.89%) was measured on whisper-tiny.en; the SHIPPING v2 Private default is whisper-base.en (see sttProviderConfig DEFAULT). `floors` tracks the shipping model so v2 and v4 are compared on like models; expectedAccuracy:null = re-measure pending.",
+        "floors": {
+          "whisper-base.en|cpu": { "expectedAccuracy": null, "model": "Xenova/whisper-base.en" }
+        },
         "history": [
           {
             "timestamp": "2026-03-16T08:25:00Z",
@@ -79,6 +83,12 @@
       "v4": {
         "expectedAccuracy": 88.89,
         "provider": "TransformersJS v4",
+        "_floors_note": "expectedAccuracy/history below is a STALE placeholder (whisper-tiny.en, 3 sentences, WASM) — NOT the rollout models. `floors` is the per-variant|device source of truth for the v2-vs-v4 PostHog A/B; expectedAccuracy:null = not yet measured (the first benchmark run establishes that config's floor, and each later run may only improve it). Rollout models: base_q4=whisper-base.en, distil_q4=distil-small.en.",
+        "floors": {
+          "base_q4|wasm": { "expectedAccuracy": null, "model": "onnx-community/whisper-base.en" },
+          "base_q4|webgpu": { "expectedAccuracy": null, "model": "onnx-community/whisper-base.en" },
+          "distil_q4|webgpu": { "expectedAccuracy": null, "model": "onnx-community/distil-small.en" }
+        },
         "history": [
           {
             "timestamp": "2026-05-25T00:00:00.000Z",
