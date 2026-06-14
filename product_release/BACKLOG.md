@@ -558,3 +558,20 @@ to complete the reset; global revocation of *other* active sessions on password 
 explicitly enforced in this flow. Behavior is recorded here as a **security-hardening backlog item**
 (evaluate `signOut({ scope: 'global' })` / server-side session invalidation) rather than implemented
 now. Basic reset still updates the credential so a stolen password no longer authenticates new logins.
+
+## Password-reset E2E completion proof (deferred QA — we will get to it)
+
+The reset CODE is shipped + deployed and the `/auth/reset` page is confirmed to **render the
+"Set a new password" form** on prod (`02cf3fe7`) — that was the original bug (recovery-session
+race), now fixed. What remains is finishing the **end-to-end manual/scripted proof** of an actual
+password change (it was started but not completed). ~2 minutes in a browser (or a scripted live
+spec). Steps to verify:
+
+1. On `/auth/reset` (from a fresh reset email link): type a new password in both fields → click **Update password**.
+2. Confirm the **"Your password has been updated. You can sign in with your new password."** success copy.
+3. **Sign in** with the *new* password → succeeds.
+4. *(optional)* the *old* password no longer authenticates.
+5. Click a **used/expired** reset link → shows the safe **"This reset link is invalid or expired…"** copy (no token/password/email leak).
+
+Owner: Test/Ops or release-owner (real browser + a confirmed account + working email delivery —
+custom SMTP vs the rate-limited default; see the email-branding/SMTP backlog). Not a code blocker.
