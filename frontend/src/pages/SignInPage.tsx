@@ -54,6 +54,31 @@ export default function SignInPage() {
     const [message, setMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isSendingMagicLink, setIsSendingMagicLink] = useState(false);
+    const [isSendingReset, setIsSendingReset] = useState(false);
+
+    const handleForgotPassword = async () => {
+        if (!email) {
+            setError('Please enter your email address first');
+            return;
+        }
+        setIsSendingReset(true);
+        setError(null);
+        setMessage(null);
+        try {
+            const supabase = getSupabaseClient();
+            // Anti-enumeration: fire the provider reset (only emails a registered, verified address)
+            // and ALWAYS show the same neutral response. The link lands on /auth/reset. No email or
+            // token is logged.
+            await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/auth/reset`,
+            });
+        } catch (err: unknown) {
+            logger.warn({ name: (err as { name?: string })?.name }, '[SignInPage] password reset request error (suppressed from UI)');
+        } finally {
+            setMessage("If an account exists for this email, we'll send reset instructions.");
+            setIsSendingReset(false);
+        }
+    };
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -140,7 +165,19 @@ export default function SignInPage() {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="password">Password</Label>
+                                <div className="flex items-center justify-between">
+                                    <Label htmlFor="password">Password</Label>
+                                    <Button
+                                        variant="link"
+                                        type="button"
+                                        onClick={() => { void handleForgotPassword(); }}
+                                        disabled={isSendingReset}
+                                        className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
+                                        data-testid="forgot-password-button"
+                                    >
+                                        {isSendingReset ? 'Sending...' : 'Forgot password?'}
+                                    </Button>
+                                </div>
                                 <Input
                                     id="password"
                                     type="password"
