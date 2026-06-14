@@ -70,26 +70,38 @@ export function assertNoRegression(
     engine: string,
     measuredWer: number,
     label: string,
-    variant?: string
+    variant?: string,
+    // Optional per-variant|device floor key, e.g. 'base_q4|webgpu'. When given and a recorded floor
+    // exists, regression is checked against that specific config's floor instead of the engine-level
+    // expectedAccuracy — so each model/device combo keeps its own "never regress" line.
+    config?: string,
 ) {
     const benchmarks = readBenchmarks();
-    let expectedAccuracy: number;
+    let expectedAccuracy: number | null | undefined;
 
     if (engine === 'Private' && variant) {
-        expectedAccuracy = benchmarks.engines.Private[variant].expectedAccuracy;
+        const entry = benchmarks.engines.Private[variant];
+        const configFloor = config ? entry?.floors?.[config] : undefined;
+        expectedAccuracy = configFloor ? configFloor.expectedAccuracy : entry?.expectedAccuracy;
     } else {
-        expectedAccuracy = benchmarks.engines[engine].expectedAccuracy;
+        expectedAccuracy = benchmarks.engines[engine]?.expectedAccuracy;
+    }
+
+    // No floor recorded yet (null/undefined) ⇒ this run ESTABLISHES the floor; nothing to regress against.
+    if (expectedAccuracy == null) {
+        console.log(`ℹ️  ${label}${config ? ` (${config})` : variant ? ` (${variant})` : ''}: no prior floor recorded — this run establishes it.`);
+        return;
     }
 
     const previousCeilingWer = 1.0 - (expectedAccuracy / 100);
 
     if (measuredWer > previousCeilingWer + REGRESSION_TOLERANCE) {
-        const errorMsg = `${label}${variant ? ` (${variant})` : ''} WER REGRESSION DETECTED\n` +
+        const errorMsg = `${label}${config ? ` (${config})` : variant ? ` (${variant})` : ''} WER REGRESSION DETECTED\n` +
             `  Previous ceiling: ${(previousCeilingWer * 100).toFixed(2)}%\n` +
             `  Measured:         ${(measuredWer * 100).toFixed(2)}%\n` +
             `  Tolerance:        ${(REGRESSION_TOLERANCE * 100).toFixed(2)}%\n`;
 
-        if (variant === 'webgpu' && process.env.CI) {
+        if ((variant === 'webgpu' || config?.includes('webgpu')) && process.env.CI) {
             console.warn(`⚠️  ${errorMsg}`);
             console.warn('  Skipping strict failure because CI runners lack real GPUs.');
             return;

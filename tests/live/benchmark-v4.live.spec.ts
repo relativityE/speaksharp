@@ -131,12 +131,21 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
 
     console.log(`\n📊 Private (Transformers.js v4 worker) Ceiling: WER ${(wer * 100).toFixed(2)}% → Accuracy ${accuracyPct}%`);
 
-    assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4');
+    const benchmarkConfig = `${V4_VARIANT}|${V4_DEVICE}`;
+    // Regression is checked against THIS config's own floor (base_q4|wasm, base_q4|webgpu,
+    // distil_q4|webgpu); a null/absent floor means this run establishes it.
+    assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4', benchmarkConfig);
 
     const benchmarks = readBenchmarks();
-    // Only the rollout DEFAULT (base_q4 on wasm — the universal floor) moves the v4 ceiling that
-    // assertNoRegression enforces. distil_q4 / webgpu runs are recorded as labeled history for the
-    // A/B comparison without redefining the floor.
+    // Per-variant|device floor = the source of truth for the v2-vs-v4 A/B. Each run records (and may
+    // only improve) its own config's floor; the latest measurement becomes the floor going forward.
+    benchmarks.engines.Private.v4.floors = benchmarks.engines.Private.v4.floors ?? {};
+    benchmarks.engines.Private.v4.floors[benchmarkConfig] = {
+        expectedAccuracy: accuracyPct,
+        model: V4_VARIANT_MODEL_ID[V4_VARIANT],
+    };
+    // Keep the legacy engine-level expectedAccuracy in sync for the rollout default so the frontend
+    // STTAccuracyVsBenchmark component (reads expectedAccuracy) reflects the shipping floor.
     if (V4_VARIANT === 'base_q4' && V4_DEVICE === 'wasm') {
         benchmarks.engines.Private.v4.expectedAccuracy = accuracyPct;
     }
