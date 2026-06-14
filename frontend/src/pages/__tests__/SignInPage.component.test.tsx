@@ -280,6 +280,7 @@ describe('SignInPage', () => {
                 expect(mockSignInWithOtp).toHaveBeenCalledWith({
                     email: 'test@example.com',
                     options: {
+                        shouldCreateUser: false,
                         emailRedirectTo: `${window.location.origin}/session`,
                     },
                 });
@@ -298,17 +299,31 @@ describe('SignInPage', () => {
             expect(await screen.findByTestId('auth-error-message')).toHaveTextContent('Email not valid');
         });
 
-        it('maps provider invalid-email responses to Email not valid for sign-in links', async () => {
+        it('requests sign-in links with shouldCreateUser:false and never enumerates unknown emails', async () => {
             const user = userEvent.setup();
-            mockSignInWithOtp.mockResolvedValue({ error: new Error('Invalid email') });
+            // Under shouldCreateUser:false an unknown email is rejected by the provider
+            // ("Signups not allowed for otp"). The UI must SUPPRESS that and show the same neutral
+            // message it shows for a known email, so a caller cannot tell whether the account exists
+            // — and no account is auto-created to bypass signup.
+            mockSignInWithOtp.mockResolvedValue({ error: new Error('Signups not allowed for otp') });
 
             renderSignInPage();
 
-            await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+            await user.type(screen.getByLabelText(/email/i), 'stranger@example.com');
             await user.click(screen.getByTestId('magic-link-button'));
 
-            await waitFor(() => expect(mockSignInWithOtp).toHaveBeenCalledTimes(1));
-            expect(await screen.findByTestId('auth-error-message')).toHaveTextContent('Email not valid');
+            await waitFor(() => {
+                expect(mockSignInWithOtp).toHaveBeenCalledWith({
+                    email: 'stranger@example.com',
+                    options: {
+                        shouldCreateUser: false,
+                        emailRedirectTo: `${window.location.origin}/session`,
+                    },
+                });
+            });
+            // Neutral success message, NOT an error → no account-existence leak.
+            expect(await screen.findByTestId('auth-message')).toHaveTextContent(/if an account exists for this email/i);
+            expect(screen.queryByTestId('auth-error-message')).not.toBeInTheDocument();
         });
     });
 });
