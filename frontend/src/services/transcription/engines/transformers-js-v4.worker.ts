@@ -1,5 +1,6 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
 import { detectWebGPUSupport } from '../utils/webgpuSupport';
+import { V4_ANTI_LOOP_DECODE_DEFAULTS } from './whisperDecodeOptions';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
@@ -47,6 +48,8 @@ function getAsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
         return_timestamps: true,
+        // Conservative anti-loop generation defaults (F2). Overridable by the proof hook below.
+        ...V4_ANTI_LOOP_DECODE_DEFAULTS,
     };
 
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
