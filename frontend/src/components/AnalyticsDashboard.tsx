@@ -264,8 +264,10 @@ const ANALYTICS_TOOL_GROUPS: AnalyticsToolGroup[] = [
         label: 'Sound Confident',
         purpose: 'Shows whether your pace, pauses, fillers, and delivery habits make you easy to follow.',
         outcome: 'Use it when you want your next session to sound steadier, calmer, and more confident.',
+        // Default focus: stat cards AND analysis-slide order are kept identical to the prior default
+        // (legacy 'delivery_control') so existing users' default dashboard is unchanged by the rename.
         statCardIds: ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'],
-        analysisSlideIds: ['pace_trend', 'clarity_trend', 'filler_words', 'weekly_activity'],
+        analysisSlideIds: ['pace_trend', 'filler_words', 'clarity_trend', 'weekly_activity'],
     },
     {
         id: 'track_progress',
