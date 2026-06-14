@@ -76,10 +76,11 @@ export default function AuthPage() {
 
       let authResult;
       if (view === 'sign_in') {
-        logger.info({ email }, '[AuthPage] Attempting sign_in');
+        // Non-PII structured log only: never log the email address.
+        logger.info({ event: 'sign_in', phase: 'attempt' }, '[AuthPage] sign-in attempt');
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
-        logger.info({ email }, '[AuthPage] Attempting sign_up');
+        logger.info({ event: 'sign_up', phase: 'attempt' }, '[AuthPage] sign-up attempt');
         
         const { error: signUpError } = await supabase.auth.signUp({
           email,
@@ -137,7 +138,8 @@ export default function AuthPage() {
         logger.info('[AuthPage] Sign-up successful, awaiting email confirmation');
         setMessage('Success! Please check your email for a confirmation link.');
       } else {
-        logger.error({ data: authResult.data }, '[AuthPage CRITICAL] No session returned from Supabase for sign-in!');
+        // Non-PII structured log only: log the phase, not the auth payload (which can carry the user/email).
+        logger.error({ event: 'sign_in', phase: 'no_session' }, '[AuthPage CRITICAL] No session returned from Supabase for sign-in!');
         throw new Error('No session returned from Supabase for sign-in.');
       }
     } catch (err: unknown) {
