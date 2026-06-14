@@ -575,3 +575,43 @@ spec). Steps to verify:
 
 Owner: Test/Ops or release-owner (real browser + a confirmed account + working email delivery —
 custom SMTP vs the rate-limited default; see the email-branding/SMTP backlog). Not a code blocker.
+
+## No-concurrent-recording (account recording-lease) — DEFERRED, not in this release
+
+**Decision (release-owner):** do NOT finish the no-concurrent-recording lock for this release. It
+touches recording lifecycle, stale-lease recovery, multi-tab + cross-device state, and take-over UX
+— exactly the kind of feature that creates last-mile bugs. Defer.
+
+**Current state on `main` (verified): dormant server plumbing only, ZERO user impact.**
+- Present: DB migration `backend/supabase/migrations/20260607040000_active_recording_lease.sql`
+  (table + `acquire/heartbeat/release_recording_lease` RPCs) and `frontend/src/services/recordingLeasePolicy.ts`
+  (an RPC-result→action/copy interpreter).
+- **No runtime/client code imports or calls any of it** (`recordingLeasePolicy.ts` is only self-referenced;
+  no `recordingLeaseService.ts` exists on main). So there is no user-facing behavior — harmless dormant plumbing. Leave it.
+
+**Unmerged client work lives on branches (do NOT merge for this release; notes captured here so the
+branches can be deleted without losing the design):**
+- `dev/account-lease-takeover` (tip `10363bc4`) — client lease service (`recordingLeaseService.ts`) +
+  controller wiring (`SpeechRuntimeController.ts`, `tabIdentity.ts`, `useSessionStore.ts`) + take-over
+  UI (`components/session/AccountLeaseTakeover.tsx`) + unit tests + post-migration DB verify script. The
+  most complete increment.
+- `dev/account-recording-lease-2` (tip `60ad11ab`) — earlier subset of the same client service +
+  controller wiring + tests.
+
+**Future-work requirement:** completing this needs a dedicated **recording-lifecycle proof cycle**
+(stale-lease recovery, multi-tab contention, cross-device take-over UX, failure/abort paths) before it
+ships. Treat as its own scoped effort, not a closeout add-on.
+
+## v4 Private STT — CONVERGED, DORMANT, activation-gated (not a branch dependency)
+
+v4 is a **first-class, flag-gated implementation on `main`** (verified readiness matrix, all 17 areas):
+default OFF / fail-closed to v2-base; selected only via `private_stt_v4_enabled`; behaves like v2-base
+except for performance/quality/resource; no user-facing v4/base_q4/distil copy; same save/detail/analytics/
+privacy/fallback paths; sanitized non-PII telemetry. **Activation-ready from `main` alone — no branch-only
+code required.** v4 branches are therefore deletable after archive tags + Test confirmation.
+
+**Not done (the activation GATE, not a code gap):** the empirical **WebGPU benchmark run** (v2-base 93.89%
+vs v4 base_q4/distil_q4, on real GPU) + a **flag-ON app-path proof**. Until those pass the release-owner
+bar (v4 ≥ v2-base on the same corpus), **do not turn the flag on / do not launch the A/B.** Tooling is on
+main: `tests/live/benchmark-v4.live.spec.ts` (V4_VARIANT/V4_DEVICE), `engines.Private.v4.floors` in
+`tests/STT_BENCHMARKS.json`, `.github/workflows/v4-app-path-proof.yml`, `tests/e2e/v4-posthog-browser-control.e2e.spec.ts`.
