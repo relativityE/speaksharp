@@ -79,12 +79,24 @@ test.describe('Production Smoke Canary @canary', () => {
         // Verify that the profile loaded correctly and reflects the subscription status
         // This implicitly validates the 'user_profiles' table schema
         await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
-        const upgradeButton = page.getByRole('button', { name: /upgrade to pro/i });
-        const proBadge = page.getByTestId(TEST_IDS.PRO_BADGE);
-        // We don't enforce WHICH one is visible (depends on the canary user state), but ONE must be.
-        // This confirms the frontend correctly mapped the database columns.
-        const isProfileValid = (await upgradeButton.isVisible()) || (await proBadge.isVisible());
-        expect(isProfileValid, 'Schema Valid: Profile must reflect a known tier (Free/Pro)').toBe(true);
+        const validReleaseTierAffordances = [
+            page.getByRole('button', { name: /upgrade to pro/i }),
+            page.getByTestId(TEST_IDS.PRO_BADGE),
+            page.getByTestId(TEST_IDS.PRIVATE_SAMPLE_SETUP_BUTTON),
+            page.getByText(/Private sample: up to 5 minutes/i),
+        ];
+        // We don't enforce WHICH release-valid access state is visible. Free users may
+        // see an upgrade prompt or a Private-sample affordance; Pro users see the Pro badge.
+        // This validates profile/usage hydration through behavior, without requiring
+        // production UI to preserve one exact tier phrase.
+        const releaseTierAffordanceVisible = await Promise.all(
+            validReleaseTierAffordances.map(async (locator) => {
+                if ((await locator.count()) === 0) return false;
+                return locator.first().isVisible();
+            })
+        );
+        const isProfileValid = releaseTierAffordanceVisible.some(Boolean);
+        expect(isProfileValid, 'Schema Valid: Profile must reflect a known release tier/access state').toBe(true);
 
         // 3. Configure for Native STT (Free/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
