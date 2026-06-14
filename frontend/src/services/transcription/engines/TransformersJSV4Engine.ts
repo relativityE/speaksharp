@@ -15,7 +15,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
-import { readPrivateDecodeOptionsOverride } from '@/services/transcription/engines/whisperDecodeOptions';
+import { readPrivateDecodeOptionsOverride, V4_ANTI_LOOP_DECODE_DEFAULTS } from '@/services/transcription/engines/whisperDecodeOptions';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
@@ -88,6 +88,8 @@ function getV4AsrOptions(audioLengthSeconds: number, decodeOptions?: Record<stri
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
         return_timestamps: true,
+        // Conservative anti-loop generation defaults (F2). Overridable by the proof hook below.
+        ...V4_ANTI_LOOP_DECODE_DEFAULTS,
     };
 
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {

@@ -135,4 +135,43 @@ describe('transformers-js-v4.worker protocol contract', () => {
             expect.objectContaining({ dtype }),
         );
     });
+
+    it('contract: transcribe applies the conservative anti-loop decode defaults (F2)', async () => {
+        const transcriber = vi.fn(async () => ({ text: 'hello world' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 5, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } });
+        await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 5, type: 'ready' })));
+
+        dispatchWorkerMessage({ id: 6, type: 'transcribe', audio: new Float32Array(16000) });
+        await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 6, type: 'result' })));
+
+        // The real transcribe call (not the warm-up) carries the anti-loop defaults.
+        expect(transcriber).toHaveBeenCalledWith(
+            expect.any(Float32Array),
+            expect.objectContaining({ no_repeat_ngram_size: 6, condition_on_previous_text: false }),
+        );
+    });
+
+    it('contract: a proof-hook decode override wins over the anti-loop defaults', async () => {
+        const transcriber = vi.fn(async () => ({ text: 'hello' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 7, type: 'init', isE2E: false, model: 'onnx-community/whisper-base.en', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } });
+        await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 7, type: 'ready' })));
+
+        // Proof hook sets no_repeat_ngram_size=3; the worker receives it via the message's decodeOptions.
+        dispatchWorkerMessage({ id: 8, type: 'transcribe', audio: new Float32Array(16000), decodeOptions: { no_repeat_ngram_size: 3 } });
+        await vi.waitFor(() => expect(postedMessages).toContainEqual(expect.objectContaining({ id: 8, type: 'result' })));
+
+        expect(transcriber).toHaveBeenCalledWith(
+            expect.any(Float32Array),
+            // override wins for the overridden key; the other default is preserved
+            expect.objectContaining({ no_repeat_ngram_size: 3, condition_on_previous_text: false }),
+        );
+    });
 });

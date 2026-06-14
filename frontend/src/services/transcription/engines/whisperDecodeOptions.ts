@@ -30,6 +30,24 @@ export const ALLOWED_DECODE_OPTIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Conservative anti-loop generation DEFAULTS for the v4 engine (F2). Applied as defaults in the v4
+ * ASR options; the proof hook (`__PRIVATE_STT_DECODE_OPTIONS__`) still overrides them, so Test can
+ * A/B alternative values on real WebGPU. Targets the observed v4 rolling-hypothesis repetition loop:
+ *   - `condition_on_previous_text: false` — stop each decode window conditioning on the prior
+ *     (possibly looped) text; this is the direct driver of the rolling-hypothesis loop.
+ *   - `no_repeat_ngram_size: 6` — hard backstop against long verbatim n-gram loops; 6 is large
+ *     enough never to clip natural short repeats ("no no no"), small enough to break the artifact's
+ *     multi-word loop.
+ * Both are safe-if-ignored generation params, and v4 ships flag-OFF, so there is ZERO production
+ * impact until the A/B flips on. Conservative + reversible — Test's WebGPU decode-knob proof should
+ * confirm/tune these (and evaluate `compression_ratio_threshold`) with on-device WER/loop evidence.
+ */
+export const V4_ANTI_LOOP_DECODE_DEFAULTS: Readonly<WhisperDecodeOptions> = {
+    condition_on_previous_text: false,
+    no_repeat_ngram_size: 6,
+};
+
+/**
  * Allow-list + type-guard a raw override object. Accepts only `boolean | number | number[]` values
  * for allow-listed keys. Returns `undefined` when nothing valid is present (so callers can treat
  * "no override" and "empty override" identically and keep product defaults).
