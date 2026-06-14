@@ -51,6 +51,7 @@ const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
+const ResetPasswordPage = React.lazy(() => import('./pages/ResetPasswordPage'));
 const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 const OpsStatusPage = React.lazy(() => import('./pages/OpsStatusPage').then(module => ({ default: module.OpsStatusPage })));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
@@ -353,6 +354,7 @@ const App: React.FC = () => {
                   <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                   <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
+                  <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
                   <Route path="/session" element={
                     <ProtectedRoute>
                       <TranscriptionProvider>

@@ -537,3 +537,24 @@ on `main`, the v4 proof material is converged onto main (flag-OFF, dispatch-only
 **Deferred to activation — explicitly classified as ACTIVATION BACKLOG/SPEC: NOT required for dormant v4 and NOT required for any flag-on proof.** (Verified empirically: zero references to `session_saved`/`emitV4SessionSaved` or to the #75 UX module across every ported proof — `v4-posthog-browser-control.e2e.spec.ts`, `posthog-stt-ab-*` scripts, `manual-stt-corpus-proof.mjs`, `v4-auto-fallback-proof.yml`, `v4-app-path-proof.yml`, and the app-path runbook #76.) Both are required only at **production v4 activation**, not to enable or prove v4. Preserved via `archive/*-pre-main-convergence` tags; re-derive at #76. So **no required v4 activation/proof material is branch-only.**
 - `SpeechRuntimeController` Stage-B `session_saved` telemetry CALL-SITE — production rollout telemetry only. The `emitV4SessionSaved` module is already on main (#780); the call-site is deferred because wiring it requires threading `engineType` through the shipped save path + pulls in the excluded `storage`→`sessionRepository` rename. No proof depends on it.
 - Customer-safe v4 UX copy + variant-aware download size (#75, incl. the `privateV4Ux` module which lives only on `dev/v4-customer-safe-ux`) — customer-facing copy shown only when v4 is ON. Re-derive flag-gated at activation so no v4/base_q4/distil copy ships while dormant. No proof depends on it.
+
+## Auth / account-recovery — deferred security work (NOT in initial release)
+
+Initial release ships **basic password reset only** (request neutral response + in-app `/auth/reset`
+completion via Supabase `updateUser`). The following are explicitly deferred to backlog and must NOT
+be implemented as part of basic reset:
+
+- **MFA foundation** (enrollment + challenge scaffolding).
+- **TOTP authenticator app** (RFC 6238) support.
+- **Recovery codes** (one-time backup codes).
+- **MFA recovery** (recover access when a second factor is lost).
+- **High-risk-action reauthentication** (step-up auth before sensitive changes).
+- **Email change hardening** (verified re-confirmation on both addresses; email is not user-changeable this release).
+- **Session revocation hardening after password reset** — see provider-limitation note below.
+- **Support/admin account-recovery policy** (assisted recovery, identity proofing, audit trail).
+
+**Provider-limitation note (session revocation after reset):** Supabase issues a recovery session
+to complete the reset; global revocation of *other* active sessions on password change is not
+explicitly enforced in this flow. Behavior is recorded here as a **security-hardening backlog item**
+(evaluate `signOut({ scope: 'global' })` / server-side session invalidation) rather than implemented
+now. Basic reset still updates the credential so a stolen password no longer authenticates new logins.
