@@ -103,6 +103,7 @@ export const TEST_IDS = {
   TRANSCRIPT_CONTAINER: 'transcript-container',
   TRANSCRIPT_DISPLAY: 'transcript-display',
   MODEL_LOADING_INDICATOR: 'model-loading-indicator',
+  PRIVATE_SAMPLE_SETUP_BUTTON: 'first-run-setup-private',
 
   // Metrics
   CLARITY_SCORE_VALUE: 'clarity-score-value',
