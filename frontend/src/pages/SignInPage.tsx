@@ -26,23 +26,6 @@ const getSafeSignInError = (err: unknown): string => {
     return 'Sign-in could not be completed. Please try again.';
 };
 
-const getSafeMagicLinkError = (err: unknown): string => {
-    const rawMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-    const message = rawMessage.toLowerCase();
-
-    if (message.includes('invalid email') || (message.includes('email') && message.includes('valid'))) {
-        return 'Email not valid';
-    }
-    if (err instanceof TypeError && message.includes('failed to fetch')) {
-        return 'Unable to send a sign-in link. Check your connection and try again.';
-    }
-    if (message.includes('rate') || message.includes('too many')) {
-        return 'Too many sign-in link requests. Please wait a moment and try again.';
-    }
-
-    return 'Sign-in link could not be sent. Please try again.';
-};
-
 const isEmailFormatValid = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
 // Sign In page – supports both password and magic link
@@ -133,18 +116,24 @@ export default function SignInPage() {
         setIsSendingMagicLink(true);
         try {
             const supabase = getSupabaseClient();
-            const { error: otpError } = await supabase.auth.signInWithOtp({
+            // Anti-circumvention: `shouldCreateUser: false` issues a sign-in link ONLY to an
+            // already-registered user. Without it, Supabase defaults to creating an account for an
+            // unknown email — letting a new user / attacker use the magic link to auto-provision an
+            // account and bypass the signup flow. Anti-enumeration: suppress the provider outcome and
+            // ALWAYS show the same neutral message (an unknown email now errors with "Signups not
+            // allowed for otp"; surfacing that would reveal whether the account exists) — mirrors the
+            // password-reset path above.
+            await supabase.auth.signInWithOtp({
                 email: normalizedEmail,
                 options: {
-                    emailRedirectTo: `${window.location.origin}${postAuthPath}`
-                }
+                    shouldCreateUser: false,
+                    emailRedirectTo: `${window.location.origin}${postAuthPath}`,
+                },
             });
-            if (otpError) throw otpError;
-            setMessage('Magic link sent! Check your email for a login link.');
         } catch (err: unknown) {
-            logger.error({ err }, '[SignInPage] handleMagicLink failed');
-            setError(getSafeMagicLinkError(err));
+            logger.warn({ name: (err as { name?: string })?.name }, '[SignInPage] magic-link request error (suppressed from UI)');
         } finally {
+            setMessage("If an account exists for this email, we'll send a sign-in link.");
             setIsSendingMagicLink(false);
         }
     };
