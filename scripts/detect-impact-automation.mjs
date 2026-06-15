@@ -7,6 +7,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+// The depcruise dependency-graph JSON (and large `git diff` outputs) exceed Node's default 1 MB
+// execSync buffer, which throws ENOBUFS. Cap generously so local/CI runs don't crash on big repos.
+const EXEC_MAX_BUFFER = 64 * 1024 * 1024; // 64 MB
+
 /**
  * Automates test impact detection using dependency-cruiser.
  * Replaces manual test-impact-map.json.
@@ -18,9 +22,9 @@ async function run() {
 
         try {
             if (process.env.GITHUB_BASE_REF) {
-                changedFiles = execSync(`git diff --name-only origin/${baseBranch}...HEAD`, { cwd: rootDir }).toString().split('\n');
+                changedFiles = execSync(`git diff --name-only origin/${baseBranch}...HEAD`, { cwd: rootDir, maxBuffer: EXEC_MAX_BUFFER }).toString().split('\n');
             } else {
-                changedFiles = execSync(`git diff --name-only HEAD~1`, { cwd: rootDir }).toString().split('\n');
+                changedFiles = execSync(`git diff --name-only HEAD~1`, { cwd: rootDir, maxBuffer: EXEC_MAX_BUFFER }).toString().split('\n');
             }
         } catch (e) {
             console.log("ALL");
@@ -38,7 +42,7 @@ async function run() {
 
         // Generate full dependency graph as JSON
         // Using --includeOnly to focus on src and tests
-        const cruiseOutput = execSync('npx depcruise frontend/src --config .dependency-cruiser.cjs --output-type json', { cwd: rootDir }).toString();
+        const cruiseOutput = execSync('npx depcruise frontend/src --config .dependency-cruiser.cjs --output-type json', { cwd: rootDir, maxBuffer: EXEC_MAX_BUFFER }).toString();
         const graph = JSON.parse(cruiseOutput);
 
         const modules = graph.modules;
