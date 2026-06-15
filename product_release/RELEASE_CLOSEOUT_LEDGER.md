@@ -1,11 +1,11 @@
 # Release Closeout Ledger
 
-Dev-owned closeout per release-owner directive (2026-06-13). Every pending item has a single
+Dev-owned closeout per release-owner directive (2026-06-14). Every pending item has a single
 status + named owner. This doc is documentation/disposition. Dev is review/support-only EXCEPT
 for the one concrete code task currently routed to Dev (#772 post-stop visible-final repetition,
 fixed in PR #777 — see live-lane table).
 
-_Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #777)._
+_Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #777). Also merged this pass: **#796** (magic-link must not auto-create accounts — `shouldCreateUser:false` + anti-enumeration) and **#797** (canary reuses one stable account — stops `auth.users` bloat). v4 working/proof docs consolidated under `product_release/v4_work/`._
 
 ## Target state (release-owner)
 
@@ -19,7 +19,7 @@ _Last refreshed: 2026-06-13 (post #774/#775 merge; #772 Dev fix raised as PR #77
 | SLO/SLC | Test | Refresh evidence on current SHA | In progress on `main@243fae42`: latency-only flake on `27474441503`, rerun `27474811615` recovered backend latency but browser-endurance setup failed (`max_concurrent_sessions_reached`); Test classifying fixture vs real |
 | Stripe paths/journey | Test (proof) → Ops (cutover) | Prove billing journey + flip live at launch | Journey PROVEN with TEST keys (PASS); live launch = config cutover (swap test→live keys), not a money-test |
 | Backlog ledger | Dev | Convert deferred items into explicit non-blocking entries (this doc) | Done — this doc |
-| Group D branches | Test/release-owner | Classify keep / delete / backlog | Pending — owner decision (none confirmed merged to `main`) |
+| Group D branches | Test/release-owner | Classify keep / delete / backlog | Closed — owner decision: keep dormant posture, no branch currently active to main |
 
 ## Live release lane — current status
 
