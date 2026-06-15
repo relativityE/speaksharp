@@ -72,20 +72,30 @@ test.describe.serial('Live STT switching contract @live', () => {
     await stopRecordingIfNeeded(page);
   });
 
-  test('Free user is constrained to Native browser transcription', async ({ page }) => {
-    const freeUser = await createLiveUser(admin, `stt-switching-free-${RUN_ID}@example.com`, {
+  // Post-#85 Free-user entitlement contract (private_sample_entitlement):
+  //   Free + unused sample  → Private ENABLED,  Cloud disabled
+  //   Free + exhausted sample → Private DISABLED, Cloud disabled
+  // (check_usage_limit: private_sample_available = tier<>'pro' AND completed_at IS NULL
+  //  AND used < limit AND session_id IS NULL.)
+  test('Free user with an UNUSED Private sample: Private enabled, Cloud disabled', async ({ page }) => {
+    const freeSampleUser = await createLiveUser(admin, `stt-switching-free-sample-${RUN_ID}@example.com`, {
       subscription_status: 'free',
       trial_started_at: '2024-01-01T00:00:00.000Z',
       trial_expires_at: '2024-01-01T01:00:00.000Z',
       daily_usage_seconds: 0,
       native_usage_seconds: 0,
       cloud_usage_seconds: 0,
+      // Unused 5-min Private sample → private_sample_available = true.
+      private_sample_limit_seconds: 300,
+      private_sample_seconds_used: 0,
+      private_sample_completed_at: null,
+      private_sample_session_id: null,
       stripe_subscription_id: null,
       subscription_id: null,
     });
-    createdUsers.push(freeUser);
+    createdUsers.push(freeSampleUser);
 
-    await signIn(page, freeUser.email, LIVE_TEST_PASSWORD);
+    await signIn(page, freeSampleUser.email, LIVE_TEST_PASSWORD);
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
     await expect(page.getByTestId('pro-badge')).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible({ timeout: 10_000 });
@@ -96,16 +106,62 @@ test.describe.serial('Live STT switching contract @live', () => {
 
     await modeSelect.click();
     await expect(page.getByTestId('stt-mode-native')).toBeVisible({ timeout: 10_000 });
-    await expectProModeDisabled(page, 'private');
+    // The sample makes Private available; the gate resolves after the usage-limit fetch, so poll.
+    await expectModeEnabled(page, 'private');
+    // Cloud is always Pro-only → disabled for Free.
     await expectProModeDisabled(page, 'cloud');
     await page.keyboard.press('Escape');
 
-    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-native-only-contract');
-    console.log(`LIVE_STT_SWITCHING_FREE_NATIVE_EVIDENCE ${JSON.stringify({
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-unused-sample-contract');
+    console.log(`LIVE_STT_SWITCHING_FREE_SAMPLE_ENABLED_EVIDENCE ${JSON.stringify({
       selectedMode: snapshot.ui?.modeSelectState,
       proBadgeVisible: false,
-      navUpgradeHiddenInSession: true,
-      recording: snapshot.ui?.startButtonRecording,
+      privateModeDisabled: false,
+      cloudModeDisabled: true,
+      runtimeState: snapshot.root?.runtimeState,
+    })}`);
+  });
+
+  test('Free user with an EXHAUSTED Private sample: Private disabled, Cloud disabled', async ({ page }) => {
+    const exhaustedSampleUser = await createLiveUser(admin, `stt-switching-free-exhausted-${RUN_ID}@example.com`, {
+      subscription_status: 'free',
+      trial_started_at: '2024-01-01T00:00:00.000Z',
+      trial_expires_at: '2024-01-01T01:00:00.000Z',
+      daily_usage_seconds: 0,
+      native_usage_seconds: 0,
+      cloud_usage_seconds: 0,
+      // Sample consumed: used == limit AND completed_at set → private_sample_available = false.
+      private_sample_limit_seconds: 300,
+      private_sample_seconds_used: 300,
+      private_sample_completed_at: '2024-01-01T00:05:00.000Z',
+      private_sample_session_id: null,
+      stripe_subscription_id: null,
+      subscription_id: null,
+    });
+    createdUsers.push(exhaustedSampleUser);
+
+    await signIn(page, exhaustedSampleUser.email, LIVE_TEST_PASSWORD);
+    await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
+    await expect(page.getByTestId('pro-badge')).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible({ timeout: 10_000 });
+
+    const modeSelect = page.getByTestId('stt-mode-select');
+    await expect(modeSelect).toBeVisible({ timeout: 20_000 });
+    await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 20_000 });
+
+    await modeSelect.click();
+    await expect(page.getByTestId('stt-mode-native')).toBeVisible({ timeout: 10_000 });
+    // Sample is spent → Private locks again for Free; Cloud stays Pro-only.
+    await expectModeDisabledEventually(page, 'private');
+    await expectProModeDisabled(page, 'cloud');
+    await page.keyboard.press('Escape');
+
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-exhausted-sample-contract');
+    console.log(`LIVE_STT_SWITCHING_FREE_SAMPLE_EXHAUSTED_EVIDENCE ${JSON.stringify({
+      selectedMode: snapshot.ui?.modeSelectState,
+      proBadgeVisible: false,
+      privateModeDisabled: true,
+      cloudModeDisabled: true,
       runtimeState: snapshot.root?.runtimeState,
     })}`);
   });
@@ -201,7 +257,7 @@ async function createLiveUser(
   return { id: data.user.id, email };
 }
 
-async function expectProModeDisabled(page: Page, mode: 'private' | 'cloud') {
+async function isModeDisabled(page: Page, mode: 'private' | 'cloud') {
   const option = page.getByTestId(`stt-mode-${mode}`);
   await expect(option).toBeVisible({ timeout: 10_000 });
   const disabled = await option.evaluate((element) => {
@@ -212,7 +268,26 @@ async function expectProModeDisabled(page: Page, mode: 'private' | 'cloud') {
       htmlElement.hasAttribute('data-disabled')
     );
   });
+  return disabled;
+}
+
+async function expectProModeDisabled(page: Page, mode: 'private' | 'cloud') {
+  const disabled = await isModeDisabled(page, mode);
   expect(disabled, `${mode} should be unavailable for Free users`).toBe(true);
+}
+
+// The mode-availability gate (canUsePrivateStt / canUseCloudStt) resolves only after the
+// usage-limit fetch returns, so poll rather than read the disabled state once.
+async function expectModeEnabled(page: Page, mode: 'private' | 'cloud') {
+  await expect(async () => {
+    expect(await isModeDisabled(page, mode), `${mode} should be available`).toBe(false);
+  }).toPass({ timeout: 20_000, intervals: [500, 1_000, 2_000] });
+}
+
+async function expectModeDisabledEventually(page: Page, mode: 'private' | 'cloud') {
+  await expect(async () => {
+    expect(await isModeDisabled(page, mode), `${mode} should be unavailable`).toBe(true);
+  }).toPass({ timeout: 20_000, intervals: [500, 1_000, 2_000] });
 }
 
 async function assertIdleModeSwitch(page: Page, mode: SttMode, options: { allowDownloadRequired?: boolean } = {}) {
