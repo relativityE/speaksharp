@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-# v4 Gate 2 + Gate 3 one-shot runner — LOCAL, REAL-GPU machine, human-run.
+# v4 Gate 2 + Gate 3 one-shot runner — LOCAL, REAL-GPU machine.
 # =============================================================================
 # The unattended equivalent is .github/workflows/v4-benchmark-gpu.yml (self-hosted
-# GPU runner). Use THIS script for a one-off local run on a machine with a real GPU.
+# GPU runner). Use THIS for a one-off local run on a machine with a real GPU.
 #
-# It does NOT handle secrets. You (the human) export the 4 values below in your own
-# shell; they come from your secret store. Agents never see them. NEVER commit them.
-#   export PRO_TEST_EMAIL='...'              # dedicated Pro test account
-#   export PRO_TEST_PASSWORD='...'
-#   export VITE_SUPABASE_URL='https://<project>.supabase.co'   # public project URL
-#   export VITE_SUPABASE_ANON_KEY='...'      # public anon key
+# CREDS: NO manual export needed. This loads the Pro login + Supabase keys from the
+# local gitignored dotenv files (.env / .env.local / frontend/.env.test — the same
+# files the app + harness already read via dotenv). Exported shell values still win,
+# so you CAN override by exporting, but you don't have to. On a fresh machine with no
+# such files, it aborts and tells you which creds are missing.
 #
-# Then, from the repo root:   bash scripts/run-v4-gates.sh
-#
-# Requires: real GPU + WebGPU (chrome://gpu shows "Hardware accelerated"), Node 20+,
-# pnpm, and `pnpm install` already run. v4 = base_q4 + distil_q4 only (no tiny).
+# Run from anywhere in the repo:   bash scripts/run-v4-gates.sh
+# Requires: real GPU + WebGPU (chrome://gpu = "Hardware accelerated"), Node 20+, pnpm,
+# and `pnpm install` already run. v4 = base_q4 + distil_q4 only (no tiny).
 # =============================================================================
 set -euo pipefail
 
@@ -26,15 +24,34 @@ EVIDENCE_DIR="${EVIDENCE_DIR:-$(mktemp -d -t v4-gates-XXXX)}"
 TS="$(date +%Y%m%d-%H%M%S)"
 echo "▶ repo: $REPO ($(git rev-parse --abbrev-ref HEAD) @ $(git rev-parse --short HEAD))  evidence: $EVIDENCE_DIR"
 
-# ---- Guard required creds ---------------------------------------------------
+# ---- Load creds from local dotenv files (no manual export) -------------------
+# Resolves PRO_TEST_*/E2E_PRO_* + Supabase from the same files dotenv reads. Already-exported
+# shell values win. Emits KEY<TAB>VALUE so values with spaces/quotes survive intact.
+while IFS=$'\t' read -r k v; do [ -n "${k:-}" ] && export "$k=$v"; done < <(node -e '
+  const fs=require("fs"), d=require("dotenv");
+  const m={};
+  for (const p of [".env",".env.local","frontend/.env","frontend/.env.local","frontend/.env.test",".env.test"]) {
+    try { Object.assign(m, d.parse(fs.readFileSync(p))); } catch {}
+  }
+  const pick=(k,alt)=>process.env[k]||m[k]||process.env[alt]||m[alt]||"";
+  const out={
+    PRO_TEST_EMAIL: pick("PRO_TEST_EMAIL","E2E_PRO_EMAIL"),
+    PRO_TEST_PASSWORD: pick("PRO_TEST_PASSWORD","E2E_PRO_PASSWORD"),
+    VITE_SUPABASE_URL: pick("VITE_SUPABASE_URL","SUPABASE_URL"),
+    VITE_SUPABASE_ANON_KEY: pick("VITE_SUPABASE_ANON_KEY","SUPABASE_ANON_KEY"),
+  };
+  for (const [k,val] of Object.entries(out)) if (val) process.stdout.write(k+"\t"+val+"\n");
+')
+
 missing=0
 for k in PRO_TEST_EMAIL PRO_TEST_PASSWORD VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
-  [ -z "${!k:-}" ] && { echo "✖ missing required env: $k"; missing=1; }
+  [ -z "${!k:-}" ] && { echo "✖ missing cred: $k (not in shell, .env, .env.local, or frontend/.env.test)"; missing=1; }
 done
-[ "$missing" -eq 0 ] || { echo "Export the 4 values (see header) then re-run. Aborting."; exit 1; }
+[ "$missing" -eq 0 ] || { echo "Add the missing creds to a local .env file (or export them), then re-run. Aborting."; exit 1; }
 export SUPABASE_URL="${SUPABASE_URL:-$VITE_SUPABASE_URL}"
 export SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-$VITE_SUPABASE_ANON_KEY}"
 export VITE_USE_LIVE_DB=true VITE_SKIP_MSW=true VITE_AUTH_MODE=real VITE_USE_MOCK_AUTH=false
+echo "✓ creds resolved (PRO_TEST_EMAIL + Supabase present) — no manual export needed."
 
 # ---- Playwright Chromium ----------------------------------------------------
 echo "▶ ensuring Playwright Chromium..."
