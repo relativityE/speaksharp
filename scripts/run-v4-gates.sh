@@ -25,20 +25,23 @@ TS="$(date +%Y%m%d-%H%M%S)"
 echo "▶ repo: $REPO ($(git rev-parse --abbrev-ref HEAD) @ $(git rev-parse --short HEAD))  evidence: $EVIDENCE_DIR"
 
 # ---- Load creds from local dotenv files (no manual export) -------------------
-# Resolves PRO_TEST_*/E2E_PRO_* + Supabase from the same files dotenv reads. Already-exported
-# shell values win. Emits KEY<TAB>VALUE so values with spaces/quotes survive intact.
+# REAL creds live in .env / .env.local. The MOCK profile (.env.test + frontend/.env.test Supabase,
+# VITE_USE_MOCK_AUTH=true) must NEVER supply Supabase or real auth breaks ("Invalid API key").
+# Pro login (E2E_PRO_*) lives ONLY in frontend/.env.test. Already-exported shell values win.
+# Emits KEY<TAB>VALUE so values with spaces/quotes survive intact.
 while IFS=$'\t' read -r k v; do [ -n "${k:-}" ] && export "$k=$v"; done < <(node -e '
   const fs=require("fs"), d=require("dotenv");
-  const m={};
-  for (const p of [".env",".env.local","frontend/.env","frontend/.env.local","frontend/.env.test",".env.test"]) {
-    try { Object.assign(m, d.parse(fs.readFileSync(p))); } catch {}
-  }
-  const pick=(k,alt)=>process.env[k]||m[k]||process.env[alt]||m[alt]||"";
+  const read=p=>{ try { return d.parse(fs.readFileSync(p)); } catch { return {}; } };
+  const root=read(".env"), local=read(".env.local"), fe=read("frontend/.env"), fl=read("frontend/.env.local"), ft=read("frontend/.env.test");
+  const isMock=s=>/mock|example|placeholder|localhost|changeme/i.test(s||"");
+  const first=(...v)=>v.find(Boolean)||"";                 // Pro creds: first non-empty
+  const realSupa=(...v)=>v.find(x=>x && !isMock(x))||"";   // Supabase: first non-empty, non-mock
   const out={
-    PRO_TEST_EMAIL: pick("PRO_TEST_EMAIL","E2E_PRO_EMAIL"),
-    PRO_TEST_PASSWORD: pick("PRO_TEST_PASSWORD","E2E_PRO_PASSWORD"),
-    VITE_SUPABASE_URL: pick("VITE_SUPABASE_URL","SUPABASE_URL"),
-    VITE_SUPABASE_ANON_KEY: pick("VITE_SUPABASE_ANON_KEY","SUPABASE_ANON_KEY"),
+    PRO_TEST_EMAIL: first(process.env.PRO_TEST_EMAIL, process.env.E2E_PRO_EMAIL, ft.E2E_PRO_EMAIL, ft.PRO_TEST_EMAIL, local.PRO_TEST_EMAIL, root.PRO_TEST_EMAIL),
+    PRO_TEST_PASSWORD: first(process.env.PRO_TEST_PASSWORD, process.env.E2E_PRO_PASSWORD, ft.E2E_PRO_PASSWORD, ft.PRO_TEST_PASSWORD, local.PRO_TEST_PASSWORD, root.PRO_TEST_PASSWORD),
+    // Supabase: REAL files only — explicitly EXCLUDING .env.test / frontend/.env.test (mock).
+    VITE_SUPABASE_URL: realSupa(process.env.VITE_SUPABASE_URL, process.env.SUPABASE_URL, local.VITE_SUPABASE_URL, root.VITE_SUPABASE_URL, fl.VITE_SUPABASE_URL, fe.VITE_SUPABASE_URL),
+    VITE_SUPABASE_ANON_KEY: realSupa(process.env.VITE_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY, local.VITE_SUPABASE_ANON_KEY, root.VITE_SUPABASE_ANON_KEY, fl.VITE_SUPABASE_ANON_KEY, fe.VITE_SUPABASE_ANON_KEY),
   };
   for (const [k,val] of Object.entries(out)) if (val) process.stdout.write(k+"\t"+val+"\n");
 ')
