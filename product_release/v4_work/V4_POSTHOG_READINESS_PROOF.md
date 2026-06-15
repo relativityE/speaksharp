@@ -1,6 +1,6 @@
 # v4 PostHog Readiness Proof (Dev → Test handoff)
 
-**Candidate SHA:** `dev/v4-integration@b2b8d82a` (v4 engine fixes + Test's corrected harness).
+**Status (updated 2026-06-14):** v4 has since **CONVERGED onto `main`** (flag-OFF, dormant) via #780/#781; anti-loop decode defaults via #789; benchmark harness + per-variant|device floors via #790/#792. The dead candidate-branch SHAs this doc originally referenced are replaced by `main`. The contract→proof map below is current; the **authoritative, current validation procedure is `V4_COMPLETE_TEST_RUNBOOK.md` (same dir)** — the 3 gates that must pass before any A/B.
 **Unit proof:** the v4-surface suites; `tsc --noEmit` clean.
 **Operational PostHog proof (headless CI):** `privateV4FlagOperationalProof.test.ts` — flag-off→v2/no
 v4 construct, production ignores `?v4ForceAuto`/`?engine`/`?privateEngine`/localStorage, the REAL
@@ -20,7 +20,7 @@ the exact test that proves it, so Test can hand-verify and close.
 
 | # | Contract | Proven by | Status |
 |---|---|---|---|
-| 1 | Current candidate SHA with latest fallback/audio fixes | `dev/v4-decode-fallback@e5122e43` (decode-fallback error/empty/hang→v2, forceAuto, telemetry errorClass, Chrome-native audio) | ✅ |
+| 1 | Latest fallback/audio fixes present | On `main` via #780/#781 + #789 (decode-fallback error/empty/hang→v2, forceAuto, telemetry errorClass, Chrome-native audio) | ✅ |
 | 2 | Flag OFF ⇒ v2-base, **no v4 constructor/init/model request** | `PrivateSTT.test.ts:202-224` — asserts `mockV4Construct).not.toHaveBeenCalled()` **and** `mockV4Init).not.toHaveBeenCalled()`; `privateRuntimePath.test.ts:125-138` — v4 omitted / `{enabled:false}` ⇒ `provider:'transformers-js'`, `v4Variant:null` | ✅ |
 | 3 | Flag ON ⇒ v4 **only** on the targeted/supported path | `privateRuntimePath.test.ts:140-176` — flag+WebGPU ⇒ `base_q4`/`webgpu_available_v4_flag`; distil flag+WebGPU ⇒ `distil_q4`; flag + **NO WebGPU ⇒ v2-base** (conservative); detection-throws ⇒ v2-base | ✅ |
 | 4 | Query/localStorage **cannot bypass** flags in production | `PrivateSTT.test.ts:325,340` — PRODUCTION ignores `?privateEngine=transformers-js-v4` **and** localStorage override ⇒ v2-base; `privateV4Experiment.test.ts` — all dev/test override knobs gated `import.meta.env.DEV \|\| ENV.isTest` | ✅ |
@@ -39,10 +39,10 @@ the exact test that proves it, so Test can hand-verify and close.
   detail/analytics step, **shared with #85's journey** (Test's harness FK/selector lane), not a v4
   bug. Owner: Test harness + Dev review.
 
-## Test verification checklist (to close)
-1. Re-run the 5 suites on `e5122e43` → expect 62/62.
-2. App-path/PostHog surface verification on `e5122e43` (flag off vs on, targeting, telemetry payloads).
-3. detailVisible closure on the corrected harness.
-4. WebGPU value run on hardware.
+## Test verification checklist — superseded by `V4_COMPLETE_TEST_RUNBOOK.md`
+1. Re-run the v4-surface suites on `main` → expect green.
+2. App-path/PostHog surface verification on `main` (flag off vs on, targeting, telemetry payloads) = **Gate 1 + Gate 2**.
+3. `detailVisible` closure — **RESOLVED** via #85 (sample-entitlement journey live-verified end-to-end).
+4. WebGPU value run on real-GPU hardware = **Gate 3** (benchmark vs v2-base 93.89%).
 
-Items 1–2 are closable now on this SHA; 3–4 need the harness/hardware owners above.
+The authoritative, current procedure is the **3-gate** `V4_COMPLETE_TEST_RUNBOOK.md` in this directory; activation/A/B requires all gates pass + a v4 config ≥ 93.89%.

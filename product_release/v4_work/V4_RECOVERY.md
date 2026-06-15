@@ -1,11 +1,12 @@
 # Private v4 Recovery — historical recovery notes
 
-> **Current status (2026-06-06):** this document contains the older WASM-first recovery history.
-> It is superseded for active coordination by `product_release/ACTIVE_COORDINATION.md` / `STT-V4`:
-> v4 is active again as a WebGPU `base.en` candidate. Current
-> gate: v4 must match/beat v2 base accuracy and be materially
-> faster; latest no-auth bakeoff attempt hung in the first `v4-base q8/q8` cell and is now routed
-> to dev for probe hardening. Keep the historical failures below as context only.
+> **Current status (2026-06-14):** v4 has **CONVERGED onto `main`** — first-class but **flag-OFF,
+> dormant, fail-closed to v2-base** (#780/#781), with anti-loop decode defaults (#789) and the
+> benchmark harness + per-variant|device floors (#790/#792). The decode root cause (q4 decoder fails
+> on the WASM backend, works on WebGPU) is documented in `V4_DECODE_ROOT_CAUSE_EXPERIMENT.md`, and the
+> shipped AUTO→v2-base fallback covers it. **Activation/PostHog A/B is gated on Test's 3-gate
+> validation (`V4_COMPLETE_TEST_RUNBOOK.md`) with a v4 config meeting/beating v2-base 93.89%.**
+> Everything below is the older **WASM-first recovery HISTORY**, retained for reference only (superseded).
 
 **Original first milestone:** make the modern `@huggingface/transformers` (v4) + onnx-community
 Whisper path decode **ONE WAV in the browser to a non-empty transcript** — i.e. eliminate

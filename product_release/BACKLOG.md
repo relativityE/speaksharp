@@ -388,8 +388,19 @@ product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json
 | P1 | Profile sync failure led to Refresh App / Retry Sync / Sign Out friction; Refresh App could feel like logout. | Fixed locally: recovery now defaults to Retry Sync and removes the hard-refresh action from the profile failure panel. | Re-test with a real interrupted profile request after auth cleanup lands. |
 | P1 | Cloud STT could not be manually proven because account/session state was polluted. | Still open as evidence, not policy theory. | Use real Pro account and preserved console logging after auth cleanup lands. |
 | P2 | Missing commas/periods and sentence punctuation quality in Native transcript. | Backlog only. Do not ship custom regex punctuation/casing in the Native hot path; use a trusted punctuation restoration API/model or provider-supported formatting path before claiming this fixed. | Capture Native punctuation/casing defects in evidence, then evaluate a trusted off-the-shelf formatter separately from STT lifecycle and duplication fixes. |
-| P1 | (Independent review F2, DEV-partially-confirmed) Private `utteranceAudioChunks` resets at utterance/reset boundaries; there is **no sliding-window overlap across utterances**, unlike drop-in harnesses that feed overlapping/preceding context. Plausible cause of boundary phoneme mutation (e.g. "chewed up"→"tune up") and a likely facet of the open v2 app-vs-drop-in parity gap. | Open (dev task #37). Hypothesis, NOT a confirmed defect — needs A/B proof before any pipeline change. | Test vision: A/B same audio through (a) app per-utterance path vs (b) overlapping sliding-window drop-in; compare WER + boundary-word accuracy at utterance starts. Only patch if overlap measurably closes the parity gap. |
+| P1 | (Independent review F2, DEV-partially-confirmed) Private `utteranceAudioChunks` resets at utterance/reset boundaries; there is **no sliding-window overlap across utterances**, unlike drop-in harnesses that feed overlapping/preceding context. Plausible cause of boundary phoneme mutation (e.g. "chewed up"→"tune up") and a likely facet of the open v2 app-vs-drop-in parity gap. | ✅ **RESOLVED — hypothesis REFUTED by decode architecture (2026-06-14).** Verified in `PrivateWhisper.ts`: `utteranceAudioChunks` resets ONLY at lifecycle points (constructor L823, recording-start L942) — never mid-stream — so the whole speech window accumulates (`appendUtteranceAudio`). The saved transcript (`commitWholeUtteranceTranscript` L2114) concatenates the FULL buffer (L2129) and the engine decodes it with transformers.js `chunk_length_s=30s` + `stride_length_s=5s` overlap (TransformersJSEngine L452-453 / v4 L88-89) whenever audio ≥ window. The overlapping sliding-window context the hypothesis claimed missing ALREADY EXISTS in the saved path; only the provisional/streaming display uses `stride=0` and is replaced by the final commit. NOT addressed by #789 (different defect) and not needed — no non-overlapping cross-utterance seam exists in saved output. | Closed (no pipeline change). Any residual boundary-word errors are model/stride-seam accuracy, addressed by the post-release neural-VAD Phase-2 workstream below, not a windowing-overlap fix. |
 | — | (Independent review F1 & F4 — REVIEWED, REFUTED by DEV, no action) F1 "audio DSP distortion by default": FALSE — product default is `RAW_AUDIO_CONSTRAINTS` (echo/noise/AGC **off**); DSP-on is a **test-only** opt-in (`?privateMicConstraints=default`), surfaced in `__PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode`. F4 "stop-tail silence bypass → hallucination": MOSTLY FALSE — low-energy forced tail is **dropped before inference** (`PrivateWhisper.ts:1162`), tiny/unsupported tails dropped (1471/1490), and the forced tail is fallback-only behind the whole-utterance commit (1678). | Closed (no defect). | TEST may confirm via proof artifacts: `__PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode === 'raw'` in default runs; no low-energy tail decode in the Private timeline. |
+| P2 | (#34) Segment-level transcript trust model: render `finalSegments[]` + `activeDraftSegment` + `finalizingSegment` instead of one whole-panel Draft (better for half-page speeches). | Deferred design — release-owner: explicitly NOT a 24h blocker; whole-panel Draft is acceptable short-term. | Design post-release; no code this release. Moved here from Dev task #34 when the tracker was cleared to zero (2026-06-14). |
+
+## Deferred Feature — No-Concurrent-Recording / Recording-Lease (#794)
+
+**Status: DEFERRED to post-release (release-owner decision). Dormant server plumbing retained on `main`, inert, and guarded. Finished off / closed out 2026-06-14.**
+
+- Decision: do NOT ship no-concurrent-recording this release. It needs a dedicated recording-lifecycle proof cycle (lease acquire/renew/release + takeover UX + multi-tab/multi-device races) — out of scope now.
+- On `main` (dormant, **zero user impact**): DB migration `backend/supabase/migrations/20260607040000_active_recording_lease.sql` + `frontend/src/services/recordingLeasePolicy.ts` (pure policy). **No runtime/client references** — verified grep-clean (only the policy file's own definition, its unit test, and the release contract test reference it).
+- Guarded: `tests/release/recording-lease-contract.test.ts` + `recordingLeasePolicy.test.ts` (**12/12 green 2026-06-14**) lock the dormant contract so it cannot silently activate or drift.
+- Client lease/takeover branches were NOT merged; notes + recovery SHAs were captured before branch deletion.
+- To resume later: build the client lease controller + takeover UX against the existing policy/migration, behind a flag, with a full lifecycle proof. Until then: no action — leave dormant.
 
 ## DEV OWNERSHIP — Accuracy / Efficiency / Performance workstream (owner: dev-agent / claude)
 
@@ -397,7 +408,7 @@ Claiming the A/E/P STT optimization workstream. **Owner: dev-agent (claude).** I
 
 | Item | Domain | Status (owner: dev-agent) |
 | --- | --- | --- |
-| **F2 / #37** Private cross-utterance audio overlap (no sliding-window context across utterances → boundary phoneme mutation, e.g. "chewed up"→"tune up") | **Accuracy** | 🔧 IN PROGRESS — building app-vs-drop-in windowing A/B harness; change pipeline only if overlap measurably closes the v2 parity gap |
+| **F2 / #37** Private cross-utterance audio overlap (no sliding-window context across utterances → boundary phoneme mutation, e.g. "chewed up"→"tune up") | **Accuracy** | ✅ RESOLVED — REFUTED by decode architecture (2026-06-14): buffer never resets mid-stream + final saved decode already uses transformers.js `stride_length_s=5s` overlap over the whole window. No non-overlapping seam exists; no change warranted. Residual boundary errors → post-release VAD Phase-2 below |
 | **F5 / #36** provisional length-bias selecting hallucinations | **Accuracy** | ✅ DONE (merged `24d719e3`) |
 | **F3 / #38** asterisk sanitizer length cap | **Accuracy/cleanliness** | ✅ DONE (merged `24d719e3`) |
 | **Private v2 app-vs-drop-in parity** (browser `63.22%` < drop-in) | **Accuracy** | DEV fixes the exact boundary once TEST's clean capture isolates it (resampler already exonerated by DEV) |
@@ -559,7 +570,11 @@ explicitly enforced in this flow. Behavior is recorded here as a **security-hard
 (evaluate `signOut({ scope: 'global' })` / server-side session invalidation) rather than implemented
 now. Basic reset still updates the credential so a stolen password no longer authenticates new logins.
 
-## Password-reset E2E completion proof (deferred QA — we will get to it)
+## Password-reset E2E completion proof (#793) — ✅ CLOSED (release-owner, 2026-06-14)
+
+**CLOSED: release-owner manually verified the full E2E on 2026-06-14** — received the reset email + link, set a new password (accepted), and signed in with the new credentials. The original recovery-session-race bug (`02cf3fe7`) is confirmed fixed end-to-end. A scripted live spec remains OPTIONAL (nice-to-have regression guard; see Option A admin-`generateLink` in the closure plan) but is no longer a release item.
+
+_Historical steps (now satisfied):_
 
 The reset CODE is shipped + deployed and the `/auth/reset` page is confirmed to **render the
 "Set a new password" form** on prod (`02cf3fe7`) — that was the original bug (recovery-session
