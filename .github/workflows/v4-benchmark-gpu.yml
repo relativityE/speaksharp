@@ -1,0 +1,124 @@
+# =============================================================================
+# v4 GPU Benchmark (self-hosted) — the UNATTENDED decision-bar run.
+# =============================================================================
+# Runs the v4 WebGPU accuracy benchmark for the two viable variants (base_q4,
+# distil_q4) on a REAL GPU, writes per-config floors to tests/STT_BENCHMARKS.json,
+# and reports each vs the v2-base bar (93.89% on harvard-list-1).
+#
+# WHY self-hosted: GitHub-hosted `ubuntu-latest` is CPU-only (no WebGPU). This job
+# targets `runs-on: [self-hosted, gpu]` — register your GPU machine as a self-hosted
+# runner with the `gpu` label (one-time admin step). Secrets inject automatically,
+# so once the runner exists this is a single dispatch with NO human in the run.
+#
+# REQUIREMENTS on the runner:
+#   - A real GPU with working WebGPU (chrome://gpu shows "Hardware accelerated").
+#   - Runs in a GUI session (this job uses --headed for reliable WebGPU). A Mac
+#     self-hosted runner started interactively satisfies this (WebGPU via Metal).
+# =============================================================================
+name: v4 GPU Benchmark (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_distil:
+        description: 'Also run distil_q4|webgpu (in addition to base_q4|webgpu)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: v4-gpu-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 60
+    env:
+      BASE_URL: http://localhost:5174
+      VITE_USE_LIVE_DB: 'true'
+      VITE_SKIP_MSW: 'true'
+      VITE_AUTH_MODE: real
+      VITE_USE_MOCK_AUTH: 'false'
+      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+      PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Assert required env (creds + Supabase)
+        run: |
+          missing=0
+          for key in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY PRO_TEST_EMAIL PRO_TEST_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error title=Missing required env::$key is required for the v4 GPU benchmark"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+      - name: Start local app on 5174
+        run: |
+          pnpm dev:real > "${RUNNER_TEMP}/v4-vite.log" 2>&1 &
+          echo $! > "${RUNNER_TEMP}/v4-vite.pid"
+          pnpm exec wait-on --timeout 120000 "$BASE_URL"
+
+      - name: Benchmark base_q4 on WebGPU
+        env:
+          V4_VARIANT: base_q4
+          V4_DEVICE: webgpu
+        run: |
+          pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts \
+            --config=playwright.live.config.ts --project=live-stt-chromium --headed --reporter=list
+
+      - name: Benchmark distil_q4 on WebGPU
+        if: ${{ inputs.run_distil }}
+        env:
+          V4_VARIANT: distil_q4
+          V4_DEVICE: webgpu
+        run: |
+          pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts \
+            --config=playwright.live.config.ts --project=live-stt-chromium --headed --reporter=list
+
+      - name: Compare floors vs v2-base 93.89% (report only)
+        if: always()
+        run: |
+          node -e "
+            const f = require('./tests/STT_BENCHMARKS.json').engines.Private.v4.floors || {};
+            const BAR = 93.89;
+            const rows = ['base_q4|webgpu','distil_q4|webgpu'].map(k => {
+              const a = (f[k]||{}).expectedAccuracy;
+              const v = a==null ? 'NULL (not run)' : a + '% ' + (a>=BAR ? '✅ ≥93.89' : '❌ <93.89');
+              return '| ' + k + ' | ' + v + ' |';
+            });
+            const md = ['### v4 WebGPU floors vs v2-base ' + BAR + '%','','| config | accuracy |','|---|---|', ...rows,'',
+              'Decision bar (release-owner): v4 → A/B only if a config ≥ ' + BAR + '%.'].join('\n');
+            console.log(md);
+            require('fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+          "
+
+      - name: Stop local app
+        if: always()
+        run: |
+          [ -f "${RUNNER_TEMP}/v4-vite.pid" ] && kill "$(cat "${RUNNER_TEMP}/v4-vite.pid")" 2>/dev/null || true
+
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v4-gpu-benchmark
+          path: |
+            tests/STT_BENCHMARKS.json
+            ${{ runner.temp }}/v4-vite.log
+            blob-report/
+            test-results/
+          retention-days: 14
