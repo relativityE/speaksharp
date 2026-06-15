@@ -18,6 +18,7 @@ import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
 import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
+import { analyticsBuffer } from './services/AnalyticsBuffer';
 
 declare global {
   interface Window {
@@ -186,6 +187,11 @@ const renderApp = async (initialSession: Session | null = null) => {
             logger.warn({ error }, "PostHog failed to initialize:");
           }
         }
+
+        // Flip the analytics buffer to "ready" so queued + future events stream in the background
+        // (yielding to paint). Without this, push()ed events only ever drain on `pagehide`.
+        // Non-test path only — analytics is disabled entirely in E2E/test mode.
+        analyticsBuffer.flush();
       } else {
         logger.warn('[E2E MODE] Analytics disabled entirely.');
       }
