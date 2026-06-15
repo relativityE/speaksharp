@@ -43,6 +43,8 @@ Use package scripts instead of inventing runners.
 
 `ci:local` is daily CI confidence. `rc:gates` is release-candidate confidence. If a release-critical change lands after a green run, rerun the relevant gate or document the evidence gap in `RELEASE_STATUS.md`.
 
+**Landing a change on `main`:** `main` is branch-protected — every change goes through a PR whose required CI checks pass (no direct pushes, no admin bypass). See [.agent/workflows/pr-merge-workflow.md](./.agent/workflows/pr-merge-workflow.md) for the exact branch → PR → watch-CI → squash-merge sequence, the Dev/Test roles, and why GitHub CI (not local `pnpm rc:gates`) is the source of truth for gate health.
+
 If a local browser proof emits `sandbox_eperm_preview_bind`, that artifact is invalid release evidence. Re-run the proof from a normal terminal or GitHub Actions; sandbox EPERM artifacts cannot close RC gates.
 
 ## STT Release Boundaries
