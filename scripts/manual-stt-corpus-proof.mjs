@@ -14,6 +14,11 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env'), override: false });
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.local'), override: true });
+// Pro test login (E2E_PRO_*/PRO_TEST_*) lives in these test env files post-cleanup. Load them WITHOUT
+// override so real shell/CI-injected secrets always win, but a local run still finds the creds on disk
+// (no manual export needed). Absent in CI = silent no-op.
+dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.test') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
 
 const execFileAsync = promisify(execFile);
 
