@@ -14,11 +14,11 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env'), override: false });
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.local'), override: true });
-// Pro test login (E2E_PRO_*/PRO_TEST_*) lives in these test env files post-cleanup. Load them WITHOUT
-// override so real shell/CI-injected secrets always win, but a local run still finds the creds on disk
-// (no manual export needed). Absent in CI = silent no-op.
+// Pro test login (E2E_PRO_*/PRO_TEST_*) lives in frontend/.env.test post-cleanup. Load it WITHOUT
+// override so real Supabase from .env/.env.local (and any shell/CI-injected secrets) always win — this
+// file also carries a MOCK Supabase URL/key that must NOT replace the real one. Absent in CI = no-op.
+// (Do NOT load root .env.test here: it is the mock profile with VITE_USE_MOCK_AUTH=true.)
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.test') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
 
 const execFileAsync = promisify(execFile);
 
