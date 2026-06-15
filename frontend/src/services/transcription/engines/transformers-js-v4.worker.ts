@@ -24,6 +24,8 @@ interface TranscriptionResult {
 }
 
 let transcriber: Pipeline | null = null;
+// The model id actually loaded by init() — drives the ASR language decision (set below).
+let loadedModelId: string | null = null;
 
 function post(response: WorkerResponse): void {
     self.postMessage(response);
@@ -52,7 +54,9 @@ function getAsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string
         ...V4_ANTI_LOOP_DECODE_DEFAULTS,
     };
 
-    if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
+    // Decide language off the model ACTUALLY loaded (base_q4→whisper-base.en, distil_q4→distil-small.en),
+    // not the legacy PRIV_STT_V4.MODEL_ID constant. `.en` models are English-only and must NOT set language.
+    if (loadedModelId != null && !loadedModelId.endsWith('.en')) {
         options.language = 'en';
         options.task = 'transcribe';
     }
@@ -145,6 +149,7 @@ async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown,
     const loadStart = performance.now();
     const loaded = await createPipeline(progress_callback, modelId, dtype, deviceOverride);
     transcriber = loaded.pipe;
+    loadedModelId = modelId;
     post({
         id,
         type: 'loaded',
