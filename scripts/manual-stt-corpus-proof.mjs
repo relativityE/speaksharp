@@ -1715,7 +1715,10 @@ const evidence = {
   privateEngine: PRIVATE_ENGINE || 'default',
   privateMicConstraints: PRIVATE_MIC_CONSTRAINTS || 'default-product',
   privateVad: PRIVATE_VAD || 'default-rms',
-  privateModel: PRIVATE_MODEL || 'default-whisper-tiny.en',
+  // Configured Private model OVERRIDE (STT_PRIVATE_MODEL). When unset, the engine picks the model at
+  // runtime (v2 default, or the v4 variant base_q4/distil_q4) — see `privateRuntimePath` for what
+  // ACTUALLY loaded. Do NOT default this to a model name; that mislabels v4 runs as tiny.en.
+  privateModel: PRIVATE_MODEL || 'default',
   privateResampler: PRIVATE_RESAMPLER || 'default-box',
   nativeConfig: {
     continuous: NATIVE_CONTINUOUS || 'default',

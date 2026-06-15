@@ -83,7 +83,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
     return summary;
 }
 
-function getV4AsrOptions(audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
+function getV4AsrOptions(modelId: string, audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
@@ -92,7 +92,9 @@ function getV4AsrOptions(audioLengthSeconds: number, decodeOptions?: Record<stri
         ...V4_ANTI_LOOP_DECODE_DEFAULTS,
     };
 
-    if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
+    // Decide language off the model ACTUALLY loaded (base_q4→whisper-base.en, distil_q4→distil-small.en),
+    // not the legacy PRIV_STT_V4.MODEL_ID constant. `.en` models are English-only and must NOT set language.
+    if (!modelId.endsWith('.en')) {
         options.language = 'en';
         options.task = 'transcribe';
     }
@@ -111,6 +113,9 @@ export class TransformersJSV4Engine extends STTEngine {
     private workerRequestId: number = 0;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
     private lastModelProgress: number = -1;
+    // The v4 model id this engine actually loaded (base_q4→whisper-base.en, distil_q4→distil-small.en).
+    // Source of truth for the ASR language decision — never the dead PRIV_STT_V4.MODEL_ID constant.
+    private v4ModelId: string = PRIV_STT_V4_VARIANTS[PRIV_STT_V4_DEFAULT_VARIANT].MODEL_ID;
 
     constructor(options?: TranscriptionModeOptions) {
         super(options);
@@ -141,6 +146,7 @@ export class TransformersJSV4Engine extends STTEngine {
                 : baseVariant.DTYPE,
             EXPECTED_SPLIT_DOWNLOAD_MB: baseVariant.EXPECTED_SPLIT_DOWNLOAD_MB,
         };
+        this.v4ModelId = v4Model.MODEL_ID;
         const experimentDevice = exp.device && exp.device !== 'auto' ? exp.device : undefined;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Engine already initialized, skipping.');
@@ -373,7 +379,7 @@ export class TransformersJSV4Engine extends STTEngine {
             }
 
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-            const options = getV4AsrOptions(audioLengthSeconds, readPrivateDecodeOptionsOverride());
+            const options = getV4AsrOptions(this.v4ModelId, audioLengthSeconds, readPrivateDecodeOptionsOverride());
 
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
 
