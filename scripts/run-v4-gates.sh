@@ -61,12 +61,32 @@ echo "▶ ensuring Playwright Chromium..."
 pnpm exec playwright install chromium >/dev/null 2>&1 || pnpm exec playwright install chromium
 
 # ---- Start the DEV app on 5174 (dev mode = v4 test overrides honored) --------
+# CRITICAL: own port 5174. Vite does NOT set strictPort, so if a STALE dev server is already on 5174
+# (e.g. a leftover from an earlier manual attempt), our new server silently drifts to 5175 and the test
+# would hit the stale server — which may carry a wrong/old Supabase key → "Invalid API key" even though
+# our creds are correct. Free the port first so we bind it cleanly.
+PORT="${BASE_URL##*:}"
+STALE="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+if [ -n "$STALE" ]; then
+  echo "▶ freeing stale listener(s) on :$PORT → $STALE"
+  kill $STALE 2>/dev/null || true; sleep 2
+  STALE="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+  [ -n "$STALE" ] && { echo "✖ could not free :$PORT (pids: $STALE). Stop them and re-run. Aborting."; exit 1; }
+fi
 echo "▶ starting pnpm dev:real on $BASE_URL ..."
 pnpm dev:real > "$EVIDENCE_DIR/v4-vite-$TS.log" 2>&1 &
 VITE_PID=$!
 trap 'echo "▶ stopping dev server ($VITE_PID)"; kill "$VITE_PID" 2>/dev/null || true' EXIT
 pnpm exec wait-on --timeout 120000 "$BASE_URL"
-echo "✓ app is up."
+# Guard: our wrapper must still be alive (if it died, :5174 is someone else's stale server).
+kill -0 "$VITE_PID" 2>/dev/null || { echo "✖ our dev server exited — :$PORT may be a stale server. Aborting."; exit 1; }
+# Guard: the server on :5174 should be a descendant of OUR wrapper, not a pre-existing process.
+if command -v lsof >/dev/null 2>&1; then
+  OWNER="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ')"
+  echo "✓ app is up on :$PORT (listener pids: ${OWNER:-unknown})."
+else
+  echo "✓ app is up on :$PORT."
+fi
 
 # ---- GATE 3 — WebGPU benchmark (writes floors to tests/STT_BENCHMARKS.json) ---
 run_bench () {  # $1=variant $2=device $3=extraFlags
