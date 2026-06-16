@@ -37,12 +37,13 @@ const requiredWhisperBaseCacheUrls = [
     'http://localhost/models/whisper-base.en/onnx/decoder_model_merged_quantized.onnx',
 ];
 
-const requiredWhisperTinyV4CacheUrls = [
-    'http://localhost/models/onnx-community/whisper-tiny.en/config.json',
-    'http://localhost/models/onnx-community/whisper-tiny.en/tokenizer.json',
-    'http://localhost/models/onnx-community/whisper-tiny.en/preprocessor_config.json',
-    'http://localhost/models/onnx-community/whisper-tiny.en/onnx/encoder_model.onnx',
-    'http://localhost/models/onnx-community/whisper-tiny.en/onnx/decoder_model_merged_q4.onnx',
+// v4 rollout model is whisper-base.en (base_q4) — v4 has no tiny variant.
+const requiredWhisperBaseV4CacheUrls = [
+    'http://localhost/models/onnx-community/whisper-base.en/config.json',
+    'http://localhost/models/onnx-community/whisper-base.en/tokenizer.json',
+    'http://localhost/models/onnx-community/whisper-base.en/preprocessor_config.json',
+    'http://localhost/models/onnx-community/whisper-base.en/onnx/encoder_model.onnx',
+    'http://localhost/models/onnx-community/whisper-base.en/onnx/decoder_model_merged_q4.onnx',
 ];
 
 function stubTransformersCache(urls: string[], hasCache = true): void {
@@ -115,13 +116,13 @@ describe('ModelManager transformers cache contract', () => {
     });
 
     it('reports transformers-js-v4 unavailable when required split model assets are missing', async () => {
-        stubTransformersCache(requiredWhisperTinyV4CacheUrls.filter((url) => !url.endsWith('decoder_model_merged_q4.onnx')));
+        stubTransformersCache(requiredWhisperBaseV4CacheUrls.filter((url) => !url.endsWith('decoder_model_merged_q4.onnx')));
 
         await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
     });
 
     it('reports transformers-js-v4 available only when required split model assets are present', async () => {
-        stubTransformersCache(requiredWhisperTinyV4CacheUrls);
+        stubTransformersCache(requiredWhisperBaseV4CacheUrls);
 
         await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(true);
     });

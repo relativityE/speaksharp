@@ -1,9 +1,20 @@
 {
   "_comment": "Static WER ceilings established via Harvard Sentence baseline benchmarks.",
+  "_vendor_note": "`vendor` = each model's VENDOR-PUBLISHED accuracy/WER, with source URL + access date (2026-06-16). ALL figures are normalized to the SAME corpus — LibriSpeech test-clean — so they ARE comparable to each other (ranking: Cloud/AssemblyAI 97.29% > distil-small.en 96.52% > whisper-base.en 95.75% > whisper-tiny.en 94.34%, matching real-world experience that Cloud is most accurate). They are NOT measured by SpeakSharp and NOT on harvard-list-1, so do NOT compare them to expectedAccuracy/floors above. IMPORTANT: LibriSpeech test-clean is easy, clean read speech; on diverse/real-world audio the small self-hosted Whisper models degrade FAR more than AssemblyAI (whose Universal Streaming mean across its published benchmark set is ~8.6% WER), so Cloud's real-world accuracy lead over Private is LARGER than the clean-corpus gap shown here.",
   "engines": {
     "Cloud": {
       "expectedAccuracy": 91.86,
       "provider": "AssemblyAI",
+      "vendor": {
+        "model": "AssemblyAI Universal Streaming",
+        "accuracy_pct": 97.29,
+        "wer": 0.0271,
+        "corpus": "LibriSpeech test-clean",
+        "source": "https://www.assemblyai.com/docs/streaming/benchmarks.md",
+        "accessed": "2026-06-16",
+        "realistic_mean_wer": 0.086,
+        "realistic_note": "8.6% mean WER across AssemblyAI's published Universal Streaming benchmark set (LibriSpeech clean/other, CommonVoice 11.81%, Earnings21 12.37%, TEDLIUM 7.81%, Meanwhile 6.73%, Rev16 12.99%), updated Mar 2026. This realistic figure is the better predictor of production accuracy; self-hosted Whisper base/tiny degrade much more than AssemblyAI off clean read speech."
+      },
       "benchmarkPolicy": "Cloud uses AssemblyAI Universal Streaming, not pre-recorded batch transcription. The release gate tracks the published/comparable streaming WER target (~8.14% WER = 91.86% accuracy); 95% remains a stretch target for a future batch/offline path.",
       "history": [
         {
@@ -37,10 +48,30 @@
       "cpu": {
         "expectedAccuracy": 93.89,
         "provider": "TransformersJS",
-        "_floors_note": "Legacy expectedAccuracy (93.89%) was measured on whisper-tiny.en; the SHIPPING v2 Private default is whisper-base.en (see sttProviderConfig DEFAULT). `floors` tracks the shipping model so v2 and v4 are compared on like models; expectedAccuracy:null = re-measure pending.",
+        "vendor": {
+          "whisper-base.en": {
+            "model": "openai/whisper-base.en",
+            "accuracy_pct": 95.75,
+            "wer": 0.0425,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/openai/whisper-base.en",
+            "accessed": "2026-06-16",
+            "role": "v2 Private DEFAULT model"
+          },
+          "whisper-tiny.en": {
+            "model": "openai/whisper-tiny.en",
+            "accuracy_pct": 94.34,
+            "wer": 0.0566,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/openai/whisper-tiny.en",
+            "accessed": "2026-06-16",
+            "role": "v2 emergency fallback only"
+          }
+        },
+        "_floors_note": "Legacy expectedAccuracy (93.89%) was measured on whisper-tiny.en (Node); the SHIPPING v2 Private default is whisper-base.en (see sttProviderConfig DEFAULT). The whisper-base.en|cpu floor (85.06%) is a BROWSER fake-audio measurement — HARNESS-LIMITED EVIDENCE, not a hard gate (see v4._floors_note + /private/tmp/V4_BROWSER_PERF_DISPOSITION.md). Authoritative model quality = the Node clean-decode ceiling.",
         "floors": {
           "whisper-base.en|cpu": {
-            "expectedAccuracy": null,
+            "expectedAccuracy": 85.06,
             "model": "Xenova/whisper-base.en"
           }
         },
@@ -86,18 +117,36 @@
       "v4": {
         "expectedAccuracy": 88.89,
         "provider": "TransformersJS v4",
-        "_floors_note": "expectedAccuracy/history below is a STALE placeholder (whisper-tiny.en, 3 sentences, WASM) — NOT the rollout models. `floors` is the per-variant|device source of truth for the v2-vs-v4 PostHog A/B; expectedAccuracy:null = not yet measured (the first benchmark run establishes that config's floor, and each later run may only improve it). Rollout models: base_q4=whisper-base.en, distil_q4=distil-small.en.",
+        "vendor": {
+          "base_q4": {
+            "model": "openai/whisper-base.en (onnx-community port)",
+            "accuracy_pct": 95.75,
+            "wer": 0.0425,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/openai/whisper-base.en",
+            "accessed": "2026-06-16"
+          },
+          "distil_q4": {
+            "model": "distil-whisper/distil-small.en (onnx-community port)",
+            "accuracy_pct": 96.52,
+            "wer": 0.0348,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/distil-whisper/distil-small.en",
+            "accessed": "2026-06-16"
+          }
+        },
+        "_floors_note": "DISPOSITION 2026-06-16: the `floors` below are BROWSER fake-audio numbers and are HARNESS-LIMITED EVIDENCE, NOT the release gate. Chrome --use-file-for-fake-audio-capture free-runs against a variable pre-record delay, so the SAME config varies widely (base_q4|webgpu measured 83.91% and a 15-word under-capture on back-to-back runs). Authoritative model-quality = the deterministic Node clean-decode ceiling (~99%; v4 base_q4/distil_q4 ≈ 98.85%). Real-world v2-vs-v4 = PostHog A/B post-Gate-B. Rollout treatment = base_q4 ONLY (distil_q4 stays flag-OFF, NOT a customer A/B arm). See /private/tmp/V4_BROWSER_PERF_DISPOSITION.md. The 2026-05-25 tiny.en entry is HISTORICAL REFERENCE ONLY.",
         "floors": {
           "base_q4|wasm": {
             "expectedAccuracy": null,
             "model": "onnx-community/whisper-base.en"
           },
           "base_q4|webgpu": {
-            "expectedAccuracy": 51.72,
+            "expectedAccuracy": 83.91,
             "model": "onnx-community/whisper-base.en"
           },
           "distil_q4|webgpu": {
-            "expectedAccuracy": null,
+            "expectedAccuracy": 88.51,
             "model": "onnx-community/distil-small.en"
           }
         },
@@ -110,16 +159,46 @@
             "ceiling_wer": 0.1204,
             "ceiling_accuracy_pct": 87.96,
             "environment": "local-chromium-worker",
-            "note": "Initial v4 worker mini-corpus: h1_1 11.11% WER, h1_2 25.00% WER, h1_3 0.00% WER. Weekly automation must replace this with full harvard-list-1 evidence."
+            "note": "HISTORICAL REFERENCE ONLY — early v4 worker mini-corpus on whisper-tiny.en (NOT a rollout model; v4 has no tiny variant). h1_1 11.11% WER, h1_2 25.00% WER, h1_3 0.00% WER. Retained as a data point; rollout floors use base_q4/distil_q4."
           },
           {
-            "timestamp": "2026-06-15T20:32:08.172Z",
+            "timestamp": "2026-06-16T18:12:57.724Z",
             "model": "TransformersJS v4 onnx-community/whisper-base.en",
             "variant": "base_q4",
             "device": "webgpu",
             "corpus": "harvard-list-1",
-            "ceiling_wer": 0.4828,
-            "ceiling_accuracy_pct": 51.72,
+            "ceiling_wer": 0.2299,
+            "ceiling_accuracy_pct": 77.01,
+            "environment": "chromium-playwright-v4-worker-webgpu"
+          },
+          {
+            "timestamp": "2026-06-16T18:13:44.118Z",
+            "model": "TransformersJS v4 onnx-community/whisper-base.en",
+            "variant": "base_q4",
+            "device": "webgpu",
+            "corpus": "harvard-list-1",
+            "ceiling_wer": 0.1609,
+            "ceiling_accuracy_pct": 83.91,
+            "environment": "chromium-playwright-v4-worker-webgpu"
+          },
+          {
+            "timestamp": "2026-06-16T18:14:32.488Z",
+            "model": "TransformersJS v4 onnx-community/distil-small.en",
+            "variant": "distil_q4",
+            "device": "webgpu",
+            "corpus": "harvard-list-1",
+            "ceiling_wer": 0.2874,
+            "ceiling_accuracy_pct": 71.26,
+            "environment": "chromium-playwright-v4-worker-webgpu"
+          },
+          {
+            "timestamp": "2026-06-16T18:20:40.665Z",
+            "model": "TransformersJS v4 onnx-community/distil-small.en",
+            "variant": "distil_q4",
+            "device": "webgpu",
+            "corpus": "harvard-list-1",
+            "ceiling_wer": 0.1149,
+            "ceiling_accuracy_pct": 88.51,
             "environment": "chromium-playwright-v4-worker-webgpu"
           }
         ]
