@@ -1,0 +1,91 @@
+# =============================================================================
+# PostHog Gate B — v4 SINGLE-USER targeting proof (control-plane, cloud-only).
+# =============================================================================
+# Runs on GitHub-hosted ubuntu so POSTHOG_PERSONAL_API_KEY stays a CI secret and
+# never touches a local/dev environment. Drives the sanctioned proof script:
+#   scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs
+# which, for the ONE supplied app_user_id, ensures a STATIC single-user cohort,
+# targets flag private_stt_v4_enabled (709644) at that cohort, and verifies the
+# user resolves the flag — distil stays OFF.
+#
+# SCOPE GUARD: this is a SINGLE-USER operator proof. It targets exactly the one
+# app_user_id you pass (a static cohort of one). It does NOT enable any broad
+# customer rollout. Do not raise the flag's global rollout here.
+#
+# Trigger locally with: node scripts/trigger-posthog-gate-b.mjs <app_user_id>
+# =============================================================================
+name: PostHog Gate B — v4 single-user targeting proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_user_id:
+        description: 'Supabase user.id (distinct_id) of the ONE designated test operator user to target for v4'
+        type: string
+        required: true
+      cohort_name:
+        description: 'Static single-user cohort name'
+        type: string
+        required: false
+        default: stt_ab_disposable_pro_testers
+
+permissions:
+  contents: read
+
+concurrency:
+  group: posthog-gate-b
+  cancel-in-progress: false
+
+jobs:
+  targeting-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: PostHog Gate B — single-user targeting proof (NO broad rollout)
+        env:
+          STT_AB_APP_USER_ID: ${{ inputs.app_user_id }}
+          POSTHOG_STT_AB_COHORT_NAME: ${{ inputs.cohort_name }}
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+        run: |
+          set -o pipefail
+          node scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs | tee gate-b-evidence.txt
+          grep 'POSTHOG_STT_AB_AUTHENTICATED_USER_TARGETING_PROOF_EVIDENCE' gate-b-evidence.txt \
+            | sed 's/^POSTHOG_STT_AB_AUTHENTICATED_USER_TARGETING_PROOF_EVIDENCE //' > gate-b-evidence.json || true
+
+      - name: Assert TARGETING_VERIFIED
+        run: |
+          node -e '
+            const fs = require("fs");
+            const t = fs.readFileSync("gate-b-evidence.txt", "utf8");
+            const m = t.match(/POSTHOG_STT_AB_AUTHENTICATED_USER_TARGETING_PROOF_EVIDENCE (.*)/);
+            if (!m) { console.error("No evidence line emitted."); process.exit(1); }
+            const e = JSON.parse(m[1]);
+            console.log("classification:", e.classification, "| pass:", e.pass);
+            console.log("flagEvaluationAfter:", JSON.stringify(e.flagEvaluationAfter));
+            console.log("mutations:", JSON.stringify(e.mutations));
+            if (e.classification !== "TARGETING_VERIFIED") {
+              console.error("Gate B NOT verified — classification:", e.classification);
+              process.exit(1);
+            }
+            console.log("✅ Gate B targeting VERIFIED (single user).");
+          '
+
+      - name: Upload Gate B evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posthog-gate-b-evidence
+          path: |
+            gate-b-evidence.txt
+            gate-b-evidence.json
+          if-no-files-found: warn
