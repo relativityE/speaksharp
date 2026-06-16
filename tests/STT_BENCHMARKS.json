@@ -1,9 +1,20 @@
 {
   "_comment": "Static WER ceilings established via Harvard Sentence baseline benchmarks.",
+  "_vendor_note": "`vendor` = each model's VENDOR-PUBLISHED accuracy/WER, with source URL + access date (2026-06-16). ALL figures are normalized to the SAME corpus — LibriSpeech test-clean — so they ARE comparable to each other (ranking: Cloud/AssemblyAI 97.29% > distil-small.en 96.52% > whisper-base.en 95.75% > whisper-tiny.en 94.34%, matching real-world experience that Cloud is most accurate). They are NOT measured by SpeakSharp and NOT on harvard-list-1, so do NOT compare them to expectedAccuracy/floors above. IMPORTANT: LibriSpeech test-clean is easy, clean read speech; on diverse/real-world audio the small self-hosted Whisper models degrade FAR more than AssemblyAI (whose Universal Streaming mean across its published benchmark set is ~8.6% WER), so Cloud's real-world accuracy lead over Private is LARGER than the clean-corpus gap shown here.",
   "engines": {
     "Cloud": {
       "expectedAccuracy": 91.86,
       "provider": "AssemblyAI",
+      "vendor": {
+        "model": "AssemblyAI Universal Streaming",
+        "accuracy_pct": 97.29,
+        "wer": 0.0271,
+        "corpus": "LibriSpeech test-clean",
+        "source": "https://www.assemblyai.com/docs/streaming/benchmarks.md",
+        "accessed": "2026-06-16",
+        "realistic_mean_wer": 0.086,
+        "realistic_note": "8.6% mean WER across AssemblyAI's published Universal Streaming benchmark set (LibriSpeech clean/other, CommonVoice 11.81%, Earnings21 12.37%, TEDLIUM 7.81%, Meanwhile 6.73%, Rev16 12.99%), updated Mar 2026. This realistic figure is the better predictor of production accuracy; self-hosted Whisper base/tiny degrade much more than AssemblyAI off clean read speech."
+      },
       "benchmarkPolicy": "Cloud uses AssemblyAI Universal Streaming, not pre-recorded batch transcription. The release gate tracks the published/comparable streaming WER target (~8.14% WER = 91.86% accuracy); 95% remains a stretch target for a future batch/offline path.",
       "history": [
         {
@@ -37,6 +48,26 @@
       "cpu": {
         "expectedAccuracy": 93.89,
         "provider": "TransformersJS",
+        "vendor": {
+          "whisper-base.en": {
+            "model": "openai/whisper-base.en",
+            "accuracy_pct": 95.75,
+            "wer": 0.0425,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/openai/whisper-base.en",
+            "accessed": "2026-06-16",
+            "role": "v2 Private DEFAULT model"
+          },
+          "whisper-tiny.en": {
+            "model": "openai/whisper-tiny.en",
+            "accuracy_pct": 94.34,
+            "wer": 0.0566,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/openai/whisper-tiny.en",
+            "accessed": "2026-06-16",
+            "role": "v2 emergency fallback only"
+          }
+        },
         "_floors_note": "Legacy expectedAccuracy (93.89%) was measured on whisper-tiny.en; the SHIPPING v2 Private default is whisper-base.en (see sttProviderConfig DEFAULT). `floors` tracks the shipping model so v2 and v4 are compared on like models; expectedAccuracy:null = re-measure pending.",
         "floors": {
           "whisper-base.en|cpu": {
@@ -86,6 +117,24 @@
       "v4": {
         "expectedAccuracy": 88.89,
         "provider": "TransformersJS v4",
+        "vendor": {
+          "base_q4": {
+            "model": "openai/whisper-base.en (onnx-community port)",
+            "accuracy_pct": 95.75,
+            "wer": 0.0425,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/openai/whisper-base.en",
+            "accessed": "2026-06-16"
+          },
+          "distil_q4": {
+            "model": "distil-whisper/distil-small.en (onnx-community port)",
+            "accuracy_pct": 96.52,
+            "wer": 0.0348,
+            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "source": "https://huggingface.co/distil-whisper/distil-small.en",
+            "accessed": "2026-06-16"
+          }
+        },
         "_floors_note": "expectedAccuracy/history below is a STALE placeholder (whisper-tiny.en, 3 sentences, WASM) — NOT the rollout models. `floors` is the per-variant|device source of truth for the v2-vs-v4 PostHog A/B; expectedAccuracy:null = not yet measured (the first benchmark run establishes that config's floor, and each later run may only improve it). Rollout models: base_q4=whisper-base.en, distil_q4=distil-small.en.",
         "floors": {
           "base_q4|wasm": {
