@@ -113,6 +113,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     const accuracyPct = parseFloat(((1 - wer) * 100).toFixed(2));
 
     console.log(`\n📊 Private (CPU) Ceiling: WER ${(wer * 100).toFixed(2)}% → Accuracy ${accuracyPct}%`);
+    console.log(`📝 TRANSCRIPT(${wordCount}w/${referenceWordCount}): ${transcriptText}`);
 
     assertNoRegression('Private', wer, 'TransformersJS', 'cpu');
 

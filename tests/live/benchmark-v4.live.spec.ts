@@ -136,6 +136,7 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     const accuracyPct = parseFloat(((1 - wer) * 100).toFixed(2));
 
     console.log(`\n📊 Private (Transformers.js v4 worker) Ceiling: WER ${(wer * 100).toFixed(2)}% → Accuracy ${accuracyPct}%`);
+    console.log(`📝 TRANSCRIPT(${wordCount}w/${referenceWordCount}): ${transcriptText}`);
 
     const benchmarkConfig = `${V4_VARIANT}|${V4_DEVICE}`;
     // Regression is checked against THIS config's own floor (base_q4|wasm, base_q4|webgpu,
