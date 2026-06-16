@@ -1678,10 +1678,16 @@ export default class TranscriptionService {
     }
 
     if (transcript.final) {
-      this.currentTranscript = mergeFinalTranscriptUpdate(this.currentTranscript, transcript.final);
+      // replacesRollingTranscript: an AUTHORITATIVE whole-utterance re-transcription (Private
+      // post-Stop decode) REPLACES the rolling transcript outright. Otherwise the clean final
+      // decode is append-merged onto the garbled streaming preview (it is not a forward prefix),
+      // doubling the saved transcript via service_result. A blank final never wipes existing text.
+      this.currentTranscript = transcript.replacesRollingTranscript && transcript.final.trim()
+        ? transcript.final
+        : mergeFinalTranscriptUpdate(this.currentTranscript, transcript.final);
       this.partialTranscript = '';
       this.options.onTranscriptUpdate?.({
-        transcript: { final: this.currentTranscript }
+        transcript: { final: this.currentTranscript, replacesRollingTranscript: transcript.replacesRollingTranscript }
       });
     }
 

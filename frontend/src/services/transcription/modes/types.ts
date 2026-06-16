@@ -17,6 +17,14 @@ export interface Transcript {
   partial?: string;
   final?: string;
   speaker?: string;
+  /**
+   * When true, this `final` is an AUTHORITATIVE whole-utterance re-transcription that REPLACES the
+   * accumulated rolling transcript rather than being appended. Set ONLY by Private's post-Stop
+   * whole-utterance decode; without it the downstream merges concatenate the garbled streaming
+   * preview with the clean final decode (duplication / inflated WER). Mirrors
+   * {@link TranscriptUpdate}. A blank/whitespace final never wipes existing text. Defaults to append.
+   */
+  replacesRollingTranscript?: boolean;
 }
 
 // TranscriptionError definition removed (Moved to consolidated errors.ts)
