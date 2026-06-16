@@ -2224,7 +2224,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       decodeMs,
     });
 
-    this.onTranscriptUpdate?.({ transcript: { final: transcript } });
+    // AUTHORITATIVE whole-utterance re-transcription: this single final REPLACES the rolling
+    // streaming preview, it is NOT an incremental segment to append. Without replacesRollingTranscript
+    // the downstream merges (TranscriptionService.mergeFinalTranscriptUpdate +
+    // SpeechRuntimeController.pushTranscriptToStore) concatenate the garbled streaming pass with this
+    // clean final decode → duplicated/inflated saved transcript (regression guard for #87/#88).
+    this.onTranscriptUpdate?.({ transcript: { final: transcript, replacesRollingTranscript: true } });
   }
 
   private retainAudioForRetry(audio: Float32Array): void {
