@@ -12,7 +12,14 @@ const projectApiKey = requireEnv('POSTHOG_PROJECT_API_KEY', ['VITE_POSTHOG_KEY']
 const apiHost = (process.env.POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
 const ingestHost = (process.env.POSTHOG_INGEST_HOST || process.env.VITE_POSTHOG_HOST || apiHost).replace(/\/$/, '');
 const requestedCohortId = process.env.POSTHOG_STT_AB_COHORT_ID || '';
-const cohortName = process.env.POSTHOG_STT_AB_COHORT_NAME || DEFAULT_COHORT_NAME;
+// EXCLUSIVITY: default to a UNIQUE per-run static cohort so the proof always targets a FRESH cohort
+// that contains exactly the one target user — never silently reuses a named cohort that may already
+// hold other members. (Override only via POSTHOG_STT_AB_COHORT_NAME/_ID, e.g. for cleanup.)
+const cohortName = process.env.POSTHOG_STT_AB_COHORT_NAME
+  || `stt_ab_single_user_${String(appUserId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12)}_${Date.now()}`;
+// NEGATIVE CONTROL: a synthetic distinct_id that is NOT the target. v4 MUST stay false for it,
+// both before and after the mutation — empirical proof there is no broad/global rollout.
+const controlDistinctId = `gate-b-negative-control-${Date.now()}`;
 
 const evidence = {
   gate: 'POSTHOG-STT-A/B',
@@ -40,6 +47,12 @@ const evidence = {
   mutations: [],
   flagEvaluationBefore: null,
   flagEvaluationAfter: null,
+  controlEvaluationBefore: null,
+  controlEvaluationAfter: null,
+  cohortMemberCount: null,
+  flagGroupsBefore: null,
+  flagGroupsAfter: null,
+  exclusivity: null,
   classification: null,
   pass: false,
 };
@@ -48,18 +61,36 @@ try {
   evidence.person = await findPerson();
   evidence.serverIdentity = await inspectServerIdentity(evidence.person);
   evidence.flagEvaluationBefore = await evaluateFlags(appUserId);
+  evidence.controlEvaluationBefore = await evaluateFlags(controlDistinctId);
+  const flagBefore = await fetchFlagConfig();
+  evidence.flagGroupsBefore = summarizeFlagGroups(flagBefore);
 
-  if (!evidence.serverIdentity.pass) {
+  // FAIL-CLOSED pre-check: if v4 is ALREADY on for the negative control, the flag has broad/global
+  // exposure before we touch anything → abort WITHOUT mutating (do not proceed on an unsafe baseline).
+  if (evidence.controlEvaluationBefore?.privateSttV4Enabled) {
+    evidence.classification = 'FAIL_PREEXISTING_BROAD_EXPOSURE';
+  } else if (hasBroadGroup(flagBefore)) {
+    evidence.classification = 'FAIL_PREEXISTING_BROAD_FLAG_GROUP';
+  }
+
+  if (evidence.classification) {
+    // pre-check failed — leave the flag untouched.
+  } else if (!evidence.serverIdentity.pass) {
     evidence.classification = evidence.serverIdentity.classification;
   } else {
     evidence.cohort = await ensureCohort();
     if (!evidence.classification && evidence.cohort?.id) {
       await addPersonToCohort(evidence.cohort.id, evidence.person.id);
+      evidence.cohortMemberCount = await getCohortMemberCount(evidence.cohort.id);
     }
     if (!evidence.classification) {
       evidence.flagConfig = await ensureFlagTargetsCohort(evidence.cohort?.id);
     }
+    const flagAfter = await fetchFlagConfig();
+    evidence.flagGroupsAfter = summarizeFlagGroups(flagAfter);
     evidence.flagEvaluationAfter = await evaluateFlags(appUserId);
+    evidence.controlEvaluationAfter = await evaluateFlags(controlDistinctId);
+    evidence.exclusivity = assessExclusivity(flagAfter);
     if (!evidence.classification) {
       evidence.classification = classifyFinal();
     }
@@ -431,7 +462,77 @@ function classifyFinal() {
   if (evidence.classification) return evidence.classification;
   if (!evidence.flagEvaluationAfter?.privateSttV4Enabled) return 'FAIL_FLAG_TARGETING_CONFIG';
   if (evidence.flagEvaluationAfter?.distilEnabled) return 'FAIL_FLAG_TARGETING_CONFIG';
+  // EXCLUSIVITY gates — v4 must be ON for the target AND OFF for everyone else.
+  if (!evidence.exclusivity?.controlDeniedV4After) return 'FAIL_BROAD_EXPOSURE_AFTER';
+  if (!evidence.exclusivity?.noBroadGroupsAfter) return 'FAIL_BROAD_FLAG_GROUP_AFTER';
   return 'TARGETING_VERIFIED';
+}
+
+// ---- Exclusivity helpers: prove v4 reaches ONLY the designated target (single-user safety) ----
+
+function flagGroups(flag) {
+  if (Array.isArray(flag?.raw?.filters?.groups)) return flag.raw.filters.groups;
+  if (Array.isArray(flag?.filters?.groups)) return flag.filters.groups;
+  return [];
+}
+
+// A group is "broad" if it grants exposure (rollout_percentage > 0; unset defaults to 100) but is NOT
+// scoped to a cohort/person condition — i.e. it would match users beyond our single-user cohort.
+function groupIsBroad(group) {
+  const rollout = group?.rollout_percentage;
+  const grants = rollout == null ? true : Number(rollout) > 0;
+  if (!grants) return false;
+  const props = extractProperties(group);
+  if (props.length === 0) return true; // rollout>0 with no conditions = global exposure
+  return !props.every((p) => p?.type === 'cohort' || p?.key === 'id' || p?.key === 'cohort');
+}
+
+function hasBroadGroup(flag) {
+  if (!flag?.found) return false;
+  return flagGroups(flag).some(groupIsBroad);
+}
+
+function summarizeFlagGroups(flag) {
+  if (!flag?.found) return { found: false, lookupForbidden: Boolean(flag?.lookupForbidden) };
+  const groups = flagGroups(flag);
+  return {
+    found: true,
+    active: flag.active ?? flag.raw?.active ?? null,
+    groupCount: groups.length,
+    hasBroadGroup: groups.some(groupIsBroad),
+    groups: groups.map((g) => ({
+      rolloutPercentage: g?.rollout_percentage ?? null,
+      broad: groupIsBroad(g),
+      properties: extractProperties(g).map(summarizeProperty),
+    })),
+  };
+}
+
+async function getCohortMemberCount(cohortId) {
+  const response = await apiFetch(buildUrl(`/api/projects/${encodeURIComponent(projectId)}/cohorts/${encodeURIComponent(cohortId)}/`));
+  if (!response.ok) return { ok: false, status: response.status, count: null };
+  return {
+    ok: true,
+    count: typeof response.body?.count === 'number' ? response.body.count : null,
+    isStatic: response.body?.is_static ?? null,
+    note: 'PostHog computes static-cohort count asynchronously; null/stale immediately after add is expected — exclusivity is gated on the negative control + flag-group structure, not this count.',
+  };
+}
+
+function assessExclusivity(flagAfter) {
+  const targetGetsV4 = evidence.flagEvaluationAfter?.privateSttV4Enabled === true;
+  const controlDeniedV4After = evidence.controlEvaluationAfter?.privateSttV4Enabled === false;
+  const distilOff = evidence.flagEvaluationAfter?.distilEnabled === false;
+  const noBroadGroupsAfter = flagAfter?.found ? !flagGroups(flagAfter).some(groupIsBroad) : false;
+  return {
+    targetGetsV4,
+    controlDeniedV4After,
+    controlDistinctId,
+    distilOff,
+    noBroadGroupsAfter,
+    cohortMemberCount: evidence.cohortMemberCount?.count ?? null,
+    pass: targetGetsV4 && controlDeniedV4After && distilOff && noBroadGroupsAfter,
+  };
 }
 
 function summarizePerson(person) {

@@ -71,7 +71,11 @@ jobs:
             if (!m) { console.error("No evidence line emitted."); process.exit(1); }
             const e = JSON.parse(m[1]);
             console.log("classification:", e.classification, "| pass:", e.pass);
-            console.log("flagEvaluationAfter:", JSON.stringify(e.flagEvaluationAfter));
+            console.log("exclusivity:", JSON.stringify(e.exclusivity));
+            console.log("controlEvaluationAfter (must be v4=false):", JSON.stringify(e.controlEvaluationAfter));
+            console.log("flagGroupsAfter:", JSON.stringify(e.flagGroupsAfter));
+            console.log("cohortMemberCount:", JSON.stringify(e.cohortMemberCount));
+            console.log("flagEvaluationAfter (target, must be v4=true):", JSON.stringify(e.flagEvaluationAfter));
             console.log("mutations:", JSON.stringify(e.mutations));
             if (e.classification !== "TARGETING_VERIFIED") {
               console.error("Gate B NOT verified — classification:", e.classification);
