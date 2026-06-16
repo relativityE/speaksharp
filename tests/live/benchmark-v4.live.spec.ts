@@ -44,7 +44,11 @@ test.use({
         args: [
             ...AUDIO_ARGS,
             ...GPU_ARGS,
-            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
+            // Default: Chrome LOOPS the fixture into the fake capture device (the proven path). Setting
+            // STT_FAKE_AUDIO_NOLOOP=1 appends %noloop to play the file ONCE — used to validate onset
+            // alignment empirically before adopting it as the default (the long pre-record auth+download
+            // delay means a free-running single play can finish before record, so loop stays the safe default).
+            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}${process.env.STT_FAKE_AUDIO_NOLOOP === '1' ? '%noloop' : ''}`,
         ]
     }
 });
@@ -114,7 +118,9 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
 
     const wordCount = transcriptText.split(/\s+/).filter(w => w.length > 0).length;
     const referenceWordCount = HARVARD_FULL.split(/\s+/).length;
-    const wer = calculateWordErrorRate(HARVARD_FULL, transcriptText);
+    // Normalize the reference the SAME way as transcriptText — calculateWordErrorRate is
+    // punctuation-sensitive, and HARVARD_FULL is punctuation-rich, so a raw reference inflates WER ~27pp.
+    const wer = calculateWordErrorRate(HARVARD_FULL.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim(), transcriptText);
 
     if (wordCount < referenceWordCount * 0.3) {
         await logBenchmarkPhase(page, 'PROOF_ACCURACY_FINAL_COMPLETENESS_FAIL_PRIVATE_V4');

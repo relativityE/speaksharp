@@ -16,7 +16,8 @@ test.use({
             ...AUDIO_ARGS,
             '--disable-gpu',
             '--disable-webgpu',
-            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
+            // STT_FAKE_AUDIO_NOLOOP=1 plays the fixture ONCE (onset-alignment validation); default loops.
+            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}${process.env.STT_FAKE_AUDIO_NOLOOP === '1' ? '%noloop' : ''}`,
         ]
     }
 });
@@ -94,7 +95,9 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
 
     const wordCount = transcriptText.split(/\s+/).filter(w => w.length > 0).length;
     const referenceWordCount = HARVARD_FULL.split(/\s+/).length;
-    const wer = calculateWordErrorRate(HARVARD_FULL, transcriptText);
+    // Normalize the reference the SAME way as transcriptText — calculateWordErrorRate is
+    // punctuation-sensitive, and HARVARD_FULL is punctuation-rich, so a raw reference inflates WER ~27pp.
+    const wer = calculateWordErrorRate(HARVARD_FULL.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim(), transcriptText);
 
     if (wordCount < referenceWordCount * 0.3) {
         await logBenchmarkPhase(page, 'PROOF_ACCURACY_FINAL_COMPLETENESS_FAIL_PRIVATE_CPU');
