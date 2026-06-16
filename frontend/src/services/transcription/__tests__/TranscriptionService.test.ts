@@ -333,6 +333,56 @@ describe('TranscriptionService', () => {
         });
     });
 
+    it('REGRESSION (#87/#88): an authoritative whole-utterance final REPLACES accumulated rolling finals (no duplication)', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'transformers-js' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string; replacesRollingTranscript?: boolean } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        // Garbled streaming/provisional finals accumulate (the v4 rolling preview).
+        mockEngine.triggerTranscript({ transcript: { final: 'well the swan dive was far short of pre the box was thrown beside the door' } });
+        // Clean post-Stop whole-utterance decode: NOT a forward prefix of the garbled preview, so the
+        // generic merge would APPEND it → doubled service_result / selectedForSave (the 142-vs-87 bug).
+        // The replace flag must make it the authoritative full transcript.
+        mockEngine.triggerTranscript({
+            transcript: {
+                final: 'Well, the swan dive was far short of perfect, the box was thrown beside the parked truck.',
+                replacesRollingTranscript: true,
+            },
+        });
+
+        // service_result (what stop() returns and selectedForSave reads) is the clean final ONLY.
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: {
+                final: 'Well, the swan dive was far short of perfect, the box was thrown beside the parked truck.',
+                replacesRollingTranscript: true,
+            },
+        });
+        const internal = service as unknown as { currentTranscript: string };
+        expect(internal.currentTranscript).toBe(
+            'Well, the swan dive was far short of perfect, the box was thrown beside the parked truck.'
+        );
+    });
+
     it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
         const { sttRegistry } = await import('../STTRegistry');
 

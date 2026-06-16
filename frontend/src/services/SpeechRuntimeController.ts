@@ -1233,6 +1233,25 @@ export class SpeechRuntimeController {
                 return;
             }
 
+            // AUTHORITATIVE whole-utterance re-transcription (Private post-Stop): REPLACE the rolling
+            // transcript + chunks instead of running the prefix/append heuristics below. Without this
+            // the clean final decode is appended onto the garbled streaming preview (it is not a forward
+            // prefix) → duplicated/inflated saved transcript. Regression guard for #87/#88. A blank final
+            // is already rejected above, so this never wipes text to empty.
+            if (data.transcript.replacesRollingTranscript) {
+                store.updateTranscript(finalTranscript, data.transcript.partial || '');
+                store.setChunks([{ transcript: finalTranscript, timestamp: Date.now(), isFinal: true }]);
+                this.syncTranscriptLifecycleFromStore();
+                pushNativeStoreTrace('store_replace_rolling_with_whole_utterance', { finalTranscript });
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_replace_whole_utterance',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                    preview: finalTranscript.slice(0, 80),
+                });
+                return;
+            }
+
             const lastChunk = store.chunks[store.chunks.length - 1];
             if (lastChunk?.isFinal && normalizeTranscriptPrefix(lastChunk.transcript) === finalNormalized) {
                 pushNativeStoreTrace('store_skip_duplicate_last_chunk', {

@@ -317,6 +317,42 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         );
     });
 
+    it('REGRESSION (#87/#88): an authoritative whole-utterance final REPLACES the rolling transcript, not appends', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final: string; replacesRollingTranscript?: boolean } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        // Garbled streaming/provisional preview accumulates (the v4 rolling text).
+        push({ transcript: { final: 'well the swan dive was far short of pre the box was thrown beside the door' } });
+        // The clean post-Stop whole-utterance decode is NOT a forward prefix of the garbled preview, so the
+        // generic prefix/append merge would CONCATENATE the two (duplication / inflated WER). The replace
+        // flag must wipe the rolling text and leave only the authoritative final.
+        push({ transcript: { final: 'Well, the swan dive was far short of perfect, the box was thrown beside the parked truck.', replacesRollingTranscript: true } });
+
+        expect(useSessionStore.getState().transcript.transcript).toBe(
+            'Well, the swan dive was far short of perfect, the box was thrown beside the parked truck.'
+        );
+        // chunks are reset to the single authoritative final — no garbled rolling chunk survives to be
+        // re-joined by the save-candidate selection.
+        expect(useSessionStore.getState().chunks).toEqual([
+            expect.objectContaining({
+                transcript: 'Well, the swan dive was far short of perfect, the box was thrown beside the parked truck.',
+                isFinal: true,
+            }),
+        ]);
+    });
+
+    it('REGRESSION: a blank authoritative final never wipes existing committed text', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final: string; replacesRollingTranscript?: boolean } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        push({ transcript: { final: 'real committed words here' } });
+        push({ transcript: { final: '   ', replacesRollingTranscript: true } });
+
+        expect(useSessionStore.getState().transcript.transcript).toBe('Real committed words here.');
+    });
+
     it('adds conservative commas and first-person capitalization without rewriting words', () => {
         const push = (controller as unknown as {
             pushTranscriptToStore: (data: { transcript: { final: string } }) => void
