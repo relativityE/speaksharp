@@ -83,6 +83,16 @@ const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
 const RESOLVED_FAKE_AUDIO_FILE = FAKE_AUDIO_FILE ? path.resolve(FAKE_AUDIO_FILE) : '';
 const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
 const INJECT_MIC_AUDIO_LOOP = process.env.STT_INJECT_MIC_AUDIO_LOOP === 'true';
+
+// Per-fixture audio-frame accumulator, populated from the app's [PRIVATE_TRACE] audio_frame_in console
+// events. Lets the proof distinguish a SILENT HARNESS (engine fed digital silence, frameRms=0 — e.g. an
+// unreliable Web-Audio getUserMedia override) from a genuine app/STT failure. Reset per runFixture.
+const audioFrameStats = { count: 0, maxRms: 0, speechFrames: 0 };
+function resetAudioFrameStats() {
+  audioFrameStats.count = 0;
+  audioFrameStats.maxRms = 0;
+  audioFrameStats.speechFrames = 0;
+}
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
@@ -1367,6 +1377,7 @@ async function fetchLatestSavedSessions(page, expectedTranscript = '') {
 }
 
 async function runFixture(page, mode, fixture) {
+  resetAudioFrameStats();
   const sessionUrl = new URL('/session', BASE_URL);
   if (mode === 'private' && PRIVATE_ENGINE) {
     sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
@@ -1417,6 +1428,11 @@ async function runFixture(page, mode, fixture) {
     }
   }
   if (INJECT_MIC_AUDIO && mode !== 'native') {
+    // ⚠️ NON-AUTHORITATIVE / DEPRECATED for proof. The Web-Audio getUserMedia override is
+    // NONDETERMINISTIC in automated Chrome (observed: digital silence in some runs, partial audio in
+    // others) and is NOT a trusted Gate-2 proof path. Use STT_USE_FAKE_AUDIO_CAPTURE (Chrome
+    // --use-file-for-fake-audio-capture) for authoritative proof. Retained only for ad-hoc diagnostics.
+    console.warn('⚠️  STT_INJECT_MIC_AUDIO is NON-AUTHORITATIVE for proof (nondeterministic in automated Chrome: silence/partial). Use STT_USE_FAKE_AUDIO_CAPTURE for trusted Gate-2 results.');
     await installInjectedMicAudio(page, fixture.audioPath);
   }
   if (mode === 'private' && PRIVATE_MODEL) {
@@ -1696,6 +1712,16 @@ async function runFixture(page, mode, fixture) {
     speechExpected: fixture.type !== 'silence',
     stopFinalizationMs: result.stopFinalizationMs ?? undefined,
   });
+  // SILENCE GUARD: if the engine received audio frames but ALL were digital silence (frameRms=0, zero
+  // speech frames), the HARNESS failed to deliver audio — NOT the app/STT. Mark INVALID_SETUP so a silent
+  // harness can never masquerade as a transcription failure. (Real audio ⇒ maxRms > 0.)
+  result.audioFrameStats = { ...audioFrameStats };
+  if (mode !== 'silence' && fixture.type !== 'silence'
+      && audioFrameStats.count > 0 && audioFrameStats.maxRms === 0 && audioFrameStats.speechFrames === 0) {
+    result.invalidForWer = true;
+    result.invalidReason = 'harness_silent_audio';
+    result.invalidDetails = `Engine received ${audioFrameStats.count} audio frames but ALL had frameRms=0 (digital silence) — the harness did not deliver audio to the mic pipeline (e.g. a Web-Audio getUserMedia override produced a silent stream). Use STT_USE_FAKE_AUDIO_CAPTURE (Chrome --use-file-for-fake-audio-capture). SETUP error, NOT an STT/app defect.`;
+  }
   result.meetsWerThreshold = MAX_WER == null ? null : result.wer <= MAX_WER;
   result.verdict = result.invalidForWer
     ? result.invalidReason
@@ -1879,6 +1905,14 @@ try {
       evidence.consoleEvents.push({ type: message.type(), text });
       // Un-blind (diagnostic observability only): forward relevant browser console to the run log.
       console.log(`[BROWSER:${message.type()}] ${text}`);
+      if (text.includes('audio_frame_in')) {
+        const rms = text.match(/frameRms:\s*([0-9.]+)/);
+        if (rms) {
+          audioFrameStats.count += 1;
+          audioFrameStats.maxRms = Math.max(audioFrameStats.maxRms, parseFloat(rms[1]) || 0);
+          if (/isSpeechFrame:\s*true/.test(text)) audioFrameStats.speechFrames += 1;
+        }
+      }
     }
   });
   page.on('pageerror', (error) => {

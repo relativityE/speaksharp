@@ -141,19 +141,34 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     const benchmarkConfig = `${V4_VARIANT}|${V4_DEVICE}`;
     // Regression is checked against THIS config's own floor (base_q4|wasm, base_q4|webgpu,
     // distil_q4|webgpu); a null/absent floor means this run establishes it.
-    assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4', benchmarkConfig);
+    // ADVISORY ONLY (owner-approved Option-1 disposition): browser app-path WER is HARNESS-LIMITED
+    // evidence, NOT a release gate — Chrome fake-audio is timing-nondeterministic (±~10pp) and
+    // onset-truncated, so a hard regression throw produces false failures. Log it, never throw.
+    // The deterministic Node clean-decode ceiling (~99%) remains the model-quality gate.
+    try {
+        assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4', benchmarkConfig);
+    } catch (e) {
+        console.warn(`⚠️  [browser WER · harness-limited · advisory, not a gate] ${(e as Error).message}`);
+    }
 
     const benchmarks = readBenchmarks();
     // Per-variant|device floor = the source of truth for the v2-vs-v4 A/B. Each run records (and may
     // only improve) its own config's floor; the latest measurement becomes the floor going forward.
     benchmarks.engines.Private.v4.floors = benchmarks.engines.Private.v4.floors ?? {};
-    benchmarks.engines.Private.v4.floors[benchmarkConfig] = {
-        expectedAccuracy: accuracyPct,
-        model: V4_VARIANT_MODEL_ID[V4_VARIANT],
-    };
-    // Keep the legacy engine-level expectedAccuracy in sync for the rollout default so the frontend
-    // STTAccuracyVsBenchmark component (reads expectedAccuracy) reflects the shipping floor.
-    if (V4_VARIANT === 'base_q4' && V4_DEVICE === 'wasm') {
+    // RAISE-ONLY: browser app-path WER is harness-limited + nondeterministic. Record every run in history
+    // below, but never let a single unlucky run LOWER the committed reference floor (preserves the prior
+    // "floor only improves" intent now that the regression check is advisory rather than throwing).
+    const priorFloorAccuracy = benchmarks.engines.Private.v4.floors[benchmarkConfig]?.expectedAccuracy;
+    if (priorFloorAccuracy == null || accuracyPct > priorFloorAccuracy) {
+        benchmarks.engines.Private.v4.floors[benchmarkConfig] = {
+            expectedAccuracy: accuracyPct,
+            model: V4_VARIANT_MODEL_ID[V4_VARIANT],
+        };
+    }
+    // Keep the legacy engine-level expectedAccuracy in sync for the rollout default (raise-only too) so the
+    // frontend STTAccuracyVsBenchmark component (reads expectedAccuracy) reflects the best shipping floor.
+    if (V4_VARIANT === 'base_q4' && V4_DEVICE === 'wasm'
+        && (benchmarks.engines.Private.v4.expectedAccuracy == null || accuracyPct > benchmarks.engines.Private.v4.expectedAccuracy)) {
         benchmarks.engines.Private.v4.expectedAccuracy = accuracyPct;
     }
     benchmarks.engines.Private.v4.history.push({

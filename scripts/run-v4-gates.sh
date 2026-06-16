@@ -133,7 +133,8 @@ echo ""; echo "════ GATE 2: v4 app-path proof (real WebGPU, headed) ═�
 G2_OUT="$EVIDENCE_DIR/v4-gate2-real-gpu-$TS.json"
 STT_AUTH=existing STT_MODES=private STT_FIXTURES=h1_6 \
 STT_PRIVATE_ENGINE=transformers-js-v4 STT_V4_VARIANT=base_q4 STT_V4_DEVICE=webgpu \
-STT_INJECT_MIC_AUDIO=true STT_POST_PLAYBACK_WAIT_MS=15000 STT_FIRST_TEXT_TIMEOUT_MS=45000 \
+STT_USE_FAKE_AUDIO_CAPTURE=true STT_FAKE_AUDIO_FILE="$REPO/tests/fixtures/stt-isomorphic/audio/h1_6.wav" \
+STT_POST_PLAYBACK_WAIT_MS=15000 STT_FIRST_TEXT_TIMEOUT_MS=45000 \
 HEADLESS=false STT_CORPUS_OUT="$G2_OUT" BASE_URL="$BASE_URL" \
   node scripts/manual-stt-corpus-proof.mjs || echo "⚠ Gate 2 proof returned non-zero (inspect above)"
 

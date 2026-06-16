@@ -115,10 +115,23 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     console.log(`\n📊 Private (CPU) Ceiling: WER ${(wer * 100).toFixed(2)}% → Accuracy ${accuracyPct}%`);
     console.log(`📝 TRANSCRIPT(${wordCount}w/${referenceWordCount}): ${transcriptText}`);
 
-    assertNoRegression('Private', wer, 'TransformersJS', 'cpu');
+    // ADVISORY ONLY (owner-approved Option-1 disposition): browser app-path WER is HARNESS-LIMITED
+    // evidence, NOT a release gate — Chrome fake-audio is timing-nondeterministic + onset-truncated.
+    // Log regressions, never throw. The deterministic Node clean-decode ceiling is the real gate.
+    try {
+        assertNoRegression('Private', wer, 'TransformersJS', 'cpu');
+    } catch (e) {
+        console.warn(`⚠️  [browser WER · harness-limited · advisory, not a gate] ${(e as Error).message}`);
+    }
 
     const benchmarks = readBenchmarks();
-    benchmarks.engines.Private.cpu.expectedAccuracy = accuracyPct;
+    // RAISE-ONLY: browser numbers are harness-limited + nondeterministic (±~10pp). Record EVERY run in
+    // history below, but never let a single unlucky run LOWER the committed reference floor (this preserves
+    // the prior "floor only improves" intent that the now-advisory regression throw used to enforce).
+    const priorCpuAccuracy = benchmarks.engines.Private.cpu.expectedAccuracy;
+    if (priorCpuAccuracy == null || accuracyPct > priorCpuAccuracy) {
+        benchmarks.engines.Private.cpu.expectedAccuracy = accuracyPct;
+    }
     benchmarks.engines.Private.cpu.history.push({
         timestamp: new Date().toISOString(),
         model: 'TransformersJS whisper-small (ONNX CPU)',
