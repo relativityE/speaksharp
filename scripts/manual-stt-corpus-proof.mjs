@@ -1428,6 +1428,11 @@ async function runFixture(page, mode, fixture) {
     }
   }
   if (INJECT_MIC_AUDIO && mode !== 'native') {
+    // ⚠️ NON-AUTHORITATIVE / DEPRECATED for proof. The Web-Audio getUserMedia override is
+    // NONDETERMINISTIC in automated Chrome (observed: digital silence in some runs, partial audio in
+    // others) and is NOT a trusted Gate-2 proof path. Use STT_USE_FAKE_AUDIO_CAPTURE (Chrome
+    // --use-file-for-fake-audio-capture) for authoritative proof. Retained only for ad-hoc diagnostics.
+    console.warn('⚠️  STT_INJECT_MIC_AUDIO is NON-AUTHORITATIVE for proof (nondeterministic in automated Chrome: silence/partial). Use STT_USE_FAKE_AUDIO_CAPTURE for trusted Gate-2 results.');
     await installInjectedMicAudio(page, fixture.audioPath);
   }
   if (mode === 'private' && PRIVATE_MODEL) {
