@@ -88,7 +88,18 @@ else
   echo "✓ app is up on :$PORT."
 fi
 
-# ---- GATE 3 — WebGPU benchmark (writes floors to tests/STT_BENCHMARKS.json) ---
+# ---- GATE 3 — browser app-path benchmarks (write floors to tests/STT_BENCHMARKS.json) ---
+# ALL THREE are the SAME app-path harness (login → record → fake-audio playback → stop →
+# saveCandidate). Running v2-base through the SAME path as v4 is the controlled cross-check:
+# if the app path were uniformly wrong it would hit v2-base too. Compare each to the Dev
+# clean-ceiling anchor (see /private/tmp/DEV_CLEAN_CEILINGS.md): v2-base 100%, v4-base 98.85%,
+# v4-distil 98.85% (Node one-shot, model-only).
+echo ""; echo "════ GATE 3: v2-base (TransformersJS CPU/WASM) app-path reference ════"
+BASE_URL="$BASE_URL" \
+  pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts \
+    --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --headed \
+  || echo "⚠ v2-base (cpu) benchmark returned non-zero (inspect output above)"
+
 run_bench () {  # $1=variant $2=device $3=extraFlags
   echo ""; echo "════ GATE 3: V4_VARIANT=$1 V4_DEVICE=$2 ════"
   V4_VARIANT="$1" V4_DEVICE="$2" BASE_URL="$BASE_URL" \
@@ -99,8 +110,23 @@ run_bench () {  # $1=variant $2=device $3=extraFlags
 run_bench base_q4   webgpu --headed
 run_bench distil_q4 webgpu --headed
 
-echo ""; echo "════ GATE 3 floors (vs v2-base 93.89%) ════"
-node -e "const f=require('./tests/STT_BENCHMARKS.json').engines.Private.v4.floors||{}; for(const k of ['base_q4|webgpu','distil_q4|webgpu']){const a=(f[k]||{}).expectedAccuracy; console.log('  '+k.padEnd(16), a==null?'NULL (not run)':(a+'%  '+(a>=93.89?'✅ ≥93.89':'❌ <93.89')));}"
+echo ""; echo "════ DEV↔TEST SANITY CHECK — browser app-path vs Dev clean ceilings ════"
+node -e '
+const b=require("./tests/STT_BENCHMARKS.json").engines.Private;
+const f=b.v4.floors||{};
+const dev={"v2-base":100.0,"v4-base":98.85,"v4-distil":98.85};   // Dev Node one-shot ceilings (model-only)
+const got={"v2-base":(b.cpu||{}).expectedAccuracy,"v4-base":(f["base_q4|webgpu"]||{}).expectedAccuracy,"v4-distil":(f["distil_q4|webgpu"]||{}).expectedAccuracy};
+const fmt=x=>x==null?"NULL(not run)":x+"%";
+console.log("  config       Dev-ceiling   Test-browser(app-path)   delta(pp)");
+for(const k of ["v2-base","v4-base","v4-distil"]){const d=dev[k],t=got[k];const dl=(t==null)?"—":(t-d).toFixed(2);console.log("  "+k.padEnd(12),String(d+"%").padEnd(13),fmt(t).padEnd(24),dl);}
+const v2=got["v2-base"];
+if(v2!=null){
+  console.log("\n  A/B bar = v2-base measured THIS run ("+v2+"%) — the retired 93.89% (tiny.en/Node) is NOT the bar.");
+  for(const k of ["v4-base","v4-distil"]){const t=got[k];if(t!=null)console.log("  "+k+": "+t+"%  "+(t>=v2?"✅ ≥ v2-base":"❌ < v2-base"));}
+}
+console.log("\n  Interpretation: large NEGATIVE delta for v4 but ~0 for v2-base ⇒ v4-specific app-path bug.");
+console.log("  Large negative delta for BOTH ⇒ general app-path bug. ~0 for both ⇒ no harness damage.");
+'
 
 # ---- GATE 2 — flag-ON app-path proof on real WebGPU --------------------------
 echo ""; echo "════ GATE 2: v4 app-path proof (real WebGPU, headed) ════"
@@ -118,5 +144,6 @@ echo ""
 echo "================================================================"
 echo "DONE. Gate 3 floors → tests/STT_BENCHMARKS.json (git diff shows them)."
 echo "      Gate 2 proof  → $G2_OUT"
-echo "NEXT: commit the floor numbers via PR; post results + ✅/❌ vs 93.89% to the board."
+echo "NEXT: commit the floor numbers via PR; post the SANITY-CHECK table (v2-base/v4-base/v4-distil"
+echo "      browser app-path vs Dev clean ceilings) + ✅/❌ vs v2-base to the board."
 echo "================================================================"
