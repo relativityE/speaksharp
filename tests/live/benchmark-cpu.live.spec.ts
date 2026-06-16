@@ -125,7 +125,13 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     }
 
     const benchmarks = readBenchmarks();
-    benchmarks.engines.Private.cpu.expectedAccuracy = accuracyPct;
+    // RAISE-ONLY: browser numbers are harness-limited + nondeterministic (±~10pp). Record EVERY run in
+    // history below, but never let a single unlucky run LOWER the committed reference floor (this preserves
+    // the prior "floor only improves" intent that the now-advisory regression throw used to enforce).
+    const priorCpuAccuracy = benchmarks.engines.Private.cpu.expectedAccuracy;
+    if (priorCpuAccuracy == null || accuracyPct > priorCpuAccuracy) {
+        benchmarks.engines.Private.cpu.expectedAccuracy = accuracyPct;
+    }
     benchmarks.engines.Private.cpu.history.push({
         timestamp: new Date().toISOString(),
         model: 'TransformersJS whisper-small (ONNX CPU)',

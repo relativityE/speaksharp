@@ -155,13 +155,20 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     // Per-variant|device floor = the source of truth for the v2-vs-v4 A/B. Each run records (and may
     // only improve) its own config's floor; the latest measurement becomes the floor going forward.
     benchmarks.engines.Private.v4.floors = benchmarks.engines.Private.v4.floors ?? {};
-    benchmarks.engines.Private.v4.floors[benchmarkConfig] = {
-        expectedAccuracy: accuracyPct,
-        model: V4_VARIANT_MODEL_ID[V4_VARIANT],
-    };
-    // Keep the legacy engine-level expectedAccuracy in sync for the rollout default so the frontend
-    // STTAccuracyVsBenchmark component (reads expectedAccuracy) reflects the shipping floor.
-    if (V4_VARIANT === 'base_q4' && V4_DEVICE === 'wasm') {
+    // RAISE-ONLY: browser app-path WER is harness-limited + nondeterministic. Record every run in history
+    // below, but never let a single unlucky run LOWER the committed reference floor (preserves the prior
+    // "floor only improves" intent now that the regression check is advisory rather than throwing).
+    const priorFloorAccuracy = benchmarks.engines.Private.v4.floors[benchmarkConfig]?.expectedAccuracy;
+    if (priorFloorAccuracy == null || accuracyPct > priorFloorAccuracy) {
+        benchmarks.engines.Private.v4.floors[benchmarkConfig] = {
+            expectedAccuracy: accuracyPct,
+            model: V4_VARIANT_MODEL_ID[V4_VARIANT],
+        };
+    }
+    // Keep the legacy engine-level expectedAccuracy in sync for the rollout default (raise-only too) so the
+    // frontend STTAccuracyVsBenchmark component (reads expectedAccuracy) reflects the best shipping floor.
+    if (V4_VARIANT === 'base_q4' && V4_DEVICE === 'wasm'
+        && (benchmarks.engines.Private.v4.expectedAccuracy == null || accuracyPct > benchmarks.engines.Private.v4.expectedAccuracy)) {
         benchmarks.engines.Private.v4.expectedAccuracy = accuracyPct;
     }
     benchmarks.engines.Private.v4.history.push({
