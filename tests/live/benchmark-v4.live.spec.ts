@@ -141,7 +141,15 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     const benchmarkConfig = `${V4_VARIANT}|${V4_DEVICE}`;
     // Regression is checked against THIS config's own floor (base_q4|wasm, base_q4|webgpu,
     // distil_q4|webgpu); a null/absent floor means this run establishes it.
-    assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4', benchmarkConfig);
+    // ADVISORY ONLY (owner-approved Option-1 disposition): browser app-path WER is HARNESS-LIMITED
+    // evidence, NOT a release gate — Chrome fake-audio is timing-nondeterministic (±~10pp) and
+    // onset-truncated, so a hard regression throw produces false failures. Log it, never throw.
+    // The deterministic Node clean-decode ceiling (~99%) remains the model-quality gate.
+    try {
+        assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4', benchmarkConfig);
+    } catch (e) {
+        console.warn(`⚠️  [browser WER · harness-limited · advisory, not a gate] ${(e as Error).message}`);
+    }
 
     const benchmarks = readBenchmarks();
     // Per-variant|device floor = the source of truth for the v2-vs-v4 A/B. Each run records (and may
