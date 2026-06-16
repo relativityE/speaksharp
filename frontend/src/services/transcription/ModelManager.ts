@@ -21,7 +21,8 @@ export class ModelManager {
     private static get TRANSFORMERS_MODEL_PATH(): string {
         return PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].localId;
     }
-    private static readonly TRANSFORMERS_V4_MODEL_PATH = 'onnx-community/whisper-tiny.en';
+    // Derive from the canonical v4 model id (base_q4 rollout floor) — v4 has no tiny variant.
+    private static readonly TRANSFORMERS_V4_MODEL_PATH = PRIV_STT_V4.MODEL_ID;
     private static readonly TRANSFORMERS_REQUIRED_CACHE_FILES = [
         'config.json',
         'tokenizer.json',

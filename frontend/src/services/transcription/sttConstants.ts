@@ -119,13 +119,16 @@ export const PRIV_STT_VAD = {
 
 export const PRIV_STT_V4 = {
   ENGINE_KEY: 'transformers-js-v4',
-  MODEL_ID: 'onnx-community/whisper-tiny.en',
+  // Default v4 model id (base_q4 = rollout floor). v4 has NO tiny variant — PRIV_STT_V4_VARIANTS is the
+  // source of truth; this is only a defensive default/fallback for the worker init.
+  MODEL_ID: 'onnx-community/whisper-base.en',
   DTYPE: {
     encoder_model: 'fp32',
     decoder_model_merged: 'q4',
   },
   DEVICE: null,
-  EXPECTED_Q4_SPLIT_DOWNLOAD_MB: 120,
+  // Matches PRIV_STT_V4_VARIANTS.base_q4 (whisper-base.en) — was 120 for the old tiny default.
+  EXPECTED_Q4_SPLIT_DOWNLOAD_MB: 142,
   WORKER_REQUEST_TIMEOUT_MS: 90_000,
 } as const;
 
