@@ -24,10 +24,10 @@ on:
         type: string
         required: true
       cohort_name:
-        description: 'Static single-user cohort name'
+        description: 'Optional explicit static cohort name. LEAVE EMPTY (recommended) to auto-generate a UNIQUE per-run single-user cohort.'
         type: string
         required: false
-        default: stt_ab_disposable_pro_testers
+        default: ''
 
 permissions:
   contents: read
@@ -50,7 +50,7 @@ jobs:
       - name: PostHog Gate B — single-user targeting proof (NO broad rollout)
         env:
           STT_AB_APP_USER_ID: ${{ inputs.app_user_id }}
-          POSTHOG_STT_AB_COHORT_NAME: ${{ inputs.cohort_name }}
+          INPUT_COHORT_NAME: ${{ inputs.cohort_name }}
           POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
@@ -58,7 +58,15 @@ jobs:
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
         run: |
           set -o pipefail
-          node scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs | tee gate-b-evidence.txt
+          # UNIQUE per-run single-user cohort unless an explicit name was supplied — so the proof never
+          # reuses a shared cohort that could already hold other members.
+          COHORT_NAME="$INPUT_COHORT_NAME"
+          if [ -z "$COHORT_NAME" ]; then
+            COHORT_NAME="stt_ab_single_user_run${{ github.run_id }}_a${{ github.run_attempt }}"
+          fi
+          echo "Single-user cohort for this run: $COHORT_NAME"
+          POSTHOG_STT_AB_COHORT_NAME="$COHORT_NAME" \
+            node scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs | tee gate-b-evidence.txt
           grep 'POSTHOG_STT_AB_AUTHENTICATED_USER_TARGETING_PROOF_EVIDENCE' gate-b-evidence.txt \
             | sed 's/^POSTHOG_STT_AB_AUTHENTICATED_USER_TARGETING_PROOF_EVIDENCE //' > gate-b-evidence.json || true
 

@@ -22,7 +22,9 @@ import { join } from 'node:path';
 
 const WORKFLOW = 'posthog-gate-b.yml';
 const appUserId = process.argv[2];
-const cohortName = process.argv[3] || 'stt_ab_disposable_pro_testers';
+// Optional. If omitted, the workflow auto-generates a UNIQUE per-run single-user cohort. Do NOT default
+// to a shared cohort name here — that would defeat the per-run exclusivity guarantee.
+const cohortName = process.argv[3] || '';
 
 if (!appUserId) {
   console.error('Usage: node scripts/trigger-posthog-gate-b.mjs <app_user_id> [cohort_name]');
@@ -47,10 +49,10 @@ try {
 
 console.log(`▶ Dispatching ${WORKFLOW} (single-user targeting proof)`);
 console.log(`    app_user_id = ${appUserId}`);
-console.log(`    cohort_name = ${cohortName}`);
-gh(['workflow', 'run', WORKFLOW, '-f', `app_user_id=${appUserId}`, '-f', `cohort_name=${cohortName}`], {
-  stdio: ['ignore', 'inherit', 'inherit'],
-});
+console.log(`    cohort_name = ${cohortName || '(auto-generated unique per-run cohort)'}`);
+const dispatchArgs = ['workflow', 'run', WORKFLOW, '-f', `app_user_id=${appUserId}`];
+if (cohortName) dispatchArgs.push('-f', `cohort_name=${cohortName}`);
+gh(dispatchArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
 
 // Resolve the dispatched run id (poll briefly; dispatch is async).
 let runId = '';

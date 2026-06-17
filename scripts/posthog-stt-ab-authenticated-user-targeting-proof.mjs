@@ -69,8 +69,10 @@ try {
   // exposure before we touch anything → abort WITHOUT mutating (do not proceed on an unsafe baseline).
   if (evidence.controlEvaluationBefore?.privateSttV4Enabled) {
     evidence.classification = 'FAIL_PREEXISTING_BROAD_EXPOSURE';
-  } else if (hasBroadGroup(flagBefore)) {
-    evidence.classification = 'FAIL_PREEXISTING_BROAD_FLAG_GROUP';
+  } else if (positiveGroups(flagBefore).length > 0) {
+    // STRICT: the flag must start at a clean 0% baseline. ANY pre-existing positive-rollout group
+    // (broad OR cohort-scoped) could already expose v4 to other users — abort WITHOUT mutating.
+    evidence.classification = 'FAIL_PREEXISTING_POSITIVE_GROUP';
   }
 
   if (evidence.classification) {
@@ -464,7 +466,8 @@ function classifyFinal() {
   if (evidence.flagEvaluationAfter?.distilEnabled) return 'FAIL_FLAG_TARGETING_CONFIG';
   // EXCLUSIVITY gates — v4 must be ON for the target AND OFF for everyone else.
   if (!evidence.exclusivity?.controlDeniedV4After) return 'FAIL_BROAD_EXPOSURE_AFTER';
-  if (!evidence.exclusivity?.noBroadGroupsAfter) return 'FAIL_BROAD_FLAG_GROUP_AFTER';
+  // WHITELIST: the only positive-rollout group must be the cohort we just created (no other cohorts).
+  if (!evidence.exclusivity?.whitelistPass) return 'FAIL_NON_WHITELISTED_POSITIVE_GROUP';
   return 'TARGETING_VERIFIED';
 }
 
@@ -490,6 +493,21 @@ function groupIsBroad(group) {
 function hasBroadGroup(flag) {
   if (!flag?.found) return false;
   return flagGroups(flag).some(groupIsBroad);
+}
+
+// Any group that GRANTS exposure (rollout_percentage > 0; unset ⇒ 100), broad or cohort-scoped.
+function positiveGroups(flag) {
+  return flagGroups(flag).filter((g) => {
+    const r = g?.rollout_percentage;
+    return r == null || Number(r) > 0;
+  });
+}
+
+// The cohort id(s) a group is scoped to (PostHog cohort condition: {key:'id', value:<id>, type:'cohort'}).
+function groupCohortIds(group) {
+  return extractProperties(group)
+    .filter((p) => p?.type === 'cohort' || p?.key === 'id' || p?.key === 'cohort')
+    .map((p) => String(p?.value));
 }
 
 function summarizeFlagGroups(flag) {
@@ -520,18 +538,33 @@ async function getCohortMemberCount(cohortId) {
 }
 
 function assessExclusivity(flagAfter) {
+  const createdCohortId = evidence.cohort?.id != null ? String(evidence.cohort.id) : null;
   const targetGetsV4 = evidence.flagEvaluationAfter?.privateSttV4Enabled === true;
   const controlDeniedV4After = evidence.controlEvaluationAfter?.privateSttV4Enabled === false;
   const distilOff = evidence.flagEvaluationAfter?.distilEnabled === false;
-  const noBroadGroupsAfter = flagAfter?.found ? !flagGroups(flagAfter).some(groupIsBroad) : false;
+  const posAfter = flagAfter?.found ? positiveGroups(flagAfter) : [];
+  const noBroadGroupsAfter = !posAfter.some(groupIsBroad);
+  const actualPositiveGroupCohortIds = [...new Set(posAfter.flatMap(groupCohortIds))];
+  // WHITELIST: every positive-rollout group must be cohort-scoped to EXACTLY the cohort we created —
+  // no broad groups, and no OTHER cohort ids (which could carry other real users).
+  const whitelistPass = Boolean(createdCohortId)
+    && posAfter.length >= 1
+    && noBroadGroupsAfter
+    && actualPositiveGroupCohortIds.length === 1
+    && actualPositiveGroupCohortIds[0] === createdCohortId;
   return {
+    createdCohortId,
+    allowedPositiveGroupCohortIds: createdCohortId ? [createdCohortId] : [],
+    actualPositiveGroupCohortIds,
+    positiveGroupCount: posAfter.length,
     targetGetsV4,
     controlDeniedV4After,
     controlDistinctId,
     distilOff,
     noBroadGroupsAfter,
+    whitelistPass,
     cohortMemberCount: evidence.cohortMemberCount?.count ?? null,
-    pass: targetGetsV4 && controlDeniedV4After && distilOff && noBroadGroupsAfter,
+    pass: targetGetsV4 && controlDeniedV4After && distilOff && whitelistPass,
   };
 }
 
