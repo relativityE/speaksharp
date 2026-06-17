@@ -117,7 +117,8 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
 
     // ADVISORY ONLY (owner-approved Option-1 disposition): browser app-path WER is HARNESS-LIMITED
     // evidence, NOT a release gate — Chrome fake-audio is timing-nondeterministic + onset-truncated.
-    // Log regressions, never throw. The deterministic Node clean-decode ceiling is the real gate.
+    // Log regressions, never throw. (The "Node clean-decode ceiling" is historical/unreproducible
+    // in-repo and NOT a release gate — see tests/STT_BENCHMARKS.json _floors_note + _measurement_framing.)
     try {
         assertNoRegression('Private', wer, 'TransformersJS', 'cpu');
     } catch (e) {
