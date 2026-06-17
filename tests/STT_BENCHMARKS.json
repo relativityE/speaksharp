@@ -164,7 +164,7 @@
             "distil_q4_accuracy_pct": 88.51,
             "corpus": "harvard-list-1",
             "environment": "chromium-playwright-v4-worker-webgpu",
-            "caveat": "harness-limited (Chrome fake-audio); NOT a quality gate"
+            "caveat": "harness-limited APP-PATH measurement (Chrome fake-audio), NOT a model-quality number and NOT a quality gate. Model quality is unproven in-repo until a v4 Node harness is rebuilt (post-launch)."
           },
           "gate2_app_path": {
             "fixture": "h1_6",
