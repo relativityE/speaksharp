@@ -1,6 +1,16 @@
 {
   "_comment": "Static WER ceilings established via Harvard Sentence baseline benchmarks.",
-  "_vendor_note": "`vendor` = each model's VENDOR-PUBLISHED accuracy/WER, with source URL + access date (2026-06-16). ALL figures are normalized to the SAME corpus — LibriSpeech test-clean — so they ARE comparable to each other (ranking: Cloud/AssemblyAI 97.29% > distil-small.en 96.52% > whisper-base.en 95.75% > whisper-tiny.en 94.34%, matching real-world experience that Cloud is most accurate). They are NOT measured by SpeakSharp and NOT on harvard-list-1, so do NOT compare them to expectedAccuracy/floors above. IMPORTANT: LibriSpeech test-clean is easy, clean read speech; on diverse/real-world audio the small self-hosted Whisper models degrade FAR more than AssemblyAI (whose Universal Streaming mean across its published benchmark set is ~8.6% WER), so Cloud's real-world accuracy lead over Private is LARGER than the clean-corpus gap shown here.",
+  "_vendor_note": "`vendor` = each model's VENDOR/PAPER-PUBLISHED accuracy/WER. Each entry carries its own inline provenance: `source` (URL), `source_published` (where the figure originates), `verified` (how/when the number was confirmed against that source), and `accessed` date. All figures verified 2026-06-17. Corpus: Cloud/AssemblyAI + whisper-base.en + whisper-tiny.en are LibriSpeech test-clean; distil-small.en is LibriSpeech dev-clean (validation-clean) — the split its model card actually publishes (near-equivalent clean read speech, but a DIFFERENT split, so comparable-but-not-identical-corpus). Ranking on these clean read-speech sets: Cloud/AssemblyAI 97.29% > distil-small.en 96.57% (dev-clean) > whisper-base.en 95.8% > whisper-tiny.en 94.4%, matching real-world experience that Cloud is most accurate. They are NOT measured by SpeakSharp and NOT on harvard-list-1, so do NOT compare them to expectedAccuracy/floors above. IMPORTANT: LibriSpeech clean is easy, clean read speech; on diverse/real-world audio the small self-hosted Whisper models degrade FAR more than AssemblyAI (whose Universal Streaming mean across its published benchmark set is ~8.6% WER), so Cloud's real-world accuracy lead over Private is LARGER than the clean-corpus gap shown here.",
+  "_measurement_framing": {
+    "policy": "INTERNAL measurement context ONLY. Do NOT build a customer-facing vendor-vs-SpeakSharp accuracy comparison. The two sides are measured on different corpora/paths, so a head-to-head would falsely imply our small Whisper models beat vendor claims — they do not (our v4 base_q4 IS the vendor's whisper-base.en model and cannot exceed its own 95.8% published WER). Decision 2026-06-17 (option 2). An apples-to-apples LibriSpeech re-measure is a POST-LAUNCH backlog calibration task, NOT release-readiness work.",
+    "how_to_read": {
+      "vendor": "Published REFERENCE numbers on LibriSpeech (test-clean; distil-small.en is dev-clean) — vendor model-quality on a standard benchmark. NOT measured by SpeakSharp.",
+      "speaksharp_measured": "Measured on Harvard Sentences (harvard-list-1), a DIFFERENT and easier corpus. Not comparable to the vendor LibriSpeech numbers.",
+      "node_clean_decode": "v4 'Node clean-decode ceiling' (~98.85%) is HISTORICAL PROSE ONLY, currently UNREPRODUCIBLE in-repo (v4 Node harness scripts/dev/private-v2-v4-node-compare.mts deleted in commit f970c67a; surviving benchmark-whisper-ceiling.mts is v2 tiny.en only), NOT a release gate, and pending a rebuilt v4 Node harness (post-launch backlog). Concept = best-case model ceiling (full clean file, no streaming/mic); not a real-use number. Do NOT cite as a structured fact — use v4.reproducible_evidence instead.",
+      "browser_app_path": "Harness-limited (Chrome fake-audio); NOT a quality gate. See _floors_note + /private/tmp/V4_BROWSER_PERF_DISPOSITION.md.",
+      "production_accuracy_winner": "AssemblyAI (Cloud) is the more accurate production STT option. Private Whisper is valuable for privacy, cost control, local-first behavior, and fallback resilience — NOT superior accuracy."
+    }
+  },
   "engines": {
     "Cloud": {
       "expectedAccuracy": 91.86,
@@ -11,9 +21,12 @@
         "wer": 0.0271,
         "corpus": "LibriSpeech test-clean",
         "source": "https://www.assemblyai.com/docs/streaming/benchmarks.md",
-        "accessed": "2026-06-16",
+        "source_published": "AssemblyAI Streaming benchmarks, last updated Mar 2026",
+        "verified": "WebFetch 2026-06-17: 'English benchmarks' row librispeech_test_clean = 2.71% WER (= 97.29% accuracy); page last updated Mar 2026.",
+        "accessed": "2026-06-17",
         "realistic_mean_wer": 0.086,
-        "realistic_note": "8.6% mean WER across AssemblyAI's published Universal Streaming benchmark set (LibriSpeech clean/other, CommonVoice 11.81%, Earnings21 12.37%, TEDLIUM 7.81%, Meanwhile 6.73%, Rev16 12.99%), updated Mar 2026. This realistic figure is the better predictor of production accuracy; self-hosted Whisper base/tiny degrade much more than AssemblyAI off clean read speech."
+        "realistic_source": "https://www.assemblyai.com/benchmarks",
+        "realistic_note": "8.6% mean WER (~91.4% accuracy) across AssemblyAI's published Universal Streaming benchmark set (LibriSpeech clean/other, CommonVoice 11.81%, Earnings21 12.37%, TEDLIUM 7.81%, Meanwhile 6.73%, Rev16 12.99%), updated Mar 2026. This realistic figure is the better predictor of production accuracy; self-hosted Whisper base/tiny degrade much more than AssemblyAI off clean read speech."
       },
       "benchmarkPolicy": "Cloud uses AssemblyAI Universal Streaming, not pre-recorded batch transcription. The release gate tracks the published/comparable streaming WER target (~8.14% WER = 91.86% accuracy); 95% remains a stretch target for a future batch/offline path.",
       "history": [
@@ -51,20 +64,24 @@
         "vendor": {
           "whisper-base.en": {
             "model": "openai/whisper-base.en",
-            "accuracy_pct": 95.75,
-            "wer": 0.0425,
-            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
-            "source": "https://huggingface.co/openai/whisper-base.en",
-            "accessed": "2026-06-16",
+            "accuracy_pct": 95.8,
+            "wer": 0.042,
+            "corpus": "LibriSpeech test-clean",
+            "source": "https://arxiv.org/abs/2212.04356",
+            "source_published": "Whisper paper (Radford et al. 2022), Appendix Table D.1.1",
+            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): base.en LibriSpeech test-clean = 4.2% WER (= 95.8% accuracy). Prior 4.25%/'Open ASR Leaderboard' attribution corrected: the cited model card does not publish a test-clean WER; the Whisper paper does.",
+            "accessed": "2026-06-17",
             "role": "v2 Private DEFAULT model"
           },
           "whisper-tiny.en": {
             "model": "openai/whisper-tiny.en",
-            "accuracy_pct": 94.34,
-            "wer": 0.0566,
-            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
-            "source": "https://huggingface.co/openai/whisper-tiny.en",
-            "accessed": "2026-06-16",
+            "accuracy_pct": 94.4,
+            "wer": 0.056,
+            "corpus": "LibriSpeech test-clean",
+            "source": "https://arxiv.org/abs/2212.04356",
+            "source_published": "Whisper paper (Radford et al. 2022), Appendix Table D.1.1",
+            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): tiny.en LibriSpeech test-clean = 5.6% WER (= 94.4% accuracy). Prior 5.66%/'Open ASR Leaderboard' attribution corrected (see whisper-base.en).",
+            "accessed": "2026-06-17",
             "role": "v2 emergency fallback only"
           }
         },
@@ -120,22 +137,52 @@
         "vendor": {
           "base_q4": {
             "model": "openai/whisper-base.en (onnx-community port)",
-            "accuracy_pct": 95.75,
-            "wer": 0.0425,
-            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
-            "source": "https://huggingface.co/openai/whisper-base.en",
-            "accessed": "2026-06-16"
+            "accuracy_pct": 95.8,
+            "wer": 0.042,
+            "corpus": "LibriSpeech test-clean",
+            "source": "https://arxiv.org/abs/2212.04356",
+            "source_published": "Whisper paper (Radford et al. 2022), Appendix Table D.1.1",
+            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): base.en LibriSpeech test-clean = 4.2% WER (= 95.8% accuracy). Vendor reference = base model's published WER; the q4-quantized onnx-community port may differ slightly in practice.",
+            "accessed": "2026-06-17"
           },
           "distil_q4": {
             "model": "distil-whisper/distil-small.en (onnx-community port)",
-            "accuracy_pct": 96.52,
-            "wer": 0.0348,
-            "corpus": "LibriSpeech test-clean (Open ASR Leaderboard)",
+            "accuracy_pct": 96.57,
+            "wer": 0.0343,
+            "corpus": "LibriSpeech dev-clean (validation-clean)",
             "source": "https://huggingface.co/distil-whisper/distil-small.en",
-            "accessed": "2026-06-16"
+            "source_published": "distil-small.en model card, evaluation section",
+            "verified": "WebFetch 2026-06-17: model card eval reports 3.4326% WER (= 96.57% accuracy) on LibriSpeech validation/dev-clean. Corrected: prior entry claimed 3.48% on test-clean — the card reports dev-clean, not test-clean. Vendor reference = base distil-small.en's published WER; the q4-quantized port may differ slightly in practice.",
+            "accessed": "2026-06-17"
           }
         },
-        "_floors_note": "DISPOSITION 2026-06-16: the `floors` below are BROWSER fake-audio numbers and are HARNESS-LIMITED EVIDENCE, NOT the release gate. Chrome --use-file-for-fake-audio-capture free-runs against a variable pre-record delay, so the SAME config varies widely (base_q4|webgpu measured 83.91% and a 15-word under-capture on back-to-back runs). Authoritative model-quality = the deterministic Node clean-decode ceiling (~99%; v4 base_q4/distil_q4 ≈ 98.85%). Real-world v2-vs-v4 = PostHog A/B post-Gate-B. Rollout treatment = base_q4 ONLY (distil_q4 stays flag-OFF, NOT a customer A/B arm). See /private/tmp/V4_BROWSER_PERF_DISPOSITION.md. The 2026-05-25 tiny.en entry is HISTORICAL REFERENCE ONLY.",
+        "_floors_note": "DISPOSITION 2026-06-16: the `floors` below are BROWSER fake-audio numbers and are HARNESS-LIMITED EVIDENCE, NOT the release gate. Chrome --use-file-for-fake-audio-capture free-runs against a variable pre-record delay, so the SAME config varies widely (base_q4|webgpu measured 83.91% and a 15-word under-capture on back-to-back runs). The v4 'Node clean-decode ceiling' (~98.85%) is HISTORICAL PROSE ONLY and currently UNREPRODUCIBLE in-repo (v4 Node harness scripts/dev/private-v2-v4-node-compare.mts deleted in commit f970c67a; surviving benchmark-whisper-ceiling.mts is v2 tiny.en only) — treat as NOT a release gate, pending a rebuilt v4 Node harness (post-launch backlog). Reproducible CURRENT v4 evidence = the WebGPU floors below + Gate 2 app-path + Gate B/PostHog (see reproducible_evidence). Real-world v2-vs-v4 = PostHog A/B post-Gate-B. Rollout treatment = base_q4 ONLY (distil_q4 stays flag-OFF, NOT a customer A/B arm). See /private/tmp/V4_BROWSER_PERF_DISPOSITION.md. The 2026-05-25 tiny.en entry is HISTORICAL REFERENCE ONLY.",
+        "reproducible_evidence": {
+          "_note": "ONLY reproducible CURRENT v4 measurements/proofs are structured here. The ~98.85% Node ceiling is intentionally NOT listed — it is historical/unreproducible (see _floors_note + _measurement_framing.how_to_read.node_clean_decode).",
+          "browser_webgpu_floors": {
+            "base_q4_accuracy_pct": 83.91,
+            "distil_q4_accuracy_pct": 88.51,
+            "corpus": "harvard-list-1",
+            "environment": "chromium-playwright-v4-worker-webgpu",
+            "caveat": "harness-limited APP-PATH measurement (Chrome fake-audio), NOT a model-quality number and NOT a quality gate. Model quality is unproven in-repo until a v4 Node harness is rebuilt (post-launch)."
+          },
+          "gate2_app_path": {
+            "fixture": "h1_6",
+            "wer": 0,
+            "result": "transcribe -> save -> persist -> detail passed (3x reproducible)",
+            "environment": "Chrome fake-audio route (STT_USE_FAKE_AUDIO_CAPTURE)",
+            "source": "scripts/run-v4-gates.sh (Gate 2)"
+          },
+          "gateb_posthog": {
+            "selectionSource": "posthog_flag",
+            "provider": "transformers-js-v4",
+            "variant": "base_q4",
+            "fallback": false,
+            "sessions_saved": true,
+            "note": "v4 selected via PostHog flag for the targeted operator (single-user targeting verified read-only); sessions saved.",
+            "source": ".github/workflows/posthog-gate-b.yml + scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs"
+          }
+        },
         "floors": {
           "base_q4|wasm": {
             "expectedAccuracy": null,
