@@ -125,6 +125,17 @@ jobs:
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:dast:live
+      - name: Upload Gate 3 DAST artifacts (trace/screenshot/video/report)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-3-dast-artifacts
+          path: |
+            test-results/
+            playwright-report/
+            blob-report/
+          retention-days: 14
+          if-no-files-found: ignore
 
   gate-4-sca:
     name: Gate 4 - SCA / Dependency Review
