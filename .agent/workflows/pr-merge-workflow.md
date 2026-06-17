@@ -64,6 +64,13 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
 - **A local `pnpm rc:gates` failure is NOT a gate failure.** Local can't fully run: Gate 3 (`rc:dast:live`) needs live credentials + the deployed app, and the impact-detection step can hit local tooling limits (e.g. `execSync` ENOBUFS on large output). The real result is `rc-gates.yml` on `main`.
 - **"2 skipped" in a run** = environment-gated `test.skip(...)` (Pro creds / feature flags) — expected, not a failure.
 
+## Test-agent environment self-check
+The Test agent's sandbox can regress (no GitHub/npm network, invalid `gh` token, Playwright can't launch). When it does, Test **cannot** own GitHub/CI/RC-gate/STT-proof work — Dev covers it until the env returns.
+- **Run at every session start:** `bash scripts/test-env-selfcheck.sh` (checks github/npm reachability, `gh` auth, gh-Actions read, `.git` writable, Playwright launch).
+- **VERDICT ENV GREEN** → post `TEST resuming (env green <date>)` on `/private/tmp/ACTIVE_COORDINATION.md` and resume ownership.
+- **VERDICT ENV BLOCKED** → post the FAIL line(s) + date there; Dev keeps GitHub/CI/RC ownership meanwhile.
+- Reminder: live-DAST (Gate 3) and the cloud `rc-gates.yml` dispatch both need a green env; a blocked sandbox is an env problem, not a gate failure.
+
 ## Hard rules
 - No direct pushes to `main`; no merging a PR with red or pending required checks (enforce-admins is ON — no admin bypass).
 - One concern per PR; do not bundle unrelated code/docs.
