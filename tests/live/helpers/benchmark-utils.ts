@@ -326,56 +326,110 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
     }
     await select.scrollIntoViewIfNeeded();
 
-    const deadline = Date.now() + 45_000;
-    let attempt = 0;
-    let lastOptionState: unknown = null;
+    // DIAGNOSTIC HARDENING (NOT the Gate-3 fix): make the 45s loop deadline real and classify the
+    // failure mode. Previously `option.click()` had no per-action timeout, so a hung click let the
+    // global 420s test timeout kill the page first (opaque "page closed"). Now: bound the click,
+    // capture console errors + before/after option diagnostics, and distinguish
+    // OPTION_NEVER_VISIBLE_OR_ENABLED vs CLICK_ACTIONABILITY_FAILED vs APP_NO_DATA_STATE_TRANSITION.
+    const consoleErrors: string[] = [];
+    const onConsole = (m: { type(): string; text(): string }) => {
+        if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 300));
+    };
+    const onPageError = (e: Error) => consoleErrors.push(`pageerror: ${e.message.slice(0, 300)}`);
+    page.on('console', onConsole);
+    page.on('pageerror', onPageError);
 
-    while (Date.now() < deadline) {
-        attempt++;
-        await select.click({ force: true }).catch(() => undefined);
+    const option = page.getByTestId(`stt-mode-${mode}`);
+    const captureOptionDiag = async () => option.evaluate((element) => {
+        const el = element as HTMLElement;
+        const rect = el.getBoundingClientRect();
+        const active = document.activeElement as HTMLElement | null;
+        const banner = document.querySelector(
+            '[data-testid="status-message-text"], [role="dialog"], [data-testid="download-model-button"]'
+        ) as HTMLElement | null;
+        return {
+            text: el.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? null,
+            ariaDisabled: el.getAttribute('aria-disabled'),
+            hasDisabled: el.hasAttribute('disabled'),
+            hasDataDisabled: el.hasAttribute('data-disabled'),
+            boundingBox: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+            selectState: document.querySelector('[data-testid="stt-mode-select"]')?.getAttribute('data-state') ?? null,
+            activeElement: active ? (active.getAttribute('data-testid') ?? active.tagName) : null,
+            bannerOrModal: banner?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 160) ?? null,
+            url: window.location.href,
+        };
+    }).catch(() => null);
 
-        const option = page.getByTestId(`stt-mode-${mode}`);
-        const visible = await option.isVisible({ timeout: 2_000 }).catch(() => false);
-        const enabled = visible
-            ? await option.evaluate((element) => {
-                const htmlElement = element as HTMLElement;
-                return (
-                    htmlElement.getAttribute('aria-disabled') !== 'true' &&
-                    !htmlElement.hasAttribute('disabled') &&
-                    !htmlElement.hasAttribute('data-disabled')
-                );
-            }).catch(() => false)
-            : false;
+    try {
+        const deadline = Date.now() + 45_000;
+        let attempt = 0;
+        let lastOptionState: unknown = null;
 
-        lastOptionState = { attempt, visible, enabled };
+        while (Date.now() < deadline) {
+            attempt++;
+            await select.click({ force: true, timeout: 3_000 }).catch(() => undefined);
 
-        if (visible && enabled) {
-            await option.click({ force: true });
+            const visible = await option.isVisible({ timeout: 2_000 }).catch(() => false);
+            const enabled = visible
+                ? await option.evaluate((element) => {
+                    const htmlElement = element as HTMLElement;
+                    return (
+                        htmlElement.getAttribute('aria-disabled') !== 'true' &&
+                        !htmlElement.hasAttribute('disabled') &&
+                        !htmlElement.hasAttribute('data-disabled')
+                    );
+                }).catch(() => false)
+                : false;
 
-            try {
-                await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
-                await logBenchmarkPhase(page, `SETUP_STT_MODE_SELECTED_${mode.toUpperCase()}`);
-                return;
-            } catch (error) {
-                lastOptionState = {
-                    attempt,
-                    visible,
-                    enabled,
-                    selectedState: await select.getAttribute('data-state').catch(() => null),
-                    error: error instanceof Error ? error.message : String(error),
-                };
+            lastOptionState = { attempt, visible, enabled };
+
+            if (visible && enabled) {
+                const preClick = await captureOptionDiag();
+
+                // Bounded click: a hung click fails in 3s with diagnostics instead of consuming
+                // the 420s global test budget.
+                try {
+                    await option.click({ force: true, timeout: 3_000 });
+                } catch (clickError) {
+                    const snapshot = await collectBenchmarkPreconditionSnapshot(page, `select-${mode}-click-failed`);
+                    throw new Error(`Benchmark mode selection CLICK failed for ${mode}\n${JSON.stringify({
+                        classification: 'CLICK_ACTIONABILITY_FAILED',
+                        attempt, preClick, consoleErrors, snapshot,
+                        error: clickError instanceof Error ? clickError.message : String(clickError),
+                    }, null, 2)}`);
+                }
+
+                // Bounded transition: the click landed; if the app never flips data-state, that is
+                // an APP-side transition failure (distinct from a click failure) — fail fast and
+                // classified with before/after diagnostics, do NOT silently retry.
+                try {
+                    await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
+                    await logBenchmarkPhase(page, `SETUP_STT_MODE_SELECTED_${mode.toUpperCase()}`);
+                    return;
+                } catch (transitionError) {
+                    const postClick = await captureOptionDiag();
+                    const snapshot = await collectBenchmarkPreconditionSnapshot(page, `select-${mode}-no-transition`);
+                    throw new Error(`Benchmark mode selection clicked but app did NOT transition to ${mode}\n${JSON.stringify({
+                        classification: 'APP_NO_DATA_STATE_TRANSITION',
+                        attempt, preClick, postClick, consoleErrors, snapshot,
+                        error: transitionError instanceof Error ? transitionError.message : String(transitionError),
+                    }, null, 2)}`);
+                }
             }
+
+            await page.keyboard.press('Escape').catch(() => undefined);
+            await page.waitForTimeout(1_000);
         }
 
-        await page.keyboard.press('Escape').catch(() => undefined);
-        await page.waitForTimeout(1_000);
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `select-${mode}-option-unavailable`);
+        throw new Error(`Benchmark mode selection precondition failed for ${mode}: option was not selectable before 45s deadline\n${JSON.stringify({
+            classification: 'OPTION_NEVER_VISIBLE_OR_ENABLED',
+            lastOptionState, consoleErrors, optionDiag: await captureOptionDiag(), snapshot,
+        }, null, 2)}`);
+    } finally {
+        page.off('console', onConsole);
+        page.off('pageerror', onPageError);
     }
-
-    const snapshot = await collectBenchmarkPreconditionSnapshot(page, `select-${mode}-option-unavailable`);
-    throw new Error(`Benchmark mode selection precondition failed for ${mode}: option was not selectable before timeout\n${JSON.stringify({
-        lastOptionState,
-        snapshot,
-    }, null, 2)}`);
 }
 
 export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
