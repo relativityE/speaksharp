@@ -166,9 +166,9 @@ jobs:
           echo "spec=$DIAGNOSTIC_DAST_SPEC grep=${DIAGNOSTIC_DAST_GREP:-<none>}"
           node scripts/rc-dast-live-preflight.mjs
           if [ -n "$DIAGNOSTIC_DAST_GREP" ]; then
-            cross-env VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --grep "$DIAGNOSTIC_DAST_GREP" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
+            VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --grep "$DIAGNOSTIC_DAST_GREP" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
           else
-            cross-env VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
+            VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
           fi
       - name: Diagnostic single-spec notice (NOT a Gate 3 pass)
         if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
