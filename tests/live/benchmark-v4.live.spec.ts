@@ -144,7 +144,11 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     // ADVISORY ONLY (owner-approved Option-1 disposition): browser app-path WER is HARNESS-LIMITED
     // evidence, NOT a release gate — Chrome fake-audio is timing-nondeterministic (±~10pp) and
     // onset-truncated, so a hard regression throw produces false failures. Log it, never throw.
-    // The deterministic Node clean-decode ceiling (~99%) remains the model-quality gate.
+    // The often-cited v4 "Node clean-decode ceiling" (~98.85%) is HISTORICAL PROSE ONLY and
+    // currently UNREPRODUCIBLE in-repo (v4 Node harness deleted in commit f970c67a; the surviving
+    // scripts/benchmark-whisper-ceiling.mts is v2 tiny.en only) — NOT a release gate, pending a
+    // rebuilt v4 Node harness (post-launch backlog). Reproducible current v4 evidence = these
+    // browser WebGPU floors + Gate 2 app-path + Gate B/PostHog (STT_BENCHMARKS v4.reproducible_evidence).
     try {
         assertNoRegression('Private', wer, 'TransformersJS v4 worker', 'v4', benchmarkConfig);
     } catch (e) {

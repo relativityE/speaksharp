@@ -6,7 +6,7 @@
     "how_to_read": {
       "vendor": "Published REFERENCE numbers on LibriSpeech (test-clean; distil-small.en is dev-clean) — vendor model-quality on a standard benchmark. NOT measured by SpeakSharp.",
       "speaksharp_measured": "Measured on Harvard Sentences (harvard-list-1), a DIFFERENT and easier corpus. Not comparable to the vendor LibriSpeech numbers.",
-      "node_clean_decode": "Best-case model CEILING (full clean file, no streaming/mic). Not a real-use number.",
+      "node_clean_decode": "v4 'Node clean-decode ceiling' (~98.85%) is HISTORICAL PROSE ONLY, currently UNREPRODUCIBLE in-repo (v4 Node harness scripts/dev/private-v2-v4-node-compare.mts deleted in commit f970c67a; surviving benchmark-whisper-ceiling.mts is v2 tiny.en only), NOT a release gate, and pending a rebuilt v4 Node harness (post-launch backlog). Concept = best-case model ceiling (full clean file, no streaming/mic); not a real-use number. Do NOT cite as a structured fact — use v4.reproducible_evidence instead.",
       "browser_app_path": "Harness-limited (Chrome fake-audio); NOT a quality gate. See _floors_note + /private/tmp/V4_BROWSER_PERF_DISPOSITION.md.",
       "production_accuracy_winner": "AssemblyAI (Cloud) is the more accurate production STT option. Private Whisper is valuable for privacy, cost control, local-first behavior, and fallback resilience — NOT superior accuracy."
     }
@@ -156,7 +156,33 @@
             "accessed": "2026-06-17"
           }
         },
-        "_floors_note": "DISPOSITION 2026-06-16: the `floors` below are BROWSER fake-audio numbers and are HARNESS-LIMITED EVIDENCE, NOT the release gate. Chrome --use-file-for-fake-audio-capture free-runs against a variable pre-record delay, so the SAME config varies widely (base_q4|webgpu measured 83.91% and a 15-word under-capture on back-to-back runs). Authoritative model-quality = the deterministic Node clean-decode ceiling (~99%; v4 base_q4/distil_q4 ≈ 98.85%). Real-world v2-vs-v4 = PostHog A/B post-Gate-B. Rollout treatment = base_q4 ONLY (distil_q4 stays flag-OFF, NOT a customer A/B arm). See /private/tmp/V4_BROWSER_PERF_DISPOSITION.md. The 2026-05-25 tiny.en entry is HISTORICAL REFERENCE ONLY.",
+        "_floors_note": "DISPOSITION 2026-06-16: the `floors` below are BROWSER fake-audio numbers and are HARNESS-LIMITED EVIDENCE, NOT the release gate. Chrome --use-file-for-fake-audio-capture free-runs against a variable pre-record delay, so the SAME config varies widely (base_q4|webgpu measured 83.91% and a 15-word under-capture on back-to-back runs). The v4 'Node clean-decode ceiling' (~98.85%) is HISTORICAL PROSE ONLY and currently UNREPRODUCIBLE in-repo (v4 Node harness scripts/dev/private-v2-v4-node-compare.mts deleted in commit f970c67a; surviving benchmark-whisper-ceiling.mts is v2 tiny.en only) — treat as NOT a release gate, pending a rebuilt v4 Node harness (post-launch backlog). Reproducible CURRENT v4 evidence = the WebGPU floors below + Gate 2 app-path + Gate B/PostHog (see reproducible_evidence). Real-world v2-vs-v4 = PostHog A/B post-Gate-B. Rollout treatment = base_q4 ONLY (distil_q4 stays flag-OFF, NOT a customer A/B arm). See /private/tmp/V4_BROWSER_PERF_DISPOSITION.md. The 2026-05-25 tiny.en entry is HISTORICAL REFERENCE ONLY.",
+        "reproducible_evidence": {
+          "_note": "ONLY reproducible CURRENT v4 measurements/proofs are structured here. The ~98.85% Node ceiling is intentionally NOT listed — it is historical/unreproducible (see _floors_note + _measurement_framing.how_to_read.node_clean_decode).",
+          "browser_webgpu_floors": {
+            "base_q4_accuracy_pct": 83.91,
+            "distil_q4_accuracy_pct": 88.51,
+            "corpus": "harvard-list-1",
+            "environment": "chromium-playwright-v4-worker-webgpu",
+            "caveat": "harness-limited (Chrome fake-audio); NOT a quality gate"
+          },
+          "gate2_app_path": {
+            "fixture": "h1_6",
+            "wer": 0,
+            "result": "transcribe -> save -> persist -> detail passed (3x reproducible)",
+            "environment": "Chrome fake-audio route (STT_USE_FAKE_AUDIO_CAPTURE)",
+            "source": "scripts/run-v4-gates.sh (Gate 2)"
+          },
+          "gateb_posthog": {
+            "selectionSource": "posthog_flag",
+            "provider": "transformers-js-v4",
+            "variant": "base_q4",
+            "fallback": false,
+            "sessions_saved": true,
+            "note": "v4 selected via PostHog flag for the targeted operator (single-user targeting verified read-only); sessions saved.",
+            "source": ".github/workflows/posthog-gate-b.yml + scripts/posthog-stt-ab-authenticated-user-targeting-proof.mjs"
+          }
+        },
         "floors": {
           "base_q4|wasm": {
             "expectedAccuracy": null,
