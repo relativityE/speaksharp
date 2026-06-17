@@ -12,11 +12,11 @@
         "corpus": "LibriSpeech test-clean",
         "source": "https://www.assemblyai.com/docs/streaming/benchmarks.md",
         "source_published": "AssemblyAI Streaming benchmarks, last updated Mar 2026",
-        "verified": "WebFetch 2026-06-17: 'English benchmarks' row librispeech_test_clean = 2.71% WER; page last updated Mar 2026.",
+        "verified": "WebFetch 2026-06-17: 'English benchmarks' row librispeech_test_clean = 2.71% WER (= 97.29% accuracy); page last updated Mar 2026.",
         "accessed": "2026-06-17",
         "realistic_mean_wer": 0.086,
         "realistic_source": "https://www.assemblyai.com/benchmarks",
-        "realistic_note": "8.6% mean WER across AssemblyAI's published Universal Streaming benchmark set (LibriSpeech clean/other, CommonVoice 11.81%, Earnings21 12.37%, TEDLIUM 7.81%, Meanwhile 6.73%, Rev16 12.99%), updated Mar 2026. This realistic figure is the better predictor of production accuracy; self-hosted Whisper base/tiny degrade much more than AssemblyAI off clean read speech."
+        "realistic_note": "8.6% mean WER (~91.4% accuracy) across AssemblyAI's published Universal Streaming benchmark set (LibriSpeech clean/other, CommonVoice 11.81%, Earnings21 12.37%, TEDLIUM 7.81%, Meanwhile 6.73%, Rev16 12.99%), updated Mar 2026. This realistic figure is the better predictor of production accuracy; self-hosted Whisper base/tiny degrade much more than AssemblyAI off clean read speech."
       },
       "benchmarkPolicy": "Cloud uses AssemblyAI Universal Streaming, not pre-recorded batch transcription. The release gate tracks the published/comparable streaming WER target (~8.14% WER = 91.86% accuracy); 95% remains a stretch target for a future batch/offline path.",
       "history": [
@@ -59,7 +59,7 @@
             "corpus": "LibriSpeech test-clean",
             "source": "https://arxiv.org/abs/2212.04356",
             "source_published": "Whisper paper (Radford et al. 2022), Appendix Table D.1.1",
-            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): base.en LibriSpeech test-clean = 4.2% WER. Prior 4.25%/'Open ASR Leaderboard' attribution corrected: the cited model card does not publish a test-clean WER; the Whisper paper does.",
+            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): base.en LibriSpeech test-clean = 4.2% WER (= 95.8% accuracy). Prior 4.25%/'Open ASR Leaderboard' attribution corrected: the cited model card does not publish a test-clean WER; the Whisper paper does.",
             "accessed": "2026-06-17",
             "role": "v2 Private DEFAULT model"
           },
@@ -70,7 +70,7 @@
             "corpus": "LibriSpeech test-clean",
             "source": "https://arxiv.org/abs/2212.04356",
             "source_published": "Whisper paper (Radford et al. 2022), Appendix Table D.1.1",
-            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): tiny.en LibriSpeech test-clean = 5.6% WER. Prior 5.66%/'Open ASR Leaderboard' attribution corrected (see whisper-base.en).",
+            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): tiny.en LibriSpeech test-clean = 5.6% WER (= 94.4% accuracy). Prior 5.66%/'Open ASR Leaderboard' attribution corrected (see whisper-base.en).",
             "accessed": "2026-06-17",
             "role": "v2 emergency fallback only"
           }
@@ -132,7 +132,7 @@
             "corpus": "LibriSpeech test-clean",
             "source": "https://arxiv.org/abs/2212.04356",
             "source_published": "Whisper paper (Radford et al. 2022), Appendix Table D.1.1",
-            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): base.en LibriSpeech test-clean = 4.2% WER. Vendor reference = base model's published WER; the q4-quantized onnx-community port may differ slightly in practice.",
+            "verified": "WebFetch 2026-06-17 (ar5iv HTML mirror): base.en LibriSpeech test-clean = 4.2% WER (= 95.8% accuracy). Vendor reference = base model's published WER; the q4-quantized onnx-community port may differ slightly in practice.",
             "accessed": "2026-06-17"
           },
           "distil_q4": {
@@ -142,7 +142,7 @@
             "corpus": "LibriSpeech dev-clean (validation-clean)",
             "source": "https://huggingface.co/distil-whisper/distil-small.en",
             "source_published": "distil-small.en model card, evaluation section",
-            "verified": "WebFetch 2026-06-17: model card eval reports 3.4326% WER on LibriSpeech validation/dev-clean. Corrected: prior entry claimed 3.48% on test-clean — the card reports dev-clean, not test-clean. Vendor reference = base distil-small.en's published WER; the q4-quantized port may differ slightly in practice.",
+            "verified": "WebFetch 2026-06-17: model card eval reports 3.4326% WER (= 96.57% accuracy) on LibriSpeech validation/dev-clean. Corrected: prior entry claimed 3.48% on test-clean — the card reports dev-clean, not test-clean. Vendor reference = base distil-small.en's published WER; the q4-quantized port may differ slightly in practice.",
             "accessed": "2026-06-17"
           }
         },
