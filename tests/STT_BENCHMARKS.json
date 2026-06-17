@@ -1,6 +1,16 @@
 {
   "_comment": "Static WER ceilings established via Harvard Sentence baseline benchmarks.",
   "_vendor_note": "`vendor` = each model's VENDOR/PAPER-PUBLISHED accuracy/WER. Each entry carries its own inline provenance: `source` (URL), `source_published` (where the figure originates), `verified` (how/when the number was confirmed against that source), and `accessed` date. All figures verified 2026-06-17. Corpus: Cloud/AssemblyAI + whisper-base.en + whisper-tiny.en are LibriSpeech test-clean; distil-small.en is LibriSpeech dev-clean (validation-clean) — the split its model card actually publishes (near-equivalent clean read speech, but a DIFFERENT split, so comparable-but-not-identical-corpus). Ranking on these clean read-speech sets: Cloud/AssemblyAI 97.29% > distil-small.en 96.57% (dev-clean) > whisper-base.en 95.8% > whisper-tiny.en 94.4%, matching real-world experience that Cloud is most accurate. They are NOT measured by SpeakSharp and NOT on harvard-list-1, so do NOT compare them to expectedAccuracy/floors above. IMPORTANT: LibriSpeech clean is easy, clean read speech; on diverse/real-world audio the small self-hosted Whisper models degrade FAR more than AssemblyAI (whose Universal Streaming mean across its published benchmark set is ~8.6% WER), so Cloud's real-world accuracy lead over Private is LARGER than the clean-corpus gap shown here.",
+  "_measurement_framing": {
+    "policy": "INTERNAL measurement context ONLY. Do NOT build a customer-facing vendor-vs-SpeakSharp accuracy comparison. The two sides are measured on different corpora/paths, so a head-to-head would falsely imply our small Whisper models beat vendor claims — they do not (our v4 base_q4 IS the vendor's whisper-base.en model and cannot exceed its own 95.8% published WER). Decision 2026-06-17 (option 2). An apples-to-apples LibriSpeech re-measure is a POST-LAUNCH backlog calibration task, NOT release-readiness work.",
+    "how_to_read": {
+      "vendor": "Published REFERENCE numbers on LibriSpeech (test-clean; distil-small.en is dev-clean) — vendor model-quality on a standard benchmark. NOT measured by SpeakSharp.",
+      "speaksharp_measured": "Measured on Harvard Sentences (harvard-list-1), a DIFFERENT and easier corpus. Not comparable to the vendor LibriSpeech numbers.",
+      "node_clean_decode": "Best-case model CEILING (full clean file, no streaming/mic). Not a real-use number.",
+      "browser_app_path": "Harness-limited (Chrome fake-audio); NOT a quality gate. See _floors_note + /private/tmp/V4_BROWSER_PERF_DISPOSITION.md.",
+      "production_accuracy_winner": "AssemblyAI (Cloud) is the more accurate production STT option. Private Whisper is valuable for privacy, cost control, local-first behavior, and fallback resilience — NOT superior accuracy."
+    }
+  },
   "engines": {
     "Cloud": {
       "expectedAccuracy": 91.86,
