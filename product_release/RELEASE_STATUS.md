@@ -1,6 +1,6 @@
 # Release Status
 
-**Last updated:** 2026-06-01
+**Last updated:** 2026-06-17 · Last updated by: dev-agent (claude), RC-gate evidence run 27708194872
 **Scope:** Single source of truth for current release posture.
 
 If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational docs and RC gate docs; current ship status lives here only.
@@ -16,8 +16,8 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 | Area | Latest Evidence | Status |
 |---|---|---:|
-| RC gates | Manual RC workflow must be rerun after the latest pushed checkpoint if it is being used for tester-launch signoff | RERUN REQUIRED FOR FINAL SIGNOFF |
-| CI/Test Audit | Push-triggered GitHub run on latest `main` is the source of truth | IN PROGRESS / CHECK GITHUB |
+| RC gates | ✅ All 5 gates GREEN on `main@596a6950` — `Release Candidate Gates` `gate=all` run `27708194872` (Gate 1 Product / 2 SAST / 3 DAST / 4 SCA / 5 UX). Live-DAST: 9 passed, 2 env-gated skips. The Gate-3 flaky 7-min hang was fixed (#821/#822 bounded the live-harness mode-select waits — a test-harness defect, not a product regression). Re-run on the exact final signoff SHA before tester invites. | PASS (2026-06-17) |
+| CI/Test Audit | Green on `main` (run `27684865346` @`b18220da`; #820/#821/#822 each passed required CI before squash-merge) | GREEN |
 | Production smoke | Push-triggered `Production Canary Smoke Test` remains the production quick-check workflow | IN PROGRESS / CHECK GITHUB |
 | Supabase deploy | Push-triggered deploy workflow remains the backend/Edge deploy proof when backend paths change | IN PROGRESS / CHECK GITHUB |
 | Ops health | Hosted ops status is a high-level display fed by the authoritative GitHub/Supabase JSON evidence path | CHECK CURRENT DASHBOARD |
@@ -26,14 +26,15 @@ If this file conflicts with older files in `product_release/archive/`, this file
 | Private deployed worker | Gate 3 passed after the Vite `?worker&url` worker fix | PASS |
 | Native Browser STT | Chrome desktop real mic uses `continuous=true`, `interimResults=true`, `maxAlternatives=1`; Native corpus/WER is not a benchmark gate | PASS WITH BROWSER CAVEAT |
 | Cloud STT | Cloud-only Pro STT Artifact Matrix run `26762814579` passed after Supabase migration/function deploy run `26762736418`; transcript, save/history/detail, AI suggestions, and PDF export completed on `main` commit `7431e843` | PASS FOR CLOUD PRO PATH |
-| Benchmarks | Private v2/v4 benchmark automation is WIP; Native excluded from WER claims | WARN |
+| Benchmarks | Vendor numbers verified + INTERNAL-ONLY (no customer vendor-vs-SpeakSharp comparison); v4 reproducible facts = WebGPU floors + Gate 2 + Gate B (`tests/STT_BENCHMARKS.json` `_measurement_framing`). v4 Node-ceiling re-measure = post-launch backlog. Native excluded from WER claims. | ADVISORY / INTERNAL |
+| Gate B (v4 A/B) | Read-only verified for operator `22899590` (selectionSource=posthog_flag, base_q4, no fallback, sessions saved); flag OFF/0% for everyone else | VERIFIED — A/B flip = owner's call |
 
 ## Current Blockers
 
 | Priority | Blocker | Required Closure |
 |---|---|---|
-| P0 | Latest pushed `main` must have green required GitHub workflows | Wait for the newest `CI - Test Audit`, production smoke, and Supabase deploy runs to finish green. |
-| P0 | RC gates are manual and not tag-triggered | Dispatch and pass the RC gate workflow when this is the chosen signoff artifact. |
+| ✅ RESOLVED | Latest pushed `main` green required workflows | `main@596a6950`: CI-Test-Audit + Production Canary + Deploy Supabase green; RC `gate=all` run `27708194872` all 5 gates green. |
+| P0 | RC gates are manual (not tag-triggered) | They currently PASS (run `27708194872`); re-dispatch + pass once on the exact final signoff SHA before tester invites. |
 | P1 | Stress/endurance evidence is newly structured | Use `stress-endurance.yml` artifacts for backend p50/p95/counts and browser endurance memory evidence; advisory unless stability is release risk. |
 | P1 | Private and Native STT remain below the Cloud proof standard | Private needs timing/parity fixes; Native needs live-text consistency and punctuation/readability proof before either can be claimed as launch-quality. |
 | P2 | Ops health display is intentionally high-level | If hosted ops status is red/yellow, inspect the richer GitHub/Supabase JSON evidence rather than reconciling a second query source. |
