@@ -1,6 +1,6 @@
 # Release Status
 
-**Last updated:** 2026-06-17 · Last updated by: dev-agent (claude). NOTE: after PR #825 merged, `main` advanced to `48464742`; the prior RC pass (run `27708194872` on `596a6950`) is now **stale for final signoff** and must be re-dispatched on the exact final SHA.
+**Last updated:** 2026-06-18 · Last updated by: dev-agent (claude). Fresh same-SHA signoff evidence: RC `gate=all` run `27758974631` — all 5 gates GREEN on `main@3a1f8676`. This evidence-capture commit changes no code/test/gate input, so it is the only delta on top of the gated SHA and the gate evidence holds for the resulting HEAD. Decision remains **HOLD** pending the owner's tester-invite call (green gates clear the gate, not the GO).
 **Scope:** Single source of truth for current release posture.
 
 If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational docs and RC gate docs; current ship status lives here only.
@@ -21,7 +21,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 | Area | Latest Evidence | Status |
 |---|---|---:|
-| RC gates | ✅ All 5 gates GREEN on `main@596a6950` — `Release Candidate Gates` `gate=all` run `27708194872` (Gate 1 Product / 2 SAST / 3 DAST / 4 SCA / 5 UX). Live-DAST: 9 passed, 2 env-gated skips. The Gate-3 flaky 7-min hang was fixed (#821/#822 bounded the live-harness mode-select waits — a test-harness defect, not a product regression). Re-run on the exact final signoff SHA before tester invites. | PASS (2026-06-17) |
+| RC gates | ✅ All 5 gates GREEN on the final signoff SHA `main@3a1f8676` — `Release Candidate Gates` `gate=all` run `27758974631` (Gate 1 Product / 2 SAST / 3 DAST / 4 SCA / 5 UX all success). Fresh same-SHA evidence per the Final-SHA freshness rule; supersedes the prior run `27708194872` on `596a6950` (now historical, not signoff). | PASS (2026-06-18) |
 | CI/Test Audit | Green on `main` (run `27684865346` @`b18220da`; #820/#821/#822 each passed required CI before squash-merge) | GREEN |
 | Production smoke | Push-triggered `Production Canary Smoke Test` remains the production quick-check workflow | IN PROGRESS / CHECK GITHUB |
 | Supabase deploy | Push-triggered deploy workflow remains the backend/Edge deploy proof when backend paths change | IN PROGRESS / CHECK GITHUB |
@@ -39,7 +39,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 | Priority | Blocker | Required Closure |
 |---|---|---|
 | ✅ RESOLVED | Latest pushed `main` green required workflows | `main@596a6950`: CI-Test-Audit + Production Canary + Deploy Supabase green; RC `gate=all` run `27708194872` all 5 gates green. |
-| P0 | RC gates are manual (not tag-triggered) | They currently PASS (run `27708194872`); re-dispatch + pass once on the exact final signoff SHA before tester invites. |
+| ✅ RESOLVED (for `3a1f8676`) | RC gates are manual (not tag-triggered) — re-dispatch required on the final signoff SHA | Done: `gate=all` run `27758974631` all 5 gates green on `main@3a1f8676`. Per the Final-SHA freshness rule, any further **code** merge re-stales this and requires a fresh re-dispatch before tester invites. |
 | P1 | Stress/endurance evidence is newly structured | Use `stress-endurance.yml` artifacts for backend p50/p95/counts and browser endurance memory evidence; advisory unless stability is release risk. |
 | P1 | Private and Native STT remain below the Cloud proof standard | Private needs timing/parity fixes; Native needs live-text consistency and punctuation/readability proof before either can be claimed as launch-quality. |
 | P2 | Ops health display is intentionally high-level | If hosted ops status is red/yellow, inspect the richer GitHub/Supabase JSON evidence rather than reconciling a second query source. |
