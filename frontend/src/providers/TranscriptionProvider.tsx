@@ -84,6 +84,14 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         const canUseCloud = isPro && hasCloudSttEntitlement(policyProfile);
         const requestedMode = isPro ? currentSelectedMode : null;
         const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
+        // NOTE (P2, tracked in BACKLOG): this writer intentionally remains TIER-ONLY for now —
+        // it passes `isPro`, not the sample-aware `isPro || hasPrivateSampleEntitlement` capability.
+        // The sample entitlement lives in `usageLimit` (the check_usage_limit RPC), which this
+        // provider deliberately does not consume; modeful/sample policy is owned by the Session
+        // lifecycle. This stays safe because (a) `startRecording` overwrites the controller policy
+        // with the lifecycle's sample-aware policy at record time, and (b) this resync only re-fires
+        // on profile-tier fields, never on mode/record/sample state. Full sample-aware unification of
+        // all policy writers is deferred (do NOT "fix" by changing this to raw isPro elsewhere).
         const newPolicy = buildPolicyForUser(isPro, safeMode, { allowCloud: canUseCloud });
         const policyKey = JSON.stringify(newPolicy);
         if (lastPolicyKeyRef.current !== policyKey) {

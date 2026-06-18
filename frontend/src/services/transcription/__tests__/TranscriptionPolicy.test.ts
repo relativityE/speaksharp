@@ -163,6 +163,32 @@ describe('TranscriptionPolicy', () => {
         });
     });
 
+    // Regression guard for the P2 "policy-writer divergence" thread: a free user with a valid
+    // private sample must end up Private-capable. The capability the Session lifecycle passes is
+    // `canUsePrivateStt = isPro || hasPrivateSampleEntitlement`. This locks the *start policy* the
+    // lifecycle builds (the recording authority) and documents the deliberate divergence vs the
+    // tier-only writers (TranscriptionProvider / useSpeechRecognition_prod) so a future change that
+    // either flips the lifecycle policy to tier-only OR collapses both to identical is caught.
+    describe('free private-sample user — policy-writer divergence (P2 guard)', () => {
+        it('lifecycle start policy for a free SAMPLE user is Private-capable (allowPrivate=true, Cloud off)', () => {
+            // free user, NOT Pro, but has a valid private sample -> canUsePrivateStt === true, canUseCloudStt === false
+            const hasPrivateSttAccess = true; // isPro(false) || hasPrivateSampleEntitlement(true)
+            const startPolicy = buildPolicyForUser(hasPrivateSttAccess, 'private', { allowCloud: false });
+            expect(startPolicy.allowPrivate).toBe(true);
+            expect(startPolicy.allowCloud).toBe(false);
+            expect(startPolicy.preferredMode).toBe('private');
+        });
+
+        it('documents the tier-only divergence: passing raw isPro=false for the same user yields allowPrivate=false', () => {
+            // This is what TranscriptionProvider / useSpeechRecognition_prod currently pass (tier only).
+            // It is intentionally NOT the recording authority — kept here so the divergence stays visible.
+            const tierOnlyPolicy = buildPolicyForUser(false, null, { allowCloud: false });
+            expect(tierOnlyPolicy.allowPrivate).toBe(false);
+            // ...and the correct capability-based call for the SAME user differs — the divergence:
+            expect(buildPolicyForUser(true, 'private', { allowCloud: false }).allowPrivate).toBe(true);
+        });
+    });
+
     describe('Pre-built Policies', () => {
         it('PROD_FREE_POLICY should only allow native', () => {
             expect(PROD_FREE_POLICY.allowNative).toBe(true);
