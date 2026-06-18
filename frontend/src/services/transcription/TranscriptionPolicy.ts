@@ -168,19 +168,31 @@ export function isModeAllowed(
 }
 
 /**
- * Build a policy for the given user tier with an optional UI mode selection.
- * 
- * @param isProUser - Whether the user has Pro subscription
+ * Build a policy from a Private-STT *capability* flag + an optional UI mode.
+ *
+ * @param hasPrivateSttAccess - Whether the user may use Private STT — the capability,
+ *   NOT raw subscription tier. The Session-lifecycle writers pass
+ *   `isPro || hasPrivateSampleEntitlement` so a free user with a valid private sample
+ *   still receives the Private-capable base policy (`allowPrivate: true`). This flag
+ *   selects the entire base policy (PRO vs FREE), so passing tier-only `isPro` for a
+ *   sample user would incorrectly yield `allowPrivate: false`.
+ *   NOTE (P2, tracked in BACKLOG): some writers — `TranscriptionProvider` and
+ *   `useSpeechRecognition_prod` — still pass tier-only `isPro` here. That is currently
+ *   safe because the lifecycle's start/select policy is the authority for a recording
+ *   (`SpeechRuntimeController.startRecording` overwrites the stored policy) and the
+ *   provider's resync cannot re-fire on sample state. Unifying every writer on the
+ *   capability source is deferred; do NOT "fix" by passing raw `isPro` everywhere.
+ *   Cloud stays independently gated via `options.allowCloud`.
  * @param uiMode - Optional mode selected by user in UI
  * @returns A TranscriptionPolicy configured for the user
  */
 export function buildPolicyForUser(
-    isProUser: boolean,
+    hasPrivateSttAccess: boolean,
     uiMode?: TranscriptionMode | null,
     options?: { allowCloud?: boolean }
 ): TranscriptionPolicy {
-    const base = isProUser ? PROD_PRO_POLICY : PROD_FREE_POLICY;
-    const allowCloud = isProUser ? options?.allowCloud ?? base.allowCloud : false;
+    const base = hasPrivateSttAccess ? PROD_PRO_POLICY : PROD_FREE_POLICY;
+    const allowCloud = hasPrivateSttAccess ? options?.allowCloud ?? base.allowCloud : false;
     const hasExplicitMode = uiMode !== undefined && uiMode !== null;
     const preferredMode = uiMode === 'cloud' && !allowCloud
         ? base.preferredMode

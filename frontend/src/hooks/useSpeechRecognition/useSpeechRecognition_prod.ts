@@ -109,6 +109,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';
+    // NOTE (P2, tracked in BACKLOG): this writer remains TIER-ONLY for now — it builds the policy from
+    // `isEffectiveProUser`, not the sample-aware `isPro || hasPrivateSampleEntitlement` capability, so a
+    // free user with a valid private sample would compute `allowPrivate: false` HERE. This is currently
+    // safe because the Session lifecycle builds and applies the sample-aware policy at select/record
+    // (and `startRecording` overwrites the controller policy), so this hook's policy is not the authority
+    // for a sample user's Private recording. Unifying all writers on one capability source is deferred.
     const transcriptionPolicy = useMemo(
         () => buildPolicyForUser(isEffectiveProUser, effectivePolicyMode, { allowCloud: canUseCloudStt }),
         [isEffectiveProUser, effectivePolicyMode, canUseCloudStt],

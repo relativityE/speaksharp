@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
+import { buildPolicyForUser, TranscriptionPolicy } from '../transcription/TranscriptionPolicy';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { sessionManager } from '@/services/transcription/SessionManager';
@@ -679,5 +680,63 @@ describe('SpeechRuntimeController.persistActiveRecoveryDraft (UX-NAV-1)', () => 
         arrangeRecording('sess-nav-4', '   ');
         controller.persistActiveRecoveryDraft();
         expect(getSessionRecoveryDraft()).toBeNull();
+    });
+});
+
+describe('SpeechRuntimeController — policy-writer divergence (P2 regression guard)', () => {
+    // Locks the controller-level invariant behind the P2 "policy-writer divergence" thread:
+    // the tier-only writer (TranscriptionProvider) can write a FREE policy (allowPrivate=false) for a
+    // free user who actually holds a valid private sample, while the Session lifecycle writes the
+    // sample-aware CAPABILITY policy (allowPrivate=true). Both target this singleton. This guard proves
+    // the lifecycle's policy governs (last-writer-wins) and that updatePolicy never downgrades Private —
+    // so the free-sample user stays Private-capable. `policy` is set synchronously in updatePolicy
+    // (before the async service enqueue), so these assertions are deterministic without timer flushing.
+    let controller: SpeechRuntimeController;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        localStorage.clear();
+        controller = SpeechRuntimeController.getInstance();
+        (controller as unknown as { state: string }).state = 'IDLE';
+        (controller as unknown as { initialized: boolean }).initialized = true;
+        (controller as unknown as { policy: unknown }).policy = null;
+        const stubService = {
+            updatePolicy: vi.fn().mockResolvedValue(undefined),
+            warmUp: vi.fn().mockResolvedValue(undefined),
+            getMode: vi.fn().mockReturnValue('private'),
+            getStrategy: vi.fn().mockReturnValue({ start: vi.fn(), stop: vi.fn() }),
+            fsm: { is: vi.fn().mockReturnValue(false) },
+            subscribe: vi.fn(() => vi.fn()),
+            destroy: async () => {},
+            isServiceDestroyed: () => false,
+        } as unknown as ITranscriptionService;
+        (controller as unknown as { service: unknown }).service = stubService;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setSTTMode('private');
+        vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+    });
+
+    const readPolicy = () => (controller as unknown as { policy: TranscriptionPolicy }).policy;
+
+    it('free-sample user stays Private-capable after provider(free) -> lifecycle(sample) writes', () => {
+        // 1) Provider resync: TIER-ONLY free policy (the free-sample user is not Pro) -> allowPrivate=false
+        controller.updatePolicy(buildPolicyForUser(false, null, { allowCloud: false }));
+        expect(readPolicy().allowPrivate).toBe(false); // transient idle state, pre-selection
+
+        // 2) Session lifecycle: sample-aware CAPABILITY policy -> allowPrivate=true (governs at select/record)
+        controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: false }));
+        expect(readPolicy().allowPrivate).toBe(true);
+        expect(readPolicy().preferredMode).toBe('private');
+    });
+
+    it('updatePolicy never downgrades allowPrivate (Cloud-preservation only touches Cloud)', () => {
+        controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: false }));
+        expect(readPolicy().allowPrivate).toBe(true);
+        expect(readPolicy().allowCloud).toBe(false);
     });
 });
