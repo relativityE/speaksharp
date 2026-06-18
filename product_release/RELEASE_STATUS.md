@@ -1,11 +1,16 @@
 # Release Status
 
-**Last updated:** 2026-06-17 · Last updated by: dev-agent (claude), RC-gate evidence run 27708194872
+**Last updated:** 2026-06-17 · Last updated by: dev-agent (claude). NOTE: after PR #825 merged, `main` advanced to `48464742`; the prior RC pass (run `27708194872` on `596a6950`) is now **stale for final signoff** and must be re-dispatched on the exact final SHA.
 **Scope:** Single source of truth for current release posture.
 
 If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational docs and RC gate docs; current ship status lives here only.
 
 ## Current Decision
+
+> **Two distinct verdicts — do not conflate** (release-owner framing 2026-06-17). A code-readiness review ("approve with non-blocking follow-ups") clears *source posture only*; it does **not** clear operational gates. Source readiness ≠ release approval.
+>
+> - **Source-code posture — ✅ no confirmed P0/P1.** Independent main-branch reviews + dev verification found no confirmed source-code P0/P1 defect on current `main`. Non-blocking follow-ups are tracked in `BACKLOG.md` (CORS exact-host tightening P2/P3; entitlement policy-writer unification P2 — safe-subset containment landed in #825).
+> - **Operational release posture — ⛔ HOLD.** Release is gated on the required gates passing on the **exact final signoff SHA** (see the Evidence Freshness Contract below + "Final-SHA gate freshness" in `.agent/workflows/pr-merge-workflow.md`). Every merge resets the signoff clock; a passing run on an older SHA is historical evidence, not signoff evidence.
 
 | Release Track | Status | Why |
 |---|---|---|
