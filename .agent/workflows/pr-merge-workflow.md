@@ -64,6 +64,11 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
 - **A local `pnpm rc:gates` failure is NOT a gate failure.** Local can't fully run: Gate 3 (`rc:dast:live`) needs live credentials + the deployed app, and the impact-detection step can hit local tooling limits (e.g. `execSync` ENOBUFS on large output). The real result is `rc-gates.yml` on `main`.
 - **"2 skipped" in a run** = environment-gated `test.skip(...)` (Pro creds / feature flags) — expected, not a failure.
 
+## Final-SHA gate freshness (release signoff)
+- **Every merge to `main` resets the signoff clock.** A passing RC-gate / CI run is *final-signoff* evidence only for the exact `headSha` it ran on. The moment any PR merges, `main` HEAD advances and that prior pass becomes **stale for final signoff** (it remains valid *historical* evidence). A code-readiness review ("approve with non-blocking follow-ups") clears **source posture only** — it never clears operational gates.
+- **Before tester invites / final signoff:** finish all intended merges first, confirm the final signoff SHA, then re-dispatch `rc-gates.yml` (`gate=all`) **once** on that exact SHA and confirm green. Do not run final gates while merges are still pending — every merge invalidates the prior run.
+- **Reviewer escalation:** if `rc-gates` is green on the final SHA, no extra reviewers are needed. If **Gate 3 (live-DAST)** fails again, assign a focused **Runtime/Test-Gate** reviewer for that gate — do **not** restart a broad/general release review.
+
 ## Test-agent environment self-check
 The Test agent's sandbox can regress (no GitHub/npm network, invalid `gh` token, Playwright can't launch). When it does, Test **cannot** own GitHub/CI/RC-gate/STT-proof work — Dev covers it until the env returns.
 - **Run at every session start:** `bash scripts/test-env-selfcheck.sh` (checks github/npm reachability, `gh` auth, gh-Actions read, `.git` writable, Playwright launch).
