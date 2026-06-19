@@ -290,7 +290,10 @@ jobs:
       - name: Run Stripe Webhook Readiness Proof
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          # LIVE proof: the spec signs with the LIVE endpoint whsec and reads STRIPE_LIVE_WEBHOOK_SECRET
+          # (fail-fast if absent). The generic test STRIPE_WEBHOOK_SECRET it previously passed was dead
+          # (this spec never reads it). Deviates from the matrix's test-mode default by design.
+          STRIPE_LIVE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
         run: pnpm exec playwright test tests/live/stripe-webhook-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Stripe Webhook Artifacts
@@ -350,7 +353,8 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          # TEST proof (PRO_TEST is a test-mode customer) → explicit test-scoped key.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
@@ -385,9 +389,12 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          # TEST proof: COMPLETE_HOSTED_CHECKOUT is honored by the spec only in test mode. Use the
+          # explicit test-scoped key + pro price. Webhook stays generic (= the test whsec; there is
+          # no STRIPE_TEST_WEBHOOK_SECRET — the generic one is test-only by design).
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
           STRIPE_COMPLETE_HOSTED_CHECKOUT: 'true'
         run: pnpm exec playwright test tests/live/stripe-paid-soft-launch-runtime.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -415,9 +422,11 @@ jobs:
 
       - name: Audit Stripe Price Configuration
         env:
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          # TEST price audit: test key + test pro price. Basic has no mode split (generic = test),
+          # so it stays generic and remains consistent with the test key.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
-          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
           EXPECTED_STRIPE_BASIC_AMOUNT: '499'
           EXPECTED_STRIPE_PRO_AMOUNT: '999'
           EXPECTED_STRIPE_BASIC_CURRENCY: usd
