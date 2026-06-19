@@ -169,6 +169,11 @@ jobs:
           BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          # stripe-checkout-readiness resolves CHECKOUT_TEST_EMAIL FIRST (then FREE/BASIC/PRO).
+          # Expose it so the paid checkout proof authenticates as the dedicated checkout-live-proof
+          # user (clean live-mode customer) instead of silently falling back to FREE_TEST_EMAIL.
+          CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
+          CHECKOUT_TEST_PASSWORD: ${{ secrets.CHECKOUT_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:gate:3:dast:paid
