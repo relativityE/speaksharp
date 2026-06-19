@@ -11,11 +11,13 @@
 --
 -- This re-creates the 6-arg process_stripe_webhook_event so the downgrade branch ALSO marks the
 -- sample fully consumed/closed. activate_basic / upgrade_to_pro / none branches are unchanged.
--- NOTE (open question for review): non-deleted downgrades (customer.subscription.updated with
--- canceled/unpaid/past_due) still retain stripe_subscription_id here, matching prior behavior —
--- so hasPaidProEntitlement (which keys off stripe_subscription_id/subscription_id) could keep
--- Cloud available for a "free" row until a delete event clears it. If downgrades should fully
--- revoke paid features in BOTH branches, also null stripe_subscription_id in the ELSE branch.
+--
+-- Billing invariant (release-owner, 2026-06-19): a downgraded user retains NO paid subscription
+-- identifier. stripe_subscription_id is cleared on BOTH customer.subscription.deleted AND
+-- customer.subscription.updated (canceled/unpaid/past_due) downgrades, so paid features (incl.
+-- Cloud, whose entitlement keys off stripe_subscription_id/subscription_id) cannot linger on a
+-- 'free' row. stripe_customer_id is intentionally PRESERVED (identity for billing portal /
+-- history / re-upgrade).
 
 CREATE OR REPLACE FUNCTION public.process_stripe_webhook_event(
     p_event_id text,
@@ -85,24 +87,16 @@ BEGIN
                 RAISE EXCEPTION 'Missing subscription_id for downgrade';
             END IF;
 
-            -- Burn the one-time free Private sample on paid->free downgrade so a refunded/
-            -- canceled/past-due user cannot regain the 5-minute Private sampler.
-            IF p_event_type = 'customer.subscription.deleted' THEN
-                UPDATE public.user_profiles
-                SET subscription_status = 'free',
-                    stripe_subscription_id = NULL,
-                    private_sample_seconds_used = COALESCE(private_sample_limit_seconds, 300),
-                    private_sample_completed_at = COALESCE(private_sample_completed_at, now()),
-                    updated_at = now()
-                WHERE stripe_subscription_id = p_subscription_id;
-            ELSE
-                UPDATE public.user_profiles
-                SET subscription_status = 'free',
-                    private_sample_seconds_used = COALESCE(private_sample_limit_seconds, 300),
-                    private_sample_completed_at = COALESCE(private_sample_completed_at, now()),
-                    updated_at = now()
-                WHERE stripe_subscription_id = p_subscription_id;
-            END IF;
+            -- Paid->free downgrade (refund/cancel/past-due): clear the paid subscription id on
+            -- EVERY downgrade path (deleted AND updated), set Free, and burn the one-time 5-minute
+            -- Private sample so a downgraded user cannot regain it. Preserve stripe_customer_id.
+            UPDATE public.user_profiles
+            SET subscription_status = 'free',
+                stripe_subscription_id = NULL,
+                private_sample_seconds_used = COALESCE(private_sample_limit_seconds, 300),
+                private_sample_completed_at = COALESCE(private_sample_completed_at, now()),
+                updated_at = now()
+            WHERE stripe_subscription_id = p_subscription_id;
 
             GET DIAGNOSTICS v_rows = ROW_COUNT;
             IF v_rows > 1 THEN
