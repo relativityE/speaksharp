@@ -158,7 +158,11 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          # Generic STRIPE_WEBHOOK_SECRET stays TEST-only (unchanged). The paid webhook-readiness
+          # spec signs with STRIPE_LIVE_WEBHOOK_SECRET (the LIVE endpoint whsec, Ops-created) so the
+          # signature matches the deployed Supabase live verifier; the spec fails fast if it's absent.
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_LIVE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
