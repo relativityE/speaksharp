@@ -2,8 +2,10 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { createHmac } from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-const hasLiveWebhookSecret = Boolean(STRIPE_WEBHOOK_SECRET && !/mock/i.test(STRIPE_WEBHOOK_SECRET));
+// Live webhook proof signs with the LIVE endpoint signing secret. The deployed function verifies
+// with the Supabase live whsec, so a live-matching signer is required. The generic test-mode
+// STRIPE_WEBHOOK_SECRET is intentionally NOT used here (it stays test-only for CI).
+const STRIPE_LIVE_WEBHOOK_SECRET = process.env.STRIPE_LIVE_WEBHOOK_SECRET;
 
 test('deployed Stripe webhook is configured and rejects unsigned events cleanly', async () => {
   test.skip(!SUPABASE_URL, 'SUPABASE_URL is required for deployed Stripe webhook readiness.');
@@ -38,10 +40,12 @@ test('deployed Stripe webhook is configured and rejects unsigned events cleanly'
 });
 
 test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => {
-  test.skip(
-    !SUPABASE_URL || !hasLiveWebhookSecret,
-    'SUPABASE_URL and a non-mock STRIPE_WEBHOOK_SECRET are required for signed Stripe webhook proof.'
-  );
+  test.skip(!SUPABASE_URL, 'SUPABASE_URL is required for signed Stripe webhook proof.');
+  // Fail fast (not skip) when the live signer is absent — this spec runs only in the paid-launch
+  // scope (paid_launch=true), which REQUIRES the live webhook secret to do a real signed proof.
+  if (!STRIPE_LIVE_WEBHOOK_SECRET || /mock/i.test(STRIPE_LIVE_WEBHOOK_SECRET)) {
+    throw new Error('STRIPE_LIVE_WEBHOOK_SECRET is required for live webhook readiness.');
+  }
 
   const context = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });
   try {
@@ -61,9 +65,9 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
         },
       },
     });
-    expect(STRIPE_WEBHOOK_SECRET, 'GitHub STRIPE_WEBHOOK_SECRET must be a Stripe webhook signing secret.').toMatch(/^whsec_/);
+    expect(STRIPE_LIVE_WEBHOOK_SECRET, 'STRIPE_LIVE_WEBHOOK_SECRET must be a Stripe webhook signing secret.').toMatch(/^whsec_/);
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = createHmac('sha256', STRIPE_WEBHOOK_SECRET!)
+    const signature = createHmac('sha256', STRIPE_LIVE_WEBHOOK_SECRET)
       .update(`${timestamp}.${payload}`, 'utf8')
       .digest('hex');
 
