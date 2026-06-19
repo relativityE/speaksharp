@@ -31,6 +31,10 @@ on:
         description: 'DIAGNOSTIC ONLY — restrict the single spec to tests matching this title (used with diagnostic_dast_spec).'
         required: false
         default: ''
+      paid_launch:
+        description: "Set to 'true' to ALSO run the PAID Stripe live-readiness specs in Gate 3 (checkout / webhook / billing-portal). Default empty = CONTROLLED non-paid scope: paid Stripe readiness is a separate paid-launch concern and does NOT gate the controlled soft release."
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -137,6 +141,33 @@ jobs:
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:dast:live
+      # PAID Stripe live-readiness (checkout/webhook/billing-portal) is a SEPARATE paid-launch
+      # concern (release-owner 2026-06-18). It does NOT gate the controlled non-paid soft release
+      # and runs only when paid_launch == 'true'. Requires the four-corner live Stripe alignment
+      # (Vercel pk_live + Supabase sk_live/whsec/SITE_URL + valid live customer) — see
+      # product_release/LAUNCH_ENV_CHECKLIST.md §1. A controlled-scope run leaves these unrun.
+      - name: Run DAST Live Gate — PAID Stripe readiness (paid-launch scope only)
+        if: ${{ github.event.inputs.diagnostic_dast_spec == '' && github.event.inputs.paid_launch == 'true' }}
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        run: pnpm rc:gate:3:dast:paid
       - name: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
