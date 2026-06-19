@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-26
+**Last Reviewed:** 2026-06-18
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-29
+**Last Updated:** 2026-06-18
 
 # Runtime Configuration Verification (Launch Checklist)
 
@@ -15,13 +15,28 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 ---
 
 ## 1. Billing & Payments (Stripe)
+
+> **Four-corner live alignment — ALL must be the SAME live mode before any live-money proof (release-owner, 2026-06-18).** Storage home determines how each value reaches production:
+>
+> | Corner | Variable (live value) | Storage home (owner) | How it reaches prod |
+> |---|---|---|---|
+> | Frontend pub key | `VITE_STRIPE_PUBLISHABLE_KEY` = `pk_live_…` | **Vercel** prod env | Vite build — only `VITE_*` vars reach the client |
+> | Backend secret key | `STRIPE_SECRET_KEY` = `sk_live_…` | **Supabase** Edge secrets | set directly in Supabase (**not** GitHub-synced) |
+> | Backend webhook secret | `STRIPE_WEBHOOK_SECRET` = live `whsec_…` | **Supabase** Edge secrets | set directly in Supabase (**not** GitHub-synced) |
+> | Backend Pro price | `STRIPE_PRO_PRICE_ID` = live `price_…` | **Supabase** Edge secrets | set directly in Supabase (**not** GitHub-synced — the auto-sync was removed 2026-06-18) |
+> | Backend site URL | `SITE_URL` = production URL | **Supabase** Edge secrets | set directly in Supabase |
+>
+> **Source-of-truth policy (release-owner, 2026-06-18):** Supabase Edge Function secrets are the **authoritative** home for ALL live Stripe runtime config (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID`, `SITE_URL`). `deploy-supabase-migrations.yml` **no longer syncs the Stripe price IDs** (removed to eliminate the foot-gun where a CI/test value could silently overwrite the live runtime price). **Never** place `sk_live`/`whsec` live values in GitHub — GitHub's Stripe secrets feed **test-mode CI** only and must never become the implicit production authority. **Sequence:** (1) set Vercel `VITE_STRIPE_PUBLISHABLE_KEY=pk_live`; (2) set/verify Supabase `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/`STRIPE_PRO_PRICE_ID`/`SITE_URL` live, directly in Supabase; (3) re-run the Dev redacted config-readiness check; (4) **only then** Test/Ops run the single live-money proof.
+
 - [ ] **Live Keys**: `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are using `sk_live_...` and `pk_live_...`.
 - [ ] **Frontend publishable key injected by Vercel**: `VITE_STRIPE_PUBLISHABLE_KEY` is set to the `pk_live_...` key in the **Vercel project env (Production scope)**. There is no committed `frontend/.env.production` (removed — it was outside Vite `envDir` and never build-loaded); fail-closed comes from the key being **absent in `process.env`** until Vercel injects it — a production build without the Vercel override renders `ConfigurationNeededPage` rather than silently shipping a Stripe TEST-mode key. There is no `pk_test_...` committed to the repo.
 - [ ] **Runtime key-class proof**: On the live production URL, `window.__APP_RUNTIME_CONFIG__.stripeKeyClass === "live"`. Any other value blocks launch: `"test"` = a test key reached production (billing risk), `"missing"` = the Vercel env override is absent, `"unknown"` = malformed key.
 - [ ] **Webhook Endpoint**: Production URL `https://[PROJECT].supabase.co/functions/v1/stripe-webhook` is registered.
-- [ ] **Webhook Secret**: `STRIPE_WEBHOOK_SECRET` matches the production dashboard.
+- [ ] **Webhook Secret**: `STRIPE_WEBHOOK_SECRET` (Supabase Edge secret) matches the **live** webhook endpoint's signing secret from the Stripe dashboard. Subscribed events include `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+- [ ] **Site URL**: `SITE_URL` (Supabase Edge secret) is the production URL — `stripe-checkout` fails closed without it and builds checkout success/cancel URLs from it.
 - [ ] **Free Signup**: Public signup starts the unpaid baseline without Stripe checkout or card collection.
-- [ ] **Pro Price ID**: `STRIPE_PRO_PRICE_ID` matches the recurring Pro production price. Current soft-release target is **$9.99/month**.
+- [ ] **Pro Price ID (Supabase, live)**: `STRIPE_PRO_PRICE_ID` is set **directly in Supabase** Edge secrets to the recurring Pro **live** production price. Current soft-release target is **$9.99/month**. (Backend reads `STRIPE_PRO_PRICE_ID`, never `STRIPE_PRICE_ID`; fails closed if missing.)
+- [ ] **No GitHub overwrite path**: `deploy-supabase-migrations.yml` does **not** sync `STRIPE_PRO_PRICE_ID`/`STRIPE_BASIC_PRICE_ID` into Supabase (auto-sync removed). If a guarded production price sync is ever reintroduced, it must be behind an explicit `confirm_live_stripe_secret_sync` input, names-only, never a default `operation=secrets`/`all` step.
 - [ ] **Future Basic Pricing**: Stripe Basic may remain as a future placeholder. Current placeholder target is **$4.99/month**, but paid Basic checkout is intentionally unavailable in production code and must return `paid_basic_future` if requested directly.
 
 ## 2. Backend Infrastructure (Supabase)

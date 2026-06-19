@@ -118,28 +118,25 @@ jobs:
         if: ${{ github.event.inputs.operation == 'secrets' || github.event.inputs.operation == 'all' }}
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
-          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
-          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         working-directory: backend/supabase
         run: |
+          # SOURCE-OF-TRUTH POLICY (2026-06-18, release-owner): live Stripe RUNTIME secrets are
+          # Ops-managed DIRECTLY in Supabase and are intentionally NOT synced from GitHub here.
+          # That covers STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRO_PRICE_ID,
+          # STRIPE_BASIC_PRICE_ID, and SITE_URL. Rationale: with one Supabase project and mixed
+          # test/live history, a GitHub→Supabase secrets sync is a foot-gun — a CI/test price or
+          # key could silently overwrite the live production runtime value. GitHub's Stripe secrets
+          # feed test-mode CI jobs only; they must never become the implicit production authority.
+          # If a guarded production price sync is ever needed, add it behind an explicit
+          # confirm_live_stripe_secret_sync input — never as a default operation=secrets/all step.
           if [ -z "$AGENT_SECRET" ]; then
             echo "❌ AGENT_SECRET not available in GitHub Secrets!"
-            exit 1
-          fi
-          if [ -z "$STRIPE_BASIC_PRICE_ID" ]; then
-            echo "❌ STRIPE_BASIC_PRICE_ID not available in GitHub Secrets!"
-            exit 1
-          fi
-          if [ -z "$STRIPE_PRO_PRICE_ID" ]; then
-            echo "❌ STRIPE_PRO_PRICE_ID not available in GitHub Secrets!"
             exit 1
           fi
           supabase secrets set \
             AGENT_SECRET="$AGENT_SECRET" \
             ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5174" \
-            STRIPE_BASIC_PRICE_ID="$STRIPE_BASIC_PRICE_ID" \
-            STRIPE_PRO_PRICE_ID="$STRIPE_PRO_PRICE_ID" \
             --project-ref "$SUPABASE_PROJECT_ID"
           if [ -n "$GEMINI_API_KEY" ]; then
             supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$SUPABASE_PROJECT_ID"
@@ -147,7 +144,7 @@ jobs:
           else
             echo "⚠️ GEMINI_API_KEY is not available in GitHub Secrets; get-ai-suggestions will return GEMINI_KEY_MISSING until configured"
           fi
-          echo "✅ AGENT_SECRET, ALLOWED_ORIGIN, and Stripe price IDs synchronized to Supabase"
+          echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase (Stripe runtime secrets are Ops-managed in Supabase, NOT synced from GitHub)"
 
       - name: Deploy Edge Functions
         if: ${{ github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
