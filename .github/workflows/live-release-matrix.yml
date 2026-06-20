@@ -421,10 +421,10 @@ jobs:
 
       - name: Audit Stripe Price Configuration
         env:
-          # TEST price audit: test key + test pro price. No test-scoped basic price exists, so the
-          # generic (test) basic price stays — consistent with the test key.
+          # TEST price audit: test key + test pro price. Basic falls back to the generic (test)
+          # price until a STRIPE_TEST_BASIC_PRICE_ID secret is provisioned, then auto-upgrades.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
+          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_TEST_BASIC_PRICE_ID || secrets.STRIPE_BASIC_PRICE_ID }}
           STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
           EXPECTED_STRIPE_BASIC_AMOUNT: '499'
           EXPECTED_STRIPE_PRO_AMOUNT: '999'
