@@ -13,11 +13,11 @@
 -- sample fully consumed/closed. activate_basic / upgrade_to_pro / none branches are unchanged.
 --
 -- Billing invariant (release-owner, 2026-06-19): a downgraded user retains NO paid subscription
--- identifier. stripe_subscription_id is cleared on BOTH customer.subscription.deleted AND
--- customer.subscription.updated (canceled/unpaid/past_due) downgrades, so paid features (incl.
--- Cloud, whose entitlement keys off stripe_subscription_id/subscription_id) cannot linger on a
--- 'free' row. stripe_customer_id is intentionally PRESERVED (identity for billing portal /
--- history / re-upgrade).
+-- identifier. BOTH stripe_subscription_id AND subscription_id are cleared on every downgrade path
+-- (customer.subscription.deleted AND customer.subscription.updated canceled/unpaid/past_due), so
+-- paid features (incl. Cloud, whose entitlement keys off stripe_subscription_id OR subscription_id)
+-- cannot linger on a 'free' row. stripe_customer_id is intentionally PRESERVED (identity for
+-- billing portal / history / re-upgrade).
 
 CREATE OR REPLACE FUNCTION public.process_stripe_webhook_event(
     p_event_id text,
@@ -90,9 +90,14 @@ BEGIN
             -- Paid->free downgrade (refund/cancel/past-due): clear the paid subscription id on
             -- EVERY downgrade path (deleted AND updated), set Free, and burn the one-time 5-minute
             -- Private sample so a downgraded user cannot regain it. Preserve stripe_customer_id.
+            -- BOTH paid-id columns are cleared: entitlement (frontend hasPaidProEntitlement and the
+            -- server handle_new_user guard) treats stripe_subscription_id OR subscription_id as a
+            -- paid signal, so a lingering subscription_id would defeat the "real-paid" guard if any
+            -- writer later re-flags status='pro' without payment.
             UPDATE public.user_profiles
             SET subscription_status = 'free',
                 stripe_subscription_id = NULL,
+                subscription_id = NULL,
                 private_sample_seconds_used = COALESCE(private_sample_limit_seconds, 300),
                 private_sample_completed_at = COALESCE(private_sample_completed_at, now()),
                 updated_at = now()
