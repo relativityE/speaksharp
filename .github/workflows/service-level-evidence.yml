@@ -92,8 +92,7 @@ jobs:
           # test key here would snapshot the wrong (test) Stripe account. Step is continue-on-error.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_LIVE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
-          # generic basic price is test-mode (no STRIPE_LIVE_BASIC_PRICE_ID yet — see ops-health.yml)
-          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
+          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_LIVE_BASIC_PRICE_ID }}
           STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_LIVE_PRO_PRICE_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
