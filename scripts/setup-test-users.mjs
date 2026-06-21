@@ -201,7 +201,6 @@ function buildProfilePatchForTier(tier, email) {
     return {
         subscription_status: tier,
         stripe_subscription_id: paidSubscriptionId,
-        subscription_id: paidSubscriptionId,
     };
 }
 

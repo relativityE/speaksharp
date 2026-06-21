@@ -39,7 +39,6 @@ function profilePatchForTier(tier, email) {
   return {
     subscription_status: tier,
     stripe_subscription_id: paidSubscriptionId,
-    subscription_id: paidSubscriptionId,
     updated_at: new Date().toISOString(),
   };
 }
