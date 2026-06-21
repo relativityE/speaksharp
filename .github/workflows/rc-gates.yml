@@ -8,9 +8,13 @@ on:
         required: false
         default: https://speaksharp-public.vercel.app
       stripe_webhook_secret_sha256:
-        description: Optional Supabase STRIPE_WEBHOOK_SECRET SHA-256 digest for equality proof
+        description: Supabase TEST STRIPE_WEBHOOK_SECRET SHA-256 digest for the controlled/non-paid equality proof
         required: false
         default: a3f5b0be67a3e8c24d7eaae36deef5649dba96fa18d00e4ef6fdeb05309ad937
+      stripe_live_webhook_secret_sha256:
+        description: Supabase LIVE STRIPE_WEBHOOK_SECRET SHA-256 digest for the paid-launch equality proof (required when paid_launch=true; release-owner supplied, fails closed if absent)
+        required: false
+        default: ''
       gate:
         description: Gate to run
         required: true
@@ -98,18 +102,31 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:dast:local
-      - name: Verify Stripe Webhook Secret Digest
+      # Controlled/non-paid equality proof: the GitHub TEST webhook secret matches the digest of the
+      # Supabase test webhook verifier. Default digest is the prior generic (test) secret's SHA-256;
+      # if STRIPE_TEST_WEBHOOK_SECRET differs from the old generic, this step surfaces it (fails).
+      - name: Verify Stripe Webhook Secret Digest (test)
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
         env:
-          SECRET_DIGEST_LABEL: STRIPE_WEBHOOK_SECRET
-          SECRET_VALUE: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SECRET_DIGEST_LABEL: STRIPE_TEST_WEBHOOK_SECRET
+          SECRET_VALUE: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           EXPECTED_SHA256: ${{ github.event.inputs.stripe_webhook_secret_sha256 }}
+        run: node scripts/verify-secret-digest.mjs
+      # Paid-launch equality proof: the GitHub LIVE webhook secret matches the deployed Supabase LIVE
+      # webhook verifier. Runs ONLY in paid scope and requires the release-owner-supplied live digest
+      # (verify-secret-digest.mjs fails closed if stripe_live_webhook_secret_sha256 is absent).
+      - name: Verify Stripe Webhook Secret Digest (live, paid-launch only)
+        if: ${{ github.event.inputs.diagnostic_dast_spec == '' && github.event.inputs.paid_launch == 'true' }}
+        env:
+          SECRET_DIGEST_LABEL: STRIPE_LIVE_WEBHOOK_SECRET
+          SECRET_VALUE: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
+          EXPECTED_SHA256: ${{ github.event.inputs.stripe_live_webhook_secret_sha256 }}
         run: node scripts/verify-secret-digest.mjs
       - name: Verify live test-user profile rows
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
@@ -131,7 +148,7 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
@@ -158,10 +175,10 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
-          # Generic STRIPE_WEBHOOK_SECRET stays TEST-only (unchanged). The paid webhook-readiness
+          # The test-scoped STRIPE_TEST_WEBHOOK_SECRET stays test-only. The paid webhook-readiness
           # spec signs with STRIPE_LIVE_WEBHOOK_SECRET (the LIVE endpoint whsec, Ops-created) so the
           # signature matches the deployed Supabase live verifier; the spec fails fast if it's absent.
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           STRIPE_LIVE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
@@ -189,7 +206,7 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
