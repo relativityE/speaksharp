@@ -511,6 +511,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     sessionId
 }) => {
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
+    // Readability/future-proofing only (selectedSessions is capped at 2): O(1) membership lookup in
+    // the session-history render below. Not a performance change.
+    const selectedSessionIds = useMemo(() => new Set(selectedSessions), [selectedSessions]);
     const [showComparison, setShowComparison] = useState(false);
 
     const [selectedFocusId, setSelectedFocusId] = useState<AnalyticsFocusId>(() => {
@@ -937,19 +940,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <DropdownMenuContent align="end" className="w-64">
                                     <DropdownMenuLabel>Display Stats ({customStatCards.length}/4)</DropdownMenuLabel>
                                     <DropdownMenuSeparator />
-                                    {STAT_CARD_OPTIONS.map(option => (
-                                        <DropdownMenuCheckboxItem
-                                            key={option.id}
-                                            checked={customStatCards.includes(option.id)}
-                                            onCheckedChange={() => toggleCustomStatCard(option.id)}
-                                            disabled={
-                                                (!customStatCards.includes(option.id) && customStatCards.length >= 4) ||
-                                                (customStatCards.includes(option.id) && customStatCards.length <= 1)
-                                            }
-                                        >
-                                            {option.label}
-                                        </DropdownMenuCheckboxItem>
-                                    ))}
+                                    {STAT_CARD_OPTIONS.map(option => {
+                                        const checked = customStatCards.includes(option.id);
+                                        return (
+                                            <DropdownMenuCheckboxItem
+                                                key={option.id}
+                                                checked={checked}
+                                                onCheckedChange={() => toggleCustomStatCard(option.id)}
+                                                disabled={
+                                                    (!checked && customStatCards.length >= 4) ||
+                                                    (checked && customStatCards.length <= 1)
+                                                }
+                                            >
+                                                {option.label}
+                                            </DropdownMenuCheckboxItem>
+                                        );
+                                    })}
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         )}
@@ -990,19 +996,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <DropdownMenuContent align="end" className="w-64">
                                     <DropdownMenuLabel>Display Analysis ({customAnalysisSlides.length}/4)</DropdownMenuLabel>
                                     <DropdownMenuSeparator />
-                                    {ANALYSIS_SLIDE_OPTIONS.map(option => (
-                                        <DropdownMenuCheckboxItem
-                                            key={option.id}
-                                            checked={customAnalysisSlides.includes(option.id)}
-                                            onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
-                                            disabled={
-                                                (!customAnalysisSlides.includes(option.id) && customAnalysisSlides.length >= 4) ||
-                                                (customAnalysisSlides.includes(option.id) && customAnalysisSlides.length <= 1)
-                                            }
-                                        >
-                                            {option.label}
-                                        </DropdownMenuCheckboxItem>
-                                    ))}
+                                    {ANALYSIS_SLIDE_OPTIONS.map(option => {
+                                        const checked = customAnalysisSlides.includes(option.id);
+                                        return (
+                                            <DropdownMenuCheckboxItem
+                                                key={option.id}
+                                                checked={checked}
+                                                onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
+                                                disabled={
+                                                    (!checked && customAnalysisSlides.length >= 4) ||
+                                                    (checked && customAnalysisSlides.length <= 1)
+                                                }
+                                            >
+                                                {option.label}
+                                            </DropdownMenuCheckboxItem>
+                                        );
+                                    })}
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         )}
@@ -1114,7 +1123,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                 session={session}
                                                 sessionHistory={sessionHistory}
                                                 isPro={isProUser}
-                                                isSelected={selectedSessions.includes(session.id)}
+                                                isSelected={selectedSessionIds.has(session.id)}
                                                 onToggleSelect={toggleSessionSelection}
                                                 profileName={profile?.email || 'User'}
                                             />
