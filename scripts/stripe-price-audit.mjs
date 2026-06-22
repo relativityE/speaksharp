@@ -1,6 +1,10 @@
-const requiredPlans = [
+// Pro is the active launch product (always required). Basic is future-reserved (may never
+// launch): audited only when its price id is provided, otherwise skipped as reserved — a
+// missing Basic price is NOT an audit failure.
+const plans = [
   {
     label: 'Basic',
+    optional: true,
     envName: 'STRIPE_BASIC_PRICE_ID',
     expectedAmount: Number.parseInt(process.env.EXPECTED_STRIPE_BASIC_AMOUNT ?? '499', 10),
     expectedCurrency: process.env.EXPECTED_STRIPE_BASIC_CURRENCY ?? 'usd',
@@ -44,9 +48,14 @@ const fetchStripeJson = async (path) => {
 const results = [];
 const failures = [];
 
-for (const plan of requiredPlans) {
+for (const plan of plans) {
   const priceId = process.env[plan.envName];
   if (!priceId) {
+    if (plan.optional) {
+      results.push({ label: plan.label, status: 'reserved/not-configured', skipped: true });
+      console.log(`Skipping ${plan.label} price audit — ${plan.envName} not set (reserved/future product).`);
+      continue;
+    }
     failures.push(`${plan.label}: missing ${plan.envName}`);
     continue;
   }
