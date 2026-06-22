@@ -1,0 +1,92 @@
+name: Verify Downgrade Proof
+
+# Read-only, manual verification of the paid->free downgrade contract (#831) for a single
+# proof account, run INSIDE Actions so it can use repo secrets/vars (never local creds).
+# Queries production via PostgREST with the service-role key (RLS-bypass, read-only SELECT),
+# prints ONLY the non-secret proof fields, and fails if the row does not match the contract.
+
+on:
+  workflow_dispatch:
+    inputs:
+      stripe_customer_id:
+        description: 'Live Stripe customer ID of the proof account (cus_...) to verify'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-downgrade:
+    name: Verify paid->free downgrade contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Query production profile and assert downgrade contract
+        env:
+          # SUPABASE_URL is a repo var; SUPABASE_SERVICE_ROLE_KEY is a repo secret (auto-masked
+          # in logs). Neither is ever printed; only the parsed proof fields are emitted.
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CUSTOMER_ID: ${{ github.event.inputs.stripe_customer_id }}
+        run: |
+          cat > "$RUNNER_TEMP/verify.mjs" <<'NODE'
+          const url = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+          const cust = (process.env.CUSTOMER_ID || '').trim();
+          if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'); process.exit(2); }
+          if (!cust) { console.error('Missing stripe_customer_id input'); process.exit(2); }
+
+          const cols = [
+            'subscription_status',
+            'stripe_subscription_id',
+            'subscription_id',
+            'stripe_customer_id',
+            'private_sample_seconds_used',
+            'private_sample_limit_seconds',
+            'private_sample_completed_at',
+          ];
+          const endpoint = `${url}/rest/v1/user_profiles?stripe_customer_id=eq.${encodeURIComponent(cust)}&select=${cols.join(',')}`;
+          const res = await fetch(endpoint, {
+            headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' },
+          });
+          if (!res.ok) { console.error(`PostgREST query failed: HTTP ${res.status}`); process.exit(1); }
+          const rows = await res.json();
+          if (!Array.isArray(rows) || rows.length === 0) {
+            console.error(`FAIL: no user_profiles row for stripe_customer_id=${cust}`);
+            process.exit(1);
+          }
+          if (rows.length > 1) {
+            console.error(`FAIL: expected exactly 1 row, got ${rows.length} for ${cust}`);
+            process.exit(1);
+          }
+          const r = rows[0];
+
+          console.log('--- proof fields (stripe_customer_id=' + cust + ') ---');
+          for (const k of cols) console.log(`${k} = ${r[k] === null ? 'NULL' : r[k]}`);
+
+          const isNull = (v) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+          const used = r.private_sample_seconds_used;
+          const limit = r.private_sample_limit_seconds;
+          const checks = [
+            ['subscription_status == free', String(r.subscription_status).toLowerCase() === 'free'],
+            ['stripe_subscription_id IS NULL', isNull(r.stripe_subscription_id)],
+            ['subscription_id IS NULL', isNull(r.subscription_id)],
+            ['stripe_customer_id preserved', r.stripe_customer_id === cust],
+            ['private_sample_seconds_used == private_sample_limit_seconds', used != null && limit != null && Number(used) === Number(limit)],
+            ['private_sample_completed_at IS NOT NULL', !isNull(r.private_sample_completed_at)],
+          ];
+
+          console.log('--- contract ---');
+          let ok = true;
+          for (const [name, pass] of checks) {
+            console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}`);
+            if (!pass) ok = false;
+          }
+          if (!ok) { console.error('DOWNGRADE CONTRACT FAILED'); process.exit(1); }
+          console.log('DOWNGRADE CONTRACT PASS');
+          NODE
+          node "$RUNNER_TEMP/verify.mjs"
