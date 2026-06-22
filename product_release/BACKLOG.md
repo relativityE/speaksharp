@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.1
-**Last Updated:** 2026-06-08
+**Last Updated:** 2026-06-22
 
 # Release Backlog
 
@@ -635,3 +635,31 @@ vs v4 base_q4/distil_q4, on real GPU) + a **flag-ON app-path proof**. Until thos
 bar (v4 ≥ v2-base on the same corpus), **do not turn the flag on / do not launch the A/B.** Tooling is on
 main: `tests/live/benchmark-v4.live.spec.ts` (V4_VARIANT/V4_DEVICE), `engines.Private.v4.floors` in
 `tests/STT_BENCHMARKS.json`, `.github/workflows/v4-app-path-proof.yml`, `tests/e2e/v4-posthog-browser-control.e2e.spec.ts`.
+
+## Stripe refund/cancel — API-backed admin tool (DEFERRED, post-launch product-ops design)
+
+**Priority:** P2 (product-ops; not a launch blocker). **Added:** 2026-06-22 (release-owner).
+
+**Context.** For the paid-launch downgrade proof (`cus_UjX6pOoPaWreCA`, 2026-06-22) the subscription cancel + $9.99 refund were done **manually** in the Stripe dashboard. That was the right call for the proof: it kept the action under release-owner control and avoided building a new privileged refund/cancel path mid-launch. The DB-side downgrade contract then verified **PASS** (`verify-downgrade-proof.yml` run `27980607954`: free, both ids NULL, sample burned, customer preserved). Manual refunds are **not** required forever — Stripe exposes both actions via API; an API-backed admin path is the better long-term design.
+
+**Stripe API (both actions are API-serviceable):**
+- Cancel subscription immediately — `DELETE /v1/subscriptions/{id}` → status becomes `canceled`, no further charges. (https://docs.stripe.com/api/subscriptions/cancel)
+- Refund a payment — `POST /v1/refunds` with `payment_intent` (or `charge`) → refunds to the original method, full or partial up to the unrefunded amount. (https://docs.stripe.com/api/refunds/create)
+
+**Future design — admin-only refund/cancel tool (NOT a public/user-facing button initially):**
+1. Verify requester is admin/release-owner.
+2. Load profile by `customer_id` or `user_id`.
+3. Confirm an active `stripe_subscription_id`.
+4. Cancel the subscription via Stripe API (immediate).
+5. Find the latest paid invoice / `payment_intent` / charge.
+6. Create a full refund via Stripe API.
+7. Write an audit row: `user_id, customer_id, subscription_id, payment_intent, refund_id, actor, reason, timestamp`.
+8. Let the **Stripe webhook** drive the entitlement downgrade (do **not** downgrade the DB directly as the primary action).
+9. Poll/verify the profile row (free, both ids NULL, sample burned) — reuse `verify-downgrade-proof.yml`.
+
+**Key safety rules:**
+- **Stripe is the source of truth.** Cancellation/refund must EMIT the webhook, and the webhook (`process_stripe_webhook_event`) drives the entitlement change. Direct DB downgrade is a **break-glass fallback only**.
+- Runs **only** with a live Stripe secret in a locked-down, admin-gated environment. Must **never** print `sk_live`, card data, or full customer emails.
+- Dev-buildable as an API-backed admin script or guarded `workflow_dispatch`, mirroring the secrets-in-YAML pattern (no local creds).
+
+**Status:** deferred / not started. Manual Stripe dashboard action remains the interim path; the 2026-06-22 launch proof is already closed manually.
