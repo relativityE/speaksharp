@@ -663,3 +663,38 @@ main: `tests/live/benchmark-v4.live.spec.ts` (V4_VARIANT/V4_DEVICE), `engines.Pr
 - Dev-buildable as an API-backed admin script or guarded `workflow_dispatch`, mirroring the secrets-in-YAML pattern (no local creds).
 
 **Status:** deferred / not started. Manual Stripe dashboard action remains the interim path; the 2026-06-22 launch proof is already closed manually.
+
+## Pre-Release UX Gates (release-owner, 2026-06-22)
+
+**Posture:** **Billing/payment = GO** (paid refund/cancel entitlement proof closed — see `v0.8.5-rc1`). The remaining gate for *broad* release is **user-facing UX**, not cleanup. Block release only on items affecting first-user comprehension, trust, save/report confidence, or paid entitlement. These promote manual-testing findings into canonical items; they require **runtime proof** (screenshots/video/trace), not unit tests alone.
+
+### Must complete before broad release (UX gates)
+
+| Priority | ID | Item | Why it matters |
+|---|---|---|---|
+| P0/P1 | UXGATE-TRUST-STATE | **Real Native + Private trust-state proof** — at least one non-Cloud path must be trust-preserving: no blank panels, unstable labels, duplicate/truncated text, unreadable punctuation/casing, or overconfident score/analytics from weak transcripts. | Backlog requires a non-Cloud path that is trust-preserving. Runtime proof. |
+| P1 | UXGATE-WEAK-CAVEAT | **Transcript-quality caveats visible in Native/Private reruns** — weak transcripts must not yield overconfident Score/Analytics. | Required guardrail; manual rerun proof. |
+| P1 | UXGATE-SAVE-COHERENCE | **Save/history/detail coherence** — transcript, metrics, engine metadata, PDF, AI suggestions, and detail view must align as durable evidence. | Runtime journey proof. |
+| P1 | UXGATE-FOCUS-CLARITY | **Analytics focus chooser clarity** — "Change Focus" flagged as unclear/visually weak; promote from review to a UX fix (label + affordance + tooltips/examples). | Self-explanatory focus model reduces "metric soup". |
+| P1/P2 | UXGATE-CLARITY-CONSISTENCY | **Clarity metric consistency + honest labeling** — dashboard aggregate Clarity can show 0% while session/PDF are nonzero; align source of truth; rename/caveat if derived from pace/fillers not true speech clarity. | User-facing trust/correctness, not cosmetic. |
+| P2 (high-value) | UXGATE-REPORT-ISSUE-OPS | **Report Issue ops notification / triage path** — insert works (closed) but there is no notification/triage loop. | Release-ops risk. |
+
+### Should complete if public-facing
+
+| Priority | ID | Item |
+|---|---|---|
+| P2 | UX-HOMEPAGE-DEMO | Homepage "See How Feedback Works" — unauth `/analytics` redirect blunts the promise; add a demo/preview route or change the CTA to set an authenticated expectation. |
+| P2 | UX-PRIVATE-READY | Private STT ready/status signal — clear "Private STT ready" state/toast after model download (deliberate consent/download UX). |
+| P2 | UX-STALE-TRANSCRIPT | Stale transcript / false unsaved banner after STT mode switch or save — false risk signals; fix or prove absent. |
+| P2 | UX-FOCUS-CONTRAST | Focus button contrast + wording — e.g. "Choose coaching focus" or `Focus: <current> ▾`. |
+| P2 | UX-VISUAL-DENSITY | Session visual-density screenshot pass (desktop/mobile) after trust-state fixes settle. |
+
+### Deferred until after broad release (NOT UX gates)
+#833 rc-gates webhook digest · #834 `subscription_id` deprecation · #835 frontend membership cleanup · #837 backlog doc · generic Stripe secret deletion · drop `subscription_id` column · CORS Set micro-opt · **OpsStatusPage fallback — do NOT parallelize (ordered fallback is intentional)** · dead `FORCE PRO` comment / dead `downgrade_to_basic` arm.
+
+### Proposed focused UX PR sequence (do not mix with Stripe/Supabase/secrets/cleanup)
+1. **STT trust + stale-state UX** — Native/Private trust banners; prevent stale transcript after mode switch; prevent false unsaved-draft banner after save/mode switch; prove visible draft/final state + saved detail correctness. *(Why first: ship only if a non-Cloud path is trust-preserving.)*
+2. **Focus selector UX** — replace "Change Focus"; clear dropdown affordance; contrast; compact descriptions/tooltips for Speak Clearly / Sound Confident / Track Progress / Custom.
+3. **Analytics/Clarity consistency** — fix aggregate Clarity 0% inconsistency; align dashboard/session/PDF/goals source of truth; rename/caveat Clarity if derived from pace/fillers; auto-surface transcript-quality caveat on weak transcripts.
+4. **Homepage/demo path** — non-auth feedback preview/demo OR change the CTA to an authenticated expectation.
+5. **Report Issue ops loop** — keep user success confirmation; add internal notification or daily triage query; document who reviews reports.
