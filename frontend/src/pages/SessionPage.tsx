@@ -41,6 +41,7 @@ export const SessionPage: React.FC = () => {
     const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
     const setRecoveredChunks = useSessionStore(state => state.setChunks);
     const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
+    const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
 
@@ -94,12 +95,21 @@ export const SessionPage: React.FC = () => {
             setRecoveryDraft(null);
             return;
         }
+        // A successfully-saved session is NOT an orphaned draft to recover. The stop flow writes a
+        // transient crash-safety recovery draft and clears it only after the async save completes;
+        // surfacing it on isListening->false would falsely tell the user their saved work is "unsaved".
+        // Suppress the banner (and drop the stale draft) once the current session is persisted.
+        if (sessionSaved) {
+            clearSessionRecoveryDraft();
+            setRecoveryDraft(null);
+            return;
+        }
         const draft = getSessionRecoveryDraft();
         setRecoveryDraft(draft);
         if (!draft || transcriptContent.trim()) return;
 
         restoreRecoveryDraft(draft);
-    }, [isListening, restoreRecoveryDraft, transcriptContent]);
+    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent]);
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
