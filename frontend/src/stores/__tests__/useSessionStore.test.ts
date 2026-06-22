@@ -243,4 +243,42 @@ describe('useSessionStore', () => {
             expect(useSessionStore.getState().sttStatus.type).toBe('idle');
         });
     });
+
+    // PR 1a / #772 regression guard: setSTTMode's GLOBAL behavior must stay unchanged. The B fix
+    // (clearing a stale transcript on a MANUAL mode switch) lives in the user-initiated setMode
+    // handler, NOT in setSTTMode. So setSTTMode must still PRESERVE a just-saved transcript across
+    // the automatic post-save force-switch (#772 Private-sample auto-end), and still RESET the
+    // visible session on a normal (unsaved) mode switch.
+    describe('setSTTMode visible-session reset guard (#772)', () => {
+        const seedSavedSession = (sessionSaved: boolean) => {
+            useSessionStore.setState({
+                sttMode: 'native',
+                sessionSaved,
+                runtimeState: 'READY',
+                isTranscriptFinalizing: false,
+                frozenTranscriptAtStop: null,
+                transcript: { transcript: 'just saved transcript', partial: '' },
+                chunks: [{ transcript: 'just saved transcript', timestamp: 1, isFinal: true }],
+            });
+        };
+
+        it('PRESERVES a just-saved transcript on a post-save force-switch (sessionSaved=true) — #772 intact', () => {
+            seedSavedSession(true);
+            useSessionStore.getState().setSTTMode('cloud');
+            const state = useSessionStore.getState();
+            expect(state.sttMode).toBe('cloud');
+            expect(state.transcript.transcript).toBe('just saved transcript');
+            expect(state.chunks).toHaveLength(1);
+            expect(state.sessionSaved).toBe(true);
+        });
+
+        it('RESETS the visible session on a normal (unsaved) mode switch (sessionSaved=false)', () => {
+            seedSavedSession(false);
+            useSessionStore.getState().setSTTMode('cloud');
+            const state = useSessionStore.getState();
+            expect(state.sttMode).toBe('cloud');
+            expect(state.transcript.transcript).toBe('');
+            expect(state.chunks).toHaveLength(0);
+        });
+    });
 });

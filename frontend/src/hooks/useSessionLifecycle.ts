@@ -562,6 +562,16 @@ export const useSessionLifecycle = () => {
         setMode: (m: TranscriptionMode) => {
             const safeMode = m === 'cloud' && !canUseCloudStt ? defaultMode : m;
             modeSourceRef.current = 'user';
+            // Opt 2 (#772-safe, PR 1a): a MANUAL mode switch starts a fresh context. setSTTMode
+            // intentionally preserves a just-saved transcript for the AUTOMATIC #772 Private-sample
+            // force-switch (guarded by sessionSaved), so on a user-initiated switch we clear the
+            // prior visible transcript here so stale text does not carry into the new mode.
+            // setSTTMode's global behavior and the #772 auto-switch path are left unchanged.
+            const store = useSessionStore.getState();
+            if (store.sessionSaved && store.sttMode !== safeMode) {
+                store.updateTranscript('', '');
+                store.setChunks([]);
+            }
             setSTTMode(safeMode);
             speechRuntimeController.updatePolicy(buildPolicyForUser(canUsePrivateStt, safeMode, { allowCloud: canUseCloudStt }));
             speechRuntimeController.syncForensicState();
