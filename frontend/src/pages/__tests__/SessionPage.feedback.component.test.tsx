@@ -61,8 +61,6 @@ vi.mock('@/components/session/StatusNotificationBar', () => ({
 // Mock other components to silence them
 vi.mock('@/components/session/LiveRecordingCard', () => ({ LiveRecordingCard: () => <div /> }));
 vi.mock('@/components/session/LiveTranscriptPanel', () => ({ LiveTranscriptPanel: () => <div /> }));
-vi.mock('@/components/session/ClarityScoreCard', () => ({ ClarityScoreCard: () => <div /> }));
-vi.mock('@/components/session/SpeakingRateCard', () => ({ SpeakingRateCard: () => <div /> }));
 vi.mock('@/components/session/FillerWordsCard', () => ({ FillerWordsCard: () => <div /> }));
 vi.mock('@/components/session/SpeakingTipsCard', () => ({ SpeakingTipsCard: () => <div /> }));
 vi.mock('@/components/session/MobileActionBar', () => ({ MobileActionBar: () => <div /> }));
