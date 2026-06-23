@@ -148,11 +148,11 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     },
     {
         id: 'clarity_score',
-        label: 'Clarity Score',
+        label: 'Clear Delivery',
         icon: <Target size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.avgAccuracy,
+        getValue: (stats) => stats.avgClarity,
         unit: '%',
-        description: 'Average speech clarity percentage'
+        description: 'Based on pace, fillers, and structure — not transcription accuracy.'
     },
     // Future stat cards can be added here
     {
@@ -744,7 +744,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         />
                         <StatCard
                             icon={<Target />}
-                            label="Clarity Score"
+                            label="Clear Delivery"
                             value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : '--'}
                             unit={targetSessionMetrics.isClarityScorable ? '%' : undefined}
                             description={targetSessionMetrics.clarityExplanation}

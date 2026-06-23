@@ -46,7 +46,7 @@ const mockStats = {
     avgFillerWordsPerMin: 5,
     totalPracticeTime: 300,
     averageSessionLength: 30,
-    avgAccuracy: 85,
+    avgClarity: 85,
     chartData: [
         { date: '2023-01-01', 'FW/min': 5, clarity: 80 },
         { date: '2023-01-02', 'FW/min': 4, clarity: 85 },
