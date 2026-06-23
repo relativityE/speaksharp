@@ -11,6 +11,7 @@ const mockSessionHistory: PracticeSession[] = [
         total_words: 500,
         filler_words: { um: { count: 5 }, uh: { count: 3 }, total: { count: 8 } },
         accuracy: 0.95,
+        clarity_score: 95,
         title: 'Session 1',
         transcript: '... um ... uh ...',
     },
@@ -22,6 +23,7 @@ const mockSessionHistory: PracticeSession[] = [
         total_words: 1000,
         filler_words: { um: { count: 10 }, like: { count: 5 }, total: { count: 15 } },
         accuracy: 0.90,
+        clarity_score: 90,
         title: 'Session 2',
         transcript: '... um ... like ...',
     },
@@ -35,7 +37,28 @@ describe('analyticsUtils', () => {
             expect(stats.totalPracticeTime).toBe(15);
             expect(stats.averageWPM).toBe(100);
             expect(stats.avgFillerWordsPerMin).toBe('1.5');
-            expect(stats.avgAccuracy).toBe('92.5');
+            expect(stats.avgClarity).toBe('92.5');
+        });
+
+        it('aggregates Clear Delivery (clarity) from clarity_score and ignores the unrelated STT accuracy field', () => {
+            // Regression for the aggregate-Clarity-0% bug: a session can have accuracy=0 (or absent)
+            // while clarity_score is high. The aggregate must reflect clarity_score, not STT accuracy.
+            const stats = calculateOverallStats([
+                {
+                    id: 'mismatch',
+                    created_at: '2026-01-01T00:00:00.000Z',
+                    user_id: 'user-1',
+                    duration: 120,
+                    total_words: 200,
+                    transcript: Array.from({ length: 200 }, (_, i) => `word${i}`).join(' '),
+                    filler_words: {},
+                    accuracy: 0,
+                    clarity_score: 85,
+                    title: 'Accuracy 0, Clarity 85',
+                },
+            ] as PracticeSession[]);
+
+            expect(stats.avgClarity).toBe('85.0');
         });
 
         it('uses aggregate words over aggregate time so short sessions do not distort average WPM', () => {

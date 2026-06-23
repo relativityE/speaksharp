@@ -18,7 +18,7 @@ export interface OverallStats {
   averageSessionLength: number;
   averageWPM: number;
   avgFillerWordsPerMin: string | number;
-  avgAccuracy: string | number;
+  avgClarity: string | number;
   chartData: ChartDataPoint[];
 }
 

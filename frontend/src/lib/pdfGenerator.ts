@@ -192,7 +192,7 @@ export const generateSessionPdf = async (
       ['Session ID', session.id],
       ['Total Words', `${metrics.wordCount}`],
       ['Speaking Pace (WPM)', `${metrics.wpm} (${metrics.wpmLabel})`],
-      ['Clarity Score', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
+      ['Clear Delivery', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
       ['Total Filler Words', `${metrics.fillerCount}`],
       ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
       ['Custom Words Detected', `${customWordsDetected}`],

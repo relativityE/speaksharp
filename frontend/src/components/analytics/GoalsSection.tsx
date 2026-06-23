@@ -43,9 +43,9 @@ export const GoalsSection: React.FC = () => {
     const weeklyProgress = Math.min((weeklySessions / weeklyGoal) * 100, 100);
 
     // Calculate average clarity score from recent sessions
-    const avgClarityScore = typeof overallStats?.avgAccuracy === 'string'
-        ? parseFloat(overallStats.avgAccuracy)
-        : (overallStats?.avgAccuracy ?? 0);
+    const avgClarityScore = typeof overallStats?.avgClarity === 'string'
+        ? parseFloat(overallStats.avgClarity)
+        : (overallStats?.avgClarity ?? 0);
 
     const clarityProgress = Math.min((avgClarityScore / clarityGoal) * 100, 100);
 
@@ -97,7 +97,7 @@ export const GoalsSection: React.FC = () => {
                     <div className="flex justify-between text-sm">
                         <span className="font-medium flex items-center gap-2 text-foreground">
                             <Trophy className="h-4 w-4 text-muted-foreground" />
-                            Clarity Score Avg
+                            Clear Delivery Avg
                         </span>
                         <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
                     </div>

@@ -34,7 +34,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             averageSessionLength: 0,
             averageWPM: 0,
             avgFillerWordsPerMin: "0.0",
-            avgAccuracy: "0.0",
+            avgClarity: "0.0",
             chartData: []
         };
     }
@@ -45,7 +45,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     let totalDurationSeconds = 0;
     let totalWords = 0;
     let totalFillerWords = 0;
-    let totalAccuracy = 0;
+    let totalClarity = 0;
 
     for (const s of sessionHistory) {
         const duration = s.duration || 0;
@@ -55,9 +55,10 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         totalWords += sessionMetrics.wordCount;
 
         totalFillerWords += sessionMetrics.fillerCount;
-        totalAccuracy += typeof s.accuracy === 'number'
-            ? s.accuracy * 100
-            : sessionMetrics.clarityScore;
+        // Single source of truth: aggregate the SAME per-session delivery-clarity used by session
+        // detail, PDF, Goals, and the clarity chart. The unrelated STT `accuracy` field is NOT
+        // clarity; mixing it made the aggregate card read 0% while individual sessions read nonzero.
+        totalClarity += sessionMetrics.clarityScore;
     }
 
     // totalPracticeTime: rounded for display (e.g., "1 min")
@@ -73,7 +74,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         : 0;
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
     const avgFillerWordsPerMin = calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1);
-    const avgAccuracy = totalSessions > 0 ? (totalAccuracy / totalSessions).toFixed(1) : "0.0";
+    const avgClarity = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
 
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
@@ -87,7 +88,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         };
     }).reverse();
 
-    return { totalSessions, totalPracticeTime, averageSessionLength, averageWPM, avgFillerWordsPerMin, avgAccuracy, chartData };
+    return { totalSessions, totalPracticeTime, averageSessionLength, averageWPM, avgFillerWordsPerMin, avgClarity, chartData };
 };
 
 export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {
