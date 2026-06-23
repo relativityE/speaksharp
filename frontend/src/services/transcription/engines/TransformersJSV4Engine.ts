@@ -454,6 +454,29 @@ export class TransformersJSV4Engine extends STTEngine {
                     load_time_ms: response.loadTimeMs,
                     engine: 'transformersjs-v4-worker',
                 }, '[TransformersJSV4] Worker engine loaded.');
+                // Publish the RESOLVED v4 runtime identity. The dev/test STT badge,
+                // window.__STT_IDENTITY__()/__STT_EVIDENCE__(), and proof harnesses already READ
+                // window.__PRIVATE_V4_RUNTIME__ (see sttIdentity.ts / sttEvidenceCollector.ts) — this is
+                // the missing WRITER, so the actual device/backend the worker resolved is observable
+                // instead of always "NOT_AVAILABLE". Diagnostic only; never gates product behavior.
+                if (typeof window !== 'undefined') {
+                    const rawDevice = response.device;
+                    (window as unknown as { __PRIVATE_V4_RUNTIME__?: {
+                        resolvedDevice?: string;
+                        backend?: string;
+                        dtype?: Record<string, string>;
+                        modelId?: string;
+                        modelSource?: 'hf' | 'local';
+                        fallbackOccurred?: boolean;
+                    } }).__PRIVATE_V4_RUNTIME__ = {
+                        resolvedDevice: rawDevice,
+                        backend: rawDevice.toLowerCase().includes('webgpu') ? 'webgpu' : 'wasm',
+                        dtype: v4Model.DTYPE as Record<string, string>,
+                        modelId: response.model,
+                        modelSource: 'hf',
+                        fallbackOccurred: rawDevice === 'wasm-fallback',
+                    };
+                }
                 return;
             }
 

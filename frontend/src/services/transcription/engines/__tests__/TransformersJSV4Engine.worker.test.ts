@@ -34,6 +34,9 @@ vi.mock('@huggingface/transformers', () => ({
 type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-error';
 
 let fakeWorkerMode: FakeWorkerMode = 'ready';
+// When set, the fake worker emits a 'loaded' message (carrying this resolved device) before 'ready',
+// exactly like the real worker — so we can assert the engine publishes window.__PRIVATE_V4_RUNTIME__.
+let fakeLoadedDevice: string | null = null;
 const fakeWorkerInstances: FakeWorker[] = [];
 
 class FakeWorker {
@@ -76,6 +79,12 @@ class FakeWorker {
                 return;
             }
 
+            if (message.type === 'init' && fakeLoadedDevice) {
+                this.onmessage?.({
+                    data: { id: message.id, type: 'loaded', loadTimeMs: 5, model: 'onnx-community/whisper-base.en', device: fakeLoadedDevice },
+                } as MessageEvent);
+            }
+
             this.onmessage?.({
                 data: { id: message.id, type: 'ready' },
             } as MessageEvent);
@@ -95,6 +104,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
         mockPipeline.mockReset();
         window.localStorage.clear();
         fakeWorkerMode = 'ready';
+        fakeLoadedDevice = null;
+        delete (window as typeof window & { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__;
         fakeWorkerInstances.length = 0;
         vi.stubGlobal('Worker', FakeWorker);
         vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
@@ -104,6 +115,7 @@ describe('TransformersJSV4Engine worker message contract', () => {
 
     afterEach(() => {
         delete (window as typeof window & { __PRIVATE_STT_DECODE_OPTIONS__?: unknown }).__PRIVATE_STT_DECODE_OPTIONS__;
+        delete (window as typeof window & { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__;
         window.localStorage.clear();
         vi.useRealTimers();
         vi.restoreAllMocks();
@@ -222,6 +234,42 @@ describe('TransformersJSV4Engine worker message contract', () => {
             return_timestamps: true,
         }));
         expect(transcribeOptions).not.toHaveProperty('unsafe_option');
+
+        await engine.destroy();
+    });
+
+    it('publishes window.__PRIVATE_V4_RUNTIME__ with the resolved WASM device/backend on worker load', async () => {
+        fakeLoadedDevice = 'wasm-default';
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(true);
+        const runtime = (window as typeof window & {
+            __PRIVATE_V4_RUNTIME__?: { resolvedDevice?: string; backend?: string; modelId?: string; modelSource?: string };
+        }).__PRIVATE_V4_RUNTIME__;
+        expect(runtime).toBeDefined();
+        expect(runtime?.resolvedDevice).toBe('wasm-default');
+        expect(runtime?.backend).toBe('wasm');
+        expect(runtime?.modelId).toBe('onnx-community/whisper-base.en');
+        expect(runtime?.modelSource).toBe('hf');
+
+        await engine.destroy();
+    });
+
+    it('marks __PRIVATE_V4_RUNTIME__ backend as webgpu when the worker resolves to WebGPU', async () => {
+        fakeLoadedDevice = 'webgpu';
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+
+        await engine.init();
+
+        const runtime = (window as typeof window & {
+            __PRIVATE_V4_RUNTIME__?: { resolvedDevice?: string; backend?: string };
+        }).__PRIVATE_V4_RUNTIME__;
+        expect(runtime?.resolvedDevice).toBe('webgpu');
+        expect(runtime?.backend).toBe('webgpu');
 
         await engine.destroy();
     });

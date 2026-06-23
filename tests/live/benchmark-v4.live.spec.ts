@@ -56,32 +56,9 @@ test.use({
 
 test.afterEach(async ({ page }, testInfo) => {
     await attachPrivateBenchmarkEvidence(page, testInfo, 'private-v4');
-
-    // B1 — Browser WASM Private-mode smoke. Runs in afterEach so the runtime identity
-    // (model/source/size/device/backend) is captured into a NAMED artifact with the explicit
-    // WASM-not-WebGPU caveat on EVERY run — including the harness-limited 0-word under-capture, the
-    // most diagnostic case (the WER guard in the test body aborts before any body-level capture).
-    const runtimeIdentity = await attachPrivateRuntimeIdentityEvidence(page, testInfo, {
-        label: 'private-v4',
-        expectedDevice: V4_DEVICE,
-        expectedModelId: V4_VARIANT_MODEL_ID[V4_VARIANT],
-    });
-
-    // Assert the pinned WASM run did NOT silently engage WebGPU. Guarded on a resolved backend so a
-    // 0-word under-capture (a separate, pre-existing harness-limited failure) is never masked by this,
-    // and one-directional so it can't false-fail on backend-string variance (wasm/cpu/sentinel).
-    const backendStr = String(
-        runtimeIdentity?.backend ?? runtimeIdentity?.resolvedDevice ?? '',
-    ).toLowerCase();
-    if (V4_DEVICE === 'wasm' && backendStr) {
-        expect(
-            backendStr,
-            `B1 WASM smoke: runtime must not be WebGPU when device=wasm (identity=${JSON.stringify(runtimeIdentity)})`,
-        ).not.toContain('webgpu');
-    }
 });
 
-test('measure Transformers.js v4 worker', async ({ page }) => {
+test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
     test.setTimeout(180_000);
 
     const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
@@ -127,6 +104,31 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     const recordingStartedAt = Date.now();
     await expectBenchmarkRecordingStarted(page, 'private-v4');
     await expectBenchmarkTranscriptOutput(page, 'private-v4', 30_000);
+
+    // B1 — Browser WASM Private-mode smoke. Capture the RESOLVED runtime identity WHILE recording is
+    // live (mode=private + worker 'loaded' has published window.__PRIVATE_V4_RUNTIME__), so the named
+    // artifact carries the real device/backend instead of the post-teardown NOT_AVAILABLE. Then
+    // positively assert the pinned WASM run resolved to WASM/CPU (never WebGPU). This runs BEFORE the
+    // stop + WER completeness guard, so it is reached even on the harness-limited 0-word under-capture.
+    await page.waitForFunction(
+        () => Boolean((window as unknown as { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__),
+        undefined,
+        { timeout: 10_000 },
+    ).catch(() => { /* fall through — the assertion below surfaces a missing/empty identity */ });
+    const runtimeIdentity = await attachPrivateRuntimeIdentityEvidence(page, testInfo, {
+        label: 'private-v4',
+        expectedDevice: V4_DEVICE,
+        expectedModelId: V4_VARIANT_MODEL_ID[V4_VARIANT],
+    });
+    if (V4_DEVICE === 'wasm') {
+        const backendStr = String(
+            runtimeIdentity?.backend ?? runtimeIdentity?.resolvedDevice ?? '',
+        ).toLowerCase();
+        expect(
+            backendStr,
+            `B1 WASM smoke: v4 runtime backend must resolve to WASM/CPU, not WebGPU (identity=${JSON.stringify(runtimeIdentity)})`,
+        ).toMatch(/wasm|cpu/);
+    }
 
     const elapsedSinceStartMs = Date.now() - recordingStartedAt;
     await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
