@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.1
-**Last Updated:** 2026-06-08
+**Last Updated:** 2026-06-22
 
 # Release Backlog
 
@@ -635,3 +635,66 @@ vs v4 base_q4/distil_q4, on real GPU) + a **flag-ON app-path proof**. Until thos
 bar (v4 ≥ v2-base on the same corpus), **do not turn the flag on / do not launch the A/B.** Tooling is on
 main: `tests/live/benchmark-v4.live.spec.ts` (V4_VARIANT/V4_DEVICE), `engines.Private.v4.floors` in
 `tests/STT_BENCHMARKS.json`, `.github/workflows/v4-app-path-proof.yml`, `tests/e2e/v4-posthog-browser-control.e2e.spec.ts`.
+
+## Stripe refund/cancel — API-backed admin tool (DEFERRED, post-launch product-ops design)
+
+**Priority:** P2 (product-ops; not a launch blocker). **Added:** 2026-06-22 (release-owner).
+
+**Context.** For the paid-launch downgrade proof (`cus_UjX6pOoPaWreCA`, 2026-06-22) the subscription cancel + $9.99 refund were done **manually** in the Stripe dashboard. That was the right call for the proof: it kept the action under release-owner control and avoided building a new privileged refund/cancel path mid-launch. The DB-side downgrade contract then verified **PASS** (`verify-downgrade-proof.yml` run `27980607954`: free, both ids NULL, sample burned, customer preserved). Manual refunds are **not** required forever — Stripe exposes both actions via API; an API-backed admin path is the better long-term design.
+
+**Stripe API (both actions are API-serviceable):**
+- Cancel subscription immediately — `DELETE /v1/subscriptions/{id}` → status becomes `canceled`, no further charges. (https://docs.stripe.com/api/subscriptions/cancel)
+- Refund a payment — `POST /v1/refunds` with `payment_intent` (or `charge`) → refunds to the original method, full or partial up to the unrefunded amount. (https://docs.stripe.com/api/refunds/create)
+
+**Future design — admin-only refund/cancel tool (NOT a public/user-facing button initially):**
+1. Verify requester is admin/release-owner.
+2. Load profile by `customer_id` or `user_id`.
+3. Confirm an active `stripe_subscription_id`.
+4. Cancel the subscription via Stripe API (immediate).
+5. Find the latest paid invoice / `payment_intent` / charge.
+6. Create a full refund via Stripe API.
+7. Write an audit row: `user_id, customer_id, subscription_id, payment_intent, refund_id, actor, reason, timestamp`.
+8. Let the **Stripe webhook** drive the entitlement downgrade (do **not** downgrade the DB directly as the primary action).
+9. Poll/verify the profile row (free, both ids NULL, sample burned) — reuse `verify-downgrade-proof.yml`.
+
+**Key safety rules:**
+- **Stripe is the source of truth.** Cancellation/refund must EMIT the webhook, and the webhook (`process_stripe_webhook_event`) drives the entitlement change. Direct DB downgrade is a **break-glass fallback only**.
+- Runs **only** with a live Stripe secret in a locked-down, admin-gated environment. Must **never** print `sk_live`, card data, or full customer emails.
+- Dev-buildable as an API-backed admin script or guarded `workflow_dispatch`, mirroring the secrets-in-YAML pattern (no local creds).
+
+**Status:** deferred / not started. Manual Stripe dashboard action remains the interim path; the 2026-06-22 launch proof is already closed manually.
+
+## Pre-Release UX Gates (release-owner, 2026-06-22)
+
+**Posture:** **Billing/payment = GO** (paid refund/cancel entitlement proof closed — see `v0.8.5-rc1`). The remaining gate for *broad* release is **user-facing UX**, not cleanup. Block release only on items affecting first-user comprehension, trust, save/report confidence, or paid entitlement. These promote manual-testing findings into canonical items; they require **runtime proof** (screenshots/video/trace), not unit tests alone.
+
+### Must complete before broad release (UX gates)
+
+| Priority | ID | Item | Why it matters |
+|---|---|---|---|
+| P0/P1 | UXGATE-TRUST-STATE | **Real Native + Private trust-state proof** — at least one non-Cloud path must be trust-preserving: no blank panels, unstable labels, duplicate/truncated text, unreadable punctuation/casing, or overconfident score/analytics from weak transcripts. | Backlog requires a non-Cloud path that is trust-preserving. Runtime proof. |
+| P1 | UXGATE-WEAK-CAVEAT | **Transcript-quality caveats visible in Native/Private reruns** — weak transcripts must not yield overconfident Score/Analytics. | Required guardrail; manual rerun proof. |
+| P1 | UXGATE-SAVE-COHERENCE | **Save/history/detail coherence** — transcript, metrics, engine metadata, PDF, AI suggestions, and detail view must align as durable evidence. | Runtime journey proof. |
+| P1 | UXGATE-FOCUS-CLARITY | **Analytics focus chooser clarity** — "Change Focus" flagged as unclear/visually weak; promote from review to a UX fix (label + affordance + tooltips/examples). | Self-explanatory focus model reduces "metric soup". |
+| P1/P2 | UXGATE-CLARITY-CONSISTENCY | **Clarity metric consistency + honest labeling** — dashboard aggregate Clarity can show 0% while session/PDF are nonzero; align source of truth; rename/caveat if derived from pace/fillers not true speech clarity. | User-facing trust/correctness, not cosmetic. |
+| P2 (high-value) | UXGATE-REPORT-ISSUE-OPS | **Report Issue ops notification / triage path** — insert works (closed) but there is no notification/triage loop. | Release-ops risk. |
+
+### Should complete if public-facing
+
+| Priority | ID | Item |
+|---|---|---|
+| P2 | UX-HOMEPAGE-DEMO | Homepage "See How Feedback Works" — unauth `/analytics` redirect blunts the promise; add a demo/preview route or change the CTA to set an authenticated expectation. |
+| P2 | UX-PRIVATE-READY | Private STT ready/status signal — clear "Private STT ready" state/toast after model download (deliberate consent/download UX). |
+| P2 | UX-STALE-TRANSCRIPT | Stale transcript / false unsaved banner after STT mode switch or save — false risk signals; fix or prove absent. |
+| P2 | UX-FOCUS-CONTRAST | Focus button contrast + wording — e.g. "Choose coaching focus" or `Focus: <current> ▾`. |
+| P2 | UX-VISUAL-DENSITY | Session visual-density screenshot pass (desktop/mobile) after trust-state fixes settle. |
+
+### Deferred until after broad release (NOT UX gates)
+#833 rc-gates webhook digest · #834 `subscription_id` deprecation · #835 frontend membership cleanup · #837 backlog doc · generic Stripe secret deletion · drop `subscription_id` column · CORS Set micro-opt · **OpsStatusPage fallback — do NOT parallelize (ordered fallback is intentional)** · dead `FORCE PRO` comment / dead `downgrade_to_basic` arm.
+
+### Proposed focused UX PR sequence (do not mix with Stripe/Supabase/secrets/cleanup)
+1. **STT trust + stale-state UX** — Native/Private trust banners; prevent stale transcript after mode switch; prevent false unsaved-draft banner after save/mode switch; prove visible draft/final state + saved detail correctness. *(Why first: ship only if a non-Cloud path is trust-preserving.)*
+2. **Focus selector UX** — replace "Change Focus"; clear dropdown affordance; contrast; compact descriptions/tooltips for Speak Clearly / Sound Confident / Track Progress / Custom.
+3. **Analytics/Clarity consistency** — fix aggregate Clarity 0% inconsistency; align dashboard/session/PDF/goals source of truth; rename/caveat Clarity if derived from pace/fillers; auto-surface transcript-quality caveat on weak transcripts.
+4. **Homepage/demo path** — non-auth feedback preview/demo OR change the CTA to an authenticated expectation.
+5. **Report Issue ops loop** — keep user success confirmation; add internal notification or daily triage query; document who reviews reports.
