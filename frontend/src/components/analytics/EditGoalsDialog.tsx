@@ -70,7 +70,7 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
                 <DialogHeader>
                     <DialogTitle>Edit Your Goals</DialogTitle>
                     <DialogDescription>
-                        Set personalized targets for your weekly practice sessions and clarity score.
+                        Set personalized targets for your weekly practice sessions and Clear Delivery.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">

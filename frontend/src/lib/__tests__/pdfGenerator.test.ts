@@ -89,7 +89,7 @@ describe('generateSessionPdf', () => {
         ['Session ID', '123'],
         ['Total Words', '5'],
         ['Speaking Pace (WPM)', '1 (Too Slow)'],
-        ['Clarity Score', '0% (Keep practicing)'],
+        ['Clear Delivery', '0% (Keep practicing)'],
         ['Total Filler Words', '8'],
         ['Tracked Custom Words', 'None'],
         ['Custom Words Detected', '0'],

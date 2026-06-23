@@ -489,7 +489,7 @@ export async function setupE2EManifest(
                   : 0,
                 averageWPM: 145,
                 avgFillerWordsPerMin: '1.0',
-                avgAccuracy: '92.0',
+                avgClarity: '92.0',
                 chartData: [],
               },
               fillerWordTrends: {},

@@ -14,7 +14,7 @@ describe('TopFillerWords', () => {
             averageSessionLength: 0,
             averageWPM: 0,
             avgFillerWordsPerMin: "0.0",
-            avgAccuracy: "0.0",
+            avgClarity: "0.0",
             chartData: []
         },
         fillerWordTrends: {},
