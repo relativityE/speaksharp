@@ -25,6 +25,17 @@ import {
  * 3. Keep client-side as fallback for small datasets
  */
 
+/**
+ * Pause Rhythm tool: the count of meaningful pauses the speaker took in a session — short
+ * (transition, 0.5–1.5s) plus extended (>1.5s). Surfaced as a first-class coaching metric
+ * (pauses/min) so the analytics toolkit matches the "pace, pauses, fillers, clarity" promise.
+ */
+export const getSessionPauseCount = (session: PracticeSession): number => {
+    const pm = session.pause_metrics;
+    if (!pm) return 0;
+    return (pm.transitionPauses ?? 0) + (pm.extendedPauses ?? 0);
+};
+
 export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // P1 FIX: Early exit for empty data
     if (!sessionHistory || sessionHistory.length === 0) {
@@ -35,6 +46,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             averageWPM: 0,
             avgFillerWordsPerMin: "0.0",
             avgClarity: "0.0",
+            avgPausesPerMin: "0.0",
             chartData: []
         };
     }
@@ -46,6 +58,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     let totalWords = 0;
     let totalFillerWords = 0;
     let totalClarity = 0;
+    let totalPauses = 0;
 
     for (const s of sessionHistory) {
         const duration = s.duration || 0;
@@ -55,6 +68,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         totalWords += sessionMetrics.wordCount;
 
         totalFillerWords += sessionMetrics.fillerCount;
+        totalPauses += getSessionPauseCount(s);
         // Single source of truth: aggregate the SAME per-session delivery-clarity used by session
         // detail, PDF, Goals, and the clarity chart. The unrelated STT `accuracy` field is NOT
         // clarity; mixing it made the aggregate card read 0% while individual sessions read nonzero.
@@ -75,6 +89,8 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
     const avgFillerWordsPerMin = calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1);
     const avgClarity = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
+    // Pause Rhythm: pauses over aggregate speaking time (same rate basis as the filler metric).
+    const avgPausesPerMin = calculateRatePerMinute(totalPauses, totalDurationSeconds, 1);
 
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
@@ -88,7 +104,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         };
     }).reverse();
 
-    return { totalSessions, totalPracticeTime, averageSessionLength, averageWPM, avgFillerWordsPerMin, avgClarity, chartData };
+    return { totalSessions, totalPracticeTime, averageSessionLength, averageWPM, avgFillerWordsPerMin, avgClarity, avgPausesPerMin, chartData };
 };
 
 export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {
