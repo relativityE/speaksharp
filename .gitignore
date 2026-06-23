@@ -87,3 +87,4 @@ consolidated_manifest.txt
 e2e_errors_detailed.txt
 unit-results.txt
 frontend/test_failures_v7.txt
+private-model-smoke.json
