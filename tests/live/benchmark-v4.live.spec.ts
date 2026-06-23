@@ -56,9 +56,32 @@ test.use({
 
 test.afterEach(async ({ page }, testInfo) => {
     await attachPrivateBenchmarkEvidence(page, testInfo, 'private-v4');
+
+    // B1 — Browser WASM Private-mode smoke. Runs in afterEach so the runtime identity
+    // (model/source/size/device/backend) is captured into a NAMED artifact with the explicit
+    // WASM-not-WebGPU caveat on EVERY run — including the harness-limited 0-word under-capture, the
+    // most diagnostic case (the WER guard in the test body aborts before any body-level capture).
+    const runtimeIdentity = await attachPrivateRuntimeIdentityEvidence(page, testInfo, {
+        label: 'private-v4',
+        expectedDevice: V4_DEVICE,
+        expectedModelId: V4_VARIANT_MODEL_ID[V4_VARIANT],
+    });
+
+    // Assert the pinned WASM run did NOT silently engage WebGPU. Guarded on a resolved backend so a
+    // 0-word under-capture (a separate, pre-existing harness-limited failure) is never masked by this,
+    // and one-directional so it can't false-fail on backend-string variance (wasm/cpu/sentinel).
+    const backendStr = String(
+        runtimeIdentity?.backend ?? runtimeIdentity?.resolvedDevice ?? '',
+    ).toLowerCase();
+    if (V4_DEVICE === 'wasm' && backendStr) {
+        expect(
+            backendStr,
+            `B1 WASM smoke: runtime must not be WebGPU when device=wasm (identity=${JSON.stringify(runtimeIdentity)})`,
+        ).not.toContain('webgpu');
+    }
 });
 
-test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
+test('measure Transformers.js v4 worker', async ({ page }) => {
     test.setTimeout(180_000);
 
     const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
@@ -138,29 +161,6 @@ test('measure Transformers.js v4 worker', async ({ page }, testInfo) => {
 
     console.log(`\n📊 Private (Transformers.js v4 worker) Ceiling: WER ${(wer * 100).toFixed(2)}% → Accuracy ${accuracyPct}%`);
     console.log(`📝 TRANSCRIPT(${wordCount}w/${referenceWordCount}): ${transcriptText}`);
-
-    // B1 — Browser WASM Private-mode smoke: record the consolidated runtime identity
-    // (model/source/size/device/backend) into a named artifact with the explicit WASM-not-WebGPU
-    // caveat, then assert the pinned WASM run did NOT silently engage WebGPU. The hard assertion is
-    // one-directional (never WebGPU) so it cannot false-fail on backend-string variance; the artifact
-    // carries the exact resolved backend for review.
-    const runtimeIdentity = await attachPrivateRuntimeIdentityEvidence(page, testInfo, {
-        label: 'private-v4',
-        expectedDevice: V4_DEVICE,
-        expectedModelId: V4_VARIANT_MODEL_ID[V4_VARIANT],
-        transcript: transcriptText,
-        wer,
-        accuracyPct,
-    });
-    if (V4_DEVICE === 'wasm') {
-        const backendStr = String(
-            runtimeIdentity?.backend ?? runtimeIdentity?.resolvedDevice ?? '',
-        ).toLowerCase();
-        expect(
-            backendStr,
-            `B1 WASM smoke: runtime must not be WebGPU when device=wasm (identity=${JSON.stringify(runtimeIdentity)})`,
-        ).not.toContain('webgpu');
-    }
 
     const benchmarkConfig = `${V4_VARIANT}|${V4_DEVICE}`;
     // Regression is checked against THIS config's own floor (base_q4|wasm, base_q4|webgpu,
