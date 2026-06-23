@@ -115,3 +115,59 @@ export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
     }
     return { driver: worst.driver, action: worst.action };
 };
+
+export interface NarrativeSummary {
+    /** The single next action to try (the dominant line). */
+    action: string;
+    /** Raw strongest driver, e.g. 'pace'; null when everything is on target. */
+    driver: string | null;
+    /** Driver shown as "Speaking Pace — Slow"; null when on target. */
+    driverDisplay: string | null;
+    /** Connecting sentence: which signals are steady vs. the one to adjust. */
+    why: string;
+}
+
+// Driver → the metric's user-facing card name.
+const DRIVER_DISPLAY_NAME: Record<string, string> = {
+    'pace': 'Speaking Pace',
+    'pause rhythm': 'Pause Rhythm',
+    'filler words': 'Filler Words',
+    'clear delivery': 'Clear Delivery',
+};
+
+const joinNatural = (items: string[]): string => {
+    if (items.length <= 1) return items[0] ?? '';
+    if (items.length === 2) return `${items[0]} and ${items[1]}`;
+    return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+};
+
+/**
+ * Narrative-first summary: action first, reason second. Leads with the single "Try this next"
+ * action, names the main driver ("Speaking Pace — Slow"), and adds one connecting sentence so the
+ * four tools read as a story (driver to adjust + which signals are already steady) rather than a
+ * wall of numbers.
+ */
+export const getNarrativeSummary = (stats: DeliveryAggregates): NarrativeSummary => {
+    const next = getTryThisNext(stats);
+    const ordered = [
+        { driver: 'pace', metric: decodePace(stats.avgWpm) },
+        { driver: 'pause rhythm', metric: decodePauseRhythm(stats.avgPausesPerMin) },
+        { driver: 'filler words', metric: decodeFillers(stats.avgFillerWordsPerMin) },
+        { driver: 'clear delivery', metric: decodeClarity(stats.avgClarity) },
+    ];
+
+    if (next.driver === null) {
+        return { action: next.action, driver: null, driverDisplay: null, why: 'Every signal is on target — keep it up.' };
+    }
+
+    const driverMetric = ordered.find(x => x.driver === next.driver)?.metric;
+    const driverDisplay = `${DRIVER_DISPLAY_NAME[next.driver]} — ${driverMetric?.label ?? ''}`;
+    const steady = ordered
+        .filter(x => x.driver !== next.driver && x.metric.tone === 'good')
+        .map(x => DRIVER_DISPLAY_NAME[x.driver].toLowerCase());
+    const why = steady.length > 0
+        ? `Your ${joinNatural(steady)} ${steady.length === 1 ? 'is' : 'are'} steady; ${next.driver} is the main adjustment.`
+        : `${DRIVER_DISPLAY_NAME[next.driver]} is the main thing to adjust right now.`;
+
+    return { action: next.action, driver: next.driver, driverDisplay, why };
+};

@@ -22,14 +22,14 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
+import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
 import { getSessionPauseCount } from '@/lib/analyticsUtils';
 import {
     decodePace,
     decodePauseRhythm,
     decodeFillers,
     decodeClarity,
-    getTryThisNext,
+    getNarrativeSummary,
     type CoachingMetric,
 } from '@/utils/coachingNarrative';
 import { getTranscriptQualityCaveat } from '@/utils/speakingScore';
@@ -73,16 +73,17 @@ interface StatCardProps {
     value: string | number;
     unit?: string;
     description?: string;
+    microcopy?: string;
     interpretation?: CoachingMetric;
     className?: string;
     testId?: string;
 }
 
-// Tone → pill styling for the decoded coaching label (good = on target, watch = drifting, off = needs work).
-const COACHING_TONE_CLASS: Record<CoachingMetric['tone'], string> = {
-    good: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    watch: 'bg-amber-100 text-amber-900 border-amber-200',
-    off: 'bg-rose-100 text-rose-800 border-rose-200',
+// Tone → color for the decoded coaching label (good = on target, watch = drifting, off = needs work).
+const COACHING_TONE_TEXT: Record<CoachingMetric['tone'], string> = {
+    good: 'text-emerald-700',
+    watch: 'text-amber-700',
+    off: 'text-rose-700',
 };
 
 interface SessionHistoryItemProps {
@@ -130,6 +131,8 @@ type StatCardConfig = {
     getValue: (stats: OverallStats) => string | number;
     unit?: string;
     description?: string;
+    // Short supporting microcopy shown under the (now secondary) number on a decoded card.
+    microcopy?: string;
     // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …) so the card
     // leads with the coaching read and keeps the number as secondary detail.
     getInterpretation?: (stats: OverallStats) => CoachingMetric;
@@ -150,6 +153,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute',
+        microcopy: 'target 130–150',
         getInterpretation: (stats) => decodePace(stats.averageWPM),
     },
     {
@@ -158,6 +162,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         icon: <TrendingUp size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgFillerWordsPerMin,
         description: 'Filler word frequency per minute',
+        microcopy: 'swap a filler for a brief pause',
         getInterpretation: (stats) => decodeFillers(stats.avgFillerWordsPerMin),
     },
     {
@@ -175,6 +180,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.avgClarity,
         unit: '%',
         description: 'Based on pace, fillers, and structure — not transcription accuracy.',
+        microcopy: 'pace + fillers + structure',
         getInterpretation: (stats) => decodeClarity(stats.avgClarity),
     },
     {
@@ -184,6 +190,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.avgPausesPerMin,
         unit: '/min',
         description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.',
+        microcopy: 'steady spacing helps ideas land',
         getInterpretation: (stats) => decodePauseRhythm(stats.avgPausesPerMin),
     },
     // Future stat cards can be added here
@@ -359,8 +366,28 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, interpretation, className = '', testId }) => {
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, microcopy, interpretation, className = '', testId }) => {
     const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
+
+    // Narrative-first: when the value is decoded into a coaching label, the LABEL is the anchor and
+    // the raw number drops to small supporting detail (action first, reason second, metrics third).
+    if (interpretation) {
+        return (
+            <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
+                <p
+                    className={`text-2xl font-bold tracking-tight ${COACHING_TONE_TEXT[interpretation.tone]}`}
+                    data-testid={`${resolvedTestId}-interpretation`}
+                >
+                    {interpretation.label}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
+                <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
+                    {value}{unit ? ` ${unit}` : ''}{microcopy ? ` · ${microcopy}` : ''}
+                </p>
+            </Card>
+        );
+    }
+
     return (
     <Card className={`rounded-xl p-6 ${className}`} data-testid={resolvedTestId}>
         <div className="flex items-center justify-between mb-4">
@@ -368,28 +395,10 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
                 {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
                 {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
             </div>
-            {/* Trend placeholder - could be passed as prop later */}
-            {label.includes('Pace') && (
-                <span className="flex items-center gap-1 text-sm text-success font-medium">
-                    <TrendingUp className="w-4 h-4" />
-                    Target: {ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-{ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}
-                </span>
-            )}
         </div>
         <div>
-            {/* Narrative-first: lead with the decoded coaching label; the number is supporting detail. */}
-            {interpretation && (
-                <span
-                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-sm font-bold ${COACHING_TONE_CLASS[interpretation.tone]}`}
-                    data-testid={`${resolvedTestId}-interpretation`}
-                >
-                    {interpretation.label}
-                </span>
-            )}
-            <div className={`flex items-baseline gap-1 ${interpretation ? 'mt-2' : ''}`}>
-                <span className={interpretation
-                    ? 'text-xl font-semibold text-foreground/70 tracking-tight'
-                    : 'text-3xl font-bold text-foreground tracking-tight'}>
+            <div className="flex items-baseline gap-1">
+                <span className="text-3xl font-bold text-foreground tracking-tight">
                     {value}
                 </span>
                 {unit && <span className="ml-1 text-sm font-semibold text-foreground/70">{unit}</span>}
@@ -1019,21 +1028,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* Try this next: one decoded, actionable recommendation from the strongest driver. */}
+                    {/* Narrative-first: action first, reason second. One recommendation, the driver, and
+                        a connecting sentence — the four cards below are the supporting evidence. */}
                     {Number(overallStats.totalSessions) > 0 && (() => {
-                        const next = getTryThisNext({
+                        const summary = getNarrativeSummary({
                             avgWpm: overallStats.averageWPM,
                             avgPausesPerMin: overallStats.avgPausesPerMin,
                             avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
                             avgClarity: overallStats.avgClarity,
                         });
                         return (
-                            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="try-this-next">
+                            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5" data-testid="try-this-next">
                                 <p className="text-xs font-bold uppercase tracking-wide text-primary">Try this next</p>
-                                <p className="mt-1 text-sm font-semibold text-foreground" data-testid="try-this-next-action">{next.action}</p>
-                                {next.driver && (
-                                    <p className="mt-1 text-xs font-medium text-foreground/70">Main driver: {next.driver}</p>
+                                <p className="mt-1 text-base font-semibold text-foreground" data-testid="try-this-next-action">{summary.action}</p>
+                                {summary.driverDisplay && (
+                                    <p className="mt-2 text-sm font-semibold text-foreground/80" data-testid="try-this-next-driver">Main driver: {summary.driverDisplay}</p>
                                 )}
+                                <p className="mt-0.5 text-xs font-medium text-foreground/65" data-testid="try-this-next-why">{summary.why}</p>
                             </div>
                         );
                     })()}
@@ -1047,6 +1058,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 label={option.label}
                                 value={option.getValue(overallStats)}
                                 unit={option.unit}
+                                microcopy={option.microcopy}
                                 interpretation={option.getInterpretation?.(overallStats)}
                                 testId={`stat-card-${option.id}`}
                             />

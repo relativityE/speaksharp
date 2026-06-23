@@ -188,11 +188,13 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('stat-card-pause_rhythm-interpretation')).toHaveTextContent('Smooth');
         expect(screen.getByTestId('stat-card-clarity_score-interpretation')).toHaveTextContent('Strong');
 
-        // One actionable recommendation from the strongest driver (pace is off → a pace action).
-        expect(screen.getByTestId('try-this-next')).toBeInTheDocument();
+        // Narrative-first: action first, then the named driver and a connecting "why".
         expect(screen.getByTestId('try-this-next-action'))
             .toHaveTextContent('Add a little more momentum through familiar lines.');
-        expect(screen.getByText('Main driver: pace')).toBeInTheDocument();
+        expect(screen.getByTestId('try-this-next-driver'))
+            .toHaveTextContent('Main driver: Speaking Pace — Slow');
+        expect(screen.getByTestId('try-this-next-why'))
+            .toHaveTextContent('Your pause rhythm and clear delivery are steady; pace is the main adjustment.');
     });
 
     it.each([

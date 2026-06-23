@@ -5,6 +5,7 @@ import {
     decodeFillers,
     decodeClarity,
     getTryThisNext,
+    getNarrativeSummary,
 } from '../coachingNarrative';
 
 describe('coachingNarrative decode', () => {
@@ -63,9 +64,37 @@ describe('coachingNarrative getTryThisNext', () => {
     });
 
     it('prefers an off metric over a watch metric', () => {
-        // fillers Noticeable (watch) but clarity Needs focus (off) → clarity wins... but pace/fillers
-        // priority: here fillers is only 'watch', clarity is 'off' → clarity surfaces.
+        // fillers Noticeable (watch) but clarity Needs focus (off) → clarity (off) surfaces.
         const result = getTryThisNext({ avgWpm: 140, avgPausesPerMin: 6, avgFillerWordsPerMin: 4, avgClarity: 40 });
         expect(result.driver).toBe('clear delivery');
+    });
+});
+
+describe('coachingNarrative getNarrativeSummary', () => {
+    const onTarget = { avgWpm: 140, avgPausesPerMin: 6, avgFillerWordsPerMin: 1, avgClarity: 90 };
+
+    it('is positive with no driver when everything is on target', () => {
+        expect(getNarrativeSummary(onTarget)).toEqual({
+            action: 'Keep the pace steady and land the takeaway.',
+            driver: null,
+            driverDisplay: null,
+            why: 'Every signal is on target — keep it up.',
+        });
+    });
+
+    it('leads with the action, names the driver as "Name — Status", and lists the steady signals', () => {
+        // pace Slow (off); pauses/fillers/clarity all good.
+        const s = getNarrativeSummary({ avgWpm: 120, avgPausesPerMin: 6, avgFillerWordsPerMin: 1, avgClarity: 90 });
+        expect(s.action).toBe('Add a little more momentum through familiar lines.');
+        expect(s.driver).toBe('pace');
+        expect(s.driverDisplay).toBe('Speaking Pace — Slow');
+        expect(s.why).toBe('Your pause rhythm, filler words, and clear delivery are steady; pace is the main adjustment.');
+    });
+
+    it('formats the driver status (Fast) and handles a single steady signal', () => {
+        // pace Fast (off); pauses Choppy (off) and fillers High (off) → only clarity steady.
+        const s = getNarrativeSummary({ avgWpm: 180, avgPausesPerMin: 15, avgFillerWordsPerMin: 8, avgClarity: 90 });
+        expect(s.driverDisplay).toBe('Speaking Pace — Fast');
+        expect(s.why).toBe('Your clear delivery is steady; pace is the main adjustment.');
     });
 });
