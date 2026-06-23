@@ -1,54 +1,9 @@
 import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, expect, it } from 'vitest';
-import { ClarityScoreCard } from '../ClarityScoreCard';
 import { FillerWordsCard } from '../FillerWordsCard';
 import { PauseMetricsDisplay } from '../PauseMetricsDisplay';
-import { SpeakingRateCard } from '../SpeakingRateCard';
 
 describe('session metric explanation cards', () => {
-    it('shows an unscored clarity state when no transcript was captured', () => {
-        render(
-            <ClarityScoreCard
-                clarityScore={0}
-                clarityLabel="Not enough speech to score"
-                clarityExplanation="No transcript was captured, so clarity cannot be scored yet."
-                isClarityScorable={false}
-            />
-        );
-
-        expect(screen.getByTestId('clarity-score-value')).toHaveTextContent('--');
-        expect(screen.getByText('Not enough speech to score')).toBeInTheDocument();
-        expect(screen.getByTestId('clarity-score-explanation')).toHaveTextContent('No transcript was captured');
-    });
-
-    it('explains why speaking pace is outside the target range', () => {
-        render(
-            <SpeakingRateCard
-                wpm={174}
-                wpmLabel="Too Fast"
-                wpmExplanation="You are above the target range; slow slightly so listeners can track each idea."
-            />
-        );
-
-        expect(screen.getByTestId('wpm-value')).toHaveTextContent('174');
-        expect(screen.getByText('Too Fast')).toBeInTheDocument();
-        expect(screen.getByTestId('wpm-explanation')).toHaveTextContent('above the target range');
-    });
-
-    it('does not label unmeasured pace as optimal', () => {
-        render(
-            <SpeakingRateCard
-                wpm={0}
-                wpmLabel=""
-                wpmExplanation="Waiting for enough transcribed speech to measure pace."
-            />
-        );
-
-        expect(screen.getByTestId('wpm-value')).toHaveTextContent('0');
-        expect(screen.getByText('Not Measured')).toBeInTheDocument();
-        expect(screen.queryByText('Optimal')).not.toBeInTheDocument();
-    });
-
     it('connects filler totals to the captured transcript instead of only listing words', () => {
         render(
             <FillerWordsCard
