@@ -19,6 +19,7 @@ export interface OverallStats {
   averageWPM: number;
   avgFillerWordsPerMin: string | number;
   avgClarity: string | number;
+  avgPausesPerMin: string | number;
   chartData: ChartDataPoint[];
 }
 

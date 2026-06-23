@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateOverallStats, calculateFillerWordTrends, calculateAccuracyData, calculateTopFillerWords } from '../analyticsUtils';
+import { calculateOverallStats, calculateFillerWordTrends, calculateAccuracyData, calculateTopFillerWords, getSessionPauseCount } from '../analyticsUtils';
 import { PracticeSession } from '@/types/session';
 
 const mockSessionHistory: PracticeSession[] = [
@@ -14,6 +14,7 @@ const mockSessionHistory: PracticeSession[] = [
         clarity_score: 95,
         title: 'Session 1',
         transcript: '... um ... uh ...',
+        pause_metrics: { silencePercentage: 10, transitionPauses: 8, extendedPauses: 2, longestPause: 2 },
     },
     {
         id: '2',
@@ -26,6 +27,7 @@ const mockSessionHistory: PracticeSession[] = [
         clarity_score: 90,
         title: 'Session 2',
         transcript: '... um ... like ...',
+        pause_metrics: { silencePercentage: 12, transitionPauses: 15, extendedPauses: 5, longestPause: 3 },
     },
 ];
 
@@ -38,6 +40,19 @@ describe('analyticsUtils', () => {
             expect(stats.averageWPM).toBe(100);
             expect(stats.avgFillerWordsPerMin).toBe('1.5');
             expect(stats.avgClarity).toBe('92.5');
+            // Pause Rhythm: (8+2) + (15+5) = 30 pauses over 15 speaking minutes = 2.0/min.
+            expect(stats.avgPausesPerMin).toBe('2.0');
+        });
+
+        it('aggregates Pause Rhythm (pauses/min) from short + long pauses, and is 0 without pause data', () => {
+            // getSessionPauseCount = transitionPauses + extendedPauses.
+            expect(getSessionPauseCount(mockSessionHistory[0])).toBe(10);
+            expect(getSessionPauseCount(mockSessionHistory[1])).toBe(20);
+            // A session with no pause_metrics contributes 0 (no crash, no NaN).
+            expect(getSessionPauseCount({ id: 'x' } as PracticeSession)).toBe(0);
+            expect(calculateOverallStats([
+                { id: 'no-pauses', created_at: '2026-01-01T00:00:00.000Z', user_id: 'u', duration: 60, total_words: 60, filler_words: {}, transcript: 'word '.repeat(60) },
+            ] as PracticeSession[]).avgPausesPerMin).toBe('0.0');
         });
 
         it('aggregates Clear Delivery (clarity) from clarity_score and ignores the unrelated STT accuracy field', () => {

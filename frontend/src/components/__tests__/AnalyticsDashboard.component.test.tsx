@@ -47,6 +47,7 @@ const mockStats = {
     totalPracticeTime: 300,
     averageSessionLength: 30,
     avgClarity: 85,
+    avgPausesPerMin: 8,
     chartData: [
         { date: '2023-01-01', 'FW/min': 5, clarity: 80 },
         { date: '2023-01-02', 'FW/min': 4, clarity: 85 },
@@ -147,7 +148,9 @@ describe('AnalyticsDashboard', () => {
             id: 'sound_confident',
             label: 'Sound Confident',
             outcome: /steadier, calmer, and more confident/i,
-            statCards: ['stat-card-speaking_pace', 'stat-card-filler_words_per_min', 'stat-card-clarity_score', 'stat-card-total_practice_time'],
+            // Sound Confident must surface Pause Rhythm so the cards match its "pace, pauses, fillers,
+            // delivery" promise (regression guard against pauses being claimed but not shown).
+            statCards: ['stat-card-speaking_pace', 'stat-card-pause_rhythm', 'stat-card-filler_words_per_min', 'stat-card-clarity_score'],
             hasTranscriptQuality: false,
         },
         {

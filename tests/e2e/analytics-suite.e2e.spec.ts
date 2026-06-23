@@ -33,6 +33,8 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     await expect(page.getByTestId('stat-card-filler_words_per_min')).toBeVisible();
     await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();
+    // Pause Rhythm is now first-class in the default (Sound Confident) focus.
+    await expect(page.getByTestId('stat-card-pause_rhythm')).toBeVisible();
   });
 
   // SCENARIO 2: Detail Flow (Click-through Analysis)

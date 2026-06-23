@@ -9,11 +9,12 @@ interface TrendDataPoint {
     wpm: number;
     clarity: number;
     fillers: number;
+    pauses: number;
 }
 
 interface TrendChartProps {
     data: TrendDataPoint[];
-    metric: 'wpm' | 'clarity' | 'fillers';
+    metric: 'wpm' | 'clarity' | 'fillers' | 'pauses';
     title: string;
     description?: string;
 }
@@ -24,6 +25,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
         wpm: { color: 'hsl(var(--primary))', label: `WPM (Target: ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX})`, unit: '' },
         clarity: { color: 'hsl(var(--chart-2))', label: 'Clarity', unit: '%' },
         fillers: { color: 'hsl(var(--secondary))', label: 'Fillers', unit: '' },
+        pauses: { color: 'hsl(var(--chart-4))', label: 'Pause Rhythm', unit: '/min' },
     };
 
     const config = metricConfig[metric];

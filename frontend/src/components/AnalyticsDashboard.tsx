@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,8 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
+import { getSessionPauseCount } from '@/lib/analyticsUtils';
 import { getTranscriptQualityCaveat } from '@/utils/speakingScore';
 
 import type { PracticeSession } from '@/types/session';
@@ -154,6 +155,14 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         unit: '%',
         description: 'Based on pace, fillers, and structure — not transcription accuracy.'
     },
+    {
+        id: 'pause_rhythm',
+        label: 'Pause Rhythm',
+        icon: <AudioLines size={24} className="text-foreground/70" />,
+        getValue: (stats) => stats.avgPausesPerMin,
+        unit: '/min',
+        description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.'
+    },
     // Future stat cards can be added here
     {
         id: 'avg_session_length',
@@ -221,6 +230,11 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
         description: 'Monitor your speech clarity percentage'
     },
     {
+        id: 'pause_trend',
+        label: 'Pause Rhythm Trend',
+        description: 'Pauses per minute across your sessions'
+    },
+    {
         id: 'weekly_activity',
         label: 'Weekly Activity',
         description: 'Your practice frequency this week'
@@ -264,10 +278,11 @@ const ANALYTICS_TOOL_GROUPS: AnalyticsToolGroup[] = [
         label: 'Sound Confident',
         purpose: 'Shows whether your pace, pauses, fillers, and delivery habits make you easy to follow.',
         outcome: 'Use it when you want your next session to sound steadier, calmer, and more confident.',
-        // Default focus: stat cards AND analysis-slide order are kept identical to the prior default
-        // (legacy 'delivery_control') so existing users' default dashboard is unchanged by the rename.
-        statCardIds: ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'],
-        analysisSlideIds: ['pace_trend', 'filler_words', 'clarity_trend', 'weekly_activity'],
+        // Default focus: the delivery toolkit. Pause Rhythm is first-class here so the cards match the
+        // promise ("pace, pauses, fillers, and delivery") — it takes the slots the progress-oriented
+        // total_practice_time / weekly_activity held, which belong to the Track Progress focus.
+        statCardIds: ['speaking_pace', 'pause_rhythm', 'filler_words_per_min', 'clarity_score'],
+        analysisSlideIds: ['pace_trend', 'pause_trend', 'filler_words', 'clarity_trend'],
     },
     {
         id: 'track_progress',
@@ -286,8 +301,8 @@ const DEFAULT_ANALYTICS_TOOL_GROUP: AnalyticsToolGroupId = 'sound_confident';
 const TOOL_GROUP_STORAGE_KEY = 'speaksharp_analytics_tool_group_v1';
 const CUSTOM_STAT_STORAGE_KEY = 'speaksharp_custom_stat_cards_v1';
 const CUSTOM_ANALYSIS_STORAGE_KEY = 'speaksharp_custom_analysis_slides_v1';
-const DEFAULT_CUSTOM_STAT_CARDS = ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'];
-const DEFAULT_CUSTOM_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'weekly_activity', 'filler_words'];
+const DEFAULT_CUSTOM_STAT_CARDS = ['speaking_pace', 'pause_rhythm', 'filler_words_per_min', 'clarity_score'];
+const DEFAULT_CUSTOM_ANALYSIS_SLIDES = ['pace_trend', 'pause_trend', 'clarity_trend', 'filler_words'];
 
 const LEGACY_ANALYTICS_FOCUS_MAP: Record<string, AnalyticsFocusId> = {
     delivery_control: 'sound_confident',
@@ -688,6 +703,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 wpm: metrics.wpm,
                 clarity: metrics.clarityScore,
                 fillers: metrics.fillerCount,
+                pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
             };
         });
     }, [sessionHistory]);
@@ -1049,6 +1065,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                                 description="Monitor your speech clarity percentage"
                                                                 data={trendData}
                                                                 metric="clarity"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {option.id === 'pause_trend' && (
+                                                        <div>
+                                                            <TrendChart
+                                                                title="Pause Rhythm Trend"
+                                                                description="Pauses per minute across your sessions"
+                                                                data={trendData}
+                                                                metric="pauses"
                                                             />
                                                         </div>
                                                     )}

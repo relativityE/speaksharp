@@ -490,6 +490,7 @@ export async function setupE2EManifest(
                 averageWPM: 145,
                 avgFillerWordsPerMin: '1.0',
                 avgClarity: '92.0',
+                avgPausesPerMin: '2.5',
                 chartData: [],
               },
               fillerWordTrends: {},
