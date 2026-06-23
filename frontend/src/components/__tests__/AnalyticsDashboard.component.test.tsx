@@ -167,7 +167,7 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
         expect(screen.getByText(outcome)).toBeInTheDocument();
-        expect(screen.getByText(`Evidence for ${label}`)).toBeInTheDocument();
+        expect(screen.getByText(`Your ${label} signals`)).toBeInTheDocument();
         expect(screen.getByText(`${label} Tools`)).toBeInTheDocument();
         expect(screen.getByText(new RegExp(`${label} shows which ingredient to improve`, 'i'))).toBeInTheDocument();
         for (const testId of statCards) {
@@ -190,7 +190,7 @@ describe('AnalyticsDashboard', () => {
 
         // Narrative-first: action first, then the named driver and a connecting "why".
         expect(screen.getByTestId('try-this-next-action'))
-            .toHaveTextContent('Add a little more momentum through familiar lines.');
+            .toHaveTextContent('Pick up the pace on familiar points.');
         expect(screen.getByTestId('try-this-next-driver'))
             .toHaveTextContent('Main driver: Speaking Pace — Slow');
         expect(screen.getByTestId('try-this-next-why'))

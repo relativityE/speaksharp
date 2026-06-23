@@ -12,8 +12,8 @@ describe('coachingNarrative decode', () => {
     it('decodes Speaking Pace as Fast / Steady / Slow (Not measured)', () => {
         expect(decodePace(0)).toEqual({ label: 'Not measured', tone: 'watch' });
         expect(decodePace(140)).toEqual({ label: 'Steady', tone: 'good' });   // 130–150 target
-        expect(decodePace(175)).toEqual({ label: 'Fast', tone: 'off' });      // > 150
-        expect(decodePace(110)).toEqual({ label: 'Slow', tone: 'off' });      // < 130
+        expect(decodePace(175)).toEqual({ label: 'Fast', tone: 'off' });      // > 150, red
+        expect(decodePace(110)).toEqual({ label: 'Slow', tone: 'watch' });    // < 130, amber (nudge, not failure)
         expect(decodePace('145')).toEqual({ label: 'Steady', tone: 'good' }); // accepts string
     });
 
@@ -85,7 +85,7 @@ describe('coachingNarrative getNarrativeSummary', () => {
     it('leads with the action, names the driver as "Name — Status", and lists the steady signals', () => {
         // pace Slow (off); pauses/fillers/clarity all good.
         const s = getNarrativeSummary({ avgWpm: 120, avgPausesPerMin: 6, avgFillerWordsPerMin: 1, avgClarity: 90 });
-        expect(s.action).toBe('Add a little more momentum through familiar lines.');
+        expect(s.action).toBe('Pick up the pace on familiar points.');
         expect(s.driver).toBe('pace');
         expect(s.driverDisplay).toBe('Speaking Pace — Slow');
         expect(s.why).toBe('Your pause rhythm, filler words, and clear delivery are steady; pace is the main adjustment.');

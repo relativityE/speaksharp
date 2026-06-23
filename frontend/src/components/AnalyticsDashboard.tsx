@@ -153,7 +153,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute',
-        microcopy: 'target 130–150',
+        microcopy: 'Target 130–150',
         getInterpretation: (stats) => decodePace(stats.averageWPM),
     },
     {
@@ -161,8 +161,9 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         label: 'Avg. Filler Words / Min',
         icon: <TrendingUp size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgFillerWordsPerMin,
+        unit: '/min',
         description: 'Filler word frequency per minute',
-        microcopy: 'swap a filler for a brief pause',
+        microcopy: 'Swap a filler for a brief pause',
         getInterpretation: (stats) => decodeFillers(stats.avgFillerWordsPerMin),
     },
     {
@@ -180,7 +181,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.avgClarity,
         unit: '%',
         description: 'Based on pace, fillers, and structure — not transcription accuracy.',
-        microcopy: 'pace + fillers + structure',
+        microcopy: 'Pace + fillers + structure',
         getInterpretation: (stats) => decodeClarity(stats.avgClarity),
     },
     {
@@ -190,7 +191,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         getValue: (stats) => stats.avgPausesPerMin,
         unit: '/min',
         description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.',
-        microcopy: 'steady spacing helps ideas land',
+        microcopy: 'Steady spacing helps ideas land',
         getInterpretation: (stats) => decodePauseRhythm(stats.avgPausesPerMin),
     },
     // Future stat cards can be added here
@@ -382,7 +383,8 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
                 </p>
                 <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
                 <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
-                    {value}{unit ? ` ${unit}` : ''}{microcopy ? ` · ${microcopy}` : ''}
+                    {/* Cue first, number second: e.g. "Steady spacing helps ideas land · 8/min". */}
+                    {microcopy ? `${microcopy} · ` : ''}{value}{unit ? (unit === 'WPM' ? ` ${unit}` : unit) : ''}
                 </p>
             </Card>
         );
@@ -991,7 +993,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     {/* Stats Section Header */}
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">Evidence for {focusLabel}</h2>
+                            <h2 className="text-lg font-semibold text-foreground">Your {focusLabel} signals</h2>
                             <p className="text-sm font-medium text-foreground/70">
                                 {isCustomFocus ? 'Selected tools are interpreted independently.' : 'These cards are selected together because they support the current focus.'}
                             </p>

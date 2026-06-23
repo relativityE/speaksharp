@@ -33,7 +33,10 @@ export const decodePace = (avgWpm: string | number): CoachingMetric => {
     const wpm = num(avgWpm);
     if (wpm <= 0) return { label: 'Not measured', tone: 'watch' };
     if (wpm > ANALYTICS_THRESHOLDS.TARGET_WPM_MAX) return { label: 'Fast', tone: 'off' };
-    if (wpm < ANALYTICS_THRESHOLDS.TARGET_WPM_MIN) return { label: 'Slow', tone: 'off' };
+    // Slow is a coaching nudge, not a failure — amber, not red. Red is reserved for the genuinely
+    // disruptive states (Fast, High fillers, Choppy). Slow still surfaces as a driver via the
+    // off-then-watch priority in getTryThisNext.
+    if (wpm < ANALYTICS_THRESHOLDS.TARGET_WPM_MIN) return { label: 'Slow', tone: 'watch' };
     return { label: 'Steady', tone: 'good' };
 };
 
@@ -91,7 +94,7 @@ export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
         ? 'Give the next key idea a beat of silence.'
         : pace.label === 'Fast'
             ? 'Ease the pace at sentence endings.'
-            : 'Add a little more momentum through familiar lines.';
+            : 'Pick up the pace on familiar points.';
 
     // Ordered candidates: { metric, driver, action }. First matching the worst tone wins.
     const candidates = [
