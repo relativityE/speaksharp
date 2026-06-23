@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -868,9 +868,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" size="sm" className="gap-2 self-start">
-                                            <Settings className="h-4 w-4" />
-                                            Change Focus
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="gap-2 self-start border-[hsl(var(--border-strong))] font-semibold text-foreground hover:border-primary hover:bg-primary/10 hover:text-primary"
+                                            data-testid={TEST_IDS.ANALYTICS_FOCUS_TRIGGER}
+                                        >
+                                            Choose focus
+                                            <ChevronDown className="h-4 w-4" />
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-72">
