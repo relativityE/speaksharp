@@ -17,10 +17,24 @@ vi.mock('@/services/issueReportService', async () => {
     };
 });
 
+// Controllable hooks/config so we can exercise the nav upgrade CTA across tiers.
+const { mockUseUserProfile, mockUseUsageLimit, mockArePaymentsEnabled } = vi.hoisted(() => ({
+    mockUseUserProfile: vi.fn(),
+    mockUseUsageLimit: vi.fn(),
+    mockArePaymentsEnabled: vi.fn(),
+}));
+
 // Mock useUserProfile hook to avoid QueryClient dependency
 vi.mock('../../hooks/useUserProfile', () => ({
-    useUserProfile: () => ({ data: null, isLoading: false, error: null }),
+    useUserProfile: () => mockUseUserProfile(),
 }));
+vi.mock('@/hooks/useUsageLimit', () => ({
+    useUsageLimit: () => mockUseUsageLimit(),
+}));
+vi.mock('@/config/appRuntimeConfig', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/config/appRuntimeConfig')>();
+    return { ...actual, arePaymentsEnabled: () => mockArePaymentsEnabled() };
+});
 
 // Mock react-router-dom
 vi.mock('react-router-dom', async () => {
@@ -39,6 +53,11 @@ describe('Navigation', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         useSessionStore.getState().resetSession();
+        // Defaults preserve prior behavior: no profile, no usage limit, payments off
+        // (so the upgrade CTA stays hidden unless a test opts in).
+        mockUseUserProfile.mockReturnValue({ data: null, isLoading: false, error: null });
+        mockUseUsageLimit.mockReturnValue({ data: undefined });
+        mockArePaymentsEnabled.mockReturnValue(false);
     });
 
     const renderNavigation = (initialRoute = '/') => {
@@ -301,6 +320,55 @@ describe('Navigation', () => {
 
             renderNavigation('/analytics');
             expect(screen.getAllByText('Analytics')).toHaveLength(2);
+        });
+    });
+
+    describe('Upgrade CTA — Pro detection', () => {
+        const paidProProfile = {
+            subscription_status: 'pro',
+            stripe_subscription_id: 'sub_live_123',
+        };
+
+        beforeEach(() => {
+            mockArePaymentsEnabled.mockReturnValue(true);
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'pro-user', email: 'pro@example.com' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+        });
+
+        it('hides the upgrade button for a confirmed paid Pro even when usage-limit reports free', () => {
+            // Regression: check_usage_limit can transiently report a non-'pro' tier for a real Pro.
+            // getEffectiveSubscriptionStatus prefers that usage-limit value, so the nav used to flash
+            // "Upgrade to Pro" at paid users. It must trust the profile's paid entitlement instead.
+            mockUseUserProfile.mockReturnValue({ data: paidProProfile, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+            renderNavigation('/');
+
+            expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
+            expect(screen.getByText('PRO')).toBeInTheDocument();
+        });
+
+        it('shows the upgrade button for a genuine free user', () => {
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+            renderNavigation('/');
+
+            expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
+            expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+        });
+
+        it('treats a "pro" status without Stripe evidence as not-yet-paid (CTA still shows)', () => {
+            // status 'pro' with no Stripe/subscription id is NOT a paid entitlement; the OR clause must
+            // be gated on hasPaidProEntitlement, not the bare status string. usage-limit (free) wins.
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'pro' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+            renderNavigation('/');
+
+            expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
         });
     });
 });
