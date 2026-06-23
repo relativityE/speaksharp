@@ -7,7 +7,7 @@ import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
-import { getEffectiveSubscriptionStatus, isPro } from "@/constants/subscriptionTiers";
+import { getEffectiveSubscriptionStatus, isPro, hasPaidProEntitlement } from "@/constants/subscriptionTiers";
 import { arePaymentsEnabled } from "@/config/appRuntimeConfig";
 import logger from "@/lib/logger";
 import {
@@ -32,7 +32,12 @@ const Navigation = () => {
   const reportRuntimeState = useSessionStore(state => state.runtimeState);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
-  const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
+  // A confirmed paid Pro (profile says 'pro' AND carries Stripe/subscription evidence) must never be
+  // treated as Free for the nav CTA — even if check_usage_limit transiently reports a non-'pro' tier
+  // (load race, or a usage-limit quirk). getEffectiveSubscriptionStatus prefers usageLimit over the
+  // profile, so gating the upgrade button on it alone flashed "Upgrade to Pro" at real Pro users.
+  // hasPaidProEntitlement is the canonical paid signal and is unaffected by that override.
+  const isEffectiveProUser = isPro(effectiveSubscriptionStatus) || hasPaidProEntitlement(profile);
 
   const handleSignOut = async () => {
     await signOut();
