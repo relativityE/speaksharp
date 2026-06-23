@@ -46,6 +46,7 @@ export const TEST_IDS = {
     ANALYTICS_UPGRADE_BUTTON: 'analytics-dashboard-upgrade-button',
     SESSION_HISTORY_LIST: 'session-history-list',
     ANALYTICS_EMPTY_STATE: 'analytics-dashboard-empty-state',
+    ANALYTICS_FOCUS_TRIGGER: 'analytics-focus-trigger',
     SESSION_HISTORY_ITEM: 'session-history-item', // Base for dynamic IDs: session-history-item-${id}
     COMPARE_CHECKBOX: 'compare-checkbox',
     STAT_CARD_TOTAL_SESSIONS: 'stat-card-total_sessions',
