@@ -605,6 +605,66 @@ export async function attachPrivateBenchmarkEvidence(
     });
 }
 
+/**
+ * B1 — Browser WASM Private-mode smoke caveat. Stamped on every runtime-identity artifact so the
+ * evidence can never be mistaken for the WebGPU real-device proof (Option A).
+ */
+export const PRIVATE_WASM_SMOKE_CAVEAT =
+    'CI WASM fallback only; not a WebGPU real-device proof. Proves the browser WASM Private path ' +
+    '(model fetch + init + transcript), NOT WebGPU on real hardware, microphone capture, or no-audio-egress.';
+
+export type PrivateRuntimeIdentity = Record<string, unknown> | null;
+
+/**
+ * B1 — capture the consolidated Private STT runtime identity (window.__STT_IDENTITY__(): model id,
+ * source, approx size, resolved device/backend, fallback) into a NAMED evidence artifact with the
+ * explicit WASM-not-WebGPU caveat, and return it so the caller can assert the pinned WASM run did
+ * not silently engage WebGPU. Additive and self-guarding — never throws on its own.
+ */
+export async function attachPrivateRuntimeIdentityEvidence(
+    page: Page,
+    testInfo: TestInfo,
+    ctx: {
+        label: string;
+        expectedDevice: 'wasm' | 'webgpu';
+        expectedModelId?: string;
+        transcript?: string;
+        wer?: number;
+        accuracyPct?: number;
+    },
+): Promise<PrivateRuntimeIdentity> {
+    const identity = await page.evaluate(() => {
+        const win = window as Window & { __STT_IDENTITY__?: () => Record<string, unknown> };
+        try {
+            return typeof win.__STT_IDENTITY__ === 'function' ? win.__STT_IDENTITY__() : null;
+        } catch {
+            return null;
+        }
+    }).catch(() => null);
+
+    const evidence = {
+        label: ctx.label,
+        capturedAt: new Date().toISOString(),
+        caveat: PRIVATE_WASM_SMOKE_CAVEAT,
+        expectedDevice: ctx.expectedDevice,
+        expectedModelId: ctx.expectedModelId ?? null,
+        identity,
+        transcript: ctx.transcript ?? null,
+        wer: typeof ctx.wer === 'number' ? Number(ctx.wer.toFixed(4)) : null,
+        accuracyPct: ctx.accuracyPct ?? null,
+    };
+
+    const evidencePath = testInfo.outputPath(`${ctx.label}-runtime-identity.json`);
+    fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
+    await testInfo.attach(`${ctx.label}-runtime-identity.json`, {
+        path: evidencePath,
+        contentType: 'application/json',
+    });
+    console.log(`[${ctx.label}] runtime identity: ${JSON.stringify(identity)}`);
+    console.log(`[${ctx.label}] CAVEAT: ${PRIVATE_WASM_SMOKE_CAVEAT}`);
+    return identity;
+}
+
 export async function waitForBenchmarkSaveCandidate(
     page: Page,
     label: string,
