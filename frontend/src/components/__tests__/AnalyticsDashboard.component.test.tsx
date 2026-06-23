@@ -167,7 +167,7 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
         expect(screen.getByText(outcome)).toBeInTheDocument();
-        expect(screen.getByText(`Evidence for ${label}`)).toBeInTheDocument();
+        expect(screen.getByText(`Your ${label} signals`)).toBeInTheDocument();
         expect(screen.getByText(`${label} Tools`)).toBeInTheDocument();
         expect(screen.getByText(new RegExp(`${label} shows which ingredient to improve`, 'i'))).toBeInTheDocument();
         for (const testId of statCards) {
@@ -176,6 +176,25 @@ describe('AnalyticsDashboard', () => {
 
         const accuracyComparison = screen.queryByTestId('accuracy-comparison');
         expect(Boolean(accuracyComparison)).toBe(hasTranscriptQuality);
+    });
+
+    it('decodes Sound Confident tools into plain labels and shows one Try this next action', () => {
+        // mockStats: averageWPM 120 → Slow (off); avgPausesPerMin 8 → Smooth; avgClarity 85 → Strong.
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        // Narrative-first: cards lead with the decoded coaching label.
+        expect(screen.getByTestId('stat-card-speaking_pace-interpretation')).toHaveTextContent('Slow');
+        expect(screen.getByTestId('stat-card-pause_rhythm-interpretation')).toHaveTextContent('Smooth');
+        expect(screen.getByTestId('stat-card-clarity_score-interpretation')).toHaveTextContent('Strong');
+
+        // Narrative-first: action first, then the named driver and a connecting "why".
+        expect(screen.getByTestId('try-this-next-action'))
+            .toHaveTextContent('Pick up the pace on familiar points.');
+        expect(screen.getByTestId('try-this-next-driver'))
+            .toHaveTextContent('Main driver: Speaking Pace — Slow');
+        expect(screen.getByTestId('try-this-next-why'))
+            .toHaveTextContent('Your pause rhythm and clear delivery are steady; pace is the main adjustment.');
     });
 
     it.each([

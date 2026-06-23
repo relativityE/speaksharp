@@ -28,7 +28,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
     // Verify the default analytics story explains why these signals are grouped.
     await expect(page.getByText('Analytics Focus')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Sound Confident', exact: true })).toBeVisible();
-    await expect(page.getByText('Evidence for Sound Confident')).toBeVisible();
+    await expect(page.getByText('Your Sound Confident signals')).toBeVisible();
     await expect(page.getByText(/These cards are selected together because they support the current focus/i)).toBeVisible();
     await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     await expect(page.getByTestId('stat-card-filler_words_per_min')).toBeVisible();

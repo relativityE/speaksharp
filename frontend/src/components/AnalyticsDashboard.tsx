@@ -22,8 +22,16 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
+import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
 import { getSessionPauseCount } from '@/lib/analyticsUtils';
+import {
+    decodePace,
+    decodePauseRhythm,
+    decodeFillers,
+    decodeClarity,
+    getNarrativeSummary,
+    type CoachingMetric,
+} from '@/utils/coachingNarrative';
 import { getTranscriptQualityCaveat } from '@/utils/speakingScore';
 
 import type { PracticeSession } from '@/types/session';
@@ -65,9 +73,18 @@ interface StatCardProps {
     value: string | number;
     unit?: string;
     description?: string;
+    microcopy?: string;
+    interpretation?: CoachingMetric;
     className?: string;
     testId?: string;
 }
+
+// Tone → color for the decoded coaching label (good = on target, watch = drifting, off = needs work).
+const COACHING_TONE_TEXT: Record<CoachingMetric['tone'], string> = {
+    good: 'text-emerald-700',
+    watch: 'text-amber-700',
+    off: 'text-rose-700',
+};
 
 interface SessionHistoryItemProps {
     session: PracticeSession;
@@ -114,6 +131,11 @@ type StatCardConfig = {
     getValue: (stats: OverallStats) => string | number;
     unit?: string;
     description?: string;
+    // Short supporting microcopy shown under the (now secondary) number on a decoded card.
+    microcopy?: string;
+    // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …) so the card
+    // leads with the coaching read and keeps the number as secondary detail.
+    getInterpretation?: (stats: OverallStats) => CoachingMetric;
 };
 
 const STAT_CARD_OPTIONS: StatCardConfig[] = [
@@ -130,14 +152,19 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         icon: <Gauge size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
-        description: 'Average words per minute'
+        description: 'Average words per minute',
+        microcopy: 'Target 130–150',
+        getInterpretation: (stats) => decodePace(stats.averageWPM),
     },
     {
         id: 'filler_words_per_min',
         label: 'Avg. Filler Words / Min',
         icon: <TrendingUp size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgFillerWordsPerMin,
-        description: 'Filler word frequency per minute'
+        unit: '/min',
+        description: 'Filler word frequency per minute',
+        microcopy: 'Swap a filler for a brief pause',
+        getInterpretation: (stats) => decodeFillers(stats.avgFillerWordsPerMin),
     },
     {
         id: 'total_practice_time',
@@ -153,7 +180,9 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         icon: <Target size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgClarity,
         unit: '%',
-        description: 'Based on pace, fillers, and structure — not transcription accuracy.'
+        description: 'Based on pace, fillers, and structure — not transcription accuracy.',
+        microcopy: 'Pace + fillers + structure',
+        getInterpretation: (stats) => decodeClarity(stats.avgClarity),
     },
     {
         id: 'pause_rhythm',
@@ -161,7 +190,9 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         icon: <AudioLines size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgPausesPerMin,
         unit: '/min',
-        description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.'
+        description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.',
+        microcopy: 'Steady spacing helps ideas land',
+        getInterpretation: (stats) => decodePauseRhythm(stats.avgPausesPerMin),
     },
     // Future stat cards can be added here
     {
@@ -336,20 +367,36 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, className = '', testId }) => (
-    <Card className={`rounded-xl p-6 ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, microcopy, interpretation, className = '', testId }) => {
+    const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
+
+    // Narrative-first: when the value is decoded into a coaching label, the LABEL is the anchor and
+    // the raw number drops to small supporting detail (action first, reason second, metrics third).
+    if (interpretation) {
+        return (
+            <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
+                <p
+                    className={`text-2xl font-bold tracking-tight ${COACHING_TONE_TEXT[interpretation.tone]}`}
+                    data-testid={`${resolvedTestId}-interpretation`}
+                >
+                    {interpretation.label}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
+                <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
+                    {/* Cue first, number second: e.g. "Steady spacing helps ideas land · 8/min". */}
+                    {microcopy ? `${microcopy} · ` : ''}{value}{unit ? (unit === 'WPM' ? ` ${unit}` : unit) : ''}
+                </p>
+            </Card>
+        );
+    }
+
+    return (
+    <Card className={`rounded-xl p-6 ${className}`} data-testid={resolvedTestId}>
         <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-accent/10 text-accent' : 'bg-primary/10 text-primary'}`}>
                 {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
                 {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
             </div>
-            {/* Trend placeholder - could be passed as prop later */}
-            {label.includes('Pace') && (
-                <span className="flex items-center gap-1 text-sm text-success font-medium">
-                    <TrendingUp className="w-4 h-4" />
-                    Target: {ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-{ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}
-                </span>
-            )}
         </div>
         <div>
             <div className="flex items-baseline gap-1">
@@ -360,13 +407,14 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
             </div>
             <p className="mt-1 text-sm font-semibold text-foreground/75">{label}</p>
             {description && (
-                <p className="mt-3 text-xs font-medium leading-snug text-foreground/70" data-testid={`${testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}-explanation`}>
+                <p className="mt-3 text-xs font-medium leading-snug text-foreground/70" data-testid={`${resolvedTestId}-explanation`}>
                     {description}
                 </p>
             )}
         </div>
     </Card>
-);
+    );
+};
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
@@ -945,7 +993,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     {/* Stats Section Header */}
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">Evidence for {focusLabel}</h2>
+                            <h2 className="text-lg font-semibold text-foreground">Your {focusLabel} signals</h2>
                             <p className="text-sm font-medium text-foreground/70">
                                 {isCustomFocus ? 'Selected tools are interpreted independently.' : 'These cards are selected together because they support the current focus.'}
                             </p>
@@ -982,6 +1030,27 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
+                    {/* Narrative-first: action first, reason second. One recommendation, the driver, and
+                        a connecting sentence — the four cards below are the supporting evidence. */}
+                    {Number(overallStats.totalSessions) > 0 && (() => {
+                        const summary = getNarrativeSummary({
+                            avgWpm: overallStats.averageWPM,
+                            avgPausesPerMin: overallStats.avgPausesPerMin,
+                            avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
+                            avgClarity: overallStats.avgClarity,
+                        });
+                        return (
+                            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5" data-testid="try-this-next">
+                                <p className="text-xs font-bold uppercase tracking-wide text-primary">Try this next</p>
+                                <p className="mt-1 text-base font-semibold text-foreground" data-testid="try-this-next-action">{summary.action}</p>
+                                {summary.driverDisplay && (
+                                    <p className="mt-2 text-sm font-semibold text-foreground/80" data-testid="try-this-next-driver">Main driver: {summary.driverDisplay}</p>
+                                )}
+                                <p className="mt-0.5 text-xs font-medium text-foreground/65" data-testid="try-this-next-why">{summary.why}</p>
+                            </div>
+                        );
+                    })()}
+
                     {/* Dynamic Stat Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {displayedStatCards.map(option => (
@@ -991,6 +1060,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 label={option.label}
                                 value={option.getValue(overallStats)}
                                 unit={option.unit}
+                                microcopy={option.microcopy}
+                                interpretation={option.getInterpretation?.(overallStats)}
                                 testId={`stat-card-${option.id}`}
                             />
                         ))}
