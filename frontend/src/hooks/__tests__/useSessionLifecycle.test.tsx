@@ -159,14 +159,6 @@ vi.mock('../useSessionManager', () => ({
     useSessionManager: () => ({ saveSession: vi.fn(async () => ({ session: { id: 'test-session' }, error: null })) }),
 }));
 
-vi.mock('@/components/session/ClarityScoreCard', () => ({
-    ClarityScoreCard: (props: { clarityScore: number }) => <div data-testid="clarity-score-card">Clarity: {props.clarityScore}</div>,
-}));
-
-vi.mock('@/components/session/SpeakingRateCard', () => ({
-    SpeakingRateCard: (props: { wpm: number }) => <div data-testid="speaking-rate-card">WPM: {props.wpm}</div>,
-}));
-
 vi.mock('../useSessionMetrics', () => ({
     useSessionMetrics: () => ({ wpm: 0, clarityScore: 0, fillerCount: 0 }),
 }));

@@ -64,14 +64,6 @@ vi.mock('@/components/session/LiveTranscriptPanel', () => ({
     LiveTranscriptPanel: () => <div data-testid="transcript-panel" />,
 }));
 
-vi.mock('@/components/session/ClarityScoreCard', () => ({
-    ClarityScoreCard: () => <div data-testid="clarity-card" />,
-}));
-
-vi.mock('@/components/session/SpeakingRateCard', () => ({
-    SpeakingRateCard: () => <div data-testid="rate-card" />,
-}));
-
 vi.mock('@/components/session/FillerWordsCard', () => ({
     FillerWordsCard: () => <div data-testid="filler-card" />,
 }));
