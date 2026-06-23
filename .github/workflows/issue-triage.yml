@@ -1,0 +1,81 @@
+name: Issue Report Triage
+
+# Daily triage digest of user-submitted issue reports so they are actually reviewed
+# (closes the Report-Issue ops gap: insert works, but nobody watched the table).
+#
+# Read-only: queries production `user_issue_reports` via PostgREST with the service-role
+# secret (RLS-bypass SELECT) and writes a digest to the run's job summary. This run IS the
+# triage channel; the release-owner is the default reviewer (configurable). The table stores
+# no email; only the reporter's own typed fields + a truncated user_id hint are shown.
+
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: 'How many hours of reports to include (default 24)'
+        required: false
+        default: '24'
+
+permissions:
+  contents: read
+
+jobs:
+  issue-triage:
+    name: Daily issue-report triage digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Build issue-report triage digest
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '24' }}
+        run: |
+          cat > "$RUNNER_TEMP/triage.mjs" <<'NODE'
+          const url = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+          const hours = Math.max(1, Number(process.env.LOOKBACK_HOURS || '24') || 24);
+          if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'); process.exit(2); }
+
+          const sinceIso = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+          const cols = 'created_at,severity,category,title,description,page_url,user_id';
+          const endpoint = `${url}/rest/v1/user_issue_reports?created_at=gte.${encodeURIComponent(sinceIso)}` +
+            `&select=${cols}&order=created_at.desc`;
+
+          const res = await fetch(endpoint, {
+            headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' },
+          });
+          if (!res.ok) { console.error(`PostgREST query failed: HTTP ${res.status}`); process.exit(1); }
+          const rows = await res.json();
+
+          // Markdown-safe truncation: collapse whitespace, strip table-breaking chars, cap length.
+          const cell = (s, n) => {
+            const t = String(s ?? '').replace(/[|\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
+            return t.length > n ? t.slice(0, n) + '…' : t;
+          };
+
+          const out = [`## 🐞 Issue Report Triage — last ${hours}h`, ''];
+          if (!Array.isArray(rows) || rows.length === 0) {
+            out.push('_No new issue reports in this window._');
+            console.log(out.join('\n'));
+            process.exit(0);
+          }
+          out.push(`**${rows.length}** new report(s). Reviewer: **release-owner** (default; reassign in this workflow).`);
+          out.push('');
+          out.push('| When (UTC) | Severity | Category | Title | Summary | Page | User |');
+          out.push('|---|---|---|---|---|---|---|');
+          for (const r of rows) {
+            out.push(
+              `| ${cell(r.created_at, 19)} | ${cell(r.severity, 12)} | ${cell(r.category, 18)} ` +
+              `| ${cell(r.title, 50)} | ${cell(r.description, 120)} | ${cell(r.page_url, 40)} | ${cell(r.user_id, 8)}… |`,
+            );
+          }
+          console.log(out.join('\n'));
+          NODE
+          node "$RUNNER_TEMP/triage.mjs" >> "$GITHUB_STEP_SUMMARY"
