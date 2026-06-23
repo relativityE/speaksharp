@@ -31,14 +31,12 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
             subscription_status: profile.subscription_status,
             trial_expires_at: profile.trial_expires_at,
             stripe_subscription_id: profile.stripe_subscription_id,
-            subscription_id: profile.subscription_id,
         };
     }, [
         profile?.id,
         profile?.subscription_status,
         profile?.trial_expires_at,
         profile?.stripe_subscription_id,
-        profile?.subscription_id,
     ]);
 
 

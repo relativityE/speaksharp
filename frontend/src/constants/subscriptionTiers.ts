@@ -33,6 +33,7 @@ type TierProfile = {
     subscription_status?: string | null;
     trial_expires_at?: string | null;
     stripe_subscription_id?: string | null;
+    /** @deprecated legacy column — no longer a paid-entitlement signal; use stripe_subscription_id. */
     subscription_id?: string | null;
 } | null | undefined;
 
@@ -50,7 +51,9 @@ export function hasPaidProEntitlement(profile: TierProfile): boolean {
         return false;
     }
 
-    return Boolean(profile?.stripe_subscription_id?.trim() || profile?.subscription_id?.trim());
+    // Production Pro requires the canonical stripe_subscription_id. The legacy subscription_id
+    // column is deprecated and intentionally NOT read here (see migration deprecating it).
+    return Boolean(profile?.stripe_subscription_id?.trim());
 }
 
 export function hasCloudSttEntitlement(profile: TierProfile): boolean {
