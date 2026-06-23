@@ -178,6 +178,23 @@ describe('AnalyticsDashboard', () => {
         expect(Boolean(accuracyComparison)).toBe(hasTranscriptQuality);
     });
 
+    it('decodes Sound Confident tools into plain labels and shows one Try this next action', () => {
+        // mockStats: averageWPM 120 → Slow (off); avgPausesPerMin 8 → Smooth; avgClarity 85 → Strong.
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        // Narrative-first: cards lead with the decoded coaching label.
+        expect(screen.getByTestId('stat-card-speaking_pace-interpretation')).toHaveTextContent('Slow');
+        expect(screen.getByTestId('stat-card-pause_rhythm-interpretation')).toHaveTextContent('Smooth');
+        expect(screen.getByTestId('stat-card-clarity_score-interpretation')).toHaveTextContent('Strong');
+
+        // One actionable recommendation from the strongest driver (pace is off → a pace action).
+        expect(screen.getByTestId('try-this-next')).toBeInTheDocument();
+        expect(screen.getByTestId('try-this-next-action'))
+            .toHaveTextContent('Add a little more momentum through familiar lines.');
+        expect(screen.getByText('Main driver: pace')).toBeInTheDocument();
+    });
+
     it.each([
         ['delivery_control', 'Sound Confident'],
         ['message_clarity', 'Speak Clearly'],
