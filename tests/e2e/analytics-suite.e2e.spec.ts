@@ -51,7 +51,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
       await expect(page.getByText(/session analysis/i)).toBeVisible();
       
       // Verify Detail Metrics
-      await expect(page.getByText(/clarity score/i)).toBeVisible();
+      await expect(page.getByText(/clear delivery/i)).toBeVisible();
       await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     }
   });

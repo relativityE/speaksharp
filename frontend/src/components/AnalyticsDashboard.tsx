@@ -217,7 +217,7 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
     },
     {
         id: 'clarity_trend',
-        label: 'Clarity Score Trend',
+        label: 'Clear Delivery Trend',
         description: 'Monitor your speech clarity percentage'
     },
     {
