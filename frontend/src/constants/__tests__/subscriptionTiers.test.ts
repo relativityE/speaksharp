@@ -115,6 +115,13 @@ describe('subscriptionTiers', () => {
                 subscription_status: 'pro',
             })).toBe(false);
         });
+
+        it('does not treat the legacy subscription_id column as a paid signal', () => {
+            expect(hasPaidProEntitlement({
+                subscription_status: 'pro',
+                subscription_id: 'sub_legacy_123',
+            })).toBe(false);
+        });
 	    });
 
 	    describe('hasCloudSttEntitlement', () => {
