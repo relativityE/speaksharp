@@ -95,6 +95,17 @@ describe('subscriptionTiers', () => {
             expect(getEffectiveSubscriptionStatus('free', profile)).toBe('free');
             expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'free' })).toBe('pro');
         });
+
+        it('treats a stale subscription_status=pro with no Stripe id as Free in the profile fallback', () => {
+            // Guards the 1012 stale status='pro' rows: without a stripe_subscription_id they must not
+            // read Pro from the bare status string during the usage-limit load window.
+            expect(getEffectiveSubscriptionStatus(null, { subscription_status: 'pro' })).toBe('free');
+            expect(getEffectiveSubscriptionStatus(null, { subscription_status: 'pro', subscription_id: 'legacy_123' })).toBe('free');
+        });
+
+        it('honors a real paid Pro (status pro + stripe_subscription_id) in the profile fallback', () => {
+            expect(getEffectiveSubscriptionStatus(null, { subscription_status: 'pro', stripe_subscription_id: 'sub_live_1' })).toBe('pro');
+        });
     });
 
 	    describe('hasPaidProEntitlement', () => {
