@@ -1,0 +1,48 @@
+name: DB Hygiene Audit (read-only)
+
+# Read-only production DB hygiene inventory ahead of real-user onboarding. Lists auth.users joined
+# to user_profiles + session/usage/issue-report signals and classifies every account
+# KEEP / DELETE / NORMALIZE / INVESTIGATE using the agreed rubric (incl. the audit-found ephemeral
+# patterns and the synthetic-vs-real Stripe distinction). NO writes, NO deletes, NO updates.
+# Emits category counts to the job summary and a redacted CSV artifact for owner review.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Production DB hygiene audit (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run read-only hygiene audit
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Configured reviewer/CI accounts → KEEP. Resolve from Secrets, falling back to Variables.
+          CANARY_EMAIL: ${{ secrets.CANARY_EMAIL || vars.CANARY_EMAIL }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL || vars.PRO_TEST_EMAIL }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL || vars.BASIC_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || vars.FREE_TEST_EMAIL }}
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL || vars.E2E_PRO_EMAIL }}
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL || vars.E2E_FREE_EMAIL }}
+          E2E_BASIC_EMAIL: ${{ secrets.E2E_BASIC_EMAIL || vars.E2E_BASIC_EMAIL }}
+        run: node scripts/db-hygiene-audit.mjs
+
+      - name: Upload classification CSV (redacted emails, owner review)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-hygiene-audit
+          path: db-hygiene-audit.csv
+          retention-days: 7
+          if-no-files-found: ignore
