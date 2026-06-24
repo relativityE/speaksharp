@@ -191,8 +191,10 @@ describe('AnalyticsPage', () => {
         });
 
         it('should NOT render upgrade banner for pro users', () => {
+            // A real paid Pro requires Stripe evidence — a bare subscription_status='pro' now reads
+            // Free (guards the stale status='pro' rows), so the mock must carry a stripe id.
             mockUseUserProfile.mockReturnValue({
-                data: { subscription_status: 'pro' },
+                data: { subscription_status: 'pro', stripe_subscription_id: 'sub_live_test' },
                 isLoading: false,
                 error: null,
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
