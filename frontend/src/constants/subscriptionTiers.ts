@@ -65,10 +65,21 @@ export function getEffectiveSubscriptionStatus(
     profile?: TierProfile
 ): SubscriptionTier {
     if (usageLimitStatus) {
+        // The usage-limit status is already the server effective tier (check_usage_limit →
+        // effective_subscription_tier), so it is authoritative when present.
         return normalizeSubscriptionTier(usageLimitStatus);
     }
 
-    return normalizeSubscriptionTier(profile?.subscription_status);
+    // Profile fallback (usage limit not loaded yet): a profile is Pro ONLY with real Stripe
+    // evidence. A stale subscription_status='pro' with no stripe_subscription_id must read Free —
+    // matching the server effective tier — otherwise it briefly flashes Pro UI/policy during the
+    // usage-limit load window. Mirrors hasPaidProEntitlement so the frontend never trusts the bare
+    // status string for Pro.
+    const profileTier = normalizeSubscriptionTier(profile?.subscription_status);
+    if (profileTier === SUBSCRIPTION_TIERS.PRO && !hasPaidProEntitlement(profile)) {
+        return SUBSCRIPTION_TIERS.FREE;
+    }
+    return profileTier;
 }
 
 /**

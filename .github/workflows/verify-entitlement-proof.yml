@@ -63,14 +63,18 @@ jobs:
             out.push(`- ${ok ? '✅' : '❌'} ${name} — got \`${JSON.stringify(got)}\`, expect \`${expect}\``);
           }
 
-          out.push('', '### Real-data audit (no unexpected downgrade)');
+          out.push('', '### Real-data audit');
           const proNoStripe = await audit('subscription_status=eq.pro&stripe_subscription_id=is.null&select=id&limit=50');
           const legacyOnly = await audit('subscription_status=eq.pro&stripe_subscription_id=is.null&subscription_id=not.is.null&select=id&limit=50');
-          out.push(`- status='pro' AND stripe_subscription_id IS NULL (would now resolve Free): **${proNoStripe.count}**`);
-          out.push(`- …relying on legacy subscription_id alone: **${legacyOnly.count}**`);
-          const auditClean = proNoStripe.count === 0;
-          if (!auditClean) pass = false;
-          out.push(`- ${auditClean ? '✅' : '❌'} ${auditClean ? 'No paid account depended on a non-stripe entitlement — zero downgrade impact.' : 'Some status=pro accounts lack stripe_subscription_id — review before broader launch.'}`);
+          // GATE = migration impact only: accounts that were Pro via the legacy subscription_id ALONE
+          // (status=pro, no stripe, but a legacy id) would lose Pro under #834. That is the sole
+          // migration-caused downgrade and MUST be 0.
+          const downgraded = legacyOnly.count;
+          if (downgraded > 0) pass = false;
+          out.push(`- ${downgraded === 0 ? '✅' : '❌'} Accounts downgraded by #834 (status=pro · no stripe · legacy id only): **${downgraded}** — must be 0`);
+          // INFORMATIONAL only: stale status=pro rows with no payment id at all were already
+          // effective-Free under the OLD function too, so the migration did not change them.
+          out.push(`- ${proNoStripe.count === 0 ? 'ℹ️' : '⚠️'} status='pro' with no stripe_subscription_id (already effective-Free pre-migration; data hygiene, not a failure): **${proNoStripe.count}**`);
 
           out.push('', '> Free-status accounts (incl. the canceled/refunded proof user) resolve Free by the same logic (case 3); the prod downgrade row was verified Free during the billing program.');
           out.push('', `**Result: ${pass ? 'PASS' : 'FAIL'}**`);
