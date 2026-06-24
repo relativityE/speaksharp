@@ -1,0 +1,83 @@
+name: Verify Entitlement Proof (read-only)
+
+# Read-only proof that the #834 migration left entitlement resolution correct: effective Pro requires
+# subscription_status='pro' AND a real stripe_subscription_id; the legacy subscription_id is ignored.
+# Calls public.effective_subscription_tier via PostgREST RPC for the canonical scenarios and audits
+# real profiles. No writes, no mutation, no deploy.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Entitlement proof (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run entitlement proof
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          cat > "$RUNNER_TEMP/entitlement.mjs" <<'NODE'
+          import fs from 'node:fs';
+          const url = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+          const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+          if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'); process.exit(2); }
+          const headers = { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
+
+          async function tier(args) {
+            const r = await fetch(`${url}/rest/v1/rpc/effective_subscription_tier`, {
+              method: 'POST', headers, body: JSON.stringify(args),
+            });
+            if (!r.ok) throw new Error(`rpc HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+            return await r.json();
+          }
+          async function audit(q) {
+            const r = await fetch(`${url}/rest/v1/user_profiles?${q}`, { headers: { ...headers, Prefer: 'count=exact' } });
+            if (!r.ok) throw new Error(`audit HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+            const rows = await r.json();
+            const count = r.headers.get('content-range')?.split('/')?.[1] ?? String(rows.length);
+            return { rows, count: Number(count) };
+          }
+
+          const out = ['## Entitlement proof — effective_subscription_tier (read-only)', ''];
+          let pass = true;
+
+          const cases = [
+            ['stripe_subscription_id-backed Pro → pro', { p_subscription_status: 'pro', p_stripe_subscription_id: 'sub_proof_123', p_subscription_id: null }, 'pro'],
+            ['legacy subscription_id-only → free',       { p_subscription_status: 'pro', p_stripe_subscription_id: null, p_subscription_id: 'legacy_456' }, 'free'],
+            ['normal Free → free',                       { p_subscription_status: 'free', p_stripe_subscription_id: null, p_subscription_id: null }, 'free'],
+          ];
+          for (const [name, args, expect] of cases) {
+            const got = await tier(args);
+            const ok = got === expect;
+            pass = pass && ok;
+            out.push(`- ${ok ? '✅' : '❌'} ${name} — got \`${JSON.stringify(got)}\`, expect \`${expect}\``);
+          }
+
+          out.push('', '### Real-data audit (no unexpected downgrade)');
+          const proNoStripe = await audit('subscription_status=eq.pro&stripe_subscription_id=is.null&select=id&limit=50');
+          const legacyOnly = await audit('subscription_status=eq.pro&stripe_subscription_id=is.null&subscription_id=not.is.null&select=id&limit=50');
+          out.push(`- status='pro' AND stripe_subscription_id IS NULL (would now resolve Free): **${proNoStripe.count}**`);
+          out.push(`- …relying on legacy subscription_id alone: **${legacyOnly.count}**`);
+          const auditClean = proNoStripe.count === 0;
+          if (!auditClean) pass = false;
+          out.push(`- ${auditClean ? '✅' : '❌'} ${auditClean ? 'No paid account depended on a non-stripe entitlement — zero downgrade impact.' : 'Some status=pro accounts lack stripe_subscription_id — review before broader launch.'}`);
+
+          out.push('', '> Free-status accounts (incl. the canceled/refunded proof user) resolve Free by the same logic (case 3); the prod downgrade row was verified Free during the billing program.');
+          out.push('', `**Result: ${pass ? 'PASS' : 'FAIL'}**`);
+
+          const text = out.join('\n');
+          console.log(text);
+          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text + '\n');
+          process.exit(pass ? 0 : 1);
+          NODE
+          node "$RUNNER_TEMP/entitlement.mjs"
