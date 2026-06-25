@@ -35,10 +35,10 @@ jobs:
           # prevents overlapping runs, so a fixed email is safe.
           CANARY_EMAIL: canary@speaksharp.app
           # Ceiling guard: at most CANARY_MAX canary-like accounts may exist (reuse, never accumulate).
-          # Warn-only until the legacy canary-<runid> residue is deleted; flip CANARY_ENFORCE to "fail"
-          # afterward so a reappearing stray hard-fails the job.
+          # The legacy canary-<runid> residue has been deleted, so this is now fail-closed: if a stray
+          # canary-* account ever reappears (count > 1), the canary job hard-fails to surface it.
           CANARY_MAX: '1'
-          CANARY_ENFORCE: warn
+          CANARY_ENFORCE: fail
         run: node scripts/provision-canary.mjs
 
       - name: Run Smoke Test
