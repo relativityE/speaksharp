@@ -96,6 +96,13 @@ function classify(email, profile, sessions, usage, issues) {
     return ['NORMALIZE', "status='pro' with no Stripe/legacy id → set 'free' (the 1012)"];
   }
   if (realStripe) return ['INVESTIGATE', 'real (non-synthetic) Stripe linkage — reconcile before action'];
+  // Phase 0: a recognized test-domain account with zero activity and no real Stripe is residue,
+  // not a review item — route it out of INVESTIGATE into DELETE candidates. Stale status=pro rows
+  // were already sent to NORMALIZE above; real-domain (possible real user) accounts and any account
+  // with sessions/issues are intentionally left in INVESTIGATE for one-by-one review below.
+  if (isTestDomain(e) && sessions === 0 && usage === 0 && issues === 0 && !realStripe) {
+    return ['DELETE', 'test-domain account, no sessions/usage/issues/real Stripe (residue)'];
+  }
   if (sessions > 0 || issues > 0) return ['INVESTIGATE', 'has user-generated sessions / issue reports'];
   if (!isTestDomain(e)) return ['INVESTIGATE', 'non-test-domain email (possible real user)'];
   if (status === 'pro') return ['INVESTIGATE', "status='pro' not in keep/normalize set"];
