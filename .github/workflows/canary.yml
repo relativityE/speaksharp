@@ -34,6 +34,11 @@ jobs:
           # auth.users. The job concurrency guard above (one run per ref, cancel-in-progress) already
           # prevents overlapping runs, so a fixed email is safe.
           CANARY_EMAIL: canary@speaksharp.app
+          # Ceiling guard: at most CANARY_MAX canary-like accounts may exist (reuse, never accumulate).
+          # Warn-only until the legacy canary-<runid> residue is deleted; flip CANARY_ENFORCE to "fail"
+          # afterward so a reappearing stray hard-fails the job.
+          CANARY_MAX: '1'
+          CANARY_ENFORCE: warn
         run: node scripts/provision-canary.mjs
 
       - name: Run Smoke Test
