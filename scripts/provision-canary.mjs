@@ -125,6 +125,36 @@ async function main() {
     }
     console.log(`  [PASS] session established.`);
 
+    // STEP 5: Enforce the canary account ceiling — exactly ONE stable canary should ever exist.
+    // Reuse, never accumulate. Counts canary@ + any canary-<runid>@ strays and compares to
+    // CANARY_MAX (default 1). Warn-only by default so canary keeps passing while the legacy
+    // canary-<runid> residue is being cleaned up; set CANARY_ENFORCE=fail afterward to make the
+    // invariant hard (the job fails if a stray ever reappears).
+    console.log('\nSTEP 5: 📊 Enforcing canary account ceiling...');
+    const CANARY_MAX = Number(process.env.CANARY_MAX || '1');
+    const ENFORCE = (process.env.CANARY_ENFORCE || 'warn').toLowerCase() === 'fail';
+    const canaryRe = /^canary(-.+)?@speaksharp\.app$/i;
+    const canaryEmails = [];
+    let checked = true;
+    for (let page = 1; ; page++) {
+        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
+        if (error) { console.warn(`  ⚠️  ceiling check skipped (listUsers failed: ${error.message})`); checked = false; break; }
+        const batch = data?.users || [];
+        for (const u of batch) if (u.email && canaryRe.test(u.email)) canaryEmails.push(u.email.toLowerCase());
+        if (batch.length < 200) break;
+    }
+    if (checked) {
+        const strays = canaryEmails.filter(e => e !== CANARY_EMAIL.toLowerCase());
+        console.log(`  canary-like accounts: ${canaryEmails.length} (max ${CANARY_MAX}); legacy strays: ${strays.length}`);
+        if (canaryEmails.length > CANARY_MAX) {
+            const msg = `canary ceiling exceeded: ${canaryEmails.length} > ${CANARY_MAX} (${strays.length} legacy canary-<runid> strays pending cleanup)`;
+            if (ENFORCE) { console.error(`  ❌ ${msg}`); process.exit(1); }
+            console.warn(`  ⚠️  ${msg} — warn-only; set CANARY_ENFORCE=fail after the legacy delete.`);
+        } else {
+            console.log('  [OK] canary account ceiling satisfied.');
+        }
+    }
+
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('✅ Canary Infrastructure Stabilized');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
