@@ -1,0 +1,66 @@
+name: DB delete frozen set with promo cleanup (gated, Option A)
+
+# Option A: scoped promo cleanup + auth delete for a FROZEN test-user delete set. For the exact frozen
+# ids still existing, deletes their promo_attempts + promo_redemptions rows (untracked tables; NO
+# global schema change), then deletes the auth users. ID-frozen — no classifier rerun. Fail-closed:
+# exact confirm phrase, dry-run default, count guard + safety (no canary/Stripe/real-domain/issues),
+# backup CSV first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      frozen_ids_file:
+        description: "Frozen id list (union of the 184 + 11 + 196)"
+        type: string
+        default: scripts/data/final-delete-set-ids.txt
+      expected_remaining:
+        description: "Exact still-existing targets expected"
+        type: string
+        required: true
+      mode:
+        description: "dry-run (guard + counts + backup, no writes) or apply"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      confirm:
+        description: "Type DELETE-FROZEN-PROMO to authorize"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  delete-frozen-promo:
+    name: Scoped promo cleanup + auth delete (gated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify confirm phrase (fail-closed)
+        if: ${{ inputs.confirm != 'DELETE-FROZEN-PROMO' }}
+        run: |
+          echo "::error::confirm phrase mismatch — aborting without any DB access."
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run scoped promo cleanup + auth delete
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FROZEN_IDS_FILE: ${{ inputs.frozen_ids_file }}
+          EXPECTED_REMAINING: ${{ inputs.expected_remaining }}
+          DRY_RUN: ${{ inputs.mode == 'apply' && '0' || '1' }}
+        run: node scripts/db-delete-frozen-promo.mjs
+
+      - name: Upload affected-rows backup (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-delete-frozen-promo-backup
+          path: db-delete-frozen-promo-backup.csv
+          retention-days: 30
+          if-no-files-found: ignore
