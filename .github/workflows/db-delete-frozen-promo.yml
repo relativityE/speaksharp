@@ -17,6 +17,11 @@ on:
         description: "Exact still-existing targets expected"
         type: string
         required: true
+      allow_real_domain:
+        description: "Permit real-domain/redacted accounts (owner-reviewed junk only; Stripe still blocked)"
+        type: choice
+        options: ["false", "true"]
+        default: "false"
       mode:
         description: "dry-run (guard + counts + backup, no writes) or apply"
         type: choice
@@ -54,6 +59,7 @@ jobs:
           FROZEN_IDS_FILE: ${{ inputs.frozen_ids_file }}
           EXPECTED_REMAINING: ${{ inputs.expected_remaining }}
           DRY_RUN: ${{ inputs.mode == 'apply' && '0' || '1' }}
+          ALLOW_REAL_DOMAIN: ${{ inputs.allow_real_domain == 'true' && '1' || '0' }}
         run: node scripts/db-delete-frozen-promo.mjs
 
       - name: Upload affected-rows backup (always)
