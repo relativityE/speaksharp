@@ -1,0 +1,58 @@
+name: DB Phase 1 — normalize stale status=pro (gated)
+
+# PRODUCTION WRITE (UPDATE only; NO deletes). Sets exactly the audit NORMALIZE bucket
+# (stale subscription_status='pro' with no Stripe/legacy id, excluding KEEP/DELETE-pattern
+# accounts) to 'free'. Fail-closed: requires the exact confirm phrase, defaults to dry-run,
+# and the script aborts unless exactly EXPECTED_COUNT rows resolve.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (guard only, no write) or apply (perform the UPDATE)"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      confirm:
+        description: "Type NORMALIZE-STALE-PRO to authorize"
+        type: string
+        required: true
+      expected_count:
+        description: "Exact rows expected (abort if mismatch)"
+        type: string
+        default: "1001"
+
+permissions:
+  contents: read
+
+jobs:
+  normalize:
+    name: Phase 1 normalize (gated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify confirm phrase (fail-closed)
+        if: ${{ inputs.confirm != 'NORMALIZE-STALE-PRO' }}
+        run: |
+          echo "::error::confirm phrase mismatch — aborting without any DB access."
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run Phase 1 normalize
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EXPECTED_COUNT: ${{ inputs.expected_count }}
+          DRY_RUN: ${{ inputs.mode == 'dry-run' && '1' || '0' }}
+          CANARY_EMAIL: ${{ secrets.CANARY_EMAIL || vars.CANARY_EMAIL }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL || vars.PRO_TEST_EMAIL }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL || vars.BASIC_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || vars.FREE_TEST_EMAIL }}
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL || vars.E2E_PRO_EMAIL }}
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL || vars.E2E_FREE_EMAIL }}
+          E2E_BASIC_EMAIL: ${{ secrets.E2E_BASIC_EMAIL || vars.E2E_BASIC_EMAIL }}
+        run: node scripts/db-phase1-normalize.mjs
