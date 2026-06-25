@@ -14,6 +14,9 @@ const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const EXPECTED = Number(process.env.EXPECTED_REMAINING || '-1');
 const FROZEN_FILE = process.env.FROZEN_IDS_FILE || '';
 const DRY = process.env.DRY_RUN !== '0';
+// Explicit opt-in to permit real-domain/redacted accounts in the frozen set (owner-reviewed junk).
+// The Stripe / canary / issue hard-stops below stay UNCONDITIONAL regardless of this flag.
+const ALLOW_REAL_DOMAIN = process.env.ALLOW_REAL_DOMAIN === '1';
 if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'); process.exit(2); }
 if (!FROZEN_FILE) { console.error('Missing FROZEN_IDS_FILE'); process.exit(2); }
 const H = { apikey: key, Authorization: `Bearer ${key}` };
@@ -94,7 +97,8 @@ async function main() {
   // Hard-stop safety (before any write).
   if (targets.some(t => t.email === STABLE_CANARY)) { log(); log('**ABORT** — stable canary in target set.'); finish(1); }
   const realDom = targets.filter(t => !isTestDomain(t.email));
-  if (realDom.length) { log(); log(`**ABORT** — ${realDom.length} real-domain/redacted accounts in target set.`); finish(1); }
+  if (realDom.length && !ALLOW_REAL_DOMAIN) { log(); log(`**ABORT** — ${realDom.length} real-domain/redacted accounts in target set.`); finish(1); }
+  if (realDom.length) log(`- ⚠️ ALLOW_REAL_DOMAIN: ${realDom.length} real-domain/redacted accounts permitted by explicit flag (owner-reviewed frozen list).`);
   const profiles = targets.length ? await fetchProfiles(targets.map(t => t.id)) : [];
   const stripeLinked = profiles.filter(isRealStripe);
   if (stripeLinked.length) { log(); log(`**ABORT** — ${stripeLinked.length} Stripe-linked accounts in target set.`); finish(1); }
