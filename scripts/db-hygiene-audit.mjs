@@ -52,7 +52,10 @@ const countByUser = (rows) => {
   return m;
 };
 
-const TEST_DOMAINS = ['@test.com', '@example.com'];
+// Internal test/QA domains — accounts here are never real users. @speaksharp.test and
+// @test.speaksharp.dev are internal fixtures; recognizing them keeps them out of the
+// "possible real user" bucket so the owner review surface stays the genuine real-domain set.
+const TEST_DOMAINS = ['@test.com', '@example.com', '@speaksharp.test', '@test.speaksharp.dev'];
 const isTestDomain = (e) => TEST_DOMAINS.some(d => e.endsWith(d)) || e.endsWith('@speaksharp.app');
 
 // Email patterns: each is [regex, classification, justification].
