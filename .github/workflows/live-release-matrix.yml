@@ -263,6 +263,10 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           BASE_URL: https://speaksharp-public.vercel.app/
+          # Required so the spec's afterEach can delete the fresh first-time account it mints
+          # (otherwise it accumulates as first-time-tester-* residue).
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload First-Time Tester Private Trial Artifacts

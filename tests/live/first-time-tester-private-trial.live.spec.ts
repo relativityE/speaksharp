@@ -13,7 +13,11 @@ const cleanupAdmin = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_R
   : null;
 
 async function deleteTesterByEmail(email: string): Promise<void> {
-  if (!cleanupAdmin || !email) return;
+  if (!email) return;
+  if (!cleanupAdmin) {
+    console.warn(`FIRST_TIME_TESTER_CLEANUP_SKIPPED no SUPABASE_SERVICE_ROLE_KEY in env — ${email} will leak as residue`);
+    return;
+  }
   try {
     for (let pageNum = 1; pageNum <= 50; pageNum++) {
       const { data } = await cleanupAdmin.auth.admin.listUsers({ page: pageNum, perPage: 200 });
