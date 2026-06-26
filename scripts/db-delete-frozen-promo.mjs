@@ -7,7 +7,7 @@
 // never a Stripe-linked / real-domain / issue-report account. Dry-run default; backup CSV first.
 
 import fs from 'node:fs';
-import { listAuthUsers, isRealStripe, isTestDomain } from './db-hygiene-audit.mjs';
+import { listAuthUsers, isRealStripe, isTestDomain, PROTECTED_IDS } from './db-hygiene-audit.mjs';
 
 const url = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -24,9 +24,8 @@ if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE
 if (!FROZEN_FILE) { console.error('Missing FROZEN_IDS_FILE'); process.exit(2); }
 const H = { apikey: key, Authorization: `Bearer ${key}` };
 const STABLE_CANARY = 'canary@speaksharp.app';
-// Never deletable by any cleanup path, regardless of flags — the held real/probable-user accounts.
-// (gmail account: real domain + Stripe customer + recent sign-in; owner instruction to preserve.)
-const PROTECTED_IDS = new Set(['8181e7b6-c000-422b-937a-d97d1d6a08fb']);
+// PROTECTED_IDS (the held accounts, e.g. gmail) is imported from the shared module and enforced
+// UNCONDITIONALLY below, regardless of any flag.
 const MAX_ROWS = 100000;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const out = [];
