@@ -1,6 +1,6 @@
 # Release Status
 
-**Last updated:** 2026-06-17 · Last updated by: dev-agent (claude). NOTE: after PR #825 merged, `main` advanced to `48464742`; the prior RC pass (run `27708194872` on `596a6950`) is now **stale for final signoff** and must be re-dispatched on the exact final SHA.
+**Last updated:** 2026-06-26 · Last updated by: dev-agent (claude). Since 2026-06-17 the work was a production **DB hygiene + recurring-drift fix** program (see "DB Hygiene Closeout" below) plus a fresh `gate=all` validation. NOTE: per Final-SHA freshness, the most recent RC `gate=all` pass (run `28235534502`) predates the live-test reuse fixes (#868/#869/#870) now on `main`, so it is **historical evidence, not final signoff** — re-dispatch `gate=all` on the exact final signoff SHA before tester invites.
 **Scope:** Single source of truth for current release posture.
 
 If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational docs and RC gate docs; current ship status lives here only.
@@ -14,14 +14,17 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 | Release Track | Status | Why |
 |---|---|---|
-| Controlled soft release | HOLD / VALIDATION IN PROGRESS | The release evidence model has been refactored into pushed checkpoints. GitHub must finish the latest `CI - Test Audit`, production smoke, Supabase deploy, and any explicitly requested RC gate reruns before tester invites. |
-| Broad public launch | NO-GO | Live billing/mobile/public-launch gates are broader than the controlled tester scope and remain separately gated. |
+| Controlled private beta / early-access (non-payment) | ✅ READY — pending final gate re-run on signoff SHA | Source posture clear; all 5 RC gates green (run `28235534502`, 0 DB drift); DB hygiene complete (35 accounts); canary fail-closed; drift root cause fixed. Remaining: re-dispatch `gate=all` on the exact final signoff SHA (Final-SHA freshness), then invites. Payments hidden/controlled (`stripeKeyClass="test"`). |
+| Paid public launch (live checkout open) | NO-GO until Ops config cutover | Billing journey is PROVEN (test mode = accepted proof). Going live is an **Ops key swap** (`sk_live`/`pk_live`/live `whsec`/live price IDs + register live webhook + verify `stripeKeyClass==="live"`), not a further proof. Until done, do not open live checkout. |
+| Broad public launch | NO-GO | Mobile/broad-public gates are broader than the controlled tester scope and remain separately gated. |
 
 ## Latest Evidence
 
 | Area | Latest Evidence | Status |
 |---|---|---:|
-| RC gates | ✅ All 5 gates GREEN on `main@596a6950` — `Release Candidate Gates` `gate=all` run `27708194872` (Gate 1 Product / 2 SAST / 3 DAST / 4 SCA / 5 UX). Live-DAST: 9 passed, 2 env-gated skips. The Gate-3 flaky 7-min hang was fixed (#821/#822 bounded the live-harness mode-select waits — a test-harness defect, not a product regression). Re-run on the exact final signoff SHA before tester invites. | PASS (2026-06-17) |
+| RC gates | ✅ All 5 gates GREEN — most recent `gate=all` run `28235534502` (2026-06-26): Gate 1 Product / 2 SAST / 3 DAST (live) / 4 SCA / 5 UX all success. A before/after hygiene audit around the run proved **0 gate-induced `auth.users` drift** (35 → 35; 0 added / 0 removed). Earlier all-green: `27708194872` on `596a6950`. **Stale for final signoff** — `main` has advanced past `28235534502` (live-test reuse fixes #868/#869/#870); re-dispatch on the exact final signoff SHA before invites. | PASS (2026-06-26) — re-run on final SHA |
+| DB hygiene | ✅ Production `auth.users` cleaned **1,445 → 35** ahead of onboarding: **34 KEEP** (soak registry, stable canary, reviewer/CI) + **1 HELD/PRESERVED** (`***@gmail.com` — known live-Stripe real account, intentionally preserved + hardcoded-protected; the audit classifier still buckets it INVESTIGATE on its real-domain/Stripe signals, but operationally it is HELD, **not** "needs investigation"). **DELETE 0 · NORMALIZE 0 · legacy-canary residue 0 · first-time-tester residue 0.** Root-cause drift fix: 5 accumulator live-specs now reuse stable `-reuse@speaksharp.app` accounts (or first-time-tester create-and-delete via #869); classifier KEEPs the `-reuse` convention. | DONE (2026-06-26) |
+| Stripe (billing journey) | ✅ Checkout → webhook → billing-portal **journey PROVEN in Stripe TEST mode = the accepted proof** (release-owner ruling, `RELEASE_CLOSEOUT_LEDGER.md` §D; runs `27441691671` / `27173676657`). Live keys are **not** money-tested and not required as a proof. Going to **paid** launch = an **Ops config cutover** (set `sk_live`/`pk_live`/live `whsec`/live price IDs, register the live webhook, verify `stripeKeyClass==="live"`) — a launch-day step, **not** a pending Dev/QA test. Current prod runtime: `stripeKeyClass="test"` (payments hidden/controlled). | PROVEN (test mode); live = config cutover |
 | CI/Test Audit | Green on `main` (run `27684865346` @`b18220da`; #820/#821/#822 each passed required CI before squash-merge) | GREEN |
 | Production smoke | Push-triggered `Production Canary Smoke Test` remains the production quick-check workflow | IN PROGRESS / CHECK GITHUB |
 | Supabase deploy | Push-triggered deploy workflow remains the backend/Edge deploy proof when backend paths change | IN PROGRESS / CHECK GITHUB |
