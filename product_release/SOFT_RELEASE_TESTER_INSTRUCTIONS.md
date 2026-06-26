@@ -1,11 +1,28 @@
-# Soft Release Tester Instructions
+# SpeakSharp — Beta Tester Guide
 
 **Last updated:** 2026-06-26
-**Release type:** Controlled private beta / early-access — **non-payment** (payments hidden, `stripeKeyClass="test"`). Not broad public launch; not paid public.
-**Tester count:** Start with 5 testers, then expand only after the first round is clean.
-**Posture note:** Re-dispatch `gate=all` on the exact final signoff SHA and confirm green (Final-SHA freshness) before sending invites.
 
-## Beta Invitation (copy — fill `[Name]` / `[insert link]`)
+This is the guide you send to testers. It is written for someone who has never seen the
+code. Keep it free of technical detail.
+
+> **Operators / dev / test:** setup, environment rules, entitlement checks, and the
+> automated first-time-tester proof now live in **`INTERNAL_TEST_PROTOCOL.md`**. Current
+> gate/run status lives in **`RELEASE_STATUS.md`**. Do not put that content back here.
+
+---
+
+## What is SpeakSharp?
+
+SpeakSharp is a speaking-practice coach. You record a short practice session, see a
+transcript of what you said, and get feedback on things like filler words ("um", "like"),
+pacing, and pauses — so you can improve one thing at a time.
+
+This is a small private beta. It is **free** for you, there is nothing to pay, and you do
+not need a card. Please try one short session and send a few sentences of honest feedback.
+
+---
+
+## Beta invitation copy (fill `[Name]` / `[insert link]`)
 
 **Email:**
 
@@ -18,17 +35,17 @@ The goal of this beta is simple: confirm that real users can complete the core l
 1. Sign up.
 2. Start a short practice session.
 3. Record for 1–3 minutes.
-4. Review the transcript and SpeakSharp Score.
+4. Review the transcript and your results.
 5. Save the session.
-6. Check the feedback and tell me what felt useful, confusing, or missing.
+6. Tell me what felt useful, confusing, or missing.
 
 A few notes before you try it:
-- Browser transcription is the easiest way to start.
-- Private transcription runs locally in the browser and may take longer depending on your device.
-- Feedback is directional; it's meant to help you improve one thing at a time, not grade you perfectly.
-- If something feels off, unclear, or broken, please use the Report Issue option or send me a note.
+- The standard recording mode is the easiest way to start, and works best in Chrome.
+- There is also a private mode that runs entirely on your own device; it can take a few seconds to get ready the first time.
+- Feedback is directional — it's meant to help you improve one thing at a time, not grade you perfectly.
+- If something feels off, unclear, or broken, please use Report Issue or send me a note.
 
-If you're willing to try it, I'd appreciate one short session and a few sentences of feedback on:
+If you're willing to try it, I'd appreciate one short session and a few sentences on:
 - Was it obvious what to do next?
 - Did the transcript feel trustworthy enough?
 - Did the feedback help you identify one thing to improve?
@@ -43,67 +60,55 @@ Akin
 **Short text message:**
 
 ```text
-I'm opening a small private beta for SpeakSharp, a speaking-practice coach I've been building. It lets you record a short practice session, review your transcript, and get feedback on clarity, filler words, pacing, pauses, and delivery.
+I'm opening a small private beta for SpeakSharp, a speaking-practice coach I've been building. You record a short practice session, see your transcript, and get feedback on filler words, pacing, and pauses.
 
-Would you be willing to try one 1–3 minute practice session and send me honest feedback? I'm mainly looking for whether the flow is clear, whether the feedback feels useful, and what feels confusing or missing.
+Would you try one 1–3 minute session and send honest feedback? I mainly want to know if the flow is clear, if the feedback feels useful, and what's confusing or missing.
 
 Beta link: [insert link]
 ```
 
-> No paid/checkout language — payments are hidden for this beta. Add paid copy only after the live Stripe Ops cutover.
+---
 
-## Share With Each Tester
+## Getting started (about 2 minutes)
 
-```text
-I'm running a small soft release test of SpeakSharp.
+1. Open the link: **[insert link]** (Chrome works best.)
+2. Create an account with your email and a password.
+3. That's it — you're on the free plan. Nothing to buy.
 
-Link: https://speaksharp-public.vercel.app
+## Record your first session
 
-Setup:
-1. Create a new account with your own email and password.
+1. Click **Start** / **Record**.
+2. Speak for **1–3 minutes** about anything — a quick pitch, a story, or answering
+   "tell me about yourself." On purpose, drop in a few "um"s and "like"s so you can see how
+   they're caught.
+3. Click **Stop**. You'll see your **transcript** and your **results** — feedback on filler
+   words, pace, and pauses.
+4. **Save** the session, then open it again from **History** to confirm it's there.
 
-Your new account starts free with Browser transcription. You also get one short Private transcription sample so you can compare local transcription before upgrading. Cloud STT is a paid Early Access feature.
+## A few extra things to try (optional)
 
-What to test:
-1. Start with Browser transcription first so you can feel the instant record -> transcript -> save loop.
-2. Record a 1-2 minute speaking session. Please include a few deliberate filler words such as "um", "uh", and "like".
-3. Stop and review your analytics.
-4. Confirm the session appears in History and opens to the saved analytics/session detail.
-5. Export a PDF from the saved session detail and confirm it includes the transcript and analytics summary.
-6. Open Custom Words, add a word you plan to say, record a short sentence using that word, and confirm it is counted in the analytics.
-7. Try the Private sample when you are ready. Click "Set Up" or "Download Private Model" if prompted. This is a one-time private model setup in your browser; it runs on your device, so first words can take about 5 seconds to appear. The Private sample is short and saves automatically when it ends.
+- **Download the PDF summary** of a saved session and see if it looks right.
+- **Add a custom word** (a name or term you'll use), say it in a recording, and check it's
+  counted in your results.
+- **Try Private mode** — it runs entirely on your own device, so your audio never leaves
+  your computer. The first time, it takes a few seconds to get ready.
 
-Known limitations:
-- Browser transcription uses your browser's built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
-- Cloud STT is a paid Early Access feature.
-- User-facing baseline signup is Free. Paid Basic is reserved for a future product decision and should not appear in the tester path.
+## If something doesn't work
 
-Please report:
-1. Did signup and Browser transcription work?
-2. Did the Private setup and Start Recording flow work without getting stuck?
-3. Did transcript text appear while speaking?
-4. Were filler words detected accurately enough?
-5. Did your custom word appear in the analytics after you added it through the UI?
-6. Did analytics match what you experienced?
-7. Did the session save to History and open afterward?
-8. Did PDF export include the transcript and analytics summary?
-9. Was Browser transcription clear that Chrome is recommended and results vary by browser?
-10. Was anything confusing, slow, blocked, or surprising?
-```
+- **Use Chrome** if you can — it's the most reliable for recording and transcripts.
+- If something freezes or looks wrong, use **Report Issue** (or just message me) and tell me
+  what you clicked and what happened. That's genuinely the most useful thing you can send.
 
-## Operator Checklist
+---
 
-- Share only the production Vercel URL with human testers: `https://speaksharp-public.vercel.app`.
-- Never share `127.0.0.1:5173` with human testers. That port is mocked E2E/test mode only.
-- If a local rehearsal is required, use `pnpm dev` and `127.0.0.1:5174`; do not use `pnpm dev:test`.
-- Do not generate or send tester codes. Free Browser access is automatic for new accounts.
-- Confirm sample fields appear on new profiles: `private_sample_limit_seconds`, `private_sample_seconds_used`, and no legacy timestamp grants paid access.
-- Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
-- Keep tester instructions Browser-first with an intentional Private sample. Cloud can be tested separately through paid Pro/admin/dev accounts, but it is not part of free-account sample testing.
-- Pro/admin/dev Cloud tester scope, if included, must explicitly prove Cloud recording, transcript, save/history/detail, analytics, and PDF export. Do not ask automatic-trial testers to validate Cloud.
-- Free-path tester scope must explicitly prove Browser transcription, the one Private sample, and Cloud unavailable without paid entitlement. Use a known Free account with sample unused/used states when testing both sides.
-- Ask every tester to check save/history/detail after stopping. A transcript without persisted history is not a successful session.
-- Ask every tester who adds a custom word to say that word during recording and verify the analytics count after save.
-- Ask every tester who exports a PDF to confirm the file contains the session metadata, transcript, transcription mode, and analytics summary.
-- Do not claim Edge support unless an Edge-specific proof has passed start, transcript, save, history/detail, and analytics. Until then, use "Chrome recommended" wording.
-- Run `.github/workflows/live-release-matrix.yml` with the first-time tester/sample suite before sending instructions. This clears browser model storage, creates a fresh account, prepares Private STT, records, stops, and verifies save/history like a first-time tester.
+## What feedback helps most
+
+You don't need to know anything technical. Just tell me:
+
+1. Was it **obvious what to do next**?
+2. Did the **transcript** look about right?
+3. Did the **feedback** help you spot one thing to improve?
+4. Did anything **freeze, confuse, or surprise** you?
+5. Would you **use it again**? Why or why not?
+
+Even 3–4 sentences is a huge help. Thank you for testing it.
