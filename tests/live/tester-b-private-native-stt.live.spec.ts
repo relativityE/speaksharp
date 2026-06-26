@@ -111,19 +111,31 @@ async function enableNoCostTesterHooks(page: Page, options: { enablePrivate?: bo
 }
 
 function makeTesterAccount(label: SttMode) {
-  const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
+  // STABLE reusable account per mode — never mints a per-run user (which accumulated as tester-b-*
+  // residue). The Pro/trial state is mocked client-side via __E2E_DEPS__, so the account only needs
+  // to exist and sign in; no DB provisioning required.
   return {
-    email: `tester-b-${label}-${unique}@speaksharp.app`,
-    password: `SpeakSharpTesterB-${unique}!`,
+    email: `tester-b-${label}-reuse@speaksharp.app`,
+    password: process.env.TESTER_B_REUSE_PASSWORD ?? 'SpeakSharpTesterB-Reuse!Aa9',
   };
 }
 
+// Idempotent: create the stable account on first ever run, sign in on every run after. Reuse, never
+// accumulate. (Function name kept for its two call sites.)
 async function signUp(page: Page, accountEmail: string, accountPassword: string) {
   await page.goto('/auth/signup');
   await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('email-input').fill(accountEmail);
   await page.getByTestId('password-input').fill(accountPassword);
   await page.getByTestId('sign-up-submit').click();
+  if (await page.waitForURL(/\/session/, { timeout: 15_000 }).then(() => true).catch(() => false)) return;
+  // Account already exists (reused) → sign in with the same credentials.
+  await page.goto('/auth/signin');
+  await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('email-input').fill(accountEmail);
+  await page.getByTestId('password-input').fill(accountPassword);
+  await page.getByTestId('sign-in-submit').click();
+  await expect(page).toHaveURL(/\/session|\/analytics/, { timeout: 30_000 });
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {

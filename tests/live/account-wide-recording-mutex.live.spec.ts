@@ -36,8 +36,10 @@ test.describe('Account-wide recording mutex @live', () => {
     const account = USE_EXISTING_ACCOUNT
       ? { email: ACCOUNT_EMAIL!, password: ACCOUNT_PASSWORD!, mode: 'existing' as const }
       : {
-        email: `account-mutex-${Date.now()}@speaksharp.app`,
-        password: `SpeakSharpMutex-${Date.now()}!Aa9`,
+        // STABLE reusable fallback account (when no env reviewer creds are configured) — fixed, never
+        // a per-run mint, so it cannot accumulate as account-mutex-* residue.
+        email: 'account-mutex-reuse@speaksharp.app',
+        password: process.env.ACCOUNT_MUTEX_REUSE_PASSWORD ?? 'SpeakSharpMutex-Reuse!Aa9',
         mode: 'fresh' as const,
       };
 
@@ -146,7 +148,9 @@ async function signUp(page: Page, email: string, password: string) {
   await page.getByTestId('email-input').fill(email);
   await page.getByTestId('password-input').fill(password);
   await page.getByTestId('sign-up-submit').click();
-  await page.waitForURL(/\/session/, { timeout: 60_000 });
+  // Idempotent: if the stable reusable account already exists, sign in instead (reuse, never accumulate).
+  if (await page.waitForURL(/\/session/, { timeout: 30_000 }).then(() => true).catch(() => false)) return;
+  await signIn(page, email, password);
 }
 
 async function signIn(page: Page, email: string, password: string) {

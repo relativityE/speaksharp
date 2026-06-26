@@ -80,6 +80,11 @@ export function isRealStripe(profile) {
 const KEEP_PATTERNS = [
   [/^canary@speaksharp\.app$/, 'canary smoke account (provision-canary)'],
   [/^soak-test\d+@test\.com$/, 'soak registry (setup-test-users)'],
+  // Stable reusable live-test accounts (the `-reuse@speaksharp.app` convention) — created once and
+  // reused every run instead of minting a new per-run user. KEEP must be checked before the
+  // tester-b-* / private-decode-ab-* / private-longform-* DELETE patterns so these are not treated
+  // as residue.
+  [/-reuse@speaksharp\.app$/, 'stable reusable live-test account (reuse, no per-run minting)'],
 ];
 const DELETE_PATTERNS = [
   [/^first-time-tester-.+@speaksharp\.app$/, 'first-time-tester residue (no cleanup, accumulates)'],
