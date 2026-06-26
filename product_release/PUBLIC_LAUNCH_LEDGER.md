@@ -120,7 +120,7 @@ The Stripe test-mode checkout proves the entitlement path executes correctly in 
 | Live Stripe Checkout session `cs_live_...` | Pending live keys |
 | Live webhook signature verification from production Stripe event | Pending live keys |
 | Live paid user remains Pro after refresh/logout/login | Pending live payment |
-| Duplicate/replayed webhook remains idempotent | Covered locally; live replay proof pending if required |
+| Duplicate/replayed webhook remains idempotent | Webhook is signature-verified + fails-closed (mode-agnostic; proven in the test-mode journey, `RELEASE_CLOSEOUT_LEDGER.md` §D). A live event replay is optional ops diligence, not a required gate. |
 
 ## PL-005 Billing Lifecycle Summary
 
