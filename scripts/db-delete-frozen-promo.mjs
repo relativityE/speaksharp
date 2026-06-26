@@ -14,13 +14,19 @@ const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const EXPECTED = Number(process.env.EXPECTED_REMAINING || '-1');
 const FROZEN_FILE = process.env.FROZEN_IDS_FILE || '';
 const DRY = process.env.DRY_RUN !== '0';
-// Explicit opt-in to permit real-domain/redacted accounts in the frozen set (owner-reviewed junk).
-// The Stripe / canary / issue hard-stops below stay UNCONDITIONAL regardless of this flag.
+// Explicit opt-ins to permit otherwise-blocked accounts in an OWNER-REVIEWED frozen set.
+// ALLOW_REAL_DOMAIN: permit real-domain/redacted accounts (reviewed junk).
+// ALLOW_STRIPE: permit Stripe-linked accounts (owner has confirmed test-mode/non-live in Stripe).
+// The stable-canary and issue-report hard-stops, and the PROTECTED_IDS exclusion, stay UNCONDITIONAL.
 const ALLOW_REAL_DOMAIN = process.env.ALLOW_REAL_DOMAIN === '1';
+const ALLOW_STRIPE = process.env.ALLOW_STRIPE === '1';
 if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'); process.exit(2); }
 if (!FROZEN_FILE) { console.error('Missing FROZEN_IDS_FILE'); process.exit(2); }
 const H = { apikey: key, Authorization: `Bearer ${key}` };
 const STABLE_CANARY = 'canary@speaksharp.app';
+// Never deletable by any cleanup path, regardless of flags — the held real/probable-user accounts.
+// (gmail account: real domain + Stripe customer + recent sign-in; owner instruction to preserve.)
+const PROTECTED_IDS = new Set(['8181e7b6-c000-422b-937a-d97d1d6a08fb']);
 const MAX_ROWS = 100000;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const out = [];
@@ -95,17 +101,27 @@ async function main() {
   log(`- Frozen ids: **${frozen.size}** · still existing (targets): **${targets.length}** (expected ${EXPECTED})`);
 
   // Hard-stop safety (before any write).
+  // UNCONDITIONAL: protected ids (held real/probable users) and the stable canary can never be deleted.
+  const protectedHit = targets.filter(t => PROTECTED_IDS.has(t.id));
+  if (protectedHit.length) { log(); log(`**ABORT** — ${protectedHit.length} protected (held) account(s) in target set. No action.`); finish(1); }
   if (targets.some(t => t.email === STABLE_CANARY)) { log(); log('**ABORT** — stable canary in target set.'); finish(1); }
+  // Conditional (explicit owner opt-in): real-domain and Stripe-linked.
   const realDom = targets.filter(t => !isTestDomain(t.email));
-  if (realDom.length && !ALLOW_REAL_DOMAIN) { log(); log(`**ABORT** — ${realDom.length} real-domain/redacted accounts in target set.`); finish(1); }
-  if (realDom.length) log(`- ⚠️ ALLOW_REAL_DOMAIN: ${realDom.length} real-domain/redacted accounts permitted by explicit flag (owner-reviewed frozen list).`);
+  if (realDom.length && !ALLOW_REAL_DOMAIN) { log(); log(`**ABORT** — ${realDom.length} real-domain/redacted accounts in target set (set ALLOW_REAL_DOMAIN to permit).`); finish(1); }
   const profiles = targets.length ? await fetchProfiles(targets.map(t => t.id)) : [];
   const stripeLinked = profiles.filter(isRealStripe);
-  if (stripeLinked.length) { log(); log(`**ABORT** — ${stripeLinked.length} Stripe-linked accounts in target set.`); finish(1); }
+  if (stripeLinked.length && !ALLOW_STRIPE) { log(); log(`**ABORT** — ${stripeLinked.length} Stripe-linked accounts in target set (set ALLOW_STRIPE to permit, only after confirming test-mode).`); finish(1); }
+  // UNCONDITIONAL: issue reports.
   const issueUserIds = await fetchAllUserIds('user_issue_reports');
   const withIssues = targets.filter(t => issueUserIds.has(t.id));
   if (withIssues.length) { log(); log(`**ABORT** — ${withIssues.length} accounts with issue reports in target set.`); finish(1); }
-  log('- Safety: 0 stable-canary, 0 real-domain, 0 Stripe-linked, 0 issue-report ✅');
+  // Accurate, flag-aware summary (no stale "0" text).
+  const tag = (n, allowed) => allowed && n ? `${n} (permitted by flag)` : `${n}`;
+  log(`- Safety: 0 protected, 0 stable-canary, real-domain ${tag(realDom.length, ALLOW_REAL_DOMAIN)}, Stripe-linked ${tag(stripeLinked.length, ALLOW_STRIPE)}, 0 issue-report ✅`);
+  if (stripeLinked.length && ALLOW_STRIPE) {
+    log('- ⚠️ ALLOW_STRIPE: deleting Stripe-linked accounts — owner has confirmed these are Stripe TEST-mode / non-live. Stripe-linked target ids:');
+    for (const p of stripeLinked) log(`    - \`${p.id}\``);
+  }
 
   // Count promo rows that will be removed (also confirms the untracked tables are reachable via REST).
   const ids = targets.map(t => t.id);

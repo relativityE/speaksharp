@@ -22,13 +22,18 @@ on:
         type: choice
         options: ["false", "true"]
         default: "false"
+      allow_stripe:
+        description: "Permit Stripe-linked accounts (Pass B — ONLY after confirming test-mode/non-live in Stripe)"
+        type: choice
+        options: ["false", "true"]
+        default: "false"
       mode:
         description: "dry-run (guard + counts + backup, no writes) or apply"
         type: choice
         options: [dry-run, apply]
         default: dry-run
       confirm:
-        description: "Type DELETE-FROZEN-PROMO to authorize"
+        description: "DELETE-FROZEN-PROMO normally; DELETE-STRIPE-PROOF-TEST-ACCOUNTS when allow_stripe=true"
         type: string
         required: true
 
@@ -42,10 +47,16 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Verify confirm phrase (fail-closed)
-        if: ${{ inputs.confirm != 'DELETE-FROZEN-PROMO' }}
+        env:
+          ALLOW_STRIPE: ${{ inputs.allow_stripe }}
+          CONFIRM: ${{ inputs.confirm }}
         run: |
-          echo "::error::confirm phrase mismatch — aborting without any DB access."
-          exit 1
+          if [ "$ALLOW_STRIPE" = "true" ]; then
+            # Pass B (deleting Stripe-linked accounts) needs its own distinct phrase.
+            [ "$CONFIRM" = "DELETE-STRIPE-PROOF-TEST-ACCOUNTS" ] || { echo "::error::allow_stripe=true requires confirm=DELETE-STRIPE-PROOF-TEST-ACCOUNTS"; exit 1; }
+          else
+            [ "$CONFIRM" = "DELETE-FROZEN-PROMO" ] || { echo "::error::confirm phrase mismatch — aborting without any DB access."; exit 1; }
+          fi
 
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -60,6 +71,7 @@ jobs:
           EXPECTED_REMAINING: ${{ inputs.expected_remaining }}
           DRY_RUN: ${{ inputs.mode == 'apply' && '0' || '1' }}
           ALLOW_REAL_DOMAIN: ${{ inputs.allow_real_domain == 'true' && '1' || '0' }}
+          ALLOW_STRIPE: ${{ inputs.allow_stripe == 'true' && '1' || '0' }}
         run: node scripts/db-delete-frozen-promo.mjs
 
       - name: Upload affected-rows backup (always)
