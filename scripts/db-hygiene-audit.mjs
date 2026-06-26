@@ -61,6 +61,14 @@ const countByUser = (rows) => {
 const TEST_DOMAINS = ['@test.com', '@example.com', '@speaksharp.test', '@test.speaksharp.dev'];
 export const isTestDomain = (e) => TEST_DOMAINS.some(d => (e || '').endsWith(d)) || (e || '').endsWith('@speaksharp.app');
 
+// Accounts that must NEVER be deleted by a cleanup script — the held real/probable-user accounts.
+// Shared so the protection travels to any cleanup path that imports it; each such script MUST check
+// this set and abort on a match. This guards only scripts that import + enforce it; changing the set
+// (or bypassing it) requires explicit owner reauthorization.
+export const PROTECTED_IDS = new Set([
+  '8181e7b6-c000-422b-937a-d97d1d6a08fb', // gmail — real domain + Stripe customer + recent sign-in; owner-held
+]);
+
 export function isRealStripe(profile) {
   const stripeSub = (profile?.stripe_subscription_id || '').trim();
   const custId = (profile?.stripe_customer_id || '').trim();
