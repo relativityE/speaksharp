@@ -184,19 +184,28 @@ async function enablePrivateProofHooks(page: Page, decodeOptions: Record<string,
 }
 
 function makeTesterAccount(label: string) {
-  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}-${label}`;
+  // STABLE reusable account per variant — never mints a per-run user (which accumulated as
+  // private-decode-ab-* residue). Pro/trial state is mocked client-side, so no DB provisioning.
   return {
-    email: `private-decode-ab-${unique}@speaksharp.app`,
-    password: `SpeakSharpDecodeAb-${unique}!`,
+    email: `private-decode-ab-${label}-reuse@speaksharp.app`,
+    password: process.env.PRIVATE_DECODE_AB_REUSE_PASSWORD ?? 'SpeakSharpDecodeAb-Reuse!Aa9',
   };
 }
 
+// Idempotent: create the stable account on first run, sign in on every run after. Reuse, never accumulate.
 async function signUp(page: Page, accountEmail: string, accountPassword: string) {
   await page.goto('/auth/signup');
   await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('email-input').fill(accountEmail);
   await page.getByTestId('password-input').fill(accountPassword);
   await page.getByTestId('sign-up-submit').click();
+  if (await page.waitForURL(/\/session/, { timeout: 15_000 }).then(() => true).catch(() => false)) return;
+  await page.goto('/auth/signin');
+  await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('email-input').fill(accountEmail);
+  await page.getByTestId('password-input').fill(accountPassword);
+  await page.getByTestId('sign-in-submit').click();
+  await expect(page).toHaveURL(/\/session|\/analytics/, { timeout: 30_000 });
 }
 
 async function readTranscriptText(page: Page) {

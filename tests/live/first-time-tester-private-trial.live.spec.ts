@@ -1,8 +1,31 @@
 import { test, expect, type Page } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
 import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
+
+// This spec MUST mint a fresh account (it tests the first-time experience), so — unlike the reuse
+// specs — it cleans up after itself so first-time-tester-* never accumulates. Requires the live
+// service-role key (already provided to the live workflows).
+const cleanupAdmin = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
+  : null;
+
+async function deleteTesterByEmail(email: string): Promise<void> {
+  if (!cleanupAdmin || !email) return;
+  try {
+    for (let pageNum = 1; pageNum <= 50; pageNum++) {
+      const { data } = await cleanupAdmin.auth.admin.listUsers({ page: pageNum, perPage: 200 });
+      const users = data?.users ?? [];
+      const match = users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+      if (match) { await cleanupAdmin.auth.admin.deleteUser(match.id); return; }
+      if (users.length < 200) return;
+    }
+  } catch (err) {
+    console.warn(`FIRST_TIME_TESTER_CLEANUP_WARN could not delete ${email}: ${(err as Error)?.message ?? err}`);
+  }
+}
 
 test.use({
   permissions: ['microphone'],
@@ -18,6 +41,15 @@ test.use({
 });
 
 test.describe('First-time tester Private sample path @live', () => {
+  // Same-run cleanup: delete whatever fresh account this run created, pass or fail (never accumulate).
+  let createdFirstTimeEmail: string | null = null;
+  test.afterEach(async () => {
+    if (createdFirstTimeEmail) {
+      await deleteTesterByEmail(createdFirstTimeEmail);
+      createdFirstTimeEmail = null;
+    }
+  });
+
   test('new tester signs up Browser-first, intentionally starts Private sample, records, saves, and keeps Browser fallback', async ({ page }) => {
     test.skip(!BASE_URL, 'BASE_URL is required.');
     test.setTimeout(360_000);
@@ -78,6 +110,7 @@ test.describe('First-time tester Private sample path @live', () => {
     const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
     const email = `first-time-tester-${unique}@speaksharp.app`;
     const password = `SpeakSharpSample-${unique}!`;
+    createdFirstTimeEmail = email; // register for afterEach cleanup so it never accumulates
 
     await test.step('Create a fresh tester account with Browser-first and Private sample copy visible', async () => {
       console.log('FIRST_TIME_TESTER_STEP signup_start');
