@@ -62,7 +62,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 ## Tester Scope
 
-Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` for human tester copy. The tester path is:
+Send testers the plain-language `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; operators run the validation per `INTERNAL_TEST_PROTOCOL.md`. The tester path is:
 
 1. Fresh account starts with free Browser transcription.
 2. Private sample model download/setup if prompted.

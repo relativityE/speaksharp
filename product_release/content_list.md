@@ -24,7 +24,8 @@ This directory contains both current release controls and historical evidence pa
 | [QUALITY_METRICS.md](./QUALITY_METRICS.md) | Release-facing alias and quick digest for quality metrics targets and latest generated evidence file names. | Canonical alias; defer detailed interpretation to `SOFTWARE_QUALITY.operational.md`. |
 | [SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md) | Defines SLO/SLC/SLA terms, soft-release service targets, stress/endurance evidence, and industry comparison. | Canonical service-level interpretation. |
 | [SPEAKSHARP_SESSION_SCORE.operational.md](./SPEAKSHARP_SESSION_SCORE.operational.md) | Defines the research-backed proprietary 0.0-10.0 SpeakSharp Score, references, weights, formula, and shared implementation source of truth. | Canonical score-model interpretation. |
-| [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) | Copy/paste human tester protocol. | Canonical tester-facing copy. |
+| [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) | Plain-language tester guide (what you send testers): intro, invitation copy, getting started, what to try, feedback. No implementation detail. | Canonical tester-facing copy. |
+| [INTERNAL_TEST_PROTOCOL.md](./INTERNAL_TEST_PROTOCOL.md) | Operator/dev/test protocol: environment rules, entitlement/scope checks, per-tester acceptance criteria, browser-support wording, first-time-tester proof. Not for testers. | Canonical internal soft-release protocol. |
 | [OPS_HEALTH_DASHBOARD.md](./OPS_HEALTH_DASHBOARD.md) | Simple vendor/tool health dashboard scope. | Canonical ops monitoring scope. |
 | [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md) | Runtime secrets/config checklist. | Canonical for env/config only; snapshot is older and should not be used for ship status. |
 | [PUBLIC_LAUNCH_LEDGER.md](./PUBLIC_LAUNCH_LEDGER.md) | Broad public-launch evidence ledger. | Canonical for broad public launch only, not soft tester status. |
@@ -64,7 +65,8 @@ The sections below are kept for navigation, but the canonical/historical split a
 - **[LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md)**: The runtime configuration verification gate. Ensures environment variables and secrets are correctly set.
 - **[MANUAL_HARDWARE_VALIDATION.md](./MANUAL_HARDWARE_VALIDATION.md)**: Manual hardware/browser test protocols. Validates the "Hardware Blindspot" (Safari/Microphone/Bluetooth).
 - **[RC_GATES.md](./RC_GATES.md)**: Release candidate gate definitions and evidence requirements.
-- **[SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md)**: Copy/paste tester invite, Private-first test path, trial-access prerequisites, and feedback questions for the controlled soft release.
+- **[SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md)**: Plain-language tester guide to send testers — intro, invitation copy, getting started, what to try, feedback questions. No implementation detail.
+- **[INTERNAL_TEST_PROTOCOL.md](./INTERNAL_TEST_PROTOCOL.md)**: Operator/dev/test protocol for the controlled soft release — environment rules, entitlement/scope checks, per-tester acceptance criteria, browser-support wording, and the automated first-time-tester proof. Not for testers.
 
 ### 🛠️ Decision & Recovery
 - **[RELEASE_STATUS.md](./RELEASE_STATUS.md)**: The current go/no-go gate for controlled tester release decisions.
