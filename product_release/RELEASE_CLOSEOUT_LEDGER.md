@@ -91,6 +91,24 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 - **Customer-id persistence (already correct):** `process_stripe_webhook_event(p_stripe_customer_id)` (migration `20260608190000`) — exercised in the test-mode journey.
 - **Not blocked on a proof.** The journey is proven (test mode). The only remaining item is the business decision to flip live keys at cutover.
 
+## E. DB hygiene closeout — production `auth.users` 1,445 → 35 (2026-06-26)
+
+Pre-onboarding production cleanup + recurring-drift fix. All deletes were gated (fail-closed confirm phrases, dry-run defaults, exact-count guards, ID-frozen lists, before/after audits).
+
+| Final state | Value |
+|---|---|
+| `auth.users` total | **35** (was 1,445) |
+| KEEP | **34** (soak registry, stable canary, reviewer/CI accounts) |
+| HELD / PRESERVED | **1** — `***@gmail.com` (known live-Stripe real account; hardcoded-protected via shared `PROTECTED_IDS`; do **not** treat as "INVESTIGATE") |
+| DELETE / NORMALIZE residue | **0 / 0** |
+| legacy canary residue | **0** (959 deleted) |
+| first-time-tester residue | **0** |
+| gate-induced auth drift | **0** (before/after audit around `gate=all` `28235534502`: 35 → 35) |
+
+- **Removed:** 959 legacy `canary-<runid>` accounts; 227 + 29 + 17 test/promo residue across Phases 1/2/2b/2c/Pass A; 14 Stripe-proof test accounts (Pass B, after owner confirmed Stripe **test-mode**).
+- **Schema fix:** `usage_checkpoints.user_id` → `ON DELETE CASCADE` (migration `20260625120000`) so user deletes cascade; promo tables (`promo_attempts`/`promo_redemptions`, NO ACTION) handled by scoped per-id cleanup (no global cascade — they may carry budget meaning).
+- **Recurring-drift root cause fixed:** 5 live specs that minted a unique account every run now reuse stable `-reuse@speaksharp.app` accounts (`tester-b`, `private-decode-ab`, `private-longform`, `account-mutex`); `first-time-tester` keeps fresh-account behavior but deletes it via `afterEach` (#869 passed the missing service-role key into the job; the classifier KEEPs the `-reuse` convention so the stable accounts aren't re-flagged as residue). Canary is fail-closed `CANARY_MAX=1`.
+
 ## Dev posture
 
 Active Dev work: **none in flight.** Both #772 failures are fixed, merged, and **proven live**: the post-stop doubling (PR #777 `18b2a30f`) and the post-sample empty-visible (PR #778 `d06700b5`, narrow store-reset guard). The #765/#772 first-time-sample live proof **PASSED** (`27474247308` on `main@243fae42`: `visibleFinalMatchesSave=true`, saved/detail preserved). Per release-owner, **#778 was the last authorized product-code fix unless Test finds a new concrete release-blocking failure.**

@@ -7,10 +7,10 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 ## Current Decision
 
-> **Two distinct verdicts — do not conflate** (release-owner framing 2026-06-17). A code-readiness review ("approve with non-blocking follow-ups") clears *source posture only*; it does **not** clear operational gates. Source readiness ≠ release approval.
+> **Two distinct verdicts — do not conflate** (release-owner framing; updated 2026-06-26). A code-readiness review clears *source posture only*; it does **not** clear operational gates. Source readiness ≠ release approval.
 >
-> - **Source-code posture — ✅ no confirmed P0/P1.** Independent main-branch reviews + dev verification found no confirmed source-code P0/P1 defect on current `main`. Non-blocking follow-ups are tracked in `BACKLOG.md` (CORS exact-host tightening P2/P3; entitlement policy-writer unification P2 — safe-subset containment landed in #825).
-> - **Operational release posture — ⛔ HOLD.** Release is gated on the required gates passing on the **exact final signoff SHA** (see the Evidence Freshness Contract below + "Final-SHA gate freshness" in `.agent/workflows/pr-merge-workflow.md`). Every merge resets the signoff clock; a passing run on an older SHA is historical evidence, not signoff evidence.
+> - **Source-code posture — ✅ no confirmed P0/P1.** Independent main-branch reviews + dev verification found no confirmed source-code P0/P1 defect. Non-blocking follow-ups tracked in `BACKLOG.md`. The 2026-06 DB hygiene + recurring-drift fix is complete (production `auth.users` 1,445 → 35; see RELEASE_CLOSEOUT_LEDGER §E).
+> - **Operational release posture — 🟡 controlled-beta READY, pending ONE final gate re-run.** All 5 RC gates passed (`gate=all` `28235534502`) with 0 gate-induced DB drift, but `main` has since advanced (DB-hygiene + live-test PRs), so per **Final-SHA freshness** that run is historical, not signoff. **Required before tester invites:** re-dispatch `gate=all` on the exact final signoff SHA and confirm green. Payments stay hidden/`stripeKeyClass="test"` for beta; paid launch is a separate Ops cutover (RELEASE_CLOSEOUT_LEDGER §D).
 
 | Release Track | Status | Why |
 |---|---|---|
@@ -41,8 +41,8 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 | Priority | Blocker | Required Closure |
 |---|---|---|
-| ✅ RESOLVED | Latest pushed `main` green required workflows | `main@596a6950`: CI-Test-Audit + Production Canary + Deploy Supabase green; RC `gate=all` run `27708194872` all 5 gates green. |
-| P0 | RC gates are manual (not tag-triggered) | They currently PASS (run `27708194872`); re-dispatch + pass once on the exact final signoff SHA before tester invites. |
+| ✅ RESOLVED | Latest pushed `main` green required workflows | Most recent `gate=all` run `28235534502` (2026-06-26): all 5 gates green, 0 `auth.users` drift. DB hygiene complete (1445→35). |
+| P0 (process) | RC gates are manual + must pass on the **final signoff SHA** | They PASS (run `28235534502`) but `main` has advanced past it (DB-hygiene + live-test PRs #868/#869/#870/#871). Re-dispatch `gate=all` once on the exact final signoff SHA before tester invites. |
 | P1 | Stress/endurance evidence is newly structured | Use `stress-endurance.yml` artifacts for backend p50/p95/counts and browser endurance memory evidence; advisory unless stability is release risk. |
 | P1 | Private and Native STT remain below the Cloud proof standard | Private needs timing/parity fixes; Native needs live-text consistency and punctuation/readability proof before either can be claimed as launch-quality. |
 | P2 | Ops health display is intentionally high-level | If hosted ops status is red/yellow, inspect the richer GitHub/Supabase JSON evidence rather than reconciling a second query source. |
