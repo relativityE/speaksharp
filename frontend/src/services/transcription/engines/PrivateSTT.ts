@@ -48,6 +48,7 @@ import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils
 import { getV4FlagState } from '../privateV4Flags';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
+import { buildEngineVersion, type EngineVariant } from '../privateSampleTelemetry';
 // Stale import removed
 
 declare global {
@@ -160,6 +161,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      */
     public getEngineType(): EngineType {
         return this._engineType || 'transformers-js';
+    }
+
+    /**
+     * Durable engine metadata for the saved session row. Records the resolved A/B arm
+     * (private_v2 / private_v4) and model so `sessions.engine_version` reconstructs the
+     * variant even if PostHog is missing — `private_v2:whisper-base.en` /
+     * `private_v4:base_q4`. Previously the controller hardcoded `'transformers-js'`,
+     * which erased the v4 arm. `deviceType` stays `'browser'` (on-device).
+     */
+    public getMetadata(): { engineVersion: string; modelName: string; deviceType: string } {
+        const isV4 = this._engineType === 'transformers-js-v4';
+        const variant: EngineVariant = isV4 ? 'private_v4' : 'private_v2';
+        const model = isV4 ? PRIV_STT_V4_DEFAULT_VARIANT : 'whisper-base.en';
+        return {
+            engineVersion: buildEngineVersion(variant, model),
+            modelName: model,
+            deviceType: 'browser',
+        };
     }
 
     public override init(timeoutMs?: number): Promise<Result<void, Error>> {
