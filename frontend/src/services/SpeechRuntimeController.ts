@@ -12,6 +12,7 @@ import {
     resolveSampleAssignment,
     setPrivateSampleContext,
     buildSampleEnvProps,
+    buildEngineVersion,
 } from '@/services/transcription/privateSampleTelemetry';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
@@ -466,6 +467,9 @@ export class SpeechRuntimeController {
                 model: meta?.modelName ?? null,
                 release_sha: release,
             });
+            // Capture the resolved arm now (engine is resolved here) for durable persistence at
+            // stop — independent of the telemetry context's clear timing.
+            this.resolvedPrivateEngineVersion = buildEngineVersion(assignment.engine_variant, meta?.modelName ?? null);
         } catch {
             /* telemetry context must never break the recording pipeline */
         }
@@ -475,6 +479,9 @@ export class SpeechRuntimeController {
     // of how the model load was triggered (warmUp / auto-init on mode select / explicit download).
     private privateSetupStartedAt: number | null = null;
     private privateSetupResolved = false;
+    /** Resolved Private arm (private_v2:<model> / private_v4:<model>), captured at engine-resolve
+     *  for durable persistence to sessions.engine_version at stop. */
+    private resolvedPrivateEngineVersion: string | null = null;
     private emitPrivateSampleSetupStatus(type: string): void {
         try {
             if ((this.service?.getMode?.() ?? null) !== 'private') return;
@@ -2228,6 +2235,21 @@ export class SpeechRuntimeController {
                             });
                             if (!completion.success) {
                                 throw new Error('SESSION_COMPLETION_FAILED');
+                            }
+                            // Persist the resolved Private engine arm durably. The placeholder save
+                            // ran before the engine resolved (engine_version defaulted to
+                            // 'transformers-js'); completeSession does not touch engine_version. Read
+                            // the live sample context (engine_variant + model) and write the real arm
+                            // (private_v2:<model> / private_v4:<model>) so it is reconstructable from
+                            // the row even without PostHog. Non-fatal.
+                            try {
+                                if (this.resolvedPrivateEngineVersion) {
+                                    await updateSession(sessionId, {
+                                        engine_version: this.resolvedPrivateEngineVersion,
+                                    } as Parameters<typeof updateSession>[1]);
+                                }
+                            } catch (engineVersionError) {
+                                logger.warn({ engineVersionError, sessionId }, '[controller] engine_version persist failed (non-fatal)');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
