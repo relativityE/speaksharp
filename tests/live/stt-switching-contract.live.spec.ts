@@ -573,25 +573,15 @@ async function waitForFixtureTranscript(page: Page, mode: SttMode, timeout: numb
       const surfaces = await page.evaluate(() => {
         const cleanText = document.querySelector('[data-testid="transcript-text-only"]')?.textContent ?? '';
         const visibleText = document.querySelector('[data-testid="transcript-container"]')?.textContent ?? '';
-        const debug = (window as unknown as {
-          __SPEECH_RUNTIME_DEBUG__?: () => {
-            sessionId?: string | null;
-            saveCandidate?: { sessionId?: string | null; selectedForSave?: string | null } | null;
-          };
-        }).__SPEECH_RUNTIME_DEBUG__?.();
-        const candidate = debug?.saveCandidate ?? null;
-        // Only trust the save-candidate surface when it belongs to the CURRENT session. Otherwise the
-        // prior (e.g. Cloud) session's lingering candidate false-matches before THIS engine has
-        // transcribed, so we stop early and the app rejects the save ("not enough speech"). The live
-        // DOM surfaces above reset per session, so they are always current-session.
-        const saveCandidate = candidate && candidate.sessionId === debug?.sessionId
-          ? (candidate.selectedForSave ?? '')
-          : '';
-
+        // Live DOM surfaces ONLY. The __SPEECH_RUNTIME_DEBUG__ saveCandidate is a POST-STOP artifact:
+        // during the next recording it still carries the PRIOR session's transcript, and its
+        // sessionId is not re-assigned at first poll (the controller keeps the prior id until the new
+        // session commits), so it cross-session false-matches and we stop before THIS engine has
+        // transcribed. The DOM transcript resets to placeholder per session and reflects the current
+        // engine's live output, so it is the only safe during-recording surface.
         return [
           { surface: 'transcript-text-only', text: cleanText },
           { surface: 'transcript-container', text: visibleText },
-          { surface: 'saveCandidate.selectedForSave', text: saveCandidate },
         ];
       });
       const candidates = surfaces
