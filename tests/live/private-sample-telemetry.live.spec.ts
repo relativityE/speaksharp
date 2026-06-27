@@ -119,36 +119,47 @@ test.describe('Private-sample telemetry — live app wiring @live', () => {
                 .toContain('private_sample_selected');
         });
 
-        await test.step('Prepare Private model → setup events', async () => {
+        await test.step('Prepare Private model (setup fires via warmUp/auto-init, asserted at end)', async () => {
             await preparePrivateModelIfPrompted(page);
-            const names = (await getSampleEvents(page)).map((e) => e.event);
-            expect(names).toContain('private_sample_setup_started');
-            expect(names.some((n) => n === 'private_sample_setup_succeeded' || n === 'private_sample_setup_failed')).toBe(true);
         });
 
-        await test.step('Record → recording_started + first_transcript_seen (once)', async () => {
+        await test.step('Record → wait for first transcript text', async () => {
             const startStop = page.getByTestId('session-start-stop-button');
             await expect(startStop).toBeEnabled({ timeout: 60_000 });
             await startStop.click();
             await expect(startStop).toHaveAttribute('data-recording', 'true', { timeout: 60_000 });
-            await expect.poll(async () => (await getSampleEvents(page)).map((e) => e.event), { timeout: 30_000 })
-                .toContain('private_sample_recording_started');
-            // First transcript text appears, then first_transcript_seen fires exactly once.
-            await expect.poll(async () => {
-                const events = await getSampleEvents(page);
-                return events.filter((e) => e.event === 'private_sample_first_transcript_seen').length;
-            }, { timeout: 120_000 }).toBe(1);
+            await expect.poll(async () =>
+                (await getSampleEvents(page)).filter((e) => e.event === 'private_sample_first_transcript_seen').length,
+                { timeout: 120_000 }).toBeGreaterThanOrEqual(1);
         });
 
-        await test.step('Stop + save → recording_stopped, saved, usage_updated', async () => {
+        await test.step('Stop + save', async () => {
             const startStop = page.getByTestId('session-start-stop-button');
             await startStop.click();
             await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 60_000 });
             await expect(page.locator('html[data-session-persisted="true"]')).toBeVisible({ timeout: 60_000 });
-            const names = (await getSampleEvents(page)).map((e) => e.event);
-            expect(names).toContain('private_sample_recording_stopped');
-            expect(names).toContain('private_sample_saved');
-            expect(names).toContain('private_sample_usage_updated');
+            await expect.poll(async () => (await getSampleEvents(page)).map((e) => e.event), { timeout: 30_000 })
+                .toContain('private_sample_saved');
+        });
+
+        await test.step('Full event spine present (selected/setup/start/first-text/stop/save/usage)', async () => {
+            await expect.poll(async () => {
+                const names = new Set((await getSampleEvents(page)).map((e) => e.event));
+                const required = [
+                    'private_sample_selected',
+                    'private_sample_setup_started',
+                    'private_sample_recording_started',
+                    'private_sample_first_transcript_seen',
+                    'private_sample_recording_stopped',
+                    'private_sample_saved',
+                    'private_sample_usage_updated',
+                ];
+                return required.every((n) => names.has(n))
+                    && (names.has('private_sample_setup_succeeded') || names.has('private_sample_setup_failed'));
+            }, { timeout: 30_000 }).toBe(true);
+            // first_transcript_seen fires exactly once.
+            const ftsCount = (await getSampleEvents(page)).filter((e) => e.event === 'private_sample_first_transcript_seen').length;
+            expect(ftsCount, 'first_transcript_seen should fire exactly once').toBe(1);
         });
 
         await test.step('Saved session row records a real engine arm', async () => {
