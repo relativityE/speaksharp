@@ -596,22 +596,24 @@ async function waitForFixtureTranscript(page: Page, mode: SttMode, timeout: numb
   }
 }
 
-// Replaces the old blind-sleep-to-minimum + 5s catch fallback. The fake-audio fixture plays in real
-// time so elapsedTime accrues ~wall-clock; poll the session store for the real value and fail loudly
-// (with a snapshot) if it never reaches the saveable minimum — no blind waitForTimeout.
+// Replaces the old blind-sleep-to-minimum + 5s catch fallback. Polls the prod-rendered session timer
+// (TimerDisplay, data-testid="session-timer", MM:SS) until it reaches the saveable minimum — a real,
+// user-facing signal that ticks at 1Hz during recording. NOTE: the earlier __SESSION_STORE_API__
+// hook is gated out of the production build (useSessionStore.ts: NODE_ENV !== 'production' || isE2E),
+// so it reads undefined on the deployed app — the timer DOM reflects the same store via React.
 async function waitForSaveableRecordingDuration(page: Page) {
   const minimumSeconds = Math.ceil(MIN_SAVEABLE_RECORDING_MS / 1000);
+  const timer = page.getByTestId('session-timer');
   try {
-    await page.waitForFunction((minSeconds) => {
-      const storeApi = (window as unknown as {
-        __SESSION_STORE_API__?: { getState?: () => { elapsedTime?: number } };
-      }).__SESSION_STORE_API__;
-      const elapsedTime = storeApi?.getState?.().elapsedTime;
-      return typeof elapsedTime === 'number' && elapsedTime >= minSeconds;
-    }, minimumSeconds, { timeout: 30_000 });
+    await expect(async () => {
+      const text = (await timer.textContent())?.trim() ?? '';
+      const match = text.match(/^(\d+):(\d{2})$/);
+      const seconds = match ? Number(match[1]) * 60 + Number(match[2]) : -1;
+      expect(seconds, `session-timer "${text}" must reach ${minimumSeconds}s`).toBeGreaterThanOrEqual(minimumSeconds);
+    }).toPass({ timeout: 30_000, intervals: [500, 1_000, 2_000] });
   } catch (error) {
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'saveable-recording-duration-timeout');
-    throw new Error(`Recording never reached the ${minimumSeconds}s saveable minimum\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Recording never reached the ${minimumSeconds}s saveable minimum (session-timer)\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
