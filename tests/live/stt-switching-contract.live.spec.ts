@@ -245,7 +245,11 @@ test.describe.serial('Live STT switching contract @live', () => {
       test.setTimeout(300_000);
       installRuntimeDiagnostics(page);
 
-      // Serve the committed self-hosted model bytes from local disk (lighter Private path). The
+      // Lighter Private path: fulfill the /models/ fetch with the APP-SHIPPED model bytes
+      // (frontend/public/models/whisper-base.en, the same assets the app hosts at {origin}/models/),
+      // fed into the REAL engine load path. This does NOT reuse browser Cache Storage/IndexedDB from a
+      // prior download (Playwright gives each test a fresh context anyway) — the real first-run
+      // download + browser-cache path is proven separately by private-cache.live.spec.ts. The
       // served/missed counters are logged so the live run self-reports whether interception fired
       // (if `missed` is non-empty, the model still hit the network and the SW block / glob needs a fix).
       const modelRouting = await routeServeLocalModelBytes(page);
@@ -514,12 +518,13 @@ async function recordCloudSession(page: Page, options: { assertSwitchLock: boole
   const tokenResponse = await tokenResponsePromise;
   expect(tokenResponse.status(), `assemblyai-token response: ${await tokenResponse.text().catch(() => '')}`).toBe(200);
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+  const recordingStartedAt = Date.now();
 
   if (options.assertSwitchLock) {
     await assertModeSwitchBlockedWhileRecording(page, 'cloud');
   }
   const transcript = await waitForFixtureTranscript(page, 'cloud', 120_000);
-  await waitForSaveableRecordingDuration(page);
+  await waitForSaveableRecordingDuration(page, recordingStartedAt);
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
   await expect(page.getByTestId('status-message-text')).toContainText(/Session saved/i, { timeout: 45_000 });
@@ -532,8 +537,9 @@ async function recordPrivateSession(page: Page) {
   await expect(startStopButton).toBeEnabled({ timeout: 90_000 });
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+  const recordingStartedAt = Date.now();
   const transcript = await waitForFixtureTranscript(page, 'private', 120_000);
-  await waitForSaveableRecordingDuration(page);
+  await waitForSaveableRecordingDuration(page, recordingStartedAt);
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
   await expect(page.getByTestId('status-message-text')).toContainText(/Session saved/i, { timeout: 45_000 });
@@ -596,24 +602,31 @@ async function waitForFixtureTranscript(page: Page, mode: SttMode, timeout: numb
   }
 }
 
-// Replaces the old blind-sleep-to-minimum + 5s catch fallback. Polls the prod-rendered session timer
-// (TimerDisplay, data-testid="session-timer", MM:SS) until it reaches the saveable minimum — a real,
-// user-facing signal that ticks at 1Hz during recording. NOTE: the earlier __SESSION_STORE_API__
-// hook is gated out of the production build (useSessionStore.ts: NODE_ENV !== 'production' || isE2E),
-// so it reads undefined on the deployed app — the timer DOM reflects the same store via React.
-async function waitForSaveableRecordingDuration(page: Page) {
+// The app refuses to save a session under MIN_SESSION_DURATION_SECONDS (5s; we target 7s), gating on
+// the store's elapsedTime heartbeat (useSessionLifecycle drives useSessionStore.tick while listening).
+// That store value is not reliably readable on the deployed prod build — __SESSION_STORE_API__ is
+// gated out (NODE_ENV !== 'production' || isE2E) and the TimerDisplay DOM (session-timer) is not
+// reliably mounted in this layout. So accrue the minimum directly: poll until (a) the recording is
+// STILL live and (b) the saveable minimum of wall-clock has elapsed since data-recording flipped true.
+// This is not a blind waitForTimeout — every poll asserts liveness, so a dropped recording fails with
+// a clear reason instead of an opaque "page closed during wait".
+async function waitForSaveableRecordingDuration(page: Page, recordingStartedAt: number) {
   const minimumSeconds = Math.ceil(MIN_SAVEABLE_RECORDING_MS / 1000);
-  const timer = page.getByTestId('session-timer');
+  const startStop = page.getByTestId('session-start-stop-button');
   try {
     await expect(async () => {
-      const text = (await timer.textContent())?.trim() ?? '';
-      const match = text.match(/^(\d+):(\d{2})$/);
-      const seconds = match ? Number(match[1]) * 60 + Number(match[2]) : -1;
-      expect(seconds, `session-timer "${text}" must reach ${minimumSeconds}s`).toBeGreaterThanOrEqual(minimumSeconds);
-    }).toPass({ timeout: 30_000, intervals: [500, 1_000, 2_000] });
+      expect(
+        await startStop.getAttribute('data-recording'),
+        'recording must stay live while accruing the saveable minimum',
+      ).toBe('true');
+      expect(
+        Date.now() - recordingStartedAt,
+        `recording must run >= ${minimumSeconds}s to be saveable`,
+      ).toBeGreaterThanOrEqual(MIN_SAVEABLE_RECORDING_MS);
+    }).toPass({ timeout: MIN_SAVEABLE_RECORDING_MS + 15_000, intervals: [500, 1_000] });
   } catch (error) {
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'saveable-recording-duration-timeout');
-    throw new Error(`Recording never reached the ${minimumSeconds}s saveable minimum (session-timer)\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Recording did not sustain the ${minimumSeconds}s saveable minimum\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
