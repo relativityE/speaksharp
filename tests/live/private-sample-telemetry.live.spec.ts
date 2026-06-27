@@ -98,6 +98,15 @@ test.describe('Private-sample telemetry — live app wiring @live', () => {
             w.__STT_LOAD_TIMEOUT__ = 180000;
         });
 
+        // Diagnostic: forward sample-telemetry + engine-status logs so the CI log shows exactly
+        // which events fire (and which status types the controller sees) during the real flow.
+        page.on('console', (m) => {
+            const t = m.text();
+            if (/PRIVATE_SAMPLE|SttStatus|status\.type|EngineReady|model-status|TranscriptionService.*status/i.test(t)) {
+                console.log(`[browser] ${t}`);
+            }
+        });
+
         const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
         const email = `private-sample-telemetry-${unique}@speaksharp.app`;
         const password = `SpeakSharpSample-${unique}!`;
@@ -143,22 +152,24 @@ test.describe('Private-sample telemetry — live app wiring @live', () => {
         });
 
         await test.step('Full event spine present (selected/setup/start/first-text/stop/save/usage)', async () => {
-            await expect.poll(async () => {
-                const names = new Set((await getSampleEvents(page)).map((e) => e.event));
-                const required = [
-                    'private_sample_selected',
-                    'private_sample_setup_started',
-                    'private_sample_recording_started',
-                    'private_sample_first_transcript_seen',
-                    'private_sample_recording_stopped',
-                    'private_sample_saved',
-                    'private_sample_usage_updated',
-                ];
-                return required.every((n) => names.has(n))
-                    && (names.has('private_sample_setup_succeeded') || names.has('private_sample_setup_failed'));
-            }, { timeout: 30_000 }).toBe(true);
-            // first_transcript_seen fires exactly once.
-            const ftsCount = (await getSampleEvents(page)).filter((e) => e.event === 'private_sample_first_transcript_seen').length;
+            await page.waitForTimeout(5000); // let any late events land
+            const all = await getSampleEvents(page);
+            console.log('[SPINE_DIAG] events=' + JSON.stringify(all.map((e) => ({ ev: e.event, variant: e.engine_variant, src: e.assignment_source }))));
+            const names = new Set(all.map((e) => e.event));
+            const required = [
+                'private_sample_selected',
+                'private_sample_setup_started',
+                'private_sample_recording_started',
+                'private_sample_first_transcript_seen',
+                'private_sample_recording_stopped',
+                'private_sample_saved',
+                'private_sample_usage_updated',
+            ];
+            const missing = required.filter((n) => !names.has(n));
+            console.log('[SPINE_DIAG] missing=' + JSON.stringify(missing));
+            expect(missing, `missing events: ${missing.join(', ')}`).toEqual([]);
+            expect(names.has('private_sample_setup_succeeded') || names.has('private_sample_setup_failed'), 'setup must resolve').toBe(true);
+            const ftsCount = all.filter((e) => e.event === 'private_sample_first_transcript_seen').length;
             expect(ftsCount, 'first_transcript_seen should fire exactly once').toBe(1);
         });
 
