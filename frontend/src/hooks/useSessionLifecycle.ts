@@ -242,6 +242,25 @@ export const useSessionLifecycle = () => {
                         word_count: metrics.wordCount,
                         save_success: true,
                     });
+                    // usage_updated/exhausted emitted here (context still set, before clear) so the
+                    // sample's consumption is recorded reliably regardless of cache/usage-sync timing.
+                    {
+                        const sampleLimit = usageLimit?.private_sample_limit_seconds ?? null;
+                        const priorUsed = typeof usageLimit?.private_sample_seconds_used === 'number'
+                            ? usageLimit.private_sample_seconds_used
+                            : 0;
+                        const used = priorUsed + sampleDuration;
+                        const remaining = sampleLimit != null
+                            ? Math.max(0, sampleLimit - used)
+                            : (usageLimit?.private_sample_seconds_remaining ?? null);
+                        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.USAGE_UPDATED, {
+                            sample_seconds_used: used,
+                            sample_seconds_remaining: remaining,
+                        });
+                        if (remaining != null && remaining <= 0) {
+                            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.EXHAUSTED, { sample_seconds_used: used });
+                        }
+                    }
                     privateSampleActiveRef.current = false;
                     clearPrivateSampleContext();
                 }
