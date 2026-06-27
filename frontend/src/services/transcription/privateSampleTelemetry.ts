@@ -190,12 +190,32 @@ export interface PrivateSampleContext {
 
 let activeContext: PrivateSampleContext = {};
 
+// Identity of the most recent Private sample (arm/model/release/session). Survives
+// clearPrivateSampleContext so a Report Issue filed AFTER the sample (context cleared) can still
+// be linked to the engine the user just tried. Updated as the active context is set.
+interface LastSampleArm {
+    engine_variant?: EngineVariant | null;
+    model?: string | null;
+    release_sha?: string | null;
+    session_id?: string | null;
+}
+const lastSampleArm: LastSampleArm = {};
+
 export function setPrivateSampleContext(ctx: PrivateSampleContext): void {
     activeContext = { ...activeContext, ...ctx };
+    if (ctx.engine_variant != null) lastSampleArm.engine_variant = ctx.engine_variant;
+    if (ctx.model != null) lastSampleArm.model = ctx.model;
+    if (ctx.release_sha != null) lastSampleArm.release_sha = ctx.release_sha;
+    if (ctx.session_id != null) lastSampleArm.session_id = ctx.session_id;
 }
 
 export function getPrivateSampleContext(): PrivateSampleContext {
     return { ...activeContext };
+}
+
+/** The most recent Private sample's arm/model/release/session (persists across clear). */
+export function getLastSampleArm(): LastSampleArm {
+    return { ...lastSampleArm };
 }
 
 export function clearPrivateSampleContext(): void {
