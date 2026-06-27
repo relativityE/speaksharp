@@ -146,4 +146,17 @@ describe('private sample telemetry — session context + safety', () => {
         captureMock.mockImplementationOnce(() => { throw new Error('posthog boom'); });
         expect(() => emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ERROR, { error_code: 'X' })).not.toThrow();
     });
+
+    it('mirrors only sanitized (non-PII) events to window for the live e2e to read', () => {
+        const w = window as unknown as { __SS_PRIVATE_SAMPLE_EVENTS__?: Array<Record<string, unknown>> };
+        w.__SS_PRIVATE_SAMPLE_EVENTS__ = [];
+        setPrivateSampleContext({ engine_variant: 'private_v4', assignment_source: 'allowlist', session_id: 's1' });
+        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STARTED, { transcript: 'LEAK', audio: 'LEAK', time_to_first_text_ms: 700 });
+        const mirror = w.__SS_PRIVATE_SAMPLE_EVENTS__!;
+        expect(mirror).toHaveLength(1);
+        expect(mirror[0]).toMatchObject({ event: 'private_sample_recording_started', engine_variant: 'private_v4', session_id: 's1' });
+        for (const forbidden of ['transcript', 'audio', 'text', 'raw', 'segments', 'tokens']) {
+            expect(mirror[0]).not.toHaveProperty(forbidden);
+        }
+    });
 });

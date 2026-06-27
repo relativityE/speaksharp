@@ -218,7 +218,29 @@ export function emitPrivateSample(event: PrivateSampleEvent, props?: Record<stri
         } catch {
             /* posthog optional — never let analytics break the sample path */
         }
+        mirrorToWindow(event, safe);
     } catch {
         /* sanitize/log must never throw into the transcription path */
+    }
+}
+
+/**
+ * Mirror the ALREADY-SANITIZED (allowlisted, non-PII) event to a capped window array so a
+ * deployed e2e can observe that the real app lifecycle emitted the right sequence/attribution
+ * without scraping network traffic. Same pattern as AnalyticsBuffer's identity probe. Only
+ * non-PII allowlisted keys are present, so this is safe in production. Never throws.
+ */
+const MAX_MIRRORED_EVENTS = 200;
+function mirrorToWindow(event: PrivateSampleEvent, safe: PrivateSampleProps): void {
+    if (typeof window === 'undefined') return;
+    try {
+        const w = window as unknown as { __SS_PRIVATE_SAMPLE_EVENTS__?: Array<Record<string, unknown>> };
+        if (!Array.isArray(w.__SS_PRIVATE_SAMPLE_EVENTS__)) w.__SS_PRIVATE_SAMPLE_EVENTS__ = [];
+        w.__SS_PRIVATE_SAMPLE_EVENTS__.push({ event, ts: Date.now(), ...safe });
+        if (w.__SS_PRIVATE_SAMPLE_EVENTS__.length > MAX_MIRRORED_EVENTS) {
+            w.__SS_PRIVATE_SAMPLE_EVENTS__.splice(0, w.__SS_PRIVATE_SAMPLE_EVENTS__.length - MAX_MIRRORED_EVENTS);
+        }
+    } catch {
+        /* observability must never affect app behavior */
     }
 }
