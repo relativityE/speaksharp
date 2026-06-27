@@ -36,7 +36,7 @@ beforeEach(() => {
     clearPrivateSampleContext();
 });
 
-function driveArm(arm: { engineType: string; variant: 'private_v2' | 'private_v4'; model: string; version: string }) {
+function driveArm(arm: { engineType: string; variant: 'private_v2' | 'private_v4'; model: string; version: string }): string {
     // 1) Deterministic override resolves the forced arm + attribution.
     const assignment = resolveSampleAssignment({
         resolvedEngineType: arm.engineType,
@@ -104,17 +104,21 @@ function driveArm(arm: { engineType: string; variant: 'private_v2' | 'private_v4
     // 5) first_transcript kept the numeric duration but dropped the leak attempt.
     const fts = calls.find((c) => c[0] === 'private_sample_first_transcript_seen')![1];
     expect(fts.time_to_first_text_ms).toBe(820);
+
+    return buildEngineVersion(assignment.engine_variant, arm.model);
 }
 
 describe('PROOF: deterministic v2 arm', () => {
     it('events report private_v2; durable engine_version private_v2:whisper-base.en; no PII', () => {
-        driveArm({ engineType: 'transformers-js', variant: 'private_v2', model: 'whisper-base.en', version: 'private_v2:whisper-base.en' });
+        const version = driveArm({ engineType: 'transformers-js', variant: 'private_v2', model: 'whisper-base.en', version: 'private_v2:whisper-base.en' });
+        expect(version).toBe('private_v2:whisper-base.en');
     });
 });
 
 describe('PROOF: deterministic v4 arm', () => {
     it('events report private_v4; durable engine_version private_v4:base_q4; no PII', () => {
-        driveArm({ engineType: 'transformers-js-v4', variant: 'private_v4', model: 'base_q4', version: 'private_v4:base_q4' });
+        const version = driveArm({ engineType: 'transformers-js-v4', variant: 'private_v4', model: 'base_q4', version: 'private_v4:base_q4' });
+        expect(version).toBe('private_v4:base_q4');
     });
 });
 
