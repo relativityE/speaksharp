@@ -80,3 +80,42 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - This suite owns its own cleanup (fresh account is deleted in `afterEach`). The reusable
   live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by
   hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
+
+---
+
+## Private v4 A/B rollout posture (internal — never in the tester guide)
+
+The free 5-minute Private sample is also the v2/v4 A/B measurement window. **Default Private
+engine is v2; broad/random v4 rollout stays at 0%.** v4 is exposed only **deliberately,
+narrowly, and reversibly** after the telemetry proof passes.
+
+**Assignment + attribution.** Every `private_sample_*` event carries `engine_variant`
+(`private_v2`/`private_v4`) and `assignment_source` (`default | posthog_flag | allowlist |
+deterministic_override`), plus `posthog_flag_key`/`posthog_flag_value`. The saved session row's
+`engine_version` (`private_v2:whisper-base.en` / `private_v4:base_q4`) durably records the arm so
+it is reconstructable even if PostHog is missing — never rely on analytics alone.
+
+**PostHog flags (owner-configured):**
+- `private_stt_v4_enabled` — % rollout (keep at **0%** for broad exposure).
+- `private_stt_v4_allowlist` — named-user targeting (the preferred first-wave control).
+- Kill switch / rollback = set both back to 0%/empty → new users get v2 immediately; existing
+  saved sessions keep their recorded arm.
+
+**Selective exposure controls (use for the first external wave):** named allowlist **+ Chrome
+desktop only**; internal/dogfood accounts first; avoid mobile/low-memory devices until v4 proves
+stable.
+
+**Go criteria — enable v4 for the first real users only when ALL are true:**
+1. Deterministic override proves the v2 path.
+2. Deterministic override proves the v4 path.
+3. v4 completes setup → record → first text → stop → save → history/detail in a free-user sample.
+4. Variant is visible in PostHog events (`engine_variant` + `assignment_source`).
+5. Variant is persisted on the saved session (`engine_version`).
+6. Report Issue includes variant/session/release context.
+7. No transcript/audio/raw model output enters PostHog/Sentry.
+8. Kill switch back to v2 is verified.
+9. Tester guide stays simple and does **not** mention A/B testing.
+
+**Suggested waves:** (0) internal proof — force v2 + v4 on test accounts, confirm telemetry +
+saved metadata; (1) 1–2 trusted external testers on v4, Chrome desktop, normal use; (2) ramp to
+10–20% if setup/save/error rates are acceptable; (3) decide continue / fix / cut.

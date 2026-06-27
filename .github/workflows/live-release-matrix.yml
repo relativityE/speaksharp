@@ -17,6 +17,7 @@ on:
           - stt-switching-contract
           - private-cache
           - first-time-tester-private-trial
+          - private-sample-telemetry
           - stripe-webhook-readiness
           - stripe-checkout-readiness
           - stripe-billing-portal-readiness
@@ -274,6 +275,40 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-first-time-tester-private-trial-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+
+  live-private-sample-telemetry:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-sample-telemetry' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Private-Sample Telemetry Live Wiring Proof
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          BASE_URL: https://speaksharp-public.vercel.app/
+          # Required: the spec mints a fresh free account (unused Private sample), reads the saved
+          # session's engine_version, and deletes the account in afterEach (so it never accumulates).
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec playwright test tests/live/private-sample-telemetry.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+
+      - name: Upload Private-Sample Telemetry Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-private-sample-telemetry-artifacts
           path: |
             blob-report/live/
             playwright-report/
