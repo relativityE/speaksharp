@@ -457,6 +457,9 @@ export class SpeechRuntimeController {
                 rolloutEnabled: flags.v4Enabled,
             });
             const meta = this.service?.getMetadata?.();
+            // Fall back to the variant's default model id if metadata hasn't surfaced one yet, so
+            // the durable engine_version is always private_v2:<model> / private_v4:<model>.
+            const model = meta?.modelName ?? (assignment.engine_variant === 'private_v4' ? 'base_q4' : 'whisper-base.en');
             const release = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
             setPrivateSampleContext({
                 session_id: this.sessionId,
@@ -464,12 +467,12 @@ export class SpeechRuntimeController {
                 assignment_source: assignment.assignment_source,
                 posthog_flag_key: assignment.posthog_flag_key,
                 posthog_flag_value: assignment.posthog_flag_value,
-                model: meta?.modelName ?? null,
+                model,
                 release_sha: release,
             });
             // Capture the resolved arm now (engine is resolved here) for durable persistence at
             // stop — independent of the telemetry context's clear timing.
-            this.resolvedPrivateEngineVersion = buildEngineVersion(assignment.engine_variant, meta?.modelName ?? null);
+            this.resolvedPrivateEngineVersion = buildEngineVersion(assignment.engine_variant, model);
         } catch {
             /* telemetry context must never break the recording pipeline */
         }
