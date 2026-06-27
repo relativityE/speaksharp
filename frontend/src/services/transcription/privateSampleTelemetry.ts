@@ -183,6 +183,9 @@ export interface PrivateSampleContext {
     model?: string | null;
     release_sha?: string | null;
     sample_limit_seconds?: number | null;
+    /** Internal: recording start epoch ms, used to derive time_to_first_text_ms. Not emitted
+     *  (not on the allowlist) — sanitize drops it from any event payload. */
+    recording_start_ts?: number | null;
 }
 
 let activeContext: PrivateSampleContext = {};

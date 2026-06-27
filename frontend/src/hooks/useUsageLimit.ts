@@ -2,6 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import logger from '../lib/logger';
+import {
+    PRIVATE_SAMPLE_EVENTS,
+    emitPrivateSample,
+    getPrivateSampleContext,
+} from '@/services/transcription/privateSampleTelemetry';
 
 /**
  * Response from check-usage-limit Edge Function
@@ -96,20 +101,45 @@ export function updateLocalUsage(userId: string, additionalSeconds: number) {
         return;
     }
 
+    let sampleUpdate: { used: number; remaining: number; wasAbove: boolean } | null = null;
     queryClient.setQueryData(['usageLimit', userId], (old: UsageLimitCheck | undefined) => {
         if (!old) return old;
+        const hasSample = typeof old.private_sample_seconds_used === 'number'
+            && typeof old.private_sample_seconds_remaining === 'number';
+        const nextRemaining = hasSample
+            ? Math.max(0, (old.private_sample_seconds_remaining as number) - additionalSeconds)
+            : old.private_sample_seconds_remaining;
+        const nextUsed = hasSample
+            ? (old.private_sample_seconds_used as number) + additionalSeconds
+            : old.private_sample_seconds_used;
+        if (hasSample) {
+            sampleUpdate = {
+                used: nextUsed as number,
+                remaining: nextRemaining as number,
+                wasAbove: (old.private_sample_seconds_remaining as number) > 0,
+            };
+        }
         return {
             ...old,
             daily_remaining: Math.max(0, old.daily_remaining - additionalSeconds),
             remaining_seconds: Math.max(0, old.remaining_seconds - additionalSeconds),
-            private_sample_seconds_remaining: typeof old.private_sample_seconds_remaining === 'number'
-                ? Math.max(0, old.private_sample_seconds_remaining - additionalSeconds)
-                : old.private_sample_seconds_remaining,
-            private_sample_seconds_used: typeof old.private_sample_seconds_used === 'number'
-                ? old.private_sample_seconds_used + additionalSeconds
-                : old.private_sample_seconds_used,
+            private_sample_seconds_remaining: nextRemaining,
+            private_sample_seconds_used: nextUsed,
         };
     });
+
+    // Emit sample usage telemetry only while a Private sample is the active arm (so native/
+    // cloud usage updates don't fire). Never blocks the optimistic update above.
+    const update = sampleUpdate as { used: number; remaining: number; wasAbove: boolean } | null;
+    if (update && additionalSeconds > 0 && getPrivateSampleContext().engine_variant) {
+        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.USAGE_UPDATED, {
+            sample_seconds_used: update.used,
+            sample_seconds_remaining: update.remaining,
+        });
+        if (update.wasAbove && update.remaining <= 0) {
+            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.EXHAUSTED, { sample_seconds_used: update.used });
+        }
+    }
 }
 
 /**

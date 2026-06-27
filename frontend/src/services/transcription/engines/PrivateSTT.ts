@@ -121,6 +121,15 @@ function getPrivateEngineOverride(): PrivateEngineType | null {
 }
 
 /**
+ * Whether a deterministic Private-engine override is active (dev/test/E2E only). Used by
+ * sample telemetry to attribute `assignment_source='deterministic_override'`. Honors the
+ * same gating as `getPrivateEngineOverride` — always false in production.
+ */
+export function isPrivateEngineOverrideActive(): boolean {
+    return getPrivateEngineOverride() != null;
+}
+
+/**
  * Dual-engine Private STT facade
  */
 /** Upper bound on a v4 AUTO-path decode. A base_q4-on-WASM decode can HANG and never return;

@@ -20,6 +20,13 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
+import {
+    PRIVATE_SAMPLE_EVENTS,
+    emitPrivateSample,
+    setPrivateSampleContext,
+    clearPrivateSampleContext,
+    buildSampleEnvProps,
+} from '@/services/transcription/privateSampleTelemetry';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -102,6 +109,28 @@ export const useSessionLifecycle = () => {
     // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
     const hasVADStoppedRef = useRef(false);
+    // Private-sample telemetry tracking: did a private sample recording start, and when.
+    const privateSampleActiveRef = useRef(false);
+    const recordingStartTsRef = useRef(0);
+    const firstTextSeenRef = useRef(false);
+    // If the user navigates away / unmounts mid-private-sample without saving, record it.
+    useEffect(() => {
+        const onPageHide = () => {
+            if (privateSampleActiveRef.current) {
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
+                privateSampleActiveRef.current = false;
+            }
+        };
+        window.addEventListener('pagehide', onPageHide);
+        return () => {
+            window.removeEventListener('pagehide', onPageHide);
+            if (privateSampleActiveRef.current) {
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
+                privateSampleActiveRef.current = false;
+                clearPrivateSampleContext();
+            }
+        };
+    }, []);
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
 
     const speechConfig = useMemo(() => ({
@@ -166,6 +195,12 @@ export const useSessionLifecycle = () => {
                     type: 'info',
                     message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
+                if (privateSampleActiveRef.current) {
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STOPPED, { recording_duration_seconds: elapsedTime });
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED, { recording_duration_seconds: elapsedTime });
+                    privateSampleActiveRef.current = false;
+                    clearPrivateSampleContext();
+                }
                 isProcessingRef.current = false;
                 return;
             }
@@ -177,6 +212,11 @@ export const useSessionLifecycle = () => {
 
                 if (!stopResult) {
                     setShowAnalyticsPrompt(false);
+                    if (privateSampleActiveRef.current) {
+                        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
+                        privateSampleActiveRef.current = false;
+                        clearPrivateSampleContext();
+                    }
                     return;
                 }
 
@@ -192,6 +232,19 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
+                if (effectiveMode === 'private' && privateSampleActiveRef.current) {
+                    const sampleDuration = recordingStartTsRef.current
+                        ? Math.round((Date.now() - recordingStartTsRef.current) / 1000)
+                        : elapsedTime;
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STOPPED, { recording_duration_seconds: sampleDuration });
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SAVED, {
+                        recording_duration_seconds: sampleDuration,
+                        word_count: metrics.wordCount,
+                        save_success: true,
+                    });
+                    privateSampleActiveRef.current = false;
+                    clearPrivateSampleContext();
+                }
 
                 if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
@@ -278,6 +331,18 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     ...getSessionCoachingExperimentProperties(),
                 });
+                if (latestMode === 'private') {
+                    // Set the resolved arm/assignment context, then emit recording_started.
+                    speechRuntimeController.applyPrivateSampleContext();
+                    recordingStartTsRef.current = Date.now();
+                    setPrivateSampleContext({
+                        sample_limit_seconds: usageLimit?.private_sample_limit_seconds ?? null,
+                        recording_start_ts: recordingStartTsRef.current,
+                    });
+                    privateSampleActiveRef.current = true;
+                    firstTextSeenRef.current = false;
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STARTED, { ...buildSampleEnvProps() });
+                }
             } catch (error) {
                 const err = error as Error;
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -306,6 +371,11 @@ export const useSessionLifecycle = () => {
                     error_message: err?.message || 'Unknown',
                     ...getSessionCoachingExperimentProperties(),
                 });
+                if (latestMode === 'private') {
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ERROR, { error_code: err?.name || 'Error' });
+                    privateSampleActiveRef.current = false;
+                    clearPrivateSampleContext();
+                }
                 try {
                     await speechRuntimeController.reset('start_failed');
                 } catch (resetError) {
@@ -454,6 +524,13 @@ export const useSessionLifecycle = () => {
         if (transcript.transcript !== lastTranscriptRef.current) {
             lastTranscriptRef.current = transcript.transcript;
             lastActivityTimeRef.current = Date.now();
+            // First non-empty transcript of a Private sample → measure time-to-first-text.
+            if (privateSampleActiveRef.current && !firstTextSeenRef.current && transcript.transcript.trim().length > 0) {
+                firstTextSeenRef.current = true;
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.FIRST_TRANSCRIPT_SEEN, {
+                    time_to_first_text_ms: recordingStartTsRef.current ? Math.max(0, Date.now() - recordingStartTsRef.current) : null,
+                });
+            }
         }
 
         const inactivityLimit = 300 * 1000; // 5 minutes

@@ -1876,5 +1876,9 @@ export default class TranscriptionService {
     const strategyMetadata = (this.strategy as unknown as { getMetadata?: () => { engineVersion: string; modelName: string; deviceType: string } | null })?.getMetadata?.();
     return strategyMetadata || this.metadata;
   }
+  /** Resolved engine type of the active strategy (e.g. 'transformers-js' | 'transformers-js-v4'). */
+  public getEngineType(): string | null {
+    return (this.strategy as unknown as { getEngineType?: () => string | null })?.getEngineType?.() ?? null;
+  }
   public setSessionId(id: string | null) { this.sessionId = id; }
 }
