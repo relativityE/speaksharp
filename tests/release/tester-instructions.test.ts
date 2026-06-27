@@ -30,9 +30,19 @@ describe('soft release tester guide (tester-facing)', () => {
         expect(guide).not.toMatch(/1 hour of trial access|24 hours of trial access|24-hour Pro trial|60-minute Pro trial/i);
     });
 
+    it('states the one 5-minute Private sample and that it does not count down from signup', () => {
+        expect(guide).toMatch(/one Private sample of up to 5\s*minutes/i);
+        expect(guide).toMatch(/does\s+not\s+start\s+counting\s+down/i);
+    });
+
     it('sets the on-device Private expectation in plain language', () => {
-        expect(guide).toMatch(/runs entirely on your own device/i);
+        expect(guide).toMatch(/runs (entirely )?on your own device/i);
         expect(guide).toMatch(/few seconds to get ready/i);
+    });
+
+    it('points testers to Report Issue for anything confusing, broken, slow, or surprising', () => {
+        expect(guide).toMatch(/Report Issue/i);
+        expect(guide).toMatch(/confusing, broken, slow, inaccurate, or surprising/i);
     });
 
     it('stays jargon-free (no developer/internal terms leak to testers)', () => {

@@ -75,29 +75,27 @@ Beta link: [insert link]
 2. Create an account with your email and a password.
 3. That's it — you're on the free plan. Nothing to buy.
 
-## Record your first session
+## A few things to try
 
-1. Click **Start** / **Record**.
-2. Speak for **1–3 minutes** about anything — a quick pitch, a story, or answering
-   "tell me about yourself." On purpose, drop in a few "um"s and "like"s so you can see how
-   they're caught.
-3. Click **Stop**. You'll see your **transcript** and your **results** — feedback on filler
-   words, pace, and pauses.
-4. **Save** the session, then open it again from **History** to confirm it's there.
+You don't need to test this in any specific order. Use SpeakSharp naturally and take it for a
+spin. Here are a few useful things to try:
 
-## A few extra things to try (optional)
+- Record a short **1–3 minute** practice session. (Drop in a few "um"s and "like"s on purpose
+  so you can see how they're caught.)
+- Stop the recording, review your **transcript**, and **save** the session.
+- Open the saved session from **History** and see if the feedback makes sense.
+- **Download the PDF summary** if you want to see what the report looks like.
+- **Add a custom word**, such as a name or phrase you often use, and see if it appears in your
+  results.
+- **Try Private mode** if you're curious. Free users get **one Private sample of up to 5
+  minutes**. You can choose when to use it — it does **not** start counting down when you sign
+  up. Private mode runs on your own device and may take a few seconds to get ready the first time.
 
-- **Download the PDF summary** of a saved session and see if it looks right.
-- **Add a custom word** (a name or term you'll use), say it in a recording, and check it's
-  counted in your results.
-- **Try Private mode** — it runs entirely on your own device, so your audio never leaves
-  your computer. The first time, it takes a few seconds to get ready.
+If anything feels **confusing, broken, slow, inaccurate, or surprising**, please use the
+**Report Issue** button. You don't need to explain it technically — just say what you were
+trying to do and what happened.
 
-## If something doesn't work
-
-- **Use Chrome** if you can — it's the most reliable for recording and transcripts.
-- If something freezes or looks wrong, use **Report Issue** (or just message me) and tell me
-  what you clicked and what happened. That's genuinely the most useful thing you can send.
+> Tip: Chrome works best for recording and transcripts.
 
 ---
 
