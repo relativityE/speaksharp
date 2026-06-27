@@ -4,6 +4,15 @@ import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
+import { getV4FlagState } from '@/services/transcription/privateV4Flags';
+import { isPrivateEngineOverrideActive } from '@/services/transcription/engines/PrivateSTT';
+import {
+    PRIVATE_SAMPLE_EVENTS,
+    emitPrivateSample,
+    resolveSampleAssignment,
+    setPrivateSampleContext,
+    buildSampleEnvProps,
+} from '@/services/transcription/privateSampleTelemetry';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -422,6 +431,46 @@ export class SpeechRuntimeController {
         return useSessionStore;
     }
 
+    /** Active DB session id (null when no session is persisted). For sample telemetry. */
+    public getSessionId(): string | null {
+        return this.sessionId;
+    }
+
+    /** Resolved transcription engine type of the active service strategy, or null. */
+    public getResolvedEngineType(): string | null {
+        return this.service?.getEngineType?.() ?? null;
+    }
+
+    /**
+     * Set the session-scoped Private-sample telemetry context (engine_variant +
+     * assignment_source + flag attribution + model + release) so every downstream
+     * sample event is consistently attributable. Never throws.
+     */
+    public applyPrivateSampleContext(): void {
+        try {
+            const flags = getV4FlagState();
+            const assignment = resolveSampleAssignment({
+                resolvedEngineType: this.getResolvedEngineType(),
+                overrideActive: isPrivateEngineOverrideActive(),
+                allowlisted: flags.allowlisted,
+                rolloutEnabled: flags.v4Enabled,
+            });
+            const meta = this.service?.getMetadata?.();
+            const release = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
+            setPrivateSampleContext({
+                session_id: this.sessionId,
+                engine_variant: assignment.engine_variant,
+                assignment_source: assignment.assignment_source,
+                posthog_flag_key: assignment.posthog_flag_key,
+                posthog_flag_value: assignment.posthog_flag_value,
+                model: meta?.modelName ?? null,
+                release_sha: release,
+            });
+        } catch {
+            /* telemetry context must never break the recording pipeline */
+        }
+    }
+
     /**
      * UX-NAV-1: synchronously persist the in-progress transcript as a recovery draft.
      *
@@ -534,7 +583,28 @@ export class SpeechRuntimeController {
         if (!this.service) {
             await this.ensureReady({ skipIfDownloadPending: false });
         }
-        await this.service!.initiateDownload(mode);
+        const isPrivate = mode === 'private';
+        const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if (isPrivate) emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_STARTED);
+        try {
+            await this.service!.initiateDownload(mode);
+            if (isPrivate) {
+                this.applyPrivateSampleContext();
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED, {
+                    setup_duration_ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0),
+                    ...buildSampleEnvProps(),
+                });
+            }
+        } catch (error) {
+            if (isPrivate) {
+                this.applyPrivateSampleContext();
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED, {
+                    error_code: (error as Error)?.name ?? 'SetupError',
+                    ...buildSampleEnvProps(),
+                });
+            }
+            throw error;
+        }
     }
 
     /**

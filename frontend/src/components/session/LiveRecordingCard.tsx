@@ -13,6 +13,7 @@ import {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 import { PRIV_STT_MODELS } from '@/services/transcription/sttConstants';
+import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 
 
@@ -79,6 +80,17 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     onStartStop,
     onDownloadModel,
 }) => {
+    // Emit private_sample_selected once when the user shows intent to use Private mode
+    // (selection, not passive render), then delegate to the real handler.
+    const privateSelectedRef = React.useRef(false);
+    const handleModeChange = (next: RecordingMode) => {
+        if (next === 'private' && !privateSelectedRef.current) {
+            privateSelectedRef.current = true;
+            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SELECTED);
+        }
+        onModeChange(next);
+    };
+
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
     const ACTIVE_INDICATOR_STATES: RuntimeState[] = ['RECORDING', 'ENGINE_INITIALIZING', 'INITIATING', 'STOPPING'];
@@ -144,7 +156,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <div className="mt-1 space-y-0.5">
                                     <button
                                         type="button"
-                                        onClick={() => onModeChange('private')}
+                                        onClick={() => handleModeChange('private')}
                                         className="text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
                                         data-testid="first-run-setup-private"
                                     >
@@ -202,7 +214,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-72">
-                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
+                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
                                     value="native"
                                     className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"

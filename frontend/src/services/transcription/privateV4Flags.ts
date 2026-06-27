@@ -28,6 +28,13 @@ export const V4_FLAG_KEYS = {
   DISTIL_ENABLED: 'private_stt_v4_distil_enabled',
   /** Restrict v4 to internal testers (cohort is enforced by PostHog targeting). */
   INTERNAL_ONLY: 'private_stt_v4_internal_only',
+  /**
+   * Named-allowlist exposure: this specific user was deliberately put on v4 (PostHog
+   * flag targeting by user/cohort). Distinct from `ENABLED` (% rollout) so telemetry
+   * can attribute `assignment_source = 'allowlist'` vs `'posthog_flag'`. Rollback for
+   * either path is a single PostHog flag change back to 0%/empty.
+   */
+  ALLOWLIST: 'private_stt_v4_allowlist',
 } as const;
 
 export interface V4FlagState {
@@ -37,6 +44,8 @@ export interface V4FlagState {
   distilEnabled: boolean;
   /** Informational: this exposure is internal-only. */
   internalOnly: boolean;
+  /** This user is on the named v4 allowlist (deliberate targeting, not % rollout). */
+  allowlisted: boolean;
   /** Build-level hard kill forced everything off, regardless of PostHog. */
   hardDisabled: boolean;
 }
@@ -45,6 +54,7 @@ const ALL_OFF: V4FlagState = {
   v4Enabled: false,
   distilEnabled: false,
   internalOnly: false,
+  allowlisted: false,
   hardDisabled: false,
 };
 
@@ -80,6 +90,7 @@ export function getV4FlagState(): V4FlagState {
     v4Enabled,
     distilEnabled: v4Enabled && readFlag(V4_FLAG_KEYS.DISTIL_ENABLED),
     internalOnly: readFlag(V4_FLAG_KEYS.INTERNAL_ONLY),
+    allowlisted: readFlag(V4_FLAG_KEYS.ALLOWLIST),
     hardDisabled: false,
   };
 }
@@ -87,4 +98,9 @@ export function getV4FlagState(): V4FlagState {
 /** Convenience: may Private STT consider the v4 path for this user right now? */
 export function isV4FlagEnabled(): boolean {
   return getV4FlagState().v4Enabled;
+}
+
+/** Convenience: is this user on the named v4 allowlist (deliberate targeting)? */
+export function isV4Allowlisted(): boolean {
+  return getV4FlagState().allowlisted;
 }

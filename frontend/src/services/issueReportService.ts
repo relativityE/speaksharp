@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { emitPrivateSample, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
 
 export type IssueReportCategory = 'stt' | 'billing' | 'account' | 'analytics' | 'privacy' | 'performance' | 'general';
 export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -96,6 +97,15 @@ export const issueReportService = {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');
       throw error;
     }
+
+    // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
+    // journey (session id, and the Private arm/release via the active sample context).
+    // The strict allowlist guarantees no title/description/transcript/audio rides along.
+    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.REPORT_ISSUE_SUBMITTED, {
+      issue_category: input.category,
+      issue_severity: input.severity,
+      session_id: input.sessionId ?? null,
+    });
 
     return { id: null };
   },
