@@ -87,9 +87,9 @@ spin. Here are a few useful things to try:
 - **Download the PDF summary** if you want to see what the report looks like.
 - **Add a custom word**, such as a name or phrase you often use, and see if it appears in your
   results.
-- **Try Private mode** if you're curious. Free users get **one Private sample of up to 5
-  minutes**. You can choose when to use it — it does **not** start counting down when you sign
-  up. Private mode runs on your own device and may take a few seconds to get ready the first time.
+- **Try Private mode** if you're curious. Free users get one Private sample of up to 5 minutes.
+  You can choose when to use it; it does not start counting down when you sign up. Private mode
+  runs on your own device and may take a few seconds to get ready the first time.
 
 If anything feels **confusing, broken, slow, inaccurate, or surprising**, please use the
 **Report Issue** button. You don't need to explain it technically — just say what you were
