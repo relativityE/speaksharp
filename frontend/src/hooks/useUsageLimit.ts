@@ -128,16 +128,24 @@ export function updateLocalUsage(userId: string, additionalSeconds: number) {
         };
     });
 
-    // Emit sample usage telemetry only while a Private sample is the active arm (so native/
-    // cloud usage updates don't fire). Never blocks the optimistic update above.
+    // Emit sample usage telemetry whenever a Private sample is the active arm (so native/cloud
+    // usage updates don't fire). Driven by the active sample CONTEXT, not the cached usage shape:
+    // a fresh free account's cache may not carry private_sample_seconds_* yet, so we fall back to
+    // the context's sample_limit_seconds + this session's seconds. Never blocks the update above.
+    const ctx = getPrivateSampleContext();
     const update = sampleUpdate as { used: number; remaining: number; wasAbove: boolean } | null;
-    if (update && additionalSeconds > 0 && getPrivateSampleContext().engine_variant) {
+    if (additionalSeconds > 0 && ctx.engine_variant) {
+        const limit = ctx.sample_limit_seconds ?? null;
+        const used = update ? update.used : Math.round(additionalSeconds);
+        const remaining = update
+            ? update.remaining
+            : (limit != null ? Math.max(0, limit - used) : null);
         emitPrivateSample(PRIVATE_SAMPLE_EVENTS.USAGE_UPDATED, {
-            sample_seconds_used: update.used,
-            sample_seconds_remaining: update.remaining,
+            sample_seconds_used: used,
+            sample_seconds_remaining: remaining,
         });
-        if (update.wasAbove && update.remaining <= 0) {
-            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.EXHAUSTED, { sample_seconds_used: update.used });
+        if (remaining != null && remaining <= 0) {
+            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.EXHAUSTED, { sample_seconds_used: used });
         }
     }
 }
