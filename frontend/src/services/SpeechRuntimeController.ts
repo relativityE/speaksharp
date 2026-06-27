@@ -471,6 +471,38 @@ export class SpeechRuntimeController {
         }
     }
 
+    // Private-sample SETUP telemetry, driven by the engine status stream so it fires regardless
+    // of how the model load was triggered (warmUp / auto-init on mode select / explicit download).
+    private privateSetupStartedAt: number | null = null;
+    private privateSetupResolved = false;
+    private emitPrivateSampleSetupStatus(type: string): void {
+        try {
+            if ((this.service?.getMode?.() ?? null) !== 'private') return;
+            const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            if (type === 'download-required' || type === 'downloading' || type === 'initializing') {
+                // (re)arm a setup cycle; emit started once per cycle
+                if (this.privateSetupStartedAt == null || this.privateSetupResolved) {
+                    this.privateSetupStartedAt = now;
+                    this.privateSetupResolved = false;
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_STARTED, { ...buildSampleEnvProps() });
+                }
+            } else if (type === 'ready' && !this.privateSetupResolved) {
+                this.privateSetupResolved = true;
+                this.applyPrivateSampleContext();
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED, {
+                    setup_duration_ms: this.privateSetupStartedAt != null ? Math.round(now - this.privateSetupStartedAt) : null,
+                    ...buildSampleEnvProps(),
+                });
+            } else if (type === 'error' && !this.privateSetupResolved && this.privateSetupStartedAt != null) {
+                this.privateSetupResolved = true;
+                this.applyPrivateSampleContext();
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED, { error_code: 'SetupError', ...buildSampleEnvProps() });
+            }
+        } catch {
+            /* telemetry must never break the recording pipeline */
+        }
+    }
+
     /**
      * UX-NAV-1: synchronously persist the in-progress transcript as a recovery draft.
      *
@@ -583,28 +615,10 @@ export class SpeechRuntimeController {
         if (!this.service) {
             await this.ensureReady({ skipIfDownloadPending: false });
         }
-        const isPrivate = mode === 'private';
-        const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        if (isPrivate) emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_STARTED);
-        try {
-            await this.service!.initiateDownload(mode);
-            if (isPrivate) {
-                this.applyPrivateSampleContext();
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED, {
-                    setup_duration_ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0),
-                    ...buildSampleEnvProps(),
-                });
-            }
-        } catch (error) {
-            if (isPrivate) {
-                this.applyPrivateSampleContext();
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED, {
-                    error_code: (error as Error)?.name ?? 'SetupError',
-                    ...buildSampleEnvProps(),
-                });
-            }
-            throw error;
-        }
+        // Setup telemetry is emitted from handleStatusChange (path-agnostic: covers warmUp /
+        // auto-init / explicit download alike), not here — initiateModelDownload is only ONE of
+        // the model-load entry points and is skipped when the model auto-loads on mode select.
+        await this.service!.initiateDownload(mode);
     }
 
     /**
@@ -1167,6 +1181,7 @@ export class SpeechRuntimeController {
         if (status.type === 'ready') {
             this.setEngineReady(true);
         }
+        this.emitPrivateSampleSetupStatus(status.type);
         // P0.2: surface engine-originated local finalization status to the store so
         // the UI shows "Processing speech locally…" during STOPPING instead of the
         // stale "Recording active". Scoped to informational status while a session
