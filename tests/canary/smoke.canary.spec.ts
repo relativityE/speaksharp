@@ -89,14 +89,21 @@ test.describe('Production Smoke Canary @canary', () => {
         // see an upgrade prompt or a Private-sample affordance; Pro users see the Pro badge.
         // This validates profile/usage hydration through behavior, without requiring
         // production UI to preserve one exact tier phrase.
-        const releaseTierAffordanceVisible = await Promise.all(
-            validReleaseTierAffordances.map(async (locator) => {
-                if ((await locator.count()) === 0) return false;
-                return locator.first().isVisible();
-            })
-        );
-        const isProfileValid = releaseTierAffordanceVisible.some(Boolean);
-        expect(isProfileValid, 'Schema Valid: Profile must reflect a known release tier/access state').toBe(true);
+        // Poll for the affordance (up to 15s, matching the start-button wait above) instead of a
+        // single synchronous snapshot. Profile/usage/entitlement hydration can finish a beat after
+        // the start button renders; an un-polled check raced that and failed intermittently on
+        // identical app builds. If NO affordance appears within the window, this still fails — so a
+        // genuine missing-affordance regression (e.g. effective-tier resolution) is NOT masked.
+        await expect(async () => {
+            const releaseTierAffordanceVisible = await Promise.all(
+                validReleaseTierAffordances.map(async (locator) => {
+                    if ((await locator.count()) === 0) return false;
+                    return locator.first().isVisible();
+                })
+            );
+            const isProfileValid = releaseTierAffordanceVisible.some(Boolean);
+            expect(isProfileValid, 'Schema Valid: Profile must reflect a known release tier/access state').toBe(true);
+        }).toPass({ timeout: 15000, intervals: [500, 1000, 2000, 3000] });
 
         // 3. Configure for Native STT (Free/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
