@@ -3,13 +3,13 @@
  * Canary User Provisioning Script (Senior Architect Edition)
  * 
  * Purpose:
- *   Reliably provision the 'pro' canary user in Supabase.
+ *   Reliably provision the deploy-health canary user in Supabase as a clean Free tier.
  *   Uses an idempotent "Attempt Create -> On Conflict Sync" pattern.
  *   
  * DESIGN PATTERN:
  * 1. SUPPRESS "Already Registered" errors via robust handling.
  * 2. SYNC credentials (password) even if user exists.
- * 3. SYNC profile (subscription_status) to ensure 'pro' tier.
+ * 3. SYNC profile (subscription_status) to ensure 'free' tier.
  * 4. VERIFY outcome via real login challenge.
  */
 
@@ -34,7 +34,7 @@ async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🐤 Canary Infrastructure Provisioner');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`Target: ${CANARY_EMAIL} (Tier: pro)`);
+    console.log(`Target: ${CANARY_EMAIL} (Tier: free)`);
 
     let userId;
 
@@ -100,17 +100,22 @@ async function main() {
     }
 
     // STEP 3: Sync User Profile (Subscription Tier)
+    // The deploy-health canary runs the tier-agnostic Native-STT smoke (smoke.canary.spec.ts), so it
+    // should exercise the realistic Free / new-user path — not a misleading DB-'pro' state with no
+    // real Stripe subscription (which is effectively Free anyway). The Cloud/Pro high-fidelity canary
+    // (user-filler-words) needs a SEPARATE real Stripe-backed Pro account, tracked as an owner-gated
+    // follow-up; never fabricate a Stripe subscription here.
     console.log('\nSTEP 3: 🔄 Synchronizing database profile...');
     const { error: profileError } = await supabase.from('user_profiles').upsert({
         id: userId,
-        subscription_status: 'pro'
+        subscription_status: 'free'
     }, { onConflict: 'id' });
 
     if (profileError) {
         console.error(`  ❌ Profile sync failed: ${profileError.message}`);
         process.exit(1);
     }
-    console.log('  [OK] Tier verified: pro');
+    console.log('  [OK] Tier verified: free');
 
     // STEP 4: High-Fidelity Login Challenge
     console.log('\nSTEP 4: 🔑 Running login challenge...');
