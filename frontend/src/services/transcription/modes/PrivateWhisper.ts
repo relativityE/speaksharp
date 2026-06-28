@@ -697,6 +697,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private firstTranscriptAgreementRounds: number = 0;
   private utteranceAudioChunks: Float32Array[] = [];
   private utteranceSampleCount: number = 0;
+  // #891 fix: pre-onset SPEECH demoted on a speech-gate RESET (a soft opening word + micro-gap before
+  // speech confirms) must NOT be lost to the 300ms-capped pre-roll. It is retained here (silence is
+  // not) and prepended to the utterance buffer at confirmation, so the final whole-utterance decode
+  // keeps the opening clause. Bounded by RETAINED_PREONSET_SPEECH_MAX_SAMPLES to avoid unbounded growth.
+  private retainedPreonsetSpeechChunks: Float32Array[] = [];
+  private retainedPreonsetSpeechSamples: number = 0;
   // Sample offset of the END of the last real-speech frame in the utterance buffer.
   // Used to trim ONLY trailing silence at finalize (Fix A intent) without dropping
   // mid-utterance soft speech.
@@ -822,6 +828,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.retainedPreonsetSpeechChunks = [];
+    this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
     this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
@@ -941,6 +949,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.retainedPreonsetSpeechChunks = [];
+    this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
@@ -1031,11 +1041,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             0,
           );
           this.audioChunks = [
+            ...this.retainedPreonsetSpeechChunks.map((chunk) => chunk.slice(0)),
             ...this.prerollAudioChunks.map((chunk) => chunk.slice(0)),
             ...this.speechStartAudioChunks.map((chunk) => chunk.slice(0)),
           ];
-          this.bufferedSampleCount = this.prerollSampleCount + speechStartBufferedSamples;
+          this.bufferedSampleCount =
+            this.retainedPreonsetSpeechSamples + this.prerollSampleCount + speechStartBufferedSamples;
           this.appendUtteranceAudio(this.audioChunks);
+          this.retainedPreonsetSpeechChunks = [];
+          this.retainedPreonsetSpeechSamples = 0;
           this.prerollAudioChunks = [];
           this.prerollSampleCount = 0;
           this.speechStartAudioChunks = [];
@@ -1986,6 +2000,29 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
+  // #891: non-evicting retention of pre-onset SPEECH (vs the 300ms pre-roll which evicts). Bounded
+  // at ~5s so pathological input can't grow unbounded; a normal opening clause is well under that.
+  private retainPreonsetSpeechFrame(frame: Float32Array): void {
+    const RETAINED_PREONSET_SPEECH_MAX_SAMPLES = PRIVATE_STT_SAMPLE_RATE * 5;
+    this.retainedPreonsetSpeechChunks.push(frame);
+    this.retainedPreonsetSpeechSamples += frame.length;
+
+    while (
+      this.retainedPreonsetSpeechSamples > RETAINED_PREONSET_SPEECH_MAX_SAMPLES &&
+      this.retainedPreonsetSpeechChunks.length > 0
+    ) {
+      const first = this.retainedPreonsetSpeechChunks[0];
+      const overflow = this.retainedPreonsetSpeechSamples - RETAINED_PREONSET_SPEECH_MAX_SAMPLES;
+      if (first.length <= overflow) {
+        this.retainedPreonsetSpeechSamples -= first.length;
+        this.retainedPreonsetSpeechChunks.shift();
+      } else {
+        this.retainedPreonsetSpeechChunks[0] = first.slice(overflow);
+        this.retainedPreonsetSpeechSamples -= overflow;
+      }
+    }
+  }
+
   private resetSpeechGateStats(): void {
     this.speechGateStats = {
       framesSeen: 0,
@@ -2041,7 +2078,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       const energy = summarizeAudioEnergy(chunk);
       if (energy.rms < this.currentThreshold) continue;
 
-      this.addPrerollFrame(chunk.slice(0));
+      // #891: retain pre-onset speech in a NON-evicted buffer (not the 300ms pre-roll) so a soft
+      // opening word survives a micro-gap until speech-start confirms and reaches the final decode.
+      this.retainPreonsetSpeechFrame(chunk.slice(0));
       preservedSamples += chunk.length;
     }
 
