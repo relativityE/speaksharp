@@ -1,0 +1,45 @@
+/**
+ * #892 deterministic contract test for the transcript-fidelity gate. Proves the new gate FAILS a
+ * clipped opening (the #891 manual failure) that the OLD one-keyword-anywhere gate let through —
+ * the before/after of the release-gating predicate, no deploy required. @vitest-environment node
+ */
+import { describe, it, expect } from 'vitest';
+import { evaluateTranscriptFidelity, HARVARD_FIXTURE_FIDELITY } from '../transcriptFidelity';
+
+// The legacy release-gating predicate (one keyword anywhere) — for the before/after comparison.
+const LEGACY_ONE_KEYWORD = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
+
+const COMPLETE = 'The stale smell of old beer lingers, a dash of pepper spoils beef stew. Well, the swan.';
+// #891 failure: opening clause ("The stale smell of old") dropped; later words survive.
+const CLIPPED_OPENING = 'beer lingers, a dash of pepper spoils beef stew. Well, the swan.';
+const ONE_KEYWORD_ONLY = 'um so anyway the beer was there';
+
+describe('#892 transcript-fidelity gate', () => {
+  it('accepts a complete fixture transcript', () => {
+    const r = evaluateTranscriptFidelity(COMPLETE, HARVARD_FIXTURE_FIDELITY);
+    expect(r.ok).toBe(true);
+    expect(r.openingFound).toBe(true);
+  });
+
+  it('REJECTS a clipped opening — the #891 failure the old gate missed', () => {
+    // The old gate would PASS this (a later keyword survives) — that is exactly the silent-pass bug.
+    expect(LEGACY_ONE_KEYWORD.test(CLIPPED_OPENING)).toBe(true);
+    // The new gate FAILS it on the missing opening anchor.
+    const r = evaluateTranscriptFidelity(CLIPPED_OPENING, HARVARD_FIXTURE_FIDELITY);
+    expect(r.openingFound).toBe(false);
+    expect(r.ok).toBe(false);
+  });
+
+  it('REJECTS one-keyword-anywhere (kills the weak coverage gate)', () => {
+    expect(LEGACY_ONE_KEYWORD.test(ONE_KEYWORD_ONLY)).toBe(true); // old gate passes
+    const r = evaluateTranscriptFidelity(ONE_KEYWORD_ONLY, HARVARD_FIXTURE_FIDELITY);
+    expect(r.ok).toBe(false); // new gate fails: no opening + coverage < 3
+  });
+
+  it('is engine-version agnostic and punctuation/casing tolerant', () => {
+    const messyButComplete = '  THE   stale, SMELL of OLD beer... a DASH of pepper; beef!!! swan?? ';
+    expect(evaluateTranscriptFidelity(messyButComplete, HARVARD_FIXTURE_FIDELITY).ok).toBe(true);
+    expect(evaluateTranscriptFidelity('', HARVARD_FIXTURE_FIDELITY).ok).toBe(false);
+    expect(evaluateTranscriptFidelity(null, HARVARD_FIXTURE_FIDELITY).ok).toBe(false);
+  });
+});
