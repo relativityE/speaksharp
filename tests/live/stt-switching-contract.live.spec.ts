@@ -1,9 +1,12 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { readFile } from 'fs/promises';
+import * as path from 'path';
 import {
   AUDIO_ARGS,
   assertPreStartMode,
   collectBenchmarkPreconditionSnapshot,
+  preparePrivateModelIfPrompted,
   selectBenchmarkMode,
 } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
@@ -20,6 +23,20 @@ const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|pup
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const MIN_SAVEABLE_RECORDING_MS = 7_000;
 
+// Self-hosted Whisper model assets (Git-LFS, served from our own origin under /models/). C3 serves
+// these straight from local disk so the metadata-separation contract exercises the REAL engine and
+// REAL saved-session metadata WITHOUT the 180MB network download — the proven flake trigger. The
+// real network download path is proven separately in tests/live/private-cache.live.spec.ts.
+const LOCAL_MODELS_DIR = path.resolve(process.cwd(), 'frontend/public/models');
+const MODEL_CONTENT_TYPES: Record<string, string> = {
+  '.json': 'application/json',
+  '.txt': 'text/plain; charset=utf-8',
+  '.onnx': 'application/octet-stream',
+  '.onnx_data': 'application/octet-stream',
+  '.bin': 'application/octet-stream',
+  '.wasm': 'application/wasm',
+};
+
 type SttMode = 'native' | 'cloud' | 'private';
 type CreatedUser = { id: string; email: string };
 
@@ -34,6 +51,15 @@ type SessionRow = {
   engine_version: string | null;
   device_type: string | null;
 };
+
+type RuntimeDiag = {
+  consoleErrors: string[];
+  pageErrors: string[];
+  closed: boolean;
+  crashed: boolean;
+};
+
+const runtimeDiagByPage = new WeakMap<Page, RuntimeDiag>();
 
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -166,58 +192,118 @@ test.describe.serial('Live STT switching contract @live', () => {
     })}`);
   });
 
-  test('Pro idle switching, in-recording lockout, and separate Cloud/Private session metadata', async ({ page }) => {
-    test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
+  // Pro contracts split out of the former all-in-one :169 test. Each proves ONE thing so a
+  // `page closed during wait` failure is actionable instead of un-triageable. serviceWorkers:'block'
+  // is required by C3 so its /models/** route interception isn't shadowed by frontend/public/sw.js;
+  // it is harmless for C1/C2 (sw.js only mediates model caching, never app delivery).
+  test.describe('Pro STT switching contracts', () => {
+    test.use({ serviceWorkers: 'block' });
 
-    test.setTimeout(420_000);
-    await page.addInitScript(() => {
-      window.__E2E_CONTEXT__ = true;
-      window.REAL_WHISPER_TEST = true;
-      window.__FORCE_TRANSFORMERS_JS__ = true;
-      window.__STT_LOAD_TIMEOUT__ = 180000;
-    });
-
-    page.on('console', (message) => {
-      const text = message.text();
-      if (/CloudAssemblyAI|assemblyai-token|PrivateWhisper|TransformersJS|ModelManager|SpeechRuntime|transcript/i.test(text)) {
-        console.log(`[browser:${message.type()}] ${text}`);
+    test.afterEach(async ({ page }, testInfo) => {
+      if (testInfo.status !== testInfo.expectedStatus) {
+        await attachCloseDiagnostics(page, testInfo).catch(() => undefined);
       }
     });
 
-    await signIn(page, E2E_PRO_EMAIL!, E2E_PRO_PASSWORD!);
-    await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
-    await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
-    const userId = await getSignedInUserId(page);
-    const startedAt = new Date().toISOString();
+    test('Pro idle switching across Cloud, Native, and Private is available', async ({ page }) => {
+      test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
+      test.setTimeout(120_000);
+      installRuntimeDiagnostics(page);
 
-    await assertIdleModeSwitch(page, 'cloud');
-    await assertIdleModeSwitch(page, 'native');
-    await assertIdleModeSwitch(page, 'private', { allowDownloadRequired: true });
+      await signIn(page, E2E_PRO_EMAIL!, E2E_PRO_PASSWORD!);
+      await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
+      await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
 
-    const privateSetup = await startPrivateSetupIfPrompted(page);
-    await selectBenchmarkMode(page, 'cloud');
-    await assertPreStartMode(page, 'cloud');
-    const cloudTranscript = await recordCloudWithSwitchAttempt(page);
-    const cloudSessions = await waitForCompletedSession(admin, userId, startedAt, 'cloud');
+      await assertIdleModeSwitch(page, 'cloud');
+      await assertIdleModeSwitch(page, 'native');
+      // Private availability does not require the model to be downloaded here — that is C0
+      // (private-cache.live.spec.ts). Allow the download-required state.
+      await assertIdleModeSwitch(page, 'private', { allowDownloadRequired: true });
 
-    await selectBenchmarkMode(page, 'private');
-    await preparePrivateModelIfNeeded(page);
-    await assertPreStartMode(page, 'private');
-    const privateTranscript = await recordPrivateSession(page);
-    const privateSessions = await waitForCompletedSession(admin, userId, startedAt, 'private');
+      console.log(`LIVE_STT_SWITCHING_IDLE_AVAILABILITY_EVIDENCE ${JSON.stringify({
+        idleSwitching: ['cloud', 'native', 'private'],
+      })}`);
+    });
 
-    const evidence = {
-      idleSwitching: ['cloud', 'native', 'private'],
-      privateSetup,
-      cloud: summarizeSessionEvidence(cloudSessions[0], cloudTranscript),
-      private: summarizeSessionEvidence(privateSessions[0], privateTranscript),
-      distinctSessionIds: cloudSessions[0]?.id !== privateSessions[0]?.id,
-    };
-    console.log(`LIVE_STT_SWITCHING_PRO_ENGINE_INTEGRITY_EVIDENCE ${JSON.stringify(evidence)}`);
+    test('Pro cannot switch STT mode while a Cloud recording is active', async ({ page }) => {
+      test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
+      test.setTimeout(180_000);
+      installRuntimeDiagnostics(page);
 
-    expect(evidence.distinctSessionIds, JSON.stringify(evidence)).toBe(true);
-    expect(cloudSessions[0]?.engine, JSON.stringify(evidence)).toBe('cloud');
-    expect(privateSessions[0]?.engine, JSON.stringify(evidence)).toBe('private');
+      await signIn(page, E2E_PRO_EMAIL!, E2E_PRO_PASSWORD!);
+      await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
+      await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
+
+      await selectBenchmarkMode(page, 'cloud');
+      await assertPreStartMode(page, 'cloud');
+      // recordCloudSession asserts the mode-select stays locked while data-recording === 'true'.
+      await recordCloudSession(page, { assertSwitchLock: true });
+    });
+
+    test('Cloud and Private saved sessions persist separate engine metadata', async ({ page }) => {
+      test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
+      test.setTimeout(300_000);
+      installRuntimeDiagnostics(page);
+
+      // Lighter Private path: fulfill the /models/ fetch with the APP-SHIPPED model bytes
+      // (frontend/public/models/whisper-base.en, the same assets the app hosts at {origin}/models/),
+      // fed into the REAL engine load path. This does NOT reuse browser Cache Storage/IndexedDB from a
+      // prior download (Playwright gives each test a fresh context anyway) — the real first-run
+      // download + browser-cache path is proven separately by private-cache.live.spec.ts. The
+      // served/missed counters are logged so the live run self-reports whether interception fired
+      // (if `missed` is non-empty, the model still hit the network and the SW block / glob needs a fix).
+      const modelRouting = await routeServeLocalModelBytes(page);
+
+      await page.addInitScript(() => {
+        window.__E2E_CONTEXT__ = true;
+        window.REAL_WHISPER_TEST = true;
+        window.__FORCE_TRANSFORMERS_JS__ = true;
+        window.__STT_LOAD_TIMEOUT__ = 180000;
+      });
+
+      page.on('console', (message) => {
+        const text = message.text();
+        if (/CloudAssemblyAI|assemblyai-token|PrivateWhisper|TransformersJS|ModelManager|SpeechRuntime|transcript/i.test(text)) {
+          console.log(`[browser:${message.type()}] ${text}`);
+        }
+      });
+
+      await signIn(page, E2E_PRO_EMAIL!, E2E_PRO_PASSWORD!);
+      await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
+      await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
+      const userId = await getSignedInUserId(page);
+      const startedAt = new Date().toISOString();
+
+      // Cloud session first (no model needed) and fully completed BEFORE Private setup begins, so the
+      // model load can never race a Cloud save in the same tab (the documented :169 page-death cause).
+      await selectBenchmarkMode(page, 'cloud');
+      await assertPreStartMode(page, 'cloud');
+      const cloudTranscript = await recordCloudSession(page, { assertSwitchLock: false });
+      const cloudSessions = await waitForCompletedSession(admin, userId, startedAt, 'cloud');
+
+      // Private session second, on the locally-served model (real engine, no network download).
+      await selectBenchmarkMode(page, 'private');
+      await preparePrivateModelIfNeeded(page);
+      await assertPreStartMode(page, 'private');
+      const privateTranscript = await recordPrivateSession(page);
+      const privateSessions = await waitForCompletedSession(admin, userId, startedAt, 'private');
+
+      const evidence = {
+        privateModelAssetsServedFromLocal: modelRouting.served.length,
+        privateModelAssetsMissedLocal: modelRouting.missed,
+        cloud: summarizeSessionEvidence(cloudSessions[0], cloudTranscript),
+        private: summarizeSessionEvidence(privateSessions[0], privateTranscript),
+        distinctSessionIds: cloudSessions[0]?.id !== privateSessions[0]?.id,
+      };
+      console.log(`LIVE_STT_SWITCHING_METADATA_SEPARATION_EVIDENCE ${JSON.stringify(evidence)}`);
+
+      expect(evidence.distinctSessionIds, JSON.stringify(evidence)).toBe(true);
+      expect(cloudSessions[0]?.engine, JSON.stringify(evidence)).toBe('cloud');
+      expect(privateSessions[0]?.engine, JSON.stringify(evidence)).toBe('private');
+      // Metadata correctness: the saved Private session carries a resolved durable engine_version arm
+      // (private_v2:<model> / private_v4:<model>), not the unresolved 'transformers-js' default.
+      expect(privateSessions[0]?.engine_version, JSON.stringify(evidence)).toMatch(/^private_v(2|4):/);
+    });
   });
 });
 
@@ -255,6 +341,111 @@ async function createLiveUser(
   }
 
   return { id: data.user.id, email };
+}
+
+// Serve the committed self-hosted /models/ bytes from local disk. Returns live-updating served/missed
+// asset lists so the test can prove (in its evidence log) that the Private model was satisfied from
+// local disk and never hit the network. Requires the enclosing describe to set serviceWorkers:'block'
+// — otherwise frontend/public/sw.js intercepts the fetch first and this route never fires.
+async function routeServeLocalModelBytes(page: Page) {
+  const served: string[] = [];
+  const missed: string[] = [];
+
+  await page.route('**/models/**', async (route) => {
+    const rel = new URL(route.request().url()).pathname.replace(/^.*\/models\//, '');
+    const filePath = path.join(LOCAL_MODELS_DIR, rel);
+
+    // Refuse to serve anything resolving outside the models dir, and fall through to the real
+    // origin for any asset we do not have cached locally (keeps the test correct if the model
+    // layout changes) — recording the miss so it surfaces in diagnostics.
+    if (!filePath.startsWith(LOCAL_MODELS_DIR + path.sep)) {
+      missed.push(rel);
+      await route.continue();
+      return;
+    }
+
+    try {
+      const body = await readFile(filePath);
+      served.push(rel);
+      await route.fulfill({
+        status: 200,
+        contentType: MODEL_CONTENT_TYPES[path.extname(filePath)] ?? 'application/octet-stream',
+        headers: {
+          'cache-control': 'no-store',
+          // The app is cross-origin isolated (COEP require-corp); fulfilled sub-resources need a CORP
+          // header or they are blocked from the worker context.
+          'cross-origin-resource-policy': 'cross-origin',
+        },
+        body,
+      });
+    } catch {
+      missed.push(rel);
+      await route.continue();
+    }
+  });
+
+  return { served, missed };
+}
+
+function installRuntimeDiagnostics(page: Page): RuntimeDiag {
+  const diag: RuntimeDiag = { consoleErrors: [], pageErrors: [], closed: false, crashed: false };
+  runtimeDiagByPage.set(page, diag);
+  page.on('console', (m) => {
+    if (m.type() === 'error') diag.consoleErrors.push(m.text().slice(0, 300));
+  });
+  page.on('pageerror', (e) => diag.pageErrors.push(e.message.slice(0, 300)));
+  page.on('crash', () => { diag.crashed = true; });
+  page.on('close', () => { diag.closed = true; });
+  return diag;
+}
+
+// Close diagnostics (refactor step 4): on failure, capture last mode, last telemetry events, console
+// errors, and runtime/model state so a `page closed during wait` failure is actionable. Trace/video
+// are already retained by playwright.live.config.ts (trace/screenshot/video: 'on').
+async function attachCloseDiagnostics(page: Page, testInfo: TestInfo) {
+  const diag = runtimeDiagByPage.get(page);
+  let snapshot: Awaited<ReturnType<typeof collectBenchmarkPreconditionSnapshot>> | { error: string } | null = null;
+  let lastTelemetryEvents: unknown = null;
+
+  if (!page.isClosed()) {
+    snapshot = await collectBenchmarkPreconditionSnapshot(page, `close-diagnostics-${testInfo.title}`)
+      .catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    lastTelemetryEvents = await page.evaluate(() => {
+      const w = window as unknown as { __SS_PRIVATE_SAMPLE_EVENTS__?: Array<Record<string, unknown>> };
+      return (w.__SS_PRIVATE_SAMPLE_EVENTS__ ?? []).slice(-5);
+    }).catch(() => null);
+  }
+
+  const snapshotRoot = snapshot && 'root' in snapshot ? snapshot.root : undefined;
+  const snapshotUi = snapshot && 'ui' in snapshot ? snapshot.ui : undefined;
+  const payload = {
+    title: testInfo.title,
+    status: testInfo.status,
+    pageClosed: diag?.closed ?? page.isClosed(),
+    pageCrashed: diag?.crashed ?? false,
+    lastModeState: snapshotUi?.modeSelectState ?? null,
+    runtimeState: snapshotRoot?.runtimeState ?? null,
+    modelStatus: snapshotRoot?.modelStatus ?? null,
+    consoleErrors: diag?.consoleErrors ?? [],
+    pageErrors: diag?.pageErrors ?? [],
+    lastTelemetryEvents,
+    snapshot,
+  };
+
+  await testInfo.attach('stt-switching-close-diagnostics.json', {
+    body: JSON.stringify(payload, null, 2),
+    contentType: 'application/json',
+  });
+  console.log(`LIVE_STT_SWITCHING_CLOSE_DIAGNOSTICS ${JSON.stringify({
+    title: payload.title,
+    status: payload.status,
+    pageClosed: payload.pageClosed,
+    pageCrashed: payload.pageCrashed,
+    consoleErrorCount: payload.consoleErrors.length,
+    lastModeState: payload.lastModeState,
+    runtimeState: payload.runtimeState,
+    modelStatus: payload.modelStatus,
+  })}`);
 }
 
 async function isModeDisabled(page: Page, mode: 'private' | 'cloud') {
@@ -308,82 +499,13 @@ async function assertIdleModeSwitch(page: Page, mode: SttMode, options: { allowD
   })}`);
 }
 
-async function startPrivateSetupIfPrompted(page: Page) {
-  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-  const visible = await downloadButton.isVisible({ timeout: 5_000 }).catch(() => false);
-  if (!visible) {
-    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-not-required');
-    return {
-      promptVisible: false,
-      modelStatus: snapshot.root?.modelStatus,
-      runtimeState: snapshot.root?.runtimeState,
-      note: 'Private model was already available or warming up.',
-    };
-  }
-
-  if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
-    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
-    throw new Error(
-      `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
-      `Private model setup requires an explicit user click; this proof must not auto-download.\n` +
-      `${JSON.stringify(snapshot, null, 2)}`
-    );
-  }
-
-  await downloadButton.click();
-  await page.waitForFunction(() => {
-    const root = document.documentElement;
-    return ['downloading', 'loading', 'ready'].includes(root.getAttribute('data-model-status') ?? '') ||
-      /download|loading|preparing|ready/i.test(document.body.innerText);
-  }, { timeout: 20_000 });
-
-  const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-started');
-  return {
-    promptVisible: true,
-    modelStatus: snapshot.root?.modelStatus,
-    runtimeState: snapshot.root?.runtimeState,
-    statusText: await page.getByTestId('status-message-text').textContent().catch(() => null),
-  };
-}
-
+// Bridges to the shared benchmark helper so the Private model reaches start-ready. Fed by the
+// locally-served model bytes in C3, so this resolves from disk rather than a 180MB network download.
 async function preparePrivateModelIfNeeded(page: Page) {
-  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-  const startStopButton = page.getByTestId('session-start-stop-button');
-  let downloadClicked = false;
-
-  try {
-    await expect(async () => {
-      const modelStatus = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
-      const startEnabled = await startStopButton.isEnabled().catch(() => false);
-
-      if (startEnabled || modelStatus === 'ready') {
-        return;
-      }
-
-      if (!downloadClicked && await downloadButton.isVisible({ timeout: 500 }).catch(() => false)) {
-        if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
-          const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
-          throw new Error(
-            `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
-            `Private model setup requires an explicit user click; this proof must not auto-download.\n` +
-            `${JSON.stringify(snapshot, null, 2)}`
-          );
-        }
-        downloadClicked = true;
-        await downloadButton.click();
-      }
-
-      expect({ modelStatus, startEnabled }, 'Private model must be ready or Start must be enabled').toMatchObject({
-        modelStatus: 'ready',
-      });
-    }).toPass({ timeout: 180_000, intervals: [1_000, 2_000, 5_000] });
-  } catch (error) {
-    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-model-setup-timeout');
-    throw new Error(`Private model setup did not reach start-ready state\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
-  }
+  await preparePrivateModelIfPrompted(page, 180_000);
 }
 
-async function recordCloudWithSwitchAttempt(page: Page) {
+async function recordCloudSession(page: Page, options: { assertSwitchLock: boolean }) {
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
 
@@ -393,12 +515,14 @@ async function recordCloudWithSwitchAttempt(page: Page) {
   );
 
   await startStopButton.click();
-  const recordingStartedAt = Date.now();
   const tokenResponse = await tokenResponsePromise;
   expect(tokenResponse.status(), `assemblyai-token response: ${await tokenResponse.text().catch(() => '')}`).toBe(200);
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+  const recordingStartedAt = Date.now();
 
-  await assertModeSwitchBlockedWhileRecording(page, 'cloud');
+  if (options.assertSwitchLock) {
+    await assertModeSwitchBlockedWhileRecording(page, 'cloud');
+  }
   const transcript = await waitForFixtureTranscript(page, 'cloud', 120_000);
   await waitForSaveableRecordingDuration(page, recordingStartedAt);
   await startStopButton.click();
@@ -412,8 +536,8 @@ async function recordPrivateSession(page: Page) {
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 90_000 });
   await startStopButton.click();
-  const recordingStartedAt = Date.now();
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+  const recordingStartedAt = Date.now();
   const transcript = await waitForFixtureTranscript(page, 'private', 120_000);
   await waitForSaveableRecordingDuration(page, recordingStartedAt);
   await startStopButton.click();
@@ -427,7 +551,8 @@ async function assertModeSwitchBlockedWhileRecording(page: Page, activeMode: Stt
   const modeSelect = page.getByTestId('stt-mode-select');
   const before = await modeSelect.getAttribute('data-state');
   const clickResult = await modeSelect.click({ timeout: 3_000 }).then(() => 'clicked').catch((error) => `blocked:${error instanceof Error ? error.message.slice(0, 120) : String(error)}`);
-  await page.waitForTimeout(500);
+  // Explicit state assertions instead of a blind settle: the selector must stay on the active mode
+  // and recording must stay live. toHaveAttribute polls, so a wrongful switch surfaces within 5s.
   await expect(modeSelect).toHaveAttribute('data-state', activeMode, { timeout: 5_000 });
   await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 5_000 });
 
@@ -448,14 +573,15 @@ async function waitForFixtureTranscript(page: Page, mode: SttMode, timeout: numb
       const surfaces = await page.evaluate(() => {
         const cleanText = document.querySelector('[data-testid="transcript-text-only"]')?.textContent ?? '';
         const visibleText = document.querySelector('[data-testid="transcript-container"]')?.textContent ?? '';
-        const saveCandidate = (window as unknown as {
-          __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: { selectedForSave?: string | null } | null };
-        }).__SPEECH_RUNTIME_DEBUG__?.().saveCandidate?.selectedForSave ?? '';
-
+        // Live DOM surfaces ONLY. The __SPEECH_RUNTIME_DEBUG__ saveCandidate is a POST-STOP artifact:
+        // during the next recording it still carries the PRIOR session's transcript, and its
+        // sessionId is not re-assigned at first poll (the controller keeps the prior id until the new
+        // session commits), so it cross-session false-matches and we stop before THIS engine has
+        // transcribed. The DOM transcript resets to placeholder per session and reflects the current
+        // engine's live output, so it is the only safe during-recording surface.
         return [
           { surface: 'transcript-text-only', text: cleanText },
           { surface: 'transcript-container', text: visibleText },
-          { surface: 'saveCandidate.selectedForSave', text: saveCandidate },
         ];
       });
       const candidates = surfaces
@@ -477,19 +603,32 @@ async function waitForFixtureTranscript(page: Page, mode: SttMode, timeout: numb
   }
 }
 
+// The app refuses to save a session under MIN_SESSION_DURATION_SECONDS (5s; we target 7s), gating on
+// the store's elapsedTime heartbeat (useSessionLifecycle drives useSessionStore.tick while listening).
+// That store value is not reliably readable on the deployed prod build — __SESSION_STORE_API__ is
+// gated out (NODE_ENV !== 'production' || isE2E) and the TimerDisplay DOM (session-timer) is not
+// reliably mounted in this layout. So accrue the minimum directly: poll until (a) the recording is
+// STILL live and (b) the saveable minimum of wall-clock has elapsed since data-recording flipped true.
+// This is not a blind waitForTimeout — every poll asserts liveness, so a dropped recording fails with
+// a clear reason instead of an opaque "page closed during wait".
 async function waitForSaveableRecordingDuration(page: Page, recordingStartedAt: number) {
   const minimumSeconds = Math.ceil(MIN_SAVEABLE_RECORDING_MS / 1000);
-  await page.waitForTimeout(Math.max(0, MIN_SAVEABLE_RECORDING_MS - (Date.now() - recordingStartedAt)));
-
-  await page.waitForFunction((minSeconds) => {
-    const storeApi = (window as unknown as {
-      __SESSION_STORE_API__?: { getState?: () => { elapsedTime?: number } };
-    }).__SESSION_STORE_API__;
-    const elapsedTime = storeApi?.getState?.().elapsedTime;
-    return typeof elapsedTime === 'number' && elapsedTime >= minSeconds;
-  }, minimumSeconds, { timeout: 15_000 }).catch(async () => {
-    await page.waitForTimeout(5_000);
-  });
+  const startStop = page.getByTestId('session-start-stop-button');
+  try {
+    await expect(async () => {
+      expect(
+        await startStop.getAttribute('data-recording'),
+        'recording must stay live while accruing the saveable minimum',
+      ).toBe('true');
+      expect(
+        Date.now() - recordingStartedAt,
+        `recording must run >= ${minimumSeconds}s to be saveable`,
+      ).toBeGreaterThanOrEqual(MIN_SAVEABLE_RECORDING_MS);
+    }).toPass({ timeout: MIN_SAVEABLE_RECORDING_MS + 15_000, intervals: [500, 1_000] });
+  } catch (error) {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'saveable-recording-duration-timeout');
+    throw new Error(`Recording did not sustain the ${minimumSeconds}s saveable minimum\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function waitForCompletedSession(
@@ -549,6 +688,9 @@ async function stopRecordingIfNeeded(page: Page) {
   }
 }
 
+// Replaces the old 2s blind tail wait. Wait for the runtime to leave the recording state, then for
+// the controller's explicit data-session-persisted save signal (best-effort; the "Session saved"
+// status text is already asserted by the caller before this runs).
 async function waitForRecordingSettled(page: Page) {
   await page.waitForFunction(() => {
     const root = document.documentElement;
@@ -556,7 +698,9 @@ async function waitForRecordingSettled(page: Page) {
     const recording = document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording');
     return recording !== 'true' && ['READY', 'IDLE', 'TERMINATED', 'FAILED', 'FAILED_VISIBLE'].includes(state ?? '');
   }, { timeout: 20_000 }).catch(() => undefined);
-  await page.waitForTimeout(2_000);
+  await page.waitForFunction(() => (
+    document.documentElement.getAttribute('data-session-persisted') === 'true'
+  ), { timeout: 15_000 }).catch(() => undefined);
 }
 
 function summarizeSessionEvidence(row: SessionRow | undefined, transcript: string) {
