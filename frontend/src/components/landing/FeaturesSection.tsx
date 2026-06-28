@@ -45,7 +45,7 @@ const features = [
   {
     icon: <BarChart3 className="size-8" />,
     title: "Coaching That Goes Deeper",
-    description: "Review pacing, fillers, structure, vocabulary variety, and audience impact so practice becomes repeatable progress.",
+    description: "Review pacing, fillers, structure, vocabulary variety, and listener takeaway so practice becomes repeatable progress.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
