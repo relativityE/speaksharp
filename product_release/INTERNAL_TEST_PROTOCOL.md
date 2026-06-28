@@ -83,11 +83,20 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 
 ---
 
-## Private v4 A/B rollout posture (internal — never in the tester guide)
+## Private v4 rollout posture (internal — never in the tester guide)
 
-The free 5-minute Private sample is also the v2/v4 A/B measurement window. **Default Private
-engine is v2; broad/random v4 rollout stays at 0%.** v4 is exposed only **deliberately,
-narrowly, and reversibly** after the telemetry proof passes.
+**v2 is the primary Private engine — the proven default users get.** **v4 is a first-class,
+gated candidate** that — *with enough real-world data* — could be reviewed for primary. v4 is
+**not "off" and not a second-class experiment**: it is built into the *same* telemetry spine,
+saved-session metadata, Report Issue context, and live e2e coverage as v2. But **v2 holds primary
+until v4 demonstrably earns promotion**; gating v4 is not a demotion of v4, and promoting v4 is
+not yet on the table without the data.
+
+The free 5-minute Private sample is the v2/v4 measurement window. **v2 is the default for broad
+beta traffic; broad/random v4 rollout is held (currently 0%) pending real-user evidence** — but
+**targeted v4 exposure is ready immediately after launch** (allowlist / small cohort) so we begin
+collecting real-world v4 data deliberately, narrowly, and reversibly. The goal is to give v4 a
+fair, evidence-based path toward primary — while v2 stays primary until that evidence exists.
 
 **Assignment + attribution.** Every `private_sample_*` event carries `engine_variant`
 (`private_v2`/`private_v4`) and `assignment_source` (`default | posthog_flag | allowlist |
@@ -116,6 +125,20 @@ stable.
 8. Kill switch back to v2 is verified.
 9. Tester guide stays simple and does **not** mention A/B testing.
 
-**Suggested waves:** (0) internal proof — force v2 + v4 on test accounts, confirm telemetry +
-saved metadata; (1) 1–2 trusted external testers on v4, Chrome desktop, normal use; (2) ramp to
-10–20% if setup/save/error rates are acceptable; (3) decide continue / fix / cut.
+**Promotion path (v2 → v4): a deliberate promotion, not a permanent hold.**
+- **Phase 0 — internal proof:** force v2 + v4 on owner/test accounts; confirm setup, transcript,
+  save/history/detail, Report Issue, telemetry + saved metadata. *(done via deterministic override.)*
+- **Phase 1 — selected external v4:** named allowlist (`private_stt_v4_allowlist`), Chrome desktop
+  first, 1–3 trusted testers, normal use; compare v4 reports to the v2 baseline.
+- **Phase 2 — small % rollout:** 10–20% via `private_stt_v4_enabled`; watch setup-success,
+  time-to-first-text, save success, error/Report-Issue volume vs v2.
+- **Phase 3 — 50/50:** only after early v4 pain is bounded.
+- **Phase 4 — review v4 for primary:** a deliberate review, not an automatic endpoint. **v2 stays
+  primary** until the data shows v4 is clearly better (or the tradeoff is strategically worth it).
+  If v4 doesn't earn it, v2 stays primary and v4 is cut — decided on real data, not assumption.
+
+**Promotion criteria (evidence, not perfection — qualitative + telemetry for a small beta):**
+setup-success rate acceptable; time-to-first-text not materially worse than v2 on target devices;
+save/history/detail reliable; Report Issue volume not materially worse than v2; transcript quality
+directionally better (or the tradeoff is strategically worth it); no privacy/logging regression;
+rollback to v2 stays one flag change. **If v4 can't earn this, cut it — but decide on real data.**
