@@ -208,6 +208,9 @@ export default class TranscriptionService {
   // (distinct from both null "reset" and 0..100), so the first real event always passes.
   private lastProcessedPercent: number | null = -1;
   private privateModelReady: boolean = false;
+  // #891 immediate-start gate: false while the Private mic is warming after Record (UI shows
+  // "Starting…"), flipped true when PrivateWhisper confirms stable frames (UI shows "Speak now").
+  private privateMicReadyToSpeak: boolean = false;
   private privateDownloadAlternativeToastShown: boolean = false;
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
@@ -608,6 +611,12 @@ export default class TranscriptionService {
         },
         onStatusChange: (status) => {
           if (this.activeStrategyId !== tempId) return;
+          // #891: Private drives the warming->recording (Speak now) cue from real mic readiness.
+          // Track it so the FSM status mapping doesn't revert "Speak now" back to "Starting…".
+          if (mode === 'private') {
+            if (status.type === 'warming') this.privateMicReadyToSpeak = false;
+            else if (status.type === 'recording') this.privateMicReadyToSpeak = true;
+          }
           this.strategyCallbacks.onStatusChange?.(status);
         },
         onAudioData: (data) => {
@@ -781,6 +790,9 @@ export default class TranscriptionService {
       logger.debug({ state: this.fsm.getState() }, '[TranscriptionService] init() called in unexpected state');
     }
 
+    // #891: re-arm the immediate-start gate for this recording so a stale value from a prior
+    // session can't let the FSM emit "Speak now" before the mic has warmed up.
+    this.privateMicReadyToSpeak = false;
     this.fsm.transition({ type: 'START_REQUESTED' });
 
     // 1. Mic Acquisition
@@ -1817,7 +1829,14 @@ export default class TranscriptionService {
         if (this.mode === 'native' && this.privateModelReady) {
           label = 'Recording active (Private Ready)';
         }
-        status = { type: 'recording', message: label };
+        // #891 immediate-start gate: Private holds at "Starting…" (warming) until the engine
+        // confirms the mic is delivering stable frames, then PrivateWhisper emits 'recording'
+        // ("Speak now"). Prevents the opening clause being lost to mic/AudioContext warmup.
+        if (this.mode === 'private' && !this.privateMicReadyToSpeak) {
+          status = { type: 'warming', message: 'Starting…' };
+        } else {
+          status = { type: 'recording', message: label };
+        }
         break;
       }
       case 'DOWNLOAD_REQUIRED': status = {
