@@ -40,6 +40,20 @@ Examples:
 | Cloud token / Pro cloud-entitled path | `assemblyai-token`, entitlement/tier logic, usage/quota checks, Supabase deploy, Cloud client code |
 | UX smoke | Onboarding/session UI, mode selector copy, tester instructions, error-state UI |
 
+### Private saved-transcript fidelity (Gate 1 STT — added 2026-06-29, #891/#892)
+
+Real-mic engine-liveness + metadata are NOT sufficient: they passed 3/3 while the **default Private path dropped the opening clause** (shared capture-path bug; observed clearest on v2). Any change to `PrivateWhisper.ts`, Private engines/workers, audio utilities, `sttConstants.ts`, or transcript capture/trim logic makes this gate stale. On the **persisted** transcript (saved DB row / History detail — NOT the live draft or in-memory buffer), require:
+
+- **Opening anchor** present near the start (the saved transcript begins with the spoken opening), after a soft/quiet/delayed onset as well as a loud one;
+- **Coverage threshold** across expected phrases (not one-keyword-anywhere);
+- **No ≥5-word verbatim loop** (decode-duplication guard; engine-agnostic — guards v4 q4 looping);
+- **History/detail matches** the saved transcript end-to-end (mic → buffer → decode → DB);
+- **Long leading silence** does not produce a hallucinated prefix;
+- **Real-mic proof** after any Private capture/buffer/trim change — fake-device tests do not substitute;
+- **stop-to-final latency recorded** (separate latency gate, but measured here).
+
+For a **v4-targeted** session also confirm `engine_version=private_v4`, runtime/backend/assignment metadata, and no visible/saved phrase loop.
+
 ### Ship Signal Rule
 
 RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, benchmarks, backend stress, and browser endurance results are advisory unless explicitly named as a blocking gate item. A high quality score cannot override a red or stale RC gate item.
