@@ -94,7 +94,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
     const ACTIVE_INDICATOR_STATES: RuntimeState[] = ['RECORDING', 'ENGINE_INITIALIZING', 'INITIATING', 'STOPPING'];
-    const ACTIVE_INDICATOR_TYPES = ['recording', 'initializing', 'downloading', 'download-required', 'paused'];
+    const ACTIVE_INDICATOR_TYPES = ['recording', 'warming', 'initializing', 'downloading', 'download-required', 'paused'];
 
     const isIndicatorVisible = fsmState
         ? (ACTIVE_INDICATOR_STATES.includes(fsmState) || ACTIVE_INDICATOR_TYPES.includes(sttStatusType || '') || isPaused)
@@ -107,6 +107,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
+    // #891 immediate-start gate: the mic is warming up; the UI must NOT invite speech yet.
+    const isWarming = sttStatusType === 'warming';
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
         displayStatusMessage = 'Private model setup';
@@ -306,11 +308,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 {formattedTime}
                             </div>
                             <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-3 py-1">
-                                <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
-                                <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label">
+                                <div className={`h-1.5 w-1.5 rounded-full ${isWarming ? 'bg-amber-500 animate-pulse' : (isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground')}`} />
+                                <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label" data-warming={isWarming ? 'true' : 'false'}>
                                     {isPrivateDownloadRequired
                                         ? 'Ready'
-                                        : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
+                                        : isWarming
+                                            ? 'Starting…'
+                                            : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>
                         </div>

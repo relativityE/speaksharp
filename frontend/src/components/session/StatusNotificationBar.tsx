@@ -35,6 +35,13 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         textClass: 'text-foreground',
         iconClass: 'text-success',
     },
+    // #891 immediate-start gate: mic warming after Record — "Starting…", not yet "Speak now".
+    warming: {
+        icon: Loader2,
+        bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
+    },
     recording: {
         icon: Info,
         bgClass: 'bg-amber-50 border-amber-300 surface-shadow',
