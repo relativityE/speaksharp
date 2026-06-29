@@ -15,6 +15,7 @@ import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
+import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
@@ -527,6 +528,29 @@ export const useSessionLifecycle = () => {
             }
         }
     }, [elapsedTime, effectiveMode, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
+
+    // #891 beta latency control: cap a SINGLE Private recording at 90s so the Stop re-decode stays
+    // under the 30s ceiling. Independent of the usage allowance above — whichever limit (budget or
+    // 90s cap) is hit first triggers the single auto-stop (shared hasAutoStoppedRef). The 5-min
+    // Private sample budget is unchanged; this only bounds one take. Warns 15s before the cap.
+    useEffect(() => {
+        if (effectiveMode !== 'private' || !isListening) return;
+        const capRemaining = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS - elapsedTime;
+
+        if (capRemaining <= 0) {
+            if (hasAutoStoppedRef.current) return;
+            hasAutoStoppedRef.current = true;
+            logger.warn({ elapsedTime }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: Private 90s per-recording cap reached');
+            void handleStartStopRef.current?.({
+                stopReason: 'Private recordings are capped at 90 seconds during beta. We stopped and saved your session.',
+            });
+        } else if (capRemaining <= PRIV_STT.PRIVATE_RECORDING_CAP_WARNING_SECONDS) {
+            const warningMsg = `${Math.ceil(capRemaining)}s left — Private recordings are capped at 90s during beta. We’ll stop and save automatically.`;
+            if (sttStatus.message !== warningMsg) {
+                setSTTStatus({ type: 'info', message: warningMsg });
+            }
+        }
+    }, [effectiveMode, isListening, elapsedTime, sttStatus.message, setSTTStatus]);
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);

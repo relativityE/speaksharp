@@ -117,6 +117,8 @@ describe('LiveRecordingCard', () => {
 
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription keeps transcription local/i));
         expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/All audio processing remains local/i));
+        // #891 beta: the 90s per-recording cap is surfaced up front.
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 90s/i));
     });
 
     it('shows explicit Private setup inside the recording card when the model is missing', () => {
@@ -160,7 +162,8 @@ describe('LiveRecordingCard', () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
-        expect(screen.getByText(/Record up to 5 minutes with local transcription/i)).toBeDefined();
+        expect(screen.getByText(/up to 5 minutes total/i)).toBeDefined();
+        expect(screen.getByText(/90s per recording during beta/i)).toBeDefined();
         expect(screen.getByText(/compare it with Browser transcription/i)).toBeDefined();
     });
 
