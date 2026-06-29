@@ -59,7 +59,13 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - **PDF export:** the exported file must contain session metadata, transcript, transcription
   mode, and the analytics summary (Free and Pro exports retain the large SpeakSharp watermark).
 - **Private sample:** one-time on-device model setup; first words can take ~5s on CPU/WASM; the
-  sample is short and saves automatically when it ends.
+  sample is short and saves automatically when it ends. **Saved-transcript fidelity (added
+  2026-06-29, #891/#892) — check the persisted History transcript, not the live draft:**
+  the opening clause is preserved (after a soft/quiet/delayed onset, not just a loud one);
+  coverage threshold passes; no ≥5-word verbatim loop; History/detail matches; long leading
+  silence produces no hallucinated prefix; and **stop-to-final latency is recorded** (measure at
+  ~1–3 min and ~4–5 min — latency ≤5s is a separate open gate). For a **v4-targeted** session also
+  confirm `engine_version=private_v4` and no visible/saved phrase loop.
 
 ---
 
@@ -105,10 +111,15 @@ deterministic_override`), plus `posthog_flag_key`/`posthog_flag_value`. The save
 it is reconstructable even if PostHog is missing — never rely on analytics alone.
 
 **PostHog flags (owner-configured):**
-- `private_stt_v4_enabled` — % rollout (keep at **0%** for broad exposure).
-- `private_stt_v4_allowlist` — named-user targeting (the preferred first-wave control).
-- Kill switch / rollback = set both back to 0%/empty → new users get v2 immediately; existing
-  saved sessions keep their recorded arm.
+- `private_stt_v4_enabled` (flag id 709644) — the **actual control plane as configured today**:
+  per-user targeting via a `distinct_id` (= Supabase user.id) condition, **0% broad rollout**. First-
+  wave exposure is done by adding test/owner `distinct_id`s to this flag's condition (verified
+  2026-06-29: it gated by exact `distinct_id`, not a separate allowlist flag).
+- `private_stt_v4_allowlist` — referenced as a *planned* named-user control; **was NOT present as a
+  separate PostHog flag** during the 2026-06 investigation. Use `private_stt_v4_enabled` distinct_id
+  targeting until/unless a dedicated allowlist flag is actually created.
+- Kill switch / rollback = clear the targeted `distinct_id`s / set rollout to 0% → new users get v2
+  immediately; existing saved sessions keep their recorded arm.
 
 **Selective exposure controls (use for the first external wave):** named allowlist **+ Chrome
 desktop only**; internal/dogfood accounts first; avoid mobile/low-memory devices until v4 proves
