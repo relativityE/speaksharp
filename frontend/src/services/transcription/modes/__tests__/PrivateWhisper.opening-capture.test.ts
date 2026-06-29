@@ -125,4 +125,20 @@ describe('#891 PrivateWhisper opening-clause capture', () => {
     // THE CONTRACT: the opening speech must survive into the final decode buffer.
     expect(openingRetained, 'opening speech must be present in the whole-utterance decode buffer (capture-side #891)').toBe(true);
   });
+
+  it('trims an implausibly long quiet lead-in (room tone) to avoid leading hallucination', async () => {
+    const SR = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
+    // 13s of quiet room tone (above the 0.003 floor, below speech) then a loud body. The duration
+    // guard (>12s quiet before the first loud frame) trims the lead-in to ~1s so the decoder is not
+    // fed 13s of low-energy audio (verified to make Whisper hallucinate a "(crowd murmuring)" prefix).
+    for (let i = 0; i < 13; i++) frameCb!(constFrame(SR, 0.004));
+    frameCb!(constFrame(SR, 0.2));
+    frameCb!(constFrame(SR, 0.2));
+    await pw.stop();
+
+    const longAudio = largestTranscribeAudio();
+    expect(longAudio, 'whole-utterance commit must have decoded some audio').toBeTruthy();
+    const seconds = longAudio!.length / SR;
+    expect(seconds, `long room-tone lead-in must be trimmed (got ${seconds.toFixed(1)}s of ~15s)`).toBeLessThan(5);
+  });
 });

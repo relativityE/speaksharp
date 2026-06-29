@@ -91,6 +91,14 @@ export const PRIV_STT = {
   // bias). This is NOT the dynamic speech-start threshold that caused the original miss.
   LEADING_SILENCE_TRIM_RMS: 0.003,
   LEADING_TRIM_KEEP_MARGIN_SECONDS: 0.5,
+  // #891 capture-from-start: a long quiet lead-in ABOVE the pure-silence floor (room tone ~0.004) is
+  // kept by the floor trim, and Whisper hallucinates a prefix on extended low-energy audio
+  // ("(crowd murmuring)" etc.). If the quiet run BEFORE the first loud-speech frame exceeds
+  // LEADING_MAX_QUIET_SECONDS (set well beyond the longest observed soft onset ~7.9s so real soft
+  // openings are NEVER trimmed), trim it down to LEADING_QUIET_KEEP_SECONDS before that loud onset.
+  // Verified: 30s room tone -> hallucinated "(crowd murmuring)"; trimmed to ~1s -> clean opening.
+  LEADING_MAX_QUIET_SECONDS: 12,
+  LEADING_QUIET_KEEP_SECONDS: 1,
   // Path C (first-paint): the previous 5.0s threshold held the first transcript
   // for so long that slow CPU decodes produced no visible live text during short
   // utterances (the "Holding first transcript until it has speech-like substance"
@@ -317,6 +325,14 @@ export const PRIV_STT_DERIVED = {
   ),
   LEADING_TRIM_KEEP_MARGIN_SAMPLES: secondsToSamples(
     PRIV_STT.LEADING_TRIM_KEEP_MARGIN_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LEADING_MAX_QUIET_SAMPLES: secondsToSamples(
+    PRIV_STT.LEADING_MAX_QUIET_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LEADING_QUIET_KEEP_SAMPLES: secondsToSamples(
+    PRIV_STT.LEADING_QUIET_KEEP_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   MAX_RETRY_SAMPLES: secondsToSamples(

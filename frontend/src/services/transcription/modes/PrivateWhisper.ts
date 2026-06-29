@@ -710,6 +710,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // #891 capture-from-start: index of the FIRST non-pure-silence frame, used for the conservative
   // leading-silence trim at finalize (-1 = none seen yet).
   private utteranceFirstAudibleSamples: number = -1;
+  // #891: index of the FIRST loud-speech frame; a long quiet run before it = room tone to trim.
+  private utteranceFirstLoudSamples: number = -1;
   private wholeUtteranceTranscript: string = '';
   // Timing anchors (diagnostics only) for explaining first-text / final-decode
   // latency. performance.now() ms; null until set this recording.
@@ -835,6 +837,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
     this.utteranceFirstAudibleSamples = -1;
+    this.utteranceFirstLoudSamples = -1;
     this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
     this.lastHeartbeat = Date.now();
@@ -957,6 +960,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
     this.utteranceFirstAudibleSamples = -1;
+    this.utteranceFirstLoudSamples = -1;
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
     this.pendingFirstTranscript = null;
@@ -2170,6 +2174,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.utteranceFirstAudibleSamples = this.utteranceSampleCount - frame.length;
     }
     if (energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS) {
+      if (this.utteranceFirstLoudSamples < 0) {
+        this.utteranceFirstLoudSamples = this.utteranceSampleCount - frame.length;
+      }
       this.utteranceLastRealSpeechSamples = this.utteranceSampleCount;
     }
   }
@@ -2195,9 +2202,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const trailingCap = this.utteranceLastRealSpeechSamples > 0
       ? Math.min(fullUtteranceAudio.length, this.utteranceLastRealSpeechSamples + UTTERANCE_SILENCE_TAIL_SAMPLES)
       : fullUtteranceAudio.length;
-    const leadStartRaw = this.utteranceFirstAudibleSamples >= 0
+    let leadStartRaw = this.utteranceFirstAudibleSamples >= 0
       ? Math.max(0, this.utteranceFirstAudibleSamples - PRIV_STT_DERIVED.LEADING_TRIM_KEEP_MARGIN_SAMPLES)
       : 0;
+    // Long-quiet-lead-in guard: if a quiet run precedes the first loud-speech frame by more than
+    // LEADING_MAX_QUIET_SECONDS (room tone, not a soft opening — that threshold is well beyond the
+    // longest observed soft onset), trim it to ~1s before that onset so Whisper does not hallucinate
+    // a prefix on extended low-energy audio. Verified: 30s room tone hallucinated "(crowd murmuring)".
+    if (this.utteranceFirstLoudSamples > PRIV_STT_DERIVED.LEADING_MAX_QUIET_SAMPLES) {
+      leadStartRaw = Math.max(leadStartRaw, this.utteranceFirstLoudSamples - PRIV_STT_DERIVED.LEADING_QUIET_KEEP_SAMPLES);
+    }
     // Defensive: never let the leading trim cross the trailing bound.
     const leadStart = leadStartRaw < trailingCap ? leadStartRaw : 0;
     const audio = (leadStart > 0 || trailingCap < fullUtteranceAudio.length)

@@ -51,6 +51,13 @@ describe('#892 transcript-fidelity gate', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('catches a near-verbatim loop despite casing/punctuation drift (normalized before compare)', () => {
+    // Whisper loops sometimes drift in casing/punctuation; normalization must collapse them.
+    const drifted = 'stale beer pepper beef swan Release validation, native Chrome microphone. release validation native chrome microphone';
+    const r = evaluateTranscriptFidelity(drifted, HARVARD_FIXTURE_FIDELITY);
+    expect(r.loopDetected).toBe(true);
+  });
+
   it('does NOT flag a short natural self-correction', () => {
     // "a technical detail, technical idea" — a 1-2 word correction, not a >=5-word loop.
     const natural = 'stale beer pepper beef swan i explain a technical detail technical idea and i tend to speak fast';
