@@ -110,8 +110,12 @@ export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
         { metric: clarity, driver: 'clear delivery', action: 'Say the main point before the context.' },
     ];
 
-    const worst = candidates.find(c => c.metric.tone === 'off')
-        ?? candidates.find(c => c.metric.tone === 'watch');
+    // Single pass: the first 'off' wins outright; otherwise the first 'watch'.
+    let worst: (typeof candidates)[number] | undefined;
+    for (const c of candidates) {
+        if (c.metric.tone === 'off') { worst = c; break; }
+        if (!worst && c.metric.tone === 'watch') worst = c;
+    }
 
     if (!worst) {
         return { driver: null, action: 'Keep the pace steady and land the takeaway.' };
