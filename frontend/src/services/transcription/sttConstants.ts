@@ -87,6 +87,19 @@ export const PRIV_STT = {
   // human onset; cost is ~1.2s extra retained audio per session (negligible).
   SPEECH_START_PREROLL_MS: 1500,
   SPEECH_START_RESET_TOLERANCE_MS: 300,
+  // #891 immediate-start readiness gate. Proven cause of the residual opening loss: when a user
+  // hits Record and speaks instantly, getUserMedia/AudioContext/worklet warmup (~0.5-0.7s) has not
+  // yet delivered stable frames, so the first words ("My main…") never reach the capture buffer.
+  // The "Speak now" cue is QUALITY-gated, not a timer: it requires N consecutive CLEAN frames (proves
+  // frames are flowing), and releases when the frame RMS SETTLES (AGC/noise floor converged), bounded
+  // by [MIN, MAX] warmup so a mistuned band can never fire too early nor hang. Frames are ~64ms
+  // (1024 @ 16kHz). Gates the user CUE only — capture-from-start keeps buffering from frame 1. The
+  // band/bounds are tuned from the on-device `mic_ready_to_speak` telemetry (timeToFirstFrame, RMS).
+  MIC_READY_MIN_CONSECUTIVE_FRAMES: 6,
+  MIC_READY_MIN_WARMUP_MS: 250,
+  MIC_READY_MAX_WARMUP_MS: 800,
+  MIC_READY_STABILITY_WINDOW_FRAMES: 6,
+  MIC_READY_RMS_STABILITY_BAND: 0.005,
   POST_TRANSCRIPT_PAINT_GRACE_MS: 600,
   PRE_TRANSCRIPT_METADATA_RETRY_LIMIT: 2,
   FIRST_TRANSCRIPT_LOCAL_AGREEMENT_ROUNDS: 2,

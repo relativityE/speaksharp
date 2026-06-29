@@ -1,6 +1,9 @@
 import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
 
-export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'recording' | 'paused' | 'fallback' | 'error' | 'info' | 'warning' | 'download-required' | 'init-failed';
+// 'warming' = recording has started and the mic is acquiring/warming up, but the pipeline is not
+// yet delivering stable frames. The UI must show "Starting…" and NOT invite speech until this
+// transitions to 'recording' ("Speak now"). #891 immediate-start readiness contract.
+export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'warming' | 'recording' | 'paused' | 'fallback' | 'error' | 'info' | 'warning' | 'download-required' | 'init-failed';
 
 export interface SttStatus {
     type: SttStatusType;
