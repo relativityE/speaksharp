@@ -42,4 +42,20 @@ describe('#892 transcript-fidelity gate', () => {
     expect(evaluateTranscriptFidelity('', HARVARD_FIXTURE_FIDELITY).ok).toBe(false);
     expect(evaluateTranscriptFidelity(null, HARVARD_FIXTURE_FIDELITY).ok).toBe(false);
   });
+
+  it('REJECTS a verbatim phrase loop (v4 q4 duplication)', () => {
+    // opening + coverage pass, so the ONLY failure is the repeated 5+-word span.
+    const looped = 'stale beer pepper beef swan and give me one clear thing to improve give me one clear thing to improve';
+    const r = evaluateTranscriptFidelity(looped, HARVARD_FIXTURE_FIDELITY);
+    expect(r.loopDetected).toBe(true);
+    expect(r.ok).toBe(false);
+  });
+
+  it('does NOT flag a short natural self-correction', () => {
+    // "a technical detail, technical idea" — a 1-2 word correction, not a >=5-word loop.
+    const natural = 'stale beer pepper beef swan i explain a technical detail technical idea and i tend to speak fast';
+    const r = evaluateTranscriptFidelity(natural, HARVARD_FIXTURE_FIDELITY);
+    expect(r.loopDetected).toBe(false);
+    expect(r.ok).toBe(true);
+  });
 });
