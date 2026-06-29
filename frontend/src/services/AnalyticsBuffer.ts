@@ -43,9 +43,13 @@ const sanitizeAnalyticsProperties = (
   properties?: Record<string, unknown>,
 ): Record<string, unknown> | undefined => {
   if (!properties) return undefined;
-  return Object.fromEntries(
-    Object.entries(properties).map(([key, value]) => [key, sanitizeAnalyticsValue(key, value)]),
-  );
+  // Imperative single pass: avoids the intermediate entries[] + mapped[] arrays that
+  // Object.fromEntries(Object.entries().map()) allocates per event.
+  const sanitized: Record<string, unknown> = {};
+  for (const key of Object.keys(properties)) {
+    sanitized[key] = sanitizeAnalyticsValue(key, properties[key]);
+  }
+  return sanitized;
 };
 
 class AnalyticsBuffer {
