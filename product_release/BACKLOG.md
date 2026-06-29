@@ -40,6 +40,18 @@ No backlog item is deleted unless it has completed through active coordination a
 | P1 | Should fix before broader release or if it blocks validation. | Fix after active P0s are stable. |
 | P2 | Workflow, maintainability, polish, or velocity debt. | Schedule after release gates are green. |
 
+## Active Private STT release work (2026-06-29)
+
+Posture: **v2 is the default Private STT for trial users; v4 is a flag-gated/targeted candidate** (controlled exposure for promotion data, not shelved). Known bugs must be fixed/guarded before testers see them; unknown edge cases are diagnosed post-beta via Report Issue + session metadata.
+
+| Priority | ID | Item | Status |
+|---|---|---|---|
+| P1 | #891/#898 | Private opening-clause drop = **shared capture-path bug** (proven capture-side on a real failing take: 7.85s delayed confirmation → opening absent from the final-decode WAV). Fix = **capture-from-start** (final buffer accumulates from mic-start, gate = live partials only) + conservative leading trim + long-leading-silence hallucination guard + 600s session cap. | **#898 DRAFT** — locally validated old→new vs true `origin/main` (86.9%→full); NOT on `main`; pending merge + **deployed saved-History re-gate**. |
+| P1 | #892 | Saved-transcript fidelity gate (old release check asserted one-keyword-anywhere → missed clipped openings). Now: opening anchor near start + coverage threshold + **≥5-word verbatim-loop (duplication) guard**, on the **persisted** transcript, engine-agnostic. | In #898 branch; live persisted assertion pending re-gate. |
+| P1/P2 | v4 duplication | v4 base-q4 phrase looping (confirmed in a saved v4 transcript). #892 **catches** it in the gate but does **not** suppress at runtime → before external v4 exposure, need runtime anti-loop (decode params / fallback) or keep v4 owner/internal-only. v4 stays flag-gated. | Guard added; runtime anti-loop / real v4 A/B pending. |
+| P1 | #900 | Private finalization **latency ≤5s** (measured ~0.24× realtime single-thread WASM in prod → ~13s for ~1min, ~70s for ~5min). Drain-cap #900 bounds a pathological wait only; real levers = cross-origin isolation (multi-thread WASM, unmeasured + COEP/CDN risk) + segmented finalization. | **Separate open gate.** #900 ready; threading/segmentation not started; measure stop-to-final at 1–3 / 4–5 min during re-gate. |
+| P2 | preroll-live | Live 300ms-vs-1500ms preroll comparison (affects **live partials only** now that capture-from-start owns the final buffer). Decide whether to revert Fix 1's 1500ms. | Pending a mic session. |
+
 ## Release Bloat / Dead-Weight Inventory (2026-06-08)
 
 Inventory-only pass from test-release-agent on `dev/native-simplify@62cd31b5`, based on fresh `origin/main@f9204d53` (`origin/main...HEAD = 0 1`, clean worktree). Detailed artifacts: `/private/tmp/release-bloat-inventory-2026-06-08.md` and reconciled test/dev synthesis `/private/tmp/TEST_2ND_PASS_SYNTHESIS_2026-06-08.md`.
