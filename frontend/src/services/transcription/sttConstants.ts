@@ -70,7 +70,11 @@ export const PRIV_STT = {
   WHISPER_STRIDE_SECONDS: 5,
   SPEECH_START_RMS_THRESHOLD: SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
   SPEECH_START_MIN_MS: 100,
-  SPEECH_START_PREROLL_MS: 300,
+  // #891 Fix 1: pre-onset audio retained before speech-start confirms. 300ms could not hold a soft
+  // multi-word opening ("My main point is that…" ~1.2-1.5s) when confirmation fired late, so the
+  // opening was evicted from the ring before it reached the utterance buffer. 1500ms covers a slow
+  // human onset; cost is ~1.2s extra retained audio per session (negligible).
+  SPEECH_START_PREROLL_MS: 1500,
   SPEECH_START_RESET_TOLERANCE_MS: 300,
   POST_TRANSCRIPT_PAINT_GRACE_MS: 600,
   PRE_TRANSCRIPT_METADATA_RETRY_LIMIT: 2,

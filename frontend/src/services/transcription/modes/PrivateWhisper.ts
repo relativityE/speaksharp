@@ -2075,11 +2075,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     let preservedSamples = 0;
     for (const chunk of this.speechStartAudioChunks) {
-      const energy = summarizeAudioEnergy(chunk);
-      if (energy.rms < this.currentThreshold) continue;
-
-      // #891: retain pre-onset speech in a NON-evicted buffer (not the 300ms pre-roll) so a soft
-      // opening word survives a micro-gap until speech-start confirms and reaches the final decode.
+      // #891 Fix 2: retain EVERY candidate frame, including sub-threshold ones. A soft/quiet word
+      // onset ("My main point…") produces low-RMS frames the gate has not yet confirmed as speech;
+      // filtering them by currentThreshold here permanently dropped real opening words (the variable
+      // 0/3/8-word loss). Over-retain and let the finalize trailing-silence trim + Whisper handle
+      // genuine quiet — under-retaining loses words irrecoverably. The buffer is non-evicting
+      // (retainPreonsetSpeechFrame) and bounded.
       this.retainPreonsetSpeechFrame(chunk.slice(0));
       preservedSamples += chunk.length;
     }
