@@ -1010,10 +1010,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // #891 immediate-start readiness gate: hold the user "Speak now" cue until the mic delivers
     // N consecutive clean frames (warmup is over). Until then the UI shows "Starting…". The final
     // capture buffer still accumulates from frame 1 below — we gate the CUE, never the buffer.
-    this.micReadinessGate = new MicReadinessGate(
-      PRIV_STT.MIC_READY_MIN_CONSECUTIVE_FRAMES,
-      PRIV_STT.MIC_READY_MIN_WARMUP_MS,
-    );
+    this.micReadinessGate = new MicReadinessGate({
+      minConsecutiveCleanFrames: PRIV_STT.MIC_READY_MIN_CONSECUTIVE_FRAMES,
+      minWarmupMs: PRIV_STT.MIC_READY_MIN_WARMUP_MS,
+      maxWarmupMs: PRIV_STT.MIC_READY_MAX_WARMUP_MS,
+      stabilityWindowFrames: PRIV_STT.MIC_READY_STABILITY_WINDOW_FRAMES,
+      rmsStabilityBand: PRIV_STT.MIC_READY_RMS_STABILITY_BAND,
+    });
     this.onStatusChange?.({ type: 'warming', message: 'Starting…' });
 
     // Subscribe to microphone frames
@@ -1038,11 +1041,21 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // #891 immediate-start gate: the buffer captured this frame above; now decide whether the
       // mic is warm enough to invite speech. Fires exactly once -> flip "Starting…" to "Speak now".
       if (this.micReadinessGate && this.micReadinessGate.observe(clonedFrame, performance.now())) {
+        const gate = this.micReadinessGate;
+        // Measured warmup profile (tunes the band + PROVES the warmup gap on real devices):
+        // timeToFirstFrame = mic delivery latency; warmupMsAtFire = added settle margin.
+        const timeToFirstFrameMs =
+          this.streamStartAtMs == null || gate.firstFrameAtMs == null
+            ? null
+            : Number((gate.firstFrameAtMs - this.streamStartAtMs).toFixed(1));
         pushPrivateTimeline('mic_ready_to_speak', {
           serviceId: this.serviceId,
           runId: this.instanceId,
           sinceStreamStartMs:
             this.streamStartAtMs == null ? null : Number((performance.now() - this.streamStartAtMs).toFixed(1)),
+          timeToFirstFrameMs,
+          warmupMsAtFire: gate.warmupMsAtFire,
+          fireReason: gate.fireReason,
         });
         this.onStatusChange?.({ type: 'recording', message: 'Speak now' });
       }
