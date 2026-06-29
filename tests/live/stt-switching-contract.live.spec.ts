@@ -10,6 +10,7 @@ import {
   selectBenchmarkMode,
 } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { evaluateTranscriptFidelity, HARVARD_FIXTURE_FIDELITY } from './helpers/transcriptFidelity';
 
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
@@ -652,7 +653,14 @@ async function waitForCompletedSession(
     lastRows = (data ?? []) as SessionRow[];
     expect(lastRows.length, `${engine} session should be saved after ${startedAt}`).toBeGreaterThan(0);
     expect(lastRows[0].status, JSON.stringify(lastRows[0])).toBe('completed');
-    expect(normalizeTranscript(lastRows[0].transcript), JSON.stringify(lastRows[0])).toMatch(TRANSCRIPT_PATTERN);
+    // #892: persisted-transcript fidelity — the OPENING anchor must appear near the start (so a
+    // clipped opening clause, the #891 failure, fails loudly) AND a coverage threshold must be met.
+    // Replaces the old one-keyword-anywhere gate, which passed a transcript missing its opening.
+    const fidelity = evaluateTranscriptFidelity(lastRows[0].transcript, HARVARD_FIXTURE_FIDELITY);
+    expect(
+      fidelity.ok,
+      `${engine} saved-transcript fidelity FAILED [${fidelity.reasons.join('; ')}] head="${fidelity.firstWords}" ${JSON.stringify(lastRows[0])}`,
+    ).toBe(true);
   }).toPass({ timeout: 45_000, intervals: [3_000] });
 
   return lastRows;

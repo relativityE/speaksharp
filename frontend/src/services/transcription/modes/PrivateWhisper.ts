@@ -697,10 +697,21 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private firstTranscriptAgreementRounds: number = 0;
   private utteranceAudioChunks: Float32Array[] = [];
   private utteranceSampleCount: number = 0;
+  // #891 fix: pre-onset SPEECH demoted on a speech-gate RESET (a soft opening word + micro-gap before
+  // speech confirms) must NOT be lost to the 300ms-capped pre-roll. It is retained here (silence is
+  // not) and prepended to the utterance buffer at confirmation, so the final whole-utterance decode
+  // keeps the opening clause. Bounded by RETAINED_PREONSET_SPEECH_MAX_SAMPLES to avoid unbounded growth.
+  private retainedPreonsetSpeechChunks: Float32Array[] = [];
+  private retainedPreonsetSpeechSamples: number = 0;
   // Sample offset of the END of the last real-speech frame in the utterance buffer.
   // Used to trim ONLY trailing silence at finalize (Fix A intent) without dropping
   // mid-utterance soft speech.
   private utteranceLastRealSpeechSamples: number = 0;
+  // #891 capture-from-start: index of the FIRST non-pure-silence frame, used for the conservative
+  // leading-silence trim at finalize (-1 = none seen yet).
+  private utteranceFirstAudibleSamples: number = -1;
+  // #891: index of the FIRST loud-speech frame; a long quiet run before it = room tone to trim.
+  private utteranceFirstLoudSamples: number = -1;
   private wholeUtteranceTranscript: string = '';
   // Timing anchors (diagnostics only) for explaining first-text / final-decode
   // latency. performance.now() ms; null until set this recording.
@@ -822,7 +833,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.retainedPreonsetSpeechChunks = [];
+    this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
+    this.utteranceFirstAudibleSamples = -1;
+    this.utteranceFirstLoudSamples = -1;
     this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
     this.lastHeartbeat = Date.now();
@@ -941,7 +956,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.retainedPreonsetSpeechChunks = [];
+    this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
+    this.utteranceFirstAudibleSamples = -1;
+    this.utteranceFirstLoudSamples = -1;
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
     this.pendingFirstTranscript = null;
@@ -987,6 +1006,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // Track silence per-frame for accurate pause metrics (analytics only)
       this.pauseDetector.processAudioFrame(clonedFrame);
       const energy = summarizeAudioEnergy(clonedFrame);
+
+      // #891 capture-from-start: the FINAL whole-utterance buffer accumulates EVERY frame from
+      // mic-start, decoupled from the speech-start gate. The gate below governs only LIVE PARTIALS
+      // (when to show draft text) — it no longer decides what audio is eligible for the SAVED
+      // transcript. This makes the opening impossible to lose to a delayed/missed speech-start
+      // confirmation (soft onset, low measured RMS on loud speech, listener-attach delay, gate
+      // reset, …). Leading/trailing pure silence is trimmed conservatively at finalize.
+      this.appendFrameToUtteranceAudio(clonedFrame, energy);
+
       if (!this.hasDetectedSpeech) {
         if (energy.rms < PRIV_STT.SPEECH_START_RMS_THRESHOLD) {
           this.noiseFloor = this.noiseFloor * 0.95 + energy.rms * 0.05;
@@ -1031,11 +1059,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             0,
           );
           this.audioChunks = [
+            ...this.retainedPreonsetSpeechChunks.map((chunk) => chunk.slice(0)),
             ...this.prerollAudioChunks.map((chunk) => chunk.slice(0)),
             ...this.speechStartAudioChunks.map((chunk) => chunk.slice(0)),
           ];
-          this.bufferedSampleCount = this.prerollSampleCount + speechStartBufferedSamples;
-          this.appendUtteranceAudio(this.audioChunks);
+          this.bufferedSampleCount =
+            this.retainedPreonsetSpeechSamples + this.prerollSampleCount + speechStartBufferedSamples;
+          // #891: the FINAL buffer is fed from mic-start now — do NOT seed it from the gate buffers
+          // here (that would double-count). this.audioChunks remains the LIVE-decode buffer (partials).
+          this.retainedPreonsetSpeechChunks = [];
+          this.retainedPreonsetSpeechSamples = 0;
           this.prerollAudioChunks = [];
           this.prerollSampleCount = 0;
           this.speechStartAudioChunks = [];
@@ -1074,7 +1107,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         if (this.bufferedSampleCount > this.peakBufferedSamples) {
           this.peakBufferedSamples = this.bufferedSampleCount;
         }
-        this.appendFrameToUtteranceAudio(clonedFrame, energy);
+        // #891: the final buffer already captured this frame at the top (capture-from-start).
       }
 
       if (isPrivateTranscriptTraceEnabled()) {
@@ -1986,6 +2019,29 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
+  // #891: non-evicting retention of pre-onset SPEECH (vs the 300ms pre-roll which evicts). Bounded
+  // at ~5s so pathological input can't grow unbounded; a normal opening clause is well under that.
+  private retainPreonsetSpeechFrame(frame: Float32Array): void {
+    const RETAINED_PREONSET_SPEECH_MAX_SAMPLES = PRIVATE_STT_SAMPLE_RATE * 5;
+    this.retainedPreonsetSpeechChunks.push(frame);
+    this.retainedPreonsetSpeechSamples += frame.length;
+
+    while (
+      this.retainedPreonsetSpeechSamples > RETAINED_PREONSET_SPEECH_MAX_SAMPLES &&
+      this.retainedPreonsetSpeechChunks.length > 0
+    ) {
+      const first = this.retainedPreonsetSpeechChunks[0];
+      const overflow = this.retainedPreonsetSpeechSamples - RETAINED_PREONSET_SPEECH_MAX_SAMPLES;
+      if (first.length <= overflow) {
+        this.retainedPreonsetSpeechSamples -= first.length;
+        this.retainedPreonsetSpeechChunks.shift();
+      } else {
+        this.retainedPreonsetSpeechChunks[0] = first.slice(overflow);
+        this.retainedPreonsetSpeechSamples -= overflow;
+      }
+    }
+  }
+
   private resetSpeechGateStats(): void {
     this.speechGateStats = {
       framesSeen: 0,
@@ -2038,10 +2094,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     let preservedSamples = 0;
     for (const chunk of this.speechStartAudioChunks) {
-      const energy = summarizeAudioEnergy(chunk);
-      if (energy.rms < this.currentThreshold) continue;
-
-      this.addPrerollFrame(chunk.slice(0));
+      // #891 Fix 2: retain EVERY candidate frame, including sub-threshold ones. A soft/quiet word
+      // onset ("My main point…") produces low-RMS frames the gate has not yet confirmed as speech;
+      // filtering them by currentThreshold here permanently dropped real opening words (the variable
+      // 0/3/8-word loss). Over-retain and let the finalize trailing-silence trim + Whisper handle
+      // genuine quiet — under-retaining loses words irrecoverably. The buffer is non-evicting
+      // (retainPreonsetSpeechFrame) and bounded.
+      this.retainPreonsetSpeechFrame(chunk.slice(0));
       preservedSamples += chunk.length;
     }
 
@@ -2105,8 +2164,19 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // from the buffer (-> content loss / Whisper hallucinating the gap). Instead we
     // only record where the last REAL-speech frame ends; only the silence AFTER that
     // (the genuine trailing tail / h1_6 chatter) is trimmed when the buffer is decoded.
+    // #891 capture-from-start: bound the ungated final buffer. On overflow keep the BEGINNING (the
+    // opening) and stop appending, rather than rolling the buffer forward and losing the opener.
+    if (this.utteranceSampleCount >= PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES) return;
     this.appendUtteranceAudio([frame]);
+    // First non-pure-silence frame anchors the conservative leading-silence trim (under-trim bias:
+    // LEADING_SILENCE_TRIM_RMS is far below soft speech, so opening words are never the trim anchor).
+    if (this.utteranceFirstAudibleSamples < 0 && energy.rms >= PRIV_STT.LEADING_SILENCE_TRIM_RMS) {
+      this.utteranceFirstAudibleSamples = this.utteranceSampleCount - frame.length;
+    }
     if (energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS) {
+      if (this.utteranceFirstLoudSamples < 0) {
+        this.utteranceFirstLoudSamples = this.utteranceSampleCount - frame.length;
+      }
       this.utteranceLastRealSpeechSamples = this.utteranceSampleCount;
     }
   }
@@ -2123,23 +2193,39 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       return;
     }
 
-    // Fix A v2: trim ONLY the trailing silence after the last real-speech frame
-    // (genuine end-of-utterance quiet / h1_6 chatter). Mid-utterance soft speech is
-    // already fully retained (appendFrameToUtteranceAudio no longer drops it).
+    // #891 capture-from-start finalize trim: the buffer now holds EVERYTHING from mic-start, so trim
+    // ONLY true leading/trailing near-silence. Leading edge uses the conservative
+    // LEADING_SILENCE_TRIM_RMS anchor (~10x below FIRST_TRANSCRIPT_PARTIAL_MIN_RMS, below soft speech)
+    // plus a 0.5s keep-margin, so opening WORDS are never trimmed (under-trim bias). Trailing uses the
+    // existing real-speech bound. Mid-utterance soft speech is fully retained.
     const fullUtteranceAudio = concatenateFloat32Arrays(this.utteranceAudioChunks);
     const trailingCap = this.utteranceLastRealSpeechSamples > 0
       ? Math.min(fullUtteranceAudio.length, this.utteranceLastRealSpeechSamples + UTTERANCE_SILENCE_TAIL_SAMPLES)
       : fullUtteranceAudio.length;
-    const audio = trailingCap < fullUtteranceAudio.length
-      ? fullUtteranceAudio.slice(0, trailingCap)
+    let leadStartRaw = this.utteranceFirstAudibleSamples >= 0
+      ? Math.max(0, this.utteranceFirstAudibleSamples - PRIV_STT_DERIVED.LEADING_TRIM_KEEP_MARGIN_SAMPLES)
+      : 0;
+    // Long-quiet-lead-in guard: if a quiet run precedes the first loud-speech frame by more than
+    // LEADING_MAX_QUIET_SECONDS (room tone, not a soft opening — that threshold is well beyond the
+    // longest observed soft onset), trim it to ~1s before that onset so Whisper does not hallucinate
+    // a prefix on extended low-energy audio. Verified: 30s room tone hallucinated "(crowd murmuring)".
+    if (this.utteranceFirstLoudSamples > PRIV_STT_DERIVED.LEADING_MAX_QUIET_SAMPLES) {
+      leadStartRaw = Math.max(leadStartRaw, this.utteranceFirstLoudSamples - PRIV_STT_DERIVED.LEADING_QUIET_KEEP_SAMPLES);
+    }
+    // Defensive: never let the leading trim cross the trailing bound.
+    const leadStart = leadStartRaw < trailingCap ? leadStartRaw : 0;
+    const audio = (leadStart > 0 || trailingCap < fullUtteranceAudio.length)
+      ? fullUtteranceAudio.slice(leadStart, trailingCap)
       : fullUtteranceAudio;
     if (audio.length < fullUtteranceAudio.length) {
-      pushPrivateTimeline('whole_utterance_trailing_silence_trimmed', {
+      pushPrivateTimeline('whole_utterance_silence_trimmed', {
         serviceId: this.serviceId,
         runId: this.instanceId,
         fullSamples: fullUtteranceAudio.length,
         keptSamples: audio.length,
-        trimmedSamples: fullUtteranceAudio.length - audio.length,
+        leadingTrimmedSamples: leadStart,
+        trailingTrimmedSamples: fullUtteranceAudio.length - trailingCap,
+        firstAudibleSamples: this.utteranceFirstAudibleSamples,
         lastRealSpeechSamples: this.utteranceLastRealSpeechSamples,
       });
     }
