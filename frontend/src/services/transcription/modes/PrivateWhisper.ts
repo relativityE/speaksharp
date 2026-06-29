@@ -182,7 +182,14 @@ const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
 const UTTERANCE_SILENCE_TAIL_SAMPLES = PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
-const TRANSCRIPTION_TIMEOUT_MS = 60_000;
+// Worst-case bound on the post-Stop wait for an in-flight LIVE decode to drain before the
+// whole-utterance commit. The live-decode interval is cleared at Stop, so at most ONE decode is in
+// flight (typically sub-second) and the normal drain ends naturally when it finishes — this only
+// guards a genuinely hung decode. It is NOT a sub-second "proceed anyway" cap: the worker does not
+// serialize transcribe() (transformers-js.worker.ts onmessage), so starting the commit decode while
+// a live decode still runs would race the shared Whisper pipeline. Going lower safely requires a
+// worker-side transcribe queue. (Was 60s; tightened to bound the pathological hang tail.)
+const STOP_INFLIGHT_DRAIN_CAP_MS = 5_000;
 const SPEECH_START_MIN_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_MIN_SAMPLES;
 const SPEECH_START_PREROLL_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_PREROLL_SAMPLES;
 const SPEECH_START_RESET_TOLERANCE_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_RESET_TOLERANCE_SAMPLES;
@@ -1852,10 +1859,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     const waitStartedAt = performance.now();
     const wasProcessingAtStop = this.isProcessing;
-    while (this.isProcessing && performance.now() - waitStartedAt < TRANSCRIPTION_TIMEOUT_MS) {
+    while (this.isProcessing && performance.now() - waitStartedAt < STOP_INFLIGHT_DRAIN_CAP_MS) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     const drainWaitMs = Number((performance.now() - waitStartedAt).toFixed(1));
+    // True only if the cap fired while a decode was still running (a hung live decode) — surfaced
+    // so the stop-budget proof can flag the rare proceed-while-busy case.
+    const drainCappedStillProcessing = this.isProcessing;
     // Break down the Stop -> decode-start overhead so a proof can attribute it to
     // the in-flight-live-decode drain (single-threaded worker) vs cleanup, rather
     // than inferring it from raw timeline events.
@@ -1864,6 +1874,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       runId: this.instanceId,
       wasProcessingAtStop,
       drainWaitMs,
+      drainCappedStillProcessing,
+      drainCapMs: STOP_INFLIGHT_DRAIN_CAP_MS,
       sinceStopMs: this.stopRequestedAtMs == null
         ? null
         : Number((performance.now() - this.stopRequestedAtMs).toFixed(1)),
