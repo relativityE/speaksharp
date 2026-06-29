@@ -33,7 +33,7 @@
 import logger from '../../../lib/logger';
 import { redactTranscript } from '../../../lib/logRedaction';
 import { sanitizeTranscriptText } from '../transcriptSanitizer';
-import { collapseTranscriptRepetitionLoops } from '../../../utils/repetitionRisk';
+import { detectRepetitionRisk } from '../../../utils/repetitionRisk';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
 import type { PrivateSTTInitOptions } from '../../../contracts/IPrivateSTT';
@@ -2291,10 +2291,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       return;
     }
 
-    // Collapse Whisper repetition loops before this becomes the saved authority
-    // (service_result / selectedForSave). This is the proven duplication boundary
-    // for Private — the raw whole-utterance decode, which has no repetition handling.
-    const transcript = collapseTranscriptRepetitionLoops(sanitizePrivateTranscriptCandidate(rawText));
+    // #891 data-integrity (FLAG-ONLY): do NOT mutate the saved transcript. Repetition loops are a
+    // known Private/Whisper artifact, but a hallucinated loop cannot be reliably distinguished from
+    // genuine repeated speech (emphasis/correction), so we PRESERVE the raw model output and only
+    // FLAG repetition risk via the non-mutating detector into diagnostics. This replaces the prior
+    // collapse, which silently altered saved user speech. v4 loop behavior stays internal/targeted
+    // only until genuinely fixed — it is NOT masked here.
+    const transcript = sanitizePrivateTranscriptCandidate(rawText);
+    const repetitionRisk = detectRepetitionRisk(transcript);
     if (!transcript || isPurePrivateHallucinationTranscript(transcript)) {
       pushPrivateTimeline('whole_utterance_commit_reject', {
         serviceId: this.serviceId,
@@ -2320,6 +2324,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       replacedRollingPreview: redactTranscript(replacedRollingTranscript),
       // Final-decode wall-clock: time the model spent on the whole-utterance buffer.
       decodeMs,
+      // #891 flag-only: repetition risk recorded as NON-MUTATING metadata; saved text is untouched.
+      repetitionRisk: repetitionRisk.repetitionRisk,
+      repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+      repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
     });
 
     // AUTHORITATIVE whole-utterance re-transcription: this single final REPLACES the rolling

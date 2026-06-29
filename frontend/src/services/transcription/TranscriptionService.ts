@@ -2,7 +2,7 @@ import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
-import { collapseTranscriptRepetitionLoops } from '@/utils/repetitionRisk';
+import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 
 import { TranscriptionError } from './errors';
 import { STTStrategy } from './STTStrategy';
@@ -1113,12 +1113,12 @@ export default class TranscriptionService {
         transcript = visibleTranscript.length > strategyTranscript.length
           ? visibleTranscript
           : strategyTranscript || visibleTranscript;
-        // Final-result repetition guard (saved-transcript integrity). The length-preferring
-        // selection above can pick a streaming-accumulated `visibleTranscript` that bypassed
-        // the per-segment collapse, producing a near_whole_doubling in the saved transcript
-        // (service_result / selectedForSave). Collapse the authoritative final transcript here
-        // so the persisted value can never contain a whole-text/multi-word repetition loop.
-        transcript = collapseTranscriptRepetitionLoops(transcript);
+        // #891 data-integrity (FLAG-ONLY): preserve the saved transcript. We previously collapsed
+        // repetition loops here for "saved-transcript integrity", but a hallucinated loop cannot be
+        // reliably distinguished from genuine repeated speech, so we keep the raw authoritative text
+        // and only FLAG repetition risk (non-mutating). Engine-agnostic. v4 loop behavior stays
+        // internal/targeted only until genuinely fixed — it is NOT masked by rewriting saved text.
+        const repetitionRisk = detectRepetitionRisk(transcript);
         logger.info({
           sId: this.serviceId,
           rId: this.runId,
@@ -1127,6 +1127,9 @@ export default class TranscriptionService {
           currentTranscriptLength: this.currentTranscript.length,
           partialTranscriptLength: this.partialTranscript.length,
           selectedTranscriptLength: transcript.length,
+          repetitionRisk: repetitionRisk.repetitionRisk,
+          repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+          repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
         }, '[DEBUG-STOP] TranscriptionService.stopTranscription transcript selected');
       }
 
