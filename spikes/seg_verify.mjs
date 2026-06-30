@@ -44,22 +44,29 @@ async function segment(a){const bs=bd(a);let cur=0,segs=[];for(let i=0;i<bs.leng
   const seamLog=[]; let acc=tok(segs[0].txt); for(let i=1;i<segs.length;i++)acc=acc.concat(reconcileSeam(acc,tok(segs[i].txt),segs[i-1].id,segs[i].id,seamLog));
   return {segs,acc,seamLog,tailMs:segs[segs.length-1].ms,nSeg:segs.length};}
 
-// ---- A) REPRODUCIBLE WER (washington, authoritative reference) ----
+// ---- A) REPRODUCIBLE WER vs authoritative ground truth (bounded to each clip) ----
+console.log(`MAX_SEAM_TRIM = ${MAX_SEAM_TRIM} tokens (overlap ${OVERLAP}s x ${ASSUMED_MAX_WPS} wps, cap 10)\n`);
+// washington (authoritative WASHINGTON_SPEECHES[0].transcript array, bounded to the clip)
 const wts=readFileSync(resolve(FIX,'stt-isomorphic/washington-speeches.ts'),'utf8');
-const blk=wts.slice(wts.indexOf('transcript: ['), wts.indexOf("].join"));
-const ref=tok([...blk.matchAll(/'([^']+)'/g)].map(m=>m[1]).join(' '));
+const wref=tok([...wts.slice(wts.indexOf('transcript: ['), wts.indexOf("].join")).matchAll(/'([^']+)'/g)].map(m=>m[1]).join(' '));
 const wa=readWav(resolve(FIX,'stt-isomorphic/audio/washington_01.wav'));
 const wWhole=tok(await dec(wa)); const wSeg=await segment(wa);
-console.log(`MAX_SEAM_TRIM = ${MAX_SEAM_TRIM} tokens (overlap ${OVERLAP}s x ${ASSUMED_MAX_WPS} wps, cap 10)\n`);
-console.log(`== A) WASHINGTON WER vs authoritative ground truth (${ref.length} words) ==`);
-console.log(`whole-utterance: ${wWhole.length}w  WER ${(wer(ref,wWhole)*100).toFixed(1)}%`);
-console.log(`segmented      : ${wSeg.acc.length}w  WER ${(wer(ref,wSeg.acc)*100).toFixed(1)}%   (tail ${(wSeg.tailMs/1000).toFixed(1)}s, ${wSeg.nSeg} segs)`);
+// harvard (authoritative HARVARD_SENTENCES h1_1..h1_10, fillers INCLUDED in ref; clip 34.5s >30s = long-form)
+const hts=readFileSync(resolve(FIX,'stt-isomorphic/harvard-sentences.ts'),'utf8');
+const href=tok([...hts.matchAll(/transcript:\s*"([^"]+)"/g)].map(m=>m[1]).join(' '));
+const harv=readWav(resolve(FIX,'harvard_benchmark_16k.wav'));
+const hWhole=tok(await dec(harv)); const hSeg=await segment(harv);
+const werRow=(n,ref,whole,seg)=>{const dropped=whole.length<ref.length*0.8;console.log(`\n[${n}] ground truth ${ref.length}w`);
+  console.log(`  whole-utterance: ${whole.length}w  WER ${(wer(ref,whole)*100).toFixed(1)}%${dropped?'  <- whole DROPPED content':''}`);
+  console.log(`  segmented      : ${seg.acc.length}w  WER ${(wer(ref,seg.acc)*100).toFixed(1)}%  (tail ${(seg.tailMs/1000).toFixed(1)}s, ${seg.nSeg} segs, seam-flags ${seg.seamLog.filter(e=>e.reason.includes('FLAG')).length})`);};
+console.log(`== A) WER vs authoritative ground truth ==`);
+werRow('washington_01 (66s)', wref, wWhole, wSeg);
+werRow('harvard_benchmark (34.5s >30s long-form; fillers in ref)', href, hWhole, hSeg);
 
 // ---- B) SEAM AUDIT across repo-fixture multi-segment clips ----
-const harv=readWav(resolve(FIX,'harvard_benchmark_16k.wav'));
 const jfk=readWav(resolve(FIX,'jfk_16k.wav'));
 const cat=(...xs)=>{let L=xs.reduce((s,x)=>s+x.length,0),o=new Float32Array(L),k=0;for(const x of xs){o.set(x,k);k+=x.length;}return o;};
-const clips=[['washington_01',wa,wSeg],['harvard_benchmark',harv,await segment(harv)],['concat(jfk+harvard+washington)',cat(jfk,harv,wa),null]];
+const clips=[['washington_01',wa,wSeg],['harvard_benchmark',harv,hSeg],['concat(jfk+harvard+washington)',cat(jfk,harv,wa),null]];
 clips[2][2]=await segment(clips[2][1]);
 console.log(`\n== B) SEAM AUDIT (conservative overlap-bounded reconciliation) ==`);
 for(const [name,,s] of clips){

@@ -15,15 +15,19 @@ INVERTED it: the **whole-utterance baseline is broken** — transformers.js whis
 silently drops part of long-clip content. The "vs whole" metric is meaningless where whole is broken — use
 ground truth, bounded to the clip.
 
-**Reproducible measurement** (Phase 1.5 `seg_verify.mjs`, repo-relative, authoritative 191-word reference,
-conservative 6-token reconciliation):
+**Reproducible measurement** (Phase 1.5 `seg_verify.mjs`, repo-relative, authoritative references bounded to
+each clip, conservative 6-token reconciliation). Harvard fixture mapping VERIFIED: `harvard_benchmark_16k.wav`
+= `HARVARD_SENTENCES` h1_1..h1_10 in order (fillers included in ref), 34.5s (>30s = exercises long-form stitch).
 
-| washington_01 (66s), WER vs authoritative ground truth | words | WER |
-|---|---|---|
-| Whole-utterance decode (current prod path) | 79 / 191 | 58.6% |
-| Segmented decode | 195 / 191 | 2.6% |
+| WER vs authoritative ground truth | GT words | Whole-utterance (prod path) | Segmented |
+|---|---|---|---|
+| washington_01 (66s) | 191 | 79w, **58.6%** (dropped) | 195w, **2.6%** (1 seam-flag) |
+| harvard_benchmark (34.5s) | 87 | 35w, **60.9%** (dropped) | 97w, **12.6%** (1 seam-flag) |
 
-Harvard: whole captured the last third only; segmented captured the full list.
+Long-form content-drop CONFIRMED on 2 clips (whole drops ~60% on both; segmentation recovers on both).
+Harvard's higher segmented WER (12.6% vs 2.6%) is the **flagged seam-defect cost** (kept-both residual dup,
+~+10 words) — directly motivates the first Phase-2 task. This is **limited fixture evidence (2 clips), NOT
+corpus-level validation** — do not broaden the accuracy claim.
 - **APPROVED framing:** "Segmentation recovers content that the whole long-form path can drop, and materially improves tail latency."
 - **NOT a headline:** "2.6% WER / 22× improvement." The figures above are a SINGLE-CLIP reproducible measurement
   (supporting data, bounded to washington_01) — a quantitative accuracy claim needs a broader corpus.
