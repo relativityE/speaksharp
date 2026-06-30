@@ -68,6 +68,13 @@ export const PRIV_STT = {
   // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
   // the BEGINNING (the opening) and stop appending, rather than rolling the buffer forward.
   MAX_UTTERANCE_SECONDS: 600,
+  // #891 beta latency control: cap a SINGLE Private recording so the Stop whole-utterance
+  // re-decode (~0.27x realtime, single-thread WASM on the deployed build) finalizes UNDER the 30s
+  // ceiling — 90s of audio => ~24-26s stop-to-final (margin). This caps ONE take, NOT the 5-min
+  // Private sample budget. Segmented finalization (decode only the unfinalized tail at Stop) is the
+  // roadmap fix that lifts this cap; until then 90s is the honest beta control.
+  MAX_PRIVATE_RECORDING_SECONDS: 90,
+  PRIVATE_RECORDING_CAP_WARNING_SECONDS: 15,
   PROCESSING_INTERVAL_MS: 250,
   MAX_RETRY_SECONDS: 12,
   WHISPER_WINDOW_SECONDS: STT_PROVIDER_REQUIREMENTS.PRIVATE_TRANSFORMERS_WHISPER.MODEL_CONTEXT_WINDOW_SECONDS,
