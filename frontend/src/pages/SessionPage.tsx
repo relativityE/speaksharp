@@ -311,6 +311,7 @@ export const SessionPage: React.FC = () => {
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
                                     isFinalizing={isTranscriptFinalizing}
+                                    recordingDurationSeconds={elapsedTime}
                                     nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"
                                 />

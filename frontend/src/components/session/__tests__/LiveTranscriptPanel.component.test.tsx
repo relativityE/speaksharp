@@ -398,21 +398,24 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
     });
 
-    it('replaces the rolling draft with the finalizing placeholder during the whole-utterance decode (#891)', () => {
+    it('shows the captured words DIMMED with bounded honest progress during finalization (#891)', () => {
         render(
             <LiveTranscriptPanel
                 transcript="rough draft so far"
                 interimTranscript="rough draft so far"
                 isListening={false}
                 isFinalizing={true}
+                recordingDurationSeconds={30}
                 sttMode="private"
             />
         );
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
-        // #891: the inaccurate rolling draft must NOT be presented as the result — it is replaced by
-        // a clear processing placeholder, and the draft-rendering elements are not shown.
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript locally…');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Your final transcript will appear here shortly.');
+        // #891: honest, bounded progress (30s recording * ~0.27 ≈ ~8s), never a fixed guess.
+        expect(screen.getByTestId('live-transcript-finalizing-title')).toHaveTextContent('Finalizing your transcript locally… — ~8s');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Your words are captured. Polishing the final version…');
+        // the captured words are shown DIMMED (confidence), NOT presented as final, and NOT the
+        // live recording draft line — so the user sees their speech is safe but clearly provisional.
+        expect(screen.getByTestId('live-transcript-finalizing-dimmed-draft')).toHaveTextContent('rough draft so far');
         expect(screen.queryByTestId('live-transcript-current-line')).not.toBeInTheDocument();
         expect(screen.queryByTestId('live-transcript-settled')).not.toBeInTheDocument();
     });
