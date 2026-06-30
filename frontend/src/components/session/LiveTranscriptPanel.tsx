@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock, Cloud } from 'lucide-react';
+import { Lock, Cloud, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
 import { splitSettledActiveTranscript, hasSevereRepetitionLoop, collapseRepeatedFinalForDisplay } from './liveTranscriptUtils';
@@ -132,10 +132,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
     const visibleTranscript = [committedForDisplay.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
     const finalizingBannerText = isPrivateMode ? 'Processing speech locally…' : 'Processing transcript…';
-    const finalizingEmptyTitle = isPrivateMode ? 'Finalizing local transcript…' : 'Finalizing transcript…';
-    const finalizingEmptyDescription = isPrivateMode
-        ? 'Your final transcript will appear here when local processing finishes.'
-        : 'Your final transcript will appear here when processing finishes.';
+    const finalizingEmptyTitle = isPrivateMode ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…';
+    const finalizingEmptyDescription = 'Your final transcript will appear here shortly.';
     const listeningEmptyText = isPrivateMode
         ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
         : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
@@ -270,19 +268,6 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 aria-label="Live transcript of your speech"
                 role="log"
             >
-                {/* Finalizing banner: post-Stop whole-utterance decode in progress.
-                    Keeps the user informed during multi-second CPU finalization so
-                    stale draft text is never mistaken for the saved result. */}
-                {isFinalizing && (
-                    <div
-                        className="sticky top-0 z-20 mb-3 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
-                        data-testid="live-transcript-finalizing"
-                    >
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
-                        {finalizingBannerText}
-                    </div>
-                )}
-
                 {showDraftTrustBanner && (
                     <div
                         className="sticky top-0 z-20 mb-3 rounded-md border border-dashed border-primary/30 bg-background/95 px-3 py-2 text-sm text-foreground/80 shadow-sm backdrop-blur"
@@ -358,7 +343,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         <p className="text-sm font-semibold text-primary">{finalizingBannerText}</p>
                         <p className="max-w-sm text-xs text-foreground/60">{finalizingEmptyDescription}</p>
                     </div>
-                ) : hasTranscript || hasInterimTranscript ? (
+                ) : (hasTranscript || hasInterimTranscript) && !isFinalizing ? (
                     <div
                         className={`text-foreground text-lg leading-relaxed ${isDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
                         data-transcript-draft={isDrafting ? 'true' : undefined}
@@ -422,9 +407,10 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     </div>
                 ) : isFinalizing ? (
                     <div
-                        className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
+                        className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-foreground/80"
                         data-testid="live-transcript-finalizing-empty"
                     >
+                        <Loader2 className="h-7 w-7 animate-spin text-primary" aria-hidden="true" />
                         <p className="text-sm font-semibold text-primary">{finalizingEmptyTitle}</p>
                         <p className="max-w-sm text-xs text-foreground/60">
                             {finalizingEmptyDescription}

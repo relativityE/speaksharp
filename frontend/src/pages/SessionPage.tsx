@@ -283,6 +283,7 @@ export const SessionPage: React.FC = () => {
                                     fsmState={runtimeState}
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
+                                    isFinalizing={isTranscriptFinalizing}
                                     canUsePrivate={canUsePrivateStt}
                                     isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
