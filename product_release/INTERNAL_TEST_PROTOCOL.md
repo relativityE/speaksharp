@@ -61,10 +61,15 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - **Private sample:** one-time on-device model setup; first words can take ~5s on CPU/WASM; the
   sample is short and saves automatically when it ends. **Saved-transcript fidelity (added
   2026-06-29, #891/#892) — check the persisted History transcript, not the live draft:**
-  the opening clause is preserved (after a soft/quiet/delayed onset, not just a loud one);
+  the opening clause is preserved — **INCLUDING the immediate-start case (hit Record → wait for the
+  green "Ready — speak now" pill → speak immediately), not just delayed/soft/loud onsets** (this
+  immediate-start re-gate is the ONE open pre-beta validation of the deployed mic-ready gate);
   coverage threshold passes; no ≥5-word verbatim loop; History/detail matches; long leading
-  silence produces no hallucinated prefix; and **stop-to-final latency is recorded** (measure at
-  ~1–3 min and ~4–5 min — latency ≤5s is a separate open gate). For a **v4-targeted** session also
+  silence produces no hallucinated prefix; the finalize state shows the **dimmed draft + honest
+  progress, never the wrong rolling text as final**; and **stop-to-final latency is recorded**
+  (measure at ~1–3 min and ~4–5 min — **owner ruling 2026-06-30: the 90s cap is REJECTED for beta;
+  a full 5-min single recording under 30s is REQUIRED pre-beta**; primary path = Moonshine v2
+  streaming prototype, fallback = segmented finalization). For a **v4-targeted** session also
   confirm `engine_version=private_v4` and no visible/saved phrase loop.
 
 ---
