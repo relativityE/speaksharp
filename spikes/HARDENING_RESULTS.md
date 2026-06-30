@@ -58,10 +58,23 @@ duplication, ZERO deletion) — washington 2.6%, harvard 9.2%. This is the "flag
 "spliced-without-coverage-proof" (the forbidden rung) does not occur. The accuracy claim stands ONLY at the
 qualitative level below; the splice does NOT yet produce a clean low-WER result we can certify.
 
-Open option (owner's call): an ASYMMETRIC splice — drop only the COVERED curr-head dup, KEEP+flag the
-out-of-window prev-tail hallucination — would remove the duplication safely while leaving the hallucination as
-visible flagged residual, reducing residual without crossing the coverage line. The real continuous 5-min take
-remains the key gate (concat seams are silent join artifacts that never exercise fuzzy splice).
+### ASYMMETRIC splice — DONE (approved phrasing)
+Rule: drop each side's span IFF it is coverage-certified (jitter incl); KEEP+FLAG any out-of-window span; NEVER
+drop out-of-window; `DROPPED-OUT-OF-WINDOW=0` is a hard invariant. Boundary-hallucination removal is NOT attempted.
+Re-run (3 clips):
+- washington seam1->2: DROP-curr "his own deficiencies." COVERED; KEEP-prev "Please." @27.1s OUT-OF-WINDOW (flagged). WER 2.6%->**1.0%**.
+- harvard seam0->1: DROP-curr "tales to frighten him," COVERED; KEEP-prev "He's a dragon-chimp." @10.8s OUT-OF-WINDOW (flagged). WER 9.2%->**4.6%** (the 4.6% is ENTIRELY the flagged hallucination, out of scope).
+- concat: 4 exact_overlap_trim, all DROP-curr COVERED.
+- **DROPPED-OUT-OF-WINDOW = 0 on all clips**; PATH-3 liveness PASS.
+
+Boundary-hallucination removal = OUT OF SCOPE for beta (NOT a TODO): a span that can't prove coverage stays
+visible+flagged; we do NOT build a quality-heuristic deleter (that's the banned sanitizer). Remaining residual on
+washington/harvard = the flagged boundary hallucinations, by design. The real continuous 5-min take remains the
+key gate (concat seams are silent join artifacts that never exercise fuzzy splice; open empirical Q: do
+natural-boundary overlaps yield COVERED curr-head spans the asym splice cleans, or do real disfluencies also
+timestamp weirdly and force flag). Production wiring MUST carry the flagged-seam metadata (which spans
+kept-both/coverage-aborted, retained text + why) INTO the saved transcript as flag-only metadata, auditable in
+saved History — not just the harness.
 - **APPROVED framing:** "Segmentation recovers content that the whole long-form path can drop, and materially improves tail latency."
 - **NOT a headline:** "2.6% WER / 22× improvement." The figures above are a SINGLE-CLIP reproducible measurement
   (supporting data, bounded to washington_01) — a quantitative accuracy claim needs a broader corpus.

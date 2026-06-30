@@ -40,7 +40,7 @@ function reconcileSeam(prev, curr, tLo, tHi, segPrev, segCurr, seamLog){
   const cap=Math.min(MAX_SEAM_TRIM, prev.length, curr.length);
   for(let k=cap;k>=1;k--){let ok=1;for(let i=0;i<k;i++)if(nm(prev[prev.length-k+i].w)!==nm(curr[i].w)){ok=0;break;}
     if(ok){const dropped=curr.slice(0,k), c=spanCov(dropped,tLo,tHi);
-      if(c.covered){ seamLog.push({...base, reason:'exact_overlap_trim', drops:[{side:'curr',text:dropped.map(t=>t.w).join(' '),...c}]}); return {trimPrev:0,curr:curr.slice(k)}; }
+      if(c.covered){ seamLog.push({...base, reason:'exact_overlap_trim', drops:[{side:'curr',text:dropped.map(t=>t.w).join(' '),...c,action:'DROPPED'}]}); return {trimPrev:0,curr:curr.slice(k)}; }
       break; } }
   // 2) garbled overlap: bounded FUZZY ANCHOR SPLICE — anchor=longest common run, then COVERAGE-GATED
   const pStart=Math.max(0,prev.length-FUZZY_W), pWin=prev.slice(pStart), cWin=curr.slice(0,FUZZY_W);
@@ -51,9 +51,13 @@ function reconcileSeam(prev, curr, tLo, tHi, segPrev, segCurr, seamLog){
     if(dropPrevN<=DROP_CAP && dropCurrN<=DROP_CAP){
       const dp=prev.slice(prev.length-dropPrevN), dc=curr.slice(0,dropCurrN), cp=spanCov(dp,tLo,tHi), cc=spanCov(dc,tLo,tHi);
       const anchor=pWin.slice(best.i,best.i+best.L).map(t=>t.w).join(' ');
-      const drops=[...(dp.length?[{side:'prev',text:dp.map(t=>t.w).join(' '),...cp}]:[]), ...(dc.length?[{side:'curr',text:dc.map(t=>t.w).join(' '),...cc}]:[])];
-      if(cp.covered && cc.covered){ seamLog.push({...base, reason:'fuzzy_anchor_splice', anchor, drops}); return {trimPrev:dropPrevN, curr:curr.slice(dropCurrN)}; }
-      seamLog.push({...base, reason:'SPLICE_ABORTED_OUT_OF_WINDOW__kept_both__FLAG', anchor, drops}); return {trimPrev:0, curr};   // coverage FAILED -> flag
+      // ASYMMETRIC: drop each side's span IFF it is coverage-certified (jitter incl). keep+FLAG any out-of-window
+      // span. NEVER drop out-of-window. Boundary-hallucination removal is NOT attempted (out of scope).
+      const doPrev = dp.length>0 && cp.covered, doCurr = dc.length>0 && cc.covered;
+      const drops=[...(dp.length?[{side:'prev',text:dp.map(t=>t.w).join(' '),...cp,action:doPrev?'DROPPED':'KEPT'}]:[]), ...(dc.length?[{side:'curr',text:dc.map(t=>t.w).join(' '),...cc,action:doCurr?'DROPPED':'KEPT'}]:[])];
+      const reason=(doPrev&&doCurr)?'fuzzy_anchor_splice_FULL':(doPrev||doCurr)?'asym_splice_partial__residual_FLAG':'NO_COVERED_SPAN__kept_both__FLAG';
+      seamLog.push({...base, reason, anchor, drops});
+      return {trimPrev: doPrev?dropPrevN:0, curr: doCurr?curr.slice(dropCurrN):curr};
     }
   }
   seamLog.push({...base, reason:'NO_BOUNDED_MATCH__kept_both__FLAG', drops:[]});
@@ -102,16 +106,15 @@ const fmt=d=>`${d.ts!=null?`@[${d.ts.toFixed(2)}-${d.te.toFixed(2)}s]`:'@[—]'}
 for(const [name,s] of clips){
   console.log(`\n[${name}] ${s.nSeg} segs, assembled ${s.accW.length}w, loop: ${loopFlag(s.accW)||'none'}`);
   for(const e of s.seamLog){
-    const tag=e.reason==='exact_overlap_trim'?'exact_overlap_trim':e.reason==='fuzzy_anchor_splice'?`FUZZY_SPLICE anchor="${e.anchor}"`:e.reason;
+    const tag=e.anchor?`${e.reason} anchor="${e.anchor}"`:e.reason;
     console.log(`  seam ${e.seam} | overlap [t_lo=${e.tLo.toFixed(2)}, t_hi=${e.tHi.toFixed(2)}] | ${tag}`);
-    for(const d of e.drops) console.log(`      drop-${d.side} "${d.text}" ${fmt(d)}`);
-    if(e.reason.includes('OUT_OF_WINDOW')) console.log(`      -> splice ABORTED (out-of-window) -> keep-both+FLAG`);
-    else if(e.reason.includes('NO_BOUNDED')) console.log(`      prevTail …${e.prevTail} | currHead ${e.currHead}…`);
+    for(const d of e.drops) console.log(`      ${d.action==='DROPPED'?'DROP':'KEEP'}-${d.side} "${d.text}" ${fmt(d)}${d.action==='KEPT'?' (flagged residual)':''}`);
+    if(e.reason.includes('NO_BOUNDED')) console.log(`      prevTail …${e.prevTail} | currHead ${e.currHead}…`);
   }
-  const splicedOOW=s.seamLog.filter(e=>e.reason==='fuzzy_anchor_splice'&&e.drops.some(d=>!d.covered)).length;
-  console.log(`  -> seams:${s.seamLog.length} flagged:${flags(s)} | SPLICED-OUT-OF-WINDOW (forbidden): ${splicedOOW}`);
+  const droppedOOW=s.seamLog.reduce((n,e)=>n+(e.drops||[]).filter(d=>d.action==='DROPPED'&&!d.covered).length,0);
+  console.log(`  -> seams:${s.seamLog.length} flagged:${flags(s)} | DROPPED-OUT-OF-WINDOW (forbidden): ${droppedOOW}`);
 }
 // path-3 liveness: a no-anchor seam must keep-both+flag
 {const sl=[]; const T=ws=>ws.map((w,i)=>({w,ts:i,te:i+0.5})); const r=reconcileSeam(T(['alpha','bravo','charlie','delta']),T(['xray','yankee','zulu','whiskey']),0,4,'tA','tB',sl);
  console.log(`\nPATH-3 liveness (no-anchor -> keep-both+flag): ${(r.trimPrev===0&&r.curr.length===4&&sl[0].reason.includes('FLAG'))?'PASS':'FAIL'}`);}
-console.log(`\nPASS(b) = zero SPLICED-OUT-OF-WINDOW across all clips (every out-of-window span fell back to flag). Coverage certifies the mechanism regardless of reference content.`);
+console.log(`\nPASS(b) = zero DROPPED-OUT-OF-WINDOW across all clips (only coverage-certified spans removed; out-of-window kept+flagged). Asymmetric: drop covered curr-head dup, keep+flag out-of-window prev-tail. Boundary-hallucination removal OUT OF SCOPE.`);

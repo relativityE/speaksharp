@@ -1,15 +1,11 @@
 coverage invariant: every dropped span ⊆ [t_lo,t_hi]=[curr.audioStart, prev.audioEnd]; jitter tol ±0.2s; out-of-window -> abort to flag
 
 == A) WER vs authoritative ground truth ==
-[washington_01 (66s)] gt 191w | whole 79w WER 58.6% (DROPPED) | segmented 195w WER 2.6% (tail 8.4s, 3 segs, flags 1)
-[harvard_benchmark (34.5s)] gt 87w | whole 35w WER 60.9% (DROPPED) | segmented 95w WER 9.2% (tail 3.5s, 2 segs, flags 1)
+[washington_01 (66s)] gt 191w | whole 79w WER 58.6% (DROPPED) | segmented 192w WER 1.0% (tail 8.1s, 3 segs, flags 1)
+[harvard_benchmark (34.5s)] gt 87w | whole 35w WER 60.9% (DROPPED) | segmented 91w WER 4.6% (tail 3.5s, 2 segs, flags 1)
 
-== A2) HARVARD WER DECOMPOSITION (ref 87w; 8 errors; seam-pos [57]) ==
-  totals I=8 D=0 S=0 | content-floor errors: 0
-   [49] I "∅" -> "tales"
-   [50] I "∅" -> "to"
-   [51] I "∅" -> "frighten"
-   [52] I "∅" -> "him."
+== A2) HARVARD WER DECOMPOSITION (ref 87w; 4 errors; seam-pos [57]) ==
+  totals I=4 D=0 S=0 | content-floor errors: 0
    [53] I "∅" -> "He's"
    [54] I "∅" -> "a"
    [55] I "∅" -> "dragon"
@@ -17,33 +13,31 @@ coverage invariant: every dropped span ⊆ [t_lo,t_hi]=[curr.audioStart, prev.au
 
 == B) SEAM AUDIT (coverage-gated) ==
 
-[washington_01] 3 segs, assembled 195w, loop: none
+[washington_01] 3 segs, assembled 192w, loop: none
   seam seg0->seg1 | overlap [t_lo=16.79, t_hi=18.29] | exact_overlap_trim
-      drop-curr ""On the other hand," @[16.83-18.01s] COVERED ✓
-  seam seg1->seg2 | overlap [t_lo=35.62, t_hi=37.12] | SPLICE_ABORTED_OUT_OF_WINDOW__kept_both__FLAG
-      drop-prev "Please." @[27.12-27.62s] OUT-OF-WINDOW ✗
-      drop-curr "his own deficiencies." @[35.62-37.28s] COVERED ✓
-      -> splice ABORTED (out-of-window) -> keep-both+FLAG
-  -> seams:2 flagged:1 | SPLICED-OUT-OF-WINDOW (forbidden): 0
+      DROP-curr ""On the other hand," @[16.83-18.01s] COVERED ✓
+  seam seg1->seg2 | overlap [t_lo=35.62, t_hi=37.12] | asym_splice_partial__residual_FLAG anchor="his own deficiencies.""
+      KEEP-prev "Please." @[27.12-27.62s] OUT-OF-WINDOW ✗ (flagged residual)
+      DROP-curr "his own deficiencies." @[35.62-37.28s] COVERED ✓
+  -> seams:2 flagged:1 | DROPPED-OUT-OF-WINDOW (forbidden): 0
 
-[harvard_benchmark] 2 segs, assembled 95w, loop: none
-  seam seg0->seg1 | overlap [t_lo=19.31, t_hi=20.81] | SPLICE_ABORTED_OUT_OF_WINDOW__kept_both__FLAG
-      drop-prev "He's a dragon -chimp." @[10.81-12.41s] OUT-OF-WINDOW ✗
-      drop-curr "tales to frighten him," @[19.31-20.91s] COVERED ✓
-      -> splice ABORTED (out-of-window) -> keep-both+FLAG
-  -> seams:1 flagged:1 | SPLICED-OUT-OF-WINDOW (forbidden): 0
+[harvard_benchmark] 2 segs, assembled 91w, loop: none
+  seam seg0->seg1 | overlap [t_lo=19.31, t_hi=20.81] | asym_splice_partial__residual_FLAG anchor="tales to frighten him."
+      KEEP-prev "He's a dragon -chimp." @[10.81-12.41s] OUT-OF-WINDOW ✗ (flagged residual)
+      DROP-curr "tales to frighten him," @[19.31-20.91s] COVERED ✓
+  -> seams:1 flagged:1 | DROPPED-OUT-OF-WINDOW (forbidden): 0
 
 [concat(jfk+harvard+washington)] 5 segs, assembled 301w, loop: none
   seam seg0->seg1 | overlap [t_lo=17.29, t_hi=18.79] | exact_overlap_trim
-      drop-curr "beef stew. Well," @[17.29-18.79s] COVERED ✓
+      DROP-curr "beef stew. Well," @[17.29-18.79s] COVERED ✓
   seam seg1->seg2 | overlap [t_lo=37.80, t_hi=39.30] | exact_overlap_trim
-      drop-curr "A smooth road," @[37.80-39.38s] COVERED ✓
+      DROP-curr "A smooth road," @[37.80-39.38s] COVERED ✓
   seam seg2->seg3 | overlap [t_lo=58.41, t_hi=59.91] | exact_overlap_trim
-      drop-curr "an immutable decision," @[58.41-59.93s] COVERED ✓
+      DROP-curr "an immutable decision," @[58.41-59.93s] COVERED ✓
   seam seg3->seg4 | overlap [t_lo=81.15, t_hi=82.65] | exact_overlap_trim
-      drop-curr "his own deficiencies." @[81.15-82.81s] COVERED ✓
-  -> seams:4 flagged:0 | SPLICED-OUT-OF-WINDOW (forbidden): 0
+      DROP-curr "his own deficiencies." @[81.15-82.81s] COVERED ✓
+  -> seams:4 flagged:0 | DROPPED-OUT-OF-WINDOW (forbidden): 0
 
 PATH-3 liveness (no-anchor -> keep-both+flag): PASS
 
-PASS(b) = zero SPLICED-OUT-OF-WINDOW across all clips (every out-of-window span fell back to flag). Coverage certifies the mechanism regardless of reference content.
+PASS(b) = zero DROPPED-OUT-OF-WINDOW across all clips (only coverage-certified spans removed; out-of-window kept+flagged). Asymmetric: drop covered curr-head dup, keep+flag out-of-window prev-tail. Boundary-hallucination removal OUT OF SCOPE.
