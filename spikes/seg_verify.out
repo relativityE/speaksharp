@@ -1,42 +1,49 @@
-MAX_SEAM_TRIM = 6 tokens (overlap 1.5s x 4 wps, cap 10)
+coverage invariant: every dropped span ⊆ [t_lo,t_hi]=[curr.audioStart, prev.audioEnd]; jitter tol ±0.2s; out-of-window -> abort to flag
 
 == A) WER vs authoritative ground truth ==
+[washington_01 (66s)] gt 191w | whole 79w WER 58.6% (DROPPED) | segmented 195w WER 2.6% (tail 8.4s, 3 segs, flags 1)
+[harvard_benchmark (34.5s)] gt 87w | whole 35w WER 60.9% (DROPPED) | segmented 95w WER 9.2% (tail 3.5s, 2 segs, flags 1)
 
-[washington_01 (66s)] ground truth 191w
-  whole-utterance: 79w  WER 58.6%  <- whole DROPPED content
-  segmented      : 191w  WER 0.5%  (tail 5.3s, 3 segs, seam-flags 0)
+== A2) HARVARD WER DECOMPOSITION (ref 87w; 8 errors; seam-pos [57]) ==
+  totals I=8 D=0 S=0 | content-floor errors: 0
+   [49] I "∅" -> "tales"
+   [50] I "∅" -> "to"
+   [51] I "∅" -> "frighten"
+   [52] I "∅" -> "him."
+   [53] I "∅" -> "He's"
+   [54] I "∅" -> "a"
+   [55] I "∅" -> "dragon"
+   [56] I "∅" -> "-chimp."
 
-[harvard_benchmark (34.5s >30s long-form; fillers in ref)] ground truth 87w
-  whole-utterance: 35w  WER 60.9%  <- whole DROPPED content
-  segmented      : 87w  WER 1.1%  (tail 1.7s, 2 segs, seam-flags 0)
+== B) SEAM AUDIT (coverage-gated) ==
 
-== A2) HARVARD WER DECOMPOSITION (ref 87w; 1 errors; seam token-pos [53]) ==
-  totals: I=0 D=0 S=1
-  insertion runs: 
-  SEAM-attributable (contiguous run touching seam; task-one fixable): 0
-  CONTENT errors (base-model floor; seam fix cannot touch): 1  -> implied harvard post-fix floor ≈ 1.1% WER
-  --- every error (pos | type | ref -> hyp) ---
-   [34] S  "parked" -> "park"
-  (one-clip diagnostic to scope task one on harvard; NOT a general base.en filler-error rate.)
+[washington_01] 3 segs, assembled 195w, loop: none
+  seam seg0->seg1 | overlap [t_lo=16.79, t_hi=18.29] | exact_overlap_trim
+      drop-curr ""On the other hand," @[16.83-18.01s] COVERED ✓
+  seam seg1->seg2 | overlap [t_lo=35.62, t_hi=37.12] | SPLICE_ABORTED_OUT_OF_WINDOW__kept_both__FLAG
+      drop-prev "Please." @[27.12-27.62s] OUT-OF-WINDOW ✗
+      drop-curr "his own deficiencies." @[35.62-37.28s] COVERED ✓
+      -> splice ABORTED (out-of-window) -> keep-both+FLAG
+  -> seams:2 flagged:1 | SPLICED-OUT-OF-WINDOW (forbidden): 0
 
-== B) SEAM AUDIT (conservative overlap-bounded reconciliation) ==
+[harvard_benchmark] 2 segs, assembled 95w, loop: none
+  seam seg0->seg1 | overlap [t_lo=19.31, t_hi=20.81] | SPLICE_ABORTED_OUT_OF_WINDOW__kept_both__FLAG
+      drop-prev "He's a dragon -chimp." @[10.81-12.41s] OUT-OF-WINDOW ✗
+      drop-curr "tales to frighten him," @[19.31-20.91s] COVERED ✓
+      -> splice ABORTED (out-of-window) -> keep-both+FLAG
+  -> seams:1 flagged:1 | SPLICED-OUT-OF-WINDOW (forbidden): 0
 
-[washington_01] 3 segs, assembled 191w, assembled-loop: none
-  seam seg0->seg1 | exact_overlap_trim | drop-curr 4tok ""On the other hand,"
-  seam seg1->seg2 | FUZZY_ANCHOR_SPLICE anchor="his own deficiencies."" | drop-prev 1tok "[BLANK_AUDIO]" | drop-curr 3tok "his own deficiencies."
-  -> seams:2 resolved:2 flagged:0 | max drop PER SIDE: prev 1tok curr 4tok (per-side cap 8; both within)
+[concat(jfk+harvard+washington)] 5 segs, assembled 301w, loop: none
+  seam seg0->seg1 | overlap [t_lo=17.29, t_hi=18.79] | exact_overlap_trim
+      drop-curr "beef stew. Well," @[17.29-18.79s] COVERED ✓
+  seam seg1->seg2 | overlap [t_lo=37.80, t_hi=39.30] | exact_overlap_trim
+      drop-curr "A smooth road," @[37.80-39.38s] COVERED ✓
+  seam seg2->seg3 | overlap [t_lo=58.41, t_hi=59.91] | exact_overlap_trim
+      drop-curr "an immutable decision," @[58.41-59.93s] COVERED ✓
+  seam seg3->seg4 | overlap [t_lo=81.15, t_hi=82.65] | exact_overlap_trim
+      drop-curr "his own deficiencies." @[81.15-82.81s] COVERED ✓
+  -> seams:4 flagged:0 | SPLICED-OUT-OF-WINDOW (forbidden): 0
 
-[harvard_benchmark] 2 segs, assembled 87w, assembled-loop: none
-  seam seg0->seg1 | FUZZY_ANCHOR_SPLICE anchor="to frighten him." | drop-prev 6tok "He is a writer and writer." | drop-curr 4tok "entails to frighten him,"
-  -> seams:1 resolved:1 flagged:0 | max drop PER SIDE: prev 6tok curr 4tok (per-side cap 8; both within)
+PATH-3 liveness (no-anchor -> keep-both+flag): PASS
 
-[concat(jfk+harvard+washington)] 5 segs, assembled 300w, assembled-loop: none
-  seam seg0->seg1 | exact_overlap_trim | drop-curr 1tok "Well,"
-  seam seg1->seg2 | exact_overlap_trim | drop-curr 3tok "a smooth road,"
-  seam seg2->seg3 | exact_overlap_trim | drop-curr 3tok "an immutable decision,"
-  seam seg3->seg4 | exact_overlap_trim | drop-curr 3tok "his own deficiencies."
-  -> seams:4 resolved:4 flagged:0 | max drop PER SIDE: prev 0tok curr 3tok (per-side cap 8; both within)
-
-PATH-3 liveness (no-anchor seam -> keep-both+flag): PASS (trimPrev=0, kept=4/4, reason=NO_BOUNDED_MATCH__kept_both__FLAG)
-
-Policy: (1) exact bounded overlap trim (<=6tok); (2) bounded FUZZY anchor splice within the overlap window (anchor=longest common run >=2; drop prev-tail-after + curr-head-before, per-side cap 8); (3) else keep-both+FLAG. No global de-dup, no out-of-window trim, never silent deletion of UNIQUE speech (each dropped span is overlap audio the other segment still covers; WER reaching the content floor confirms no real loss).
+PASS(b) = zero SPLICED-OUT-OF-WINDOW across all clips (every out-of-window span fell back to flag). Coverage certifies the mechanism regardless of reference content.
