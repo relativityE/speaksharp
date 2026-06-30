@@ -25,8 +25,16 @@ All measured on the SAME node/onnxruntime as the Whisper baseline (apples-to-app
 ## Disposition
 - **Moonshine base: OUT** as the 5-min path.
 - **Whisper + segmentation (Branch B): PROVEN** — the beta path (stop-to-final ~2-6s, 100% recall).
-- **Moonshine STREAMING v2: only remaining Moonshine candidate** — its ergodic/sliding-window encoder
-  (arXiv 2602.12241) is designed to avoid exactly this long-input blowup. Needs a transformers.js build
-  with the streaming model class (added to Python transformers 2026-02-04; NOT in installed 4.2.0) + a
-  streaming ONNX export (e.g. `Mazino0/moonshine-streaming-small-onnx`, `UsefulSensors/moonshine-streaming-*`).
-  Now an OPTIMIZATION, not the blocker — segmentation already clears the bar.
+- **Moonshine STREAMING v2: blocked in our stack (probed 2026-06-30).** Streaming ONNX weights EXIST
+  (`Mazino0/moonshine-streaming-small-onnx`, `model_type: moonshine_streaming`, int8 encoder/decoder/
+  decoder_with_past). BUT transformers.js cannot load them: the `moonshine_streaming` class was added to
+  *Python* transformers (2026-02-04), NOT the JS port — latest `@huggingface/transformers` on npm = **4.2.0**
+  (= our installed), no streaming class. (`UsefulSensors/moonshine-streaming-small` ships no ONNX at all.)
+  → Requires an upstream transformers.js release (no ETA) OR a hand-rolled onnxruntime-web streaming loop
+  (substantial; authors note the current code path "does not yet implement fully efficient streaming").
+  Verdict: NOT a near-term path. Future watch item — revisit when transformers.js adds `moonshine_streaming`.
+
+## FINAL DISPOSITION (all three paths resolved by measurement)
+1. Moonshine base — OUT (long-audio: slower than Whisper + loop hallucination).
+2. Moonshine streaming v2 — NOT viable now (no transformers.js support; needs upstream or custom ORT loop).
+3. **Whisper + segmentation — PROVEN, uses the model+lib we already ship → the beta path.** (Branch B.)
