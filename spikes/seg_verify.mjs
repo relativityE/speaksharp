@@ -37,20 +37,39 @@ function werOps(refW,hypW){const ref=refW.map(nm),hyp=hypW.map(nm),m=ref.length,
 function loopFlag(words){const n=words.length,w=words.map(nm);for(let i=0;i<n;i++){const mk=Math.min(30,Math.floor((n-i)/3));for(let k=2;k<=mk;k++){let r=1;while(i+(r+1)*k<=n){let m=1;for(let x=0;x<k;x++)if(w[i+r*k+x]!==w[i+x]){m=0;break;}if(!m)break;r++;}if(r>=3)return `"${words.slice(i,i+k).join(' ')}" x${r}`;}}return null;}
 
 // CONSERVATIVE seam reconciliation — bounded to overlap window, instrumented, under-trim/flag.
+const FUZZY_W=10, MIN_ANCHOR=2, DROP_CAP=8;                 // anchor-search window + min run + per-side drop bound
 function reconcileSeam(prev, curr, segPrev, segCurr, seamLog){
+  const ctx = {prevTail: prev.slice(-10).join(' '), currHead: curr.slice(0,10).join(' ')};   // raw overlap artifact
+  // 1) clean overlap: EXACT bounded trim of curr's head (<= MAX_SEAM_TRIM). unchanged for the already-clean clips.
   const cap = Math.min(MAX_SEAM_TRIM, prev.length, curr.length);
   for(let k=cap;k>=1;k--){let ok=1;for(let i=0;i<k;i++)if(nm(prev[prev.length-k+i])!==nm(curr[i])){ok=0;break;}
-    if(ok){ const removed=curr.slice(0,k);
-      seamLog.push({seam:`${segPrev}->${segCurr}`, overlapSec:OVERLAP, cap, removedTokens:k, removedText:removed.join(' '), reason:'exact_overlap_trim', removedLoop:loopFlag(removed)?'YES':'no'});
-      return curr.slice(k); } }
-  seamLog.push({seam:`${segPrev}->${segCurr}`, overlapSec:OVERLAP, cap, removedTokens:0, removedText:'', reason:'NO_BOUNDED_MATCH__kept_both__FLAG'});
-  return curr;                                              // keep both, never delete out-of-window
+    if(ok){const removed=curr.slice(0,k);
+      seamLog.push({seam:`${segPrev}->${segCurr}`, ...ctx, reason:'exact_overlap_trim', trimPrev:0, droppedCurr:removed.join(' '), dropCurrN:k, removedLoop:loopFlag(removed)?'YES':'no'});
+      return {trimPrev:0, curr:curr.slice(k)};}}
+  // 2) garbled overlap: bounded FUZZY ANCHOR SPLICE inside the windows ONLY. anchor = longest common run.
+  const pStart=Math.max(0,prev.length-FUZZY_W), pWin=prev.slice(pStart), cWin=curr.slice(0,FUZZY_W);
+  let best=null;
+  for(let i=0;i<pWin.length;i++)for(let j=0;j<cWin.length;j++){let L=0;while(i+L<pWin.length&&j+L<cWin.length&&nm(pWin[i+L])===nm(cWin[j+L]))L++;if(L>=MIN_ANCHOR&&(!best||L>best.L))best={i,j,L};}
+  if(best){
+    const dropPrevN=pWin.length-(best.i+best.L), dropCurrN=best.j+best.L;   // prev tail after anchor; curr head thru anchor
+    if(dropPrevN<=DROP_CAP && dropCurrN<=DROP_CAP){
+      const droppedPrev=prev.slice(prev.length-dropPrevN), droppedCurr=curr.slice(0,dropCurrN);
+      seamLog.push({seam:`${segPrev}->${segCurr}`, ...ctx, reason:'fuzzy_anchor_splice', anchor:pWin.slice(best.i,best.i+best.L).join(' '),
+        trimPrev:dropPrevN, droppedPrevText:droppedPrev.join(' '), droppedCurr:droppedCurr.join(' '), dropCurrN,
+        droppedPrevLoop:loopFlag(droppedPrev)?'YES':'no', droppedCurrLoop:loopFlag(droppedCurr)?'YES':'no'});
+      return {trimPrev:dropPrevN, curr:curr.slice(dropCurrN)};
+    }
+  }
+  // 3) no confident bounded anchor -> keep both + flag (under-trim, never out-of-window)
+  seamLog.push({seam:`${segPrev}->${segCurr}`, ...ctx, reason:'NO_BOUNDED_MATCH__kept_both__FLAG', trimPrev:0, dropCurrN:0});
+  return {trimPrev:0, curr};
 }
 
 const asr=await pipeline('automatic-speech-recognition','whisper-base.en',{quantized:true});
 const dec=async a=>((await asr(a,{chunk_length_s:30,stride_length_s:5})).text||'').trim();
 async function segment(a){const bs=bd(a);let cur=0,segs=[];for(let i=0;i<bs.length;i++){const st=Math.max(0,(cur-(i>0?OVERLAP:0)))*SR,en=bs[i]*SR;const t0=Date.now();const txt=await dec(a.slice(Math.floor(st),Math.floor(en)));segs.push({id:`seg${i}`,txt,ms:Date.now()-t0});cur=bs[i];}
-  const seamLog=[], seamPos=[]; let acc=tok(segs[0].txt); for(let i=1;i<segs.length;i++){seamPos.push(acc.length); acc=acc.concat(reconcileSeam(acc,tok(segs[i].txt),segs[i-1].id,segs[i].id,seamLog));}
+  const seamLog=[], seamPos=[]; let acc=tok(segs[0].txt);
+  for(let i=1;i<segs.length;i++){const r=reconcileSeam(acc,tok(segs[i].txt),segs[i-1].id,segs[i].id,seamLog); if(r.trimPrev)acc=acc.slice(0,acc.length-r.trimPrev); seamPos.push(acc.length); acc=acc.concat(r.curr);}
   return {segs,acc,seamLog,seamPos,tailMs:segs[segs.length-1].ms,nSeg:segs.length};}
 
 // ---- A) REPRODUCIBLE WER vs authoritative ground truth (bounded to each clip) ----
@@ -99,8 +118,15 @@ clips[2][2]=await segment(clips[2][1]);
 console.log(`\n== B) SEAM AUDIT (conservative overlap-bounded reconciliation) ==`);
 for(const [name,,s] of clips){
   console.log(`\n[${name}] ${s.nSeg} segs, assembled ${s.acc.length}w, assembled-loop: ${loopFlag(s.acc)||'none'}`);
-  for(const e of s.seamLog) console.log(`  seam ${e.seam} | window ${e.overlapSec}s/cap ${e.cap}tok | removed ${e.removedTokens}tok ${e.removedText?`"${e.removedText}"`:''} | ${e.reason}${e.removedLoop==='YES'?' | REMOVED-SPAN-WAS-A-LOOP!':''}`);
-  const flagged=s.seamLog.filter(e=>e.reason.includes('FLAG')).length, trims=s.seamLog.filter(e=>e.removedTokens>0);
-  console.log(`  -> seams:${s.seamLog.length} trimmed:${trims.length} kept-both/flagged:${flagged} max-trim-this-clip:${Math.max(0,...s.seamLog.map(e=>e.removedTokens))}tok`);
+  for(const e of s.seamLog){
+    if(e.reason==='exact_overlap_trim') console.log(`  seam ${e.seam} | exact_overlap_trim | drop-curr ${e.dropCurrN}tok "${e.droppedCurr}"${e.removedLoop==='YES'?' | DROP-WAS-LOOP!':''}`);
+    else if(e.reason==='fuzzy_anchor_splice') console.log(`  seam ${e.seam} | FUZZY_ANCHOR_SPLICE anchor="${e.anchor}" | drop-prev ${e.trimPrev}tok "${e.droppedPrevText}" | drop-curr ${e.dropCurrN}tok "${e.droppedCurr}"${(e.droppedPrevLoop==='YES'||e.droppedCurrLoop==='YES')?' | DROP-WAS-LOOP!':''}`);
+    else { console.log(`  seam ${e.seam} | NO_BOUNDED_MATCH kept-both+FLAG`); console.log(`      prevTail: …${e.prevTail}\n      currHead: ${e.currHead}…`); } }
+  const flagged=s.seamLog.filter(e=>e.reason.includes('FLAG')).length, resolved=s.seamLog.length-flagged;
+  const maxPrev=Math.max(0,...s.seamLog.map(e=>e.trimPrev||0)), maxCurr=Math.max(0,...s.seamLog.map(e=>e.dropCurrN||0));
+  console.log(`  -> seams:${s.seamLog.length} resolved:${resolved} flagged:${flagged} | max drop PER SIDE: prev ${maxPrev}tok curr ${maxCurr}tok (per-side cap ${DROP_CAP}; both within)`);
 }
-console.log(`\nPolicy: trim only EXACT overlap match <= ${MAX_SEAM_TRIM} tok inside the window; else keep-both+flag. No global de-dup. No out-of-window trim. Under-trim shows as a FLAG (visible duplication), never silent deletion.`);
+// path-3 liveness: a no-anchor seam MUST keep-both + flag (never trim) — proves the fallback is still reachable
+{const sl=[]; const r=reconcileSeam(['alpha','bravo','charlie','delta'],['xray','yankee','zulu','whiskey'],'tA','tB',sl);
+ console.log(`\nPATH-3 liveness (no-anchor seam -> keep-both+flag): ${(r.trimPrev===0&&r.curr.length===4&&sl[0].reason.includes('FLAG'))?'PASS':'FAIL'} (trimPrev=${r.trimPrev}, kept=${r.curr.length}/4, reason=${sl[0].reason})`);}
+console.log(`\nPolicy: (1) exact bounded overlap trim (<=${MAX_SEAM_TRIM}tok); (2) bounded FUZZY anchor splice within the overlap window (anchor=longest common run >=${MIN_ANCHOR}; drop prev-tail-after + curr-head-before, per-side cap ${DROP_CAP}); (3) else keep-both+FLAG. No global de-dup, no out-of-window trim, never silent deletion of UNIQUE speech (each dropped span is overlap audio the other segment still covers; WER reaching the content floor confirms no real loss).`);

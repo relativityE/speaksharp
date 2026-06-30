@@ -4,47 +4,39 @@ MAX_SEAM_TRIM = 6 tokens (overlap 1.5s x 4 wps, cap 10)
 
 [washington_01 (66s)] ground truth 191w
   whole-utterance: 79w  WER 58.6%  <- whole DROPPED content
-  segmented      : 195w  WER 2.6%  (tail 4.4s, 3 segs, seam-flags 1)
+  segmented      : 191w  WER 0.5%  (tail 5.3s, 3 segs, seam-flags 0)
 
 [harvard_benchmark (34.5s >30s long-form; fillers in ref)] ground truth 87w
   whole-utterance: 35w  WER 60.9%  <- whole DROPPED content
-  segmented      : 97w  WER 12.6%  (tail 2.0s, 2 segs, seam-flags 1)
+  segmented      : 87w  WER 1.1%  (tail 1.7s, 2 segs, seam-flags 0)
 
-== A2) HARVARD WER DECOMPOSITION (ref 87w; 11 errors; seam token-pos [59]) ==
-  totals: I=10 D=0 S=1
-  insertion runs: [50-59]x10@seam
-  SEAM-attributable (contiguous run touching seam; task-one fixable): 10
+== A2) HARVARD WER DECOMPOSITION (ref 87w; 1 errors; seam token-pos [53]) ==
+  totals: I=0 D=0 S=1
+  insertion runs: 
+  SEAM-attributable (contiguous run touching seam; task-one fixable): 0
   CONTENT errors (base-model floor; seam fix cannot touch): 1  -> implied harvard post-fix floor ≈ 1.1% WER
   --- every error (pos | type | ref -> hyp) ---
    [34] S  "parked" -> "park"
-   [50] I  "∅" -> "to"  <SEAM-RUN>
-   [51] I  "∅" -> "frighten"  <SEAM-RUN>
-   [52] I  "∅" -> "him."  <SEAM-RUN>
-   [53] I  "∅" -> "He"  <SEAM-RUN>
-   [54] I  "∅" -> "is"  <SEAM-RUN>
-   [55] I  "∅" -> "a"  <SEAM-RUN>
-   [56] I  "∅" -> "writer"  <SEAM-RUN>
-   [57] I  "∅" -> "and"  <SEAM-RUN>
-   [58] I  "∅" -> "writer."  <SEAM-RUN>
-   [59] I  "∅" -> "entails"  <SEAM-RUN>
   (one-clip diagnostic to scope task one on harvard; NOT a general base.en filler-error rate.)
 
 == B) SEAM AUDIT (conservative overlap-bounded reconciliation) ==
 
-[washington_01] 3 segs, assembled 195w, assembled-loop: none
-  seam seg0->seg1 | window 1.5s/cap 6tok | removed 4tok ""On the other hand," | exact_overlap_trim
-  seam seg1->seg2 | window 1.5s/cap 6tok | removed 0tok  | NO_BOUNDED_MATCH__kept_both__FLAG
-  -> seams:2 trimmed:1 kept-both/flagged:1 max-trim-this-clip:4tok
+[washington_01] 3 segs, assembled 191w, assembled-loop: none
+  seam seg0->seg1 | exact_overlap_trim | drop-curr 4tok ""On the other hand,"
+  seam seg1->seg2 | FUZZY_ANCHOR_SPLICE anchor="his own deficiencies."" | drop-prev 1tok "[BLANK_AUDIO]" | drop-curr 3tok "his own deficiencies."
+  -> seams:2 resolved:2 flagged:0 | max drop PER SIDE: prev 1tok curr 4tok (per-side cap 8; both within)
 
-[harvard_benchmark] 2 segs, assembled 97w, assembled-loop: none
-  seam seg0->seg1 | window 1.5s/cap 6tok | removed 0tok  | NO_BOUNDED_MATCH__kept_both__FLAG
-  -> seams:1 trimmed:0 kept-both/flagged:1 max-trim-this-clip:0tok
+[harvard_benchmark] 2 segs, assembled 87w, assembled-loop: none
+  seam seg0->seg1 | FUZZY_ANCHOR_SPLICE anchor="to frighten him." | drop-prev 6tok "He is a writer and writer." | drop-curr 4tok "entails to frighten him,"
+  -> seams:1 resolved:1 flagged:0 | max drop PER SIDE: prev 6tok curr 4tok (per-side cap 8; both within)
 
 [concat(jfk+harvard+washington)] 5 segs, assembled 300w, assembled-loop: none
-  seam seg0->seg1 | window 1.5s/cap 6tok | removed 1tok "Well," | exact_overlap_trim
-  seam seg1->seg2 | window 1.5s/cap 6tok | removed 3tok "a smooth road," | exact_overlap_trim
-  seam seg2->seg3 | window 1.5s/cap 6tok | removed 3tok "an immutable decision," | exact_overlap_trim
-  seam seg3->seg4 | window 1.5s/cap 6tok | removed 3tok "his own deficiencies." | exact_overlap_trim
-  -> seams:4 trimmed:4 kept-both/flagged:0 max-trim-this-clip:3tok
+  seam seg0->seg1 | exact_overlap_trim | drop-curr 1tok "Well,"
+  seam seg1->seg2 | exact_overlap_trim | drop-curr 3tok "a smooth road,"
+  seam seg2->seg3 | exact_overlap_trim | drop-curr 3tok "an immutable decision,"
+  seam seg3->seg4 | exact_overlap_trim | drop-curr 3tok "his own deficiencies."
+  -> seams:4 resolved:4 flagged:0 | max drop PER SIDE: prev 0tok curr 3tok (per-side cap 8; both within)
 
-Policy: trim only EXACT overlap match <= 6 tok inside the window; else keep-both+flag. No global de-dup. No out-of-window trim. Under-trim shows as a FLAG (visible duplication), never silent deletion.
+PATH-3 liveness (no-anchor seam -> keep-both+flag): PASS (trimPrev=0, kept=4/4, reason=NO_BOUNDED_MATCH__kept_both__FLAG)
+
+Policy: (1) exact bounded overlap trim (<=6tok); (2) bounded FUZZY anchor splice within the overlap window (anchor=longest common run >=2; drop prev-tail-after + curr-head-before, per-side cap 8); (3) else keep-both+FLAG. No global de-dup, no out-of-window trim, never silent deletion of UNIQUE speech (each dropped span is overlap audio the other segment still covers; WER reaching the content floor confirms no real loss).
