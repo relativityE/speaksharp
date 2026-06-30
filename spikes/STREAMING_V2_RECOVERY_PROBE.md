@@ -1,6 +1,13 @@
 # Moonshine v2 streaming — three-lead RECOVERY probe (Branch A, #891)
 
-**Verdict: No browser-runnable TRUE stateful Moonshine v2 streaming runtime exists today. Moonshine v2 is blocked for beta by a MISSING browser runtime, NOT by model impossibility.** (Artifact-level, 2026-06-30.)
+**Verdict (precise): Moonshine v2 is NOT blocked by model architecture. It is blocked for beta by the absence of a browser-runnable STATEFUL streaming runtime in the paths checked.** (Artifact-level, 2026-06-30.)
+
+## Disposition (precise close/keep-open)
+- **CLOSE** the HF / transformers.js / available-ONNX path — no streaming model class (4.2.0=latest) + the export has no state I/O.
+- **CLOSE MoonshineJS** as a beta alternative — it is Moonshine **v1** (`model/tiny`) + VAD = *simulated* streaming, not v2 true streaming. (Useful later only as a UX/API reference, not the v2 solution.)
+- **CLOSE sherpa-onnx WASM** as a beta alternative — its Moonshine v2 path is **non-streaming/offline** ASR + VAD, not stateful streaming.
+- **KEEP OPEN: official Moonshine Voice** as the FUTURE architecture — it has true streaming/caching (`add_audio`, decoder-state caching), but is native (C++/mobile/desktop) with no browser/WASM target.
+- **Future unblocker (one concrete item):** a browser/WASM port of the official Moonshine Voice stateful streaming runtime, OR an upstream stateful web runtime from Moonshine AI. Until then, v2 cannot gate beta.
 
 | Lead | Browser-runnable? | True v2 streaming? | What it actually is |
 |---|---|---|---|
