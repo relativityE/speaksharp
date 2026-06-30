@@ -109,6 +109,20 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
     // #891 immediate-start gate: the mic is warming up; the UI must NOT invite speech yet.
     const isWarming = sttStatusType === 'warming';
+    // Surface a PROMINENT "Getting mic ready… -> Ready, speak now" cue. Hold the green "ready"
+    // state briefly after the mic becomes ready so the user clearly sees the transition and starts.
+    const [justBecameReady, setJustBecameReady] = React.useState(false);
+    const wasWarmingRef = React.useRef(false);
+    React.useEffect(() => {
+        const wasWarming = wasWarmingRef.current;
+        wasWarmingRef.current = isWarming;
+        if (wasWarming && !isWarming && isListening) {
+            setJustBecameReady(true);
+            const timer = setTimeout(() => setJustBecameReady(false), 2500);
+            return () => clearTimeout(timer);
+        }
+    }, [isWarming, isListening]);
+    const showMicReadyCue = isWarming || justBecameReady;
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
         displayStatusMessage = 'Private model setup';
@@ -303,6 +317,23 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </Button>
                             )}
                         </div>
+
+                        {/* #891 prominent mic-ready cue: amber "getting ready" -> held green "speak now". */}
+                        {showMicReadyCue && (
+                            <div
+                                data-testid="mic-ready-cue"
+                                data-state={isWarming ? 'warming' : 'ready'}
+                                aria-live="polite"
+                                className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-extrabold uppercase tracking-wide ring-1 transition-colors duration-300 ${
+                                    isWarming
+                                        ? 'bg-amber-100 text-amber-800 ring-amber-300'
+                                        : 'bg-green-100 text-green-800 ring-green-400'
+                                }`}
+                            >
+                                <span className={`h-2.5 w-2.5 rounded-full ${isWarming ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`} />
+                                {isWarming ? 'Getting mic ready — one moment…' : 'Ready — speak now'}
+                            </div>
+                        )}
 
                         {/* Timer (Matching Mic weight) */}
                         <div className="flex flex-col items-center">
