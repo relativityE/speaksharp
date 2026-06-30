@@ -65,22 +65,35 @@ Do not change the product default from this data.
 If h1_6 remains launch-blocking, the next useful evidence is a multi-repeat live
 A/B plus final-decode input-buffer diagnostics, not a one-line mic-default change.
 
+> **LATENCY DIRECTION (2026-06-30 owner ruling):** the 90s recording cap is **REJECTED for beta**;
+> a full 5-min single recording with <30s post-stop is **REQUIRED pre-beta**. Levers 2–3 below are
+> **secondary accelerators that do NOT clear that bar alone** on the default v2 path. The PRIMARY
+> full-5-min path is **Moonshine v2 (streaming) prototype on a branch**; fallback is **segmented
+> finalization** (decode only the unfinalized tail at Stop, design at `/private/tmp/SEGMENTATION_DESIGN.md`).
+> See RELEASE_STATUS + BACKLOG.
+
 ## Lever 2 — Cross-origin isolation → WASM multithreading (LATENCY, not accuracy)
 
-- **Effect:** speeds CPU decode (multi-threaded WASM), does NOT change accuracy.
-- **Blocker:** requires `crossOriginIsolated === true` (COOP/COEP headers). The P3
-  thread code is shipped and guarded — currently inert in prod because headers were
-  removed (the "Stripe.js" backlog item, now likely stale; see BACKLOG.md).
-- **Order:** independent of accuracy; pursue for latency only after Lever 1 settles
-  the accuracy boundary. Needs the header re-enablement + third-party validation.
+- **Effect:** speeds CPU decode (multi-threaded WASM, ≤4 threads), does NOT change accuracy.
+- **Blocker:** requires `crossOriginIsolated === true` (COOP/COEP headers). Thread code
+  (`wasmThreads.ts` + `transformers-js.worker.ts`) is shipped + guarded → **inert in prod
+  (headers off).** The "Stripe.js blocks it" premise is **CONFIRMED STALE** (checkout is redirect-
+  only, not embedded). **Layer-1 static audit (2026-06-30):** `index.html` has ZERO cross-origin
+  embeds, fonts are system/self-hosted → the real `credentialless` targets are runtime loads:
+  **#1 ORT WASM from jsDelivr** (worker never sets `wasmPaths`; self-host to remove) + PostHog/
+  Supabase/Sentry fetch (Bearer/API-key → likely OK). **Multiplier ~2–2.5× UNMEASURED → ~32–36s/5min,
+  still over 30s alone.** Remaining: live preview measurement (`crossOriginIsolated===true` + resources + decode speedup).
+- **Order:** SECONDARY accelerator — does not substitute for the architecture fix above.
 
-## Lever 3 — WebGPU / whisper-turbo acceleration (LATENCY + maybe accuracy)
+## Lever 3 — WebGPU acceleration (LATENCY)
 
-- **Effect:** much faster decode on GPU-capable machines; turbo may improve quality.
-- **State:** dual-engine routing + WebGPU detection shipped; promotion gated on a
-  cached turbo model (no surprise ~75MB download) → currently unreachable without a
-  turbo-enablement UX (BACKLOG P1). GPU-only; CPU users unaffected.
-- **Order:** after Lever 1; helps the GPU subset, not the CPU floor.
+- **Effect:** much faster decode on GPU-capable machines.
+- **State (2026-06-30):** the WebGPU path is **v4** (`@huggingface/transformers`, flag-gated,
+  internal/targeted only) — the legacy whisper-turbo promotion is retired/parked. **v2 (the DEFAULT
+  engine) has NO WebGPU path at all** (CPU/WASM only, `transformers-js.worker.ts`). So GPU is NOT
+  available to default / wave-1 external users; giving the default engine GPU means promoting v4
+  or adding a v2-on-v4-runtime path (neither exists). base_q4 floor / distil_q4 accuracy tier.
+- **Order:** helps only the flag-gated GPU subset, not the default CPU floor.
 
 ## Lever 4 — Model upgrade tiny.en → base.en / small.en (ACCURACY ceiling)
 

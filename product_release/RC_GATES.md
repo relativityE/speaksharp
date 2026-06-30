@@ -44,13 +44,13 @@ Examples:
 
 Real-mic engine-liveness + metadata are NOT sufficient: they passed 3/3 while the **default Private path dropped the opening clause** (shared capture-path bug; observed clearest on v2). Any change to `PrivateWhisper.ts`, Private engines/workers, audio utilities, `sttConstants.ts`, or transcript capture/trim logic makes this gate stale. On the **persisted** transcript (saved DB row / History detail — NOT the live draft or in-memory buffer), require:
 
-- **Opening anchor** present near the start (the saved transcript begins with the spoken opening), after a soft/quiet/delayed onset as well as a loud one;
+- **Opening anchor** present near the start, after **EVERY onset class — including the immediate-start case** (hit Record → wait for the green "Ready — speak now" pill → speak immediately), not just soft/quiet/delayed/loud. The deployed mic-ready gate (#902/#904) is proven only on a delayed take → **the immediate-start re-gate is the one OPEN pre-beta validation**;
 - **Coverage threshold** across expected phrases (not one-keyword-anywhere);
-- **No ≥5-word verbatim loop** (decode-duplication guard; engine-agnostic — guards v4 q4 looping);
-- **History/detail matches** the saved transcript end-to-end (mic → buffer → decode → DB);
+- **No ≥5-word verbatim loop** flagged but the saved transcript is **NOT mutated** (#903 made the saved-path collapse FLAG-ONLY at both sites — `detectRepetitionRisk` records metadata, never deletes);
+- **History/detail matches** the saved transcript end-to-end (mic → buffer → decode → DB) AND the **finalize state shows the dimmed draft + honest progress** (#905/#906), never the wrong rolling text as final;
 - **Long leading silence** does not produce a hallucinated prefix;
 - **Real-mic proof** after any Private capture/buffer/trim change — fake-device tests do not substitute;
-- **stop-to-final latency recorded** (separate latency gate, but measured here).
+- **stop-to-final latency** — **owner ruling 2026-06-30: this is a BLOCKING gate, not just "recorded."** Full 5-min single recording must finalize **<30s** pre-beta (the 90s cap is REJECTED as beta behavior). Primary path Moonshine v2 streaming prototype; fallback segmented finalization.
 
 For a **v4-targeted** session also confirm `engine_version=private_v4`, runtime/backend/assignment metadata, and no visible/saved phrase loop.
 
