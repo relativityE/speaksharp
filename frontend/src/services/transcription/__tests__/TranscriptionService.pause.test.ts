@@ -129,10 +129,12 @@ describe('TranscriptionService Pause/Resume', () => {
     expect(mockStrategy.resume).not.toHaveBeenCalled();
   });
 
-  it('collapses a whole-text repetition loop in the final saved transcript (regression: near_whole_doubling)', async () => {
-    // Live Private-sample regression: the final stop transcript (service_result / selectedForSave)
-    // saved a 100% doubled transcript that the per-segment collapse missed. stopTranscription must
-    // collapse-guard the authoritative final transcript so the persisted value has no whole-text loop.
+  it('PRESERVES a repetition loop in the saved transcript (flag-only, no mutation) and flags the risk', async () => {
+    // #891 data-integrity decision: the authoritative final stop transcript is NO LONGER collapsed.
+    // A hallucinated loop cannot be reliably distinguished from genuine repeated speech (emphasis/
+    // correction), so we PRESERVE the raw saved text and only FLAG repetition risk via the
+    // non-mutating detector. (Previously this collapsed the doubling — that silently altered saved
+    // user speech, which the team reverted for data integrity.)
     const doubled = 'We should literally like, wait, um, basically, we should literally like, wait, um, basically.';
     expect(detectRepetitionRisk(doubled).repetitionRisk).toBe(true); // sanity: input IS doubled
     vi.mocked(mockStrategy.getTranscript).mockResolvedValue(doubled);
@@ -142,8 +144,10 @@ describe('TranscriptionService Pause/Resume', () => {
     const out = result?.transcript ?? '';
 
     expect(out).toBeTruthy(); // not the empty-catch path
-    expect(out.toLowerCase()).toContain('we should literally like'); // content preserved once
-    expect(detectRepetitionRisk(out).repetitionRisk).toBe(false); // no whole-text loop
-    expect(out.length).toBeLessThan(doubled.length); // collapsed
+    // saved text is PRESERVED, not collapsed — BOTH occurrences remain
+    expect((out.toLowerCase().match(/we should literally like/g) || []).length).toBe(2);
+    expect(out.length).toBeGreaterThanOrEqual(doubled.length - 2); // not shortened (allow a trailing trim)
+    // repetition risk is still FLAGGED (non-mutating)
+    expect(detectRepetitionRisk(out).repetitionRisk).toBe(true);
   });
 });
