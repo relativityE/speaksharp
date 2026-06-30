@@ -27,7 +27,7 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 |---|---|---|---|
 | #770 migration reconciliation | Closed — merged | — | `46e0fd97`; prod migration run `27450253678` PASS |
 | #771 recovery actions | Closed — merged | — | `c11789ef` |
-| #773 exact-doubling collapse | Closed — merged (KEEP, do not revert) | — | `8cee74fe` |
+| #773 exact-doubling collapse | Closed — merged. **SUPERSEDED for the SAVED path by #903 (2026-06-30): the saved-transcript repetition collapse is now FLAG-ONLY** — `detectRepetitionRisk` records metadata, never mutates, at BOTH saved-authority sites (`PrivateWhisper.commitWholeUtteranceTranscript` + `TranscriptionService.stopTranscription`), per the data-integrity ruling. The display-only collapse (#772, saved untouched) remains. | — | `8cee74fe` (+ flag-only #903) |
 | #774 index dedup + analytics routing | Closed — merged | — | `75fb9ac0` (branch deleted) |
 | #774 migration apply (`supabase db push`) | Closed — merged | — | migration `20260613100000`; dispatched migration workflow `27470518053` PASS (deploy-production-db + push-migrations PASS) |
 | #775 canUsePrivate split + SunsetModals fix | Closed — merged | — | `9d4b90be`; deploy `27468389396`, canary `27468389402`, main CI `27468389406` PASS |
