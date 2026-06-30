@@ -9,28 +9,43 @@ Stop-to-final (tail-only decode) per clip: **1.1–3.8s, incl. 1.7s on the 200s 
 the last segment regardless of total length. Pause-snapping works (most boundaries snap to silence:
 ss_utt_0 2snap/0cap, proxy 8snap/1cap). No loops introduced. Openings preserved.
 
-## ACCURACY — segmentation is DRAMATICALLY better than the current whole-utterance path (the big finding)
+## ACCURACY — APPROVED claim: segmentation recovers content the whole long-form path can drop
 The initial hardening table showed alarming "WER vs whole" (washington 146.8%, harvard 180%). Investigation
 INVERTED it: the **whole-utterance baseline is broken** — transformers.js whisper long-form mis-stitches and
-**silently drops 1/2–2/3 of long-clip content**. Segmentation captures it.
+silently drops part of long-clip content. The "vs whole" metric is meaningless where whole is broken — use
+ground truth, bounded to the clip.
 
-| washington (66s), WER vs GROUND TRUTH | words | WER |
+**Reproducible measurement** (Phase 1.5 `seg_verify.mjs`, repo-relative, authoritative 191-word reference,
+conservative 6-token reconciliation):
+
+| washington_01 (66s), WER vs authoritative ground truth | words | WER |
 |---|---|---|
-| Whole-utterance decode (current prod path) | 79 / 191 | **58.6%** (drops 2/3) |
-| Segmented decode | 195 / 191 | **2.6%** |
+| Whole-utterance decode (current prod path) | 79 / 191 | 58.6% |
+| Segmented decode | 195 / 191 | 2.6% |
 
-Harvard (35s): whole captured 35 words (last third only); segmented captured all 97 (full Harvard list).
-=> **Segmentation fixes a decode-side content-drop bug** as a side effect of bounded per-segment decode —
-on top of the latency win. The "vs whole" metric is meaningless where whole is broken; use ground truth.
+Harvard: whole captured the last third only; segmented captured the full list.
+- **APPROVED framing:** "Segmentation recovers content that the whole long-form path can drop, and materially improves tail latency."
+- **NOT a headline:** "2.6% WER / 22× improvement." The figures above are a SINGLE-CLIP reproducible measurement
+  (supporting data, bounded to washington_01) — a quantitative accuracy claim needs a broader corpus.
 
-## SECONDARY DEFECT — seam reconciliation needs Phase-2 hardening (real but minor)
-Harvard assembled showed one garbled seam: "...He is a writer and writer. entails to frighten him..." — the
-naive exact-match overlap dedup didn't cleanly reconcile one boundary (~5–8 words). Small, not catastrophic,
-but the reconciliation must be hardened (better overlap alignment / fuzzy match, still under-trim-never-delete).
+## TOP DATA-INTEGRITY RISK — seam reconciliation (now constrained + instrumented)
+The old reconcile trimmed up to 25 tokens on a normalized match — too permissive (can delete legitimate repeated
+speech). REPLACED in `seg_verify.mjs` with the conservative policy (`spikes/README.md`): trim only an EXACT
+overlap match inside the window, bounded to **≤6 tokens (overlap-derived)**; else **keep both + FLAG**; never
+global de-dup; never out-of-window; under-trim over deletion. Seam audit (washington + harvard + concat):
+
+- All trims ≤4 tokens, exact-match, logged (e.g. seg0→1 removed 4tok `"On the other hand,"`).
+- Unmatched overlaps → `NO_BOUNDED_MATCH__kept_both__FLAG` (harvard seam, washington seam1→2) = residual
+  duplication is VISIBLE/flagged, not silently mutated. Harvard is **not** the only flagged seam.
+- No removed span was itself a loop; no assembled transcript looped.
+=> data-integrity-safe, but the flagged under-trim seams are the Phase-2 work (better bounded alignment).
 
 ## Disposition
 - Timing: SOLVED (tail-only, 1–4s).
-- Accuracy: segmentation BEATS the current path (fixes content drop); 2.6% WER vs ground truth on washington.
-- Seam reconciliation: needs Phase-2 hardening (minor seam dup observed).
+- Accuracy: APPROVED qualitative claim (recovers dropped content + improves tail latency); washington reproducible
+  single-clip data 2.6% vs 58.6%; broader corpus needed before any quantitative headline.
+- Seam reconciliation: TOP risk, now conservative + instrumented (≤6-tok bounded, flag-don't-delete); flagged
+  under-trim seams = Phase-2 alignment work.
 - Still open: a real continuous 5-min take (proxy used); in-browser absolute timing (node here); broader-corpus
-  WER with references; tight immediate-start re-gate; the production single-transcript wiring (visible==saved + analytics/PDF).
+  WER with bounded references; tight immediate-start re-gate; the production single-transcript wiring
+  (visible-final == saved History AND analytics/WPM/filler/PDF from the one assembled transcript).

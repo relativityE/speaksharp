@@ -1,0 +1,25 @@
+MAX_SEAM_TRIM = 6 tokens (overlap 1.5s x 4 wps, cap 10)
+
+== A) WASHINGTON WER vs authoritative ground truth (191 words) ==
+whole-utterance: 79w  WER 58.6%
+segmented      : 195w  WER 2.6%   (tail 5.9s, 3 segs)
+
+== B) SEAM AUDIT (conservative overlap-bounded reconciliation) ==
+
+[washington_01] 3 segs, assembled 195w, assembled-loop: none
+  seam seg0->seg1 | window 1.5s/cap 6tok | removed 4tok ""On the other hand," | exact_overlap_trim
+  seam seg1->seg2 | window 1.5s/cap 6tok | removed 0tok  | NO_BOUNDED_MATCH__kept_both__FLAG
+  -> seams:2 trimmed:1 kept-both/flagged:1 max-trim-this-clip:4tok
+
+[harvard_benchmark] 2 segs, assembled 97w, assembled-loop: none
+  seam seg0->seg1 | window 1.5s/cap 6tok | removed 0tok  | NO_BOUNDED_MATCH__kept_both__FLAG
+  -> seams:1 trimmed:0 kept-both/flagged:1 max-trim-this-clip:0tok
+
+[concat(jfk+harvard+washington)] 5 segs, assembled 300w, assembled-loop: none
+  seam seg0->seg1 | window 1.5s/cap 6tok | removed 1tok "Well," | exact_overlap_trim
+  seam seg1->seg2 | window 1.5s/cap 6tok | removed 3tok "a smooth road," | exact_overlap_trim
+  seam seg2->seg3 | window 1.5s/cap 6tok | removed 3tok "an immutable decision," | exact_overlap_trim
+  seam seg3->seg4 | window 1.5s/cap 6tok | removed 3tok "his own deficiencies." | exact_overlap_trim
+  -> seams:4 trimmed:4 kept-both/flagged:0 max-trim-this-clip:3tok
+
+Policy: trim only EXACT overlap match <= 6 tok inside the window; else keep-both+flag. No global de-dup. No out-of-window trim. Under-trim shows as a FLAG (visible duplication), never silent deletion.
