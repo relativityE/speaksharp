@@ -121,6 +121,18 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 90s/i));
     });
 
+    it('shows a prominent "getting mic ready" cue while the mic is warming (#891)', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="private" isListening={true} sttStatusType="warming" />);
+        const cue = screen.getByTestId('mic-ready-cue');
+        expect(cue).toHaveAttribute('data-state', 'warming');
+        expect(cue.textContent).toMatch(/getting mic ready/i);
+    });
+
+    it('does NOT show the mic-ready cue when not warming and not just-ready', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="private" isListening={true} sttStatusType="recording" />);
+        expect(screen.queryByTestId('mic-ready-cue')).toBeNull();
+    });
+
     it('shows explicit Private setup inside the recording card when the model is missing', () => {
         const onDownloadModel = vi.fn();
         render(
