@@ -398,7 +398,7 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
     });
 
-    it('shows "Processing speech locally…" and finalizing state during whole-utterance decode', () => {
+    it('replaces the rolling draft with the finalizing placeholder during the whole-utterance decode (#891)', () => {
         render(
             <LiveTranscriptPanel
                 transcript="rough draft so far"
@@ -408,8 +408,13 @@ describe('LiveTranscriptPanel', () => {
                 sttMode="private"
             />
         );
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
+        // #891: the inaccurate rolling draft must NOT be presented as the result — it is replaced by
+        // a clear processing placeholder, and the draft-rendering elements are not shown.
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript locally…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Your final transcript will appear here shortly.');
+        expect(screen.queryByTestId('live-transcript-current-line')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-settled')).not.toBeInTheDocument();
     });
 
     it('does not show the idle placeholder while Private finalization has no text yet', () => {
@@ -425,8 +430,7 @@ describe('LiveTranscriptPanel', () => {
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
         expect(transcriptContainer).toHaveAttribute('data-transcript-state', 'finalizing');
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing local transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript locally…');
         expect(transcriptContainer).not.toHaveTextContent('Start recording and your words will appear here.');
     });
 
@@ -442,11 +446,10 @@ describe('LiveTranscriptPanel', () => {
         );
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing transcript…');
-        expect(transcriptContainer).toHaveTextContent('Your final transcript will appear here when processing finishes.');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript…');
+        expect(transcriptContainer).toHaveTextContent('Your final transcript will appear here shortly.');
         expect(transcriptContainer).not.toHaveTextContent('Processing speech locally…');
-        expect(transcriptContainer).not.toHaveTextContent('Finalizing local transcript…');
+        expect(transcriptContainer).not.toHaveTextContent('locally');
         expect(transcriptContainer).not.toHaveTextContent('local processing');
     });
 
@@ -462,8 +465,7 @@ describe('LiveTranscriptPanel', () => {
         );
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript…');
         expect(transcriptContainer).not.toHaveTextContent('locally');
         expect(transcriptContainer).not.toHaveTextContent('local transcript');
     });
@@ -553,7 +555,8 @@ describe('LiveTranscriptPanel', () => {
         // finalizing banner takes over from the draft banner without a blank frame.
         const assertTrustIndicatorPresent = () => {
             const draft = screen.queryByTestId('live-transcript-trust-banner');
-            const finalizing = screen.queryByTestId('live-transcript-finalizing');
+            // #891: the finalizing surface is now the placeholder (the draft is hidden), not a banner.
+            const finalizing = screen.queryByTestId('live-transcript-finalizing-empty');
             // Exactly one trust surface is visible at each pre-final step.
             expect(Boolean(draft) || Boolean(finalizing)).toBe(true);
             const text = (draft?.textContent ?? '') + (finalizing?.textContent ?? '');
@@ -581,7 +584,7 @@ describe('LiveTranscriptPanel', () => {
             <LiveTranscriptPanel transcript="native words so far" interimTranscript="" isListening={false} isFinalizing={true} sttMode="native" />
         );
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript…');
         assertTrustIndicatorPresent();
 
         // 4. final (journey end): committed transcript, no banner
@@ -589,7 +592,7 @@ describe('LiveTranscriptPanel', () => {
             <LiveTranscriptPanel transcript="native words so far" interimTranscript="" isListening={false} isFinalizing={false} sttMode="native" />
         );
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'final');
-        expect(screen.queryByTestId('live-transcript-finalizing')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-finalizing-empty')).not.toBeInTheDocument();
         expect(screen.queryByTestId('live-transcript-trust-banner')).not.toBeInTheDocument();
     });
 

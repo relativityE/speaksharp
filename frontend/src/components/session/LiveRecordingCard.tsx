@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Download, Lock, Mic, Square, ChevronDown } from 'lucide-react';
+import { AlertCircle, Download, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -36,6 +36,7 @@ interface LiveRecordingCardProps {
     fsmState?: RuntimeState; // master FSM state from controller
     sttStatusType?: string; // status type from service status
     recordingIntent?: boolean; // explicit user intent to record
+    isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
     className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -75,6 +76,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     fsmState,
     sttStatusType,
     recordingIntent = false,
+    isFinalizing = false,
     className = "",
     onModeChange,
     onStartStop,
@@ -122,7 +124,28 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             return () => clearTimeout(timer);
         }
     }, [isWarming, isListening]);
-    const showMicReadyCue = isWarming || justBecameReady;
+    // #891 state-colored status pill (white card stays; only the oval pill tints by state).
+    // neutral idle -> amber warming -> green ready -> blue finalizing. Recording stays neutral.
+    const pillState: 'finalizing' | 'warming' | 'ready' | 'recording' | 'idle' =
+        isFinalizing ? 'finalizing'
+            : isWarming ? 'warming'
+                : justBecameReady ? 'ready'
+                    : isListening ? 'recording'
+                        : 'idle';
+    const pillSurface = {
+        finalizing: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
+        warming: 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
+        ready: 'bg-green-100 text-green-800 ring-1 ring-green-400',
+        recording: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
+        idle: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
+    }[pillState];
+    const pillDot = {
+        finalizing: 'bg-blue-500',
+        warming: 'bg-amber-500 animate-pulse',
+        ready: 'bg-green-500',
+        recording: 'bg-primary animate-pulse',
+        idle: 'bg-muted-foreground',
+    }[pillState];
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
         displayStatusMessage = 'Private model setup';
@@ -318,36 +341,30 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
 
-                        {/* #891 prominent mic-ready cue: amber "getting ready" -> held green "speak now". */}
-                        {showMicReadyCue && (
-                            <div
-                                data-testid="mic-ready-cue"
-                                data-state={isWarming ? 'warming' : 'ready'}
-                                aria-live="polite"
-                                className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-extrabold uppercase tracking-wide ring-1 transition-colors duration-300 ${
-                                    isWarming
-                                        ? 'bg-amber-100 text-amber-800 ring-amber-300'
-                                        : 'bg-green-100 text-green-800 ring-green-400'
-                                }`}
-                            >
-                                <span className={`h-2.5 w-2.5 rounded-full ${isWarming ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`} />
-                                {isWarming ? 'Getting mic ready — one moment…' : 'Ready — speak now'}
-                            </div>
-                        )}
-
                         {/* Timer (Matching Mic weight) */}
                         <div className="flex flex-col items-center">
                             <div className="text-3xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-3 py-1">
-                                <div className={`h-1.5 w-1.5 rounded-full ${isWarming ? 'bg-amber-500 animate-pulse' : (isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground')}`} />
-                                <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label" data-warming={isWarming ? 'true' : 'false'}>
+                            {/* #891 state-colored status pill: the white card stays; ONLY this oval tints
+                                by state — neutral idle, amber warming, green "speak now", blue finalizing. */}
+                            <div
+                                className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors duration-300 ${pillSurface}`}
+                                aria-live="polite"
+                            >
+                                {isFinalizing
+                                    ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                                    : <div className={`h-1.5 w-1.5 rounded-full ${pillDot}`} />}
+                                <span className="text-[11px] font-bold tracking-[0.06em]" data-testid="stt-status-label" data-pill-state={pillState}>
                                     {isPrivateDownloadRequired
                                         ? 'Ready'
-                                        : isWarming
-                                            ? 'Starting…'
-                                            : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
+                                        : isFinalizing
+                                            ? 'Finalizing your transcript…'
+                                            : isWarming
+                                                ? 'Getting mic ready — one moment…'
+                                                : justBecameReady
+                                                    ? 'Ready — speak now'
+                                                    : (displayStatusMessage || (isPaused ? 'Paused' : (isListening ? (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening') : 'Ready to record')))}
                                 </span>
                             </div>
                         </div>
