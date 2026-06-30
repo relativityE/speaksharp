@@ -25,6 +25,15 @@ const tok=s=>s.trim().split(/\s+/).filter(Boolean), nm=t=>t.toLowerCase().replac
 function pc(a){const H=Math.round(0.02*SR),r=[];for(let i=0;i+H<=a.length;i+=H){let s=0;for(let j=0;j<H;j++)s+=a[i+j]*a[i+j];r.push(Math.sqrt(s/H));}const md=[...r].sort((x,y)=>x-y)[Math.floor(r.length/2)]||0,th=Math.max(0.006,0.3*md),nd=Math.round(0.25/0.02);const ps=[];let rn=0;for(let i=0;i<r.length;i++){if(r[i]<th)rn++;else{if(rn>=nd)ps.push(((i-rn/2)*H)/SR);rn=0;}}return ps;}
 function bd(a){const d=a.length/SR,ps=pc(a),bs=[];let c=0;while(d-c>HARDCAP){const lo=c+TARGET-5,hi=c+HARDCAP,cd=ps.filter(p=>p>=lo&&p<=hi);let ct=cd.length?cd.reduce((b,p)=>Math.abs(p-(c+TARGET))<Math.abs(b-(c+TARGET))?p:b):c+HARDCAP;bs.push(ct);c=ct;}bs.push(d);return bs;}
 function wer(ref,hyp){const r=ref.map(nm),h=hyp.map(nm),m=r.length,n=h.length,d=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);for(let j=0;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(r[i-1]===h[j-1]?0:1));return m?d[m][n]/m:0;}
+// backtrace the same edit-distance matrix -> per-error I/D/S classification with hypothesis position
+function werOps(refW,hypW){const ref=refW.map(nm),hyp=hypW.map(nm),m=ref.length,n=hyp.length,d=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);for(let j=0;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(ref[i-1]===hyp[j-1]?0:1));
+  let i=m,j=n,ops=[];while(i>0||j>0){
+    if(i>0&&j>0&&ref[i-1]===hyp[j-1]&&d[i][j]===d[i-1][j-1]){i--;j--;continue;}
+    if(i>0&&j>0&&d[i][j]===d[i-1][j-1]+1){ops.push({type:'S',ref:refW[i-1],hyp:hypW[j-1],pos:j-1});i--;j--;}
+    else if(j>0&&d[i][j]===d[i][j-1]+1){ops.push({type:'I',ref:null,hyp:hypW[j-1],pos:j-1});j--;}
+    else if(i>0&&d[i][j]===d[i-1][j]+1){ops.push({type:'D',ref:refW[i-1],hyp:null,pos:j});i--;}
+    else break;}
+  return ops.reverse();}
 function loopFlag(words){const n=words.length,w=words.map(nm);for(let i=0;i<n;i++){const mk=Math.min(30,Math.floor((n-i)/3));for(let k=2;k<=mk;k++){let r=1;while(i+(r+1)*k<=n){let m=1;for(let x=0;x<k;x++)if(w[i+r*k+x]!==w[i+x]){m=0;break;}if(!m)break;r++;}if(r>=3)return `"${words.slice(i,i+k).join(' ')}" x${r}`;}}return null;}
 
 // CONSERVATIVE seam reconciliation — bounded to overlap window, instrumented, under-trim/flag.
@@ -41,8 +50,8 @@ function reconcileSeam(prev, curr, segPrev, segCurr, seamLog){
 const asr=await pipeline('automatic-speech-recognition','whisper-base.en',{quantized:true});
 const dec=async a=>((await asr(a,{chunk_length_s:30,stride_length_s:5})).text||'').trim();
 async function segment(a){const bs=bd(a);let cur=0,segs=[];for(let i=0;i<bs.length;i++){const st=Math.max(0,(cur-(i>0?OVERLAP:0)))*SR,en=bs[i]*SR;const t0=Date.now();const txt=await dec(a.slice(Math.floor(st),Math.floor(en)));segs.push({id:`seg${i}`,txt,ms:Date.now()-t0});cur=bs[i];}
-  const seamLog=[]; let acc=tok(segs[0].txt); for(let i=1;i<segs.length;i++)acc=acc.concat(reconcileSeam(acc,tok(segs[i].txt),segs[i-1].id,segs[i].id,seamLog));
-  return {segs,acc,seamLog,tailMs:segs[segs.length-1].ms,nSeg:segs.length};}
+  const seamLog=[], seamPos=[]; let acc=tok(segs[0].txt); for(let i=1;i<segs.length;i++){seamPos.push(acc.length); acc=acc.concat(reconcileSeam(acc,tok(segs[i].txt),segs[i-1].id,segs[i].id,seamLog));}
+  return {segs,acc,seamLog,seamPos,tailMs:segs[segs.length-1].ms,nSeg:segs.length};}
 
 // ---- A) REPRODUCIBLE WER vs authoritative ground truth (bounded to each clip) ----
 console.log(`MAX_SEAM_TRIM = ${MAX_SEAM_TRIM} tokens (overlap ${OVERLAP}s x ${ASSUMED_MAX_WPS} wps, cap 10)\n`);
@@ -62,6 +71,25 @@ const werRow=(n,ref,whole,seg)=>{const dropped=whole.length<ref.length*0.8;conso
 console.log(`== A) WER vs authoritative ground truth ==`);
 werRow('washington_01 (66s)', wref, wWhole, wSeg);
 werRow('harvard_benchmark (34.5s >30s long-form; fillers in ref)', href, hWhole, hSeg);
+
+// ---- A2) HARVARD WER DECOMPOSITION (set task-one's real floor; one-clip diagnostic, NOT a corpus stat) ----
+// Principled attribution: a CONTIGUOUS insertion run that touches a seam = the seam-overlap garble (one
+// inserted span at a boundary). Isolated errors away from a seam = base-model content floor.
+const ops=werOps(href,hSeg.acc).filter(o=>o.type!=='=');
+const insSorted=ops.filter(o=>o.type==='I').sort((a,b)=>a.pos-b.pos);
+const runs=[]; for(const o of insSorted){const last=runs[runs.length-1]; if(last&&o.pos===last.end+1){last.end=o.pos;last.n++;}else runs.push({start:o.pos,end:o.pos,n:1});}
+const seamRun=r=>hSeg.seamPos.some(p=>p>=r.start-1&&p<=r.end+1);
+const seamIns=runs.filter(seamRun).reduce((s,r)=>s+r.n,0);
+const otherIns=runs.filter(r=>!seamRun(r)).reduce((s,r)=>s+r.n,0);
+const contentErr=ops.filter(o=>o.type!=='I').length+otherIns;
+console.log(`\n== A2) HARVARD WER DECOMPOSITION (ref 87w; ${ops.length} errors; seam token-pos ${JSON.stringify(hSeg.seamPos)}) ==`);
+console.log(`  totals: I=${ops.filter(o=>o.type==='I').length} D=${ops.filter(o=>o.type==='D').length} S=${ops.filter(o=>o.type==='S').length}`);
+console.log(`  insertion runs: ${runs.map(r=>`[${r.start}-${r.end}]x${r.n}${seamRun(r)?'@seam':''}`).join(' ')}`);
+console.log(`  SEAM-attributable (contiguous run touching seam; task-one fixable): ${seamIns}`);
+console.log(`  CONTENT errors (base-model floor; seam fix cannot touch): ${contentErr}  -> implied harvard post-fix floor ≈ ${(contentErr/href.length*100).toFixed(1)}% WER`);
+console.log(`  --- every error (pos | type | ref -> hyp) ---`);
+for(const o of ops){const inSeam=o.type==='I'&&runs.some(r=>seamRun(r)&&o.pos>=r.start&&o.pos<=r.end);console.log(`   [${o.pos}] ${o.type}  "${o.ref||'∅'}" -> "${o.hyp||'∅'}"${inSeam?'  <SEAM-RUN>':''}`);}
+console.log(`  (one-clip diagnostic to scope task one on harvard; NOT a general base.en filler-error rate.)`);
 
 // ---- B) SEAM AUDIT across repo-fixture multi-segment clips ----
 const jfk=readWav(resolve(FIX,'jfk_16k.wav'));

@@ -8,7 +8,26 @@ MAX_SEAM_TRIM = 6 tokens (overlap 1.5s x 4 wps, cap 10)
 
 [harvard_benchmark (34.5s >30s long-form; fillers in ref)] ground truth 87w
   whole-utterance: 35w  WER 60.9%  <- whole DROPPED content
-  segmented      : 97w  WER 12.6%  (tail 1.9s, 2 segs, seam-flags 1)
+  segmented      : 97w  WER 12.6%  (tail 2.0s, 2 segs, seam-flags 1)
+
+== A2) HARVARD WER DECOMPOSITION (ref 87w; 11 errors; seam token-pos [59]) ==
+  totals: I=10 D=0 S=1
+  insertion runs: [50-59]x10@seam
+  SEAM-attributable (contiguous run touching seam; task-one fixable): 10
+  CONTENT errors (base-model floor; seam fix cannot touch): 1  -> implied harvard post-fix floor ≈ 1.1% WER
+  --- every error (pos | type | ref -> hyp) ---
+   [34] S  "parked" -> "park"
+   [50] I  "∅" -> "to"  <SEAM-RUN>
+   [51] I  "∅" -> "frighten"  <SEAM-RUN>
+   [52] I  "∅" -> "him."  <SEAM-RUN>
+   [53] I  "∅" -> "He"  <SEAM-RUN>
+   [54] I  "∅" -> "is"  <SEAM-RUN>
+   [55] I  "∅" -> "a"  <SEAM-RUN>
+   [56] I  "∅" -> "writer"  <SEAM-RUN>
+   [57] I  "∅" -> "and"  <SEAM-RUN>
+   [58] I  "∅" -> "writer."  <SEAM-RUN>
+   [59] I  "∅" -> "entails"  <SEAM-RUN>
+  (one-clip diagnostic to scope task one on harvard; NOT a general base.en filler-error rate.)
 
 == B) SEAM AUDIT (conservative overlap-bounded reconciliation) ==
 

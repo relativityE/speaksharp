@@ -25,9 +25,20 @@ each clip, conservative 6-token reconciliation). Harvard fixture mapping VERIFIE
 | harvard_benchmark (34.5s) | 87 | 35w, **60.9%** (dropped) | 97w, **12.6%** (1 seam-flag) |
 
 Long-form content-drop CONFIRMED on 2 clips (whole drops ~60% on both; segmentation recovers on both).
-Harvard's higher segmented WER (12.6% vs 2.6%) is the **flagged seam-defect cost** (kept-both residual dup,
-~+10 words) — directly motivates the first Phase-2 task. This is **limited fixture evidence (2 clips), NOT
-corpus-level validation** — do not broaden the accuracy claim.
+This is **limited fixture evidence (2 clips), NOT corpus-level validation** — do not broaden the accuracy claim.
+
+### Harvard WER decomposition (`seg_verify.mjs` A2 — backtrace the edit-distance matrix; one-clip diagnostic)
+Settles task-one's real floor by attribution, not assumption. Harvard's 11 errors decompose as:
+- **10 insertions in ONE contiguous run `[50-59]@seam`** = the garble "to frighten him. He is a writer and
+  writer. entails" → 100% seam-attributable (task-one fixable).
+- **1 substitution `[34] "parked"->"park"`** = the only content error. **D=0; zero errors on any filler.**
+- => seam-attributable: 10; content floor: 1 → **harvard post-fix floor ≈ 1.1% WER** (below washington's 2.6%).
+
+**The harvard↔washington gap is ENTIRELY the seam defect.** The suspected base-model/filler content errors are
+NOT present on this clip (fillers transcribed correctly). **Task-one success criterion on harvard = remove the
+seam run, reaching the ~1.1% content floor — NOT "hit 2.6%."** (Guardrail: one 87-word clip's decomposition;
+not a general base.en filler-error rate. NB a first ±4-window classifier wrongly split the contiguous run as
+5/6 (6.9%) — corrected to contiguous-run-touching-seam to match the artifact.)
 - **APPROVED framing:** "Segmentation recovers content that the whole long-form path can drop, and materially improves tail latency."
 - **NOT a headline:** "2.6% WER / 22× improvement." The figures above are a SINGLE-CLIP reproducible measurement
   (supporting data, bounded to washington_01) — a quantitative accuracy claim needs a broader corpus.
