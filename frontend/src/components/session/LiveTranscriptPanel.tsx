@@ -32,6 +32,8 @@ interface LiveTranscriptPanelProps {
      * stale/low-confidence draft text during multi-second CPU finalization.
      */
     isFinalizing?: boolean;
+    /** Length (s) of the just-finished recording — drives the honest finalize-time estimate (#891). */
+    recordingDurationSeconds?: number;
     /**
      * Native raw-first async formatting status (post-stop). Drives the threshold-only
      * "tidying up punctuation…" notice; defaults to idle (no notice). Only ever surfaces
@@ -79,8 +81,22 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     className = "",
     history = [],
     isFinalizing = false,
+    recordingDurationSeconds = 0,
     nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
+    // #891 honest finalize estimate: the post-Stop whole-utterance decode runs at ~0.27x realtime.
+    // Snapshot the recording length in a ref so a post-Stop reset to 0 can't zero the estimate
+    // mid-finalization. Null (no number) when unknown — better than a fixed/guessed time.
+    const PRIVATE_FINALIZE_RATE = 0.27;
+    // State (not a ref) so the estimate re-renders once the duration is known. Tracks the last
+    // non-zero recording length, surviving a post-Stop reset to 0.
+    const [lastRecordingSeconds, setLastRecordingSeconds] = React.useState(0);
+    React.useEffect(() => {
+        if (recordingDurationSeconds > 0) setLastRecordingSeconds(recordingDurationSeconds);
+    }, [recordingDurationSeconds]);
+    const finalizeEstimateSeconds = lastRecordingSeconds > 0
+        ? Math.max(2, Math.round(lastRecordingSeconds * PRIVATE_FINALIZE_RATE))
+        : null;
     const internalContainerRef = React.useRef<HTMLDivElement>(null);
     const transcriptContainerRef = containerRef ?? internalContainerRef;
     // #772 DISPLAY-ONLY: in the settled (post-stop) view, collapse an exact whole-text
@@ -406,15 +422,39 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         )}
                     </div>
                 ) : isFinalizing ? (
-                    <div
-                        className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-foreground/80"
-                        data-testid="live-transcript-finalizing-empty"
-                    >
-                        <Loader2 className="h-7 w-7 animate-spin text-primary" aria-hidden="true" />
-                        <p className="text-sm font-semibold text-primary">{finalizingEmptyTitle}</p>
-                        <p className="max-w-sm text-xs text-foreground/60">
-                            {finalizingEmptyDescription}
-                        </p>
+                    <div className="flex flex-col gap-3" data-testid="live-transcript-finalizing-empty">
+                        <style>{`@keyframes ssFinalizeFill{from{width:0%}to{width:95%}}`}</style>
+                        {/* Honest, bounded progress so the wait reads as "polishing", never "hung" or "lost". */}
+                        <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+                                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                <span data-testid="live-transcript-finalizing-title">
+                                    {finalizingEmptyTitle}{finalizeEstimateSeconds ? ` — ~${finalizeEstimateSeconds}s` : ''}
+                                </span>
+                            </div>
+                            <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-primary/15">
+                                <div
+                                    className="h-full rounded-full bg-primary"
+                                    style={finalizeEstimateSeconds
+                                        ? { animation: `ssFinalizeFill ${finalizeEstimateSeconds}s linear forwards` }
+                                        : { width: '45%' }}
+                                />
+                            </div>
+                            <p className="mt-1.5 text-xs text-foreground/60">Your words are captured. Polishing the final version…</p>
+                        </div>
+                        {/* Dimmed draft: the user SEES their words were captured (confidence), but it is
+                            unmistakably provisional — greyed + italic, clearly distinct from final text. */}
+                        {visibleTranscript ? (
+                            <p
+                                className="px-1 text-base italic leading-relaxed text-foreground/40"
+                                data-testid="live-transcript-finalizing-dimmed-draft"
+                                aria-label="Draft being finalized"
+                            >
+                                {visibleTranscript}
+                            </p>
+                        ) : (
+                            <p className="px-1 text-xs text-foreground/60">{finalizingEmptyDescription}</p>
+                        )}
                     </div>
                 ) : (
                     <p className="text-sm font-semibold text-foreground/75">Start recording and your words will appear here.</p>
