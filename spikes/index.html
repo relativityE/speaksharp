@@ -1,0 +1,19 @@
+<!doctype html><meta charset=utf-8><body>browser timing harness<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+env.allowRemoteModels=false; env.allowLocalModels=true; env.localModelPath='./models/';
+env.backends.onnx.wasm.numThreads=1; env.backends.onnx.wasm.wasmPaths='./';                        // single-thread = prod (COOP/COEP off)
+function wav(buf){const dv=new DataView(buf);let off=12,dO=-1,dL=0,bps=16,ch=1;while(off+8<=dv.byteLength){const id=String.fromCharCode(dv.getUint8(off),dv.getUint8(off+1),dv.getUint8(off+2),dv.getUint8(off+3));const sz=dv.getUint32(off+4,true);if(id==='fmt '){ch=dv.getUint16(off+10,true);bps=dv.getUint16(off+22,true);}else if(id==='data'){dO=off+8;dL=sz;}off+=8+sz+(sz%2);}const st=(bps/8)*ch,n=Math.floor(dL/st),o=new Float32Array(n);for(let i=0;i<n;i++)o[i]=dv.getInt16(dO+i*st,true)/32768;return o;}
+window.__r={status:'loading'};
+(async()=>{try{
+  const tL=performance.now();
+  const asr=await pipeline('automatic-speech-recognition','whisper-base.en',{quantized:true});
+  const loadMs=performance.now()-tL;
+  const audio=wav(await (await fetch('./fixture.wav')).arrayBuffer());
+  const dec=async(s)=>{const a=audio.slice(0,Math.min(s*16000,audio.length));const t=performance.now();await asr(a,{chunk_length_s:30,stride_length_s:5,return_timestamps:'word'});return {s:a.length/16000, ms:performance.now()-t};};
+  await dec(20);                                            // warm the graph once (discard)
+  const d20=await dec(20), d30=await dec(30);
+  window.__r={status:'done', loadMs:Math.round(loadMs),
+    seg20:{sec:d20.s, ms:Math.round(d20.ms), rtf:+(d20.ms/1000/d20.s).toFixed(3)},
+    seg30:{sec:+d30.s.toFixed(1), ms:Math.round(d30.ms), rtf:+(d30.ms/1000/d30.s).toFixed(3)}};
+}catch(e){window.__r={status:'error', error:String(e&&e.message||e).slice(0,300)};}})();
+</script></body>
