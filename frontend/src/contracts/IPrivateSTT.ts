@@ -22,6 +22,14 @@ export interface IPrivateSTT {
     stop(): Promise<void>;
 
     transcribe(audio: Float32Array): Promise<Result<string, Error>>;
+
+    /**
+     * SEGMENTED FINALIZATION (#891): decode ONE closed segment -> text + per-word timings. OPTIONAL —
+     * delegates to the active engine's `transcribeSegment` when present (word-timestamp-capable engines
+     * only); callers feature-detect. Background/best-effort: failure is non-fatal by contract.
+     */
+    transcribeSegment?(audio: Float32Array): Promise<Result<import('../services/transcription/utils/seamReconciliation').SegmentTranscription, Error>>;
+
     destroy(): Promise<void>;
     getEngineType(): string;
     /**

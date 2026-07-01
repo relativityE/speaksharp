@@ -73,6 +73,14 @@ export interface IPrivateSTTEngine {
     transcribe(audio: Float32Array): Promise<Result<string, Error>>;
 
     /**
+     * SEGMENTED FINALIZATION (#891): decode ONE closed segment, returning transcript text PLUS per-word
+     * timings (the seam reconciler's input). OPTIONAL — only word-timestamp-capable engines
+     * (transformers-js v2/v4) implement it; callers must feature-detect. Never mutates the canonical
+     * whole-utterance buffer; failure is non-fatal (caller treats the segment as unconfirmed).
+     */
+    transcribeSegment?(audio: Float32Array): Promise<Result<import('@/services/transcription/utils/seamReconciliation').SegmentTranscription, Error>>;
+
+    /**
      * Clean up resources
      */
     destroy(): Promise<void>;

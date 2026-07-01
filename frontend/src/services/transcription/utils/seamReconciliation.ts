@@ -33,6 +33,17 @@ export interface TimedToken {
   readonly te: number;
 }
 
+/**
+ * Result of a single SEGMENT decode (#891 segmented finalization): transcript text plus per-word
+ * timings. Word timings are the input the coverage-gated seam reconciler needs to certify/splice
+ * overlaps. Homed here (next to TimedToken) so engines, the facade, and the reconciler share one type
+ * without a contracts→engine dependency.
+ */
+export interface SegmentTranscription {
+  readonly text: string;
+  readonly wordTimings: TimedToken[];
+}
+
 export type SeamResolution =
   | 'exact_overlap_trim'
   | 'fuzzy_anchor_splice_full'
