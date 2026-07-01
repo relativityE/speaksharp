@@ -97,6 +97,9 @@ export default defineConfig({
                         '--disable-application-cache',
                         '--disk-cache-size=0',
                         '--media-cache-size=0',
+
+                        // #891 v4 probe: enable WebGPU when V4_DEVICE=webgpu (real GPU machine only).
+                        ...(process.env.V4_DEVICE === 'webgpu' ? ['--enable-features=Vulkan,WebGPU', '--enable-unsafe-webgpu'] : []),
                     ],
                 },
             },
