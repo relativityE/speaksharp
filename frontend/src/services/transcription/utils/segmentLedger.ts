@@ -9,7 +9,8 @@
  *
  * Policy (the hard cap is load-bearing — pause detection ALONE would let long uninterrupted
  * speech recreate the original whole-utterance latency problem):
- *   - prefer a PAUSE-aligned close near `targetSec` (~20s), once past `earliestCloseSec`;
+ *   - prefer a PAUSE-aligned close at/after `targetSec` (~20s). A pause BEFORE the target does not
+ *     close (avoids short segments); a closed pause-segment is always >= targetSec and <= hardCapSec.
  *   - FORCE close at `hardCapSec` (30s) even with no pause;
  *   - the final tail closes on Stop (`close()`), and is <= hardCapSec because the current segment
  *     always resets at each close.
@@ -29,12 +30,10 @@ export interface ClosedSegment {
 }
 
 export interface SegmentLedgerParams {
-  /** Preferred segment length; pause-aligned close is sought around here. */
+  /** Target segment length: a pause may only close a segment at/after this (the earliest pause-close). */
   readonly targetSec: number;
   /** Absolute ceiling; force-close here even with no pause. */
   readonly hardCapSec: number;
-  /** Never close before this (avoids tiny segments from an early pause). */
-  readonly earliestCloseSec: number;
   /** Silence run required to count as a pause boundary. */
   readonly minPauseMs: number;
   /** Per-frame energy below this counts as silence (telemetry-tuned). */
@@ -44,7 +43,6 @@ export interface SegmentLedgerParams {
 export const DEFAULT_SEGMENT_LEDGER_PARAMS: SegmentLedgerParams = {
   targetSec: 20,
   hardCapSec: 30,
-  earliestCloseSec: 15,
   minPauseMs: 250,
   pauseEnergyThreshold: 0.01,
 };
@@ -73,7 +71,7 @@ export class SegmentLedger {
 
     let reason: SegmentCloseReason | null = null;
     if (this.elapsedSec >= this.params.hardCapSec) reason = 'hardCap';
-    else if (this.elapsedSec >= this.params.earliestCloseSec && this.silenceMs >= this.params.minPauseMs) reason = 'pause';
+    else if (this.elapsedSec >= this.params.targetSec && this.silenceMs >= this.params.minPauseMs) reason = 'pause';
     return reason ? this.emit(reason) : null;
   }
 

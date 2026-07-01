@@ -11,6 +11,11 @@
  *   - `window.__PRIVATE_SEGMENTATION__ = true`
  *   - URL `?privateSeg=1`
  *
+ * PRE-CUTOVER GATING (TODO before any behavioral cutover): `?privateSeg=1` is a publicly reachable
+ * switch. While this slice only instruments (no behavioral change), that is fine. Before segmentation
+ * ever becomes the canonical saved-transcript path, this switch MUST be restricted to internal/dev
+ * builds or an explicit diagnostics mode so it cannot be flipped on in production.
+ *
  * Side-effect-free and dependency-free so it can be imported anywhere (including the worker).
  */
 
