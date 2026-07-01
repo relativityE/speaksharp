@@ -56,6 +56,30 @@ harvard's tail was **371 ms of audio but took 7299 ms to decode** (RTF 3.079); w
 - **The only path to ≤5s is faster decode** (WebGPU / multi-thread cut the fixed overhead) — Option B is
   now *required* for ≤5s, not merely preferred.
 
+## Model probe: whisper-tiny.en vs whisper-base.en (≤5s lever test) — 2026-07-01
+
+Owner set ≤5s as a hard wave-1 gate. base.en's ~7s fixed decode floor can't meet it, so probed the
+cheapest lever (smaller model) before acceleration. The corpus REFUTES tiny as a solution:
+
+| clip | model | stopToFinalMs | maxQueueDepth | seg WER | whole WER | whole looped? |
+|------|-------|--------------:|:-------------:|--------:|----------:|:-------------:|
+| washington_01 | base | 6892 | 1 | 0.162 | 0.272 | yes |
+| washington_01 | tiny | **3304** | 1 | 0.188 | 0.209 | no |
+| harvard_full  | base | 14686 | 2 | 0.287 | 0.310 | no |
+| harvard_full  | tiny | 6459 | 2 | **0.540** | 0.586 | **yes** |
+
+- tiny is ~2× faster (decode ~3-6s vs base ~7s) — washington hit 3.3s ≤5s. But **washington-tiny was a
+  single-clip over-read** (a repeat of the earlier trap): on harvard tiny's WER is catastrophic (0.540)
+  and it LOOPS (base didn't). tiny accuracy is unusable + inconsistent.
+- **Neither model reliably hits ≤5s single-thread.** base 6.9-14.7s; tiny 3.3-6.5s. harvard exceeds ≤5s
+  on both.
+- **Backlog is a second, model-independent blocker:** harvard hit maxQueueDepth 2 on BOTH models (fast
+  pauses close segments faster than they decode) → the drain at Stop waits multiple decodes → >5s.
+
+CONCLUSION: ≤5s at usable accuracy needs (1) accelerated decode of base.en (WebGPU / multi-thread WASM —
+the go/no-go), AND (2) explicit backlog management (cap pending decodes / bound the Stop drain). Model
+downsizing alone is refuted. Whole-utterance stays canonical; no cutover.
+
 ## Run: washington_01 (65.81s), tuned SegmentLedger 9s / 13s — 2026-07-01
 
 ### Accuracy (WER vs reference; reference = 191 words)

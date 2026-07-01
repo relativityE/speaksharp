@@ -117,11 +117,12 @@ test.describe('Private segmentation corpus WER validation @live', () => {
 });
 
 async function enableSegmentationHooks(page: Page) {
-  await page.addInitScript(() => {
+  const forcedModel = process.env.PRIVATE_MODEL || ''; // e.g. whisper-tiny.en for the ≤5s decode probe
+  await page.addInitScript((model: string) => {
     const win = window as Window & {
       __E2E_CONTEXT__?: boolean; REAL_WHISPER_TEST?: boolean; __FORCE_TRANSFORMERS_JS__?: boolean;
       __STT_LOAD_TIMEOUT__?: number; __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
-      __PRIVATE_SEGMENTATION__?: boolean; __E2E_DEPS__?: Record<string, unknown>;
+      __PRIVATE_SEGMENTATION__?: boolean; __PRIVATE_MODEL__?: string; __E2E_DEPS__?: Record<string, unknown>;
     };
     win.__E2E_CONTEXT__ = true;
     win.REAL_WHISPER_TEST = true;
@@ -129,6 +130,7 @@ async function enableSegmentationHooks(page: Page) {
     win.__STT_LOAD_TIMEOUT__ = 180000;
     win.__PRIVATE_TRANSCRIPT_TRACE__ = true;
     win.__PRIVATE_SEGMENTATION__ = true; // internal/dev flag — the Item-5-preserved diagnostic path
+    if (model) win.__PRIVATE_MODEL__ = model; // model override (default whisper-base.en)
     win.__E2E_DEPS__ = {
       ...win.__E2E_DEPS__,
       fetchUsageLimit: async () => ({
@@ -136,7 +138,7 @@ async function enableSegmentationHooks(page: Page) {
         remaining_seconds: 3600, subscription_status: 'pro', is_pro: true, streak_count: 0, trial_active: true,
       }),
     };
-  });
+  }, forcedModel);
 }
 
 function makeTesterAccount() {
