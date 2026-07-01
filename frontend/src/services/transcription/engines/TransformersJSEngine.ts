@@ -24,6 +24,8 @@ import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
 import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
+import { mapWordChunks } from '../utils/wordTimings';
+import type { TimedToken, SegmentTranscription } from '../utils/seamReconciliation';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 
 // Lazy-load transformers.js to avoid bundle bloat
@@ -38,7 +40,7 @@ type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
     | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device?: string; threads?: number; crossOriginIsolated?: boolean }
-    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string; wordTimings?: TimedToken[] }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
 
@@ -496,6 +498,62 @@ export class TransformersJSEngine extends STTEngine {
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Transcription failed.');
+            return { isOk: false, error: e };
+        }
+    }
+
+    /**
+     * SEGMENTED FINALIZATION (#891) — decode ONE closed segment's audio, returning both the transcript
+     * AND per-word timings. This is strictly ADDITIVE: the canonical whole-utterance `transcribe` above
+     * is untouched and never requests word timestamps. The ONLY behavioral difference is
+     * `return_timestamps: 'word'`, which makes the worker map chunks -> TimedToken[] and return them.
+     * Word timings feed the coverage-gated seam reconciler; they are used only by flag-gated callers.
+     * A decode failure returns an error Result — background segment decode is non-fatal by contract, so
+     * the caller (PrivateWhisper) treats a failed segment as "unconfirmed" and lets the whole-utterance
+     * fallback cover it. No `currentTranscript` mutation here: segment decodes never touch the canonical
+     * whole-utterance buffer.
+     */
+    async transcribeSegment(audio: Float32Array): Promise<Result<SegmentTranscription, Error>> {
+        if (!this.transcriber && !this.worker) {
+            return { isOk: false, error: new Error('TransformersJS engine not initialized. Call init() first.') };
+        }
+
+        this.updateHeartbeat();
+
+        try {
+            if (this.worker) {
+                const workerAudio = audio.slice(0);
+                const response = await this.sendWorkerRequest(
+                    { type: 'transcribe', audio: workerAudio, decodeOptions: { return_timestamps: 'word' } },
+                    [workerAudio.buffer],
+                );
+                if (response.type !== 'result') {
+                    throw new Error(`Unexpected TransformersJS worker response: ${response.type}`);
+                }
+                this.updateHeartbeat();
+                return { isOk: true, data: { text: response.transcript, wordTimings: response.wordTimings ?? [] } };
+            }
+
+            // Non-worker fallback (Worker unavailable): decode on the main thread and map chunks here,
+            // mirroring what the worker does internally so both paths return the same TimedToken shape.
+            const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+            const options: Record<string, unknown> = {
+                chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+                stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
+                return_timestamps: 'word',
+            };
+            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
+            const text = typeof result === 'string'
+                ? result
+                : (result as TranscriptionResult).text ?? (result as TranscriptionResult).transcript ?? '';
+            const wordTimings = typeof result === 'string'
+                ? []
+                : mapWordChunks((result as { chunks?: unknown }).chunks);
+            this.updateHeartbeat();
+            return { isOk: true, data: { text, wordTimings } };
+        } catch (error) {
+            const e = error instanceof Error ? error : new Error(String(error));
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Segment transcription failed.');
             return { isOk: false, error: e };
         }
     }

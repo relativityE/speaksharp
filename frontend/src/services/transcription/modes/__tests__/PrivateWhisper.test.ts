@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
     init: vi.fn(),
     checkAvailability: vi.fn(),
     transcribe: vi.fn(),
+    transcribeSegment: vi.fn(),
     reset: vi.fn(),
     stop: vi.fn(),
     isMeaningfullySilent: vi.fn().mockReturnValue(false),
@@ -46,6 +47,7 @@ vi.mock('../../engines/PrivateSTT', () => {
         init: mocks.init,
         checkAvailability: mocks.checkAvailability,
         transcribe: mocks.transcribe,
+        transcribeSegment: mocks.transcribeSegment,
         getEngineType: vi.fn().mockReturnValue('transformers-js')
     }));
     return {
@@ -67,6 +69,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         mocks.init.mockReset();
         mocks.checkAvailability.mockReset();
         mocks.transcribe.mockReset();
+        mocks.transcribeSegment.mockReset();
         mocks.reset.mockReset();
         mocks.stop.mockReset();
         mocks.isMeaningfullySilent.mockReset();
@@ -1128,6 +1131,59 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
         vi.useRealTimers();
+    });
+
+    it('segmentation flag ON: a closed segment drives a background decode via the facade transcribeSegment (#891)', async () => {
+        // Real timers: the queue's background decode + Stop drain resolve on the mocked promise naturally.
+        (window as unknown as { __PRIVATE_SEGMENTATION__?: boolean }).__PRIVATE_SEGMENTATION__ = true;
+        mocks.transcribeSegment.mockResolvedValue(
+            Result.ok({ text: 'segment', wordTimings: [{ w: 'segment', ts: 0, te: 0.5 }] }),
+        );
+        try {
+            await privateWhisper.init();
+
+            let frameCallback: ((frame: Float32Array) => void) | undefined;
+            const mockMic: MicStream = {
+                state: 'ready',
+                sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+                onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+                offFrame: vi.fn(),
+                stop: vi.fn(),
+                close: vi.fn(),
+                _mediaStream: new MediaStream(),
+            };
+            await privateWhisper.start(mockMic);
+            expect(frameCallback).toBeDefined();
+
+            // Feed > hardCap (30s) of LOUD audio (rms above the ledger's pause threshold) so the ledger
+            // closes a segment, which slices its audio + enqueues a background decode.
+            const eightSec = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ * 8).fill(0.5);
+            for (let i = 0; i < 4; i++) frameCallback!(eightSec);
+
+            await privateWhisper.stop();
+
+            // End-to-end wiring proof: ledger close -> slice -> enqueue -> background decode -> facade.
+            expect(mocks.transcribeSegment).toHaveBeenCalled();
+            expect(mocks.transcribeSegment.mock.calls[0]?.[0]).toBeInstanceOf(Float32Array);
+
+            // Shadow comparison published after Stop: base telemetry re-published WITH shadow metrics
+            // (assembled-vs-canonical). Text-free numbers only.
+            const tel = (window as unknown as {
+                __PRIVATE_SEGMENTATION_TELEMETRY__?: {
+                    segmentationEnabled: boolean;
+                    usedWholeUtteranceFallback: boolean;
+                    shadow?: { segmentCount: number; seamCount: number; flaggedSeams: number; similarity: number } | null;
+                };
+            }).__PRIVATE_SEGMENTATION_TELEMETRY__;
+            expect(tel?.segmentationEnabled).toBe(true);
+            expect(tel?.usedWholeUtteranceFallback).toBe(true); // instrumentation only — never a cutover
+            expect(tel?.shadow).toBeTruthy();
+            expect(tel?.shadow?.segmentCount).toBeGreaterThanOrEqual(1);
+            expect(typeof tel?.shadow?.similarity).toBe('number');
+        } finally {
+            delete (window as unknown as { __PRIVATE_SEGMENTATION__?: boolean }).__PRIVATE_SEGMENTATION__;
+            delete (window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown }).__PRIVATE_SEGMENTATION_TELEMETRY__;
+        }
     });
 });
 
