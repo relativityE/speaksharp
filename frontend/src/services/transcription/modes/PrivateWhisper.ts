@@ -42,6 +42,12 @@ import { TranscriptionError } from '../errors';
 
 import { MicStream } from '../utils/types';
 import { MicReadinessGate } from '../utils/micReadiness';
+import { SegmentLedger, type ClosedSegment } from '../utils/segmentLedger';
+import {
+  isPrivateSegmentationEnabled,
+  publishPrivateSegmentationTelemetry,
+  type SegmentLifecycleTelemetry,
+} from '../utils/privateSegmentationFlag';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate, SttStatus } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
@@ -679,6 +685,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // #891 immediate-start readiness gate. Fires once, when the mic delivers stable clean frames,
   // to flip the UI cue from "Starting…" to "Speak now". Capture-from-start buffers underneath.
   private micReadinessGate: MicReadinessGate | null = null;
+
+  // #891 segmented finalization (behind flag; instrumentation only this slice — detect boundaries +
+  // publish telemetry. No background decode, no Stop-path change, no save-path change, no UI change.
+  // Null when the flag is off, so every hook below is a no-op and behavior is byte-identical.)
+  private segmentLedger: SegmentLedger | null = null;
+  private segmentTelemetry: SegmentLifecycleTelemetry[] = [];
   private status: Status;
   private privateSTT: IPrivateSTT;
   private engineType: EngineType | null = null;
@@ -1019,6 +1031,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     });
     this.onStatusChange?.({ type: 'warming', message: 'Starting…' });
 
+    // #891 segmentation (flag-gated, instrumentation only): boundary ledger for the live frame path.
+    // Null (no-op) unless the flag is explicitly on; the canonical whole-utterance path is unchanged.
+    this.segmentLedger = isPrivateSegmentationEnabled() ? new SegmentLedger() : null;
+    this.segmentTelemetry = [];
+
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
 
@@ -1037,6 +1054,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // confirmation (soft onset, low measured RMS on loud speech, listener-attach delay, gate
       // reset, …). Leading/trailing pure silence is trimmed conservatively at finalize.
       this.appendFrameToUtteranceAudio(clonedFrame, energy);
+
+      // #891 segmentation (flag-gated): observe segment boundaries for telemetry only. No-op when the
+      // ledger is null (flag off). Does NOT touch the buffer, the gate, the Stop decode, or the save path.
+      if (this.segmentLedger) {
+        const closed = this.segmentLedger.observe(energy.rms, samplesToSeconds(clonedFrame.length, PRIVATE_STT_SAMPLE_RATE));
+        if (closed) this.recordSegment(closed);
+      }
 
       // #891 immediate-start gate: the buffer captured this frame above; now decide whether the
       // mic is warm enough to invite speech. Fires exactly once -> flip "Starting…" to "Speak now".
@@ -1866,6 +1890,22 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       currentTranscriptLength: this.currentTranscript.length,
     });
 
+    // #891 segmentation (flag-gated): close the final tail + publish telemetry. Instrumentation only —
+    // the whole-utterance decode remains the canonical saved transcript (usedWholeUtteranceFallback=true).
+    if (this.segmentLedger) {
+      const tail = this.segmentLedger.close();
+      if (tail) this.recordSegment(tail);
+      publishPrivateSegmentationTelemetry({
+        segmentationEnabled: true,
+        segments: this.segmentTelemetry,
+        maxQueueDepth: 0, // no background decode yet (Item 3)
+        tailDecodeMs: null,
+        stopToFinalMs: null,
+        usedWholeUtteranceFallback: true,
+      });
+      this.segmentLedger = null;
+    }
+
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
@@ -2200,6 +2240,24 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.utteranceAudioChunks.push(chunk.slice(0));
       this.utteranceSampleCount += chunk.length;
     }
+  }
+
+  // #891 segmentation (flag-gated): record a closed segment's lifecycle for the diagnostic harness /
+  // 5-min backlog gate. Decode fields are null in this slice (background decode is Item 3).
+  private recordSegment(seg: ClosedSegment): void {
+    this.segmentTelemetry.push({
+      segmentIndex: seg.index,
+      segmentStartMs: Math.round(seg.startSec * 1000),
+      segmentEndMs: Math.round(seg.endSec * 1000),
+      segmentDurationMs: Math.round(seg.durationSec * 1000),
+      closedReason: seg.closedReason,
+      decodeQueuedAt: null,
+      decodeStartedAt: null,
+      decodeFinishedAt: null,
+      decodeMs: null,
+      rtf: null,
+      queueDepthAtEnqueue: null,
+    });
   }
 
   private appendFrameToUtteranceAudio(
