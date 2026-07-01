@@ -46,6 +46,26 @@ export interface SegmentLifecycleTelemetry {
 }
 
 /** Session-level segmentation telemetry the diagnostic harness / 5-min gate reads. */
+/**
+ * SHADOW COMPARISON (#891): text-free summary of the ASSEMBLED segmented transcript vs the canonical
+ * whole-utterance transcript. The cutover-readiness signal — how close the segmented output is to what
+ * we actually save today. Numbers ONLY; never the transcript text.
+ */
+export interface SegmentationShadowTelemetry {
+  /** Segments that produced a decode and were folded. */
+  segmentCount: number;
+  /** Seams reconciled (segmentCount - 1 when ≥2 folded). */
+  seamCount: number;
+  /** Seams left flagged (residual duplication the coverage check could not certify away). */
+  flaggedSeams: number;
+  assembledTokenCount: number;
+  wholeUtteranceTokenCount: number;
+  /** assembled − whole-utterance token count (positive = segmented produced more words). */
+  tokenCountDelta: number;
+  /** Sørensen–Dice similarity over normalized word multisets, 0..1 (1 = identical bag of words). */
+  similarity: number;
+}
+
 export interface PrivateSegmentationTelemetry {
   /** Whether the segmentation path was active for this session. */
   segmentationEnabled: boolean;
@@ -58,6 +78,12 @@ export interface PrivateSegmentationTelemetry {
   stopToFinalMs: number | null;
   /** True if the segmented path fell back to the whole-utterance decode (safety). */
   usedWholeUtteranceFallback: boolean;
+  /**
+   * Assembled-vs-canonical shadow comparison. Null until the whole-utterance decode has committed (it
+   * is published base-only first, then re-published with this once the comparison is available), or if
+   * no segment produced a decode. Instrumentation only — the assembled transcript is never saved/shown.
+   */
+  shadow?: SegmentationShadowTelemetry | null;
 }
 
 /** True when Private segmented finalization is explicitly enabled for this session. */

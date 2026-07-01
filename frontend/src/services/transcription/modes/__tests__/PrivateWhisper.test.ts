@@ -1165,8 +1165,24 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             // End-to-end wiring proof: ledger close -> slice -> enqueue -> background decode -> facade.
             expect(mocks.transcribeSegment).toHaveBeenCalled();
             expect(mocks.transcribeSegment.mock.calls[0]?.[0]).toBeInstanceOf(Float32Array);
+
+            // Shadow comparison published after Stop: base telemetry re-published WITH shadow metrics
+            // (assembled-vs-canonical). Text-free numbers only.
+            const tel = (window as unknown as {
+                __PRIVATE_SEGMENTATION_TELEMETRY__?: {
+                    segmentationEnabled: boolean;
+                    usedWholeUtteranceFallback: boolean;
+                    shadow?: { segmentCount: number; seamCount: number; flaggedSeams: number; similarity: number } | null;
+                };
+            }).__PRIVATE_SEGMENTATION_TELEMETRY__;
+            expect(tel?.segmentationEnabled).toBe(true);
+            expect(tel?.usedWholeUtteranceFallback).toBe(true); // instrumentation only — never a cutover
+            expect(tel?.shadow).toBeTruthy();
+            expect(tel?.shadow?.segmentCount).toBeGreaterThanOrEqual(1);
+            expect(typeof tel?.shadow?.similarity).toBe('number');
         } finally {
             delete (window as unknown as { __PRIVATE_SEGMENTATION__?: boolean }).__PRIVATE_SEGMENTATION__;
+            delete (window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown }).__PRIVATE_SEGMENTATION_TELEMETRY__;
         }
     });
 });
