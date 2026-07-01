@@ -15,12 +15,14 @@ import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
+import { CONTINUOUS_MONOLOGUE } from '../fixtures/stt-isomorphic/continuous-monologue';
 
 // CORPUS (avoid overfitting to one adversarial clip). Select via CORPUS_ID; feed the matching audio via
 // LIVE_AUDIO_FIXTURE (playwright.live.config.ts). Each entry: reference text + duration + adversarial flag.
 const CORPUS: Record<string, { label: string; reference: string; durationSec: number; adversarial: boolean }> = {
   washington_01: { label: 'washington_01 (adversarial regression guard)', reference: WASHINGTON_01.transcript, durationSec: WASHINGTON_01.metadata.durationSec, adversarial: true },
   harvard_full: { label: 'harvard_full (non-adversarial clean read, 10 sentences)', reference: HARVARD_FULL, durationSec: 29.6, adversarial: false },
+  continuous_5min: { label: 'continuous_5min (TTS continuous monologue ~3.4min, anchors/min)', reference: CONTINUOUS_MONOLOGUE, durationSec: 202.6, adversarial: false },
 };
 const CORPUS_ID = process.env.CORPUS_ID || 'washington_01';
 const FIXTURE = CORPUS[CORPUS_ID] ?? CORPUS.washington_01;
@@ -29,7 +31,7 @@ const AUDIO_COMPLETION_MARGIN_MS = 3_000;
 
 test.describe('Private segmentation corpus WER validation @live', () => {
   test(`${CORPUS_ID}: private whole vs segmented WER + keep-pace`, async ({ page }, testInfo) => {
-    test.setTimeout(420_000);
+    test.setTimeout(600_000);
 
     await enableSegmentationHooks(page);
     const account = makeTesterAccount();
@@ -52,13 +54,35 @@ test.describe('Private segmentation corpus WER validation @live', () => {
 
     await startStopButton.click();
     await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 90_000 });
-    const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-segmentation-shadow', 120_000);
+    const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-segmentation-shadow', 240_000);
     const wholeUtterance = (saveCandidate.selectedForSave ?? '').trim();
 
     const { telemetry, assembled } = await page.evaluate(() => {
       const win = window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown; __PRIVATE_SEGMENTATION_ASSEMBLED__?: string };
       return { telemetry: win.__PRIVATE_SEGMENTATION_TELEMETRY__ ?? null, assembled: (win.__PRIVATE_SEGMENTATION_ASSEMBLED__ ?? '').trim() };
     });
+
+    // #891 PERCEIVED-COMPLETE-DRAFT vs SETTLED-FINAL (owner: two ≤5s definitions). Derived from the
+    // per-segment decode timeline, no product wiring: Stop ≈ the stopTail's decodeQueuedAt. Draft-complete
+    // = when all CONFIRMED (non-tail) segments have decoded (tail shown as refining) → what the user could
+    // SEE. Settled-final = when everything incl. tail decoded → save/export-safe (== stopToFinalMs).
+    const segs = (telemetry as { segments?: Array<{ closedReason: string; decodeQueuedAt: number | null; decodeFinishedAt: number | null }> } | null)?.segments ?? [];
+    const finished = (s: { decodeFinishedAt: number | null }) => s.decodeFinishedAt ?? 0;
+    const tailSeg = segs.find((s) => s.closedReason === 'stopTail');
+    const stopMs = tailSeg?.decodeQueuedAt ?? Math.max(0, ...segs.map((s) => s.decodeQueuedAt ?? 0));
+    const confirmed = segs.filter((s) => s.closedReason !== 'stopTail');
+    const draftReadyMs = confirmed.length ? Math.max(...confirmed.map(finished)) : stopMs;
+    const settledMs = segs.length ? Math.max(...segs.map(finished)) : stopMs;
+    const timeToCompleteDraftAfterStopMs = Math.max(0, Math.round(draftReadyMs - stopMs));
+    const timeToSettledFinalMs = Math.max(0, Math.round(settledMs - stopMs));
+    // eslint-disable-next-line no-console
+    console.log(
+      `\n===== ≤5s DEFINITIONS: ${FIXTURE.label} =====\n` +
+      `timeToCompleteDraftAfterStopMs (user SEES complete draft): ${timeToCompleteDraftAfterStopMs} ms  (${timeToCompleteDraftAfterStopMs <= 5000 ? 'PASS ≤5s' : 'FAIL >5s'})\n` +
+      `timeToSettledFinalMs (save/export-safe canonical):         ${timeToSettledFinalMs} ms  (${timeToSettledFinalMs <= 5000 ? 'PASS ≤5s' : 'FAIL >5s'})\n` +
+      `pending confirmed decodes at Stop (backlog): ${confirmed.filter((s) => finished(s) > stopMs).length}\n` +
+      `================================================================\n`,
+    );
 
     // ACCURACY vs KNOWN reference (public-domain fixtures, so logging text is fine here). Also surface
     // the whole-utterance repetition-risk flag — the loop detector — to answer "does the CURRENT shipping

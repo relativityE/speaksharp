@@ -56,6 +56,33 @@ harvard's tail was **371 ms of audio but took 7299 ms to decode** (RTF 3.079); w
 - **The only path to ≤5s is faster decode** (WebGPU / multi-thread cut the fixed overhead) — Option B is
   now *required* for ≤5s, not merely preferred.
 
+## Perceived-draft vs settled-final (two ≤5s definitions) — v2 base, continuous — 2026-07-01
+
+Owner/reviewer: ≤5s has two meanings — (a) **perceived-complete-draft** (user SEES a complete transcript,
+tail marked refining) vs (b) **settled-final** (save/export-safe canonical). Instrumented both from the
+per-segment decode timeline (Stop ≈ stopTail.decodeQueuedAt; draft = last CONFIRMED segment finished;
+settled = last of all finished). Continuous TTS monologue, v2 whisper-base.en:
+
+| metric | value | ≤5s? |
+|--------|------:|:----:|
+| timeToCompleteDraftAfterStopMs | **847 ms** | **PASS** |
+| timeToSettledFinalMs | 9343 ms | FAIL |
+| maxQueueDepth | 2 | — |
+| pending confirmed decodes at Stop | 1 | — |
+
+**Finding: perceived-complete-draft is ≤5s (0.85s) even with backlog; only the save/export-safe
+settled-final exceeds 5s (9.3s).** So a "draft visible ≤5s + finalizing tail, save-safe a few seconds
+later" UX could satisfy a perceived-≤5s wave-1 on v2 base — no WebGPU/COOP-COEP required — IF the product
+accepts that definition. If save/export-safe must be ≤5s, acceleration is still needed.
+
+⚠️ **CAVEATS — do NOT bank the WER or call this a true 5-min:**
+- The recording was TRUNCATED at 90s by `MAX_PRIVATE_RECORDING_SECONDS=90` (an internal safety cap). The
+  204s fixture only recorded ~90s → whole 284 / segmented 251 words vs 589-word reference. So this is a
+  **~90s continuous test, not 3.4-min**, and the WER (whole 0.531 / seg 0.587) is unreliable (partial
+  capture + a synthetic TTS voice whisper-base handles poorly).
+- A TRUE ≥3-5min measurement requires raising the 90s cap (code change) + a cleaner (ideally human) voice
+  fixture. The draft-≤5s / settled-9s TIMING pattern is valid for what was recorded; the accuracy is not.
+
 ## Model probe: whisper-tiny.en vs whisper-base.en (≤5s lever test) — 2026-07-01
 
 Owner set ≤5s as a hard wave-1 gate. base.en's ~7s fixed decode floor can't meet it, so probed the
