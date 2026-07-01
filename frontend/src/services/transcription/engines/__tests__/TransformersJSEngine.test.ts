@@ -154,6 +154,73 @@ describe('TransformersJSEngine (Unit)', () => {
         }));
     });
 
+    // --- #891 segmented finalization: additive transcribeSegment (word timings) ---
+
+    it('transcribeSegment requests WORD timestamps and returns text + mapped wordTimings', async () => {
+        const transcriber = vi.fn(async () => ({
+            text: 'hello world',
+            chunks: [
+                { text: 'hello', timestamp: [0.0, 0.5] },
+                { text: 'world', timestamp: [0.5, 1.0] },
+            ],
+        }));
+        mockPipeline.mockImplementationOnce(async () => transcriber);
+        await engine.init();
+
+        const result = await engine.transcribeSegment(new Float32Array(16000));
+
+        expect(result.isOk).toBe(true);
+        // The ONLY behavioral difference from the canonical whole-utterance path: word timestamps.
+        expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
+            return_timestamps: 'word',
+        }));
+        const data = (result as { isOk: true; data: { text: string; wordTimings: Array<{ w: string; ts: number; te: number }> } }).data;
+        expect(data.text).toBe('hello world');
+        expect(data.wordTimings).toEqual([
+            { w: 'hello', ts: 0.0, te: 0.5 },
+            { w: 'world', ts: 0.5, te: 1.0 },
+        ]);
+    });
+
+    it('transcribeSegment preserves text with empty wordTimings when no chunks are returned', async () => {
+        const transcriber = vi.fn(async () => ({ text: 'no chunks here' }));
+        mockPipeline.mockImplementationOnce(async () => transcriber);
+        await engine.init();
+
+        const result = await engine.transcribeSegment(new Float32Array(16000));
+
+        expect(result.isOk).toBe(true);
+        const data = (result as { isOk: true; data: { text: string; wordTimings: unknown[] } }).data;
+        expect(data.text).toBe('no chunks here');
+        expect(data.wordTimings).toEqual([]);
+    });
+
+    it('transcribeSegment returns an error Result when the engine is not initialized (caller treats as non-fatal)', async () => {
+        const fresh = new TransformersJSEngine({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const result = await fresh.transcribeSegment(new Float32Array(16000));
+        expect(result.isOk).toBe(false);
+        await fresh.destroy();
+    });
+
+    it('transcribeSegment does NOT overwrite the canonical whole-utterance transcript', async () => {
+        // One transcriber that answers differently by decode mode: canonical (return_timestamps:true)
+        // vs segment (return_timestamps:'word'). Proves a segment decode never touches currentTranscript.
+        const transcriber = vi.fn(async (_audio: Float32Array, options: Record<string, unknown>) =>
+            options?.return_timestamps === 'word'
+                ? { text: 'segment tail', chunks: [{ text: 'segment', timestamp: [0, 0.4] }] }
+                : { text: 'CANONICAL whole utterance' });
+        mockPipeline.mockImplementationOnce(async () => transcriber);
+        await engine.init();
+
+        await engine.transcribe(new Float32Array(16000)); // establishes the canonical buffer
+        const before = await engine.getTranscript();
+        expect(before).toBe('CANONICAL whole utterance');
+
+        await engine.transcribeSegment(new Float32Array(16000)); // must not clobber it
+        const after = await engine.getTranscript();
+        expect(after).toBe('CANONICAL whole utterance');
+    });
+
     it('does not reload the model when initialized twice', async () => {
         const callbacks = {
             onReady: vi.fn(),
