@@ -163,6 +163,17 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         void queryClient.invalidateQueries({ queryKey: ['userProfile'] });
     };
 
+    // #891 (review): reset handler for the Analytics render-crash boundary. It must REMOVE the cached
+    // analytics data, not just invalidate it — invalidate keeps the stale/bad data served while a
+    // refetch runs, so resetting the boundary would immediately re-render the dashboard against the same
+    // data that just threw and re-trip the boundary. removeQueries clears it -> the dashboard re-renders
+    // against undefined (its loading/empty state, which does not throw) and the active hooks refetch fresh.
+    const handleAnalyticsBoundaryReset = () => {
+        queryClient.removeQueries({ queryKey: ['sessionHistory'] });
+        queryClient.removeQueries({ queryKey: ['sessionCount'] });
+        queryClient.removeQueries({ queryKey: ['analyticsSummary'] });
+    };
+
     // Show loading state while fetching data
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
     const isLoading = loading || isProfileLoading;
@@ -204,7 +215,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 dead-end that ALSO didn't reach Sentry. Scope it: LocalErrorBoundary reports to Sentry +
                 PostHog (COMPONENT_CRASH) and shows a recoverable "Try Again" instead of the dead-end. The
                 real root-cause fix follows once the captured stack lands. */}
-            <LocalErrorBoundary componentName="Analytics" isolationKey="analytics" onReset={handleRetryAnalytics}>
+            <LocalErrorBoundary componentName="Analytics" isolationKey="analytics" onReset={handleAnalyticsBoundaryReset}>
                 <AnalyticsDashboard
                     profile={profile || null}
                     isProUser={isProUser}
