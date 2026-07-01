@@ -24,23 +24,35 @@ describe('SegmentLedger — pause-aligned boundaries with hard cap (#891)', () =
     expect(out[0].durationSec).toBeLessThan(30 + FRAME * 2);
   });
 
-  it('closes pause-aligned near target once past earliestClose', () => {
+  it('closes pause-aligned at/after the target', () => {
     const l = new SegmentLedger();
     const out: ClosedSegment[] = [];
-    feed(l, LOUD, 16, out);
-    expect(out).toHaveLength(0); // no boundary yet
+    feed(l, LOUD, 21, out); // 21s (past the 20s target), continuous -> no boundary yet
+    expect(out).toHaveLength(0);
     feed(l, SILENT, 0.4, out); // a real pause -> close
     expect(out).toHaveLength(1);
     expect(out[0].closedReason).toBe('pause');
-    expect(out[0].durationSec).toBeGreaterThanOrEqual(15);
-    expect(out[0].durationSec).toBeLessThan(20);
+    expect(out[0].durationSec).toBeGreaterThanOrEqual(20); // a pause never closes before the target
+    expect(out[0].durationSec).toBeLessThan(30);
   });
 
-  it('does not close on an early pause before earliestClose', () => {
+  it('does NOT close on a pause before the target (targetSec is enforced, not a 15s floor)', () => {
+    // Regression: previously a pause anytime after ~15s closed the segment; targetSec (20s) was unused.
+    const l = new SegmentLedger();
+    const out: ClosedSegment[] = [];
+    feed(l, LOUD, 18, out); // 18s: past the old 15s floor but BEFORE the 20s target
+    feed(l, SILENT, 0.4, out); // a pause here must NOT close
+    expect(out).toHaveLength(0);
+    feed(l, LOUD, 12, out); // continue -> hard cap at 30
+    expect(out).toHaveLength(1);
+    expect(out[0].closedReason).toBe('hardCap');
+  });
+
+  it('does not close on a very early pause', () => {
     const l = new SegmentLedger();
     const out: ClosedSegment[] = [];
     feed(l, LOUD, 5, out);
-    feed(l, SILENT, 0.4, out); // pause at ~5.4s (< earliestClose 15) — must NOT close
+    feed(l, SILENT, 0.4, out); // pause at ~5.4s (well before the 20s target) — must NOT close
     expect(out).toHaveLength(0);
     feed(l, LOUD, 26, out); // continue -> hard cap
     expect(out).toHaveLength(1);
@@ -51,7 +63,7 @@ describe('SegmentLedger — pause-aligned boundaries with hard cap (#891)', () =
     const l = new SegmentLedger();
     const out: ClosedSegment[] = [];
     for (let s = 0; s < 3; s++) {
-      feed(l, LOUD, 16, out);
+      feed(l, LOUD, 21, out);
       feed(l, SILENT, 0.4, out);
     }
     expect(out).toHaveLength(3);
