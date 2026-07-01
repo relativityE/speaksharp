@@ -1,6 +1,8 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
+import { mapWordChunks } from '../utils/wordTimings';
+import type { TimedToken } from '../utils/seamReconciliation';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type WhisperDecodeOptions = Record<string, unknown>;
@@ -14,13 +16,15 @@ type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
     | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string; threads: number; crossOriginIsolated: boolean }
-    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string; wordTimings?: TimedToken[] }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
 
 interface TranscriptionResult {
     text?: string;
     transcript?: string;
+    /** Present when return_timestamps:'word' (segment decodes) — [{ text, timestamp:[start,end] }]. */
+    chunks?: unknown;
 }
 
 let transcriber: Pipeline | null = null;
@@ -157,6 +161,12 @@ async function transcribe(id: number, audio: Float32Array, decodeOptions?: Whisp
     const transcript = typeof result === 'string'
         ? result
         : result.text ?? result.transcript ?? '';
+    // Word timings ONLY for segment decodes (return_timestamps:'word'); the whole-utterance path
+    // (return_timestamps:true) never requests them, so wordTimings stays undefined and its result
+    // shape is unchanged. Additive + gated by the caller's option.
+    const wordTimings = decodeOptions?.return_timestamps === 'word' && typeof result !== 'string'
+        ? mapWordChunks(result.chunks)
+        : undefined;
 
     post({
         id,
@@ -165,6 +175,7 @@ async function transcribe(id: number, audio: Float32Array, decodeOptions?: Whisp
         latencyMs: Math.round(performance.now() - start),
         audioLengthSeconds,
         resultShape: typeof result === 'string' ? 'string' : Object.keys(result).sort().join(','),
+        ...(wordTimings ? { wordTimings } : {}),
     });
 }
 
