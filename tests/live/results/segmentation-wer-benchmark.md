@@ -1,0 +1,71 @@
+# Segmentation WER benchmark — run output (#891)
+
+Committed artifact of the automated fake-mic run (real `whisper-base.en`, local dev server of
+`feat/891`, segmentation on via internal window flag). Regenerate with:
+
+```
+LIVE_AUDIO_FIXTURE="$(pwd)/tests/fixtures/stt-isomorphic/audio/washington_01.wav" \
+  npx playwright test tests/live/private-segmentation-shadow.live.spec.ts \
+  --config=playwright.live.config.ts --project=live-stt-chromium --retries=1
+```
+
+## ⚠️ Read before citing these numbers
+
+- **ONE fixture, and the adversarial one.** `washington_01` is the *specific* clip the whole-utterance
+  path is already known to mangle (the #891 long-audio content-drop finding was on washington). The
+  whole path **looped** here (206 words vs 191 reference). So the accuracy gap below is **largely the
+  baseline failing on its worst clip**, not a general proof that segmentation is more accurate.
+  Honest claim: *"on washington_01, segmented WER (0.162) beats whole-utterance (0.272), largely
+  because whole looped on this clip."* NOT "segmented is decisively more accurate." Needs replication
+  on a clip where the whole path does **not** loop before generalizing.
+- **Inferred at 65.8s, not proven at 5-min.** `maxQueueDepth: 1` and the constant-tail argument
+  (`stopToFinalMs` bounded by the last segment) are *evidence* the ~6.9s Stop holds at 5-min, not
+  *proof*. ~40 seams of during-recording decode at 5-min is a different load than 5 seams at 65.8s.
+- **Separate possible production bug:** if the whole-utterance path loops on real user-length audio
+  generally (not just this fixture), that is a live accuracy bug in the shipping path today — its own
+  question, tracked separately.
+
+## Run: washington_01 (65.81s), tuned SegmentLedger 9s / 13s — 2026-07-01
+
+### Accuracy (WER vs reference; reference = 191 words)
+| Path | Accuracy | WER | Words |
+|------|---------:|----:|------:|
+| Private whole-utterance (current saved / canonical) | 72.8% | 0.272 | 206 |
+| Private segmented (assembled candidate) | 83.8% | 0.162 | 185 |
+
+### Speed / keep-pace
+| Metric | Value |
+|--------|------:|
+| stopToFinalMs | 6892 ms |
+| tailDecodeMs | 6889 ms |
+| maxQueueDepth | 1 |
+| segmentCount | 6 |
+| seamCount / flaggedSeams | 5 / 1 |
+| per-segment RTF | 0.70, 0.48, 0.56, 0.69, 0.50, 0.63 (median ~0.6) |
+| tail (segment 5) duration | 8867 ms |
+| shadow.similarity (internal check, NOT accuracy) | 0.9361 |
+| tokenCountDelta (assembled − whole) | −21 |
+
+### Full telemetry JSON
+```json
+{
+  "segmentationEnabled": true,
+  "segments": [
+    { "segmentIndex": 0, "segmentDurationMs": 9627,  "closedReason": "pause",    "decodeMs": 6737, "rtf": 0.700, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 1, "segmentDurationMs": 13000, "closedReason": "hardCap",  "decodeMs": 7229, "rtf": 0.482, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 2, "segmentDurationMs": 9728,  "closedReason": "pause",    "decodeMs": 6555, "rtf": 0.559, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 3, "segmentDurationMs": 10616, "closedReason": "pause",    "decodeMs": 8733, "rtf": 0.692, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 4, "segmentDurationMs": 11859, "closedReason": "pause",    "decodeMs": 6922, "rtf": 0.500, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 5, "segmentDurationMs": 8867,  "closedReason": "stopTail", "decodeMs": 6889, "rtf": 0.634, "queueDepthAtEnqueue": 0 }
+  ],
+  "maxQueueDepth": 1,
+  "tailDecodeMs": 6889,
+  "stopToFinalMs": 6892,
+  "usedWholeUtteranceFallback": true,
+  "shadow": { "segmentCount": 6, "seamCount": 5, "flaggedSeams": 1, "assembledTokenCount": 185, "wholeUtteranceTokenCount": 206, "tokenCountDelta": -21, "similarity": 0.9361 }
+}
+```
+
+## Prior run: washington_01, untuned 20s / 30s (for comparison)
+stopToFinalMs 10.7s; tail 16.8s; maxQueueDepth 1; RTF 0.44/0.42/0.57; similarity 0.924; flaggedSeams 0.
+(WER not captured on that run — the WER harness was added afterward.)
