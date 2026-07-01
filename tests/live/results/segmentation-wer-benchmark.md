@@ -75,7 +75,27 @@ settled-final exceeds 5s (9.3s).** So a "draft visible ≤5s + finalizing tail, 
 later" UX could satisfy a perceived-≤5s wave-1 on v2 base — no WebGPU/COOP-COEP required — IF the product
 accepts that definition. If save/export-safe must be ≤5s, acceleration is still needed.
 
-⚠️ **CAVEATS — do NOT bank the WER or call this a true 5-min:**
+### TRUE continuous run (90s cap temporarily raised to 400 → full 204s recorded, WER reliable)
+
+| metric | value | ≤5s? |
+|--------|------:|:----:|
+| timeToCompleteDraftAfterStopMs | **0 ms** (all confirmed segments drained DURING recording) | **PASS** |
+| timeToSettledFinalMs | 9576 ms (tail-dominated) | FAIL |
+| pending confirmed decodes at Stop | 0 | — |
+| maxQueueDepth | 2 (peaked, drained to 0 by Stop) | — |
+| segments / seams / flaggedSeams | 18 / 17 / 4 | — |
+| per-segment RTF | 0.42–0.80 (all <1) — keep-pace holds over 3.4 min | — |
+| **segmented WER** | **0.085 (91.5%)** | — |
+| whole-utterance WER | 0.199 (80.1%) — **LOOPED** ("operational evidence is what") | — |
+
+**Strongest evidence for Option A (perceived-draft ≤5s):** over a real 3.4-min continuous recording the
+draft is ready at Stop (0ms ≤5s) AND segmented accuracy is genuinely strong (91.5%) — the whole-utterance
+path looped on the long continuous audio (the original #891 failure) while segmentation did not. Only the
+save/export-safe settled-final (9.6s, tail-dominated) exceeds 5s. Keep-pace holds (queue drains to 0 at
+Stop). NOTE: the 90s cap was raised ONLY for this measurement and reverted to 90 (segmentation cutover is
+the roadmap fix that lifts it for real).
+
+⚠️ **CAVEATS (from the earlier 90s-capped run) — do NOT bank the WER or call this a true 5-min:**
 - The recording was TRUNCATED at 90s by `MAX_PRIVATE_RECORDING_SECONDS=90` (an internal safety cap). The
   204s fixture only recorded ~90s → whole 284 / segmented 251 words vs 589-word reference. So this is a
   **~90s continuous test, not 3.4-min**, and the WER (whole 0.531 / seg 0.587) is unreliable (partial
