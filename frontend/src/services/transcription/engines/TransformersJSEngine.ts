@@ -25,7 +25,7 @@ import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
 import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
 import { mapWordChunks } from '../utils/wordTimings';
-import type { TimedToken } from '../utils/seamReconciliation';
+import type { TimedToken, SegmentTranscription } from '../utils/seamReconciliation';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 
 // Lazy-load transformers.js to avoid bundle bloat
@@ -53,16 +53,6 @@ type PendingWorkerRequest = {
 interface TranscriptionResult {
     text?: string;
     transcript?: string;
-}
-
-/**
- * Result of a single SEGMENT decode (#891 segmented finalization): transcript text plus per-word
- * timings. Word timings are the input the coverage-gated seam reconciler needs to certify/splice
- * overlaps. Distinct from the whole-utterance `transcribe` path, which returns text only.
- */
-export interface SegmentTranscription {
-    text: string;
-    wordTimings: TimedToken[];
 }
 
 declare global {

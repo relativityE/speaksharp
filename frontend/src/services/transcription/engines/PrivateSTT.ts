@@ -45,6 +45,7 @@ import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS, PRIVATE
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
+import type { SegmentTranscription } from '../utils/seamReconciliation';
 import { getV4FlagState } from '../privateV4Flags';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
@@ -475,6 +476,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return this.engine.transcribe(audio);
         }
         return result;
+    }
+
+    /**
+     * SEGMENTED FINALIZATION (#891): delegate a single-segment decode (text + per-word timings) to the
+     * active engine. Feature-detected — engines without `transcribeSegment` (e.g. native browser) return
+     * a clear error Result. Unlike whole-utterance `transcribe`, there is NO v4-hang bounding or
+     * auto-fallback here: a failed segment decode is non-fatal by contract (the caller marks the segment
+     * unconfirmed and the canonical whole-utterance decode covers it), so keeping it simple avoids adding
+     * decode-path complexity to a best-effort background call.
+     */
+    public async transcribeSegment(audio: Float32Array): Promise<Result<SegmentTranscription, Error>> {
+        if (!this.engine) {
+            return { isOk: false, error: new Error('PrivateSTT not initialized.') };
+        }
+        if (typeof this.engine.transcribeSegment !== 'function') {
+            return { isOk: false, error: new Error(`Engine '${this._engineType}' does not support segment decode.`) };
+        }
+        return this.engine.transcribeSegment(audio);
     }
 
     /** Race a v4 decode against a timeout so a HUNG WASM decode degrades to a failure we can fall
