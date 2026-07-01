@@ -7,7 +7,7 @@ export const SPEAKSHARP_SCORE_WEIGHTS = {
     messageStructure: 0.35,
     deliveryControl: 0.30,
     languageClarity: 0.20,
-    audienceImpact: 0.15,
+    listenerTakeaway: 0.15,
 } as const;
 
 export const SPEAKSHARP_CONFIDENCE_THRESHOLDS = {
@@ -55,7 +55,7 @@ export interface SpeakingScoreBreakdown {
     messageStructure: number;
     deliveryControl: number;
     languageClarity: number;
-    audienceImpact: number;
+    listenerTakeaway: number;
 }
 
 export interface SpeakingScoreResult {
@@ -144,7 +144,7 @@ const scoreMessageStructure = (transcript: string, wordCount: number): number =>
     return clamp(lengthScore + structureBonus);
 };
 
-const scoreAudienceImpact = (transcript: string, wordCount: number): number => {
+const scoreListenerTakeaway = (transcript: string, wordCount: number): number => {
     if (wordCount < ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WORDS) return 0;
 
     const normalized = transcript.toLowerCase();
@@ -302,14 +302,14 @@ export const calculateSpeakingScore = ({
         languageClarity: wordCount < ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WORDS
             ? 0
             : clamp(clarityScore / 10),
-        audienceImpact: scoreAudienceImpact(transcript, wordCount),
+        listenerTakeaway: scoreListenerTakeaway(transcript, wordCount),
     };
 
     const score = roundTenth(
         (breakdown.messageStructure * SPEAKSHARP_SCORE_WEIGHTS.messageStructure)
         + (breakdown.deliveryControl * SPEAKSHARP_SCORE_WEIGHTS.deliveryControl)
         + (breakdown.languageClarity * SPEAKSHARP_SCORE_WEIGHTS.languageClarity)
-        + (breakdown.audienceImpact * SPEAKSHARP_SCORE_WEIGHTS.audienceImpact)
+        + (breakdown.listenerTakeaway * SPEAKSHARP_SCORE_WEIGHTS.listenerTakeaway)
     );
 
     const actions: string[] = [];
@@ -332,7 +332,7 @@ export const calculateSpeakingScore = ({
         if (totalPauses === 0 && elapsedSeconds >= 20) actions.push('Pause once before the takeaway.');
         else if (pausesPerMinute > 12) actions.push('Finish a full phrase before taking the next pause.');
 
-        if (breakdown.audienceImpact < 5.5) actions.push('Use one concrete example to make it land.');
+        if (breakdown.listenerTakeaway < 5.5) actions.push('Use one concrete example to make it land.');
     }
 
     const label = getScoreLabel(score);

@@ -108,7 +108,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     </div>
                     <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score*</h2>
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
-                        The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact.
+                        The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and listener takeaway.
                     </p>
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
                         Improve the ingredients, then come back and try to lift the score.
@@ -199,8 +199,8 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                 <span>{formatBreakdown(result.breakdown.languageClarity)}</span>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <span>Audience impact</span>
-                                <span>{formatBreakdown(result.breakdown.audienceImpact)}</span>
+                                <span>Listener Takeaway</span>
+                                <span>{formatBreakdown(result.breakdown.listenerTakeaway)}</span>
                             </div>
                         </div>
                         <p className="mt-3 text-[11px] font-semibold leading-snug text-foreground/60">
