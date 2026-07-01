@@ -43,6 +43,7 @@ import { TranscriptionError } from '../errors';
 import { MicStream } from '../utils/types';
 import { MicReadinessGate } from '../utils/micReadiness';
 import { SegmentLedger, type ClosedSegment } from '../utils/segmentLedger';
+import { SegmentDecodeQueue, type SegmentDecodeResult } from '../utils/segmentDecodeQueue';
 import {
   isPrivateSegmentationEnabled,
   publishPrivateSegmentationTelemetry,
@@ -184,6 +185,14 @@ type SpeechGateStats = {
 };
 
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
+// #891 segmentation: lead-in seconds prepended when slicing a closed segment's audio, so consecutive
+// segments SHARE audio at the seam — the overlap the coverage-gated reconciler certifies against. ~2s
+// (~4-6 Whisper words) matches the anchor/fuzzy-window scale.
+const SEGMENT_AUDIO_OVERLAP_SEC = 2;
+// Upper bound on the Stop-time background-decode drain so a stuck worker can never hang Stop. On timeout
+// telemetry is simply incomplete (best-effort instrumentation); the canonical whole-utterance decode is
+// unaffected.
+const SEGMENT_DRAIN_TIMEOUT_MS = 45000;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
 const UTTERANCE_SILENCE_TAIL_SAMPLES = PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES;
@@ -691,6 +700,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // Null when the flag is off, so every hook below is a no-op and behavior is byte-identical.)
   private segmentLedger: SegmentLedger | null = null;
   private segmentTelemetry: SegmentLifecycleTelemetry[] = [];
+  // #891 (flag-gated): background per-segment decode queue. Null unless segmentation is on, so the
+  // whole enqueue/decode/drain path is a no-op and behavior is byte-identical when the flag is off.
+  private segmentDecodeQueue: SegmentDecodeQueue | null = null;
   private status: Status;
   private privateSTT: IPrivateSTT;
   private engineType: EngineType | null = null;
@@ -1035,6 +1047,21 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Null (no-op) unless the flag is explicitly on; the canonical whole-utterance path is unchanged.
     this.segmentLedger = isPrivateSegmentationEnabled() ? new SegmentLedger() : null;
     this.segmentTelemetry = [];
+    // Background decode queue (flag-gated with the ledger). Its decode fn feature-detects the facade's
+    // transcribeSegment (word-timestamp-capable engines only) and returns the segment's word timings; a
+    // decode error is non-fatal (the queue records it and continues). onResult populates each segment's
+    // decode telemetry as decodes finish DURING recording — no blocking of the live path.
+    this.segmentDecodeQueue = this.segmentLedger
+      ? new SegmentDecodeQueue({
+          decode: async (audio) => {
+            const res = await this.privateSTT.transcribeSegment?.(audio);
+            if (!res) throw new Error('active engine does not support segment decode');
+            if (!res.isOk) throw res.error instanceof Error ? res.error : new Error('segment decode failed');
+            return res.data.wordTimings;
+          },
+          onResult: (r) => this.applySegmentDecodeResult(r),
+        })
+      : null;
 
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
@@ -1893,17 +1920,40 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // #891 segmentation (flag-gated): close the final tail + publish telemetry. Instrumentation only —
     // the whole-utterance decode remains the canonical saved transcript (usedWholeUtteranceFallback=true).
     if (this.segmentLedger) {
+      const stopSegAtMs = performance.now();
+      // Close the final UNCONFIRMED tail and enqueue it now, so its decode overlaps the whole-utterance
+      // commit below instead of running purely after it.
       const tail = this.segmentLedger.close();
       if (tail) this.recordSegment(tail);
+      this.segmentLedger = null;
+
+      let maxQueueDepth = 0;
+      let tailDecodeMs: number | null = null;
+      if (this.segmentDecodeQueue) {
+        // Bounded drain so a stuck worker can't hang Stop. If segment decodes kept pace during recording
+        // (RTF < 1, flat depth) only the just-enqueued tail is still in flight here — so this measures the
+        // tail-only Stop latency the segmented path would eventually deliver. Instrumentation ONLY: the
+        // whole-utterance decode remains the canonical saved transcript (usedWholeUtteranceFallback=true).
+        let drainTimer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          this.segmentDecodeQueue.drain(),
+          new Promise<void>((resolve) => { drainTimer = setTimeout(resolve, SEGMENT_DRAIN_TIMEOUT_MS); }),
+        ]);
+        if (drainTimer) clearTimeout(drainTimer);
+        maxQueueDepth = this.segmentDecodeQueue.maxQueueDepth;
+        const tailTel = tail ? this.segmentTelemetry.find((t) => t.segmentIndex === tail.index) : undefined;
+        tailDecodeMs = tailTel?.decodeMs ?? null;
+        this.segmentDecodeQueue = null;
+      }
+
       publishPrivateSegmentationTelemetry({
         segmentationEnabled: true,
         segments: this.segmentTelemetry,
-        maxQueueDepth: 0, // no background decode yet (Item 3)
-        tailDecodeMs: null,
-        stopToFinalMs: null,
+        maxQueueDepth,
+        tailDecodeMs,
+        stopToFinalMs: Math.round(performance.now() - stopSegAtMs),
         usedWholeUtteranceFallback: true,
       });
-      this.segmentLedger = null;
     }
 
     if (this.processingInterval) {
@@ -2258,6 +2308,40 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       rtf: null,
       queueDepthAtEnqueue: null,
     });
+
+    // #891 (flag-gated): slice this segment's audio — with a lead-in overlap so consecutive segments
+    // share audio at the seam for the coverage-gated reconciler — and enqueue a BACKGROUND decode. The
+    // whole-utterance decode stays canonical; this is pure instrumentation. Best-effort: any failure is
+    // logged and swallowed so the live recording path is never disrupted. Passing an OWNED copy (slice)
+    // because the worker transfers the buffer; a subarray view would detach the shared utterance buffer.
+    if (this.segmentDecodeQueue) {
+      try {
+        const startSample = Math.max(0, secondsToSamples(Math.max(0, seg.startSec - SEGMENT_AUDIO_OVERLAP_SEC), PRIVATE_STT_SAMPLE_RATE));
+        const endSample = secondsToSamples(seg.endSec, PRIVATE_STT_SAMPLE_RATE);
+        const full = concatenateFloat32Arrays(this.utteranceAudioChunks);
+        const clampedEnd = Math.min(endSample, full.length);
+        if (clampedEnd > startSample) {
+          const segAudio = full.slice(startSample, clampedEnd);
+          this.segmentDecodeQueue.enqueue(seg.index, segAudio, samplesToSeconds(segAudio.length, PRIVATE_STT_SAMPLE_RATE));
+        }
+      } catch (err) {
+        logger.warn({ sId: this.serviceId, rId: this.instanceId, err, segIndex: seg.index }, '[PrivateWhisper] segment enqueue failed (non-fatal instrumentation)');
+      }
+    }
+  }
+
+  // #891 (flag-gated): fold a completed background segment decode into its telemetry row. Runs off the
+  // queue's onResult callback (may fire during recording or during the Stop drain); matches by index and
+  // is a no-op if the row is gone. Never touches the transcript or the canonical save path.
+  private applySegmentDecodeResult(r: SegmentDecodeResult): void {
+    const tel = this.segmentTelemetry.find((t) => t.segmentIndex === r.segmentIndex);
+    if (!tel) return;
+    tel.decodeQueuedAt = Math.round(r.queuedAtMs);
+    tel.decodeStartedAt = Math.round(r.startedAtMs);
+    tel.decodeFinishedAt = Math.round(r.finishedAtMs);
+    tel.decodeMs = Math.round(r.decodeMs);
+    tel.rtf = Number(r.rtf.toFixed(3));
+    tel.queueDepthAtEnqueue = r.queueDepthAtEnqueue;
   }
 
   private appendFrameToUtteranceAudio(
