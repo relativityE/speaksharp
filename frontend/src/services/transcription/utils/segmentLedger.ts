@@ -41,8 +41,12 @@ export interface SegmentLedgerParams {
 }
 
 export const DEFAULT_SEGMENT_LEDGER_PARAMS: SegmentLedgerParams = {
-  targetSec: 20,
-  hardCapSec: 30,
+  // #891 latency tuning (2026-07-01, evidence-driven): targets sized so the leftover TAIL at Stop
+  // decodes in ≤5s (the finalize target). At ~0.5 RTF on WASM single-thread, tail_decode = tail × 0.5,
+  // so tail ≤ ~10s → ≤5s. A ~9s pause-target with a conservative ~13s hard cap keeps the open (tail)
+  // segment small; the prior 20s/30s left a 16.8s tail = ~10.7s Stop (measured). Re-measured each change.
+  targetSec: 9,
+  hardCapSec: 13,
   minPauseMs: 250,
   pauseEnergyThreshold: 0.01,
 };

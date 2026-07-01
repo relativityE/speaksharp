@@ -2415,6 +2415,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           similarity: cmp.similarity,
         },
       });
+      // TRACE-ONLY (off in production): expose the assembled transcript text so a fixture-based
+      // validation harness can compute WER vs a KNOWN ground truth. Gated behind the private-transcript
+      // trace flag — never populated in normal operation, so no user transcript is stashed on window in
+      // prod. Same posture as the engine's existing [PRIVATE_DIAG] trace surface.
+      if (typeof window !== 'undefined' && isPrivateTranscriptTraceEnabled()) {
+        (window as unknown as { __PRIVATE_SEGMENTATION_ASSEMBLED__?: string }).__PRIVATE_SEGMENTATION_ASSEMBLED__ = pending.assembled.transcript;
+      }
     } catch (err) {
       logger.warn({ sId: this.serviceId, rId: this.instanceId, err }, '[PrivateWhisper] shadow comparison failed (non-fatal)');
     }
