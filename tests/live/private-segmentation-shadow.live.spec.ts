@@ -14,13 +14,21 @@ import { test, expect, type Page } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
+import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 
-// Audio + baseURL + mic permission come from playwright.live.config.ts (local dev server of THIS branch
-// when BASE_URL is unset) + LIVE_AUDIO_FIXTURE (point it at washington_01.wav for a ~65.8s multi-segment run).
+// CORPUS (avoid overfitting to one adversarial clip). Select via CORPUS_ID; feed the matching audio via
+// LIVE_AUDIO_FIXTURE (playwright.live.config.ts). Each entry: reference text + duration + adversarial flag.
+const CORPUS: Record<string, { label: string; reference: string; durationSec: number; adversarial: boolean }> = {
+  washington_01: { label: 'washington_01 (adversarial regression guard)', reference: WASHINGTON_01.transcript, durationSec: WASHINGTON_01.metadata.durationSec, adversarial: true },
+  harvard_full: { label: 'harvard_full (non-adversarial clean read, 10 sentences)', reference: HARVARD_FULL, durationSec: 29.6, adversarial: false },
+};
+const CORPUS_ID = process.env.CORPUS_ID || 'washington_01';
+const FIXTURE = CORPUS[CORPUS_ID] ?? CORPUS.washington_01;
+
 const AUDIO_COMPLETION_MARGIN_MS = 3_000;
 
-test.describe('Private segmentation shadow validation @live', () => {
-  test('washington_01: real segmented decode keeps pace and assembles high-similarity vs whole-utterance', async ({ page }, testInfo) => {
+test.describe('Private segmentation corpus WER validation @live', () => {
+  test(`${CORPUS_ID}: private whole vs segmented WER + keep-pace`, async ({ page }, testInfo) => {
     test.setTimeout(420_000);
 
     await enableSegmentationHooks(page);
@@ -40,7 +48,7 @@ test.describe('Private segmentation shadow validation @live', () => {
 
     await waitForNonPlaceholderTranscript(page);
     const elapsed = Date.now() - recordingStartedAt;
-    await page.waitForTimeout(Math.max(0, WASHINGTON_01.metadata.durationSec * 1000 + AUDIO_COMPLETION_MARGIN_MS - elapsed));
+    await page.waitForTimeout(Math.max(0, FIXTURE.durationSec * 1000 + AUDIO_COMPLETION_MARGIN_MS - elapsed));
 
     await startStopButton.click();
     await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 90_000 });
@@ -52,18 +60,23 @@ test.describe('Private segmentation shadow validation @live', () => {
       return { telemetry: win.__PRIVATE_SEGMENTATION_TELEMETRY__ ?? null, assembled: (win.__PRIVATE_SEGMENTATION_ASSEMBLED__ ?? '').trim() };
     });
 
-    // ACCURACY vs KNOWN ground truth (washington_01 is public-domain, so logging its text is fine here).
-    const groundTruth = WASHINGTON_01.transcript;
+    // ACCURACY vs KNOWN reference (public-domain fixtures, so logging text is fine here). Also surface
+    // the whole-utterance repetition-risk flag — the loop detector — to answer "does the CURRENT shipping
+    // path loop on THIS clip?" (the production-bug generality check), not just on washington_01.
+    const groundTruth = FIXTURE.reference;
     const wc = (s: string) => s.split(/\s+/).filter(Boolean).length;
     const acc = (wer: number) => Number(((1 - wer) * 100).toFixed(1));
     const wholeWer = calculateWordErrorRate(groundTruth, wholeUtterance);
     const segWer = assembled ? calculateWordErrorRate(groundTruth, assembled) : NaN;
+    const sc = saveCandidate as { repetitionRisk?: boolean; repeatedSpanSummary?: string };
+    const wholeRepetition = sc.repetitionRisk ?? false;
+    const wholeRepeatSpan = sc.repeatedSpanSummary ?? '';
     // eslint-disable-next-line no-console
     console.log(
-      `\n===== ACCURACY vs GROUND TRUTH (washington_01, ${wc(groundTruth)} words) =====\n` +
-      `whole-utterance (current saved): ${acc(wholeWer)}%  (WER ${wholeWer.toFixed(3)}, ${wc(wholeUtterance)} words)\n` +
-      `assembled (segmented):           ${assembled ? acc(segWer) + '%' : 'N/A'}  (WER ${assembled ? segWer.toFixed(3) : 'n/a'}, ${wc(assembled)} words)\n` +
-      `=========================================================================\n`,
+      `\n===== CORPUS WER: ${FIXTURE.label} (reference ${wc(groundTruth)} words) =====\n` +
+      `whole-utterance (current saved): WER ${wholeWer.toFixed(3)} (${acc(wholeWer)}%), ${wc(wholeUtterance)} words, repetitionRisk=${wholeRepetition}${wholeRepeatSpan ? ' [' + wholeRepeatSpan + ']' : ''}\n` +
+      `assembled (segmented):           WER ${assembled ? segWer.toFixed(3) : 'n/a'} (${assembled ? acc(segWer) + '%' : 'N/A'}), ${wc(assembled)} words\n` +
+      `================================================================\n`,
     );
 
     // Human-readable report attached to the test run.

@@ -25,6 +25,37 @@ LIVE_AUDIO_FIXTURE="$(pwd)/tests/fixtures/stt-isomorphic/audio/washington_01.wav
   generally (not just this fixture), that is a live accuracy bug in the shipping path today — its own
   question, tracked separately.
 
+## Corpus v1 (2 clips) — 2026-07-01, tuned 9s/13s — the single-clip inferences OVERTURNED
+
+| Clip | Adversarial | ref words | whole WER | seg WER | whole looped? | stopToFinalMs | maxQueueDepth | segs |
+|------|-------------|----------:|----------:|--------:|:-------------:|--------------:|--------------:|-----:|
+| washington_01 | **yes** | 191 | 0.272 | **0.162** | **yes** | 6.9s | 1 | 6 |
+| harvard_full  | no      |  87 | 0.310 | 0.287   | **no**  | **14.7s** | **2** | 3 |
+
+Three claims from the single washington run are now corrected by the corpus:
+
+1. **"Whole-utterance loops (production bug)" — clip-specific, NOT general.** It looped on washington
+   (long) but NOT on harvard (`repetitionRisk=false`). So the loop is triggered by longer/harder audio,
+   not universal.
+2. **"Segmented is materially more accurate" — NOT general.** Big gap on washington (0.162 vs 0.272)
+   *because the baseline looped*; on harvard the gap is marginal (0.287 vs 0.310). Honest read:
+   **segmented is roughly comparable, occasionally better when the whole path fails.** Not "decisively
+   better."
+3. **"stopToFinalMs is ~constant, tail-bounded ~7s" — REFUTED.** 6.9s on washington (queue depth 1) but
+   **14.7s on harvard (queue depth 2 — it backed up)**. Finalize scales with *how many decodes are
+   pending at Stop*, which depends on the clip's pause structure, not just the tail.
+
+**The load-bearing discovery — a FIXED ~7s per-decode overhead on WASM single-thread:**
+harvard's tail was **371 ms of audio but took 7299 ms to decode** (RTF 3.079); washington's 8.9s tail took
+6.9s. Decode time ≈ **~7s fixed + ~0.2×audioSec** — the fixed model-invocation cost dominates. Consequences:
+- **≤5s is UNACHIEVABLE single-threaded.** Even a perfect tail-only Stop pays the ~7s floor. You cannot
+  tune below it.
+- **Shrinking segments backfires:** it does NOT cut the ~7s tail floor, and it *adds* decodes (each ~7s
+  fixed) → backlog (harvard hit depth 2 at 9s/13s). The 20s→9s tuning helped washington's *audio* tail but
+  the *decode* floor is unchanged.
+- **The only path to ≤5s is faster decode** (WebGPU / multi-thread cut the fixed overhead) — Option B is
+  now *required* for ≤5s, not merely preferred.
+
 ## Run: washington_01 (65.81s), tuned SegmentLedger 9s / 13s — 2026-07-01
 
 ### Accuracy (WER vs reference; reference = 191 words)
