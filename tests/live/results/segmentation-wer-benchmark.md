@@ -97,6 +97,29 @@ harvard's tail was **371 ms of audio but took 7299 ms to decode** (RTF 3.079); w
 }
 ```
 
+## Run: harvard_full (29.6s, non-adversarial), tuned 9s/13s — raw telemetry
+
+WER vs 87-word reference: whole **0.310** (83 words, `repetitionRisk=false` — did NOT loop);
+segmented **0.287** (78 words). The `decodeFinishedAt` timeline shows the backlog: seg 1 finishes at
+45278, and the tail can't START until then (45278) despite being queued at 37892 — so Stop waits the
+full seg1 + tail chain. Note seg 2's 371ms of audio → 7299ms decode = the fixed ~7s floor.
+
+```json
+{
+  "segmentationEnabled": true,
+  "segments": [
+    { "segmentIndex": 0, "segmentDurationMs": 10320, "closedReason": "pause",    "decodeQueuedAt": 24491, "decodeStartedAt": 24491, "decodeFinishedAt": 31243, "decodeMs": 6752, "rtf": 0.654, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 1, "segmentDurationMs": 13000, "closedReason": "hardCap",  "decodeQueuedAt": 37494, "decodeStartedAt": 37494, "decodeFinishedAt": 45278, "decodeMs": 7785, "rtf": 0.519, "queueDepthAtEnqueue": 0 },
+    { "segmentIndex": 2, "segmentDurationMs": 371,   "closedReason": "stopTail", "decodeQueuedAt": 37892, "decodeStartedAt": 45278, "decodeFinishedAt": 52577, "decodeMs": 7299, "rtf": 3.079, "queueDepthAtEnqueue": 1 }
+  ],
+  "maxQueueDepth": 2,
+  "tailDecodeMs": 7299,
+  "stopToFinalMs": 14686,
+  "usedWholeUtteranceFallback": true,
+  "shadow": { "segmentCount": 3, "seamCount": 2, "flaggedSeams": 0, "assembledTokenCount": 78, "wholeUtteranceTokenCount": 83, "tokenCountDelta": -5, "similarity": 0.8944 }
+}
+```
+
 ## Prior run: washington_01, untuned 20s / 30s (for comparison)
 stopToFinalMs 10.7s; tail 16.8s; maxQueueDepth 1; RTF 0.44/0.42/0.57; similarity 0.924; flaggedSeams 0.
 (WER not captured on that run — the WER harness was added afterward.)
