@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import tsconfigPaths from 'vite-tsconfig-paths';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 import { PORTS, resolveAppModeMeta } from '../scripts/build.config.js';
 
@@ -59,7 +60,21 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       tsconfigPaths(),
-      react()
+      react(),
+      // #891 observability: upload source maps to Sentry so captured production stacks resolve to real
+      // filenames/lines instead of minified frames. Activates ONLY when SENTRY_AUTH_TOKEN is present in
+      // the BUILD env — no-op locally and in any build without the token. `sourcemap: 'hidden'` (below)
+      // generates maps WITHOUT a sourceMappingURL comment, and filesToDeleteAfterUpload removes the .map
+      // files after upload, so maps are never publicly served.
+      ...(process.env.SENTRY_AUTH_TOKEN
+        ? [sentryVitePlugin({
+            org: process.env.SENTRY_ORG,
+            project: process.env.SENTRY_PROJECT,
+            authToken: process.env.SENTRY_AUTH_TOKEN,
+            sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
+            telemetry: false,
+          })]
+        : []),
     ],
     assetsInclude: ['**/*.onnx'],
     assetsInlineLimit: 0, // Prevent WASM from being base64 encoded
@@ -98,7 +113,9 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'esnext',
       emptyOutDir: true,
-      sourcemap: isTestMode,
+      // test mode keeps inline maps; prod emits HIDDEN maps only when uploading to Sentry (token present),
+      // so they're generated for upload + deleted after, never referenced in or served with the bundle.
+      sourcemap: isTestMode ? true : (process.env.SENTRY_AUTH_TOKEN ? 'hidden' : false),
       minify: process.env.NODE_ENV === 'test' ? false : 'esbuild',
       outDir: 'dist',
       rollupOptions: {
