@@ -7,14 +7,18 @@
  * remains the canonical/fallback path until the segmented worker path is proven (word timestamps,
  * background scheduling, bounded queue depth) on a real 5-minute take.
  *
- * Enable for an internal run via either:
- *   - `window.__PRIVATE_SEGMENTATION__ = true`
- *   - URL `?privateSeg=1`
+ * Enable for a run via either:
+ *   - `window.__PRIVATE_SEGMENTATION__ = true` — INTERNAL/DEV/DIAGNOSTIC path. Works in ALL environments
+ *     (including public production), because enabling it requires a deliberate devtools-console or
+ *     test-harness action and is NOT reachable via a shareable/discoverable URL. This is the operator's
+ *     switch for the production 5-minute diagnostic take.
+ *   - URL `?privateSeg=1` — convenience switch, honored ONLY OUTSIDE public production (dev/test/preview).
  *
- * PRE-CUTOVER GATING (TODO before any behavioral cutover): `?privateSeg=1` is a publicly reachable
- * switch. While this slice only instruments (no behavioral change), that is fine. Before segmentation
- * ever becomes the canonical saved-transcript path, this switch MUST be restricted to internal/dev
- * builds or an explicit diagnostics mode so it cannot be flipped on in production.
+ * PRE-CUTOVER GATING (Item 5, DONE): the publicly-reachable `?privateSeg=1` URL param is IGNORED when
+ * `import.meta.env.MODE === 'production'` (the public prod build; dev='development', test='test'). So a
+ * discoverable/shareable URL can never enable segmentation for real production users — the hard gate the
+ * eventual canonical-transcript cutover requires. (Today segmentation only adds shadow instrumentation,
+ * so this is a forward-looking safety gate, not a fix for current behavior.)
  *
  * Side-effect-free and dependency-free so it can be imported anywhere (including the worker).
  */
@@ -89,7 +93,13 @@ export interface PrivateSegmentationTelemetry {
 /** True when Private segmented finalization is explicitly enabled for this session. */
 export function isPrivateSegmentationEnabled(): boolean {
   if (typeof window === 'undefined') return false;
+  // Internal/dev/diagnostic path — deliberate window flag (devtools console / test harness). Honored in
+  // EVERY environment, incl. public production, so an operator can run the production diagnostic take.
+  // Not reachable via a URL, so it cannot be flipped on for a real user by a shared/discoverable link.
   if (window.__PRIVATE_SEGMENTATION__ === true) return true;
+  // ITEM 5 HARD GATE: the publicly-reachable ?privateSeg=1 URL param is IGNORED in public production, so
+  // it can never enable segmentation for real users (pre-cutover safety). Honored only in dev/test/preview.
+  if (import.meta.env.MODE === 'production') return false;
   try {
     return new URLSearchParams(window.location.search).get('privateSeg') === '1';
   } catch {
