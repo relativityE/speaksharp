@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
+import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
@@ -198,17 +199,24 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     return (
         <div>
             <PageHeader isPro={isProUser} sessionId={sessionId} upgradeLoading={upgradeLoading} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
-            <AnalyticsDashboard
-                profile={profile || null}
-                isProUser={isProUser}
-                sessionHistory={sessionHistory || []}
-                overallStats={overallStats}
-                fillerWordTrends={fillerWordTrends}
-                loading={isLoading}
-                error={error || null}
-                onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
-                sessionId={sessionId}
-            />
+            {/* #891 Analytics-crash containment: a render throw in the dashboard (or a chart choking on
+                one bad session's data) previously bubbled to the app-level boundary — a full-page "Oops"
+                dead-end that ALSO didn't reach Sentry. Scope it: LocalErrorBoundary reports to Sentry +
+                PostHog (COMPONENT_CRASH) and shows a recoverable "Try Again" instead of the dead-end. The
+                real root-cause fix follows once the captured stack lands. */}
+            <LocalErrorBoundary componentName="Analytics" isolationKey="analytics" onReset={handleRetryAnalytics}>
+                <AnalyticsDashboard
+                    profile={profile || null}
+                    isProUser={isProUser}
+                    sessionHistory={sessionHistory || []}
+                    overallStats={overallStats}
+                    fillerWordTrends={fillerWordTrends}
+                    loading={isLoading}
+                    error={error || null}
+                    onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
+                    sessionId={sessionId}
+                />
+            </LocalErrorBoundary>
         </div>
     );
 };
