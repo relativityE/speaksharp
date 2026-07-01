@@ -1,0 +1,39 @@
+name: Sentry diagnose (read-only)
+
+# READ-ONLY diagnostic. Queries real Sentry issues by search and prints the latest event's exception
+# stack (message + frames ONLY — no PII / extra / breadcrumbs / context / request). Reuses the same
+# secret injection as observability-api-smoke.yml so the dev never holds the prod token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Sentry issue search, e.g. "is:unresolved url:*analytics*"'
+        type: string
+        default: 'is:unresolved url:*analytics*'
+      stats_period:
+        description: 'Time window, e.g. 24h / 3h / 7d'
+        type: string
+        default: '24h'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Sentry issue stack (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Query Sentry issue stack (frames + message only, PII-safe)
+        env:
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          SENTRY_API_BASE: ${{ secrets.SENTRY_API_BASE }}
+          # inputs passed via env (not interpolated into run:) — no shell-injection surface
+          SENTRY_DIAG_QUERY: ${{ inputs.query }}
+          SENTRY_DIAG_STATS_PERIOD: ${{ inputs.stats_period }}
+        run: node scripts/sentry-diagnose.mjs
