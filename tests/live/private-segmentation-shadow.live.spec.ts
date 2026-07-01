@@ -57,10 +57,32 @@ test.describe('Private segmentation corpus WER validation @live', () => {
     const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-segmentation-shadow', 240_000);
     const wholeUtterance = (saveCandidate.selectedForSave ?? '').trim();
 
-    const { telemetry, assembled } = await page.evaluate(() => {
-      const win = window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown; __PRIVATE_SEGMENTATION_ASSEMBLED__?: string };
-      return { telemetry: win.__PRIVATE_SEGMENTATION_TELEMETRY__ ?? null, assembled: (win.__PRIVATE_SEGMENTATION_ASSEMBLED__ ?? '').trim() };
+    const { telemetry, assembled, v4Runtime, privateTiming } = await page.evaluate(() => {
+      const win = window as unknown as {
+        __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown; __PRIVATE_SEGMENTATION_ASSEMBLED__?: string;
+        __PRIVATE_V4_RUNTIME__?: unknown; __PRIVATE_TIMING__?: unknown;
+      };
+      return {
+        telemetry: win.__PRIVATE_SEGMENTATION_TELEMETRY__ ?? null,
+        assembled: (win.__PRIVATE_SEGMENTATION_ASSEMBLED__ ?? '').trim(),
+        v4Runtime: win.__PRIVATE_V4_RUNTIME__ ?? null,
+        privateTiming: win.__PRIVATE_TIMING__ ?? null,
+      };
     });
+
+    // #891 v4 probe: report the RESOLVED backend (WebGPU vs WASM fallback) + whole-decode time. v4 has no
+    // transcribeSegment, so segmentation telemetry is empty for v4 — the per-decode number here is the
+    // whole-utterance finalizeDecodeMs on the segment-sized/whole fixture.
+    if (process.env.V4_VARIANT) {
+      const pt = privateTiming as { finalizeDecodeMs?: number; finalizeWaitMs?: number } | null;
+      // eslint-disable-next-line no-console
+      console.log(
+        `\n===== v4 PROBE: variant=${process.env.V4_VARIANT} requestedDevice=${process.env.V4_DEVICE} =====\n` +
+        `resolved runtime (__PRIVATE_V4_RUNTIME__): ${JSON.stringify(v4Runtime)}\n` +
+        `whole-decode finalizeDecodeMs: ${pt?.finalizeDecodeMs ?? 'n/a'} ms\n` +
+        `================================================================\n`,
+      );
+    }
 
     // #891 PERCEIVED-COMPLETE-DRAFT vs SETTLED-FINAL (owner: two ≤5s definitions). Derived from the
     // per-segment decode timeline, no product wiring: Stop ≈ the stopTail's decodeQueuedAt. Draft-complete
@@ -141,8 +163,8 @@ test.describe('Private segmentation corpus WER validation @live', () => {
 });
 
 async function enableSegmentationHooks(page: Page) {
-  const forcedModel = process.env.PRIVATE_MODEL || ''; // e.g. whisper-tiny.en for the ≤5s decode probe
-  await page.addInitScript((model: string) => {
+  const cfg = { model: process.env.PRIVATE_MODEL || '', v4Variant: process.env.V4_VARIANT || '', v4Device: process.env.V4_DEVICE || '' };
+  await page.addInitScript((c: { model: string; v4Variant: string; v4Device: string }) => {
     const win = window as Window & {
       __E2E_CONTEXT__?: boolean; REAL_WHISPER_TEST?: boolean; __FORCE_TRANSFORMERS_JS__?: boolean;
       __STT_LOAD_TIMEOUT__?: number; __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
@@ -150,11 +172,19 @@ async function enableSegmentationHooks(page: Page) {
     };
     win.__E2E_CONTEXT__ = true;
     win.REAL_WHISPER_TEST = true;
-    win.__FORCE_TRANSFORMERS_JS__ = true;
     win.__STT_LOAD_TIMEOUT__ = 180000;
     win.__PRIVATE_TRANSCRIPT_TRACE__ = true;
     win.__PRIVATE_SEGMENTATION__ = true; // internal/dev flag — the Item-5-preserved diagnostic path
-    if (model) win.__PRIVATE_MODEL__ = model; // model override (default whisper-base.en)
+    if (c.v4Variant) {
+      // v4 probe: force the transformers-js-v4 engine + variant + device (dev/test localStorage overrides).
+      window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+      window.localStorage.setItem('speaksharp.v4.forceAuto', '1');
+      window.localStorage.setItem('speaksharp.v4.variant', c.v4Variant);
+      window.localStorage.setItem('speaksharp.v4.device', c.v4Device || 'wasm');
+    } else {
+      win.__FORCE_TRANSFORMERS_JS__ = true; // v2 default path
+      if (c.model) win.__PRIVATE_MODEL__ = c.model; // v2 model override (default whisper-base.en)
+    }
     win.__E2E_DEPS__ = {
       ...win.__E2E_DEPS__,
       fetchUsageLimit: async () => ({
@@ -162,7 +192,7 @@ async function enableSegmentationHooks(page: Page) {
         remaining_seconds: 3600, subscription_status: 'pro', is_pro: true, streak_count: 0, trial_active: true,
       }),
     };
-  }, forcedModel);
+  }, cfg);
 }
 
 function makeTesterAccount() {
