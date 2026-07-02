@@ -44,6 +44,15 @@ test.describe('Private segmentation corpus WER validation @live', () => {
 
     const startStopButton = page.getByTestId('session-start-stop-button');
     await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
+    // v4 readiness: v4 signals ready via __PRIVATE_V4_RUNTIME__ (different path than v2), so wait for it
+    // before clicking — without this the v4 record-start never flips (harness flake, not a product bug).
+    if (process.env.V4_VARIANT) {
+      await page.waitForFunction(
+        () => Boolean((window as unknown as { __PRIVATE_V4_RUNTIME__?: unknown }).__PRIVATE_V4_RUNTIME__),
+        undefined,
+        { timeout: 120_000 },
+      ).catch(() => { /* surfaced by the data-recording assertion below */ });
+    }
     await startStopButton.click();
     const recordingStartedAt = Date.now();
     await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 60_000 });
@@ -175,6 +184,7 @@ async function enableSegmentationHooks(page: Page) {
     win.__STT_LOAD_TIMEOUT__ = 180000;
     win.__PRIVATE_TRANSCRIPT_TRACE__ = true;
     win.__PRIVATE_SEGMENTATION__ = true; // internal/dev flag — the Item-5-preserved diagnostic path
+    (win as unknown as { __PRIVATE_RECORDING_CAP_SEC__?: number }).__PRIVATE_RECORDING_CAP_SEC__ = 600; // raise 90s cap for full-length runs (dev/test only)
     if (c.v4Variant) {
       // v4 probe: force the transformers-js-v4 engine + variant + device (dev/test localStorage overrides).
       window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');

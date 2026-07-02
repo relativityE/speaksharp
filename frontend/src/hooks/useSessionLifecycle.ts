@@ -535,7 +535,16 @@ export const useSessionLifecycle = () => {
     // Private sample budget is unchanged; this only bounds one take. Warns 15s before the cap.
     useEffect(() => {
         if (effectiveMode !== 'private' || !isListening) return;
-        const capRemaining = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS - elapsedTime;
+        // #891 DIAGNOSTIC cap override (dev/test ONLY — ignored in public production, like the ?privateSeg
+        // gate): a window flag raises the per-recording cap so true ≥3-min measurement runs are not
+        // silently truncated at 90s (which corrupted an earlier benchmark). Prod default (90) is unchanged.
+        const capOverride = (typeof window !== 'undefined')
+            ? (window as unknown as { __PRIVATE_RECORDING_CAP_SEC__?: number }).__PRIVATE_RECORDING_CAP_SEC__
+            : undefined;
+        const capSec = (import.meta.env.MODE !== 'production' && typeof capOverride === 'number' && capOverride > 0)
+            ? capOverride
+            : PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
+        const capRemaining = capSec - elapsedTime;
 
         if (capRemaining <= 0) {
             if (hasAutoStoppedRef.current) return;
