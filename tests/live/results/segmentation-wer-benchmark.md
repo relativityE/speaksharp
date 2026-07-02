@@ -88,6 +88,12 @@ accepts that definition. If save/export-safe must be ≤5s, acceleration is stil
 | **segmented WER** | **0.085 (91.5%)** | — |
 | whole-utterance WER | 0.199 (80.1%) — **LOOPED** ("operational evidence is what") | — |
 
+### CONFIRMATION run (clean dev/test cap override __PRIVATE_RECORDING_CAP_SEC__, not a constant hack)
+Independently reproduces the above with the proper mechanism — full capture (604/584 words of 589 ref,
+19 segments), draft 32ms (PASS ≤5s), settled 9780ms (FAIL), segmented WER **0.088 (91.2%)**, whole-utterance
+WER 0.112 (88.8%) LOOPED again ("features that make our"). Segmented WER is STABLE across both runs
+(0.085 → 0.088); whole-utterance loops both times. Reproduced, not a fluke.
+
 **Strongest evidence for Option A (perceived-draft ≤5s):** over a real 3.4-min continuous recording the
 draft is ready at Stop (0ms ≤5s) AND segmented accuracy is genuinely strong (91.5%) — the whole-utterance
 path looped on the long continuous audio (the original #891 failure) while segmentation did not. Only the
