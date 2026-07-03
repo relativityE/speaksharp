@@ -1199,6 +1199,52 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             delete (window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown }).__PRIVATE_SEGMENTATION_TELEMETRY__;
         }
     });
+
+    it('#891 Slice 2: emits a DISPLAY-ONLY segmentedDraft preview at Stop, assembled from the confirmed segments', async () => {
+        (window as unknown as { __PRIVATE_SEGMENTATION__?: boolean }).__PRIVATE_SEGMENTATION__ = true;
+        mocks.transcribeSegment.mockResolvedValue(
+            Result.ok({ text: 'segment', wordTimings: [{ w: 'segment', ts: 0, te: 0.5 }] }),
+        );
+        try {
+            await privateWhisper.init();
+            let frameCallback: ((frame: Float32Array) => void) | undefined;
+            const mockMic: MicStream = {
+                state: 'ready',
+                sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+                onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+                offFrame: vi.fn(),
+                stop: vi.fn(),
+                close: vi.fn(),
+                _mediaStream: new MediaStream(),
+            };
+            await privateWhisper.start(mockMic);
+
+            const eightSec = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ * 8).fill(0.5);
+            for (let i = 0; i < 4; i++) frameCallback!(eightSec);
+
+            // Let the CONFIRMED segments finish decoding in the background BEFORE Stop, so the perceived-draft
+            // (assembled from completed decodes, excluding the still-in-flight tail) is non-empty.
+            await vi.waitFor(() => expect(mocks.transcribeSegment).toHaveBeenCalled());
+            await new Promise((r) => setTimeout(r, 0));
+            await new Promise((r) => setTimeout(r, 0));
+
+            await privateWhisper.stop();
+
+            // A display-only segmentedDraft update was emitted — a SEPARATE channel from any final transcript.
+            const draftCalls = mockCallbacks.onTranscriptUpdate.mock.calls.filter(
+                (c) => (c[0] as { transcript?: { segmentedDraft?: string } })?.transcript?.segmentedDraft !== undefined,
+            );
+            expect(draftCalls.length).toBeGreaterThanOrEqual(1);
+            const draftText = (draftCalls[0][0] as { transcript: { segmentedDraft: string } }).transcript.segmentedDraft;
+            expect(typeof draftText).toBe('string');
+            expect(draftText.trim().length).toBeGreaterThan(0);
+            // The draft is never emitted as a `final` (that stays the whole-utterance decode).
+            expect((draftCalls[0][0] as { transcript: { final?: string } }).transcript.final).toBeUndefined();
+        } finally {
+            delete (window as unknown as { __PRIVATE_SEGMENTATION__?: boolean }).__PRIVATE_SEGMENTATION__;
+            delete (window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown }).__PRIVATE_SEGMENTATION_TELEMETRY__;
+        }
+    });
 });
 
 describe('collapseTranscriptRepetitionLoops (Private saved-transcript duplication, verdict A)', () => {

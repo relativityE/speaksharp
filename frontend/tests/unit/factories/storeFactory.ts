@@ -9,6 +9,7 @@ const initialState: SessionState = {
         transcript: '',
         partial: '',
     },
+    segmentedDraft: '',
     fillerData: {},
     elapsedTime: 0,
     startTime: null,
@@ -72,6 +73,11 @@ export function createTestSessionStore(
                     transcript,
                     partial,
                 },
+            })),
+
+        setSegmentedDraft: vi.fn((segmentedDraft) =>
+            set({
+                segmentedDraft,
             })),
 
         updateFillerData: vi.fn((data) =>
@@ -158,12 +164,12 @@ export function createTestSessionStore(
             set(initialState)),
 
         addChunk: vi.fn((chunk) =>
-            set((state: any) => ({
+            set((state) => ({
                 chunks: [...state.chunks, chunk],
             }))),
 
         appendChunk: vi.fn((chunk) =>
-            set((state: any) => ({
+            set((state) => ({
                 chunks: [...state.chunks, chunk],
             }))),
 

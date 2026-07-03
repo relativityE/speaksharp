@@ -804,4 +804,60 @@ describe('LiveTranscriptPanel', () => {
             });
         });
     });
+
+    // #891 Slice 2 (DISPLAY-ONLY): the segmented perceived-draft in the finalizing slot.
+    describe('segmented draft preview (Slice 2, display-only)', () => {
+        it('shows the segmented draft in the dimmed finalizing slot, replacing the rolling preview', () => {
+            render(
+                <LiveTranscriptPanel
+                    transcript="rolling preview text"
+                    interimTranscript=""
+                    isListening={false}
+                    isFinalizing={true}
+                    sttMode="private"
+                    segmentedDraft="the segmented perceived draft"
+                />
+            );
+            const dimmed = screen.getByTestId('live-transcript-finalizing-dimmed-draft');
+            expect(dimmed).toHaveTextContent('the segmented perceived draft');
+            expect(dimmed).not.toHaveTextContent('rolling preview text');
+            // Marked as the segmented draft (for evidence) but keeps the provisional (dimmed/italic) styling.
+            expect(dimmed).toHaveAttribute('data-segmented-draft', 'true');
+            expect(dimmed.className).toContain('italic');
+        });
+
+        it('is BYTE-IDENTICAL when no segmented draft is present: shows the rolling preview, no segmented marker', () => {
+            render(
+                <LiveTranscriptPanel
+                    transcript="rolling preview text"
+                    interimTranscript=""
+                    isListening={false}
+                    isFinalizing={true}
+                    sttMode="private"
+                    segmentedDraft=""
+                />
+            );
+            const dimmed = screen.getByTestId('live-transcript-finalizing-dimmed-draft');
+            expect(dimmed).toHaveTextContent('rolling preview text');
+            expect(dimmed).not.toHaveAttribute('data-segmented-draft');
+        });
+
+        it('does NOT present the segmented draft as final — it is hidden once finalizing ends', () => {
+            render(
+                <LiveTranscriptPanel
+                    transcript="the canonical final transcript"
+                    interimTranscript=""
+                    isListening={false}
+                    isFinalizing={false}
+                    sttMode="private"
+                    segmentedDraft="a stale segmented draft"
+                />
+            );
+            // Finalizing is over → the dimmed finalizing slot is not rendered at all.
+            expect(screen.queryByTestId('live-transcript-finalizing-dimmed-draft')).toBeNull();
+            // The stale draft text is not shown anywhere; the canonical final is what renders.
+            expect(screen.queryByText('a stale segmented draft')).toBeNull();
+            expect(screen.getByTestId('transcript-text-only').textContent?.trim()).toBe('the canonical final transcript');
+        });
+    });
 });

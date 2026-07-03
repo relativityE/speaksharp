@@ -32,6 +32,14 @@ interface LiveTranscriptPanelProps {
      * stale/low-confidence draft text during multi-second CPU finalization.
      */
     isFinalizing?: boolean;
+    /**
+     * #891 Slice 2 (DISPLAY-ONLY): the segmented perceived-draft. When present it is shown in the
+     * finalizing/dimmed slot IN PLACE OF the rolling preview, inheriting the SAME provisional treatment
+     * (dimmed + italic, "Draft being finalized") — never presented as final, never the saved transcript.
+     * It is only ever non-empty when the segmentation flag is on (engine-side gating), so a non-empty
+     * value both selects this path and guarantees the flag is on; flag-off it is empty → renders as today.
+     */
+    segmentedDraft?: string;
     /** Length (s) of the just-finished recording — drives the honest finalize-time estimate (#891). */
     recordingDurationSeconds?: number;
     /**
@@ -81,6 +89,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     className = "",
     history = [],
     isFinalizing = false,
+    segmentedDraft = '',
     recordingDurationSeconds = 0,
     nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
@@ -147,6 +156,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const showPrivateFeedback = isPrivateMode && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
     const visibleTranscript = [committedForDisplay.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
+    // #891 Slice 2 (DISPLAY-ONLY): during finalizing, prefer the segmented perceived-draft when present.
+    // segmentedDraft is populated ONLY when the segmentation flag is on (engine-side gating), so a
+    // non-empty value both selects this path AND guarantees the flag is on. It inherits the SAME
+    // dimmed/italic provisional treatment as the rolling preview below — never presented as final,
+    // never the saved transcript (which is the whole-utterance decode).
+    const segmentedDraftText = (segmentedDraft ?? '').trim();
+    const finalizingDraftText = segmentedDraftText || visibleTranscript;
     const finalizingBannerText = isPrivateMode ? 'Processing speech locally…' : 'Processing transcript…';
     const finalizingEmptyTitle = isPrivateMode ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…';
     const finalizingEmptyDescription = 'Your final transcript will appear here shortly.';
@@ -443,14 +459,17 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             <p className="mt-1.5 text-xs text-foreground/60">Your words are captured. Polishing the final version…</p>
                         </div>
                         {/* Dimmed draft: the user SEES their words were captured (confidence), but it is
-                            unmistakably provisional — greyed + italic, clearly distinct from final text. */}
-                        {visibleTranscript ? (
+                            unmistakably provisional — greyed + italic, clearly distinct from final text.
+                            #891 Slice 2: this slot shows the segmented perceived-draft when present
+                            (segmentedDraftText), else the rolling preview — SAME provisional treatment. */}
+                        {finalizingDraftText ? (
                             <p
                                 className="px-1 text-base italic leading-relaxed text-foreground/40"
                                 data-testid="live-transcript-finalizing-dimmed-draft"
+                                data-segmented-draft={segmentedDraftText ? 'true' : undefined}
                                 aria-label="Draft being finalized"
                             >
-                                {visibleTranscript}
+                                {finalizingDraftText}
                             </p>
                         ) : (
                             <p className="px-1 text-xs text-foreground/60">{finalizingEmptyDescription}</p>
