@@ -1172,7 +1172,16 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
                 __PRIVATE_SEGMENTATION_TELEMETRY__?: {
                     segmentationEnabled: boolean;
                     usedWholeUtteranceFallback: boolean;
-                    shadow?: { segmentCount: number; seamCount: number; flaggedSeams: number; similarity: number } | null;
+                    shadow?: {
+                        segmentCount: number;
+                        decodedSegmentCount: number;
+                        emptySegmentCount: number;
+                        seamCount: number;
+                        flaggedSeams: number;
+                        fallbackUsed: boolean;
+                        fallbackReason: string | null;
+                        similarity: number;
+                    } | null;
                 };
             }).__PRIVATE_SEGMENTATION_TELEMETRY__;
             expect(tel?.segmentationEnabled).toBe(true);
@@ -1180,6 +1189,11 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             expect(tel?.shadow).toBeTruthy();
             expect(tel?.shadow?.segmentCount).toBeGreaterThanOrEqual(1);
             expect(typeof tel?.shadow?.similarity).toBe('number');
+            // #891 Slice 1: a real segment decoded, so the candidate is USABLE (not a fallback) and its
+            // coverage reflects a decoded segment. Fallback status is surfaced, not hidden.
+            expect(tel?.shadow?.decodedSegmentCount).toBeGreaterThanOrEqual(1);
+            expect(tel?.shadow?.fallbackUsed).toBe(false);
+            expect(tel?.shadow?.fallbackReason).toBeNull();
         } finally {
             delete (window as unknown as { __PRIVATE_SEGMENTATION__?: boolean }).__PRIVATE_SEGMENTATION__;
             delete (window as unknown as { __PRIVATE_SEGMENTATION_TELEMETRY__?: unknown }).__PRIVATE_SEGMENTATION_TELEMETRY__;

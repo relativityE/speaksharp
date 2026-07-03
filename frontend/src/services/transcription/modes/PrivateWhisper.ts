@@ -44,7 +44,11 @@ import { MicStream } from '../utils/types';
 import { MicReadinessGate } from '../utils/micReadiness';
 import { SegmentLedger, type ClosedSegment } from '../utils/segmentLedger';
 import { SegmentDecodeQueue, type SegmentDecodeResult } from '../utils/segmentDecodeQueue';
-import { assembleSegments, type SegmentForAssembly, type AssembledTranscript } from '../utils/assembleSegments';
+import { type SegmentForAssembly } from '../utils/assembleSegments';
+import {
+  buildSegmentedFinalizationCandidate,
+  type SegmentedFinalizationCandidate,
+} from '../utils/segmentedFinalizationCandidate';
 import { compareTranscripts } from '../utils/transcriptShadowMetrics';
 import {
   isPrivateSegmentationEnabled,
@@ -706,11 +710,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // #891 (flag-gated): background per-segment decode queue. Null unless segmentation is on, so the
   // whole enqueue/decode/drain path is a no-op and behavior is byte-identical when the flag is off.
   private segmentDecodeQueue: SegmentDecodeQueue | null = null;
-  // #891 shadow comparison (flag-gated): the assembled segmented transcript + base telemetry, captured
-  // at Stop and held until the whole-utterance decode commits, so we can compare the two and re-publish
-  // telemetry with the shadow metrics. Null when segmentation is off or already finalized.
+  // #891 shadow comparison (flag-gated): the structured segmented finalization CANDIDATE + base
+  // telemetry, captured at Stop and held until the whole-utterance decode commits, so we can compare the
+  // two and re-publish telemetry with the shadow metrics. Null when segmentation is off or finalized.
   private pendingSegmentationShadow:
-    | { base: PrivateSegmentationTelemetry; assembled: AssembledTranscript; segmentCount: number }
+    | { base: PrivateSegmentationTelemetry; candidate: SegmentedFinalizationCandidate }
     | null = null;
   private status: Status;
   private privateSTT: IPrivateSTT;
@@ -1971,10 +1975,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // with the assembled-vs-canonical metrics. Assembly is best-effort; a failure never disrupts Stop.
       publishPrivateSegmentationTelemetry(base);
       try {
-        const { assembled, segmentCount } = this.assembleFromDecodes(drainResults);
-        this.pendingSegmentationShadow = { base, assembled, segmentCount };
+        const candidate = this.buildCandidateFromDecodes(drainResults, {
+          stopToCandidateMs: Math.round(performance.now() - stopSegAtMs),
+          tailDecodeMs,
+        });
+        this.pendingSegmentationShadow = { base, candidate };
       } catch (err) {
-        logger.warn({ sId: this.serviceId, rId: this.instanceId, err }, '[PrivateWhisper] segment assembly failed (non-fatal shadow)');
+        logger.warn({ sId: this.serviceId, rId: this.instanceId, err }, '[PrivateWhisper] segment candidate assembly failed (non-fatal shadow)');
         this.pendingSegmentationShadow = null;
       }
     }
@@ -2373,54 +2380,78 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     tel.queueDepthAtEnqueue = r.queueDepthAtEnqueue;
   }
 
-  // #891 shadow: build the assembly input from the completed segment decodes. Each decode's word
-  // timings are SLICE-LOCAL; the slice began SEGMENT_AUDIO_OVERLAP_SEC before the segment's ledger start,
-  // so sliceStartSec = max(0, startSec - overlap) shifts them to global utterance time. Failed decodes
-  // (error set) contribute nothing.
-  private assembleFromDecodes(results: readonly SegmentDecodeResult[]): { assembled: AssembledTranscript; segmentCount: number } {
-    const segments: SegmentForAssembly[] = results
-      .filter((r) => !r.error)
-      .map((r) => {
-        const tel = this.segmentTelemetry.find((t) => t.segmentIndex === r.segmentIndex);
-        const startSec = tel ? tel.segmentStartMs / 1000 : 0;
-        const endSec = tel ? tel.segmentEndMs / 1000 : 0;
-        return {
-          index: r.segmentIndex,
-          wordTimings: r.wordTimings,
-          sliceStartSec: Math.max(0, startSec - SEGMENT_AUDIO_OVERLAP_SEC),
-          audioEndSec: endSec,
-        };
-      });
-    return { assembled: assembleSegments(segments), segmentCount: segments.length };
+  // #891 Slice 1: build the structured segmented finalization CANDIDATE from the segment decodes
+  // (confirmed segments + the Stop tail). Each decode's word timings are SLICE-LOCAL; the slice began
+  // SEGMENT_AUDIO_OVERLAP_SEC before the segment's ledger start, so sliceStartSec = max(0, startSec -
+  // overlap) shifts them to global utterance time. FAILED decodes (error set) carry empty wordTimings and
+  // are folded as no-ops, but are KEPT in the input so they count honestly in the candidate's coverage
+  // (an unusable candidate must be detectable, not silently smaller). The candidate is measurement-only;
+  // it is never saved or shown — the whole-utterance decode stays canonical this slice.
+  private buildCandidateFromDecodes(
+    results: readonly SegmentDecodeResult[],
+    timing: SegmentedFinalizationCandidate['timing'],
+  ): SegmentedFinalizationCandidate {
+    const segments: SegmentForAssembly[] = results.map((r) => {
+      const tel = this.segmentTelemetry.find((t) => t.segmentIndex === r.segmentIndex);
+      const startSec = tel ? tel.segmentStartMs / 1000 : 0;
+      const endSec = tel ? tel.segmentEndMs / 1000 : 0;
+      return {
+        index: r.segmentIndex,
+        // Failed decode -> empty timings -> no-op fold, but still counted in coverage as an empty segment.
+        wordTimings: r.error ? [] : r.wordTimings,
+        sliceStartSec: Math.max(0, startSec - SEGMENT_AUDIO_OVERLAP_SEC),
+        audioEndSec: endSec,
+      };
+    });
+    return buildSegmentedFinalizationCandidate(segments, timing);
   }
 
-  // #891 shadow: called AFTER the canonical whole-utterance decode commits. Compares the held assembled
-  // transcript against it and re-publishes the segmentation telemetry with text-free shadow metrics. The
-  // assembled transcript is NEVER saved or shown — this is cutover-readiness measurement only.
+  // #891 shadow: called AFTER the canonical whole-utterance decode commits. Compares the held candidate
+  // transcript against it and re-publishes the segmentation telemetry with text-free shadow metrics +
+  // fallback/coverage status. The candidate is NEVER saved or shown — this is cutover-readiness
+  // measurement only. When the candidate is a FALLBACK (empty/failed), that is logged, not hidden.
   private finalizeSegmentationShadow(): void {
     const pending = this.pendingSegmentationShadow;
     if (!pending) return;
     this.pendingSegmentationShadow = null;
+    const { candidate } = pending;
     try {
-      const cmp = compareTranscripts(pending.assembled.transcript, this.wholeUtteranceTranscript);
+      const cmp = compareTranscripts(candidate.text, this.wholeUtteranceTranscript);
+      // FALLBACK HONESTY (Slice 1): an unusable segmented candidate is surfaced, not silently dropped.
+      // Whole-utterance stays canonical this slice, so this never degrades output — it is the cutover gate.
+      if (candidate.fallbackUsed) {
+        logger.warn(
+          {
+            sId: this.serviceId,
+            rId: this.instanceId,
+            fallbackReason: candidate.fallbackReason,
+            coverage: candidate.coverage,
+          },
+          '[PrivateWhisper] segmented candidate is a FALLBACK (empty/failed) — whole-utterance decode retained as canonical',
+        );
+      }
       publishPrivateSegmentationTelemetry({
         ...pending.base,
         shadow: {
-          segmentCount: pending.segmentCount,
-          seamCount: pending.assembled.seams.length,
-          flaggedSeams: pending.assembled.flaggedSeams,
+          segmentCount: candidate.coverage.segmentCount,
+          decodedSegmentCount: candidate.coverage.decodedSegmentCount,
+          emptySegmentCount: candidate.coverage.emptySegmentCount,
+          seamCount: candidate.seams.length,
+          flaggedSeams: candidate.flaggedSeams,
+          fallbackUsed: candidate.fallbackUsed,
+          fallbackReason: candidate.fallbackReason,
           assembledTokenCount: cmp.assembledTokenCount,
           wholeUtteranceTokenCount: cmp.wholeUtteranceTokenCount,
           tokenCountDelta: cmp.tokenCountDelta,
           similarity: cmp.similarity,
         },
       });
-      // TRACE-ONLY (off in production): expose the assembled transcript text so a fixture-based
-      // validation harness can compute WER vs a KNOWN ground truth. Gated behind the private-transcript
-      // trace flag — never populated in normal operation, so no user transcript is stashed on window in
-      // prod. Same posture as the engine's existing [PRIVATE_DIAG] trace surface.
+      // TRACE-ONLY (off in production): expose the assembled candidate text so a fixture-based validation
+      // harness can compute WER vs a KNOWN ground truth. Gated behind the private-transcript trace flag —
+      // never populated in normal operation, so no user transcript is stashed on window in prod. Same
+      // posture as the engine's existing [PRIVATE_DIAG] trace surface.
       if (typeof window !== 'undefined' && isPrivateTranscriptTraceEnabled()) {
-        (window as unknown as { __PRIVATE_SEGMENTATION_ASSEMBLED__?: string }).__PRIVATE_SEGMENTATION_ASSEMBLED__ = pending.assembled.transcript;
+        (window as unknown as { __PRIVATE_SEGMENTATION_ASSEMBLED__?: string }).__PRIVATE_SEGMENTATION_ASSEMBLED__ = candidate.text;
       }
     } catch (err) {
       logger.warn({ sId: this.serviceId, rId: this.instanceId, err }, '[PrivateWhisper] shadow comparison failed (non-fatal)');

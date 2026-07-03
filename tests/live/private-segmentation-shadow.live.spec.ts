@@ -147,7 +147,17 @@ test.describe('Private segmentation corpus WER validation @live', () => {
       stopToFinalMs?: number | null;
       usedWholeUtteranceFallback?: boolean;
       segments?: Array<{ rtf: number | null }>;
-      shadow?: { segmentCount: number; seamCount: number; flaggedSeams: number; tokenCountDelta: number; similarity: number } | null;
+      shadow?: {
+        segmentCount: number;
+        decodedSegmentCount?: number;
+        emptySegmentCount?: number;
+        seamCount: number;
+        flaggedSeams: number;
+        fallbackUsed?: boolean;
+        fallbackReason?: string | null;
+        tokenCountDelta: number;
+        similarity: number;
+      } | null;
     } | null;
 
     expect(t, 'window.__PRIVATE_SEGMENTATION_TELEMETRY__ must be present after Stop').toBeTruthy();
@@ -159,6 +169,9 @@ test.describe('Private segmentation corpus WER validation @live', () => {
     // Fidelity: the assembled segmented transcript should closely match the canonical whole-utterance.
     // Not a hard gate here (real WER varies) — logged for the go/no-go read; assert only that it computed.
     expect(typeof t?.shadow?.similarity).toBe('number');
+    // #891 Slice 1 acceptance: the candidate's fallback status + coverage are surfaced as artifacts. A
+    // fallback (empty/failed) candidate must be VISIBLE here, not silently hidden. On a real take with
+    // decoded segments the candidate is usable (fallbackUsed false) — logged either way for the read.
     testInfo.annotations.push(
       { type: 'maxQueueDepth', description: String(t?.maxQueueDepth) },
       { type: 'tailDecodeMs', description: String(t?.tailDecodeMs) },
@@ -167,6 +180,11 @@ test.describe('Private segmentation corpus WER validation @live', () => {
       { type: 'similarity', description: String(t?.shadow?.similarity) },
       { type: 'flaggedSeams', description: String(t?.shadow?.flaggedSeams) },
       { type: 'tokenCountDelta', description: String(t?.shadow?.tokenCountDelta) },
+      { type: 'candidate-fallbackUsed', description: String(t?.shadow?.fallbackUsed) },
+      { type: 'candidate-fallbackReason', description: String(t?.shadow?.fallbackReason ?? 'none') },
+      { type: 'coverage-segmentCount', description: String(t?.shadow?.segmentCount) },
+      { type: 'coverage-decodedSegmentCount', description: String(t?.shadow?.decodedSegmentCount) },
+      { type: 'coverage-emptySegmentCount', description: String(t?.shadow?.emptySegmentCount) },
     );
   });
 });

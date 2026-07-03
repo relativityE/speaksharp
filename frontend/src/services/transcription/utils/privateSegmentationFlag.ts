@@ -56,12 +56,24 @@ export interface SegmentLifecycleTelemetry {
  * we actually save today. Numbers ONLY; never the transcript text.
  */
 export interface SegmentationShadowTelemetry {
-  /** Segments that produced a decode and were folded. */
+  /** Segments handed to assembly (confirmed + tail; includes failed/silent decodes). */
   segmentCount: number;
-  /** Seams reconciled (segmentCount - 1 when ≥2 folded). */
+  /** Segments that contributed ≥1 token to the fold. */
+  decodedSegmentCount: number;
+  /** Segments that contributed no tokens (failed or silent) — folded as no-ops. */
+  emptySegmentCount: number;
+  /** Seams reconciled (decodedSegmentCount - 1 when ≥2 folded). */
   seamCount: number;
   /** Seams left flagged (residual duplication the coverage check could not certify away). */
   flaggedSeams: number;
+  /**
+   * True when the assembled candidate was NOT usable as a final transcript (Slice 1: a whole-utterance
+   * fallback would be required). Slice 1 always keeps whole-utterance canonical, so this never degrades
+   * output — it is the cutover gate signal, surfaced (not silently hidden) so it can be measured.
+   */
+  fallbackUsed: boolean;
+  /** Why the candidate was a fallback: no_segments | no_decoded_segments | empty_transcript (null when usable). */
+  fallbackReason: string | null;
   assembledTokenCount: number;
   wholeUtteranceTokenCount: number;
   /** assembled − whole-utterance token count (positive = segmented produced more words). */
