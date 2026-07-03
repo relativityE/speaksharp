@@ -281,4 +281,33 @@ describe('useSessionStore', () => {
             expect(state.chunks).toHaveLength(0);
         });
     });
+
+    // #891 Slice 2 (DISPLAY-ONLY): the segmented perceived-draft preview field.
+    describe('segmentedDraft (display-only preview)', () => {
+        beforeEach(() => {
+            useSessionStore.setState({ segmentedDraft: '', transcript: { transcript: '', partial: '' } });
+        });
+
+        it('setSegmentedDraft writes ONLY segmentedDraft — never the saved transcript', () => {
+            useSessionStore.getState().updateTranscript('canonical saved text', '');
+            useSessionStore.getState().setSegmentedDraft('segmented preview words');
+            const state = useSessionStore.getState();
+            expect(state.segmentedDraft).toBe('segmented preview words');
+            // The saved/canonical transcript is untouched by the draft preview.
+            expect(state.transcript.transcript).toBe('Canonical saved text');
+            expect(state.transcript.partial).toBe('');
+        });
+
+        it('startSession clears a stale draft from a prior take', () => {
+            useSessionStore.getState().setSegmentedDraft('stale preview');
+            useSessionStore.getState().startSession();
+            expect(useSessionStore.getState().segmentedDraft).toBe('');
+        });
+
+        it('resetSession clears the draft', () => {
+            useSessionStore.getState().setSegmentedDraft('preview');
+            useSessionStore.getState().resetSession();
+            expect(useSessionStore.getState().segmentedDraft).toBe('');
+        });
+    });
 });

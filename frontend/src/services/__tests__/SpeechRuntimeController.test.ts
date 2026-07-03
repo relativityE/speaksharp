@@ -343,6 +343,39 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         ]);
     });
 
+    it('#891 Slice 2 BOUNDARY: a segmentedDraft update routes to its own field and NEVER mutates the saved transcript/chunks', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final?: string; segmentedDraft?: string; replacesRollingTranscript?: boolean } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        // Seed a committed transcript + chunks (as if the whole-utterance final had landed).
+        push({ transcript: { final: 'the canonical saved transcript', replacesRollingTranscript: true } });
+        const savedTranscript = useSessionStore.getState().transcript.transcript;
+        const savedChunks = useSessionStore.getState().chunks;
+        expect(savedTranscript).toBe('The canonical saved transcript.');
+
+        // A segmented perceived-draft preview arrives. It must NOT touch transcript/partial/chunks.
+        push({ transcript: { segmentedDraft: 'a totally different segmented preview text' } });
+
+        const state = useSessionStore.getState();
+        expect(state.segmentedDraft).toBe('a totally different segmented preview text');
+        expect(state.transcript.transcript).toBe(savedTranscript); // saved transcript untouched
+        expect(state.transcript.partial).toBe('');
+        expect(state.chunks).toEqual(savedChunks); // chunks untouched
+    });
+
+    it('#891 Slice 2 BOUNDARY: an EMPTY-string segmentedDraft is still a draft update — it does not fall through to final/partial merge', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final?: string; segmentedDraft?: string } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        push({ transcript: { final: 'committed words' } });
+        const before = useSessionStore.getState().transcript.transcript;
+        push({ transcript: { segmentedDraft: '' } });
+        expect(useSessionStore.getState().segmentedDraft).toBe('');
+        expect(useSessionStore.getState().transcript.transcript).toBe(before); // unchanged
+    });
+
     it('REGRESSION: a blank authoritative final never wipes existing committed text', () => {
         const push = (controller as unknown as {
             pushTranscriptToStore: (data: { transcript: { final: string; replacesRollingTranscript?: boolean } }) => void

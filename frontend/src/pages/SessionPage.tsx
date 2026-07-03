@@ -43,6 +43,9 @@ export const SessionPage: React.FC = () => {
     const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
+    // #891 Slice 2 (display-only): segmented perceived-draft preview shown in the finalizing slot.
+    // Only ever non-empty when the segmentation flag is on (engine-side gating); never saved.
+    const segmentedDraft = useSessionStore(state => state.segmentedDraft);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
 
     const {
@@ -311,6 +314,7 @@ export const SessionPage: React.FC = () => {
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
                                     isFinalizing={isTranscriptFinalizing}
+                                    segmentedDraft={segmentedDraft}
                                     recordingDurationSeconds={elapsedTime}
                                     nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"

@@ -32,6 +32,12 @@ export interface SessionState {
     isInitiating: boolean;
     isReady: boolean;
     transcript: TranscriptState;
+    /**
+     * #891 Slice 2 (DISPLAY-ONLY): the segmented perceived-draft shown in the finalizing/dimmed slot.
+     * Populated only when the segmentation flag is on; NEVER saved, exported, scored, or copied into
+     * `transcript`. Its own field precisely so it cannot leak into the canonical/saved transcript.
+     */
+    segmentedDraft: string;
     fillerData: FillerCounts;
     elapsedTime: number;
     startTime: number | null;
@@ -56,6 +62,8 @@ interface SessionActions {
     stopSession: () => void;
     setReady: (ready: boolean) => void;
     updateTranscript: (transcript: string, partial?: string) => void;
+    /** #891 Slice 2 (display-only): set the segmented perceived-draft preview. Never touches `transcript`. */
+    setSegmentedDraft: (draft: string) => void;
     updateFillerData: (data: FillerCounts) => void;
     updateElapsedTime: (time: number) => void;
     setSTTStatus: (status: SttStatus) => void;
@@ -93,6 +101,7 @@ const initialState: SessionState = {
         transcript: '',
         partial: '',
     },
+    segmentedDraft: '',
     fillerData: {},
     elapsedTime: 0,
     startTime: null,
@@ -174,6 +183,8 @@ export const useSessionStore = create<SessionStore>((set) => {
         set((state) => ({
             isListening: true,
             startTime: state.startTime || Date.now(),
+            // #891 Slice 2: clear any stale segmented draft preview from a prior take (display-only).
+            segmentedDraft: '',
         }));
     },
 
@@ -201,6 +212,13 @@ export const useSessionStore = create<SessionStore>((set) => {
             },
         });
     },
+
+    // #891 Slice 2 (DISPLAY-ONLY): the segmented perceived-draft preview. Deliberately writes ONLY its
+    // own field — it never touches `transcript`, so it cannot leak into the saved/canonical transcript.
+    setSegmentedDraft: (draft) =>
+        set({
+            segmentedDraft: draft,
+        }),
 
     updateFillerData: (data) =>
         set({

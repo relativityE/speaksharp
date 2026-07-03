@@ -707,6 +707,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // Null when the flag is off, so every hook below is a no-op and behavior is byte-identical.)
   private segmentLedger: SegmentLedger | null = null;
   private segmentTelemetry: SegmentLifecycleTelemetry[] = [];
+  // #891 Slice 2 (flag-gated, display-only): completed background decodes accumulated as they finish, so
+  // at Stop the segmented PERCEIVED-DRAFT can be assembled from the confirmed segments immediately —
+  // before the (blocking) settled-candidate drain + whole-utterance decode. Empty when the flag is off.
+  private completedSegmentDecodes: SegmentDecodeResult[] = [];
   // #891 (flag-gated): background per-segment decode queue. Null unless segmentation is on, so the
   // whole enqueue/decode/drain path is a no-op and behavior is byte-identical when the flag is off.
   private segmentDecodeQueue: SegmentDecodeQueue | null = null;
@@ -1060,6 +1064,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Null (no-op) unless the flag is explicitly on; the canonical whole-utterance path is unchanged.
     this.segmentLedger = isPrivateSegmentationEnabled() ? new SegmentLedger() : null;
     this.segmentTelemetry = [];
+    this.completedSegmentDecodes = [];
     // Background decode queue (flag-gated with the ledger). Its decode fn feature-detects the facade's
     // transcribeSegment (word-timestamp-capable engines only) and returns the segment's word timings; a
     // decode error is non-fatal (the queue records it and continues). onResult populates each segment's
@@ -1940,6 +1945,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       if (tail) this.recordSegment(tail);
       this.segmentLedger = null;
 
+      // #891 Slice 2 (DISPLAY-ONLY): emit the segmented PERCEIVED-DRAFT now — assembled from the confirmed
+      // segments already decoded during recording (the just-enqueued tail is still in flight, so it is
+      // excluded). Emitted BEFORE the blocking settled-candidate drain + whole-utterance decode below, so
+      // it can appear in the finalizing slot immediately (the ≤5s draft). The whole-utterance decode stays
+      // the saved transcript; this preview is routed to a dedicated store field and never saved.
+      this.emitSegmentedDraft();
+
       let maxQueueDepth = 0;
       let tailDecodeMs: number | null = null;
       let drainResults: readonly SegmentDecodeResult[] = [];
@@ -2370,6 +2382,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // queue's onResult callback (may fire during recording or during the Stop drain); matches by index and
   // is a no-op if the row is gone. Never touches the transcript or the canonical save path.
   private applySegmentDecodeResult(r: SegmentDecodeResult): void {
+    // #891 Slice 2: retain completed decodes so the Stop-time perceived-draft can assemble from the
+    // confirmed segments already finished during recording (display-only; excludes the in-flight tail).
+    this.completedSegmentDecodes.push(r);
     const tel = this.segmentTelemetry.find((t) => t.segmentIndex === r.segmentIndex);
     if (!tel) return;
     tel.decodeQueuedAt = Math.round(r.queuedAtMs);
@@ -2404,6 +2419,27 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       };
     });
     return buildSegmentedFinalizationCandidate(segments, timing);
+  }
+
+  // #891 Slice 2 (DISPLAY-ONLY): assemble the perceived-draft from the confirmed segments that finished
+  // decoding during recording (excludes the just-enqueued, still-in-flight tail) and emit it as a
+  // segmentedDraft transcript update. The draft is a finalizing-slot PREVIEW routed to its own store
+  // field — it is never saved, scored, or exported; the whole-utterance decode stays canonical. When the
+  // candidate is unusable (fallback / empty text — e.g. no segment decoded yet), NOTHING is emitted, so
+  // an empty/failed draft never renders as a confident preview. Best-effort: any failure is swallowed so
+  // Stop is never disrupted.
+  private emitSegmentedDraft(): void {
+    if (!this.onTranscriptUpdate) return;
+    try {
+      const draft = this.buildCandidateFromDecodes(this.completedSegmentDecodes, {
+        stopToCandidateMs: null,
+        tailDecodeMs: null,
+      });
+      if (draft.fallbackUsed || !draft.text.trim()) return;
+      this.onTranscriptUpdate({ transcript: { segmentedDraft: draft.text } });
+    } catch (err) {
+      logger.warn({ sId: this.serviceId, rId: this.instanceId, err }, '[PrivateWhisper] segmented draft emit failed (non-fatal display)');
+    }
   }
 
   // #891 shadow: called AFTER the canonical whole-utterance decode commits. Compares the held candidate

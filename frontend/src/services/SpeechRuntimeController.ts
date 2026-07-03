@@ -1316,6 +1316,18 @@ export class SpeechRuntimeController {
             hasPartial: Boolean(data.transcript.partial),
         });
 
+        // #891 Slice 2 (DISPLAY-ONLY): a segmented perceived-draft preview. Route it to its OWN store
+        // field and RETURN before any final/partial merge or save-commit logic runs. This branch must
+        // never mutate transcript.transcript, transcript.partial, chunks, or the save candidate — the
+        // draft is a finalizing-slot preview only. Populated only when the segmentation flag is on.
+        if (data.transcript.segmentedDraft !== undefined) {
+            store.setSegmentedDraft(data.transcript.segmentedDraft);
+            pushNativeStoreTrace('store_segmented_draft_preview', {
+                draftLength: data.transcript.segmentedDraft.length,
+            });
+            return;
+        }
+
         if (data.transcript.final) {
             this.transcriptEmissionSequence += 1;
             const rawFinalTranscript = data.transcript.final.trim();
