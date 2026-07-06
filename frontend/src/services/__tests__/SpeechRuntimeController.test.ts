@@ -96,6 +96,28 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(useSessionStore.getState().runtimeState).toBe('TERMINATED');
     });
 
+    it('syncServiceSubscription() no-ops (no subscribe, no toast) when the service was intentionally destroyed (#891)', async () => {
+        // Reproduces the sign-in ENGINE_ALREADY_TERMINATED toast: a subscription sync queued while the
+        // service is being torn down (mode switch / auth remount). The guard must drop the dead reference
+        // and no-op — it must NOT call subscribe() (which would hit assertAlive and toast the user), and
+        // must NOT surface any error. assertAlive stays intact for genuine misuse (covered service-side).
+        const subscribeSpy = vi.fn(() => vi.fn());
+        const destroyedService = {
+            subscribe: subscribeSpy,
+            isServiceDestroyed: () => true,
+        } as unknown as ITranscriptionService;
+        (controller as unknown as { service: unknown }).service = destroyedService;
+        (controller as unknown as { serviceUnsubscribe: (() => void) | null }).serviceUnsubscribe = null;
+        useSessionStore.setState({ isBooting: false });
+        const statusBefore = useSessionStore.getState().sttStatus;
+
+        await expect(controller.syncServiceSubscription()).resolves.toBeUndefined();
+
+        expect(subscribeSpy).not.toHaveBeenCalled();                                // stale subscribe suppressed
+        expect((controller as unknown as { service: unknown }).service).toBeNull(); // dead reference dropped
+        expect(useSessionStore.getState().sttStatus).toEqual(statusBefore);         // no error toast surfaced
+    });
+
     it('should NOT release the lock during FAILED or FAILED_VISIBLE', async () => {
         const localStorageSpy = vi.spyOn(Storage.prototype, 'removeItem');
         vi.clearAllMocks();

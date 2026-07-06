@@ -172,4 +172,54 @@ describe('TranscriptionService - Race Conditions', () => {
         await expect(initPromise).resolves.not.toThrow();
         await expect(destroyPromise).resolves.not.toThrow();
     });
+
+    it('subscribe() after destroy() STILL throws ENGINE_ALREADY_TERMINATED (invariant preserved — genuine misuse stays loud)', async () => {
+        // The #891 toast fix suppresses ENGINE_ALREADY_TERMINATED only at the STALE caller (a guarded
+        // no-op in the controller). The service-level invariant must remain intact: a subscribe() that is
+        // NOT a guarded stale completion — i.e. genuine misuse of a terminated service — must still fail
+        // loudly, so real lifecycle bugs are not masked.
+        const engine = new MockRaceEngine();
+        registry.register('transformers-js', () => engine);
+        registry.register('mock', () => engine);
+
+        const policy: TranscriptionPolicy = {
+            allowCloud: false,
+            allowPrivate: true,
+            allowNative: false,
+            allowFallback: false,
+            preferredMode: 'mock',
+            executionIntent: 'test'
+        };
+
+        service = new TranscriptionServiceClass({
+            onTranscriptUpdate: mockOnTranscriptUpdate,
+            onModelLoadProgress: mockOnModelLoadProgress,
+            onReady: mockOnReady,
+            onStatusChange: mockOnStatusChange,
+            onModeChange: mockOnModeChange,
+            session: null,
+            navigate: mockNavigate,
+            getAssemblyAIToken: mockGetToken,
+            policy,
+            mockMic: {
+                stream: {} as MediaStream,
+                stop: vi.fn(),
+                prepare: vi.fn().mockResolvedValue(undefined),
+                clone: vi.fn(),
+                onFrame: vi.fn().mockReturnValue(() => { }),
+            } as unknown as MicStream
+        });
+
+        await service.init();
+        await service.startTranscription();
+
+        // Fake-timer dance (terminate() is a 50ms mock): start destroy, advance, THEN await — awaiting
+        // directly would deadlock on the un-advanced timer.
+        const destroyP = service.destroy();
+        await vi.advanceTimersByTimeAsync(100);
+        await destroyP;
+
+        expect(service.isServiceDestroyed()).toBe(true);
+        expect(() => service.subscribe({}, 'genuine-misuse')).toThrow(/ENGINE_ALREADY_TERMINATED/);
+    });
 });

@@ -650,6 +650,20 @@ export class SpeechRuntimeController {
                     return;
                 }
 
+                // Stale-subscribe guard (#891): the service can be intentionally torn down (mode switch,
+                // sign-in remount) while this sync sits in the queue. `!this.service` only catches a NULLED
+                // reference — a terminated-but-still-referenced service would reach subscribe() below, hit
+                // assertAlive(), and surface ENGINE_ALREADY_TERMINATED as a user toast. Mirror the
+                // established isServiceDestroyed() guard used elsewhere: drop the dead reference and no-op so
+                // the next ensureReady() recreates a live service. This is NOT a blanket swallow — assertAlive
+                // still throws for any subscribe() that bypasses this guard (genuine misuse). subscribe() is
+                // synchronous, so this check-then-call is atomic (no interleaving destroy).
+                if (this.service.isServiceDestroyed()) {
+                    pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'service_destroyed' });
+                    this.service = null;
+                    return;
+                }
+
                 if (this.serviceUnsubscribe) {
                     pushE2EEvent('SYNC_SUBSCRIPTION_CLEANUP', { source: 'SpeechRuntimeController' });
                     this.serviceUnsubscribe();
@@ -1616,6 +1630,18 @@ export class SpeechRuntimeController {
 
             try {
                 pushE2EEvent('SR_BEFORE_START_TRANSCRIPTION');
+                // Stale-start guard (#891): the entry guard at the top of this op nulls a destroyed service,
+                // but several awaits (updatePolicy/warmUp/transition) run before this call — the service can
+                // be torn down in that window. startTranscription()'s first line is assertAlive(), which would
+                // throw ENGINE_ALREADY_TERMINATED and toast the user. If it was intentionally destroyed, abort
+                // this stale start to READY instead of throwing. Synchronous check immediately before the call
+                // → atomic; assertAlive() stays intact for un-guarded misuse.
+                if (service.isServiceDestroyed()) {
+                    pushNativeRuntimeTrace('controller_start_abort_service_destroyed_precall');
+                    this.service = null;
+                    await this.transition('READY', undefined, _token);
+                    return;
+                }
                 pushNativeRuntimeTrace('controller_service_startTranscription_start', {
                     mode: policy?.preferredMode ?? null,
                 });
