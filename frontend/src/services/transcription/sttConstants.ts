@@ -68,13 +68,15 @@ export const PRIV_STT = {
   // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
   // the BEGINNING (the opening) and stop appending, rather than rolling the buffer forward.
   MAX_UTTERANCE_SECONDS: 600,
-  // #891 beta latency control: cap a SINGLE Private recording so the Stop whole-utterance
-  // re-decode (~0.27x realtime, single-thread WASM on the deployed build) finalizes UNDER the 30s
-  // ceiling — 90s of audio => ~24-26s stop-to-final (margin). This caps ONE take, NOT the 5-min
-  // Private sample budget. Segmented finalization (decode only the unfinalized tail at Stop) is the
-  // roadmap fix that lifts this cap; until then 90s is the honest beta control.
-  MAX_PRIVATE_RECORDING_SECONDS: 90,
-  PRIVATE_RECORDING_CAP_WARNING_SECONDS: 15,
+  // #891 beta recording length = the PRODUCT REQUIREMENT: a single Private take may run the full
+  // 5 minutes (300s). The prior 90s value was a beta latency control (kept Stop→final under ~30s on
+  // single-thread WASM); it was REJECTED as beta behavior. Segmented finalization was supposed to lift
+  // it but the implementation failed on real audio and is parked — so we lift the cap directly and make
+  // the finalize wait HONEST instead (the Finalizing… state is shown for the full Stop→final decode,
+  // which on WASM is ~0.27x realtime => ~80s for a 5-min take). WebGPU (v4) is the future accelerator,
+  // NOT a prerequisite for correct capture. The 600s MAX_UTTERANCE_SECONDS hard memory guard stays.
+  MAX_PRIVATE_RECORDING_SECONDS: 300,
+  PRIVATE_RECORDING_CAP_WARNING_SECONDS: 20,
   PROCESSING_INTERVAL_MS: 250,
   MAX_RETRY_SECONDS: 12,
   WHISPER_WINDOW_SECONDS: STT_PROVIDER_REQUIREMENTS.PRIVATE_TRANSFORMERS_WHISPER.MODEL_CONTEXT_WINDOW_SECONDS,
