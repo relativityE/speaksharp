@@ -731,6 +731,38 @@ describe('LiveTranscriptPanel', () => {
             expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent).toMatch(/it'?s a question/i);
         });
 
+        describe('#891 graceful degradation (keep last-good draft, do not blank)', () => {
+            const GOOD_DRAFT = 'we practiced the opening line and the timing felt much better today';
+
+            it('keeps the last known-good draft visible (degraded) when a new looped candidate is withheld', () => {
+                const { rerender } = render(
+                    <LiveTranscriptPanel transcript={GOOD_DRAFT} interimTranscript="" isListening sttMode="private" />
+                );
+                // a severe loop now arrives in the live candidate
+                rerender(
+                    <LiveTranscriptPanel transcript={REAL_LOOP} interimTranscript="" isListening sttMode="private" />
+                );
+                const container = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+                // degraded, NOT blanked: last-good draft still on the surface + a stabilizing marker
+                expect(screen.getByTestId('live-transcript-loop-degraded')).toBeInTheDocument();
+                expect(container).toHaveTextContent('we practiced the opening line');
+                expect(container).toHaveTextContent(/stabilizing live draft/i);
+                // the looped candidate is still suppressed from the surface
+                expect((container.textContent?.match(/it'?s a question/gi) || []).length).toBeLessThan(3);
+                // did NOT collapse to the empty "Processing…" placeholder
+                expect(container).not.toHaveTextContent(/your final transcript will appear here/i);
+            });
+
+            it('falls back to the Processing placeholder only when there is NO prior good draft', () => {
+                // first live candidate is already looped -> nothing good was ever captured
+                render(
+                    <LiveTranscriptPanel transcript={REAL_LOOP} interimTranscript="" isListening sttMode="private" />
+                );
+                expect(screen.getByTestId('live-transcript-loop-withheld')).toBeInTheDocument();
+                expect(screen.queryByTestId('live-transcript-loop-degraded')).not.toBeInTheDocument();
+            });
+        });
+
         describe('#772 post-stop visible final repetition (display-only)', () => {
             // Real #772 live-proof shape (run 27468782976): the SAVED/detail transcript is the clean
             // single sentence, while the committed store briefly holds a DOUBLED streaming hypothesis
@@ -801,6 +833,19 @@ describe('LiveTranscriptPanel', () => {
             });
             it('does NOT flag mild/legitimate repetition', () => {
                 expect(hasSevereRepetitionLoop('no no no I really do mean it, the honest answer here is simply no.')).toBe(false);
+            });
+            it('#891: does NOT flag long RHETORICAL speech with a spread-out repeated phrase', () => {
+                // "you have to" recurs 4x but SPREAD ~22 words apart — legitimate anaphora, not a loop.
+                // The old absolute maxCount>=4 cut false-fired here (redundancy stays ~0.03).
+                const rhetorical =
+                    'When the moment finally comes you have to decide what kind of person you want to become in the long years still ahead. ' +
+                    'Nobody ever hands you a finished map so you have to draw the winding road yourself and then walk it with patience. ' +
+                    'Even when the doubt grows loud and the whole path looks dark you have to keep your tired eyes forward and step. ' +
+                    'That is the entire lesson my friends because in the very end you have to believe the quiet work will carry you safely home.';
+                expect(hasSevereRepetitionLoop(rhetorical)).toBe(false);
+            });
+            it('#891: still flags a tight runaway loop (near-adjacent repetition)', () => {
+                expect(hasSevereRepetitionLoop('and then the system tries again '.repeat(6).trim())).toBe(true);
             });
         });
     });
