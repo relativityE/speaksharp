@@ -132,13 +132,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             : (hasTranscript ? 'final' : 'idle');
     const normalizedSttMode = (sttMode ?? '').toLowerCase();
     const isPrivateMode = normalizedSttMode === 'private';
-    // LIVE-TRANSCRIPT-REPEATED-DISPLAY (A+): release containment for the v4 Whisper streaming
-    // repetition-loop failure mode. When the live (committed or interim) text is severely looped,
-    // WITHHOLD it from the surface and show the existing "Processing…" state until the clean
-    // whole-utterance final replaces it. Display-only: no transcript data is mutated/de-duplicated;
-    // gated to private mode so Native/Cloud are untouched, and the detector only fires on v4-grade
-    // loops so healthy private-v2 text is unaffected. (Proper fix tracked separately: keep v4
-    // streaming hypotheses out of the committed transcript store.)
+    // LIVE-TRANSCRIPT-REPEATED-DISPLAY: containment for a severe Whisper repetition-loop in the live
+    // (committed or interim) text. When detected, WITHHOLD the looped candidate from the surface.
+    // Display-only: no transcript data is mutated/de-duplicated; gated to private mode so Native/Cloud
+    // are untouched. NOTE (#891): the detector is now adjacency-gated (see hasSevereRepetitionLoop) so
+    // it fires on genuine loops, NOT on long healthy rhetorical v2 speech (the old absolute-count cut
+    // false-fired there). When it does fire, we degrade gracefully to the last known-good draft below
+    // rather than blanking the whole surface.
     const withholdLoopedLive = isPrivateMode
         && (isListening || isFinalizing)
         && (hasSevereRepetitionLoop(transcript) || hasSevereRepetitionLoop(interimTranscript));
@@ -153,6 +153,21 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const listeningEmptyText = isPrivateMode
         ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
         : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
+
+    // #891 withhold-guard graceful degradation (task #20): when a severe live repetition loop is
+    // detected we must NOT hide the whole transcript behind "Processing…" indefinitely (that reads as
+    // "the engine died"). Retain the last known-GOOD live draft (one that did NOT loop) so the loop
+    // branch can keep showing it + a "Stabilizing…" marker instead of an empty placeholder. Display-only:
+    // this never mutates or de-duplicates transcript data, never touches the saved final, and only
+    // tracks in Private mode (Native/Cloud unaffected). Reset when the session settles/idles.
+    const [lastGoodLiveDraft, setLastGoodLiveDraft] = React.useState('');
+    React.useEffect(() => {
+        if (isPrivateMode && (isListening || isFinalizing) && !withholdLoopedLive && visibleTranscript.trim()) {
+            setLastGoodLiveDraft(visibleTranscript.trim());
+        } else if (!isListening && !isFinalizing) {
+            setLastGoodLiveDraft('');
+        }
+    }, [isPrivateMode, isListening, isFinalizing, withholdLoopedLive, visibleTranscript]);
     const transcriptViewportClass = uiState === 'final'
         ? 'max-h-[18rem] sm:max-h-[20rem] lg:max-h-[22rem]'
         : 'flex-1 min-h-[160px]';
@@ -349,16 +364,33 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         <p className="text-sm font-semibold text-foreground/75 animate-pulse">{listeningEmptyText}</p>
                     )
                 ) : withholdLoopedLive ? (
-                    // A+ release containment: a severe v4 streaming repetition loop is withheld from
-                    // the surface; show Processing until the clean whole-utterance final lands.
-                    <div
-                        className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
-                        data-testid="live-transcript-loop-withheld"
-                        data-transcript-loop-withheld="true"
-                    >
-                        <p className="text-sm font-semibold text-primary">{finalizingBannerText}</p>
-                        <p className="max-w-sm text-xs text-foreground/60">{finalizingEmptyDescription}</p>
-                    </div>
+                    // #891 graceful degradation (task #20/#22): a severe repetition loop was detected in
+                    // the live candidate. Suppress ONLY the looped candidate — but do NOT blank the whole
+                    // surface to "Processing…" (that reads as "the engine died"). If we retained a last
+                    // known-GOOD draft, keep showing it (dimmed) with a "Stabilizing…" marker; only when
+                    // there is no prior good draft do we fall back to the Processing placeholder.
+                    // Display-only: never mutates transcript data and never touches the saved final.
+                    lastGoodLiveDraft ? (
+                        <div
+                            className="text-foreground/70 text-lg leading-relaxed rounded-md border border-dashed border-primary/30 bg-primary/5 p-3"
+                            data-testid="live-transcript-loop-degraded"
+                            data-transcript-loop-withheld="true"
+                            data-transcript-loop-degraded="true"
+                            aria-label="Live draft stabilizing"
+                        >
+                            {lastGoodLiveDraft}
+                            <p className="mt-2 text-xs font-medium text-primary/80 animate-pulse">Stabilizing live draft…</p>
+                        </div>
+                    ) : (
+                        <div
+                            className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
+                            data-testid="live-transcript-loop-withheld"
+                            data-transcript-loop-withheld="true"
+                        >
+                            <p className="text-sm font-semibold text-primary">{finalizingBannerText}</p>
+                            <p className="max-w-sm text-xs text-foreground/60">{finalizingEmptyDescription}</p>
+                        </div>
+                    )
                 ) : (hasTranscript || hasInterimTranscript) && !isFinalizing ? (
                     <div
                         className={`text-foreground text-lg leading-relaxed ${isDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
