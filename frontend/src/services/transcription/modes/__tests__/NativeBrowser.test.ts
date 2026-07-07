@@ -604,6 +604,71 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('first sentence second sentence third sentence');
     });
 
+    it('#NATIVE-PROACTIVE-RESTART: restarts recognition on the ~50s timer even after content is captured', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      // Capture content. The cold-start stall-restart would ABORT here (guard: if currentTranscript.trim() return).
+      const r0 = Object.assign([{ transcript: 'captured content exists here', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(0);
+
+      await vi.advanceTimersByTimeAsync(50_000);
+      // Proactive restart fired UNCONDITIONALLY despite captured content (bypasses the cold-start guard).
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('#NATIVE-PROACTIVE-RESTART: seam-dedups a re-sent tail phrase across the restart, preserving the accumulator', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const mkFinal = (t: string) => Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const a = mkFinal('first sentence'); const b = mkFinal('second sentence');
+      mockRecognition.onresult?.({ results: [a], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [a, b], resultIndex: 1 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('first sentence second sentence');
+
+      // proactive restart -> stop -> onend -> debounced start -> onstart (new cycle, resultIndex resets to 0)
+      await vi.advanceTimersByTimeAsync(50_000);
+      mockRecognition.onend?.({} as Event);
+      await vi.advanceTimersByTimeAsync(310);
+      mockRecognition.onstart?.({} as Event);
+
+      // Chrome re-sends the last phrase as the new cycle's first final -> must be seam-deduped.
+      mockRecognition.onresult?.({ results: [mkFinal('second sentence')], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('first sentence second sentence');
+      vi.useRealTimers();
+    });
+
+    it('#NATIVE-PROACTIVE-RESTART: appends a genuinely new final after the restart (no false dedup, no dropped content)', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const mkFinal = (t: string) => Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [mkFinal('first sentence')], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('first sentence');
+
+      await vi.advanceTimersByTimeAsync(50_000);
+      mockRecognition.onend?.({} as Event);
+      await vi.advanceTimersByTimeAsync(310);
+      mockRecognition.onstart?.({} as Event);
+
+      // Genuinely new content after the seam — must append, not be false-deduped.
+      mockRecognition.onresult?.({ results: [mkFinal('third sentence')], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('first sentence third sentence');
+      vi.useRealTimers();
+    });
+
     it('REGRESSION: does not append a stale full interim after Chrome already committed the final', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();

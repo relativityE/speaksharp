@@ -305,6 +305,9 @@ export const NATIVE_STT = {
   RESULT_STALL_RESTART_MAX_ATTEMPTS: 2,
   NO_RESULT_SPEECH_RESTART_MS: 3_500,
   NO_RESULT_SPEECH_RESTART_MAX_ATTEMPTS: 2,
+  // Proactive, unconditional recognition restart interval — pre-empts Chrome's ~60-90s silent death on
+  // continuous SpeechRecognition. Restart is lossless (append-only accumulator persists across cycles).
+  PROACTIVE_RESTART_MS: 50_000,
 } as const;
 
 export function secondsToSamples(

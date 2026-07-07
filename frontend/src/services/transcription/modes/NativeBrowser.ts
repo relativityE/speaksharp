@@ -297,6 +297,11 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private noResultSpeechRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private noResultSpeechRestartCount = 0;
   private preserveInterimOnNextStart = false;
+  // #NATIVE-PROACTIVE-RESTART: unconditional time-based recovery for Chrome's ~60-90s silent death.
+  private proactiveRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  private proactiveRestartInFlight = false;
+  private proactiveRestartCount = 0;
+  private seamDedupPending = false;
   private terminatePromise: Promise<void> | null = null;
 
   constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
@@ -603,19 +608,38 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             this.lastInterim = '';
             this.interimTranscriptBuffer = '';
             this.lastMeaningfulInterim = '';
-            this.currentTranscript = this.currentTranscript
-              ? `${this.currentTranscript} ${finalSegment}`.replace(/\s+/g, ' ').trim()
-              : finalSegment;
-            pushNativeTrace('emit_final', {
-              sId: this.serviceId,
-              rId: this.runId,
-              eId: this.instanceId,
-              finalTranscript: redactTranscript(finalSegment),
-              currentTranscript: redactTranscript(this.currentTranscript),
-            });
-            this.onTranscriptUpdate({
-                transcript: { final: this.currentTranscript, replacesRollingTranscript: true }
-            });
+            // #NATIVE-PROACTIVE-RESTART seam-dedup: the FIRST final of a new cycle created by a proactive
+            // restart may be Chrome re-sending the last phrase (resultIndex reset to 0). If it EXACTLY
+            // duplicates the current tail, skip it once. Exact-suffix only — NOT the fuzzy overlap
+            // deletion removed in #919; it fires solely on the first post-proactive-restart final.
+            const segNorm = NativeBrowser.normalizeForComparison(finalSegment);
+            const isSeamDuplicate = this.seamDedupPending
+              && segNorm.length > 0
+              && NativeBrowser.normalizeForComparison(this.currentTranscript).endsWith(segNorm);
+            this.seamDedupPending = false;
+            if (isSeamDuplicate) {
+              pushNativeTrace('proactive_restart_seam_dedup', {
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                finalTranscript: redactTranscript(finalSegment),
+                currentTranscript: redactTranscript(this.currentTranscript),
+              });
+            } else {
+              this.currentTranscript = this.currentTranscript
+                ? `${this.currentTranscript} ${finalSegment}`.replace(/\s+/g, ' ').trim()
+                : finalSegment;
+              pushNativeTrace('emit_final', {
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                finalTranscript: redactTranscript(finalSegment),
+                currentTranscript: redactTranscript(this.currentTranscript),
+              });
+              this.onTranscriptUpdate({
+                  transcript: { final: this.currentTranscript, replacesRollingTranscript: true }
+              });
+            }
           }
         }
       } catch (error) {
@@ -794,6 +818,14 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       pushNativeTrace('onstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId }, '[NativeBrowser] Recognition started');
       this.finalizedResultIndexes.clear();
+      // #NATIVE-PROACTIVE-RESTART: if this cycle began because a proactive restart fired, arm seam-dedup
+      // for this cycle's first final (Chrome may re-send the last phrase). Then (re)schedule the proactive
+      // timer so recognition is restarted again ~before Chrome's next silent death.
+      if (this.proactiveRestartInFlight) {
+        this.proactiveRestartInFlight = false;
+        this.seamDedupPending = true;
+      }
+      this.scheduleProactiveRestart();
       if (this.lastInterim || this.interimTranscriptBuffer || this.lastMeaningfulInterim || this.preserveInterimOnNextStart) {
         pushNativeTrace('recognition_restart_preserved_interim', {
           sId: this.serviceId,
@@ -877,6 +909,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.preserveInterimOnNextStart = false;
       this.cancelResultStallRestart('start');
       this.cancelNoResultSpeechRestart('start');
+      this.cancelProactiveRestart();
       this.acousticReadySignaled = false;
       try {
         this.startParallelCapture(_mic);
@@ -1003,6 +1036,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
     this.cancelResultStallRestart('stop');
     this.cancelNoResultSpeechRestart('stop');
+    this.cancelProactiveRestart();
     this.flushParallelCapture();
     
     if (this.mockEngine) {
@@ -1281,6 +1315,47 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       eId: this.instanceId,
       reason,
     });
+  }
+
+  // #NATIVE-PROACTIVE-RESTART: UNCONDITIONAL time-based recovery for Chrome's ~60-90s silent death.
+  // Deliberately NOT routed through scheduleResultStallRestart — that path is cold-start-only (its timer
+  // aborts via `if (this.currentTranscript.trim()) return`) and attempt-capped, so it cannot recover a
+  // mid-recording death after content exists. This fires regardless of captured transcript or attempt
+  // count. currentTranscript persists across the restart (resetRecognitionCycle never clears it), so the
+  // stop()->onend->start cycle is lossless; the first final of the new cycle is seam-deduped in onresult.
+  private scheduleProactiveRestart(): void {
+    this.cancelProactiveRestart();
+    this.proactiveRestartTimer = setTimeout(() => {
+      this.proactiveRestartTimer = null;
+      if (!this.recognition || !this.isListening) return;
+      this.proactiveRestartCount += 1;
+      this.proactiveRestartInFlight = true;
+      pushNativeTrace('proactive_restart_stop_requested', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        cycleId: this.recognitionCycleId,
+        attempt: this.proactiveRestartCount,
+        currentTranscriptLength: this.currentTranscript.length,
+      });
+      try {
+        this.recognition.stop(); // -> onend -> debounced restart -> onstart (reschedules this timer)
+      } catch (err) {
+        this.proactiveRestartInFlight = false;
+        pushNativeTrace('proactive_restart_stop_throw', {
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }, NATIVE_STT.PROACTIVE_RESTART_MS);
+  }
+
+  private cancelProactiveRestart(): void {
+    if (!this.proactiveRestartTimer) return;
+    clearTimeout(this.proactiveRestartTimer);
+    this.proactiveRestartTimer = null;
   }
 
   private scheduleNoResultSpeechRestart(reason: string): void {
