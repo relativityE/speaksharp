@@ -160,9 +160,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
     };
     const modeHint: Record<RecordingMode, string> = {
-        native: 'Starts instantly with browser speech recognition. Accuracy depends on browser and room.',
-        private: 'Runs locally after model setup. All audio processing remains local.',
-        cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
+        native: "Starts instantly with your browser's speech recognition. Accuracy depends on your browser and room.",
+        private: 'Runs on your device after setup. Audio processing stays local.',
+        cloud: 'Highest accuracy for Pro. Audio is sent for cloud transcription.',
         mock: 'Test transcription mode.',
     };
     const hasPrivateSampleAccess = canUsePrivate && !isPaidProUser;
@@ -170,14 +170,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
     const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
     const privateModeDescription = isPaidProUser
-        ? `Private transcription keeps transcription local after model setup. All audio processing remains local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
+        ? `Private transcription runs on your device after setup — audio processing stays local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
         : canUsePrivate
             ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Local transcription so you can compare it with Browser transcription.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
-    const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
+    const nativeModeDescription = "Starts instantly with your browser's speech recognition. Accuracy depends on your browser and room.";
     const cloudModeDescription = canUseCloudStt
-        ? 'Pro cloud transcription workflow. Audio is sent to the cloud STT provider.'
-        : 'Cloud STT is a paid Early Access feature.';
+        ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
+        : 'Cloud transcription is a paid Early Access feature.';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
@@ -191,7 +191,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         <div>
                             <p className="text-sm font-bold leading-snug text-primary">
                                 {isPrivateDownloadRequired
-                                    ? 'Set up Private transcription on this computer. All audio processing remains local.'
+                                    ? 'Set up Private transcription on this computer. Audio processing stays local.'
                                     : modeHint[mode]}
                             </p>
                             {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && (

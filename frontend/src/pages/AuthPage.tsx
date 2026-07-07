@@ -248,7 +248,7 @@ export default function AuthPage() {
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">Start free with instant Browser transcription</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Try the product immediately. You can also try one Private sample session and record up to 5 minutes with local transcription so you can compare it with Browser transcription. Cloud STT is a paid Early Access feature.
+                      Try the product immediately. You can also try one Private sample session and record up to 5 minutes with local transcription so you can compare it with Browser transcription. Cloud transcription is a paid Early Access feature.
                     </p>
                     {inlineError && (
                       <p
