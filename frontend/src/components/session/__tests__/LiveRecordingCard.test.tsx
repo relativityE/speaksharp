@@ -110,13 +110,13 @@ describe('LiveRecordingCard', () => {
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" canUsePrivate={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Runs locally after model setup/i)).toBeDefined();
-        expect(screen.getByText(/All audio processing remains local/i)).toBeDefined();
+        expect(screen.getByText(/Runs on your device after setup/i)).toBeDefined();
+        expect(screen.getByText(/Audio processing stays local/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription keeps transcription local/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/All audio processing remains local/i));
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription runs on your device after setup/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/audio processing stays local/i));
         // #891 beta: the 5-minute per-recording cap is surfaced up front.
         expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 5 minutes/i));
     });
@@ -162,14 +162,14 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT as instant and browser-dependent without the old badge copy', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Starts instantly with browser speech recognition/i)).toBeDefined();
-        expect(screen.getByText(/Accuracy depends on browser and room/i)).toBeDefined();
+        expect(screen.getByText(/Starts instantly with your browser's speech recognition/i)).toBeDefined();
+        expect(screen.getByText(/Accuracy depends on your browser and room/i)).toBeDefined();
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Free and instant/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/accuracy varies by browser and environment/i));
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Starts instantly with your browser's speech recognition/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Accuracy depends on your browser and room/i));
     });
 
     it('shows the approved Private sample CTA for sample-entitled users on the Browser path', () => {
