@@ -269,6 +269,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
    * session. Reset on the next onStart.
    */
   private stopRequested: boolean = false;
+  // Recognition cycle id captured the instant Stop is requested. A trailing FINAL from THIS
+  // cycle is Chrome's flush of speech spoken before Stop and must still be appended; results
+  // from a later cycle (a new utterance after Stop) are dropped.
+  private stopRequestedCycleId = -1;
   public onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
   public onReady?: () => void;
   public onError?: (error: TranscriptionError) => void;
@@ -295,11 +299,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private cycleInterimResultCount = 0;
   private cycleNomatchCount = 0;
   private cycleErrorCount = 0;
-  private resultStallRestartTimer: ReturnType<typeof setTimeout> | null = null;
-  private resultStallRestartCount = 0;
-  private noResultSpeechRestartTimer: ReturnType<typeof setTimeout> | null = null;
-  private noResultSpeechRestartCount = 0;
-  private preserveInterimOnNextStart = false;
   private terminatePromise: Promise<void> | null = null;
 
   constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
@@ -504,16 +503,18 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {
-        // Hard-stop guard: after an explicit user Stop, the transcript is frozen.
-        // Drop the stopping cycle's trailing final flush AND any stray second
-        // recognition cycle (e.g. "Hey Dad" spoken after Stop) so nothing can
-        // append to the completed session. Reset on the next onStart.
-        if (this.stopRequested) {
+        // Post-Stop guard: after an explicit user Stop, drop results from a DIFFERENT
+        // recognition cycle than the one active at Stop — that is a stray new utterance
+        // (e.g. "Hey Dad" spoken after Stop) and must not append. The stopping cycle's
+        // own trailing FINAL (Chrome's flush of speech spoken before Stop) is still
+        // accepted below so the last phrase is not lost. Reset on the next onStart.
+        if (this.stopRequested && this.recognitionCycleId !== this.stopRequestedCycleId) {
           pushNativeTrace('onresult_dropped_after_stop', {
             sId: this.serviceId,
             rId: this.runId,
             eId: this.instanceId,
             cycleId: this.recognitionCycleId,
+            stopRequestedCycleId: this.stopRequestedCycleId,
           });
           return;
         }
@@ -529,8 +530,17 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         this.cycleResultCount += 1;
         if (finalTranscript) this.cycleFinalResultCount += 1;
         if (interimTranscript) this.cycleInterimResultCount += 1;
-        if (finalTranscript || interimTranscript) {
-          this.cancelNoResultSpeechRestart('result');
+        // After Stop, only the stopping cycle's trailing FINAL may still append (Chrome's
+        // flush of speech spoken before Stop). Suppress any post-Stop interim so nothing
+        // partial shows after Stop; the same-cycle final falls through to the append path.
+        if (this.stopRequested && !finalTranscript) {
+          pushNativeTrace('onresult_trailing_interim_suppressed_after_stop', {
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            cycleId: this.recognitionCycleId,
+          });
+          return;
         }
         pushNativeTrace('onresult_raw', {
           sId: this.serviceId,
@@ -579,8 +589,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
         if (this.onTranscriptUpdate) {
           const latestInterim = this.getLatestInterimTranscript(interimTranscript);
-          if (latestInterim) {
-            this.scheduleResultStallRestart('interim');
+          if (latestInterim && !this.stopRequested) {
             pushNativeTrace('emit_partial', {
               sId: this.serviceId,
               rId: this.runId,
@@ -595,7 +604,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             publishTelemetry({ type: 'transcript.partial', mode: 'native', t: performance.now(), text: latestInterim, sequence: this.telemetrySeq++ });
           }
           if (finalTranscript) {
-            this.cancelResultStallRestart('final');
             // #NATIVE-APPEND-ONLY (fix/native-append-only-finals): the browser's isFinal result is
             // AUTHORITATIVE. Do NOT substitute a longer stale interim, and do NOT fuzzy-overlap-merge
             // (which silently deleted legitimate repeated speech). Append the final once, in order, to
@@ -708,7 +716,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       pushNativeTrace('onspeechstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId }, '[NativeBrowser] onspeechstart');
       this.signalAcousticReady('onspeechstart');
-      this.scheduleNoResultSpeechRestart('speechstart');
     };
 
     this.recognition.onspeechend = () => {
@@ -725,7 +732,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.recognition.onend = () => {
       publishTelemetry({ type: 'webspeech.lifecycle', mode: 'native', t: performance.now(), event: 'end' });
       this.logRecognitionCycleSummary('onend');
-      this.cancelNoResultSpeechRestart('onend');
       pushNativeTrace('onend', {
         sId: this.serviceId,
         rId: this.runId,
@@ -801,7 +807,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       pushNativeTrace('onstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId }, '[NativeBrowser] Recognition started');
       this.finalizedResultIndexes.clear();
-      if (this.lastInterim || this.interimTranscriptBuffer || this.lastMeaningfulInterim || this.preserveInterimOnNextStart) {
+      if (this.lastInterim || this.interimTranscriptBuffer || this.lastMeaningfulInterim) {
         pushNativeTrace('recognition_restart_preserved_interim', {
           sId: this.serviceId,
           rId: this.runId,
@@ -811,7 +817,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
           interimTranscriptBuffer: this.interimTranscriptBuffer,
           lastMeaningfulInterim: this.lastMeaningfulInterim,
         });
-        this.preserveInterimOnNextStart = false;
       }
       this.isListening = true;
       this.updateHeartbeat();
@@ -861,11 +866,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.lastInterim = '';
       this.interimTranscriptBuffer = '';
       this.lastMeaningfulInterim = '';
-      this.resultStallRestartCount = 0;
-      this.noResultSpeechRestartCount = 0;
-      this.preserveInterimOnNextStart = false;
-      this.cancelResultStallRestart('mock-start');
-      this.cancelNoResultSpeechRestart('mock-start');
       this.acousticReadySignaled = false;
       return;
     }
@@ -881,11 +881,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.lastInterim = '';
       this.interimTranscriptBuffer = '';
       this.lastMeaningfulInterim = '';
-      this.resultStallRestartCount = 0;
-      this.noResultSpeechRestartCount = 0;
-      this.preserveInterimOnNextStart = false;
-      this.cancelResultStallRestart('start');
-      this.cancelNoResultSpeechRestart('start');
       this.acousticReadySignaled = false;
       try {
         this.startParallelCapture(_mic);
@@ -1001,6 +996,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     // browser's recognition.stop(). onresult fires synchronously off the recognizer,
     // so this flag must be set ahead of any await to reject post-stop results.
     this.stopRequested = true;
+    this.stopRequestedCycleId = this.recognitionCycleId;
     pushNativeTrace('onStop_enter', {
       sId: this.serviceId,
       rId: this.runId,
@@ -1010,8 +1006,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       currentTranscript: this.currentTranscript,
     });
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
-    this.cancelResultStallRestart('stop');
-    this.cancelNoResultSpeechRestart('stop');
     this.flushParallelCapture();
     
     if (this.mockEngine) {
@@ -1266,142 +1260,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     });
 
     return meaningfulWords.length >= 2;
-  }
-
-  private cancelResultStallRestart(reason: string): void {
-    if (!this.resultStallRestartTimer) return;
-    clearTimeout(this.resultStallRestartTimer);
-    this.resultStallRestartTimer = null;
-    pushNativeTrace('result_stall_restart_cancelled', {
-      sId: this.serviceId,
-      rId: this.runId,
-      eId: this.instanceId,
-      reason,
-    });
-  }
-
-  private cancelNoResultSpeechRestart(reason: string): void {
-    if (!this.noResultSpeechRestartTimer) return;
-    clearTimeout(this.noResultSpeechRestartTimer);
-    this.noResultSpeechRestartTimer = null;
-    pushNativeTrace('no_result_speech_restart_cancelled', {
-      sId: this.serviceId,
-      rId: this.runId,
-      eId: this.instanceId,
-      reason,
-    });
-  }
-
-  private scheduleNoResultSpeechRestart(reason: string): void {
-    if (!this.recognition || !this.isListening) return;
-    if (this.cycleResultCount > 0 || this.currentTranscript.trim()) return;
-    if (this.noResultSpeechRestartCount >= NATIVE_STT.NO_RESULT_SPEECH_RESTART_MAX_ATTEMPTS) {
-      pushNativeTrace('no_result_speech_restart_limit_reached', {
-        sId: this.serviceId,
-        rId: this.runId,
-        eId: this.instanceId,
-        reason,
-        noResultSpeechRestartCount: this.noResultSpeechRestartCount,
-      });
-      return;
-    }
-
-    this.cancelNoResultSpeechRestart(`reschedule:${reason}`);
-    const scheduledCycleId = this.recognitionCycleId;
-    this.noResultSpeechRestartTimer = setTimeout(() => {
-      this.noResultSpeechRestartTimer = null;
-      if (!this.recognition || !this.isListening || scheduledCycleId !== this.recognitionCycleId) return;
-      if (this.cycleResultCount > 0 || this.currentTranscript.trim()) return;
-
-      this.noResultSpeechRestartCount += 1;
-      pushNativeTrace('no_result_speech_restart_stop_requested', {
-        sId: this.serviceId,
-        rId: this.runId,
-        eId: this.instanceId,
-        reason,
-        cycleId: this.recognitionCycleId,
-        attempt: this.noResultSpeechRestartCount,
-      });
-      logger.info({
-        ...this.getRecognitionCycleSummary('no-result-speech-restart'),
-        attempt: this.noResultSpeechRestartCount,
-      }, '[NativeBrowser] speech detected but no transcript result yet; restarting recognition to prompt browser flush');
-      try {
-        this.recognition.stop();
-      } catch (err) {
-        pushNativeTrace('no_result_speech_restart_stop_throw', {
-          sId: this.serviceId,
-          rId: this.runId,
-          eId: this.instanceId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }, NATIVE_STT.NO_RESULT_SPEECH_RESTART_MS);
-    pushNativeTrace('no_result_speech_restart_scheduled', {
-      sId: this.serviceId,
-      rId: this.runId,
-      eId: this.instanceId,
-      reason,
-      cycleId: this.recognitionCycleId,
-      delayMs: NATIVE_STT.NO_RESULT_SPEECH_RESTART_MS,
-    });
-  }
-
-  private scheduleResultStallRestart(reason: string): void {
-    if (!this.recognition || !this.isListening) return;
-    if (!this.isMeaningfulInterimTranscript(this.lastMeaningfulInterim)) return;
-    if (this.resultStallRestartCount >= NATIVE_STT.RESULT_STALL_RESTART_MAX_ATTEMPTS) {
-      pushNativeTrace('result_stall_restart_limit_reached', {
-        sId: this.serviceId,
-        rId: this.runId,
-        eId: this.instanceId,
-        reason,
-        resultStallRestartCount: this.resultStallRestartCount,
-        lastMeaningfulInterim: this.lastMeaningfulInterim,
-      });
-      return;
-    }
-
-    this.cancelResultStallRestart(`reschedule:${reason}`);
-    const scheduledCycleId = this.recognitionCycleId;
-    const scheduledInterim = this.lastMeaningfulInterim;
-    this.resultStallRestartTimer = setTimeout(() => {
-      this.resultStallRestartTimer = null;
-      if (!this.recognition || !this.isListening || scheduledCycleId !== this.recognitionCycleId) return;
-      if (this.currentTranscript.trim()) return;
-      if (this.lastMeaningfulInterim !== scheduledInterim) return;
-
-      this.resultStallRestartCount += 1;
-      this.preserveInterimOnNextStart = true;
-      pushNativeTrace('result_stall_restart_stop_requested', {
-        sId: this.serviceId,
-        rId: this.runId,
-        eId: this.instanceId,
-        reason,
-        cycleId: this.recognitionCycleId,
-        attempt: this.resultStallRestartCount,
-        lastMeaningfulInterim: this.lastMeaningfulInterim,
-      });
-      try {
-        this.recognition.stop();
-      } catch (err) {
-        pushNativeTrace('result_stall_restart_stop_throw', {
-          sId: this.serviceId,
-          rId: this.runId,
-          eId: this.instanceId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }, NATIVE_STT.RESULT_STALL_RESTART_MS);
-    pushNativeTrace('result_stall_restart_scheduled', {
-      sId: this.serviceId,
-      rId: this.runId,
-      eId: this.instanceId,
-      reason,
-      cycleId: this.recognitionCycleId,
-      delayMs: NATIVE_STT.RESULT_STALL_RESTART_MS,
-      lastMeaningfulInterim: this.lastMeaningfulInterim,
-    });
   }
 
   private promoteMeaningfulInterimTranscript(reason: string): void {

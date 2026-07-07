@@ -709,7 +709,12 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
     });
 
-    it('REGRESSION: restarts a stalled Native recognition cycle after first meaningful interim', async () => {
+    it('CANONICAL: does NOT force-restart a stalled cycle mid-utterance (removed anti-pattern)', async () => {
+      // A 2.5s "result stall" timer used to call recognition.stop() to force a restart, cutting
+      // Chrome off mid-utterance and dropping speech (the owner's "kept overwriting / missed so
+      // much"). Phase 3 removes that anti-pattern: no timer-driven stop() may fire, no matter how
+      // long a meaningful interim sits without a following result. Only the reactive onend restart
+      // (which does not stop() a live cycle) keeps the session alive.
       vi.useFakeTimers();
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
@@ -719,25 +724,16 @@ describe('NativeBrowser Transcription Mode', () => {
       const firstWindow = Object.assign([{ transcript: 'native chrome microphone', confidence: 0.8, isFinal: false }], { isFinal: false });
       mockRecognition.onresult?.({ results: [firstWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
-      await vi.advanceTimersByTimeAsync(2500);
-      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
-
-      mockRecognition.onend?.({} as Event);
-      await vi.advanceTimersByTimeAsync(310);
-      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
-
-      mockRecognition.onstart?.({} as Event);
-      const secondWindow = Object.assign([{ transcript: 'the quick brown fox continues', confidence: 0.8, isFinal: false }], { isFinal: false });
-      mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
-
-      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'the quick brown fox continues' },
-      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(mockRecognition.stop).not.toHaveBeenCalled();
 
       vi.useRealTimers();
     });
 
-    it('REGRESSION: restarts when speech is detected but Chrome withholds transcript results', async () => {
+    it('CANONICAL: does NOT force-restart when speech is detected but Chrome withholds results (removed anti-pattern)', async () => {
+      // A 3.5s "no result speech" timer used to call recognition.stop() when onspeechstart fired
+      // without a following result. Phase 3 removes it: Chrome is trusted to emit results on its
+      // own; forcing a stop here cut off the utterance the user was still speaking.
       vi.useFakeTimers();
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
@@ -746,25 +742,36 @@ describe('NativeBrowser Transcription Mode', () => {
 
       mockRecognition.onspeechstart?.();
 
-      await vi.advanceTimersByTimeAsync(3499);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(mockRecognition.stop).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(1);
-      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
-
-      mockRecognition.onend?.({} as Event);
-      await vi.advanceTimersByTimeAsync(310);
-      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
-
-      mockRecognition.onstart?.({} as Event);
-      const recoveredWindow = Object.assign([{ transcript: 'native browser recovered after silence', confidence: 0.8, isFinal: false }], { isFinal: false });
-      mockRecognition.onresult?.({ results: [recoveredWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
-
-      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'native browser recovered after silence' },
-      });
-
       vi.useRealTimers();
+    });
+
+    it('CANONICAL: preserves the stopping cycle trailing final flushed after Stop (not dropped)', async () => {
+      // Chrome flushes a trailing FINAL for speech spoken before Stop, in the SAME recognition
+      // cycle that was active at Stop. Previously the hard-stop guard dropped it (lost last phrase).
+      // It must now be appended; only results from a LATER cycle (a new utterance after Stop) drop.
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const mkResult = (t: string) =>
+        Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const r0 = mkResult('closing remarks');
+      const r1 = mkResult('thank you all');
+
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('closing remarks');
+
+      const stopPromise = nativeBrowser.stop();
+      // Trailing flush of the SAME cycle at a new result index, after Stop was requested.
+      mockRecognition.onresult?.({ results: [r0, r1], resultIndex: 1 } as unknown as MockSpeechEvent);
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(await nativeBrowser.getTranscript()).toBe('closing remarks thank you all');
     });
 
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
