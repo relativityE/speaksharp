@@ -18,6 +18,19 @@ export function resetSessionTelemetry(sessionId: string): void {
 }
 
 /**
+ * Error-swallowing session reset — the Phase 2 guarantee is that shadow telemetry can NEVER affect
+ * production behavior. Call sites in the production path (e.g. Native onStart) must use this, not the
+ * raw resetSessionTelemetry.
+ */
+export function safeResetSessionTelemetry(sessionId: string): void {
+  try {
+    resetSessionTelemetry(sessionId);
+  } catch {
+    /* shadow telemetry must never affect production behavior */
+  }
+}
+
+/**
  * Safe shadow-publish entry point for emitters. Swallows ALL errors so shadow telemetry can never
  * affect the production transcript/audio path. This is the only call sites should use during the
  * shadow phase.
