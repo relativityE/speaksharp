@@ -168,10 +168,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const hasPrivateSampleAccess = canUsePrivate && !isPaidProUser;
     // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
     const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
+    const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
     const privateModeDescription = isPaidProUser
-        ? `Private transcription keeps transcription local after model setup. All audio processing remains local. During beta, each recording is capped at ${privateCapSeconds}s and saves automatically.`
+        ? `Private transcription keeps transcription local after model setup. All audio processing remains local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
         : canUsePrivate
-            ? `Try one Private sample session — up to 5 minutes total, ${privateCapSeconds}s per recording during beta. Local transcription so you can compare it with Browser transcription.`
+            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Local transcription so you can compare it with Browser transcription.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
     const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
     const cloudModeDescription = canUseCloudStt
@@ -207,7 +208,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     </button>
                                     {hasPrivateSampleAccess && (
                                         <p className="text-[10px] font-medium leading-snug text-foreground/60">
-                                            Up to 5 minutes total, {privateCapSeconds}s per recording during beta, with local transcription so you can compare it with Browser transcription.
+                                            Up to {privateCapLabel} per recording during beta, with local transcription so you can compare it with Browser transcription.
                                         </p>
                                     )}
                                 </div>

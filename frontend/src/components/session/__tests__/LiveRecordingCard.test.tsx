@@ -117,8 +117,8 @@ describe('LiveRecordingCard', () => {
 
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription keeps transcription local/i));
         expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/All audio processing remains local/i));
-        // #891 beta: the 90s per-recording cap is surfaced up front.
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 90s/i));
+        // #891 beta: the 5-minute per-recording cap is surfaced up front.
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 5 minutes/i));
     });
 
     it('tints the status pill amber with "getting mic ready" while warming (#891)', () => {
@@ -176,8 +176,8 @@ describe('LiveRecordingCard', () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
-        expect(screen.getByText(/up to 5 minutes total/i)).toBeDefined();
-        expect(screen.getByText(/90s per recording during beta/i)).toBeDefined();
+        expect(screen.getByText(/up to 5 minutes per recording during beta/i)).toBeDefined();
+        expect(screen.getByText(/local transcription/i)).toBeDefined();
         expect(screen.getByText(/compare it with Browser transcription/i)).toBeDefined();
     });
 

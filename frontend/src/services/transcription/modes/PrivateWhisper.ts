@@ -96,8 +96,11 @@ export interface PrivateTimingSummary {
    * Decision-tree branch 2 (finalize preprocessing).
    */
   finalizePrepMs: number | null;
-  /** Total speech captured for this utterance, seconds. */
+  /** Raw accumulated utterance length, seconds (from utteranceSampleCount — may over-count; kept for cross-check). */
   utteranceSeconds: number;
+  /** Decoded/kept audio actually sent to Whisper (post leading/trailing trim), seconds. The AUTHORITATIVE
+   *  duration for RTF/accounting — robust to any raw-accumulator over-count. 0 until the utterance commits. */
+  decodedUtteranceSeconds: number;
   /** Peak live audio buffered at any point, seconds (unbounded-buffer guard). */
   peakBufferedSeconds: number;
   /** Anchor used for timeToFirst*: 'speech' | 'stream' | null (not started). */
@@ -119,6 +122,7 @@ export function buildPrivateTimingSummary(p: {
   finalizeWaitMs: number | null;
   finalizePrepMs: number | null;
   utteranceSampleCount: number;
+  decodedSampleCount: number;
   peakBufferedSamples: number;
   nowMs: number;
 }): PrivateTimingSummary {
@@ -134,6 +138,7 @@ export function buildPrivateTimingSummary(p: {
     finalizeWaitMs: p.finalizeWaitMs,
     finalizePrepMs: p.finalizePrepMs,
     utteranceSeconds: Number(samplesToSeconds(p.utteranceSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+    decodedUtteranceSeconds: Number(samplesToSeconds(p.decodedSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
     peakBufferedSeconds: Number(samplesToSeconds(p.peakBufferedSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
     anchor,
     updatedAtMs: Number(p.nowMs.toFixed(1)),
@@ -708,6 +713,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private firstTranscriptAgreementRounds: number = 0;
   private utteranceAudioChunks: Float32Array[] = [];
   private utteranceSampleCount: number = 0;
+  // #891 duration accounting: the sample count ACTUALLY decoded (post leading/trailing trim) at commit —
+  // the authoritative duration/RTF basis, robust to any raw utteranceSampleCount over-count. 0 until commit.
+  private lastDecodedUtteranceSampleCount: number = 0;
   // #891 fix: pre-onset SPEECH demoted on a speech-gate RESET (a soft opening word + micro-gap before
   // speech confirms) must NOT be lost to the 300ms-capped pre-roll. It is retained here (silence is
   // not) and prepended to the utterance buffer at confirmation, so the final whole-utterance decode
@@ -769,6 +777,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       finalizeWaitMs: this.finalizeWaitMs,
       finalizePrepMs: this.finalizePrepMs,
       utteranceSampleCount: this.utteranceSampleCount,
+      decodedSampleCount: this.lastDecodedUtteranceSampleCount,
       peakBufferedSamples: this.peakBufferedSamples,
       nowMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
     });
@@ -844,6 +853,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.lastDecodedUtteranceSampleCount = 0;
     this.retainedPreonsetSpeechChunks = [];
     this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
@@ -967,6 +977,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.lastDecodedUtteranceSampleCount = 0;
     this.retainedPreonsetSpeechChunks = [];
     this.retainedPreonsetSpeechSamples = 0;
     this.utteranceLastRealSpeechSamples = 0;
@@ -2267,6 +2278,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const audio = (leadStart > 0 || trailingCap < fullUtteranceAudio.length)
       ? fullUtteranceAudio.slice(leadStart, trailingCap)
       : fullUtteranceAudio;
+    // #891 duration accounting: record the TRUE decoded-audio length (what Whisper transcribes) so
+    // __PRIVATE_TIMING__.decodedUtteranceSeconds is an authoritative ruler independent of the raw accumulator.
+    this.lastDecodedUtteranceSampleCount = audio.length;
     if (audio.length < fullUtteranceAudio.length) {
       pushPrivateTimeline('whole_utterance_silence_trimmed', {
         serviceId: this.serviceId,
