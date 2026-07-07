@@ -9,6 +9,7 @@ import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
 import { registerNativeProductionFormatter } from './nativeDeterministicCleanup';
+import { publishTelemetry, resetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 
 declare global {
   interface Window {
@@ -276,6 +277,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private lastInterim = '';
   private interimTranscriptBuffer = '';
   private lastMeaningfulInterim = '';
+  // #NATIVE-SHADOW-TELEMETRY (Phase 2): monotonic sequence for shadow transcript events. Emit-only.
+  private telemetrySeq = 0;
   private browserStrategy: NativeBrowserStrategy | null = null;
   private acousticReadySignaled = false;
   private parallelCaptureDisposer: (() => void) | null = null;
@@ -586,9 +589,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
               latestInterim,
               currentTranscript: this.currentTranscript,
             });
-            this.onTranscriptUpdate({ 
+            this.onTranscriptUpdate({
                 transcript: { partial: latestInterim }
             });
+            publishTelemetry({ type: 'transcript.partial', mode: 'native', t: performance.now(), text: latestInterim, sequence: this.telemetrySeq++ });
           }
           if (finalTranscript) {
             this.cancelResultStallRestart('final');
@@ -616,6 +620,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             this.onTranscriptUpdate({
                 transcript: { final: this.currentTranscript, replacesRollingTranscript: true }
             });
+            publishTelemetry({ type: 'transcript.final', mode: 'native', t: performance.now(), text: this.currentTranscript, sequence: this.telemetrySeq++, replacesRollingTranscript: true });
           }
         }
       } catch (error) {
@@ -718,6 +723,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     };
 
     this.recognition.onend = () => {
+      publishTelemetry({ type: 'webspeech.lifecycle', mode: 'native', t: performance.now(), event: 'end' });
       this.logRecognitionCycleSummary('onend');
       this.cancelNoResultSpeechRestart('onend');
       pushNativeTrace('onend', {
@@ -791,6 +797,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onstart = () => {
       this.resetRecognitionCycle('onstart');
+      publishTelemetry({ type: 'webspeech.lifecycle', mode: 'native', t: performance.now(), event: 'start' });
       pushNativeTrace('onstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId }, '[NativeBrowser] Recognition started');
       this.finalizedResultIndexes.clear();
@@ -816,6 +823,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   }
 
   protected async onStart(_mic?: MicStream): Promise<void> {
+    resetSessionTelemetry(String(this.runId ?? this.serviceId ?? 'native'));
+    this.telemetrySeq = 0;
     pushNativeTrace('onStart_enter', {
       sId: this.serviceId,
       rId: this.runId,
