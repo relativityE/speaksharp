@@ -592,28 +592,29 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
           }
           if (finalTranscript) {
             this.cancelResultStallRestart('final');
-            const trimmedFinal = finalTranscript.trim();
-            const pendingInterim = this.lastMeaningfulInterim.trim();
-            const bestFinalCandidate = pendingInterim &&
-              NativeBrowser.isSameInterimWindow(trimmedFinal, pendingInterim) &&
-              pendingInterim.length > trimmedFinal.length
-              ? pendingInterim
-              : trimmedFinal;
-            const finalForEmission = bestFinalCandidate;
+            // #NATIVE-APPEND-ONLY (fix/native-append-only-finals): the browser's isFinal result is
+            // AUTHORITATIVE. Do NOT substitute a longer stale interim, and do NOT fuzzy-overlap-merge
+            // (which silently deleted legitimate repeated speech). Append the final once, in order, to
+            // the accumulated transcript — which persists across Chrome recognition-restart cycles
+            // (resetRecognitionCycle never clears it) — and emit the ACCUMULATED transcript with
+            // replacesRollingTranscript so the service replaces it outright instead of running its own
+            // lossy merge on a per-segment fragment.
+            const finalSegment = finalTranscript.trim();
             this.lastInterim = '';
             this.interimTranscriptBuffer = '';
+            this.lastMeaningfulInterim = '';
             this.currentTranscript = this.currentTranscript
-              ? NativeBrowser.appendTranscriptSegment(this.currentTranscript, finalForEmission)
-              : finalForEmission;
+              ? `${this.currentTranscript} ${finalSegment}`.replace(/\s+/g, ' ').trim()
+              : finalSegment;
             pushNativeTrace('emit_final', {
               sId: this.serviceId,
               rId: this.runId,
               eId: this.instanceId,
-              finalTranscript: redactTranscript(finalForEmission),
+              finalTranscript: redactTranscript(finalSegment),
               currentTranscript: redactTranscript(this.currentTranscript),
             });
-            this.onTranscriptUpdate({ 
-                transcript: { final: finalForEmission }
+            this.onTranscriptUpdate({
+                transcript: { final: this.currentTranscript, replacesRollingTranscript: true }
             });
           }
         }
@@ -1396,48 +1397,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
   private promoteMeaningfulInterimTranscript(reason: string): void {
     if (this.currentTranscript.trim()) {
-      const pendingTranscript = this.lastMeaningfulInterim.trim();
-      if (pendingTranscript && !NativeBrowser.normalizeForComparison(this.currentTranscript).includes(NativeBrowser.normalizeForComparison(pendingTranscript))) {
-        const transcript = NativeBrowser.mergeFinalWithPendingInterim(this.currentTranscript, pendingTranscript);
-        if (NativeBrowser.normalizeForComparison(transcript) === NativeBrowser.normalizeForComparison(this.currentTranscript)) {
-          pushNativeTrace('native_interim_append_skipped_duplicate', {
-            sId: this.serviceId,
-            rId: this.runId,
-            eId: this.instanceId,
-            reason,
-            pendingTranscript,
-            currentTranscript: this.currentTranscript,
-          });
-          logger.info({
-            sId: this.serviceId,
-            rId: this.runId,
-            eId: this.instanceId,
-            reason,
-          }, '[NativeBrowser] Skipped duplicate pending interim transcript on stop');
-          return;
-        }
-        this.currentTranscript = transcript;
-        pushNativeTrace('native_interim_appended_to_final', {
-          sId: this.serviceId,
-          rId: this.runId,
-          eId: this.instanceId,
-          reason,
-          pendingTranscript,
-          transcript,
-        });
-        logger.info({
-          sId: this.serviceId,
-          rId: this.runId,
-          eId: this.instanceId,
-          reason,
-          transcript,
-        }, '[NativeBrowser] Appended pending meaningful interim transcript on stop');
-        this.onTranscriptUpdate?.({
-          transcript: { final: transcript },
-        });
-        return;
-      }
-
+      // #NATIVE-APPEND-ONLY rule 7: finals are authoritative. When final content already exists, do
+      // NOT fuzzy-merge a (possibly stale) pending interim into it — that path silently deleted or
+      // duplicated words. A pending interim is only promoted when there is NO final (the branch below).
       pushNativeTrace('native_interim_promotion_skipped', {
         sId: this.serviceId,
         rId: this.runId,
@@ -1494,94 +1456,11 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       .trim();
   }
 
-  private static wordsForComparison(transcript: string): string[] {
-    const normalized = NativeBrowser.normalizeForComparison(transcript);
-    return normalized ? normalized.split(' ') : [];
-  }
-
-  private static isSameInterimWindow(previous: string, next: string): boolean {
-    const previousNormalized = NativeBrowser.normalizeForComparison(previous);
-    const nextNormalized = NativeBrowser.normalizeForComparison(next);
-    if (!previousNormalized || !nextNormalized) return true;
-    return previousNormalized.startsWith(nextNormalized) || nextNormalized.startsWith(previousNormalized);
-  }
-
-  private static wordOverlapRatio(base: string, candidate: string): number {
-    const baseWords = new Set(NativeBrowser.wordsForComparison(base));
-    const candidateWords = NativeBrowser.wordsForComparison(candidate);
-    if (candidateWords.length === 0) return 0;
-
-    const overlappingWords = candidateWords.filter((word) => baseWords.has(word)).length;
-    return overlappingWords / candidateWords.length;
-  }
-
-  private static isSubstantiallyDuplicatePendingInterim(finalTranscript: string, pendingInterim: string): boolean {
-    const finalWords = NativeBrowser.wordsForComparison(finalTranscript);
-    const pendingWords = NativeBrowser.wordsForComparison(pendingInterim);
-    if (finalWords.length === 0 || pendingWords.length === 0) return false;
-
-    const shorterLength = Math.min(finalWords.length, pendingWords.length);
-    const longerLength = Math.max(finalWords.length, pendingWords.length);
-    const comparableLengthRatio = shorterLength / longerLength;
-    const pendingOverlap = NativeBrowser.wordOverlapRatio(finalTranscript, pendingInterim);
-    const finalOverlap = NativeBrowser.wordOverlapRatio(pendingInterim, finalTranscript);
-
-    return comparableLengthRatio >= 0.75 && pendingOverlap >= 0.75 && finalOverlap >= 0.75;
-  }
-
-  private static appendTranscriptSegment(base: string, segment: string): string {
-    const baseText = base.trim();
-    const segmentText = segment.trim();
-    if (!baseText) return segmentText;
-    if (!segmentText) return baseText;
-
-    const baseNormalized = NativeBrowser.normalizeForComparison(baseText);
-    const segmentNormalized = NativeBrowser.normalizeForComparison(segmentText);
-    if (!baseNormalized) return segmentText;
-    if (!segmentNormalized) return baseText;
-    if (baseNormalized.endsWith(segmentNormalized)) return baseText;
-    if (segmentNormalized.startsWith(baseNormalized)) return segmentText;
-
-    const baseWords = NativeBrowser.wordsForComparison(baseText);
-    const segmentWords = NativeBrowser.wordsForComparison(segmentText);
-    const maxOverlap = Math.min(baseWords.length, segmentWords.length);
-    let overlap = 0;
-    for (let size = maxOverlap; size > 0; size -= 1) {
-      const baseSuffix = baseWords.slice(baseWords.length - size).join(' ');
-      const segmentPrefix = segmentWords.slice(0, size).join(' ');
-      if (baseSuffix === segmentPrefix) {
-        overlap = size;
-        break;
-      }
-    }
-
-    const originalSegmentWords = segmentText.split(/\s+/).filter(Boolean);
-    return [baseText, originalSegmentWords.slice(overlap).join(' ')].filter(Boolean).join(' ').trim();
-  }
-
-  private static mergeFinalWithPendingInterim(finalTranscript: string, pendingInterim: string): string {
-    const finalText = finalTranscript.trim();
-    const pendingText = pendingInterim.trim();
-    if (!finalText) return pendingText;
-    if (!pendingText) return finalText;
-
-    const finalNormalized = NativeBrowser.normalizeForComparison(finalText);
-    const pendingNormalized = NativeBrowser.normalizeForComparison(pendingText);
-    if (!finalNormalized) return pendingText;
-    if (!pendingNormalized) return finalText;
-
-    if (pendingNormalized.includes(finalNormalized)) {
-      return pendingText;
-    }
-    if (finalNormalized.includes(pendingNormalized)) {
-      return finalText;
-    }
-    if (NativeBrowser.isSubstantiallyDuplicatePendingInterim(finalText, pendingText)) {
-      return finalText;
-    }
-
-    return NativeBrowser.appendTranscriptSegment(finalText, pendingText);
-  }
+  // #NATIVE-APPEND-ONLY (fix/native-append-only-finals): removed the fuzzy final-reconciliation
+  // heuristics — isSameInterimWindow, wordOverlapRatio, isSubstantiallyDuplicatePendingInterim,
+  // appendTranscriptSegment, mergeFinalWithPendingInterim. They deleted legitimate repeated speech
+  // (suffix/prefix overlap dropping) and swapped stale interims over authoritative finals. Native now
+  // trusts the browser's isFinal results and appends them verbatim, in order, exactly once.
 
   private clearRecognitionReferences(recognition: SpeechRecognition | null): void {
     if (!recognition) return;

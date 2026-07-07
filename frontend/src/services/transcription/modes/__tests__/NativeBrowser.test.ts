@@ -319,7 +319,7 @@ describe('NativeBrowser Transcription Mode', () => {
       }
  
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'hello world' },
+        transcript: { final: 'hello world', replacesRollingTranscript: true },
       });
     });
 
@@ -336,7 +336,7 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.(event as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'hello, world.' },
+        transcript: { final: 'hello, world.', replacesRollingTranscript: true },
       });
     });
  
@@ -395,12 +395,14 @@ describe('NativeBrowser Transcription Mode', () => {
       const secondResult = Object.assign([{ transcript: 'second phrase', confidence: 0.9, isFinal: true }], { isFinal: true });
       mockRecognition.onresult?.({ results: [secondResult], resultIndex: 0 } as unknown as MockSpeechEvent);
 
+      // #NATIVE-APPEND-ONLY: cycle 2 (resultIndex reset to 0 after restart) must APPEND to cycle 1,
+      // not replace it. Native emits the ACCUMULATED transcript each time, so call 2 = both phrases.
       expect(onTranscriptUpdate).toHaveBeenCalledTimes(2);
       expect(onTranscriptUpdate).toHaveBeenNthCalledWith(1, {
-        transcript: { final: 'first phrase' },
+        transcript: { final: 'first phrase', replacesRollingTranscript: true },
       });
       expect(onTranscriptUpdate).toHaveBeenNthCalledWith(2, {
-        transcript: { final: 'second phrase' },
+        transcript: { final: 'first phrase second phrase', replacesRollingTranscript: true },
       });
       expect(await nativeBrowser.getTranscript()).toBe('first phrase second phrase');
 
@@ -508,7 +510,7 @@ describe('NativeBrowser Transcription Mode', () => {
 
       expect(onTranscriptUpdate).toHaveBeenCalledTimes(1);
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'the quick brown fox' },
+        transcript: { final: 'the quick brown fox', replacesRollingTranscript: true },
       });
     });
 
@@ -533,12 +535,14 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof');
     });
 
-    it('REGRESSION: replaces a short final with the richer pending interim when Chrome collapses its hypothesis on stop', async () => {
+    it('REGRESSION: a short final wins over a richer pending interim (finals are authoritative)', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
       mockRecognition.onstart?.({} as Event);
       await startPromise;
 
+      // #NATIVE-APPEND-ONLY rule 1: the browser's isFinal result is authoritative. A longer/stale
+      // pending interim must NOT be substituted over a shorter final, even on stop.
       const richInterim = Object.assign([{ transcript: 'native chrome microphone release validation native chrome microphone release validation', confidence: 0.8, isFinal: false }], { isFinal: false });
       const shortFinal = Object.assign([{ transcript: 'validation', confidence: 0.9, isFinal: true }], { isFinal: true });
 
@@ -550,9 +554,54 @@ describe('NativeBrowser Transcription Mode', () => {
       await stopPromise;
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { final: 'native chrome microphone release validation native chrome microphone release validation' },
+        transcript: { final: 'validation', replacesRollingTranscript: true },
       });
-      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone release validation native chrome microphone release validation');
+      expect(await nativeBrowser.getTranscript()).toBe('validation');
+    });
+
+    it('REGRESSION: repeated speech survives — appends finals verbatim without overlap deletion', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      // #NATIVE-APPEND-ONLY: the old fuzzy append dropped a segment when the base ended with it or
+      // stripped prefix overlap, deleting legitimately repeated speech. Two genuine finals with a
+      // repeated phrase must BOTH survive, exactly as spoken. (Web Speech results are cumulative;
+      // resultIndex advances to the newly-final result.)
+      const mkFinal = (t: string) => Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const r0 = mkFinal('the third thing');
+      const r1 = mkFinal('the third thing is evidence');
+
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [r0, r1], resultIndex: 1 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'the third thing the third thing is evidence', replacesRollingTranscript: true },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('the third thing the third thing is evidence');
+    });
+
+    it('REGRESSION: saved transcript contains every final segment exactly once, in order', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const mkFinal = (t: string) => Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const r0 = mkFinal('first sentence');
+      const r1 = mkFinal('second sentence');
+      const r2 = mkFinal('third sentence');
+
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [r0, r1], resultIndex: 1 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [r0, r1, r2], resultIndex: 2 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenCalledTimes(3);
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'first sentence second sentence third sentence', replacesRollingTranscript: true },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('first sentence second sentence third sentence');
     });
 
     it('REGRESSION: does not append a stale full interim after Chrome already committed the final', async () => {
@@ -640,7 +689,7 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.({ results: [finalWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { final: 'the quick brown fox' },
+        transcript: { final: 'the quick brown fox', replacesRollingTranscript: true },
       });
       expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
     });
