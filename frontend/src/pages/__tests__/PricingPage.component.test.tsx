@@ -41,7 +41,7 @@ describe('PricingPage', () => {
 
             expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
             expect(screen.getByText(/Start free with instant Browser transcription/)).toBeInTheDocument();
-            expect(screen.getByText(/accuracy varies by browser and environment/)).toBeInTheDocument();
+            expect(screen.getByText(/accuracy depends on your browser and room/)).toBeInTheDocument();
             expect(screen.getByRole('heading', { name: 'Paid early access' })).toBeInTheDocument();
         });
 
