@@ -9,7 +9,7 @@ import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
 import { registerNativeProductionFormatter } from './nativeDeterministicCleanup';
-import { publishTelemetry, resetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
+import { publishTelemetry, safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 
 declare global {
   interface Window {
@@ -823,7 +823,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   }
 
   protected async onStart(_mic?: MicStream): Promise<void> {
-    resetSessionTelemetry(String(this.runId ?? this.serviceId ?? 'native'));
+    safeResetSessionTelemetry(String(this.runId ?? this.serviceId ?? 'native'));
     this.telemetrySeq = 0;
     pushNativeTrace('onStart_enter', {
       sId: this.serviceId,
