@@ -323,6 +323,21 @@ describe('NativeBrowser Transcription Mode', () => {
       });
     });
 
+    it('#NATIVE-SHADOW-TELEMETRY (Phase 2): publishes Native lifecycle + transcript.final to the telemetry bus', async () => {
+      const { getSessionTelemetryBus } = await import('@/services/telemetry/sessionTelemetryBus');
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const r0 = Object.assign([{ transcript: 'shadow bus proof', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const events = getSessionTelemetryBus().getBufferedEvents();
+      expect(events.some(e => e.type === 'webspeech.lifecycle' && e.event === 'start')).toBe(true);
+      expect(events.some(e => e.type === 'transcript.final' && e.text === 'shadow bus proof')).toBe(true);
+    });
+
     it('preserves native browser punctuation when Chrome provides it', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
