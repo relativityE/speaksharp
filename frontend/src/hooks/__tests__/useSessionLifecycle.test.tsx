@@ -288,8 +288,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         }, { timeout: 2000 });
     });
 
-    it('caps a Private recording at 90s (auto-stops past the per-recording cap, independent of budget)', async () => {
-        // #891 beta latency control. Generous usage budget so ONLY the 90s cap can trigger the stop.
+    it('caps a Private recording at 5 minutes / 300s (auto-stops past the per-recording cap, independent of budget)', async () => {
+        // #891 beta recording length = 5 min. Generous usage budget so ONLY the 5-min cap can trigger the stop.
         const mockLimit: UsageLimitCheck = {
             daily_remaining: 99999,
             daily_limit: 99999,
@@ -304,8 +304,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: true,
-            elapsedTime: 91, // past the 90s per-recording cap
-            startTime: Date.now() - 91000,
+            elapsedTime: 301, // past the 300s (5-min) per-recording cap
+            startTime: Date.now() - 301000,
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
