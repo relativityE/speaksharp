@@ -1,8 +1,11 @@
 /* @vitest-environment jsdom */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useSessionMetrics } from '../useSessionMetrics';
+import { __setFillerRecountSsotForTests } from '@/services/telemetry/fillerSsotFlag';
+import { countFillerWords } from '@/utils/fillerWordUtils';
+import { calculateSpeakingScore } from '@/utils/speakingScore';
 
 describe('useSessionMetrics', () => {
     describe('formattedTime', () => {
@@ -153,5 +156,69 @@ describe('useSessionMetrics', () => {
             );
             expect(result.current.fillerCount).toBe(10);
         });
+    });
+});
+
+describe('useSessionMetrics — Phase 5.8 APPLY: transcript-recount filler SSOT flag', () => {
+    // Live counter reports 4 fillers; the transcript itself has 0 (a clean Private re-decode).
+    const props = {
+        transcript: 'the plan is ready for the board',
+        chunks: [],
+        fillerData: { total: { count: 4, color: '' }, um: { count: 4, color: '' } } as never,
+        elapsedTime: 20,
+    };
+
+    afterEach(() => { __setFillerRecountSsotForTests(null); });
+
+    it('flag OFF (default): filler count comes from the LIVE counter — behavior unchanged', () => {
+        __setFillerRecountSsotForTests(false);
+        const { result } = renderHook(() => useSessionMetrics(props));
+        expect(result.current.fillerCount).toBe(4); // live counter value
+    });
+
+    it('flag ON: filler count comes from the transcript RECOUNT (ignores the live counter)', () => {
+        __setFillerRecountSsotForTests(true);
+        const { result } = renderHook(() => useSessionMetrics(props));
+        expect(result.current.fillerCount).toBe(countFillerWords(props.transcript).total.count); // 0
+        expect(result.current.fillerCount).toBe(0);
+    });
+
+    it('flag ON preserves custom userWords', () => {
+        __setFillerRecountSsotForTests(true);
+        const custom = { transcript: 'honestly this is honestly good', chunks: [], fillerData: {} as never, elapsedTime: 10 };
+        const withWords = renderHook(() => useSessionMetrics({ ...custom, userWords: ['honestly'] }));
+        const withoutWords = renderHook(() => useSessionMetrics({ ...custom, userWords: [] }));
+        expect(withWords.result.current.fillerCount).toBe(2);   // "honestly" ×2
+        expect(withoutWords.result.current.fillerCount).toBe(0); // no static fillers
+    });
+
+    it('flag ON: Private finalize-replacement — the display filler drops to the clean recount', () => {
+        __setFillerRecountSsotForTests(true);
+        const { result } = renderHook(() => useSessionMetrics(props));
+        expect(result.current.fillerCount).toBeLessThan(4); // 0, not the live 4
+    });
+
+    it('flag ON: Cloud overlap — double-counted live fillers collapse to the recount', () => {
+        __setFillerRecountSsotForTests(true);
+        const cloud = { transcript: 'so the launch is basically ready', chunks: [], fillerData: { total: { count: 4, color: '' } } as never, elapsedTime: 15 };
+        const { result } = renderHook(() => useSessionMetrics(cloud));
+        expect(result.current.fillerCount).toBe(countFillerWords(cloud.transcript).total.count); // 2 (so, basically)
+        expect(result.current.fillerCount).toBe(2);
+    });
+
+    it('clarity AND score consume the flag-selected filler source', () => {
+        __setFillerRecountSsotForTests(false);
+        const off = renderHook(() => useSessionMetrics(props));
+        __setFillerRecountSsotForTests(true);
+        const on = renderHook(() => useSessionMetrics(props));
+
+        // Clarity moves because it is computed from the selected filler count.
+        expect(on.result.current.clarityScore).not.toBe(off.result.current.clarityScore);
+
+        // The SpeakSharp Score consumes this hook's clarityScore + fillerCount (SessionPage passes them to
+        // LiveCoachingScoreCard), so it inherits the selected source too.
+        const scoreFor = (m: { fillerCount: number; clarityScore: number; wpm: number; wordCount: number }) =>
+            calculateSpeakingScore({ transcript: props.transcript, wordCount: m.wordCount, wpm: m.wpm, clarityScore: m.clarityScore, fillerCount: m.fillerCount, elapsedSeconds: props.elapsedTime, engine: 'private' }).score;
+        expect(scoreFor(on.result.current)).not.toBe(scoreFor(off.result.current));
     });
 });

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, calculateWpm } from '../utils/sessionAnalysis';
+import { isFillerRecountSsotEnabled } from '@/services/telemetry/fillerSsotFlag';
 import type { Chunk } from './useSpeechRecognition/types';
 
 interface UseSessionMetricsProps {
@@ -8,6 +9,8 @@ interface UseSessionMetricsProps {
     chunks: Chunk[];
     fillerData: FillerCounts;
     elapsedTime: number;
+    /** Session custom filler words — used by the transcript-recount path (SSOT flag ON). */
+    userWords?: string[];
 }
 
 interface SessionMetrics {
@@ -33,6 +36,7 @@ export const useSessionMetrics = ({
     chunks,
     fillerData,
     elapsedTime,
+    userWords = [],
 }: UseSessionMetricsProps): SessionMetrics => {
     return useMemo(() => {
         // Format elapsed time as MM:SS
@@ -40,10 +44,17 @@ export const useSessionMetrics = ({
         const seconds = elapsedTime % 60;
         const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
+        // #891 Phase 5.8 APPLY (flag, DEFAULT OFF): when ON, the filler count comes from the deterministic
+        // transcript recount (fillerData undefined → countFillerWords(transcript, userWords)) — matching the
+        // save/Analytics/PDF basis — and clarity/score (which read this hook's output) inherit it. When OFF,
+        // the live counter (fillerData) drives everything exactly as today.
+        const useTranscriptRecount = isFillerRecountSsotEnabled();
         const coreMetrics = calculateCoreSessionMetrics({
             transcript,
             durationSeconds: elapsedTime,
-            fillerData,
+            fillerData: useTranscriptRecount ? undefined : fillerData,
+            // OFF stays byte-identical to before (no userWords were passed); userWords only feed the recount.
+            userWords: useTranscriptRecount ? userWords : [],
         });
 
         // Rolling WPM (last 15 seconds)
@@ -70,5 +81,5 @@ export const useSessionMetrics = ({
             fillerExplanation: coreMetrics.fillerExplanation,
             wordCount: coreMetrics.wordCount,
         };
-    }, [transcript, chunks, fillerData, elapsedTime]);
+    }, [transcript, chunks, fillerData, elapsedTime, userWords]);
 };
