@@ -22,6 +22,10 @@ const GROUND_TRUTH = process.env.GROUND_TRUTH != null ? Number(process.env.GROUN
 const OUT = process.env.OUT
   || `/private/tmp/STT_RUNS/filler-knownscript-${MODE}-script${SCRIPT}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 
+// Valid run metadata — a capture with mode 'unknown' / script 'unknown' / null ground truth is not evidence.
+const VALID_MODES = new Set(['private', 'cloud', 'native']);
+const VALID_SCRIPTS = new Set(['1', '2', '3']);
+
 // Allowlisted static filler labels (mirror of FILLER_WORD_KEYS) + anonymized custom labels.
 const STATIC_FILLER_LABELS = new Set([
   'um', 'uh', 'ah', 'like', 'You Know', 'so', 'actually', 'oh', 'I Mean', 'basically', 'literally', 'Kind Of', 'Sort Of',
@@ -33,6 +37,19 @@ const REQUIRED_NUMERIC = [
   'clarityLive', 'clarityRecount', 'clarityDelta',
   'scoreLive', 'scoreRecount', 'scoreDelta',
 ];
+
+/** Fail-closed run-metadata validation: returns a list of problems ([] = valid evidence context). */
+function validateRunMetadata() {
+  const errs = [];
+  if (!VALID_MODES.has(MODE)) errs.push(`MODE must be one of private|cloud|native (got '${MODE}')`);
+  if (!VALID_SCRIPTS.has(String(SCRIPT))) errs.push(`SCRIPT must be one of 1|2|3 (got '${SCRIPT}')`);
+  if (GROUND_TRUTH == null || !Number.isFinite(GROUND_TRUTH)) {
+    errs.push(`GROUND_TRUTH must be present and finite (got ${GROUND_TRUTH == null ? 'missing' : GROUND_TRUTH})`);
+  } else if (!Number.isInteger(GROUND_TRUTH) || GROUND_TRUTH < 0) {
+    errs.push(`GROUND_TRUTH must be a non-negative integer (got ${GROUND_TRUTH})`);
+  }
+  return errs;
+}
 
 /** Fail-closed validation: returns a list of problems ([] = a valid sanitized artifact). */
 function validateArtifact(a) {
@@ -56,6 +73,14 @@ function validateArtifact(a) {
 }
 
 async function main() {
+  // FAIL CLOSED on run metadata BEFORE opening a browser — no MODE/SCRIPT/GROUND_TRUTH, no evidence.
+  const metaProblems = validateRunMetadata();
+  if (metaProblems.length) {
+    throw new Error(
+      `INVALID run metadata — NO file written (set MODE/SCRIPT/GROUND_TRUTH per the runbook):\n  - ${metaProblems.join('\n  - ')}`,
+    );
+  }
+
   const browser = await chromium.connectOverCDP(CDP_URL);
   try {
     const contexts = browser.contexts();
