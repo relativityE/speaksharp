@@ -65,7 +65,6 @@ export const SessionPage: React.FC = () => {
         hasSpeechActivity,
         transcriptContent,
         interimTranscript,
-        fillerData,
         isProUser,
         canUsePrivateStt,
         canUseCloudStt,
@@ -339,7 +338,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
-                                fillerData={fillerData}
+                                fillerData={metrics.fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
                                 className="min-h-0"
                                 headerAction={
