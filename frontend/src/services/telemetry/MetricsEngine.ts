@@ -1,4 +1,4 @@
-import type { MetricProcessor, MetricsSnapshot, MetricsSnapshotPatch, TelemetryBus, TelemetryEvent, TelemetryMode } from './contracts';
+import type { MetricDeriver, MetricProcessor, MetricsSnapshot, MetricsSnapshotPatch, TelemetryBus, TelemetryEvent, TelemetryMode } from './contracts';
 import { createEmptyMetricsSnapshot, mergeMetricsSnapshot } from './metricsSnapshot';
 
 /**
@@ -22,6 +22,7 @@ export class MetricsEngine {
     private readonly processors: MetricProcessor[],
     private sessionId: string,
     private mode: TelemetryMode,
+    private readonly derivers: MetricDeriver[] = [],
   ) {
     this.snapshot = createEmptyMetricsSnapshot(sessionId, mode);
     this.unsubscribe = bus.subscribe((event) => this.handleEvent(event));
@@ -40,10 +41,22 @@ export class MetricsEngine {
 
   private recompute(updatedAt: number): void {
     let merged = createEmptyMetricsSnapshot(this.sessionId, this.mode);
+    // Tier 1 — event processors, each derives its slice from raw events.
     for (const p of this.processors) {
       let partial: MetricsSnapshotPatch = {};
       try {
         partial = p.getSnapshot() ?? {};
+      } catch {
+        partial = {};
+      }
+      merged = mergeMetricsSnapshot(merged, partial);
+    }
+    // Tier 2 — derivers, each a function of the accumulated snapshot. Order matters: a later deriver
+    // (score) sees an earlier one's output (clarity). A throwing deriver is isolated.
+    for (const d of this.derivers) {
+      let partial: MetricsSnapshotPatch = {};
+      try {
+        partial = d.derive(merged) ?? {};
       } catch {
         partial = {};
       }
@@ -87,6 +100,13 @@ export class MetricsEngine {
     for (const p of this.processors) {
       try {
         p.reset(sessionId);
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const d of this.derivers) {
+      try {
+        d.reset(sessionId);
       } catch {
         /* ignore */
       }

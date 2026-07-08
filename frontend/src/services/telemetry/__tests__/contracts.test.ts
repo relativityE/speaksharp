@@ -56,7 +56,7 @@ describe('telemetry contracts (Phase 1 — types + capture-ownership map)', () =
 
   it('MetricsSnapshot is the single derived-metric shape; Native omits PCM audio by default', () => {
     const snap: MetricsSnapshot = {
-      sessionId: 's1', mode: 'native', updatedAt: 0,
+      sessionId: 's1', mode: 'native', updatedAt: 0, elapsedSeconds: 0,
       transcript: { finalText: '', interimText: '', wordCount: 0, finalWordCount: 0, partialWordCount: 0, maxRunOnWords: 0, confidence: 'low', trusted: false },
       delivery: { wpm: 0, fillerCount: 0, fillerRate: 0, clarityScore: 0 },
       engine: { resultCount: 0, finalCount: 0, interimCount: 0, errorCount: 0, restartCount: 0 },

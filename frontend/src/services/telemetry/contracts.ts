@@ -29,7 +29,10 @@ export type TelemetryEvent =
   | { type: 'transcript.partial'; mode: TelemetryMode; t: number; text: string; sequence: number }
   | { type: 'transcript.final'; mode: TelemetryMode; t: number; text: string; sequence: number; replacesRollingTranscript?: boolean }
   | { type: 'engine.error'; mode: TelemetryMode; t: number; code: string; recoverable: boolean }
-  | { type: 'engine.lifecycle'; mode: TelemetryMode; t: number; event: 'start' | 'stop' | 'restart' | 'ready' };
+  | { type: 'engine.lifecycle'; mode: TelemetryMode; t: number; event: 'start' | 'stop' | 'restart' | 'ready' }
+  // Session-level elapsed clock — the authoritative duration basis (matches the legacy elapsedTime timer)
+  // that pace/clarity/score derive from. Published by the session lifecycle, not a transcription engine.
+  | { type: 'session.tick'; mode: TelemetryMode; t: number; elapsedSeconds: number };
 
 export type TelemetryEventType = TelemetryEvent['type'];
 
@@ -43,6 +46,8 @@ export interface MetricsSnapshot {
   sessionId: string;
   mode: TelemetryMode;
   updatedAt: number;
+  /** Authoritative session duration (seconds) — the basis for wpm/clarity/score, from session.tick. */
+  elapsedSeconds: number;
   transcript: {
     finalText: string;
     interimText: string;
@@ -106,6 +111,7 @@ export interface MetricsSnapshotPatch {
   sessionId?: string;
   mode?: TelemetryMode;
   updatedAt?: number;
+  elapsedSeconds?: number;
   transcript?: Partial<MetricsSnapshot['transcript']>;
   delivery?: Partial<MetricsSnapshot['delivery']>;
   audio?: Partial<NonNullable<MetricsSnapshot['audio']>>;
@@ -113,10 +119,25 @@ export interface MetricsSnapshotPatch {
   score?: Partial<MetricsSnapshot['score']>;
 }
 
+/**
+ * Tier-1: derives its slice from RAW events only. Sees no other processor's output.
+ */
 export interface MetricProcessor {
   readonly name: string;
   onEvent(event: TelemetryEvent): void;
   getSnapshot(): MetricsSnapshotPatch;
+  reset(sessionId: string): void;
+}
+
+/**
+ * Tier-2: a SECOND-tier metric that is a function of OTHER derived metrics (e.g. clarity needs
+ * wpm+fillerCount; score needs wpm+clarity+fillerCount+pauseMetrics+elapsed). The engine runs derivers
+ * in registration order AFTER the tier-1 merge, each seeing the accumulated snapshot, so a later deriver
+ * (score) reads an earlier one's output (clarity).
+ */
+export interface MetricDeriver {
+  readonly name: string;
+  derive(base: MetricsSnapshot): MetricsSnapshotPatch;
   reset(sessionId: string): void;
 }
 

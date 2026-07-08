@@ -1,9 +1,13 @@
 import type { TranscriptConfidence } from '../contracts';
+import { countTranscriptWords } from '@/utils/sessionAnalysis';
 
-/** Word count using the app-wide convention (matches fillerWordUtils/sessionAnalysis). */
+/**
+ * Canonical word count — delegates to `countTranscriptWords`, the exact basis the legacy
+ * wpm/clarity/score path uses (Unicode `\p{L}\p{N}` tokens), so every processor's word count
+ * matches the value the current UI/analytics compute. This is the single source for word counting.
+ */
 export function countWords(text: string): number {
-  const t = (text ?? '').trim();
-  return t ? t.split(/\s+/).filter(Boolean).length : 0;
+  return countTranscriptWords(text ?? '');
 }
 
 /** Longest run of words with no sentence-terminating punctuation — a run-on proxy. */
