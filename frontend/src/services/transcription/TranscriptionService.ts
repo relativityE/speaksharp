@@ -27,7 +27,7 @@ import { FailureManager } from './FailureManager';
 import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
 import { ENV } from '@/config/TestFlags';
-import { PRIV_CLOUD_AUDIO } from './sttConstants';
+import { NATIVE_STT, PRIV_CLOUD_AUDIO } from './sttConstants';
 import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
@@ -211,6 +211,13 @@ export default class TranscriptionService {
   // #891 immediate-start gate: false while the Private mic is warming after Record (UI shows
   // "Starting…"), flipped true when PrivateWhisper confirms stable frames (UI shows "Speak now").
   private privateMicReadyToSpeak: boolean = false;
+  // #29 Native cold-start gate: false while Chrome Web Speech is warming after Record; flipped true by
+  // the REAL acoustic signal (onaudiostart/onspeechstart via NativeBrowser.signalAcousticReady ->
+  // onReady). UI holds "Getting mic ready…" until then so the opening words are not clipped.
+  private nativeAcousticReadyToSpeak: boolean = false;
+  // Conservative safety-net ONLY: if the acoustic signal never arrives, flip after this timeout so the
+  // user is never stuck warming. Fallback, not the primary mechanism.
+  private nativeAcousticReadyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private privateDownloadAlternativeToastShown: boolean = false;
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
@@ -433,6 +440,10 @@ export default class TranscriptionService {
         if (this.mode === 'private' && this.modelLoadingProgress !== null) {
           this.processModelLoadProgress(100);
         }
+        // #29: Native's onReady fires on real acoustic readiness (onaudiostart/onspeechstart via
+        // signalAcousticReady). Use it to lift the cold-start gate so "Ready — speak now" only shows
+        // once Chrome is actually capturing, not merely when SpeechRecognition.onstart fired.
+        if (this.mode === 'native') this.markNativeAcousticReady('acoustic');
         this.options.onReady?.();
       },
       onStatusChange: (status) => {
@@ -793,6 +804,13 @@ export default class TranscriptionService {
     // #891: re-arm the immediate-start gate for this recording so a stale value from a prior
     // session can't let the FSM emit "Speak now" before the mic has warmed up.
     this.privateMicReadyToSpeak = false;
+    // #29: re-arm the Native cold-start gate for this recording so a stale value can't emit
+    // "Speak now" before Chrome Web Speech has confirmed it is capturing.
+    this.nativeAcousticReadyToSpeak = false;
+    if (this.nativeAcousticReadyFallbackTimer) {
+      clearTimeout(this.nativeAcousticReadyFallbackTimer);
+      this.nativeAcousticReadyFallbackTimer = null;
+    }
     this.fsm.transition({ type: 'START_REQUESTED' });
 
     // 1. Mic Acquisition
@@ -966,6 +984,9 @@ export default class TranscriptionService {
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
       this.emissionsEnabled = true;
+      // #29: arm the conservative fallback so Native never gets stuck in "warming" if the acoustic
+      // signal never fires. The real onaudiostart/onspeechstart path (onReady) is the primary trigger.
+      this.armNativeAcousticReadyFallback(mode);
       this.flushPendingTranscripts();
       logger.info({ runId }, '[TranscriptionService] Strategy started successfully');
       this.startTime = Date.now();
@@ -1798,6 +1819,36 @@ export default class TranscriptionService {
     return sanitizeTranscriptText(raw);
   }
 
+  /**
+   * #29 Native cold-start gate. Lifts the "Getting mic ready…" cue once Chrome Web Speech is actually
+   * capturing. PRIMARY trigger is the real acoustic signal (onaudiostart/onspeechstart via onReady);
+   * 'fallback' is the conservative safety-net timeout so the user is never stuck warming.
+   */
+  private markNativeAcousticReady(source: 'acoustic' | 'fallback'): void {
+    if (this.nativeAcousticReadyFallbackTimer) {
+      clearTimeout(this.nativeAcousticReadyFallbackTimer);
+      this.nativeAcousticReadyFallbackTimer = null;
+    }
+    if (this.nativeAcousticReadyToSpeak) return;
+    this.nativeAcousticReadyToSpeak = true;
+    if (source === 'fallback') {
+      logger.warn({ sId: this.serviceId }, '[TranscriptionService] #29 Native acoustic-ready FALLBACK fired; lifting warming gate without an onaudiostart/onspeechstart signal.');
+    } else {
+      logger.info({ sId: this.serviceId }, '[TranscriptionService] #29 Native acoustic-ready (onaudiostart/onspeechstart); lifting cold-start warming gate.');
+    }
+    // Re-emit status so the UI transitions warming -> recording ("Ready — speak now").
+    this.handleStateChange(this.fsm.getState());
+  }
+
+  private armNativeAcousticReadyFallback(mode: TranscriptionMode): void {
+    if (mode !== 'native') return;
+    if (this.nativeAcousticReadyFallbackTimer) clearTimeout(this.nativeAcousticReadyFallbackTimer);
+    this.nativeAcousticReadyFallbackTimer = setTimeout(() => {
+      this.nativeAcousticReadyFallbackTimer = null;
+      this.markNativeAcousticReady('fallback');
+    }, NATIVE_STT.NATIVE_ACOUSTIC_READY_FALLBACK_MS);
+  }
+
   private handleStateChange(state: TranscriptionState): void {
     logger.debug(`[TRACE] STATE_TRANSITION ${state}`);
     if (typeof document !== 'undefined') {
@@ -1837,6 +1888,10 @@ export default class TranscriptionService {
         // ("Speak now"). Prevents the opening clause being lost to mic/AudioContext warmup.
         if (this.mode === 'private' && !this.privateMicReadyToSpeak) {
           status = { type: 'warming', message: 'Starting…' };
+        } else if (this.mode === 'native' && !this.nativeAcousticReadyToSpeak) {
+          // #29 cold-start gate: hold "Getting mic ready…" until Chrome Web Speech signals it is
+          // actually capturing (onaudiostart/onspeechstart), so the opening words are not clipped.
+          status = { type: 'warming', message: 'Getting mic ready…' };
         } else {
           status = { type: 'recording', message: label };
         }
