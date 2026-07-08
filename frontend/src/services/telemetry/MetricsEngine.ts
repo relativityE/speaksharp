@@ -29,6 +29,11 @@ export class MetricsEngine {
   }
 
   private handleEvent(event: TelemetryEvent): void {
+    // #891 Phase 5.7: the session telemetry bus is process-wide and shared. Every event carries its
+    // producing `mode`; this engine only composes metrics for ITS mode, so cross-mode events (e.g. a
+    // native lifecycle event landing while a private session's engine is alive) are ignored. This covers
+    // transcript/audio.frame/session.tick/lifecycle uniformly since all carry `mode`.
+    if (event.mode !== this.mode) return;
     for (const p of this.processors) {
       try {
         p.onEvent(event);
@@ -83,6 +88,21 @@ export class MetricsEngine {
   /** Current canonical snapshot. */
   getSnapshot(): MetricsSnapshot {
     return this.snapshot;
+  }
+
+  /**
+   * #891 Phase 5.7: rebind the session identity WITHOUT resetting captured processor state. Used when a
+   * session is created early with a provisional id (before the DB id / negotiated mode is known) so no
+   * early event is missed — the real id/mode are bound in later without discarding what was captured.
+   */
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+    this.snapshot.sessionId = sessionId;
+  }
+
+  setMode(mode: TelemetryMode): void {
+    this.mode = mode;
+    this.snapshot.mode = mode;
   }
 
   /** Subscribe to snapshot changes. Returns an unsubscribe fn. */

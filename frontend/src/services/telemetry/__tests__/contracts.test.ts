@@ -41,7 +41,8 @@ describe('telemetry contracts (Phase 1 — types + capture-ownership map)', () =
 
   it('only app-mic-stream modes are the production audio.frame source', () => {
     for (const cap of Object.values(MODE_TELEMETRY_CAPABILITIES)) {
-      if (cap.emitsAudioFramesByDefault) expect(cap.transcriptionOwner).toBe('app-mic-stream');
+      // Any mode that emits audio frames by default must own transcription via the app mic stream.
+      expect(!cap.emitsAudioFramesByDefault || cap.transcriptionOwner === 'app-mic-stream').toBe(true);
     }
   });
 

@@ -1490,7 +1490,25 @@ export class SpeechRuntimeController {
             const tmode = toTelemetryMode(mode);
             if (!tmode) return;
             safeResetSessionTelemetry(sessionId);
-            this.shadowEngine = createShadowMetricsEngine(sessionId, tmode);
+            this.shadowEngine = createShadowMetricsEngine(sessionId, tmode, {
+                userWords: this.userWords,
+                sessionStartT: performance.now(),
+            });
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    /**
+     * #891 Phase 5.7: bind the real DB session id (and negotiated mode) into an already-running shadow
+     * engine WITHOUT resetting — everything captured since the early (provisional-id) start is preserved.
+     */
+    private rebindShadowSession(sessionId: string, mode: string | null): void {
+        try {
+            if (!this.shadowEngine) return;
+            this.shadowEngine.setSessionId(sessionId);
+            const tmode = toTelemetryMode(mode);
+            if (tmode) this.shadowEngine.setMode(tmode);
         } catch {
             /* shadow telemetry must never affect the recording path */
         }
@@ -1525,6 +1543,7 @@ export class SpeechRuntimeController {
             fillerData: st.fillerData,
             pauseMetrics: st.pauseMetrics,
             engine: snapshot.mode,
+            userWords: this.userWords,
         });
         return compareSnapshotToLegacy(snapshot, legacy);
     }
@@ -1687,6 +1706,11 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_service_startTranscription_start', {
                     mode: policy?.preferredMode ?? null,
                 });
+                // #891 Phase 5.7 (SHADOW): stand up the shadow engine BEFORE the strategy starts, using a
+                // provisional id (recordingId) + the preferred mode, so no early transcript/audio/lifecycle
+                // event is missed. The real DB id + negotiated mode are rebound below WITHOUT resetting the
+                // captured state. No-op in production.
+                this.startShadowMetricsEngine(recordingId, mode);
                 await service.startTranscription(policy, userWords);
                 pushNativeRuntimeTrace('controller_service_startTranscription_done');
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
@@ -1761,10 +1785,10 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
-                        // #891 Phase 5.6 (SHADOW): stand up the shadow MetricsEngine for this session
-                        // (dev/test only; no-op in production). It subscribes to the session bus and
-                        // computes the snapshot; NOTHING consumes it. Fully isolated from the recording path.
-                        this.startShadowMetricsEngine(this.sessionId, mode);
+                        // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
+                        // running shadow engine WITHOUT resetting — events captured since the early start
+                        // (above, before startTranscription) are preserved. No-op in production.
+                        this.rebindShadowSession(this.sessionId, mode);
                     }
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {

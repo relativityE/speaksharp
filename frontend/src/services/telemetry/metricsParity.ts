@@ -23,6 +23,8 @@ export interface LegacyMetricInputs {
   fillerData?: FillerCounts | null;
   pauseMetrics?: PauseMetrics;
   engine?: string;
+  /** Session custom filler words — same basis the snapshot FillerProcessor uses (parity). */
+  userWords?: string[];
 }
 
 export interface LegacyMetrics {
@@ -53,6 +55,7 @@ export function computeLegacyMetrics(inputs: LegacyMetricInputs): LegacyMetrics 
     transcript: inputs.transcript,
     durationSeconds: inputs.elapsedSeconds,
     fillerData: inputs.fillerData ?? undefined,
+    userWords: inputs.userWords ?? [],
   });
   const score = calculateSpeakingScore({
     transcript: inputs.transcript,

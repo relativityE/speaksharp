@@ -392,11 +392,14 @@ describe('TranscriptionService', () => {
 
         const svc = service as unknown as {
             mode: string;
+            emissionsEnabled: boolean;
             strategyCallbacks: { onTranscriptUpdate: (d: { transcript: { partial?: string; final?: string; replacesRollingTranscript?: boolean } }) => void };
         };
 
         // Private is an app-mic mode → the single service choke point mirrors Native's telemetry for it.
-        // Wrapped: publishTelemetry fires BEFORE processTranscript, so its side-effects are irrelevant here.
+        // The shadow publish reads the merged app-facing transcript AFTER processTranscript, so emissions
+        // must be enabled (in production the choke point is only reached when they are).
+        svc.emissionsEnabled = true;
         svc.mode = 'private';
         try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { partial: 'hello' } }); } catch { /* ignore */ }
         try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'hello world', replacesRollingTranscript: true } }); } catch { /* ignore */ }
@@ -409,6 +412,33 @@ describe('TranscriptionService', () => {
         svc.mode = 'mock';
         try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'ignored' } }); } catch { /* ignore */ }
         expect(events.filter((e) => String(e.type).startsWith('transcript'))).toHaveLength(0);
+    });
+
+    it('#891 Phase 5.7 (SHADOW): final telemetry mirrors the merged app-facing transcript — overlapping finals do NOT double-count', async () => {
+        const { __resetSessionTelemetryBusForTests } = await import('../../telemetry/sessionTelemetryBus');
+        const { createShadowMetricsEngine } = await import('../../telemetry/shadowMetricsEngine');
+        __resetSessionTelemetryBusForTests();
+        const engine = createShadowMetricsEngine('s', 'private')!;
+
+        const svc = service as unknown as {
+            mode: string;
+            emissionsEnabled: boolean;
+            currentTranscript: string;
+            strategyCallbacks: { onTranscriptUpdate: (d: { transcript: { final?: string; partial?: string; replacesRollingTranscript?: boolean } }) => void };
+        };
+        svc.emissionsEnabled = true;
+        svc.mode = 'private';
+
+        // Two OVERLAPPING non-replacing final segments (as Cloud emits). Naive accumulation would double the
+        // words; the choke point instead publishes the merged app-facing `currentTranscript` with replace.
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'the plan is to launch' } }); } catch { /* ignore */ }
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'the plan is to launch on friday' } }); } catch { /* ignore */ }
+
+        const snap = engine.getSnapshot();
+        // Shadow transcript == the store's merged committed transcript (single source), not a doubled concat.
+        expect(snap.transcript.finalText).toBe(svc.currentTranscript);
+        expect(snap.transcript.finalText).not.toContain('launch the plan');
+        engine.dispose();
     });
 
     it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
