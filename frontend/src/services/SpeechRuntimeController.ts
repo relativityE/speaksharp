@@ -10,6 +10,7 @@ import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
 import { createShadowMetricsEngine, toTelemetryMode } from '@/services/telemetry/shadowMetricsEngine';
 import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
+import { measureFillerDivergence, type FillerDivergenceReport } from '@/services/telemetry/fillerDivergence';
 import {
     PRIVATE_SAMPLE_EVENTS,
     emitPrivateSample,
@@ -1560,6 +1561,24 @@ export class SpeechRuntimeController {
             userWords: this.userWords,
         });
         return compareSnapshotToLegacy(snapshot, legacy);
+    }
+
+    /**
+     * #891 Phase 5.8 PRECURSOR (SHADOW): measure the LIVE filler counter vs the transcript RECOUNT on the
+     * current session (numbers only — no transcript text), so an owner/dev session yields real divergence
+     * data. Diagnostics/tests only; drives no cutover and changes no product behavior.
+     */
+    public getFillerDivergenceReport(): FillerDivergenceReport | null {
+        if (!this.shadowEngine) return null;
+        const st = useSessionStore.getState();
+        return measureFillerDivergence({
+            transcript: st.transcript.transcript,
+            elapsedSeconds: st.elapsedTime,
+            liveFillerData: st.fillerData,
+            pauseMetrics: st.pauseMetrics,
+            engine: this.service?.getMode?.() ?? undefined,
+            userWords: this.userWords,
+        });
     }
 
     private logShadowParity(): void {
