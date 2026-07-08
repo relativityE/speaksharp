@@ -97,10 +97,26 @@ export interface TelemetryBus {
   reset(sessionId: string): void;
 }
 
+/**
+ * A one-level-deep partial of MetricsSnapshot: a processor may contribute individual fields WITHIN a
+ * section (e.g. Pace owns delivery.wpm while Filler owns delivery.fillerCount) without having to
+ * provide the rest of that section. The engine section-merges these patches.
+ */
+export interface MetricsSnapshotPatch {
+  sessionId?: string;
+  mode?: TelemetryMode;
+  updatedAt?: number;
+  transcript?: Partial<MetricsSnapshot['transcript']>;
+  delivery?: Partial<MetricsSnapshot['delivery']>;
+  audio?: Partial<NonNullable<MetricsSnapshot['audio']>>;
+  engine?: Partial<MetricsSnapshot['engine']>;
+  score?: Partial<MetricsSnapshot['score']>;
+}
+
 export interface MetricProcessor {
   readonly name: string;
   onEvent(event: TelemetryEvent): void;
-  getSnapshot(): Partial<MetricsSnapshot>;
+  getSnapshot(): MetricsSnapshotPatch;
   reset(sessionId: string): void;
 }
 

@@ -1,4 +1,4 @@
-import type { MetricProcessor, MetricsSnapshot, TelemetryBus, TelemetryEvent, TelemetryMode } from './contracts';
+import type { MetricProcessor, MetricsSnapshot, MetricsSnapshotPatch, TelemetryBus, TelemetryEvent, TelemetryMode } from './contracts';
 import { createEmptyMetricsSnapshot, mergeMetricsSnapshot } from './metricsSnapshot';
 
 /**
@@ -41,7 +41,7 @@ export class MetricsEngine {
   private recompute(updatedAt: number): void {
     let merged = createEmptyMetricsSnapshot(this.sessionId, this.mode);
     for (const p of this.processors) {
-      let partial: Partial<MetricsSnapshot> = {};
+      let partial: MetricsSnapshotPatch = {};
       try {
         partial = p.getSnapshot() ?? {};
       } catch {
