@@ -6,16 +6,42 @@ import {
 } from '../contracts';
 
 describe('telemetry contracts (Phase 1 — types + capture-ownership map)', () => {
-  it('encodes exactly one capture owner per mode; Native is Web Speech only (no app mic frames)', () => {
-    expect(MODE_TELEMETRY_CAPABILITIES.native).toEqual({ captureOwner: 'web-speech', emitsAudioFrames: false });
-    expect(MODE_TELEMETRY_CAPABILITIES.private).toEqual({ captureOwner: 'app-mic-stream', emitsAudioFrames: true });
-    expect(MODE_TELEMETRY_CAPABILITIES.cloud).toEqual({ captureOwner: 'app-mic-stream', emitsAudioFrames: true });
+  it('encodes one TRANSCRIPTION owner per mode; Native = Web Speech with a passive (non-transcribing) app-mic observer', () => {
+    expect(MODE_TELEMETRY_CAPABILITIES.native).toEqual({
+      transcriptionOwner: 'web-speech',
+      emitsAudioFramesByDefault: false,
+      hasPassiveAudioObserver: true,
+      diagnosticDualCaptureAllowed: true,
+      diagnosticCapture: 'opt-in',
+    });
+    expect(MODE_TELEMETRY_CAPABILITIES.private).toEqual({
+      transcriptionOwner: 'app-mic-stream',
+      emitsAudioFramesByDefault: true,
+      hasPassiveAudioObserver: false,
+      diagnosticDualCaptureAllowed: false,
+      diagnosticCapture: 'none',
+    });
+    expect(MODE_TELEMETRY_CAPABILITIES.cloud).toEqual({
+      transcriptionOwner: 'app-mic-stream',
+      emitsAudioFramesByDefault: true,
+      hasPassiveAudioObserver: false,
+      diagnosticDualCaptureAllowed: false,
+      diagnosticCapture: 'none',
+    });
   });
 
-  it('only app-mic modes emit audio.frame — every frame-emitting mode has captureOwner=app-mic-stream', () => {
-    for (const [mode, cap] of Object.entries(MODE_TELEMETRY_CAPABILITIES)) {
-      if (cap.emitsAudioFrames) expect(cap.captureOwner).toBe('app-mic-stream');
-      if (mode === 'native') expect(cap.emitsAudioFrames).toBe(false);
+  it('Native does NOT emit production audio.frame by default; its dual-capture is opt-in only (never a perf proof)', () => {
+    const n = MODE_TELEMETRY_CAPABILITIES.native;
+    expect(n.transcriptionOwner).toBe('web-speech');
+    expect(n.emitsAudioFramesByDefault).toBe(false);
+    expect(n.diagnosticCapture).toBe('opt-in');
+    // Native has a passive observer at runtime, but it is NOT the transcription owner.
+    expect(n.hasPassiveAudioObserver).toBe(true);
+  });
+
+  it('only app-mic-stream modes are the production audio.frame source', () => {
+    for (const cap of Object.values(MODE_TELEMETRY_CAPABILITIES)) {
+      if (cap.emitsAudioFramesByDefault) expect(cap.transcriptionOwner).toBe('app-mic-stream');
     }
   });
 
