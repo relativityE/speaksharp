@@ -22,6 +22,39 @@ const GROUND_TRUTH = process.env.GROUND_TRUTH != null ? Number(process.env.GROUN
 const OUT = process.env.OUT
   || `/private/tmp/STT_RUNS/filler-knownscript-${MODE}-script${SCRIPT}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 
+// Allowlisted static filler labels (mirror of FILLER_WORD_KEYS) + anonymized custom labels.
+const STATIC_FILLER_LABELS = new Set([
+  'um', 'uh', 'ah', 'like', 'You Know', 'so', 'actually', 'oh', 'I Mean', 'basically', 'literally', 'Kind Of', 'Sort Of',
+]);
+const CUSTOM_LABEL = /^custom_(\d+|other)$/;
+const FORBIDDEN_FIELDS = ['transcript', 'text', 'partial', 'preview', 'modelOutput', 'url'];
+const REQUIRED_NUMERIC = [
+  'liveFillerCount', 'recountFillerCount', 'delta',
+  'clarityLive', 'clarityRecount', 'clarityDelta',
+  'scoreLive', 'scoreRecount', 'scoreDelta',
+];
+
+/** Fail-closed validation: returns a list of problems ([] = a valid sanitized artifact). */
+function validateArtifact(a) {
+  if (a == null || typeof a !== 'object' || Array.isArray(a)) return ['artifact absent / null / not an object'];
+  if ('error' in a) return [`artifact carries error: ${String(a.error)}`];
+  const errs = [];
+  for (const k of FORBIDDEN_FIELDS) if (k in a) errs.push(`forbidden transcript-like/url field present: ${k}`);
+  if (typeof a.engine !== 'string') errs.push('engine must be a string');
+  if (a.selectedSource !== undefined && typeof a.selectedSource !== 'string') errs.push('selectedSource must be a string');
+  if (typeof a.usedCustomWords !== 'boolean') errs.push('usedCustomWords must be a boolean');
+  for (const k of REQUIRED_NUMERIC) if (!Number.isFinite(a[k])) errs.push(`missing / non-finite numeric field: ${k}`);
+  for (const detailKey of ['liveDetail', 'recountDetail']) {
+    const d = a[detailKey];
+    if (d == null || typeof d !== 'object' || Array.isArray(d)) { errs.push(`${detailKey} missing or not an object`); continue; }
+    for (const [key, val] of Object.entries(d)) {
+      if (!STATIC_FILLER_LABELS.has(key) && !CUSTOM_LABEL.test(key)) errs.push(`${detailKey}: unexpected key '${key}' (possible text leak)`);
+      if (!Number.isFinite(val)) errs.push(`${detailKey}.${key} is not a finite number`);
+    }
+  }
+  return errs;
+}
+
 async function main() {
   const browser = await chromium.connectOverCDP(CDP_URL);
   try {
@@ -40,13 +73,21 @@ async function main() {
         : { error: 'fillerDivergence not present (flag off / no finalized take yet)' };
     });
 
+    // FAIL CLOSED: never write a misleading success record for a missing/null/error/malformed artifact.
+    const problems = validateArtifact(artifact);
+    if (problems.length) {
+      throw new Error(
+        `INVALID sanitized artifact — NO file written (hook absent / flag off / no finalized take / leak?):\n  - ${problems.join('\n  - ')}`,
+      );
+    }
+
     const record = {
       capturedAt: new Date().toISOString(),
       pageKind: 'session', // NO raw page URL — keep the artifact numbers/enum-only (routes/queries can carry metadata)
       mode: MODE,
       script: String(SCRIPT),
       groundTruthFillerCount: GROUND_TRUTH,
-      artifact, // sanitized, numbers-only, custom words anonymized (in-app)
+      artifact, // validated: sanitized, numbers-only, custom words anonymized (in-app)
     };
 
     await mkdir(dirname(OUT), { recursive: true });
