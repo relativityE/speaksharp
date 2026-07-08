@@ -42,7 +42,7 @@ async function main() {
 
     const record = {
       capturedAt: new Date().toISOString(),
-      url: page.url(),
+      pageKind: 'session', // NO raw page URL — keep the artifact numbers/enum-only (routes/queries can carry metadata)
       mode: MODE,
       script: String(SCRIPT),
       groundTruthFillerCount: GROUND_TRUTH,

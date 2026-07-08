@@ -5,6 +5,17 @@ re-decode cleans out real spoken fillers. Owner drives the mic; Dev only reads n
 
 **Nothing is enabled by this.** The flag stays default OFF; this only *measures*.
 
+## Two flag states (read before recording)
+
+- **Product / default state — flag OFF.** `VITE_FILLER_RECOUNT_SSOT` stays default OFF. Nothing is broadly
+  enabled; production behavior is unchanged. The numbers-only artifacts below are produced regardless of the
+  flag (the diagnostic computes live *and* recount either way).
+- **Owner LOCAL validation state — flag ON (dev-only).** For **one** local dev run, the owner starts the dev
+  build with `VITE_FILLER_RECOUNT_SSOT=true` purely to **visually** confirm coherence of:
+  `FillerWordsCard` detail rows · aggregate filler count · clarity · score · selected-source.
+  This is **local dev-only validation — NOT production enablement and NOT a broad flag flip.** It changes only
+  what *this local build* displays.
+
 ## Known scripts (read each verbatim; declared ground truth)
 
 - **Script 1 — static fillers (ground truth = 9):**
@@ -31,11 +42,16 @@ re-decode cleans out real spoken fillers. Owner drives the mic; Dev only reads n
    ```
    (set `MODE`/`SCRIPT`/`GROUND_TRUTH` per take). It writes a sanitized JSON to `/private/tmp/STT_RUNS/`.
 4. Repeat for each script × mode.
+5. **Dev-only flag-ON visual check (once, optional but recommended):** restart the LOCAL dev build with
+   `VITE_FILLER_RECOUNT_SSOT=true`, re-read one script, and **visually** confirm that the `FillerWordsCard`
+   detail rows, aggregate filler count, clarity, score, and selected-source all agree (recount source).
+   This is **local dev-only** — it does not enable the flag in production or for anyone else.
 
-## Sanitized artifact schema (numbers-only — NO transcript text)
+## Sanitized artifact schema (numbers-only — NO transcript text, NO page URL)
 ```jsonc
 {
   "capturedAt": "ISO",
+  "pageKind": "session",                // enum, not a URL
   "mode": "private|cloud|native",
   "script": "1|2|3",
   "groundTruthFillerCount": 9,          // owner-declared
