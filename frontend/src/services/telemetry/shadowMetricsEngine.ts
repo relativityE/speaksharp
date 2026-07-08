@@ -61,5 +61,8 @@ export function createShadowMetricsEngine(
     sessionId,
     mode,
     [new ClarityProcessor(), new ScoreProcessor()],
+    // PROVISIONAL: capture events of any mode until the controller confirms the actual negotiated mode
+    // via bindMode(). This prevents dropping early fallback-mode events when the requested mode differs.
+    false,
   );
 }

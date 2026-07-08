@@ -1500,15 +1500,29 @@ export class SpeechRuntimeController {
     }
 
     /**
-     * #891 Phase 5.7: bind the real DB session id (and negotiated mode) into an already-running shadow
-     * engine WITHOUT resetting — everything captured since the early (provisional-id) start is preserved.
+     * #891 Phase 5.7: confirm the ACTUAL negotiated/service mode on the provisional shadow engine and
+     * activate mode filtering — everything captured while provisional (incl. early fallback-mode events)
+     * is preserved. Prefer the live service mode; fall back to the requested mode only if unavailable.
+     */
+    private bindShadowMode(mode: string | null): void {
+        try {
+            if (!this.shadowEngine) return;
+            const tmode = toTelemetryMode(this.service?.getMode?.() ?? mode);
+            if (tmode) this.shadowEngine.bindMode(tmode);
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    /**
+     * #891 Phase 5.7: bind the real DB session id into an already-running shadow engine WITHOUT resetting —
+     * everything captured since the early (provisional-id) start is preserved — and confirm the actual mode.
      */
     private rebindShadowSession(sessionId: string, mode: string | null): void {
         try {
             if (!this.shadowEngine) return;
             this.shadowEngine.setSessionId(sessionId);
-            const tmode = toTelemetryMode(mode);
-            if (tmode) this.shadowEngine.setMode(tmode);
+            this.bindShadowMode(mode);
         } catch {
             /* shadow telemetry must never affect the recording path */
         }
@@ -1712,6 +1726,10 @@ export class SpeechRuntimeController {
                 // captured state. No-op in production.
                 this.startShadowMetricsEngine(recordingId, mode);
                 await service.startTranscription(policy, userWords);
+                // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
+                // engine filters by the REAL mode (not the requested one), keeping the early events it
+                // captured while provisional. rebindShadowSession re-confirms it at the DB-id step below.
+                this.bindShadowMode(mode);
                 pushNativeRuntimeTrace('controller_service_startTranscription_done');
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
                 const serviceState = typeof service.getState === 'function'

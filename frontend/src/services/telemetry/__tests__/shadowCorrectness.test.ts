@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createShadowMetricsEngine } from '../shadowMetricsEngine';
 import { publishTelemetry, __resetSessionTelemetryBusForTests } from '../sessionTelemetryBus';
+import { InMemoryTelemetryBus } from '../TelemetryBus';
+import { MetricsEngine } from '../MetricsEngine';
 import { computeLegacyMetrics } from '../metricsParity';
 import { appendCommittedFinal } from '../processors/textMetrics';
 import { PauseProcessor } from '../processors/PauseProcessor';
+import { TranscriptProcessor } from '../processors/TranscriptProcessor';
 import { PauseDetector } from '@/services/audio/pauseDetector';
 import type { TelemetryEvent } from '../contracts';
 
@@ -31,6 +34,40 @@ describe('#5.7 Risk 1 — early events captured before the DB session id arrives
     expect(snap.transcript.finalText).toBe('early committed words here'); // early event NOT lost
     expect(snap.sessionId).toBe('real-db-session-id');                    // id rebound
     expect(snap.elapsedSeconds).toBe(5);
+    engine.dispose();
+  });
+});
+
+describe('#5.7 Risk 7 — requested mode differs from the actual negotiated/fallback mode', () => {
+  it('provisional engine captures early fallback-mode events, then binds to the actual mode (filter preserved)', () => {
+    // Requested/preferred mode was 'private', but the session actually negotiated / fell back to 'native'.
+    // The shadow engine is created PROVISIONAL, so it captures the native events instead of dropping them.
+    const engine = createShadowMetricsEngine('provisional-id', 'private')!;
+
+    // Early NATIVE events fire before the DB-id / actual-mode bind. (Under preferred-mode-only filtering
+    // these would be dropped — see the regression test below.)
+    publishTelemetry({ type: 'transcript.final', mode: 'native', t: 0, text: 'the native fallback transcript', sequence: 0, replacesRollingTranscript: true });
+    publishTelemetry({ type: 'session.tick', mode: 'native', t: 1000, elapsedSeconds: 5 });
+    expect(engine.getSnapshot().transcript.finalText).toBe('the native fallback transcript');
+
+    // Actual mode confirmed → bind it (activates filtering on the REAL mode) + rebind the real id.
+    engine.setSessionId('real-db-id');
+    engine.bindMode('native');
+    expect(engine.getSnapshot().mode).toBe('native');
+
+    // After binding, cross-mode events are dropped — the #6 filter is preserved.
+    publishTelemetry({ type: 'transcript.final', mode: 'cloud', t: 2000, text: 'from another session', sequence: 1, replacesRollingTranscript: true });
+    expect(engine.getSnapshot().transcript.finalText).toBe('the native fallback transcript');
+    engine.dispose();
+  });
+
+  it('REGRESSION: a mode-bound engine (old preferred-only behavior) DROPS fallback-mode events', () => {
+    // Documents exactly the bug this fix addresses: binding to the requested mode up-front loses the
+    // actual session's events when negotiation/fallback picked a different mode.
+    const bus = new InMemoryTelemetryBus('s1');
+    const engine = new MetricsEngine(bus, [new TranscriptProcessor()], 's1', 'private', [], true); // bound to preferred
+    bus.publish({ type: 'transcript.final', mode: 'native', t: 0, text: 'lost', sequence: 0, replacesRollingTranscript: true });
+    expect(engine.getSnapshot().transcript.finalText).toBe(''); // dropped by the preferred-mode filter
     engine.dispose();
   });
 });
