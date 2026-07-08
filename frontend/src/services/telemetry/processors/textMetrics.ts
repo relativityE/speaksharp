@@ -10,6 +10,19 @@ export function countWords(text: string): number {
   return countTranscriptWords(text ?? '');
 }
 
+/**
+ * Accumulate a committed-final transcript the way the store/app does (single source used by every
+ * transcript-consuming processor). A `replacesRollingTranscript` final REPLACES the accumulated text —
+ * but a BLANK/whitespace authoritative final must NOT wipe a valid committed transcript (mirrors the
+ * store guard `transcript.replacesRollingTranscript && transcript.final.trim()`). Non-replacing finals
+ * append in order.
+ */
+export function appendCommittedFinal(prev: string, text: string, replaces: boolean | undefined): string {
+  if (replaces) return text.trim() ? text : prev;
+  if (!text) return prev;
+  return prev ? `${prev} ${text}`.replace(/\s+/g, ' ').trim() : text;
+}
+
 /** Longest run of words with no sentence-terminating punctuation — a run-on proxy. */
 export function maxRunOnWords(text: string): number {
   const t = (text ?? '').trim();

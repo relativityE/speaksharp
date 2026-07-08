@@ -17,18 +17,33 @@ export class MetricsEngine {
   private readonly listeners = new Set<(snapshot: MetricsSnapshot) => void>();
   private unsubscribe: (() => void) | null = null;
 
+  /**
+   * #891 Phase 5.7: when false, the engine is PROVISIONAL — it captures events of ANY mode (no filter).
+   * A session is created provisionally (before the negotiated/actual mode is confirmed) so early fallback-
+   * mode events are never dropped; `bindMode(actualMode)` then locks the real mode and activates filtering.
+   */
+  private modeBound: boolean;
+
   constructor(
     bus: TelemetryBus,
     private readonly processors: MetricProcessor[],
     private sessionId: string,
     private mode: TelemetryMode,
     private readonly derivers: MetricDeriver[] = [],
+    modeBound = true,
   ) {
+    this.modeBound = modeBound;
     this.snapshot = createEmptyMetricsSnapshot(sessionId, mode);
     this.unsubscribe = bus.subscribe((event) => this.handleEvent(event));
   }
 
   private handleEvent(event: TelemetryEvent): void {
+    // #891 Phase 5.7: the session telemetry bus is process-wide and shared. Every event carries its
+    // producing `mode`; once bound, this engine only composes metrics for ITS mode, so cross-mode events
+    // (e.g. a native lifecycle event landing while a private session's engine is alive) are ignored. While
+    // still PROVISIONAL (mode not yet confirmed) no event is dropped, so negotiated/fallback-mode events
+    // at session start are captured. Covers transcript/audio.frame/session.tick/lifecycle uniformly.
+    if (this.modeBound && event.mode !== this.mode) return;
     for (const p of this.processors) {
       try {
         p.onEvent(event);
@@ -83,6 +98,31 @@ export class MetricsEngine {
   /** Current canonical snapshot. */
   getSnapshot(): MetricsSnapshot {
     return this.snapshot;
+  }
+
+  /**
+   * #891 Phase 5.7: rebind the session identity WITHOUT resetting captured processor state. Used when a
+   * session is created early with a provisional id (before the DB id / negotiated mode is known) so no
+   * early event is missed — the real id/mode are bound in later without discarding what was captured.
+   */
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+    this.snapshot.sessionId = sessionId;
+  }
+
+  setMode(mode: TelemetryMode): void {
+    this.mode = mode;
+    this.snapshot.mode = mode;
+  }
+
+  /**
+   * #891 Phase 5.7: confirm the ACTUAL negotiated/service mode and ACTIVATE mode filtering. Everything
+   * captured while provisional is kept; from here on, cross-mode events are dropped. Idempotent.
+   */
+  bindMode(mode: TelemetryMode): void {
+    this.mode = mode;
+    this.snapshot.mode = mode;
+    this.modeBound = true;
   }
 
   /** Subscribe to snapshot changes. Returns an unsubscribe fn. */

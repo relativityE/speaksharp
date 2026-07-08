@@ -16,10 +16,12 @@ export class AudioQualityProcessor implements MetricProcessor {
   private analyzer: AudioQualityAnalyzer | null = null;
   private lastT = 0;
 
+  constructor(private readonly sessionStartT?: number) {}
+
   onEvent(event: TelemetryEvent): void {
     if (event.type !== 'audio.frame') return;
     if (this.analyzer === null) {
-      this.analyzer = new AudioQualityAnalyzer(event.t);
+      this.analyzer = new AudioQualityAnalyzer(this.sessionStartT ?? event.t);
     }
     this.analyzer.processFrame(event.frame, event.t);
     this.lastT = event.t;

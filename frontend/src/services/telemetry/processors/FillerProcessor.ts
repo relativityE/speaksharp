@@ -1,28 +1,28 @@
 import type { MetricProcessor, MetricsSnapshotPatch, TelemetryEvent } from '../contracts';
 import { countFillerWords } from '@/utils/fillerWordUtils';
-import { countWords } from './textMetrics';
+import { appendCommittedFinal, countWords } from './textMetrics';
 
 /**
- * Phase 5.3 — FillerProcessor (shadow).
+ * Phase 5.3/5.7 — FillerProcessor (shadow).
  *
- * Owns delivery.fillerCount + delivery.fillerRate. Reuses the existing pure `countFillerWords`
- * (same patterns as today) so fillerCount is byte-identical; fillerRate mirrors the existing
- * (fillerCount / wordCount) × 100 convention. Single source = only this processor calls it.
+ * Owns delivery.fillerCount + delivery.fillerRate. Reuses the existing pure `countFillerWords` WITH the
+ * session's custom filler words (`userWords`) so the count matches the live/save paths, which also honor
+ * user words. fillerRate mirrors the existing (fillerCount / wordCount) × 100 convention.
  */
 export class FillerProcessor implements MetricProcessor {
   readonly name = 'filler';
   private finalText = '';
 
+  constructor(private readonly userWords: string[] = []) {}
+
   onEvent(event: TelemetryEvent): void {
     if (event.type === 'transcript.final') {
-      this.finalText = event.replacesRollingTranscript
-        ? event.text
-        : (this.finalText ? `${this.finalText} ${event.text}`.replace(/\s+/g, ' ').trim() : event.text);
+      this.finalText = appendCommittedFinal(this.finalText, event.text, event.replacesRollingTranscript);
     }
   }
 
   getSnapshot(): MetricsSnapshotPatch {
-    const fillerCount = countFillerWords(this.finalText).total.count;
+    const fillerCount = countFillerWords(this.finalText, this.userWords).total.count;
     const words = countWords(this.finalText);
     const fillerRate = words > 0 ? (fillerCount / words) * 100 : 0;
     return { delivery: { fillerCount, fillerRate } };

@@ -9,6 +9,7 @@ import { isPrivateEngineOverrideActive } from '@/services/transcription/engines/
 import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
 import { createShadowMetricsEngine, toTelemetryMode } from '@/services/telemetry/shadowMetricsEngine';
 import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
+import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
 import {
     PRIVATE_SAMPLE_EVENTS,
     emitPrivateSample,
@@ -1489,7 +1490,39 @@ export class SpeechRuntimeController {
             const tmode = toTelemetryMode(mode);
             if (!tmode) return;
             safeResetSessionTelemetry(sessionId);
-            this.shadowEngine = createShadowMetricsEngine(sessionId, tmode);
+            this.shadowEngine = createShadowMetricsEngine(sessionId, tmode, {
+                userWords: this.userWords,
+                sessionStartT: performance.now(),
+            });
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    /**
+     * #891 Phase 5.7: confirm the ACTUAL negotiated/service mode on the provisional shadow engine and
+     * activate mode filtering — everything captured while provisional (incl. early fallback-mode events)
+     * is preserved. Prefer the live service mode; fall back to the requested mode only if unavailable.
+     */
+    private bindShadowMode(mode: string | null): void {
+        try {
+            if (!this.shadowEngine) return;
+            const tmode = toTelemetryMode(this.service?.getMode?.() ?? mode);
+            if (tmode) this.shadowEngine.bindMode(tmode);
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    /**
+     * #891 Phase 5.7: bind the real DB session id into an already-running shadow engine WITHOUT resetting —
+     * everything captured since the early (provisional-id) start is preserved — and confirm the actual mode.
+     */
+    private rebindShadowSession(sessionId: string, mode: string | null): void {
+        try {
+            if (!this.shadowEngine) return;
+            this.shadowEngine.setSessionId(sessionId);
+            this.bindShadowMode(mode);
         } catch {
             /* shadow telemetry must never affect the recording path */
         }
@@ -1507,6 +1540,39 @@ export class SpeechRuntimeController {
     /** #891 Phase 5.6: diagnostics/tests only — the shadow snapshot is NOT consumed by any product surface. */
     public getShadowMetricsSnapshot(): ReturnType<MetricsEngine['getSnapshot']> | null {
         return this.shadowEngine?.getSnapshot() ?? null;
+    }
+
+    /**
+     * #891 Phase 5.7 (SHADOW): compare the shadow snapshot against the legacy product metrics computed
+     * from the same raw store inputs. Diagnostics/tests only — the parity report (numbers only, no
+     * transcript text) is NOT consumed by any product surface and drives no cutover.
+     */
+    public getShadowParityReport(): ParityReport | null {
+        const snapshot = this.shadowEngine?.getSnapshot();
+        if (!snapshot) return null;
+        const st = useSessionStore.getState();
+        const legacy = computeLegacyMetrics({
+            transcript: st.transcript.transcript,
+            elapsedSeconds: st.elapsedTime,
+            fillerData: st.fillerData,
+            pauseMetrics: st.pauseMetrics,
+            engine: snapshot.mode,
+            userWords: this.userWords,
+        });
+        return compareSnapshotToLegacy(snapshot, legacy);
+    }
+
+    private logShadowParity(): void {
+        try {
+            const report = this.getShadowParityReport();
+            if (!report) return;
+            logger.info(
+                { allEqual: report.allEqual, divergentCount: report.divergentCount, fields: report.fields },
+                '[SHADOW_PARITY] snapshot vs legacy (numbers only)',
+            );
+        } catch {
+            /* diagnostics must never affect the stop path */
+        }
     }
 
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
@@ -1654,7 +1720,16 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_service_startTranscription_start', {
                     mode: policy?.preferredMode ?? null,
                 });
+                // #891 Phase 5.7 (SHADOW): stand up the shadow engine BEFORE the strategy starts, using a
+                // provisional id (recordingId) + the preferred mode, so no early transcript/audio/lifecycle
+                // event is missed. The real DB id + negotiated mode are rebound below WITHOUT resetting the
+                // captured state. No-op in production.
+                this.startShadowMetricsEngine(recordingId, mode);
                 await service.startTranscription(policy, userWords);
+                // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
+                // engine filters by the REAL mode (not the requested one), keeping the early events it
+                // captured while provisional. rebindShadowSession re-confirms it at the DB-id step below.
+                this.bindShadowMode(mode);
                 pushNativeRuntimeTrace('controller_service_startTranscription_done');
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
                 const serviceState = typeof service.getState === 'function'
@@ -1728,10 +1803,10 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
-                        // #891 Phase 5.6 (SHADOW): stand up the shadow MetricsEngine for this session
-                        // (dev/test only; no-op in production). It subscribes to the session bus and
-                        // computes the snapshot; NOTHING consumes it. Fully isolated from the recording path.
-                        this.startShadowMetricsEngine(this.sessionId, mode);
+                        // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
+                        // running shadow engine WITHOUT resetting — events captured since the early start
+                        // (above, before startTranscription) are preserved. No-op in production.
+                        this.rebindShadowSession(this.sessionId, mode);
                     }
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {
@@ -1830,8 +1905,9 @@ export class SpeechRuntimeController {
     }
 
     public async stopRecording(): Promise<unknown> {
-        // #891 Phase 5.6 (SHADOW): tear down the shadow engine (dev/test only; no-op in prod).
-        this.disposeShadowMetricsEngine();
+        // #891 Phase 5.7: the shadow engine is torn down AFTER finalize (see below), not here, so its
+        // snapshot includes the committed final transcript before parity is measured. A leftover engine
+        // is always disposed by the next startShadowMetricsEngine.
         return this.enqueue(async (token) => {
             const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
             if (stopEntryMode === 'cloud') {
@@ -1932,6 +2008,13 @@ export class SpeechRuntimeController {
                         controllerState: this.state,
                         serviceState: service.getState?.() ?? null,
                     }, '[DEBUG-STOP] after service.stopTranscription');
+
+                    // #891 Phase 5.7 (SHADOW, dev-only): the committed final has now flowed through the
+                    // choke point into the shadow engine, so its snapshot is complete. Measure shadow↔legacy
+                    // parity (NUMBERS ONLY — no transcript text) and dispose. Fully wrapped; never affects stop.
+                    this.logShadowParity();
+                    this.disposeShadowMetricsEngine();
+
                     if (token.cancelled) {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
