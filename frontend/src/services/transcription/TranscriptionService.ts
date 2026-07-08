@@ -434,11 +434,12 @@ export default class TranscriptionService {
             textLength: (data.transcript.final || data.transcript.partial || '').length,
           }, '[PRIVATE_TRACE] service_transcript_callback');
         }
-        // #891 Phase 5.6 (SHADOW): mirror Native's telemetry publishing for the app-mic modes. Native
-        // self-publishes in NativeBrowser; here we cover Private/Cloud at the single choke point every
-        // emitted transcript passes through. publishTelemetry swallows all errors — cannot affect the
-        // production transcript path — and nothing consumes the bus unless the shadow engine is on.
-        if (this.mode === 'private' || this.mode === 'cloud') {
+        // Deliver the transcript to the app FIRST — the shadow diagnostic below never precedes it.
+        this.processTranscript(data);
+        // #891 Phase 5.6 (SHADOW, PASSIVE): AFTER the app-facing emission, mirror Native's telemetry for
+        // the app-mic modes (Native self-publishes in NativeBrowser). Gated on the shadow flag so
+        // production publishes nothing and adds no latency; publishTelemetry also swallows all errors.
+        if (isShadowMetricsEngineEnabled() && (this.mode === 'private' || this.mode === 'cloud')) {
           const tr = data.transcript;
           if (typeof tr.final === 'string' && tr.final.length > 0) {
             publishTelemetry({ type: 'transcript.final', mode: this.mode, t: performance.now(), text: tr.final, sequence: this.telemetrySeq++, replacesRollingTranscript: tr.replacesRollingTranscript ?? false });
@@ -446,7 +447,6 @@ export default class TranscriptionService {
             publishTelemetry({ type: 'transcript.partial', mode: this.mode, t: performance.now(), text: tr.partial, sequence: this.telemetrySeq++ });
           }
         }
-        this.processTranscript(data);
       },
       onModelLoadProgress: (p) => {
         if (this.isTerminated) return;
@@ -1039,16 +1039,14 @@ export default class TranscriptionService {
 
     if (!shouldForwardToStrategy && !shouldAnalyzeFrames) return;
 
+    // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
+    // per-frame work for the passive Cloud audio diagnostic. Native never emits production audio.frame.
+    const publishShadowFrames = mode === 'cloud' && isShadowMetricsEngineEnabled();
+
     this.micFramePumpCount = 0;
     this.micFrameDisposer = this.mic.onFrame((frame: Float32Array) => {
       const clonedFrame = frame.slice(0);
       this.micFramePumpCount++;
-
-      // #891 Phase 5.6 (SHADOW): publish app-mic PCM for Cloud (Native never emits production audio.frame).
-      // Gated on the shadow flag because frames are high-volume — production must pay zero cost.
-      if (mode === 'cloud' && this.mic && isShadowMetricsEngineEnabled()) {
-        publishTelemetry({ type: 'audio.frame', mode: 'cloud', t: performance.now(), sampleRate: this.mic.sampleRate, frame: clonedFrame.slice(0) });
-      }
 
       if (shouldForwardToStrategy && (this.micFramePumpCount === 1 || this.micFramePumpCount % 25 === 0)) {
         logger.info({
@@ -1066,6 +1064,12 @@ export default class TranscriptionService {
 
       if (shouldForwardToStrategy) {
         strategy?.processAudio?.(clonedFrame);
+      }
+
+      // #891 Phase 5.6 (SHADOW, PASSIVE): observe LAST — after the real cloud forwarding/analysis — so the
+      // diagnostic can never delay transcription. No-op in production (cached flag = false → zero cost).
+      if (publishShadowFrames && this.mic) {
+        publishTelemetry({ type: 'audio.frame', mode: 'cloud', t: performance.now(), sampleRate: this.mic.sampleRate, frame: clonedFrame.slice(0) });
       }
     });
   }

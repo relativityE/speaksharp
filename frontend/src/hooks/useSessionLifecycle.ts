@@ -6,7 +6,7 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { useProfile } from './useProfile';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { publishTelemetry } from '@/services/telemetry/sessionTelemetryBus';
-import { toTelemetryMode } from '@/services/telemetry/shadowMetricsEngine';
+import { toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { useSessionMetrics } from './useSessionMetrics';
@@ -446,12 +446,15 @@ export const useSessionLifecycle = () => {
         if (isListening) {
             const interval = setInterval(() => {
                 tick();
-                // #891 Phase 5.6 (SHADOW): publish the authoritative session clock so pace/clarity/score
-                // derivers share the same elapsed basis as the legacy elapsedTime timer. Low-volume,
-                // additive, error-swallowed; nothing consumes it unless the shadow engine is on.
-                const st = useSessionStore.getState();
-                const mode = toTelemetryMode(st.activeEngine ?? st.sttMode);
-                if (mode) publishTelemetry({ type: 'session.tick', mode, t: performance.now(), elapsedSeconds: st.elapsedTime });
+                // #891 Phase 5.6 (SHADOW, PASSIVE): after the real tick, publish the authoritative session
+                // clock so the shadow pace/clarity/score derivers share the legacy elapsedTime basis. Gated
+                // OFF in production (zero cost) and error-swallowed; runs on this heartbeat, never on the
+                // transcription/audio path.
+                if (isShadowMetricsEngineEnabled()) {
+                    const st = useSessionStore.getState();
+                    const mode = toTelemetryMode(st.activeEngine ?? st.sttMode);
+                    if (mode) publishTelemetry({ type: 'session.tick', mode, t: performance.now(), elapsedSeconds: st.elapsedTime });
+                }
             }, 1000);
             return () => clearInterval(interval);
         }
