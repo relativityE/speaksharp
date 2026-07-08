@@ -905,6 +905,41 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
     });
 
+    it('REGRESSION: a NEW recognition cycle after Stop cannot mutate the stopped transcript (cycle-id guard)', async () => {
+      // #925 permits a SAME-cycle trailing final after Stop so Chrome can flush speech spoken BEFORE
+      // Stop. This test closes the adjacent risk: a stray SECOND cycle actually STARTS after Stop
+      // (onstart fires -> recognitionCycleId increments, finalizedResultIndexes cleared) and emits a
+      // final at a FRESH index, so index-dedup alone would NOT catch it. The cycle-id guard
+      // (recognitionCycleId !== stopRequestedCycleId) must still drop it.
+      //
+      // Why same-cycle-vs-new-cycle is a SAFE distinction (documented limitation): recognition.stop()
+      // halts Chrome's audio capture, so Chrome cannot produce NEW same-cycle speech after Stop — a
+      // same-cycle trailing final is therefore always the flush of pre-Stop audio. Genuinely new
+      // speech requires a new cycle, which this guard drops. The safety rests on that stop() semantic.
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const committed = Object.assign([{ transcript: 'the quick brown fox', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [committed], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      const updatesAfterStop = onTranscriptUpdate.mock.calls.length;
+
+      // Stray new cycle starts AND emits a fresh-index final after Stop — must be dropped.
+      mockRecognition.onstart?.({} as Event);
+      const strayNewCycleFinal = Object.assign([{ transcript: 'brand new sentence after stop', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [strayNewCycleFinal], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate.mock.calls.length).toBe(updatesAfterStop);
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
+    });
+
     it('REGRESSION: drops post-stop interim results (no trailing partials after Stop)', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
