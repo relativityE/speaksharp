@@ -6,6 +6,9 @@ import type { TranscriptionPolicy } from '@/services/transcription/Transcription
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { getV4FlagState } from '@/services/transcription/privateV4Flags';
 import { isPrivateEngineOverrideActive } from '@/services/transcription/engines/PrivateSTT';
+import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
+import { createShadowMetricsEngine, toTelemetryMode } from '@/services/telemetry/shadowMetricsEngine';
+import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 import {
     PRIVATE_SAMPLE_EVENTS,
     emitPrivateSample,
@@ -288,6 +291,8 @@ export class SpeechRuntimeController {
     private commandQueue: Promise<void> = Promise.resolve();
     private activeTasks: Set<LifecycleToken> = new Set();
     private sessionId: string | null = null;
+    /** #891 Phase 5.6: shadow MetricsEngine (dev/test only; null in production). */
+    private shadowEngine: MetricsEngine | null = null;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
     private readonly MAX_HEARTBEAT_FAILURES = 3;
@@ -1474,6 +1479,36 @@ export class SpeechRuntimeController {
         syncRuntimeState(this.state, mode);
     }
 
+    /**
+     * #891 Phase 5.6 (SHADOW): stand up the shadow MetricsEngine for a session. No-op in production
+     * (createShadowMetricsEngine returns null). Wrapped so shadow telemetry can NEVER affect recording.
+     */
+    private startShadowMetricsEngine(sessionId: string, mode: string | null): void {
+        try {
+            this.disposeShadowMetricsEngine();
+            const tmode = toTelemetryMode(mode);
+            if (!tmode) return;
+            safeResetSessionTelemetry(sessionId);
+            this.shadowEngine = createShadowMetricsEngine(sessionId, tmode);
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    private disposeShadowMetricsEngine(): void {
+        try {
+            this.shadowEngine?.dispose();
+        } catch {
+            /* ignore */
+        }
+        this.shadowEngine = null;
+    }
+
+    /** #891 Phase 5.6: diagnostics/tests only — the shadow snapshot is NOT consumed by any product surface. */
+    public getShadowMetricsSnapshot(): ReturnType<MetricsEngine['getSnapshot']> | null {
+        return this.shadowEngine?.getSnapshot() ?? null;
+    }
+
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
         this.policy = policy || null;
         this.userWords = userWords;
@@ -1693,6 +1728,10 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        // #891 Phase 5.6 (SHADOW): stand up the shadow MetricsEngine for this session
+                        // (dev/test only; no-op in production). It subscribes to the session bus and
+                        // computes the snapshot; NOTHING consumes it. Fully isolated from the recording path.
+                        this.startShadowMetricsEngine(this.sessionId, mode);
                     }
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {
@@ -1791,6 +1830,8 @@ export class SpeechRuntimeController {
     }
 
     public async stopRecording(): Promise<unknown> {
+        // #891 Phase 5.6 (SHADOW): tear down the shadow engine (dev/test only; no-op in prod).
+        this.disposeShadowMetricsEngine();
         return this.enqueue(async (token) => {
             const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
             if (stopEntryMode === 'cloud') {

@@ -43,6 +43,8 @@ import { TranscriptionError } from '../errors';
 
 import { MicStream } from '../utils/types';
 import { MicReadinessGate } from '../utils/micReadiness';
+import { publishTelemetry } from '../../telemetry/sessionTelemetryBus';
+import { isShadowMetricsEngineEnabled } from '../../telemetry/shadowMetricsEngine';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate, SttStatus } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
@@ -1034,6 +1036,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
 
+    // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
+    // per-frame work for the passive diagnostic.
+    const publishShadowFrames = isShadowMetricsEngineEnabled();
+
     const listener = (frame: Float32Array) => {
       // Copy the frame to avoid buffer detachment issues
       const clonedFrame = frame.slice(0);
@@ -1184,6 +1190,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // Pass raw audio to analysis hooks (Pause Detection)
       if (this.onAudioData) {
         this.onAudioData(clonedFrame);
+      }
+
+      // #891 Phase 5.6 (SHADOW, PASSIVE): observe LAST — after every real decode/analysis step — so the
+      // diagnostic can never delay transcription. No-op in production (cached flag = false → zero cost).
+      if (publishShadowFrames && this.mic) {
+        publishTelemetry({ type: 'audio.frame', mode: 'private', t: performance.now(), sampleRate: this.mic.sampleRate, frame: clonedFrame.slice(0) });
       }
     };
 
