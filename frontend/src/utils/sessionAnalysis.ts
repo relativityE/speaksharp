@@ -44,6 +44,10 @@ const MIN_RELIABLE_SCORING_WORDS = ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WOR
 export const countTranscriptWords = (transcript: string): number =>
     transcript.match(/\b[\p{L}\p{N}][\p{L}\p{N}'-]*\b/gu)?.length ?? 0;
 
+/** Count inaudible/blank/noise error markers in a transcript — the clarity error-penalty input. */
+export const countErrorMarkers = (transcript: string): number =>
+    (transcript.match(ERROR_TAG_REGEX) || []).length;
+
 export const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
     if (!fillerWords) return 0;
 
