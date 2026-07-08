@@ -56,6 +56,15 @@ export interface FillerDivergenceReport {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+/**
+ * Deep-copy filler counts (each value is a flat { count, color }) so a snapshot captured at stop-entry
+ * cannot drift if the store later mutates/replaces `fillerData` in place. No transcript text involved.
+ */
+export function cloneFillerCounts(data: FillerCounts | null | undefined): FillerCounts | null | undefined {
+  if (!data) return data;
+  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, { ...v }])) as FillerCounts;
+}
+
 /** Measure live-filler vs transcript-recount divergence and its clarity/score impact. Numbers only. */
 export function measureFillerDivergence(inputs: FillerDivergenceInputs): FillerDivergenceReport {
   const userWords = inputs.userWords ?? [];

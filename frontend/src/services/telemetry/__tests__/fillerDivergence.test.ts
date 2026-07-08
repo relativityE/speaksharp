@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   measureFillerDivergence,
   summarizeFillerDivergence,
+  cloneFillerCounts,
   type FillerDivergenceInputs,
   type FillerDivergenceReport,
 } from '../fillerDivergence';
@@ -141,5 +142,16 @@ describe('Phase 5.8 precursor — REAL-FINALIZATION basis: recount uses the save
     expect(report.selectedSource).toBe('service_result');
     // Had it (wrongly) recounted the streaming transcript, recount would equal live → delta 0. It must not.
     expect(report.delta).not.toBe(0);
+  });
+
+  it('cloneFillerCounts deep-copies so a later in-place store mutation cannot drift the snapshot', () => {
+    const original: FillerCounts = { total: { count: 3, color: '' }, um: { count: 3, color: '' } };
+    const snapshot = cloneFillerCounts(original)!;
+    // Simulate the store mutating fillerData in place AFTER the stop-entry capture.
+    original.total.count = 99;
+    original.um.count = 99;
+    expect(snapshot.total.count).toBe(3);
+    expect(snapshot.um.count).toBe(3);
+    expect(cloneFillerCounts(null)).toBeNull();
   });
 });

@@ -10,7 +10,7 @@ import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
 import { createShadowMetricsEngine, toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
-import { measureFillerDivergence, type FillerDivergenceReport } from '@/services/telemetry/fillerDivergence';
+import { measureFillerDivergence, cloneFillerCounts, type FillerDivergenceReport } from '@/services/telemetry/fillerDivergence';
 import {
     PRIVATE_SAMPLE_EVENTS,
     emitPrivateSample,
@@ -2013,7 +2013,9 @@ export class SpeechRuntimeController {
                     // #891 Phase 5.8 precursor (SHADOW): snapshot the LIVE filler counts NOW, before
                     // stopTranscription()'s committed final can re-correct/normalize the store transcript
                     // (and any downstream filler recompute). This is the "live counter" side of the divergence.
-                    this.liveFillerDataAtStop = useSessionStore.getState().fillerData;
+                    // DEFENSIVE DEEP COPY: the store may later mutate/replace fillerData in place, so clone the
+                    // counts — the snapshot must not drift afterward.
+                    this.liveFillerDataAtStop = cloneFillerCounts(useSessionStore.getState().fillerData) ?? null;
                     result = await service.stopTranscription();
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
