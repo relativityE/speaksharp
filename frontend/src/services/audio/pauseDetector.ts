@@ -27,20 +27,23 @@ export class PauseDetector {
 
     constructor(
         silenceThreshold: number = SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
-        minPauseDuration: number = SESSION_PAUSE.MIN_SILENCE_MS
+        minPauseDuration: number = SESSION_PAUSE.MIN_SILENCE_MS,
+        startTime?: number,
     ) {
         this.baseThreshold = silenceThreshold;
         this.silenceThreshold = silenceThreshold;
         this.minPauseDuration = minPauseDuration;
-        this.sessionStartTime = Date.now();
+        this.sessionStartTime = startTime ?? Date.now();
     }
 
     /**
-     * Process audio frame and detect pauses
+     * Process audio frame and detect pauses.
+     * `nowMs` lets callers drive timing deterministically (e.g. from a telemetry event timestamp);
+     * it defaults to `Date.now()` so existing callers are unaffected.
      */
-    public processAudioFrame(audioData: Float32Array): void {
+    public processAudioFrame(audioData: Float32Array, nowMs?: number): void {
         const rms = this.calculateRMS(audioData);
-        const now = Date.now();
+        const now = nowMs ?? Date.now();
 
         // Always track noise floor candidates
         this.updateNoiseFloor(rms);
@@ -102,12 +105,12 @@ export class PauseDetector {
     /**
      * Get pause metrics
      */
-    public getMetrics(): PauseMetrics {
-        const sessionDurationSeconds = (Date.now() - this.sessionStartTime) / 1000;
+    public getMetrics(nowMs?: number): PauseMetrics {
+        const now = nowMs ?? Date.now();
+        const sessionDurationSeconds = (now - this.sessionStartTime) / 1000;
         const pauses = [...this.pauses];
 
         if (this.isSilent && this.currentPauseStart !== null) {
-            const now = Date.now();
             const pauseDuration = now - this.currentPauseStart;
             if (pauseDuration >= this.minPauseDuration) {
                 pauses.push({
@@ -153,28 +156,28 @@ export class PauseDetector {
     /**
      * Get the duration of the current silence gap (if active) in seconds.
      */
-    public getCurrentSilenceDurationSeconds(): number {
+    public getCurrentSilenceDurationSeconds(nowMs?: number): number {
         if (!this.isSilent || this.currentPauseStart === null) return 0;
-        return (Date.now() - this.currentPauseStart) / 1000;
+        return ((nowMs ?? Date.now()) - this.currentPauseStart) / 1000;
     }
 
     /**
      * PARETO FIX: Determine if the current silence is long enough to be a real gap.
      * This avoids chopping speech mid-sentence due to micro-pauses.
      */
-    public isMeaningfullySilent(): boolean {
+    public isMeaningfullySilent(nowMs?: number): boolean {
         if (!this.isSilent || this.currentPauseStart === null) return false;
-        const silenceDurationMs = Date.now() - this.currentPauseStart;
+        const silenceDurationMs = (nowMs ?? Date.now()) - this.currentPauseStart;
         return silenceDurationMs >= this.minPauseDuration;
     }
 
     /**
-     * Reset detector state
+     * Reset detector state. `startTime` defaults to `Date.now()` for existing callers.
      */
-    public reset(): void {
+    public reset(startTime?: number): void {
         this.pauses = [];
         this.currentPauseStart = null;
         this.isSilent = false;
-        this.sessionStartTime = Date.now();
+        this.sessionStartTime = startTime ?? Date.now();
     }
 }
