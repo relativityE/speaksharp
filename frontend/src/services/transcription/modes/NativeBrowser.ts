@@ -63,8 +63,19 @@ function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): 
   }
 }
 
+// #30 diagnostic: interval (ms) for the passive speech-energy trace sample.
+const NATIVE_ENERGY_SAMPLE_MS = 500;
+
 function isNativeParallelCaptureEnabled(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.__NATIVE_PARALLEL_CAPTURE_TRACE__);
+  if (typeof window === 'undefined') return false;
+  if (window.__NATIVE_PARALLEL_CAPTURE_TRACE__) return true;
+  // #30 explicit diagnostic opt-in via URL (?nativeDiag=1) so a diagnostic take can enable the
+  // PASSIVE dual-capture energy trace without a code change. OFF by default; production is unchanged.
+  try {
+    return new URLSearchParams(window.location.search).get('nativeDiag') === '1';
+  } catch {
+    return false;
+  }
 }
 
 function summarizeAudioEnergy(audio: Float32Array) {
@@ -1131,8 +1142,40 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     }
 
     this.parallelCaptureStartedAtMs = Date.now();
+    let energyPeak = 0;
+    let energySumSq = 0;
+    let energySamples = 0;
+    let energyFrames = 0;
+    let energyWindowStartMs = performance.now();
     this.parallelCaptureDisposer = mic.onFrame((frame: Float32Array) => {
       this.parallelCaptureFrames.push(frame.slice(0));
+      // #30 PASSIVE speech-energy trace (diagnostic-dual-capture). Reads the app-mic frame WITHOUT
+      // mutating it, and emits a time-bucketed `audio_energy` sample (~every NATIVE_ENERGY_SAMPLE_MS)
+      // into the SAME trace as partials/finals/lifecycle, so a collector can distinguish true user
+      // silence from Web Speech dormancy. Non-interfering: SpeechRecognition owns its own capture, and
+      // mic.onFrame supports multiple listeners so the production frame pump is unaffected.
+      const e = summarizeAudioEnergy(frame);
+      if (e.peak > energyPeak) energyPeak = e.peak;
+      energySumSq += e.rms * e.rms * frame.length;
+      energySamples += frame.length;
+      energyFrames += 1;
+      const nowMs = performance.now();
+      if (nowMs - energyWindowStartMs >= NATIVE_ENERGY_SAMPLE_MS) {
+        const rms = energySamples > 0 ? Math.sqrt(energySumSq / energySamples) : 0;
+        pushNativeTrace('audio_energy', {
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          rms: Number(rms.toFixed(6)),
+          peak: Number(energyPeak.toFixed(6)),
+          frames: energyFrames,
+        });
+        energyPeak = 0;
+        energySumSq = 0;
+        energySamples = 0;
+        energyFrames = 0;
+        energyWindowStartMs = nowMs;
+      }
     });
 
     pushNativeTrace('parallel_capture_started', {
