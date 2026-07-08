@@ -1,4 +1,14 @@
-import type { MetricsSnapshot, TelemetryMode } from './contracts';
+import type { MetricsSnapshot, MetricsSnapshotPatch, TelemetryMode } from './contracts';
+
+/** Complete zero-value audio section — used to backfill required fields when a processor patches only some. */
+const EMPTY_AUDIO: NonNullable<MetricsSnapshot['audio']> = {
+  rms: 0,
+  peak: 0,
+  micLevel: 0,
+  clipping: false,
+  lowVolume: false,
+  noiseWarning: false,
+};
 
 /**
  * Phase 5 — canonical MetricsSnapshot factory + merge.
@@ -54,7 +64,7 @@ export function createEmptyMetricsSnapshot(sessionId: string, mode: TelemetryMod
  * Section-aware merge of a processor's partial into a base snapshot. Nested sections are shallow-merged
  * so a processor that owns (say) only `delivery.wpm` does not blank the rest of `delivery`.
  */
-export function mergeMetricsSnapshot(base: MetricsSnapshot, partial: Partial<MetricsSnapshot>): MetricsSnapshot {
+export function mergeMetricsSnapshot(base: MetricsSnapshot, partial: MetricsSnapshotPatch): MetricsSnapshot {
   return {
     ...base,
     ...partial,
@@ -66,7 +76,8 @@ export function mergeMetricsSnapshot(base: MetricsSnapshot, partial: Partial<Met
       pauseMetrics: partial.delivery?.pauseMetrics ?? base.delivery.pauseMetrics,
     },
     engine: { ...base.engine, ...partial.engine },
-    audio: partial.audio ? { ...base.audio, ...partial.audio } : base.audio,
+    // audio is optional + all-required-fields: backfill from EMPTY_AUDIO so a partial patch still yields a complete section.
+    audio: partial.audio || base.audio ? { ...EMPTY_AUDIO, ...base.audio, ...partial.audio } : undefined,
     score: {
       ...base.score,
       ...partial.score,
