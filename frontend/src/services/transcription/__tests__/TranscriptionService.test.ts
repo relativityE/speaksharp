@@ -383,6 +383,34 @@ describe('TranscriptionService', () => {
         );
     });
 
+    it('#891 Phase 5.6 (SHADOW): app-mic transcript updates publish transcript telemetry; mock mode does not', async () => {
+        const { getSessionTelemetryBus, __resetSessionTelemetryBusForTests } =
+            await import('../../telemetry/sessionTelemetryBus');
+        __resetSessionTelemetryBusForTests();
+        const events: Array<{ type?: string; mode?: string; text?: string; replacesRollingTranscript?: boolean }> = [];
+        getSessionTelemetryBus().subscribe((e) => events.push(e as never));
+
+        const svc = service as unknown as {
+            mode: string;
+            strategyCallbacks: { onTranscriptUpdate: (d: { transcript: { partial?: string; final?: string; replacesRollingTranscript?: boolean } }) => void };
+        };
+
+        // Private is an app-mic mode → the single service choke point mirrors Native's telemetry for it.
+        // Wrapped: publishTelemetry fires BEFORE processTranscript, so its side-effects are irrelevant here.
+        svc.mode = 'private';
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { partial: 'hello' } }); } catch { /* ignore */ }
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'hello world', replacesRollingTranscript: true } }); } catch { /* ignore */ }
+
+        expect(events).toContainEqual(expect.objectContaining({ type: 'transcript.partial', mode: 'private', text: 'hello' }));
+        expect(events).toContainEqual(expect.objectContaining({ type: 'transcript.final', mode: 'private', text: 'hello world', replacesRollingTranscript: true }));
+
+        // Mock is NOT a real app-mic mode → nothing published (Native self-publishes in NativeBrowser).
+        events.length = 0;
+        svc.mode = 'mock';
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'ignored' } }); } catch { /* ignore */ }
+        expect(events.filter((e) => String(e.type).startsWith('transcript'))).toHaveLength(0);
+    });
+
     it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
         const { sttRegistry } = await import('../STTRegistry');
 

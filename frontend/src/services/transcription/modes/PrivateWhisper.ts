@@ -43,6 +43,8 @@ import { TranscriptionError } from '../errors';
 
 import { MicStream } from '../utils/types';
 import { MicReadinessGate } from '../utils/micReadiness';
+import { publishTelemetry } from '../../telemetry/sessionTelemetryBus';
+import { isShadowMetricsEngineEnabled } from '../../telemetry/shadowMetricsEngine';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate, SttStatus } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
@@ -1037,6 +1039,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const listener = (frame: Float32Array) => {
       // Copy the frame to avoid buffer detachment issues
       const clonedFrame = frame.slice(0);
+
+      // #891 Phase 5.6 (SHADOW): publish app-mic PCM for Private. Gated on the shadow flag (high-volume)
+      // and error-swallowed so it can never affect the decode path.
+      if (isShadowMetricsEngineEnabled() && this.mic) {
+        publishTelemetry({ type: 'audio.frame', mode: 'private', t: performance.now(), sampleRate: this.mic.sampleRate, frame: clonedFrame.slice(0) });
+      }
 
       // Track silence per-frame for accurate pause metrics (analytics only)
       this.pauseDetector.processAudioFrame(clonedFrame);

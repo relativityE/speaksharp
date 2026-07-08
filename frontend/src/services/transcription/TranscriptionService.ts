@@ -24,6 +24,8 @@ import { syncForensicAnchors, mapToRuntimeState, syncEngineReady } from '../../l
 import { createMicStream } from './utils/audioUtils';
 import { pushE2EEvent, isBridgeActive } from '@/lib/e2eProbe';
 import { FailureManager } from './FailureManager';
+import { publishTelemetry } from '../telemetry/sessionTelemetryBus';
+import { isShadowMetricsEngineEnabled } from '../telemetry/shadowMetricsEngine';
 import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
 import { ENV } from '@/config/TestFlags';
@@ -194,6 +196,8 @@ export default class TranscriptionService {
 
   private strategyCallbacks: TranscriptionModeOptions;
   private mode: TranscriptionMode | null = null;
+  /** #891 Phase 5.6: monotonic sequence for shadow transcript telemetry (Private/Cloud). */
+  private telemetrySeq = 0;
   private activeStrategyId: string | null = null;
   private strategyVersion: number = 0;
   private isModeLocked: boolean = false;
@@ -429,6 +433,18 @@ export default class TranscriptionService {
             hasPartial: Boolean(data.transcript.partial),
             textLength: (data.transcript.final || data.transcript.partial || '').length,
           }, '[PRIVATE_TRACE] service_transcript_callback');
+        }
+        // #891 Phase 5.6 (SHADOW): mirror Native's telemetry publishing for the app-mic modes. Native
+        // self-publishes in NativeBrowser; here we cover Private/Cloud at the single choke point every
+        // emitted transcript passes through. publishTelemetry swallows all errors — cannot affect the
+        // production transcript path — and nothing consumes the bus unless the shadow engine is on.
+        if (this.mode === 'private' || this.mode === 'cloud') {
+          const tr = data.transcript;
+          if (typeof tr.final === 'string' && tr.final.length > 0) {
+            publishTelemetry({ type: 'transcript.final', mode: this.mode, t: performance.now(), text: tr.final, sequence: this.telemetrySeq++, replacesRollingTranscript: tr.replacesRollingTranscript ?? false });
+          } else if (typeof tr.partial === 'string') {
+            publishTelemetry({ type: 'transcript.partial', mode: this.mode, t: performance.now(), text: tr.partial, sequence: this.telemetrySeq++ });
+          }
         }
         this.processTranscript(data);
       },
@@ -1027,6 +1043,12 @@ export default class TranscriptionService {
     this.micFrameDisposer = this.mic.onFrame((frame: Float32Array) => {
       const clonedFrame = frame.slice(0);
       this.micFramePumpCount++;
+
+      // #891 Phase 5.6 (SHADOW): publish app-mic PCM for Cloud (Native never emits production audio.frame).
+      // Gated on the shadow flag because frames are high-volume — production must pay zero cost.
+      if (mode === 'cloud' && this.mic && isShadowMetricsEngineEnabled()) {
+        publishTelemetry({ type: 'audio.frame', mode: 'cloud', t: performance.now(), sampleRate: this.mic.sampleRate, frame: clonedFrame.slice(0) });
+      }
 
       if (shouldForwardToStrategy && (this.micFramePumpCount === 1 || this.micFramePumpCount % 25 === 0)) {
         logger.info({
