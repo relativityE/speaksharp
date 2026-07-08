@@ -24,6 +24,8 @@ interface SessionMetrics {
     wpmLabel: string;
     wpmExplanation: string;
     fillerCount: number;
+    /** Selected-source filler DETAIL rows — coherent with fillerCount (recount-derived when the flag is ON). */
+    fillerData: FillerCounts;
     fillerExplanation: string;
     wordCount: number;
 }
@@ -78,6 +80,9 @@ export const useSessionMetrics = ({
             wpmLabel: coreMetrics.wpmLabel,
             wpmExplanation: coreMetrics.wpmExplanation,
             fillerCount: coreMetrics.fillerCount,
+            // Detail rows coherent with fillerCount: recount-derived when ON; the raw live input when OFF
+            // (byte-identical to what the card received before — preserves current OFF behavior exactly).
+            fillerData: useTranscriptRecount ? coreMetrics.fillerData : fillerData,
             fillerExplanation: coreMetrics.fillerExplanation,
             wordCount: coreMetrics.wordCount,
         };

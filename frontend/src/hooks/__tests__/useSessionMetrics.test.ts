@@ -5,6 +5,7 @@ import { renderHook } from '@testing-library/react';
 import { useSessionMetrics } from '../useSessionMetrics';
 import { __setFillerRecountSsotForTests } from '@/services/telemetry/fillerSsotFlag';
 import { countFillerWords } from '@/utils/fillerWordUtils';
+import { getFillerTotal } from '@/utils/sessionAnalysis';
 import { calculateSpeakingScore } from '@/utils/speakingScore';
 
 describe('useSessionMetrics', () => {
@@ -170,32 +171,41 @@ describe('useSessionMetrics — Phase 5.8 APPLY: transcript-recount filler SSOT 
 
     afterEach(() => { __setFillerRecountSsotForTests(null); });
 
-    it('flag OFF (default): filler count comes from the LIVE counter — behavior unchanged', () => {
+    it('flag OFF (default): aggregate count AND detail rows BOTH come from the LIVE counter — unchanged', () => {
         __setFillerRecountSsotForTests(false);
         const { result } = renderHook(() => useSessionMetrics(props));
-        expect(result.current.fillerCount).toBe(4); // live counter value
+        expect(result.current.fillerCount).toBe(4);                 // live count
+        expect(result.current.fillerData).toBe(props.fillerData);   // live detail rows (same object) — byte-identical
+        expect(result.current.fillerData.um?.count).toBe(4);
+        expect(getFillerTotal(result.current.fillerData)).toBe(result.current.fillerCount); // coherent
     });
 
-    it('flag ON: filler count comes from the transcript RECOUNT (ignores the live counter)', () => {
+    it('flag ON: aggregate count AND detail rows BOTH come from the transcript RECOUNT (coherent)', () => {
         __setFillerRecountSsotForTests(true);
         const { result } = renderHook(() => useSessionMetrics(props));
-        expect(result.current.fillerCount).toBe(countFillerWords(props.transcript).total.count); // 0
         expect(result.current.fillerCount).toBe(0);
+        // Detail data is recount-derived and coherent with the count — the live um:4 row is gone.
+        expect(getFillerTotal(result.current.fillerData)).toBe(result.current.fillerCount);
+        expect(result.current.fillerData.um?.count ?? 0).toBe(0);
     });
 
-    it('flag ON preserves custom userWords', () => {
+    it('flag ON preserves custom userWords in BOTH the count and the detail rows', () => {
         __setFillerRecountSsotForTests(true);
         const custom = { transcript: 'honestly this is honestly good', chunks: [], fillerData: {} as never, elapsedTime: 10 };
         const withWords = renderHook(() => useSessionMetrics({ ...custom, userWords: ['honestly'] }));
         const withoutWords = renderHook(() => useSessionMetrics({ ...custom, userWords: [] }));
         expect(withWords.result.current.fillerCount).toBe(2);   // "honestly" ×2
+        expect(withWords.result.current.fillerData.honestly?.count).toBe(2); // custom-word DETAIL row present
+        expect(getFillerTotal(withWords.result.current.fillerData)).toBe(2);
         expect(withoutWords.result.current.fillerCount).toBe(0); // no static fillers
     });
 
-    it('flag ON: Private finalize-replacement — the display filler drops to the clean recount', () => {
+    it('flag ON: Private finalize-replacement — live um:4 does NOT appear in the ON detail rows', () => {
         __setFillerRecountSsotForTests(true);
         const { result } = renderHook(() => useSessionMetrics(props));
-        expect(result.current.fillerCount).toBeLessThan(4); // 0, not the live 4
+        expect(result.current.fillerCount).toBe(0);           // 0, not the live 4
+        expect(result.current.fillerData.um?.count ?? 0).not.toBe(4); // no contradictory um:4 detail row
+        expect(getFillerTotal(result.current.fillerData)).toBe(0);
     });
 
     it('flag ON: Cloud overlap — double-counted live fillers collapse to the recount', () => {
@@ -204,6 +214,7 @@ describe('useSessionMetrics — Phase 5.8 APPLY: transcript-recount filler SSOT 
         const { result } = renderHook(() => useSessionMetrics(cloud));
         expect(result.current.fillerCount).toBe(countFillerWords(cloud.transcript).total.count); // 2 (so, basically)
         expect(result.current.fillerCount).toBe(2);
+        expect(getFillerTotal(result.current.fillerData)).toBe(2); // detail rows coherent with the count
     });
 
     it('clarity AND score consume the flag-selected filler source', () => {
