@@ -5,7 +5,7 @@ import {
   type FillerDivergenceInputs,
   type FillerDivergenceReport,
 } from '../fillerDivergence';
-import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { countFillerWords, type FillerCounts } from '@/utils/fillerWordUtils';
 
 const live = (count: number): FillerCounts => ({ total: { count, color: '' } });
 
@@ -110,5 +110,36 @@ describe('Phase 5.8 precursor — filler divergence measurement (numbers only)',
     expect(summary.byCategory['cloud-partial-overlap']).toBe(1);
     expect(summary.byCategory['live-counter-drift']).toBe(1);
     expect(summary.byCategory['match']).toBe(1);
+  });
+});
+
+describe('Phase 5.8 precursor — REAL-FINALIZATION basis: recount uses the save-selected finalTranscript', () => {
+  it('recounts over the SELECTED finalTranscript, not the live streaming transcript (Private replacement)', () => {
+    // The live counter tallied fillers off the garbled STREAMING transcript...
+    const liveStreamingTranscript = 'um um the um plan is uh basically uh ready';
+    const liveFillerCount = countFillerWords(liveStreamingTranscript).total.count; // what useFillerWords saw live
+    expect(liveFillerCount).toBeGreaterThan(0);
+
+    // ...but the SAVE-SELECTED final transcript is the clean whole-utterance re-decode:
+    const selectedFinalTranscript = 'the plan is ready for the board';
+
+    const report = measureFillerDivergence({
+      transcript: selectedFinalTranscript,                                   // the save/scoring basis
+      elapsedSeconds: 20,
+      liveFillerData: { total: { count: liveFillerCount, color: '' } },      // live counter (pre-correction)
+      engine: 'private',
+      selectedSource: 'service_result',
+      category: 'private-finalize-replacement',
+    });
+
+    // Recount reflects the CLEAN selected final transcript — NOT the live streaming count.
+    expect(report.recountFillerCount).toBe(countFillerWords(selectedFinalTranscript).total.count);
+    expect(report.recountFillerCount).toBe(0);
+    expect(report.liveFillerCount).toBe(liveFillerCount);
+    expect(report.liveFillerCount).toBeGreaterThan(report.recountFillerCount);
+    expect(report.delta).toBe(report.recountFillerCount - report.liveFillerCount);
+    expect(report.selectedSource).toBe('service_result');
+    // Had it (wrongly) recounted the streaming transcript, recount would equal live → delta 0. It must not.
+    expect(report.delta).not.toBe(0);
   });
 });

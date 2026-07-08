@@ -31,6 +31,8 @@ export interface FillerDivergenceInputs {
   userWords?: string[];
   /** Known category for fixtures; runtime sessions are 'unknown'. */
   category?: DivergenceCategory;
+  /** Which save-candidate the transcript came from (an enum tag, NOT text) — for real-session reports. */
+  selectedSource?: string;
 }
 
 export interface FillerDivergenceReport {
@@ -48,6 +50,8 @@ export interface FillerDivergenceReport {
   scoreDelta: number;
   usedCustomWords: boolean;
   category: DivergenceCategory;
+  /** Save-candidate source enum (e.g. 'service_result', 'committed_final') — NOT transcript text. */
+  selectedSource?: string;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -95,6 +99,7 @@ export function measureFillerDivergence(inputs: FillerDivergenceInputs): FillerD
     scoreDelta: round2(scoreRecount - scoreLive),
     usedCustomWords: userWords.length > 0,
     category: inputs.category ?? 'unknown',
+    selectedSource: inputs.selectedSource,
   };
 }
 
