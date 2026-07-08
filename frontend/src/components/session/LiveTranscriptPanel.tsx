@@ -5,6 +5,8 @@ import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSur
 import { splitSettledActiveTranscript, hasSevereRepetitionLoop, collapseRepeatedFinalForDisplay } from './liveTranscriptUtils';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 
 declare global {
     interface Window {
@@ -84,19 +86,17 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     recordingDurationSeconds = 0,
     nativeFormatting = { status: 'idle', startedAt: null },
 }) => {
-    // #891 honest finalize estimate: the post-Stop whole-utterance decode runs at ~0.27x realtime.
-    // Snapshot the recording length in a ref so a post-Stop reset to 0 can't zero the estimate
-    // mid-finalization. Null (no number) when unknown — better than a fixed/guessed time.
-    const PRIVATE_FINALIZE_RATE = 0.27;
-    // State (not a ref) so the estimate re-renders once the duration is known. Tracks the last
-    // non-zero recording length, surviving a post-Stop reset to 0.
+    // #34 honest finalize estimate: the post-Stop whole-utterance decode ≈ recordingSeconds × RTF, and
+    // RTF is ENGINE-specific (WASM v2 ~0.27, WebGPU v4 ~0.08, Native/Cloud ~none). The rate is learned
+    // from each engine's real decodes (see finalizeRateStore) — self-correcting, not a hardcoded v2
+    // constant — so v4 shows its true ~10s wait, not the old v2 ~33s. Snapshot the recording length in
+    // state so a post-Stop reset to 0 can't zero the estimate mid-finalization. Null = no number shown.
+    const activeEngineVersion = useSessionStore((s) => s.activeEngineVersion);
     const [lastRecordingSeconds, setLastRecordingSeconds] = React.useState(0);
     React.useEffect(() => {
         if (recordingDurationSeconds > 0) setLastRecordingSeconds(recordingDurationSeconds);
     }, [recordingDurationSeconds]);
-    const finalizeEstimateSeconds = lastRecordingSeconds > 0
-        ? Math.max(2, Math.round(lastRecordingSeconds * PRIVATE_FINALIZE_RATE))
-        : null;
+    const finalizeEstimateSeconds = estimateFinalizeSeconds(activeEngineVersion, lastRecordingSeconds);
     const internalContainerRef = React.useRef<HTMLDivElement>(null);
     const transcriptContainerRef = containerRef ?? internalContainerRef;
     // #772 DISPLAY-ONLY: in the settled (post-stop) view, collapse an exact whole-text

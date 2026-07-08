@@ -3,6 +3,7 @@ import { FillerCounts } from '@/utils/fillerWordUtils';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { SttStatus, HistorySegment } from '@/types/transcription';
+import type { FinalizeEngineKey } from '@/services/transcription/finalizeRateStore';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
@@ -39,6 +40,9 @@ export interface SessionState {
     sttMode: TranscriptionMode | null;
     modelLoadingProgress: number | null;
     activeEngine: TranscriptionMode | 'none' | null;
+    // #34 resolved finalize-rate key for the active engine (private_v2/private_v4/native/cloud),
+    // used to drive an engine-aware, self-correcting finalize-time estimate.
+    activeEngineVersion: FinalizeEngineKey | null;
     history: Array<HistorySegment>;
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
     frozenTranscriptAtStop: string | null;
@@ -61,6 +65,7 @@ interface SessionActions {
     setSTTStatus: (status: SttStatus) => void;
     setSTTMode: (mode: TranscriptionMode | null) => void;
     setActiveEngine: (engine: TranscriptionMode | 'none' | null) => void;
+    setActiveEngineVersion: (key: FinalizeEngineKey | null) => void;
     setModelLoadingProgress: (progress: number | null) => void;
     setStartTime: (time: number | null) => void;
     tick: () => void;
@@ -100,6 +105,7 @@ const initialState: SessionState = {
     sttMode: null,
     modelLoadingProgress: null,
     activeEngine: null,
+    activeEngineVersion: null,
     history: [],
     chunks: [],
     frozenTranscriptAtStop: null,
@@ -183,6 +189,7 @@ export const useSessionStore = create<SessionStore>((set) => {
             isListening: false,
             startTime: null,
             activeEngine: null,
+            activeEngineVersion: null,
             modelLoadingProgress: null,
             sttStatus: { type: 'idle', message: 'Ready to record' },
         });
@@ -261,6 +268,7 @@ export const useSessionStore = create<SessionStore>((set) => {
                     elapsedTime: 0,
                     startTime: null,
                     activeEngine: null,
+                    activeEngineVersion: null,
                     sessionSaved: false,
                     pauseMetrics: initialState.pauseMetrics,
                     sttStatus: { type: 'ready', message: 'Ready to record' } as SttStatus,
@@ -276,6 +284,12 @@ export const useSessionStore = create<SessionStore>((set) => {
         set((state) => {
             if (state.activeEngine === engine) return state;
             return { activeEngine: engine };
+        }),
+
+    setActiveEngineVersion: (key) =>
+        set((state) => {
+            if (state.activeEngineVersion === key) return state;
+            return { activeEngineVersion: key };
         }),
 
     setModelLoadingProgress: (progress) => {
