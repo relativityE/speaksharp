@@ -301,6 +301,9 @@ export const NATIVE_STT = {
   RESTART_MAX_ATTEMPTS: 3,
   RESTART_BASE_DELAY_MS: 100,
   RESTART_DEBOUNCE_MS: 300,
+  // #29 cold-start gate: conservative safety-net timeout to lift the "Getting mic ready…" cue if the
+  // real acoustic signal (onaudiostart/onspeechstart) never arrives. NOT the primary mechanism.
+  NATIVE_ACOUSTIC_READY_FALLBACK_MS: 1_500,
 } as const;
 
 export function secondsToSamples(
