@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
-import type { FillerDivergenceReport } from '@/services/telemetry/fillerDivergence';
+import type { FillerDivergenceReport, SanitizedFillerArtifact } from '@/services/telemetry/fillerDivergence';
 
 vi.mock('../../lib/logger', () => ({ default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('../../lib/storage', () => ({
@@ -52,5 +52,36 @@ describe('SpeechRuntimeController — filler divergence report (Phase 5.8 precur
     const keys = Object.keys(controller.getFillerDivergenceReport()!);
     expect(keys).not.toContain('transcript');
     expect(keys).not.toContain('text');
+  });
+
+  it('Step 1: sanitized filler artifact is exposed on the dev/test debug hook — numbers-only', () => {
+    const c = controller as unknown as { lastFillerArtifact: SanitizedFillerArtifact | null };
+
+    // Simulate the artifact cached at finalization (custom word already anonymized to custom_1).
+    const artifact: SanitizedFillerArtifact = {
+      engine: 'private', selectedSource: 'service_result',
+      liveFillerCount: 9, recountFillerCount: 3, delta: -6,
+      clarityLive: 10, clarityRecount: 62, clarityDelta: 52,
+      scoreLive: 2.9, scoreRecount: 4.8, scoreDelta: 1.9,
+      usedCustomWords: true,
+      liveDetail: { um: 4, so: 2, custom_1: 3 },
+      recountDetail: { um: 1, so: 1, custom_1: 1 },
+    };
+    c.lastFillerArtifact = artifact;
+
+    // In the test env the flag is ON → getter returns it.
+    expect(controller.getSanitizedFillerArtifact()).toEqual(artifact);
+
+    // Exposed on the dev/test debug hook.
+    const dbg = (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown> }).__SPEECH_RUNTIME_DEBUG__?.();
+    expect(dbg?.fillerDivergence).toEqual(artifact);
+
+    // Numbers/enum only — no transcript text, no raw custom-word text anywhere.
+    expect(JSON.stringify(artifact)).not.toContain('honestly');
+    // Every detail key is an allowlisted static filler label or an anonymized custom_N — never free text.
+    const allowed = /^(um|uh|ah|like|You Know|so|actually|oh|I Mean|basically|literally|Kind Of|Sort Of|custom_\d+|custom_other)$/;
+    for (const key of [...Object.keys(artifact.liveDetail), ...Object.keys(artifact.recountDetail)]) {
+      expect(key).toMatch(allowed);
+    }
   });
 });
