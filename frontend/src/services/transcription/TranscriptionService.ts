@@ -28,6 +28,7 @@ import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
 import { ENV } from '@/config/TestFlags';
 import { NATIVE_STT, PRIV_CLOUD_AUDIO } from './sttConstants';
+import { toFinalizeEngineKey, type FinalizeEngineKey } from './finalizeRateStore';
 import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
@@ -993,8 +994,13 @@ export default class TranscriptionService {
       this.options.onModeChange?.(mode);
       this.startWatchdog();
 
-      const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (mode: string) => void } }).getState?.();
-      if (state) state.setActiveEngine(mode);
+      const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (mode: string) => void; setActiveEngineVersion: (key: FinalizeEngineKey) => void } }).getState?.();
+      if (state) {
+        state.setActiveEngine(mode);
+        // #34: record the resolved engine (v2 vs v4 vs native/cloud) so the finalize-time estimate
+        // is engine-aware rather than a hardcoded v2 rate.
+        state.setActiveEngineVersion(toFinalizeEngineKey(this.strategy?.getEngineType()));
+      }
 
       this.isModeLocked = true; // 🔒 Lock intent upon successful engine start
     } catch (error) {

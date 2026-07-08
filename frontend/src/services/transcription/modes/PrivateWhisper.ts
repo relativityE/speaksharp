@@ -33,6 +33,7 @@
 import logger from '../../../lib/logger';
 import { redactTranscript } from '../../../lib/logRedaction';
 import { sanitizeTranscriptText } from '../transcriptSanitizer';
+import { recordFinalizeRate, toFinalizeEngineKey } from '../finalizeRateStore';
 import { detectRepetitionRisk } from '../../../utils/repetitionRisk';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
@@ -2323,6 +2324,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     // Branch 3: the model decode itself.
     this.finalizeDecodeMs = decodeMs;
+    // #34 durable finalize estimate: learn THIS engine's real RTF (decode ÷ utterance) from the
+    // actual decode, so the "Finalizing… ~Ns" label self-corrects per engine (v2 vs v4) instead of
+    // showing a hardcoded v2 rate.
+    {
+      const uttSeconds = audio.length / PRIVATE_STT_SAMPLE_RATE;
+      if (uttSeconds > 0) {
+        recordFinalizeRate(toFinalizeEngineKey(this.engineType), decodeMs / (uttSeconds * 1000));
+      }
+    }
     this.publishPrivateTiming();
     const rawText = result.isOk ? result.data : '';
     if (capturedAudioIndex !== null) {
