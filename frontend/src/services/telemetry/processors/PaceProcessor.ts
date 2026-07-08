@@ -3,22 +3,26 @@ import { calculateWpm } from '@/utils/sessionAnalysis';
 import { countWords } from './textMetrics';
 
 /**
- * Phase 5.3 — PaceProcessor (shadow).
+ * Phase 5.3/5.5 — PaceProcessor (shadow).
  *
  * Owns delivery.wpm. Reuses the existing pure `calculateWpm` (words ÷ seconds × 60) so the snapshot
- * value is byte-identical to today's number — the "single source" comes from ONLY this processor
- * calling it once, not from a new formula. Word count uses the app-wide convention.
+ * value is byte-identical to today's number. Duration is the authoritative session clock from
+ * `session.tick` (matching the legacy elapsedTime basis); before any tick arrives it falls back to the
+ * transcript event-timestamp span so pure-shadow runs still produce a sensible value.
  */
 export class PaceProcessor implements MetricProcessor {
   readonly name = 'pace';
   private finalText = '';
   private firstT: number | null = null;
   private lastT: number | null = null;
+  private elapsedSeconds: number | null = null;
 
   onEvent(event: TelemetryEvent): void {
     if (this.firstT === null) this.firstT = event.t;
     this.lastT = event.t;
-    if (event.type === 'transcript.final') {
+    if (event.type === 'session.tick') {
+      this.elapsedSeconds = event.elapsedSeconds;
+    } else if (event.type === 'transcript.final') {
       this.finalText = event.replacesRollingTranscript
         ? event.text
         : (this.finalText ? `${this.finalText} ${event.text}`.replace(/\s+/g, ' ').trim() : event.text);
@@ -26,7 +30,9 @@ export class PaceProcessor implements MetricProcessor {
   }
 
   getSnapshot(): MetricsSnapshotPatch {
-    const durationSeconds = this.firstT !== null && this.lastT !== null ? (this.lastT - this.firstT) / 1000 : 0;
+    const durationSeconds = this.elapsedSeconds !== null
+      ? this.elapsedSeconds
+      : this.firstT !== null && this.lastT !== null ? (this.lastT - this.firstT) / 1000 : 0;
     return { delivery: { wpm: calculateWpm(countWords(this.finalText), durationSeconds) } };
   }
 
@@ -34,5 +40,6 @@ export class PaceProcessor implements MetricProcessor {
     this.finalText = '';
     this.firstT = null;
     this.lastT = null;
+    this.elapsedSeconds = null;
   }
 }

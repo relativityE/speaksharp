@@ -22,6 +22,7 @@ export function createEmptyMetricsSnapshot(sessionId: string, mode: TelemetryMod
     sessionId,
     mode,
     updatedAt: 0,
+    elapsedSeconds: 0,
     transcript: {
       finalText: '',
       interimText: '',
