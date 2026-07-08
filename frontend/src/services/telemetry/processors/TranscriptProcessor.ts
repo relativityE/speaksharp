@@ -1,5 +1,5 @@
 import type { MetricProcessor, MetricsSnapshot, TelemetryEvent } from '../contracts';
-import { countWords, maxRunOnWords, transcriptConfidence } from './textMetrics';
+import { appendCommittedFinal, countWords, maxRunOnWords, transcriptConfidence } from './textMetrics';
 
 /**
  * Phase 5.2 — TranscriptProcessor.
@@ -16,9 +16,7 @@ export class TranscriptProcessor implements MetricProcessor {
 
   onEvent(event: TelemetryEvent): void {
     if (event.type === 'transcript.final') {
-      this.finalText = event.replacesRollingTranscript
-        ? event.text
-        : (this.finalText ? `${this.finalText} ${event.text}`.replace(/\s+/g, ' ').trim() : event.text);
+      this.finalText = appendCommittedFinal(this.finalText, event.text, event.replacesRollingTranscript);
       this.interimText = ''; // a committed final supersedes the pending interim window
     } else if (event.type === 'transcript.partial') {
       this.interimText = event.text;

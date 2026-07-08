@@ -38,9 +38,29 @@ describe('Phase 5 — MetricsEngine skeleton', () => {
 
   it('with ZERO processors it is a pure no-op (empty snapshot) — safe to wire in shadow', () => {
     const bus = new InMemoryTelemetryBus('s1');
-    const engine = new MetricsEngine(bus, [], 's1', 'private');
+    const engine = new MetricsEngine(bus, [], 's1', 'native');
     bus.publish(finalEvt('anything', 0));
-    expect(engine.getSnapshot()).toEqual({ ...createEmptyMetricsSnapshot('s1', 'private'), updatedAt: 100 });
+    expect(engine.getSnapshot()).toEqual({ ...createEmptyMetricsSnapshot('s1', 'native'), updatedAt: 100 });
+    engine.dispose();
+  });
+
+  it('#5.7 mode filter: ignores events from OTHER modes on the shared bus', () => {
+    const bus = new InMemoryTelemetryBus('s1');
+    const proc = new CountingProcessor();
+    const spy = vi.spyOn(proc, 'onEvent');
+    const engine = new MetricsEngine(bus, [proc], 's1', 'private'); // a PRIVATE session
+
+    // Cross-mode traffic on the shared bus must be ignored...
+    bus.publish(finalEvt('native words', 0)); // mode: 'native'
+    bus.publish({ type: 'audio.frame', mode: 'cloud', t: 5, sampleRate: 16000, frame: new Float32Array(4) });
+    bus.publish({ type: 'session.tick', mode: 'native', t: 6, elapsedSeconds: 3 });
+    expect(spy).not.toHaveBeenCalled();
+    expect(engine.getSnapshot().engine.finalCount).toBe(0);
+
+    // ...while this engine's own mode is processed normally.
+    bus.publish({ type: 'transcript.final', mode: 'private', t: 7, text: 'mine', sequence: 1, replacesRollingTranscript: true });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(engine.getSnapshot().engine.finalCount).toBe(1);
     engine.dispose();
   });
 

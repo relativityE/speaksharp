@@ -1,6 +1,6 @@
 import type { MetricProcessor, MetricsSnapshotPatch, TelemetryEvent } from '../contracts';
 import { calculateWpm } from '@/utils/sessionAnalysis';
-import { countWords } from './textMetrics';
+import { appendCommittedFinal, countWords } from './textMetrics';
 
 /**
  * Phase 5.3/5.5 — PaceProcessor (shadow).
@@ -23,9 +23,7 @@ export class PaceProcessor implements MetricProcessor {
     if (event.type === 'session.tick') {
       this.elapsedSeconds = event.elapsedSeconds;
     } else if (event.type === 'transcript.final') {
-      this.finalText = event.replacesRollingTranscript
-        ? event.text
-        : (this.finalText ? `${this.finalText} ${event.text}`.replace(/\s+/g, ' ').trim() : event.text);
+      this.finalText = appendCommittedFinal(this.finalText, event.text, event.replacesRollingTranscript);
     }
   }
 

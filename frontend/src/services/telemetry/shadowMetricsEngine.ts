@@ -30,25 +30,39 @@ export function toTelemetryMode(mode: string | null | undefined): TelemetryMode 
   return mode === 'native' || mode === 'private' || mode === 'cloud' ? mode : null;
 }
 
+export interface ShadowEngineOptions {
+  /** Session custom filler words — so the shadow filler count honors user words like the live/save paths. */
+  userWords?: string[];
+  /** Session/recording start timestamp (performance.now() basis) — anchors pause timing to legacy. */
+  sessionStartT?: number;
+}
+
 /**
  * Build the full-stack shadow engine (all tier-1 processors + tier-2 derivers), subscribed to the
  * session bus. Returns null in production so callers do no work. Caller owns dispose().
  */
-export function createShadowMetricsEngine(sessionId: string, mode: TelemetryMode): MetricsEngine | null {
+export function createShadowMetricsEngine(
+  sessionId: string,
+  mode: TelemetryMode,
+  opts: ShadowEngineOptions = {},
+): MetricsEngine | null {
   if (!isShadowMetricsEngineEnabled()) return null;
   return new MetricsEngine(
     getSessionTelemetryBus(),
     [
       new TranscriptProcessor(),
       new NativeLifecycleProcessor(),
-      new FillerProcessor(),
+      new FillerProcessor(opts.userWords ?? []),
       new PaceProcessor(),
-      new PauseProcessor(),
-      new AudioQualityProcessor(),
+      new PauseProcessor(opts.sessionStartT),
+      new AudioQualityProcessor(opts.sessionStartT),
       new SessionProcessor(),
     ],
     sessionId,
     mode,
     [new ClarityProcessor(), new ScoreProcessor()],
+    // PROVISIONAL: capture events of any mode until the controller confirms the actual negotiated mode
+    // via bindMode(). This prevents dropping early fallback-mode events when the requested mode differs.
+    false,
   );
 }

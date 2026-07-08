@@ -434,17 +434,21 @@ export default class TranscriptionService {
             textLength: (data.transcript.final || data.transcript.partial || '').length,
           }, '[PRIVATE_TRACE] service_transcript_callback');
         }
+        // Capture intent BEFORE processTranscript (which sanitizes/merges and may blank the raw fields).
+        const hadFinal = typeof data.transcript.final === 'string' && data.transcript.final.trim().length > 0;
+        const hadPartial = typeof data.transcript.partial === 'string';
         // Deliver the transcript to the app FIRST — the shadow diagnostic below never precedes it.
         this.processTranscript(data);
-        // #891 Phase 5.6 (SHADOW, PASSIVE): AFTER the app-facing emission, mirror Native's telemetry for
-        // the app-mic modes (Native self-publishes in NativeBrowser). Gated on the shadow flag so
-        // production publishes nothing and adds no latency; publishTelemetry also swallows all errors.
+        // #891 Phase 5.6/5.7 (SHADOW, PASSIVE): AFTER the app-facing emission, mirror the APP-FACING
+        // committed transcript for the app-mic modes (Native self-publishes in NativeBrowser). We publish
+        // `this.currentTranscript` — the post sanitize/merge/dedupe text the store sees, NOT the raw
+        // segment — marked replacesRollingTranscript so TranscriptProcessor REPLACES (never re-accumulates
+        // overlapping finals → no double-count). Gated on the shadow flag; publishTelemetry swallows errors.
         if (isShadowMetricsEngineEnabled() && (this.mode === 'private' || this.mode === 'cloud')) {
-          const tr = data.transcript;
-          if (typeof tr.final === 'string' && tr.final.length > 0) {
-            publishTelemetry({ type: 'transcript.final', mode: this.mode, t: performance.now(), text: tr.final, sequence: this.telemetrySeq++, replacesRollingTranscript: tr.replacesRollingTranscript ?? false });
-          } else if (typeof tr.partial === 'string') {
-            publishTelemetry({ type: 'transcript.partial', mode: this.mode, t: performance.now(), text: tr.partial, sequence: this.telemetrySeq++ });
+          if (hadFinal) {
+            publishTelemetry({ type: 'transcript.final', mode: this.mode, t: performance.now(), text: this.currentTranscript, sequence: this.telemetrySeq++, replacesRollingTranscript: true });
+          } else if (hadPartial) {
+            publishTelemetry({ type: 'transcript.partial', mode: this.mode, t: performance.now(), text: this.partialTranscript, sequence: this.telemetrySeq++ });
           }
         }
       },
