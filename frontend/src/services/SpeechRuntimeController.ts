@@ -7,9 +7,10 @@ import { resolvePrivateModel } from '@/services/transcription/utils/privateModel
 import { getV4FlagState } from '@/services/transcription/privateV4Flags';
 import { isPrivateEngineOverrideActive } from '@/services/transcription/engines/PrivateSTT';
 import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
-import { createShadowMetricsEngine, toTelemetryMode } from '@/services/telemetry/shadowMetricsEngine';
+import { createShadowMetricsEngine, toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
+import { measureFillerDivergence, cloneFillerCounts, type FillerDivergenceReport } from '@/services/telemetry/fillerDivergence';
 import {
     PRIVATE_SAMPLE_EVENTS,
     emitPrivateSample,
@@ -294,6 +295,10 @@ export class SpeechRuntimeController {
     private sessionId: string | null = null;
     /** #891 Phase 5.6: shadow MetricsEngine (dev/test only; null in production). */
     private shadowEngine: MetricsEngine | null = null;
+    /** #891 Phase 5.8 precursor: live filler counts snapshotted at STOP-entry, before finalize corrects the store. */
+    private liveFillerDataAtStop: FillerCounts | null = null;
+    /** #891 Phase 5.8 precursor: filler divergence computed at finalization (over the selected save transcript), cached so it survives shadow-engine disposal. */
+    private lastFillerDivergenceReport: FillerDivergenceReport | null = null;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
     private readonly MAX_HEARTBEAT_FAILURES = 3;
@@ -1487,6 +1492,8 @@ export class SpeechRuntimeController {
     private startShadowMetricsEngine(sessionId: string, mode: string | null): void {
         try {
             this.disposeShadowMetricsEngine();
+            this.liveFillerDataAtStop = null;
+            this.lastFillerDivergenceReport = null;
             const tmode = toTelemetryMode(mode);
             if (!tmode) return;
             safeResetSessionTelemetry(sessionId);
@@ -1560,6 +1567,16 @@ export class SpeechRuntimeController {
             userWords: this.userWords,
         });
         return compareSnapshotToLegacy(snapshot, legacy);
+    }
+
+    /**
+     * #891 Phase 5.8 PRECURSOR (SHADOW): the filler divergence report computed AT FINALIZATION over the
+     * save-selected finalTranscript (live counter snapshotted before the finalize store-correction). Cached,
+     * so it does NOT depend on the shadow engine still being alive after stop. Numbers only — no transcript
+     * text. Diagnostics/tests only; drives no cutover and changes no product behavior.
+     */
+    public getFillerDivergenceReport(): FillerDivergenceReport | null {
+        return this.lastFillerDivergenceReport;
     }
 
     private logShadowParity(): void {
@@ -1993,6 +2010,12 @@ export class SpeechRuntimeController {
                 if (wasRecording) {
                     let sessionId = this.sessionId;
                     const startTime = service.getStartTime();
+                    // #891 Phase 5.8 precursor (SHADOW): snapshot the LIVE filler counts NOW, before
+                    // stopTranscription()'s committed final can re-correct/normalize the store transcript
+                    // (and any downstream filler recompute). This is the "live counter" side of the divergence.
+                    // DEFENSIVE DEEP COPY: the store may later mutate/replace fillerData in place, so clone the
+                    // counts — the snapshot must not drift afterward.
+                    this.liveFillerDataAtStop = cloneFillerCounts(useSessionStore.getState().fillerData) ?? null;
                     result = await service.stopTranscription();
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
@@ -2134,6 +2157,24 @@ export class SpeechRuntimeController {
                         const saveCandidateReason = selectedCandidate.source;
                         this.transcriptLifecycle.selectedTranscriptForSave = finalTranscript || null;
                         this.transcriptLifecycle.selectedTranscriptSource = saveCandidateReason;
+                        // #891 Phase 5.8 precursor (SHADOW, dev-only): measure the LIVE filler counter
+                        // (snapshotted at stop-entry) vs the RECOUNT over the SAVE-SELECTED finalTranscript —
+                        // the exact transcript + duration the save/scoring path uses — and CACHE it so the
+                        // report survives shadow-engine disposal. Numbers only; no transcript text; no cutover.
+                        if (isShadowMetricsEngineEnabled()) {
+                            try {
+                                this.lastFillerDivergenceReport = measureFillerDivergence({
+                                    transcript: finalTranscript,
+                                    elapsedSeconds: duration,
+                                    liveFillerData: this.liveFillerDataAtStop,
+                                    engine: modeForFinalization ?? undefined,
+                                    userWords: this.userWords,
+                                    selectedSource: saveCandidateReason,
+                                });
+                            } catch {
+                                /* diagnostics must never affect the save path */
+                            }
+                        }
                         const meaningfulTranscript = finalTranscript
                             .replace(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi, '')
                             .trim();
