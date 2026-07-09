@@ -140,11 +140,13 @@ Export one PDF; attach to [`beta50_2026-07-09/`](beta50_2026-07-09/). Verify: **
 
 ---
 
-## 9. Cohort-specific paths (only if in the first 50)
+## 9. Cohort-specific paths — **REQUIRED** 🧑‍🔬 (Beta-50 scope = **ALL THREE PATHS**, owner decision 2026-07-09)
 
-**Pro Cloud** (only if Pro/Cloud users included): Free user cannot access Cloud · Pro can select Cloud · Cloud recording works · finalization works · saves · Analytics opens · PDF exports.
+Owner picked **Option D**: Free/Browser + Pro Cloud + Private are all in scope for the first 50. Both cohort paths below are **gating** (not optional). Requires **two test accounts**: a **Free** account and a **Pro** account whose Pro is a *real* `stripe_subscription_id` (DB `subscription_status='pro'` alone is NOT effective Pro — verify the sub id before treating the account as Pro).
 
-**Private setup/sample** (only if Private advertised): approved wording (e.g. `Set up Private`) · setup progress understandable · ready state clear · failure/fallback copy clear · Private session works after setup.
+**Pro Cloud** (required): Free user **cannot** access Cloud (gating enforced) · Pro can select Cloud · Cloud recording works · finalization works · session saves · Analytics opens · PDF exports. Screenshot each; note Cloud provider cue.
+
+**Private setup/sample** (required): approved wording (e.g. `Set up Private`) · setup progress understandable · ready state clear · failure/fallback copy clear · Private session works after setup · runs-on-your-device cue present. Screenshot setup → ready → session.
 
 ---
 
@@ -216,6 +218,8 @@ Report Issue can't be submitted/retrieved · signup→record→save→Analytics 
 | Report Issue triage visible | ✅ path proven / ⏳ live row | `issue-triage.yml` green | no (path) | Dev |
 | Filler SSOT consistency | ⏳ PENDING (code ✅) | Run D | **gating** | QA + Dev |
 | PDF export proof | ⏳ PENDING (watermark test ✅) | Run E | **gating** | QA |
+| Pro Cloud path (scope D) | ⏳ PENDING | §9 Cloud (needs Pro w/ real stripe sub) | **gating** | QA + Dev |
+| Private setup/sample path (scope D) | ⏳ PENDING | §9 Private | **gating** | QA |
 | Console/network logs reviewed | ⏳ PENDING | §10 | **gating** | QA + Dev |
 | Sentry reviewed | ✅ deployed / ⏳ QA-window | §11 | no | Dev |
 | PostHog funnel reviewed | ✅ PASS | §2 events | no | Dev |
