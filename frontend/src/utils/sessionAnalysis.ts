@@ -64,6 +64,37 @@ export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | F
     return typeof persistedTotal === 'number' ? persistedTotal : sumFillerCounts(fillerWords);
 };
 
+/**
+ * #SSOT: is this a USABLE canonical filler-counts object? A valid ZERO count is usable (must stay zero);
+ * only null / non-object / empty {} / malformed (no numeric total and no numeric entry) is NOT usable —
+ * that is the ONLY case where a transcript-recount fallback is allowed. Never falls back merely because a
+ * recount would be larger.
+ */
+export const isUsableFillerCounts = (
+    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+): boolean => {
+    if (!fillerWords || typeof fillerWords !== 'object') return false;
+    const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
+    if (typeof total === 'number' && Number.isFinite(total)) return true;
+    // No numeric total: usable only if it carries at least one entry with a finite numeric count.
+    return Object.values(fillerWords as Record<string, { count?: unknown }>).some(
+        (v) => !!v && typeof v === 'object' && Number.isFinite((v as { count?: unknown }).count as number),
+    );
+};
+
+/**
+ * #SSOT: normalize an accepted canonical filler-counts object so it ALWAYS exposes a numeric `total.count`.
+ * `isUsableFillerCounts` accepts a detail-only object (e.g. `{ um: { count: 1 } }`), but downstream readers
+ * (controller ANALYSIS_COMPLETE) read `fillerWords.total.count` directly. Normalizing here guarantees a
+ * `total` so those reads never crash. If a numeric total already exists it is returned unchanged (identity
+ * preserved); otherwise `total.count` = sum of the non-total entries.
+ */
+export const normalizeFillerCounts = (fillerWords: FillerCounts): FillerCounts => {
+    const existingTotal = fillerWords?.total?.count;
+    if (typeof existingTotal === 'number' && Number.isFinite(existingTotal)) return fillerWords;
+    return { ...fillerWords, total: { count: sumFillerCounts(fillerWords), color: fillerWords?.total?.color ?? '' } };
+};
+
 export const calculateWpm = (wordCount: number, durationSeconds: number): number =>
     durationSeconds > 0 ? Math.round((wordCount / durationSeconds) * 60) : 0;
 
@@ -199,9 +230,12 @@ export const calculateCoreSessionMetrics = ({
 }: CoreSessionMetricsInput): CoreSessionMetrics => {
     const normalizedFillerData = fillerData as FillerCounts | null | undefined;
     const hasSuppliedFillerData = normalizedFillerData && Object.keys(normalizedFillerData).length > 0;
-    const derivedFillerData = hasSuppliedFillerData
-        ? normalizedFillerData
-        : countFillerWords(transcript, userWords);
+    // #SSOT: normalize so the returned fillerData ALWAYS exposes total.count — a supplied detail-only
+    // canonical object (e.g. `{ um: { count: 1 } }`) would otherwise crash the controller's direct
+    // `fillerWords.total.count` read at ANALYSIS_COMPLETE.
+    const derivedFillerData = normalizeFillerCounts(
+        (hasSuppliedFillerData ? normalizedFillerData : countFillerWords(transcript, userWords)) as FillerCounts,
+    );
     const wordCount = countTranscriptWords(transcript);
     const wpm = calculateWpm(wordCount, durationSeconds);
     const fillerCount = getFillerTotal(derivedFillerData);
@@ -236,12 +270,13 @@ const getCustomWordList = (customWords: PracticeSession['custom_words']): string
 };
 
 export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSessionMetrics => {
-    const persistedFillerCount = getFillerTotal(session.filler_words);
+    // #SSOT: persisted canonical (live) filler data is authoritative. Recount the transcript ONLY when the
+    // persisted filler data is missing/malformed — NEVER merely because a recount is larger. A valid
+    // persisted zero stays zero (previous behavior wrongly took max(persisted, recount) and inflated it).
     const customWordsList = getCustomWordList(session.custom_words);
-    const transcriptFillerData = countFillerWords(session.transcript || '', customWordsList);
-    const transcriptFillerCount = getFillerTotal(transcriptFillerData);
-    const shouldUseTranscriptFillers = transcriptFillerCount > persistedFillerCount;
-    const fillerData = shouldUseTranscriptFillers ? transcriptFillerData : session.filler_words;
+    const fillerData = isUsableFillerCounts(session.filler_words)
+        ? session.filler_words
+        : countFillerWords(session.transcript || '', customWordsList);
     const metrics = calculateCoreSessionMetrics({
         transcript: session.transcript || '',
         durationSeconds: session.duration || 0,

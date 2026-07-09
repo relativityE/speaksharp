@@ -176,7 +176,7 @@ export const useSessionLifecycle = () => {
         chunks: chunks as unknown as Array<{ transcript: string; timestamp: number }>, // Cast to structural match to avoid strict Chunk mismatch
         fillerData: fillerData as FillerCounts,
         elapsedTime,
-        userWords: userFillerWords, // #891 Phase 5.8 APPLY: custom words for the recount path (flag ON)
+        userWords: userFillerWords, // accepted for compat; live filler count is canonical (no recount source-routing)
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {

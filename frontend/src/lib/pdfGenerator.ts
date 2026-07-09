@@ -6,7 +6,7 @@ import { format, parseISO } from 'date-fns';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
-import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { getSessionAnalysisMetrics, isUsableFillerCounts } from '@/utils/sessionAnalysis';
 import { calculateSpeakingScore } from '@/utils/speakingScore';
 
 // A more specific type for the internal, undocumented API
@@ -53,9 +53,13 @@ const formatDuration = (seconds: number): string => {
   return `${minutes} minute${minutes === 1 ? '' : 's'} ${remainingSeconds} second${remainingSeconds === 1 ? '' : 's'}`;
 };
 
-const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
-  const savedTableData = getFillerTableData(session.filler_words);
-  if (savedTableData.length > 0) return savedTableData as Array<[string, number]>;
+export const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
+  // #SSOT: persisted canonical filler data is authoritative. When it exists (even a valid ZERO), use it
+  // and DO NOT recount — a saved zero must render as no fillers. Recount the transcript ONLY when the
+  // saved filler data is absent/malformed.
+  if (isUsableFillerCounts(session.filler_words)) {
+    return getFillerTableData(session.filler_words) as Array<[string, number]>;
+  }
 
   const transcript = session.transcript?.trim();
   if (!transcript) return [];
