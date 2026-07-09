@@ -1,4 +1,4 @@
-import { render, screen } from '../../../../tests/support/test-utils';
+import { fireEvent, render, screen } from '../../../../tests/support/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { LiveCoachingScoreCard } from '../LiveCoachingScoreCard';
 import { SESSION_COACHING_EXPERIMENT_FLAG } from '@/services/sessionCoachingExperiment';
@@ -19,7 +19,7 @@ describe('LiveCoachingScoreCard', () => {
         flag: SESSION_COACHING_EXPERIMENT_FLAG,
     };
 
-    it('explains that live analytics roll up into the SpeakSharp Score', () => {
+    it('keeps score explanations out of the default view and behind accessible help', () => {
         render(
             <LiveCoachingScoreCard
                 transcript="Today I want to make one clear point because the team needs a simple plan with one concrete example."
@@ -43,17 +43,35 @@ describe('LiveCoachingScoreCard', () => {
             />
         );
 
+        // Visible by default: heading, score value, confidence chip, and the "Try this now" actions.
         expect(screen.getByText('SpeakSharp Score*')).toBeInTheDocument();
+        expect(screen.getByTestId('live-session-score')).toBeInTheDocument();
+        expect(screen.getByTestId('live-score-confidence')).toBeInTheDocument();
+        expect(screen.getByText('Try this now')).toBeInTheDocument();
+
+        // The wordy explanation, breakdown, and footnote are NOT default-visible.
+        expect(screen.queryByText(/visible tools roll up into one coaching score/i)).toBeNull();
+        expect(screen.queryByText(/Improve the ingredients/i)).toBeNull();
+        expect(screen.queryByText('Why this score moved')).toBeNull();
+        expect(screen.queryByText(/not a black box/i)).toBeNull();
+        expect(screen.queryByText(/SpeakSharp Score is a directional practice signal/i)).toBeNull();
+        // Canonical naming: Audience Impact, never Listener Takeaway.
+        expect(screen.queryByText(/Listener Takeaway/i)).toBeNull();
+
+        // ...but they remain available through the accessible help affordance.
+        const helpTrigger = screen.getByTestId('score-help');
+        expect(helpTrigger).toBeInTheDocument();
+        fireEvent.click(helpTrigger);
+
         expect(screen.getByText(/visible tools roll up into one coaching score/i)).toBeInTheDocument();
         expect(screen.getByText(/Improve the ingredients/i)).toBeInTheDocument();
         expect(screen.getByText('Why this score moved')).toBeInTheDocument();
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Structure from transcript');
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Pace, fillers, pauses');
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Clarity signal');
+        expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Audience Impact');
         expect(screen.getByText(/not a black box/i)).toBeInTheDocument();
-        expect(screen.getByText(/transparent rollup of the live signals/i)).toBeInTheDocument();
         expect(screen.getByText(/SpeakSharp Score is a directional practice signal/i)).toBeInTheDocument();
-        expect(screen.getByText(/progress over time matters more than one exact number/i)).toBeInTheDocument();
     });
 
     it('does not show a precise numeric score while the signal is only directional', () => {
@@ -137,6 +155,9 @@ describe('LiveCoachingScoreCard', () => {
                 experimentAssignment={assignment}
             />
         );
+        // The trust caveat now lives in help (not a default-visible paragraph).
+        expect(screen.queryByText(/Transcript quality .* affects how confidently the score is shown/i)).toBeNull();
+        fireEvent.click(screen.getByTestId('score-help'));
         expect(screen.getByText(/Transcript quality .* affects how confidently the score is shown/i)).toBeInTheDocument();
     });
 
@@ -159,8 +180,10 @@ describe('LiveCoachingScoreCard', () => {
                 experimentAssignment={assignment}
             />
         );
-        // Native is capped at directional (no precise number) and shows the filler caveat.
+        // Native is capped at directional (no precise number); the filler caveat lives in help.
         expect(screen.getByTestId('live-session-score')).toHaveTextContent('--');
+        expect(screen.queryByTestId('live-score-quality-caveat')).toBeNull();
+        fireEvent.click(screen.getByTestId('score-help'));
         expect(screen.getByTestId('live-score-quality-caveat')).toHaveTextContent(/filler/i);
     });
 
