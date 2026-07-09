@@ -37,7 +37,7 @@ import { pushE2EEvent } from '@/lib/e2eProbe';
 import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts, countFillerWords } from '@/utils/fillerWordUtils';
-import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
+import { calculateCoreSessionMetrics, getFillerTotal, isUsableFillerCounts } from '@/utils/sessionAnalysis';
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
@@ -2345,16 +2345,26 @@ export class SpeechRuntimeController {
                             store.setSessionSaved(false);
                             result = null;
                         } else {
+                            // #SSOT (Product Owner decision): the LIVE filler counter is canonical. Use the
+                            // deep-cloned live snapshot captured at stop-entry (liveFillerDataAtStop, before
+                            // any recompute) as the saved filler count/data + the clarity/score filler input.
+                            // Word count/WPM still come from the final transcript. The transcript recount is
+                            // DIAGNOSTIC/FALLBACK ONLY — used just when the live snapshot is absent/malformed.
+                            const canonicalLiveFillers = isUsableFillerCounts(this.liveFillerDataAtStop)
+                                ? this.liveFillerDataAtStop
+                                : undefined;
+                            if (!canonicalLiveFillers) {
+                                logger.warn(
+                                    { sessionId, mode: stopEntryMode },
+                                    '[filler-ssot] live filler snapshot absent/malformed at save — falling back to transcript recount (diagnostic)',
+                                );
+                            }
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,
-                                // STT-P1: derive the saved/scored filler count from the FINAL
-                                // transcript, NOT the live store.fillerData — the live count is
-                                // accumulated incrementally and can be stale/undercount (e.g. a
-                                // saved "Umm" reported um:0). calculateCoreSessionMetrics re-counts
-                                // via countFillerWords when fillerData is omitted, so the count
-                                // matches the authoritative saved transcript ("Umm" -> "um").
-                                fillerData: undefined,
+                                // Canonical live snapshot → filler count/data + clarity; undefined only on the
+                                // fallback path, where calculateCoreSessionMetrics recounts the final transcript.
+                                fillerData: canonicalLiveFillers,
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;
