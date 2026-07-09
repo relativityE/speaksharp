@@ -199,7 +199,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                 <span>{formatBreakdown(result.breakdown.languageClarity)}</span>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <span>Audience impact</span>
+                                <span>Audience Impact</span>
                                 <span>{formatBreakdown(result.breakdown.audienceImpact)}</span>
                             </div>
                         </div>
