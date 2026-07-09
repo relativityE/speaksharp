@@ -33,6 +33,11 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     const [open, setOpen] = React.useState(false);
     const rootRef = React.useRef<HTMLSpanElement>(null);
     const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    // A click/tap "pins" the popover open so a subsequent hover-out or blur doesn't
+    // dismiss it. Hover and focus open transiently (close when the pointer leaves /
+    // focus moves); Escape and outside-click always close and un-pin. This avoids the
+    // hover-then-click race where opening on hover and toggling on click cancel out.
+    const pinnedRef = React.useRef(false);
 
     const cancelClose = React.useCallback(() => {
         if (closeTimer.current) {
@@ -41,8 +46,15 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         }
     }, []);
 
+    const close = React.useCallback(() => {
+        cancelClose();
+        pinnedRef.current = false;
+        setOpen(false);
+    }, [cancelClose]);
+
     // Small delay so moving the pointer from trigger to panel doesn't dismiss it.
     const scheduleClose = React.useCallback(() => {
+        if (pinnedRef.current) return;
         cancelClose();
         closeTimer.current = setTimeout(() => setOpen(false), 120);
     }, [cancelClose]);
@@ -52,10 +64,10 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     React.useEffect(() => {
         if (!open) return;
         const onDocPointer = (e: MouseEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+            if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
         };
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setOpen(false);
+            if (e.key === 'Escape') close();
         };
         document.addEventListener('mousedown', onDocPointer);
         document.addEventListener('keydown', onKey);
@@ -63,7 +75,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
             document.removeEventListener('mousedown', onDocPointer);
             document.removeEventListener('keydown', onKey);
         };
-    }, [open]);
+    }, [open, close]);
 
     return (
         <span
@@ -78,7 +90,15 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
                 aria-expanded={open}
                 aria-haspopup="dialog"
                 data-testid={testId}
-                onClick={() => setOpen((v) => !v)}
+                onClick={() => {
+                    if (pinnedRef.current) {
+                        close();
+                    } else {
+                        pinnedRef.current = true;
+                        cancelClose();
+                        setOpen(true);
+                    }
+                }}
                 onFocus={() => { cancelClose(); setOpen(true); }}
                 onBlur={scheduleClose}
                 className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-foreground/45 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${triggerClassName}`}

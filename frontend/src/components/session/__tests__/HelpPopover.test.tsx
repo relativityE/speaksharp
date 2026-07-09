@@ -44,6 +44,19 @@ describe('HelpPopover', () => {
         expect(screen.getByText(/Detailed explanation lives here/i)).toBeInTheDocument();
     });
 
+    it('stays open when hover is immediately followed by a click (real-browser sequence)', () => {
+        // Regression: a real click hovers first (opens), then clicks. A naive toggle
+        // would close it again. The pinned-open behavior must keep it visible.
+        renderHelp();
+        const trigger = screen.getByTestId('demo-help');
+        fireEvent.mouseEnter(trigger.parentElement as HTMLElement);
+        fireEvent.click(trigger);
+        expect(screen.getByText(/Detailed explanation lives here/i)).toBeInTheDocument();
+        // And a hover-out does not dismiss a pinned (clicked) popover.
+        fireEvent.mouseLeave(trigger.parentElement as HTMLElement);
+        expect(screen.getByText(/Detailed explanation lives here/i)).toBeInTheDocument();
+    });
+
     it('closes on Escape', () => {
         renderHelp();
         const trigger = screen.getByTestId('demo-help');
