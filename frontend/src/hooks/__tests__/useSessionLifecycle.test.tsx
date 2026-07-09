@@ -288,6 +288,71 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         }, { timeout: 2000 });
     });
 
+    it('caps a Private recording at 5 minutes / 300s (auto-stops past the per-recording cap, independent of budget)', async () => {
+        // #891 beta recording length = 5 min. Generous usage budget so ONLY the 5-min cap can trigger the stop.
+        const mockLimit: UsageLimitCheck = {
+            daily_remaining: 99999,
+            daily_limit: 99999,
+            monthly_remaining: 99999,
+            monthly_limit: 99999,
+            remaining_seconds: 99999,
+            can_start: true,
+            subscription_status: 'pro',
+            is_pro: true,
+            streak_count: 0,
+        };
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: true,
+            elapsedTime: 301, // past the 300s (5-min) per-recording cap
+            startTime: Date.now() - 301000,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: mockLimit,
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        }, { timeout: 2000 });
+    });
+
     it('should NOT trigger stop when time remains', () => {
         const mockStore = createTestSessionStore({
             elapsedTime: 25,

@@ -1,0 +1,74 @@
+name: DB Phase 1+2 cleanup — normalize 42 + delete 184 (gated)
+
+# PRODUCTION cleanup acting on the EXACT hygiene-audit classification (single source of truth):
+#   Phase 1: classification=NORMALIZE -> subscription_status='free'   (separate guard, expected 42)
+#   Phase 2: classification=DELETE    -> delete auth user by id        (separate guard, expected 184)
+# Never touches KEEP or INVESTIGATE. Phase 2 refuses any Stripe-linked or real-domain row. Fail-closed:
+# exact confirm phrase, dry-run default, both guards must match before ANY write, backup CSV first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (guards + backup, no writes) or apply"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      confirm:
+        description: "Type CLEANUP-NORMALIZE-DELETE to authorize"
+        type: string
+        required: true
+      normalize_expected:
+        description: "Exact NORMALIZE rows expected (Phase 1)"
+        type: string
+        default: "42"
+      delete_expected:
+        description: "Exact DELETE rows expected (Phase 2)"
+        type: string
+        default: "184"
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: Phase 1+2 cleanup (gated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify confirm phrase (fail-closed)
+        if: ${{ inputs.confirm != 'CLEANUP-NORMALIZE-DELETE' }}
+        run: |
+          echo "::error::confirm phrase mismatch — aborting without any DB access."
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run Phase 1+2 cleanup
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NORMALIZE_EXPECTED: ${{ inputs.normalize_expected }}
+          DELETE_EXPECTED: ${{ inputs.delete_expected }}
+          DRY_RUN: ${{ inputs.mode == 'apply' && '0' || '1' }}
+          # Reviewer/CI emails feed the classifier's KEEP set (must match the audit exactly).
+          CANARY_EMAIL: ${{ secrets.CANARY_EMAIL || vars.CANARY_EMAIL }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL || vars.PRO_TEST_EMAIL }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL || vars.BASIC_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || vars.FREE_TEST_EMAIL }}
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL || vars.E2E_PRO_EMAIL }}
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL || vars.E2E_FREE_EMAIL }}
+          E2E_BASIC_EMAIL: ${{ secrets.E2E_BASIC_EMAIL || vars.E2E_BASIC_EMAIL }}
+        run: node scripts/db-phase1and2-cleanup.mjs
+
+      - name: Upload affected-rows backup (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-phase1and2-backup
+          path: db-phase1and2-backup.csv
+          retention-days: 30
+          if-no-files-found: ignore

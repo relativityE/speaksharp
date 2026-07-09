@@ -1191,7 +1191,7 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
             streamStartAtMs: null, speechStartAtMs: null,
             firstProvisionalAtMs: null, firstFinalAtMs: null, finalizeDecodeMs: null,
             finalizeWaitMs: null, finalizePrepMs: null,
-            utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 1234,
+            utteranceSampleCount: 0, decodedSampleCount: 0, peakBufferedSamples: 0, nowMs: 1234,
         });
         expect(s.anchor).toBeNull();
         expect(s.timeToFirstProvisionalMs).toBeNull();
@@ -1209,7 +1209,7 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
             streamStartAtMs: 1000, speechStartAtMs: 1500,
             firstProvisionalAtMs: 2500, firstFinalAtMs: 4500, finalizeDecodeMs: 800,
             finalizeWaitMs: 9962, finalizePrepMs: 120,
-            utteranceSampleCount: SR, peakBufferedSamples: 3 * SR, nowMs: 9000,
+            utteranceSampleCount: SR, decodedSampleCount: SR, peakBufferedSamples: 3 * SR, nowMs: 9000,
         });
         expect(s.anchor).toBe('speech');
         expect(s.timeToFirstProvisionalMs).toBe(1000); // 2500 - 1500
@@ -1226,7 +1226,7 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
             streamStartAtMs: 1000, speechStartAtMs: null,
             firstProvisionalAtMs: 2000, firstFinalAtMs: null, finalizeDecodeMs: null,
             finalizeWaitMs: null, finalizePrepMs: null,
-            utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 5000,
+            utteranceSampleCount: 0, decodedSampleCount: 0, peakBufferedSamples: 0, nowMs: 5000,
         });
         expect(s.anchor).toBe('stream');
         expect(s.timeToFirstProvisionalMs).toBe(1000); // 2000 - 1000
@@ -1238,8 +1238,27 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
             streamStartAtMs: 1000, speechStartAtMs: 2000,
             firstProvisionalAtMs: 1500, firstFinalAtMs: null, finalizeDecodeMs: null,
             finalizeWaitMs: null, finalizePrepMs: null,
-            utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 3000,
+            utteranceSampleCount: 0, decodedSampleCount: 0, peakBufferedSamples: 0, nowMs: 3000,
         });
         expect(s.timeToFirstProvisionalMs).toBe(0); // 1500 < 2000 anchor -> clamped
+    });
+
+    it('decodedUtteranceSeconds is the authoritative ruler, independent of a raw sample-count over-count (#891)', () => {
+        // Reproduces the observed over-count: raw utteranceSampleCount reported ~142.9s while the audio
+        // actually decoded (post-trim) was ~93.88s. decodedUtteranceSeconds must reflect the TRUE decoded
+        // length so RTF/duration accounting is not corrupted by the accumulator, while the raw field stays
+        // visible as a cross-check.
+        const s = buildPrivateTimingSummary({
+            streamStartAtMs: 0, speechStartAtMs: 0,
+            firstProvisionalAtMs: null, firstFinalAtMs: null, finalizeDecodeMs: 24346,
+            finalizeWaitMs: null, finalizePrepMs: null,
+            utteranceSampleCount: Math.round(142.9 * SR),   // inflated raw accumulator
+            decodedSampleCount: Math.round(93.88 * SR),     // true decoded/kept length
+            peakBufferedSamples: 0, nowMs: 1,
+        });
+        expect(s.utteranceSeconds).toBeCloseTo(142.9, 1);        // raw exposed (over-counted)
+        expect(s.decodedUtteranceSeconds).toBeCloseTo(93.88, 1); // ruler = true decoded length
+        // RTF must be based on the decoded ruler (24346 / (93.88*1000) ≈ 0.259), not the inflated raw.
+        expect(s.finalizeDecodeMs! / (s.decodedUtteranceSeconds * 1000)).toBeCloseTo(0.259, 2);
     });
 });

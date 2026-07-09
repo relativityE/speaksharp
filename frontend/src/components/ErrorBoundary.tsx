@@ -1,4 +1,5 @@
 import React, { ReactNode, ErrorInfo } from 'react';
+import * as Sentry from '@sentry/react';
 import logger from '../lib/logger';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -24,8 +25,15 @@ class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // You can also log the error to an error reporting service
     logger.error({ error, errorInfo }, "Uncaught error:");
+    // Report to Sentry. Previously this app-level boundary ONLY logged locally, so any crash that
+    // reached it (e.g. the Analytics render crash) was invisible to production monitoring and could
+    // not be diagnosed without the owner pasting a console stack. Report it, with the component stack.
+    Sentry.withScope((scope) => {
+      scope.setTag('errorBoundary', 'app-root');
+      scope.setContext('react', { componentStack: errorInfo.componentStack });
+      Sentry.captureException(error);
+    });
   }
 
   render() {
@@ -39,11 +47,16 @@ class ErrorBoundary extends React.Component<Props, State> {
                 </CardHeader>
                 <CardContent>
                     <p className="text-muted-foreground mb-4">
-                        The page hit a temporary problem. Go home, then open the page again.
+                        The page hit a temporary problem. Try again, or go home and reopen the page.
                     </p>
-                    <Button onClick={() => window.location.assign('/')}>
-                        Go Home
-                    </Button>
+                    <div className="flex items-center justify-center gap-3">
+                        <Button onClick={() => window.location.reload()}>
+                            Try again
+                        </Button>
+                        <Button variant="outline" onClick={() => window.location.assign('/')}>
+                            Go Home
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
         </div>

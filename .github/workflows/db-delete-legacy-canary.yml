@@ -1,0 +1,60 @@
+name: DB delete legacy canary residue (gated)
+
+# PRODUCTION DELETE of legacy canary-<runid>@speaksharp.app auth users (FK cascade). Strictly the
+# per-run residue — NOT the stable canary@speaksharp.app, NOT soak/reviewer/any other account.
+# Fail-closed: exact confirm phrase, dry-run default, exports a backup CSV first, and the script
+# aborts unless exactly EXPECTED_COUNT resolve AND none carry Stripe linkage. No Stripe changes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (backup + guard, no delete) or apply (perform deletes)"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      confirm:
+        description: "Type DELETE-LEGACY-CANARY to authorize"
+        type: string
+        required: true
+      expected_count:
+        description: "Exact accounts expected (abort if mismatch)"
+        type: string
+        default: "959"
+
+permissions:
+  contents: read
+
+jobs:
+  delete-legacy-canary:
+    name: Delete legacy canary residue (gated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify confirm phrase (fail-closed)
+        if: ${{ inputs.confirm != 'DELETE-LEGACY-CANARY' }}
+        run: |
+          echo "::error::confirm phrase mismatch — aborting without any DB access."
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Run legacy-canary delete
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EXPECTED_COUNT: ${{ inputs.expected_count }}
+          DRY_RUN: ${{ inputs.mode == 'apply' && '0' || '1' }}
+        run: node scripts/db-delete-legacy-canary.mjs
+
+      - name: Upload affected-rows backup (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-delete-legacy-canary-backup
+          path: db-delete-legacy-canary-backup.csv
+          retention-days: 30
+          if-no-files-found: ignore

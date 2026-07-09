@@ -110,13 +110,29 @@ describe('LiveRecordingCard', () => {
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" canUsePrivate={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Runs locally after model setup/i)).toBeDefined();
-        expect(screen.getByText(/All audio processing remains local/i)).toBeDefined();
+        expect(screen.getByText(/Runs on your device after setup/i)).toBeDefined();
+        expect(screen.getByText(/Audio processing stays local/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription keeps transcription local/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/All audio processing remains local/i));
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription runs on your device after setup/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/audio processing stays local/i));
+        // #891 beta: the 5-minute per-recording cap is surfaced up front.
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 5 minutes/i));
+    });
+
+    it('tints the status pill amber with "getting mic ready" while warming (#891)', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="private" isListening={true} sttStatusType="warming" />);
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).toHaveAttribute('data-pill-state', 'warming');
+        expect(pill.textContent).toMatch(/getting mic ready/i);
+    });
+
+    it('tints the status pill blue with "finalizing" during the post-Stop decode (#891)', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="private" isListening={false} isFinalizing={true} />);
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).toHaveAttribute('data-pill-state', 'finalizing');
+        expect(pill.textContent).toMatch(/finalizing your transcript/i);
     });
 
     it('shows explicit Private setup inside the recording card when the model is missing', () => {
@@ -146,21 +162,22 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT as instant and browser-dependent without the old badge copy', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Starts instantly with browser speech recognition/i)).toBeDefined();
-        expect(screen.getByText(/Accuracy depends on browser and room/i)).toBeDefined();
+        expect(screen.getByText(/Starts instantly with your browser's speech recognition/i)).toBeDefined();
+        expect(screen.getByText(/Accuracy depends on your browser and room/i)).toBeDefined();
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Free and instant/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/accuracy varies by browser and environment/i));
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Starts instantly with your browser's speech recognition/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Accuracy depends on your browser and room/i));
     });
 
     it('shows the approved Private sample CTA for sample-entitled users on the Browser path', () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
         expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
-        expect(screen.getByText(/Record up to 5 minutes with local transcription/i)).toBeDefined();
+        expect(screen.getByText(/up to 5 minutes per recording during beta/i)).toBeDefined();
+        expect(screen.getByText(/local transcription/i)).toBeDefined();
         expect(screen.getByText(/compare it with Browser transcription/i)).toBeDefined();
     });
 

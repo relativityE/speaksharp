@@ -398,18 +398,26 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
     });
 
-    it('shows "Processing speech locally…" and finalizing state during whole-utterance decode', () => {
+    it('shows the captured words DIMMED with bounded honest progress during finalization (#891)', () => {
         render(
             <LiveTranscriptPanel
                 transcript="rough draft so far"
                 interimTranscript="rough draft so far"
                 isListening={false}
                 isFinalizing={true}
+                recordingDurationSeconds={30}
                 sttMode="private"
             />
         );
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
+        // #891: honest, bounded progress (30s recording * ~0.27 ≈ ~8s), never a fixed guess.
+        expect(screen.getByTestId('live-transcript-finalizing-title')).toHaveTextContent('Finalizing your transcript locally… — ~8s');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Your words are captured. Polishing the final version…');
+        // the captured words are shown DIMMED (confidence), NOT presented as final, and NOT the
+        // live recording draft line — so the user sees their speech is safe but clearly provisional.
+        expect(screen.getByTestId('live-transcript-finalizing-dimmed-draft')).toHaveTextContent('rough draft so far');
+        expect(screen.queryByTestId('live-transcript-current-line')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-settled')).not.toBeInTheDocument();
     });
 
     it('does not show the idle placeholder while Private finalization has no text yet', () => {
@@ -425,8 +433,7 @@ describe('LiveTranscriptPanel', () => {
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
         expect(transcriptContainer).toHaveAttribute('data-transcript-state', 'finalizing');
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing local transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript locally…');
         expect(transcriptContainer).not.toHaveTextContent('Start recording and your words will appear here.');
     });
 
@@ -442,11 +449,10 @@ describe('LiveTranscriptPanel', () => {
         );
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing transcript…');
-        expect(transcriptContainer).toHaveTextContent('Your final transcript will appear here when processing finishes.');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript…');
+        expect(transcriptContainer).toHaveTextContent('Your final transcript will appear here shortly.');
         expect(transcriptContainer).not.toHaveTextContent('Processing speech locally…');
-        expect(transcriptContainer).not.toHaveTextContent('Finalizing local transcript…');
+        expect(transcriptContainer).not.toHaveTextContent('locally');
         expect(transcriptContainer).not.toHaveTextContent('local processing');
     });
 
@@ -462,8 +468,7 @@ describe('LiveTranscriptPanel', () => {
         );
 
         const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
-        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript…');
         expect(transcriptContainer).not.toHaveTextContent('locally');
         expect(transcriptContainer).not.toHaveTextContent('local transcript');
     });
@@ -553,7 +558,8 @@ describe('LiveTranscriptPanel', () => {
         // finalizing banner takes over from the draft banner without a blank frame.
         const assertTrustIndicatorPresent = () => {
             const draft = screen.queryByTestId('live-transcript-trust-banner');
-            const finalizing = screen.queryByTestId('live-transcript-finalizing');
+            // #891: the finalizing surface is now the placeholder (the draft is hidden), not a banner.
+            const finalizing = screen.queryByTestId('live-transcript-finalizing-empty');
             // Exactly one trust surface is visible at each pre-final step.
             expect(Boolean(draft) || Boolean(finalizing)).toBe(true);
             const text = (draft?.textContent ?? '') + (finalizing?.textContent ?? '');
@@ -581,7 +587,7 @@ describe('LiveTranscriptPanel', () => {
             <LiveTranscriptPanel transcript="native words so far" interimTranscript="" isListening={false} isFinalizing={true} sttMode="native" />
         );
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
-        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing your transcript…');
         assertTrustIndicatorPresent();
 
         // 4. final (journey end): committed transcript, no banner
@@ -589,7 +595,7 @@ describe('LiveTranscriptPanel', () => {
             <LiveTranscriptPanel transcript="native words so far" interimTranscript="" isListening={false} isFinalizing={false} sttMode="native" />
         );
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'final');
-        expect(screen.queryByTestId('live-transcript-finalizing')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-finalizing-empty')).not.toBeInTheDocument();
         expect(screen.queryByTestId('live-transcript-trust-banner')).not.toBeInTheDocument();
     });
 
@@ -725,6 +731,38 @@ describe('LiveTranscriptPanel', () => {
             expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent).toMatch(/it'?s a question/i);
         });
 
+        describe('#891 graceful degradation (keep last-good draft, do not blank)', () => {
+            const GOOD_DRAFT = 'we practiced the opening line and the timing felt much better today';
+
+            it('keeps the last known-good draft visible (degraded) when a new looped candidate is withheld', () => {
+                const { rerender } = render(
+                    <LiveTranscriptPanel transcript={GOOD_DRAFT} interimTranscript="" isListening sttMode="private" />
+                );
+                // a severe loop now arrives in the live candidate
+                rerender(
+                    <LiveTranscriptPanel transcript={REAL_LOOP} interimTranscript="" isListening sttMode="private" />
+                );
+                const container = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+                // degraded, NOT blanked: last-good draft still on the surface + a stabilizing marker
+                expect(screen.getByTestId('live-transcript-loop-degraded')).toBeInTheDocument();
+                expect(container).toHaveTextContent('we practiced the opening line');
+                expect(container).toHaveTextContent(/stabilizing live draft/i);
+                // the looped candidate is still suppressed from the surface
+                expect((container.textContent?.match(/it'?s a question/gi) || []).length).toBeLessThan(3);
+                // did NOT collapse to the empty "Processing…" placeholder
+                expect(container).not.toHaveTextContent(/your final transcript will appear here/i);
+            });
+
+            it('falls back to the Processing placeholder only when there is NO prior good draft', () => {
+                // first live candidate is already looped -> nothing good was ever captured
+                render(
+                    <LiveTranscriptPanel transcript={REAL_LOOP} interimTranscript="" isListening sttMode="private" />
+                );
+                expect(screen.getByTestId('live-transcript-loop-withheld')).toBeInTheDocument();
+                expect(screen.queryByTestId('live-transcript-loop-degraded')).not.toBeInTheDocument();
+            });
+        });
+
         describe('#772 post-stop visible final repetition (display-only)', () => {
             // Real #772 live-proof shape (run 27468782976): the SAVED/detail transcript is the clean
             // single sentence, while the committed store briefly holds a DOUBLED streaming hypothesis
@@ -795,6 +833,19 @@ describe('LiveTranscriptPanel', () => {
             });
             it('does NOT flag mild/legitimate repetition', () => {
                 expect(hasSevereRepetitionLoop('no no no I really do mean it, the honest answer here is simply no.')).toBe(false);
+            });
+            it('#891: does NOT flag long RHETORICAL speech with a spread-out repeated phrase', () => {
+                // "you have to" recurs 4x but SPREAD ~22 words apart — legitimate anaphora, not a loop.
+                // The old absolute maxCount>=4 cut false-fired here (redundancy stays ~0.03).
+                const rhetorical =
+                    'When the moment finally comes you have to decide what kind of person you want to become in the long years still ahead. ' +
+                    'Nobody ever hands you a finished map so you have to draw the winding road yourself and then walk it with patience. ' +
+                    'Even when the doubt grows loud and the whole path looks dark you have to keep your tired eyes forward and step. ' +
+                    'That is the entire lesson my friends because in the very end you have to believe the quiet work will carry you safely home.';
+                expect(hasSevereRepetitionLoop(rhetorical)).toBe(false);
+            });
+            it('#891: still flags a tight runaway loop (near-adjacent repetition)', () => {
+                expect(hasSevereRepetitionLoop('and then the system tries again '.repeat(6).trim())).toBe(true);
             });
         });
     });

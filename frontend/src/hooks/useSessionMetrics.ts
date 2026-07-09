@@ -8,6 +8,8 @@ interface UseSessionMetricsProps {
     chunks: Chunk[];
     fillerData: FillerCounts;
     elapsedTime: number;
+    /** Accepted for call-site compatibility; NOT used to route the canonical filler source. */
+    userWords?: string[];
 }
 
 interface SessionMetrics {
@@ -21,6 +23,8 @@ interface SessionMetrics {
     wpmLabel: string;
     wpmExplanation: string;
     fillerCount: number;
+    /** Filler DETAIL rows — always the LIVE counter (canonical); coherent with fillerCount. */
+    fillerData: FillerCounts;
     fillerExplanation: string;
     wordCount: number;
 }
@@ -40,10 +44,15 @@ export const useSessionMetrics = ({
         const seconds = elapsedTime % 60;
         const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
+        // #SSOT (Product Owner decision): the LIVE filler counter is the ONLY user-facing filler source.
+        // There is NO runtime/PostHog/env flag that can route the visible filler count / clarity / score to a
+        // transcript recount — the recount is diagnostic/fallback only, handled in the save/analytics/PDF
+        // readers, never here. Always pass the live `fillerData`; never `fillerData: undefined`.
         const coreMetrics = calculateCoreSessionMetrics({
             transcript,
             durationSeconds: elapsedTime,
             fillerData,
+            userWords: [],
         });
 
         // Rolling WPM (last 15 seconds)
@@ -67,6 +76,8 @@ export const useSessionMetrics = ({
             wpmLabel: coreMetrics.wpmLabel,
             wpmExplanation: coreMetrics.wpmExplanation,
             fillerCount: coreMetrics.fillerCount,
+            // Always the LIVE counter's detail rows — canonical, coherent with fillerCount. No flag path.
+            fillerData,
             fillerExplanation: coreMetrics.fillerExplanation,
             wordCount: coreMetrics.wordCount,
         };

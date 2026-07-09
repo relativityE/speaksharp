@@ -2,7 +2,7 @@ import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
-import { collapseTranscriptRepetitionLoops } from '@/utils/repetitionRisk';
+import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 
 import { TranscriptionError } from './errors';
 import { STTStrategy } from './STTStrategy';
@@ -24,10 +24,13 @@ import { syncForensicAnchors, mapToRuntimeState, syncEngineReady } from '../../l
 import { createMicStream } from './utils/audioUtils';
 import { pushE2EEvent, isBridgeActive } from '@/lib/e2eProbe';
 import { FailureManager } from './FailureManager';
+import { publishTelemetry } from '../telemetry/sessionTelemetryBus';
+import { isShadowMetricsEngineEnabled } from '../telemetry/shadowMetricsEngine';
 import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
 import { ENV } from '@/config/TestFlags';
-import { PRIV_CLOUD_AUDIO } from './sttConstants';
+import { NATIVE_STT, PRIV_CLOUD_AUDIO } from './sttConstants';
+import { toFinalizeEngineKey, type FinalizeEngineKey } from './finalizeRateStore';
 import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
@@ -193,6 +196,8 @@ export default class TranscriptionService {
 
   private strategyCallbacks: TranscriptionModeOptions;
   private mode: TranscriptionMode | null = null;
+  /** #891 Phase 5.6: monotonic sequence for shadow transcript telemetry (Private/Cloud). */
+  private telemetrySeq = 0;
   private activeStrategyId: string | null = null;
   private strategyVersion: number = 0;
   private isModeLocked: boolean = false;
@@ -208,6 +213,16 @@ export default class TranscriptionService {
   // (distinct from both null "reset" and 0..100), so the first real event always passes.
   private lastProcessedPercent: number | null = -1;
   private privateModelReady: boolean = false;
+  // #891 immediate-start gate: false while the Private mic is warming after Record (UI shows
+  // "Starting…"), flipped true when PrivateWhisper confirms stable frames (UI shows "Speak now").
+  private privateMicReadyToSpeak: boolean = false;
+  // #29 Native cold-start gate: false while Chrome Web Speech is warming after Record; flipped true by
+  // the REAL acoustic signal (onaudiostart/onspeechstart via NativeBrowser.signalAcousticReady ->
+  // onReady). UI holds "Getting mic ready…" until then so the opening words are not clipped.
+  private nativeAcousticReadyToSpeak: boolean = false;
+  // Conservative safety-net ONLY: if the acoustic signal never arrives, flip after this timeout so the
+  // user is never stuck warming. Fallback, not the primary mechanism.
+  private nativeAcousticReadyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private privateDownloadAlternativeToastShown: boolean = false;
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
@@ -419,7 +434,23 @@ export default class TranscriptionService {
             textLength: (data.transcript.final || data.transcript.partial || '').length,
           }, '[PRIVATE_TRACE] service_transcript_callback');
         }
+        // Capture intent BEFORE processTranscript (which sanitizes/merges and may blank the raw fields).
+        const hadFinal = typeof data.transcript.final === 'string' && data.transcript.final.trim().length > 0;
+        const hadPartial = typeof data.transcript.partial === 'string';
+        // Deliver the transcript to the app FIRST — the shadow diagnostic below never precedes it.
         this.processTranscript(data);
+        // #891 Phase 5.6/5.7 (SHADOW, PASSIVE): AFTER the app-facing emission, mirror the APP-FACING
+        // committed transcript for the app-mic modes (Native self-publishes in NativeBrowser). We publish
+        // `this.currentTranscript` — the post sanitize/merge/dedupe text the store sees, NOT the raw
+        // segment — marked replacesRollingTranscript so TranscriptProcessor REPLACES (never re-accumulates
+        // overlapping finals → no double-count). Gated on the shadow flag; publishTelemetry swallows errors.
+        if (isShadowMetricsEngineEnabled() && (this.mode === 'private' || this.mode === 'cloud')) {
+          if (hadFinal) {
+            publishTelemetry({ type: 'transcript.final', mode: this.mode, t: performance.now(), text: this.currentTranscript, sequence: this.telemetrySeq++, replacesRollingTranscript: true });
+          } else if (hadPartial) {
+            publishTelemetry({ type: 'transcript.partial', mode: this.mode, t: performance.now(), text: this.partialTranscript, sequence: this.telemetrySeq++ });
+          }
+        }
       },
       onModelLoadProgress: (p) => {
         if (this.isTerminated) return;
@@ -430,6 +461,10 @@ export default class TranscriptionService {
         if (this.mode === 'private' && this.modelLoadingProgress !== null) {
           this.processModelLoadProgress(100);
         }
+        // #29: Native's onReady fires on real acoustic readiness (onaudiostart/onspeechstart via
+        // signalAcousticReady). Use it to lift the cold-start gate so "Ready — speak now" only shows
+        // once Chrome is actually capturing, not merely when SpeechRecognition.onstart fired.
+        if (this.mode === 'native') this.markNativeAcousticReady('acoustic');
         this.options.onReady?.();
       },
       onStatusChange: (status) => {
@@ -608,6 +643,12 @@ export default class TranscriptionService {
         },
         onStatusChange: (status) => {
           if (this.activeStrategyId !== tempId) return;
+          // #891: Private drives the warming->recording (Speak now) cue from real mic readiness.
+          // Track it so the FSM status mapping doesn't revert "Speak now" back to "Starting…".
+          if (mode === 'private') {
+            if (status.type === 'warming') this.privateMicReadyToSpeak = false;
+            else if (status.type === 'recording') this.privateMicReadyToSpeak = true;
+          }
           this.strategyCallbacks.onStatusChange?.(status);
         },
         onAudioData: (data) => {
@@ -781,6 +822,16 @@ export default class TranscriptionService {
       logger.debug({ state: this.fsm.getState() }, '[TranscriptionService] init() called in unexpected state');
     }
 
+    // #891: re-arm the immediate-start gate for this recording so a stale value from a prior
+    // session can't let the FSM emit "Speak now" before the mic has warmed up.
+    this.privateMicReadyToSpeak = false;
+    // #29: re-arm the Native cold-start gate for this recording so a stale value can't emit
+    // "Speak now" before Chrome Web Speech has confirmed it is capturing.
+    this.nativeAcousticReadyToSpeak = false;
+    if (this.nativeAcousticReadyFallbackTimer) {
+      clearTimeout(this.nativeAcousticReadyFallbackTimer);
+      this.nativeAcousticReadyFallbackTimer = null;
+    }
     this.fsm.transition({ type: 'START_REQUESTED' });
 
     // 1. Mic Acquisition
@@ -954,14 +1005,22 @@ export default class TranscriptionService {
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
       this.emissionsEnabled = true;
+      // #29: arm the conservative fallback so Native never gets stuck in "warming" if the acoustic
+      // signal never fires. The real onaudiostart/onspeechstart path (onReady) is the primary trigger.
+      this.armNativeAcousticReadyFallback(mode);
       this.flushPendingTranscripts();
       logger.info({ runId }, '[TranscriptionService] Strategy started successfully');
       this.startTime = Date.now();
       this.options.onModeChange?.(mode);
       this.startWatchdog();
 
-      const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (mode: string) => void } }).getState?.();
-      if (state) state.setActiveEngine(mode);
+      const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (mode: string) => void; setActiveEngineVersion: (key: FinalizeEngineKey) => void } }).getState?.();
+      if (state) {
+        state.setActiveEngine(mode);
+        // #34: record the resolved engine (v2 vs v4 vs native/cloud) so the finalize-time estimate
+        // is engine-aware rather than a hardcoded v2 rate.
+        state.setActiveEngineVersion(toFinalizeEngineKey(this.strategy?.getEngineType()));
+      }
 
       this.isModeLocked = true; // 🔒 Lock intent upon successful engine start
     } catch (error) {
@@ -984,6 +1043,10 @@ export default class TranscriptionService {
 
     if (!shouldForwardToStrategy && !shouldAnalyzeFrames) return;
 
+    // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
+    // per-frame work for the passive Cloud audio diagnostic. Native never emits production audio.frame.
+    const publishShadowFrames = mode === 'cloud' && isShadowMetricsEngineEnabled();
+
     this.micFramePumpCount = 0;
     this.micFrameDisposer = this.mic.onFrame((frame: Float32Array) => {
       const clonedFrame = frame.slice(0);
@@ -1005,6 +1068,12 @@ export default class TranscriptionService {
 
       if (shouldForwardToStrategy) {
         strategy?.processAudio?.(clonedFrame);
+      }
+
+      // #891 Phase 5.6 (SHADOW, PASSIVE): observe LAST — after the real cloud forwarding/analysis — so the
+      // diagnostic can never delay transcription. No-op in production (cached flag = false → zero cost).
+      if (publishShadowFrames && this.mic) {
+        publishTelemetry({ type: 'audio.frame', mode: 'cloud', t: performance.now(), sampleRate: this.mic.sampleRate, frame: clonedFrame.slice(0) });
       }
     });
   }
@@ -1113,12 +1182,12 @@ export default class TranscriptionService {
         transcript = visibleTranscript.length > strategyTranscript.length
           ? visibleTranscript
           : strategyTranscript || visibleTranscript;
-        // Final-result repetition guard (saved-transcript integrity). The length-preferring
-        // selection above can pick a streaming-accumulated `visibleTranscript` that bypassed
-        // the per-segment collapse, producing a near_whole_doubling in the saved transcript
-        // (service_result / selectedForSave). Collapse the authoritative final transcript here
-        // so the persisted value can never contain a whole-text/multi-word repetition loop.
-        transcript = collapseTranscriptRepetitionLoops(transcript);
+        // #891 data-integrity (FLAG-ONLY): preserve the saved transcript. We previously collapsed
+        // repetition loops here for "saved-transcript integrity", but a hallucinated loop cannot be
+        // reliably distinguished from genuine repeated speech, so we keep the raw authoritative text
+        // and only FLAG repetition risk (non-mutating). Engine-agnostic. v4 loop behavior stays
+        // internal/targeted only until genuinely fixed — it is NOT masked by rewriting saved text.
+        const repetitionRisk = detectRepetitionRisk(transcript);
         logger.info({
           sId: this.serviceId,
           rId: this.runId,
@@ -1127,6 +1196,9 @@ export default class TranscriptionService {
           currentTranscriptLength: this.currentTranscript.length,
           partialTranscriptLength: this.partialTranscript.length,
           selectedTranscriptLength: transcript.length,
+          repetitionRisk: repetitionRisk.repetitionRisk,
+          repetitionRiskReason: repetitionRisk.repetitionRiskReason,
+          repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
         }, '[DEBUG-STOP] TranscriptionService.stopTranscription transcript selected');
       }
 
@@ -1783,6 +1855,36 @@ export default class TranscriptionService {
     return sanitizeTranscriptText(raw);
   }
 
+  /**
+   * #29 Native cold-start gate. Lifts the "Getting mic ready…" cue once Chrome Web Speech is actually
+   * capturing. PRIMARY trigger is the real acoustic signal (onaudiostart/onspeechstart via onReady);
+   * 'fallback' is the conservative safety-net timeout so the user is never stuck warming.
+   */
+  private markNativeAcousticReady(source: 'acoustic' | 'fallback'): void {
+    if (this.nativeAcousticReadyFallbackTimer) {
+      clearTimeout(this.nativeAcousticReadyFallbackTimer);
+      this.nativeAcousticReadyFallbackTimer = null;
+    }
+    if (this.nativeAcousticReadyToSpeak) return;
+    this.nativeAcousticReadyToSpeak = true;
+    if (source === 'fallback') {
+      logger.warn({ sId: this.serviceId }, '[TranscriptionService] #29 Native acoustic-ready FALLBACK fired; lifting warming gate without an onaudiostart/onspeechstart signal.');
+    } else {
+      logger.info({ sId: this.serviceId }, '[TranscriptionService] #29 Native acoustic-ready (onaudiostart/onspeechstart); lifting cold-start warming gate.');
+    }
+    // Re-emit status so the UI transitions warming -> recording ("Ready — speak now").
+    this.handleStateChange(this.fsm.getState());
+  }
+
+  private armNativeAcousticReadyFallback(mode: TranscriptionMode): void {
+    if (mode !== 'native') return;
+    if (this.nativeAcousticReadyFallbackTimer) clearTimeout(this.nativeAcousticReadyFallbackTimer);
+    this.nativeAcousticReadyFallbackTimer = setTimeout(() => {
+      this.nativeAcousticReadyFallbackTimer = null;
+      this.markNativeAcousticReady('fallback');
+    }, NATIVE_STT.NATIVE_ACOUSTIC_READY_FALLBACK_MS);
+  }
+
   private handleStateChange(state: TranscriptionState): void {
     logger.debug(`[TRACE] STATE_TRANSITION ${state}`);
     if (typeof document !== 'undefined') {
@@ -1817,7 +1919,18 @@ export default class TranscriptionService {
         if (this.mode === 'native' && this.privateModelReady) {
           label = 'Recording active (Private Ready)';
         }
-        status = { type: 'recording', message: label };
+        // #891 immediate-start gate: Private holds at "Starting…" (warming) until the engine
+        // confirms the mic is delivering stable frames, then PrivateWhisper emits 'recording'
+        // ("Speak now"). Prevents the opening clause being lost to mic/AudioContext warmup.
+        if (this.mode === 'private' && !this.privateMicReadyToSpeak) {
+          status = { type: 'warming', message: 'Starting…' };
+        } else if (this.mode === 'native' && !this.nativeAcousticReadyToSpeak) {
+          // #29 cold-start gate: hold "Getting mic ready…" until Chrome Web Speech signals it is
+          // actually capturing (onaudiostart/onspeechstart), so the opening words are not clipped.
+          status = { type: 'warming', message: 'Getting mic ready…' };
+        } else {
+          status = { type: 'recording', message: label };
+        }
         break;
       }
       case 'DOWNLOAD_REQUIRED': status = {
@@ -1875,6 +1988,10 @@ export default class TranscriptionService {
   public getMetadata() {
     const strategyMetadata = (this.strategy as unknown as { getMetadata?: () => { engineVersion: string; modelName: string; deviceType: string } | null })?.getMetadata?.();
     return strategyMetadata || this.metadata;
+  }
+  /** Resolved engine type of the active strategy (e.g. 'transformers-js' | 'transformers-js-v4'). */
+  public getEngineType(): string | null {
+    return (this.strategy as unknown as { getEngineType?: () => string | null })?.getEngineType?.() ?? null;
   }
   public setSessionId(id: string | null) { this.sessionId = id; }
 }

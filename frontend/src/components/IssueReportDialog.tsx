@@ -186,12 +186,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
               <>
                 Account support report — we include your account id so we can help with billing or access.
                 Automatically included: URL, route, browser, viewport, timezone, release-proof config,
-                plan, STT mode, and the last Sentry event id when available (used only to correlate with our logs).
+                plan, transcription mode, and the last Sentry event id when available (used only to correlate with our logs).
               </>
             ) : (
               <>
                 Anonymous report — we do not collect your name, email, or account id. Automatically
-                included: URL, route, browser, viewport, timezone, release-proof config, plan, STT mode,
+                included: URL, route, browser, viewport, timezone, release-proof config, plan, transcription mode,
                 and the last Sentry event id when available (used only to correlate with our logs).
               </>
             )}

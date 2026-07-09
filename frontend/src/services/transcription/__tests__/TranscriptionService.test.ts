@@ -383,6 +383,64 @@ describe('TranscriptionService', () => {
         );
     });
 
+    it('#891 Phase 5.6 (SHADOW): app-mic transcript updates publish transcript telemetry; mock mode does not', async () => {
+        const { getSessionTelemetryBus, __resetSessionTelemetryBusForTests } =
+            await import('../../telemetry/sessionTelemetryBus');
+        __resetSessionTelemetryBusForTests();
+        const events: Array<{ type?: string; mode?: string; text?: string; replacesRollingTranscript?: boolean }> = [];
+        getSessionTelemetryBus().subscribe((e) => events.push(e as never));
+
+        const svc = service as unknown as {
+            mode: string;
+            emissionsEnabled: boolean;
+            strategyCallbacks: { onTranscriptUpdate: (d: { transcript: { partial?: string; final?: string; replacesRollingTranscript?: boolean } }) => void };
+        };
+
+        // Private is an app-mic mode → the single service choke point mirrors Native's telemetry for it.
+        // The shadow publish reads the merged app-facing transcript AFTER processTranscript, so emissions
+        // must be enabled (in production the choke point is only reached when they are).
+        svc.emissionsEnabled = true;
+        svc.mode = 'private';
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { partial: 'hello' } }); } catch { /* ignore */ }
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'hello world', replacesRollingTranscript: true } }); } catch { /* ignore */ }
+
+        expect(events).toContainEqual(expect.objectContaining({ type: 'transcript.partial', mode: 'private', text: 'hello' }));
+        expect(events).toContainEqual(expect.objectContaining({ type: 'transcript.final', mode: 'private', text: 'hello world', replacesRollingTranscript: true }));
+
+        // Mock is NOT a real app-mic mode → nothing published (Native self-publishes in NativeBrowser).
+        events.length = 0;
+        svc.mode = 'mock';
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'ignored' } }); } catch { /* ignore */ }
+        expect(events.filter((e) => String(e.type).startsWith('transcript'))).toHaveLength(0);
+    });
+
+    it('#891 Phase 5.7 (SHADOW): final telemetry mirrors the merged app-facing transcript — overlapping finals do NOT double-count', async () => {
+        const { __resetSessionTelemetryBusForTests } = await import('../../telemetry/sessionTelemetryBus');
+        const { createShadowMetricsEngine } = await import('../../telemetry/shadowMetricsEngine');
+        __resetSessionTelemetryBusForTests();
+        const engine = createShadowMetricsEngine('s', 'private')!;
+
+        const svc = service as unknown as {
+            mode: string;
+            emissionsEnabled: boolean;
+            currentTranscript: string;
+            strategyCallbacks: { onTranscriptUpdate: (d: { transcript: { final?: string; partial?: string; replacesRollingTranscript?: boolean } }) => void };
+        };
+        svc.emissionsEnabled = true;
+        svc.mode = 'private';
+
+        // Two OVERLAPPING non-replacing final segments (as Cloud emits). Naive accumulation would double the
+        // words; the choke point instead publishes the merged app-facing `currentTranscript` with replace.
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'the plan is to launch' } }); } catch { /* ignore */ }
+        try { svc.strategyCallbacks.onTranscriptUpdate({ transcript: { final: 'the plan is to launch on friday' } }); } catch { /* ignore */ }
+
+        const snap = engine.getSnapshot();
+        // Shadow transcript == the store's merged committed transcript (single source), not a doubled concat.
+        expect(snap.transcript.finalText).toBe(svc.currentTranscript);
+        expect(snap.transcript.finalText).not.toContain('launch the plan');
+        engine.dispose();
+    });
+
     it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
         const { sttRegistry } = await import('../STTRegistry');
 
@@ -447,6 +505,76 @@ describe('TranscriptionService', () => {
         expect(capturedTranscript).toBe('Hello persistent world');
         expect(capturedStatus).toBe('recording');
         unsubscribe();
+    });
+
+    const makeNativeService = (statuses: string[], intent: string) =>
+        new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
+            onTranscriptUpdate: mockOnTranscriptUpdate,
+            onModelLoadProgress: mockOnModelLoadProgress,
+            onReady: mockOnReady,
+            onStatusChange: (s) => statuses.push(s.type),
+            session: null,
+            navigate: vi.fn(),
+            getAssemblyAIToken: mockGetToken,
+            policy: {
+                allowNative: true, allowCloud: false, allowPrivate: false,
+                preferredMode: 'native', allowFallback: false, executionIntent: intent,
+            } as TranscriptionPolicy,
+            mockMic: {
+                stream: {} as MediaStream, stop: vi.fn(), clone: vi.fn(),
+                onFrame: vi.fn().mockReturnValue(() => { }),
+            } as unknown as MicStream,
+        });
+
+    it('#29 cold-start gate: Native holds "warming" until acoustic-ready, then flips to "recording"', () => {
+        const statuses: string[] = [];
+        const nativeSvc = makeNativeService(statuses, 'coldstart-gate-test');
+        const internal = nativeSvc as unknown as {
+            mode: string;
+            nativeAcousticReadyToSpeak: boolean;
+            fsm: { setState: (s: string) => void; getState: () => string };
+            handleStateChange: (s: string) => void;
+            markNativeAcousticReady: (src: 'acoustic' | 'fallback') => void;
+        };
+        internal.mode = 'native';
+        internal.nativeAcousticReadyToSpeak = false;
+        internal.fsm.setState('RECORDING');
+
+        // Before acoustic readiness the UI must NOT invite speech: it stays warming, never "speak now".
+        internal.handleStateChange('RECORDING');
+        expect(statuses[statuses.length - 1]).toBe('warming');
+
+        // The REAL acoustic signal (onaudiostart/onspeechstart -> onReady) lifts the gate.
+        internal.markNativeAcousticReady('acoustic');
+        expect(internal.nativeAcousticReadyToSpeak).toBe(true);
+        expect(statuses[statuses.length - 1]).toBe('recording');
+    });
+
+    it('#29 cold-start gate: explicit fallback lifts warming if the acoustic signal never arrives', () => {
+        vi.useFakeTimers();
+        const statuses: string[] = [];
+        const nativeSvc = makeNativeService(statuses, 'coldstart-fallback-test');
+        const internal = nativeSvc as unknown as {
+            mode: string;
+            nativeAcousticReadyToSpeak: boolean;
+            fsm: { setState: (s: string) => void; getState: () => string };
+            handleStateChange: (s: string) => void;
+            armNativeAcousticReadyFallback: (mode: string) => void;
+        };
+        internal.mode = 'native';
+        internal.nativeAcousticReadyToSpeak = false;
+        internal.fsm.setState('RECORDING');
+        internal.handleStateChange('RECORDING');
+        expect(statuses[statuses.length - 1]).toBe('warming');
+
+        // Fallback is a safety net, not the primary path: it must not fire before its timeout.
+        internal.armNativeAcousticReadyFallback('native');
+        vi.advanceTimersByTime(1499);
+        expect(internal.nativeAcousticReadyToSpeak).toBe(false);
+        vi.advanceTimersByTime(2);
+        expect(internal.nativeAcousticReadyToSpeak).toBe(true);
+        expect(statuses[statuses.length - 1]).toBe('recording');
+        vi.useRealTimers();
     });
 
     it('should keep deterministic mock service ready for execution', async () => {

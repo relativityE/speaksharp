@@ -40,6 +40,20 @@ Examples:
 | Cloud token / Pro cloud-entitled path | `assemblyai-token`, entitlement/tier logic, usage/quota checks, Supabase deploy, Cloud client code |
 | UX smoke | Onboarding/session UI, mode selector copy, tester instructions, error-state UI |
 
+### Private saved-transcript fidelity (Gate 1 STT — added 2026-06-29, #891/#892)
+
+Real-mic engine-liveness + metadata are NOT sufficient: they passed 3/3 while the **default Private path dropped the opening clause** (shared capture-path bug; observed clearest on v2). Any change to `PrivateWhisper.ts`, Private engines/workers, audio utilities, `sttConstants.ts`, or transcript capture/trim logic makes this gate stale. On the **persisted** transcript (saved DB row / History detail — NOT the live draft or in-memory buffer), require:
+
+- **Opening anchor** present near the start, after **EVERY onset class — including the immediate-start case** (hit Record → wait for the green "Ready — speak now" pill → speak immediately), not just soft/quiet/delayed/loud. The deployed mic-ready gate (#902/#904) is proven only on a delayed take → **the immediate-start re-gate is the one OPEN pre-beta validation**;
+- **Coverage threshold** across expected phrases (not one-keyword-anywhere);
+- **No ≥5-word verbatim loop** flagged but the saved transcript is **NOT mutated** (#903 made the saved-path collapse FLAG-ONLY at both sites — `detectRepetitionRisk` records metadata, never deletes);
+- **History/detail matches** the saved transcript end-to-end (mic → buffer → decode → DB) AND the **finalize state shows the dimmed draft + honest progress** (#905/#906), never the wrong rolling text as final;
+- **Long leading silence** does not produce a hallucinated prefix;
+- **Real-mic proof** after any Private capture/buffer/trim change — fake-device tests do not substitute;
+- **stop-to-final latency** — **owner ruling 2026-06-30: this is a BLOCKING gate, not just "recorded."** Full 5-min single recording must finalize **<30s** pre-beta (the 90s cap is REJECTED as beta behavior). Primary path Moonshine v2 streaming prototype; fallback segmented finalization.
+
+For a **v4-targeted** session also confirm `engine_version=private_v4`, runtime/backend/assignment metadata, and no visible/saved phrase loop.
+
 ### Ship Signal Rule
 
 RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, benchmarks, backend stress, and browser endurance results are advisory unless explicitly named as a blocking gate item. A high quality score cannot override a red or stale RC gate item.

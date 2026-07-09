@@ -40,6 +40,17 @@ if (typeof document !== 'undefined') {
   window.__APP_BOOTED__ = false;
 }
 
+// #30 diagnostic opt-in: latch the PASSIVE Native dual-capture energy trace at initial load from
+// ?nativeDiag=1 so it survives SPA navigation (open ?nativeDiag=1 -> login -> /session). Off by
+// default; this only enables non-interfering diagnostic instrumentation, labeled diagnostic-dual-capture.
+if (typeof window !== 'undefined') {
+  try {
+    if (new URLSearchParams(window.location.search).get('nativeDiag') === '1') {
+      (window as unknown as { __NATIVE_PARALLEL_CAPTURE_TRACE__?: boolean }).__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
+    }
+  } catch { /* no-op: diagnostic opt-in is best-effort */ }
+}
+
 // Deterministic Mock Data (CI/E2E)
 if (ENV.isTest) {
   // Simple LCG for deterministic Math.random() in CI/E2E

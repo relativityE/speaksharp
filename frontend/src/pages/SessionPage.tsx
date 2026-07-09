@@ -65,7 +65,6 @@ export const SessionPage: React.FC = () => {
         hasSpeechActivity,
         transcriptContent,
         interimTranscript,
-        fillerData,
         isProUser,
         canUsePrivateStt,
         canUseCloudStt,
@@ -283,6 +282,7 @@ export const SessionPage: React.FC = () => {
                                     fsmState={runtimeState}
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
+                                    isFinalizing={isTranscriptFinalizing}
                                     canUsePrivate={canUsePrivateStt}
                                     isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
@@ -310,6 +310,7 @@ export const SessionPage: React.FC = () => {
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
                                     isFinalizing={isTranscriptFinalizing}
+                                    recordingDurationSeconds={elapsedTime}
                                     nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"
                                 />
@@ -337,7 +338,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
-                                fillerData={fillerData}
+                                fillerData={metrics.fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
                                 className="min-h-0"
                                 headerAction={

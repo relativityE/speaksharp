@@ -3,6 +3,9 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useSessionMetrics } from '../useSessionMetrics';
+import { countFillerWords } from '@/utils/fillerWordUtils';
+import { getFillerTotal } from '@/utils/sessionAnalysis';
+import { calculateSpeakingScore } from '@/utils/speakingScore';
 
 describe('useSessionMetrics', () => {
     describe('formattedTime', () => {
@@ -153,5 +156,67 @@ describe('useSessionMetrics', () => {
             );
             expect(result.current.fillerCount).toBe(10);
         });
+    });
+});
+
+describe('useSessionMetrics — LIVE filler count is canonical (no runtime source-selection to recount)', () => {
+    // Live counter reports 4 fillers; the transcript itself has 0 (a clean re-decode). If ANY recount path
+    // existed (PostHog/env/runtime flag), the visible count would collapse to 0 — it must stay 4 (live).
+    const props = {
+        transcript: 'the plan is ready for the board',
+        chunks: [],
+        fillerData: { total: { count: 4, color: '' }, um: { count: 4, color: '' } } as never,
+        elapsedTime: 20,
+    };
+
+    it('#1/#2: filler count + detail rows come from the LIVE counter; a transcript recount is NOT used', () => {
+        // Sanity: the transcript recount would be 0 here — so a count of 4 proves the hook is NOT recounting.
+        expect(countFillerWords(props.transcript).total.count).toBe(0);
+        const { result } = renderHook(() => useSessionMetrics(props));
+        expect(result.current.fillerCount).toBe(4);                 // live 4, never the recount 0
+        expect(result.current.fillerData).toBe(props.fillerData);   // live detail rows (same object)
+        expect(result.current.fillerData.um?.count).toBe(4);
+        expect(getFillerTotal(result.current.fillerData)).toBe(result.current.fillerCount); // coherent
+    });
+
+    it('#3: passing userWords cannot route the source to a recount (userWords is inert for source selection)', () => {
+        const withWords = renderHook(() => useSessionMetrics({ ...props, userWords: ['honestly', 'um', 'the'] }));
+        const withoutWords = renderHook(() => useSessionMetrics({ ...props, userWords: [] }));
+        expect(withWords.result.current.fillerCount).toBe(4);
+        expect(withoutWords.result.current.fillerCount).toBe(4);
+        expect(withWords.result.current.fillerData).toBe(props.fillerData); // still the live object
+    });
+
+    it('#4: clarity + SpeakSharp Score consume the LIVE filler count, not a recount', () => {
+        const clarityProps = {
+            transcript: 'one two three four five six seven eight nine ten eleven twelve',
+            chunks: [],
+            fillerData: { total: { count: 4, color: '' }, um: { count: 4, color: '' } } as never,
+            elapsedTime: 60,
+        };
+        const live = renderHook(() => useSessionMetrics(clarityProps));
+        // Same transcript with a live ZERO → clarity differs, proving clarity used the live count (4), not text.
+        const zero = renderHook(() => useSessionMetrics({ ...clarityProps, fillerData: { total: { count: 0, color: '' } } as never }));
+        expect(live.result.current.clarityScore).not.toBe(zero.result.current.clarityScore);
+        // Score consumes this hook's fillerCount + clarityScore.
+        const score = calculateSpeakingScore({
+            transcript: clarityProps.transcript, wordCount: live.result.current.wordCount, wpm: live.result.current.wpm,
+            clarityScore: live.result.current.clarityScore, fillerCount: live.result.current.fillerCount,
+            elapsedSeconds: clarityProps.elapsedTime, engine: 'private',
+        }).score;
+        expect(typeof score).toBe('number');
+        expect(live.result.current.fillerCount).toBe(4); // the score's filler input is the live 4
+    });
+
+    it('#5: a valid live ZERO stays zero even when the transcript text contains filler words', () => {
+        const zeroLiveWithFillersInText = {
+            transcript: 'um uh like so basically the words keep going for reliable scoring now',
+            chunks: [],
+            fillerData: { total: { count: 0, color: '' } } as never, // canonical live zero
+            elapsedTime: 20,
+        };
+        expect(countFillerWords(zeroLiveWithFillersInText.transcript).total.count).toBeGreaterThan(0); // recount would be > 0
+        const { result } = renderHook(() => useSessionMetrics(zeroLiveWithFillersInText));
+        expect(result.current.fillerCount).toBe(0); // stays zero — no recount substitution
     });
 });

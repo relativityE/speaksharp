@@ -37,7 +37,7 @@ const tiers: Tier[] = [
     priceDescription: 'no card required',
     features: [
       `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
-      'Instant Browser transcription; accuracy varies by browser and environment',
+      'Instant Browser transcription; accuracy depends on your browser and room',
       'Core practice feedback metrics',
       'Save last 5 sessions',
       'Watermarked PDF exports',

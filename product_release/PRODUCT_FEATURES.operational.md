@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-28
+**Last Reviewed:** 2026-07-08
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-06-03
+**Last Updated:** 2026-07-08
 
 # SpeakSharp Product Features
 
@@ -32,7 +32,8 @@ Use these groups when reviewing the full feature list. They keep launch-critical
 | **Habit & Progress** | SpeakSharp Score movement, goals, streaks, live-coaching targets, future guided drills |
 | **Conversion & Trust** | Free-to-Pro, privacy positioning, free-plan support, watermark/referral loop |
 | **Access & Reliability** | Usage limits, quotas, browser support, accessibility, design system |
-| **Future Expansion** | Live meeting companion, full referral proof loop |
+| **Premium Coaching Ladder** | Executive Presentation Rehearsal Coach (Premium feature 1), Live Meeting Companion (Premium feature 2) — same coaching intelligence, different context and distraction budget |
+| **Future Expansion** | Full referral proof loop |
 
 ## Vetted Product Claim Register
 
@@ -52,7 +53,8 @@ This table keeps product claims honest before product release. A feature can app
 | **Goals / Streaks** | Implemented as goal/streak foundation. | `frontend/src/hooks/useGoals.ts`, `frontend/src/hooks/useStreak.ts`, `frontend/src/hooks/useSessionLifecycle.ts` | Current habit foundation. | Tie goals/streaks more directly to score movement and next-practice targets. |
 | **Score-Based Gamification** | Implemented through SpeakSharp Score, confidence state, next target, and live coaching actions. | `frontend/src/utils/speakingScore.ts`, `frontend/src/components/session/LiveCoachingScoreCard.tsx`, `frontend/src/pages/SessionPage.tsx` | Accepted current gamification foundation. | Prove that the score feels motivating and trustworthy; persist score payload before broad cross-page claims. |
 | **Guided Habit Pathways** | Not implemented as a packaged guided-drill journey. | No guided drill route/component exists yet. | Planned post-soft release. | Design and build 2-5 minute drills, progression loops, streak reinforcement, and recurring next-practice prompts. |
-| **Live Meeting Companion** | Not implemented. | No `/companion` route/component exists yet. | Planned post-soft release. | Design and build a compact overlay-friendly mode after Session coaching is calibrated. |
+| **Executive Presentation Rehearsal Coach** | Not implemented. Premium feature 1. | No rehearsal/brief/HUD route or component exists yet. | Planned post-soft release. | Premium feature 1 provides **live AI presentation-improvement suggestions during a practice presentation** (delivery, talking-point coverage, executive polish) **and** a post-rehearsal scorecard plus next-run improvement plan. It is not post-run only. Build order is Sandbox Mode → Rehearsal HUD. See "Premium Coaching Ladder". |
+| **Live Meeting Companion** | Not implemented. Premium feature 2. | No `/companion` route/component exists yet. | Planned post-soft release, after the Rehearsal Coach. | Premium feature 2 applies the **same brief and coaching model during the actual Zoom/Meet/Teams meeting**, with **stricter, lower-frequency, lower-text live cues** because the user is performing live. The distinction from Rehearsal is context/risk/distraction budget, not live-vs-non-live. See "Premium Coaching Ladder". |
 | **Referral Proof Loop** | Partially supported by branded PDF/report artifacts, but not a full product loop. | `frontend/src/lib/pdfGenerator.ts`; no shareable progress-summary flow exists yet. | Planned post-soft release. | Add shareable "what improved" summaries and validate whether artifacts make others curious enough to join. |
 | **Analytics Tool Groups** | Implemented / proving in Analytics through three curated improvement goals plus secondary Custom measurement. | `frontend/src/components/AnalyticsDashboard.tsx`, `frontend/src/components/__tests__/AnalyticsDashboard.component.test.tsx` | Current / reviewer validation needed. | Confirm the focus labels, definitions, and selected tools help first-time users understand what to inspect next instead of feeling like arbitrary metric bundles. |
 | **Daily Usage Visibility** | Planned access/reliability surface. | Usage RPCs exist; no dedicated daily progress surface is committed as a product claim. | Planned post-soft release. | Add a lightweight daily usage status/progress indicator so Pro users understand remaining practice time before they hit a cap. |
@@ -76,7 +78,8 @@ This table keeps product claims honest before product release. A feature can app
 | **Free-To-Pro Upgrade Support** | Infrastructure / limited | Free-to-Pro guidance can appear outside private practice surfaces when explicitly enabled. Practice surfaces must stay focused on the user's speaking work. |
 | **Score-Based Gamification** | Accepted current path | SpeakSharp Score, confidence states, next target, and live coaching actions give the current Session experience a motivating progress loop. This is the first version of gamification, not a validated public-speaking grade. |
 | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through score movement, streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
-| **Live Meeting Companion** | Planned post-soft release | Compact real-time coaching mode intended for live calls or overlays, such as Zoom/Teams/Meet workflows. Not part of the current soft-release product claim. |
+| **Executive Presentation Rehearsal Coach** | Planned post-soft release | Premium feature 1. High-stakes presentation practice before the real event. Includes **real-time AI improvement suggestions during the rehearsal** (live talking-point coverage, live executive-polish prompts, live pacing/filler/pause cues) **and** a post-rehearsal scorecard with a next-run improvement plan. Because it is rehearsal, live cues can be richer than in a real meeting. Not part of the current soft-release product claim. |
+| **Live Meeting Companion** | Planned post-soft release | Premium feature 2. Reuses the Rehearsal Coach's brief and coaching model **during the actual Zoom/Meet/Teams meeting**, delivering **constrained real-time cues** (ambient status dots, short labels, low-frequency prompts — no paragraph guidance while speaking) because the user is performing live. Not part of the current soft-release product claim. |
 | **Analytics Tool Groups** | Current / proving | Analytics-page focus groups now frame the dashboard around three user goals: Speak Clearly, Sound Confident, and Track Progress. Custom measurement remains available as a secondary advanced path for users who intentionally want specific metrics. |
 | **Daily Usage Visibility** | Planned post-soft release | Lightweight Session or Analytics usage progress surface so Pro users can see daily practice usage before hitting a cap. |
 | **Landing Social Proof** | Planned, content-dependent | Real tester quotes or concrete outcome snippets that help first-time visitors trust the product. Not active until real source material exists. |
@@ -92,7 +95,8 @@ These are accepted product directions used to vet the current offering and futur
 | **Semantic & Content Analysis** | Current / near-term proving | Implemented, quality still being proven | Highest retention-leverage coaching feature. Needs example outputs, reviewer scoring, and prompt/output tests before strong marketing language. |
 | **Score-Based Gamification** | Soft-release current path | Accepted current path, not a broad calibrated product claim yet | Uses SpeakSharp Score, confidence state, next target, and short actions as the current gamified coaching loop. |
 | **Guided Habit Pathways** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Packaged guided drills, progression loops, streak reinforcement, and recurring next-practice targets. Builds on the score/live-coach foundation. |
-| **Live Meeting Companion** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Strong Pro differentiator, but higher effort. Should wait until Session coaching and score model are calibrated. |
+| **Executive Presentation Rehearsal Coach** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Premium feature 1. Ships in two steps: (1) Sandbox Mode (brief → rehearse aloud → post-rehearsal scorecard) first because it is easiest and safest; (2) Rehearsal HUD, where **real-time AI presentation improvement** appears with richer live cues than a real meeting would allow. Builds on the score/live-coach foundation. |
+| **Live Meeting Companion** | Post-soft release, after the Rehearsal Coach; date TBD after RC gates and tester feedback | Planned | Premium feature 2. Reuses the Rehearsal Coach's brief, coverage model, and coaching intelligence during the real meeting with **stricter, lower-distraction cue limits**. Strong Pro differentiator, but higher privacy/integration/distraction risk. Should wait until Session coaching and score model are calibrated. |
 | **Referral Proof Loop** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Shared PDFs, progress summaries, and “what improved” moments should make friends curious and give users a story to tell. |
 | **Analytics Tool Groups** | Soft-release current path, reviewer validation needed | Implemented / proving | Should make Analytics feel like "choose what you want to improve" instead of a collection of unrelated numbers. Validate whether Speak Clearly, Sound Confident, and Track Progress reduce choice load while Custom stays secondary for advanced measurement. |
 | **Daily Usage Visibility** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Access/reliability affordance for Pro users; should be lightweight and not dominate the practice flow. |
@@ -132,9 +136,102 @@ These are accepted product directions used to vet the current offering and futur
 | Conversion & Trust | **Free-To-Pro Upgrade Support** | Infrastructure / limited | Upgrade guidance for Free users outside private practice surfaces. | Keep disabled unless explicitly enabled, and keep private practice surfaces free of conversion messaging. |
 | Conversion & Trust | **Landing Social Proof** | Planned, content-dependent | Real user/tester quotes or outcome snippets for first-time visitor trust. | Must use real source material; do not invent testimonials. |
 | Conversion & Trust | **Invite / Share Hook** | Planned post-soft release | Simple entry point to share a report or progress moment. | Should build on branded reports and Referral Proof Loop rather than becoming a disconnected CTA. |
-| Future Expansion | **Live Meeting Companion** | Planned | Overlay-friendly companion mode for live meeting support. | Planned after soft release; not current release scope. |
+| Premium Coaching Ladder | **Executive Presentation Rehearsal Coach** | Planned | Premium feature 1. Live AI presentation-improvement suggestions during a practice presentation (delivery, talking-point coverage, executive polish, pacing/filler/pause) **plus** a post-rehearsal scorecard and next-run improvement plan. Build order: Sandbox Mode → Rehearsal HUD. | Planned after soft release; not current release scope. Live rehearsal feedback is core to the claim, not post-run only. |
+| Premium Coaching Ladder | **Live Meeting Companion** | Planned | Premium feature 2. Same brief and coaching model applied **live during the real Zoom/Meet/Teams meeting**, with constrained ambient cues (status dots, short labels, low-frequency prompts). | Planned after the Rehearsal Coach; not current release scope. Distinction from Rehearsal is context/risk/distraction budget, not live-vs-non-live. |
 | Access & Reliability | **Accessibility / Screen Reader Support** | Current | Live transcript uses accessibility-aware UI patterns. | Keep aligned with UX smoke and page-level accessibility checks. |
 | Access & Reliability | **Design System / Visual Surfaces** | Current | Shared visual tokens and standardized card/surface styling. | Theme contrast and Session/Analytics surfaces have been hardened during soft-release prep. |
+
+## Premium Coaching Ladder (Rehearsal Coach → Live Meeting Companion)
+
+> Product architecture note for the two premium coaching features. This is the canonical capture; the
+> tables above summarize it. Feature 1 and Feature 2 are **not separate products** — they are one
+> coaching system applied in two contexts.
+
+### The one-sentence model
+
+**Same coaching intelligence, different context and distraction budget.** Both premium features include
+real-time/live feedback. The distinction is **not** "Rehearsal = after only" and "Companion = live." The
+distinction is *where* the coaching runs and *how much* on-screen guidance the user can absorb without
+being derailed.
+
+### Product ladder
+
+1. **SpeakSharp Practice** — the current product. General speaking practice. Live coaching for delivery
+   mechanics and semantic improvement.
+2. **Executive Presentation Rehearsal Coach** (Premium feature 1) — high-stakes presentation practice
+   *before* the real event. Includes: real-time AI presentation-improvement suggestions during a practice
+   presentation; talking-point coverage during rehearsal; executive-polish feedback; a post-rehearsal
+   scorecard; and a next-rehearsal improvement plan.
+3. **Live Meeting Companion** (Premium feature 2) — the same coaching intelligence applied *during* the
+   actual Zoom / Google Meet / Teams meeting. Higher privacy, integration, and distraction risk, so it
+   must use stricter, lower-frequency, lower-text cues.
+
+### Canonical wording (use verbatim)
+
+> Executive Presentation Rehearsal Coach provides live AI guidance during practice presentations and a
+> post-rehearsal scorecard. The later Live Meeting Companion reuses the same brief and coaching model in
+> actual meetings, with stricter cue limits because the user is performing live.
+
+> Rehearsal Coach and Live Meeting Companion are not separate products. Rehearsal Coach trains the
+> presentation against a brief. Live Companion applies the same brief and coaching model during the real
+> meeting.
+
+### Build sequence (unchanged, clarified)
+
+The build order remains **Sandbox → Rehearsal HUD → Live Companion**:
+
+1. **Sandbox Mode** — user enters a brief, rehearses aloud, and the product provides a post-rehearsal
+   scorecard. First because it is the easiest to ship and the safest (no live-cue distraction risk).
+2. **Rehearsal HUD** — used *during* a practice presentation. This is where real-time AI presentation
+   improvement appears. Because it is rehearsal, the product can show **richer live cues** than it would
+   in a real meeting.
+3. **Live Meeting Companion** — used *during* an actual Zoom / Google Meet / Teams call. Reuses the same
+   brief, coverage model, and coaching intelligence, but must be **more conservative and lower-distraction**.
+
+### Real-time feedback taxonomy
+
+Four categories of live feedback, shared across the ladder but gated by context:
+
+| Category | Scope | Examples |
+| :--- | :--- | :--- |
+| **1. Delivery mechanics** | Practice, Rehearsal, and Live | slow down; pause; wrap up; too many fillers; voice too low; rambling; answer too long; unclear phrasing |
+| **2. Content coverage** | Core to Rehearsal Coach, later Live Companion | key point covered; key point missing; key point partially covered; recommendation missing; ask missing; over-explained background; underdeveloped risk; slide/topic skipped |
+| **3. Executive polish** | Core differentiator for Feature 1 | connect this point to business strategy; state the decision needed; clarify the business impact; sound less defensive; move from tactical detail to executive framing; sharpen the recommendation; make the risk/mitigation explicit |
+| **4. Interaction guidance** | More relevant to Live Companion, but rehearsable first | ask a question; invite alignment; address objection; move to decision; close with next step; stop over-answering |
+
+### Rehearsal HUD vs Live Meeting Companion (distraction budget)
+
+The same coaching intelligence renders differently because the risk of derailing the user differs.
+
+**Rehearsal HUD** — a practice presentation, so feedback can be more explicit. Allowed: short AI text
+prompts; section-level guidance; "try this next" suggestions; a live talking-point checklist;
+pause-and-review moments; richer post-run explanation.
+
+- "State the recommendation now."
+- "Connect retention risk to compensation strategy."
+- "You covered business strategy, but not the ask."
+- "Too much background; move to decision."
+- "Mention how this affects the board's decision."
+
+**Live Meeting Companion** — the real meeting, so feedback must be constrained. Allowed: ambient cues;
+sparse text; status dots; short labels; low-frequency prompts; **no paragraph guidance while speaking**.
+
+- "Wrap up." · "Make the ask." · "Key point missing." · "Too long." · "Pause." · "Move to recommendation."
+
+**Do not make Live Companion a verbose real-time AI coach — it can derail the user.**
+
+### Privacy framing
+
+- Private transcription can keep audio local to the browser.
+- Semantic AI feedback over transcript, talking points, slides, and audience context **may require cloud
+  AI** unless local LLM analysis is separately built.
+- Do **not** imply all presentation materials stay local unless that is actually implemented.
+
+### Relationship summary
+
+Rehearsal Coach trains a presentation against a brief and can afford rich live cues; Live Companion carries
+the *same* brief and coaching model into the real meeting under a tight distraction budget. Read them as one
+system with two contexts, not two disconnected features.
 
 ## Product Positioning
 
@@ -190,7 +287,9 @@ Avoid:
 - Claiming the SpeakSharp Score is a validated public-speaking assessment.
 - Claiming Cloud STT is included in the Private sample.
 - Claiming free-plan support messages use transcript or speaking data.
-- Presenting planned Live Meeting Companion or packaged Guided Habit Pathways as shipped.
+- Presenting the planned Executive Presentation Rehearsal Coach, Live Meeting Companion, or packaged Guided Habit Pathways as shipped.
+- Implying the Rehearsal Coach is post-run only — its claim explicitly includes live rehearsal feedback.
+- Implying all presentation materials (transcript, talking points, slides, audience context) stay on-device: semantic AI feedback may require cloud AI unless local LLM analysis is separately built.
 
 ## Related Operational Docs
 

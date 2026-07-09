@@ -1,0 +1,42 @@
+name: DB reveal Pass-B Stripe linkage (read-only)
+
+# READ-ONLY pre-verification for Pass B: reveals the real stripe_customer_id / stripe_subscription_id
+# for the frozen Pass-B set so the owner can confirm test-mode/non-live in Stripe. SELECT-only; no writes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      frozen_ids_file:
+        description: "Frozen id list to reveal"
+        type: string
+        default: scripts/data/passB-stripe-proof-14-ids.txt
+
+permissions:
+  contents: read
+
+jobs:
+  reveal:
+    name: Pass-B Stripe reveal (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Reveal Stripe linkage (read-only)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FROZEN_IDS_FILE: ${{ inputs.frozen_ids_file }}
+        run: node scripts/db-reveal-pass-b-stripe.mjs
+
+      - name: Upload reveal CSV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pass-b-stripe-reveal
+          path: pass-b-stripe-reveal.csv
+          retention-days: 7
+          if-no-files-found: ignore

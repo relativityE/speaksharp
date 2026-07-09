@@ -46,7 +46,7 @@ export const TermsPage = () => (
       },
       {
         heading: 'Accounts and Access',
-        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription includes one short sample before paid Early Access. Cloud STT is a paid Early Access feature.',
+        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription includes one sample session before paid Early Access. Cloud transcription is a paid Early Access feature.',
       },
       {
         heading: 'Payments',
@@ -75,7 +75,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Transcription Modes',
-        body: 'Browser transcription runs through the browser speech recognition capability. Private transcription is designed to keep transcription local after setup. Cloud transcription sends audio to a cloud STT provider only when the user selects a Cloud-capable Pro workflow.',
+        body: 'Browser transcription runs through the browser speech recognition capability. Private transcription is designed to keep transcription local after setup. Cloud transcription sends audio to a cloud transcription provider only when the user selects a Cloud-capable Pro workflow.',
       },
       {
         heading: 'How Data Is Used',
@@ -83,7 +83,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Service Providers',
-        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, Gemini, and cloud STT services to deliver authentication, billing, analytics, monitoring, coaching, and selected transcription features.',
+        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, Gemini, and cloud transcription services to deliver authentication, billing, analytics, monitoring, coaching, and selected transcription features.',
       },
       {
         heading: 'Control',

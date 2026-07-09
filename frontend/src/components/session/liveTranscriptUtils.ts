@@ -53,11 +53,22 @@ export function splitSettledActiveTranscript(text: string): { settled: string; a
 // Conservative thresholds, grounded on the real failure artifact
 // (speaksharp-official-stt-ab-targeted-trust-1781263998): a v4 rolling-hypothesis loop has a top
 // repeated 3-gram count of 28-29 and 3-gram redundancy 0.38-0.65, while clean v4-final AND v2
-// transcripts top out at a 3-gram count of 2 and redundancy <= 0.009. The cuts below sit far from
-// any healthy transcript, so the detector fires ONLY on a severe loop.
+// transcripts top out at a 3-gram count of 2 and redundancy <= 0.009.
+//
+// #891 RECALIBRATION: the old `maxCount >= 4` cut was an ABSOLUTE 3-gram count with NO length
+// normalization, tuned on SHORT transcripts. The diagnostic branch (diagnostic/891-guard-loop-forensics)
+// demonstrates with SANITIZED SYNTHETIC fixtures that long, healthy RHETORICAL speech can false-fire
+// via a legitimate phrase that recurs >=4 times SPREAD across the transcript, whereas a real runaway
+// loop repeats a phrase in a TIGHT CLUSTER (near-adjacent occurrences). (A local owner-run artifact
+// showed the same class of failure, but owner-derived metrics are not committed.) So we replace the
+// raw count with an ADJACENCY-gated cluster run, keep the length-NORMALIZED redundancy cut, and add a
+// high absolute backstop for pathological spread repetition that neither catches. This fires on
+// genuine loops while sparing spread anaphora.
 const SEVERE_LOOP_MIN_TOKENS = 12;
-const SEVERE_LOOP_MAX_NGRAM_COUNT = 4; // healthy max is 2; looped is 28+
-const SEVERE_LOOP_REDUNDANCY = 0.25;   // healthy is <= 0.009; looped is 0.38-0.65
+const SEVERE_LOOP_REDUNDANCY = 0.25;       // length-normalized: healthy <= 0.009, looped 0.38-0.65
+const SEVERE_LOOP_CLUSTER_MAX_GAP = 6;     // occurrences within 6 words = near-adjacent (loop); rhetoric sits >= 7 apart
+const SEVERE_LOOP_CLUSTER_MIN_RUN = 4;     // 4+ near-adjacent repeats of ONE 3-gram = a runaway loop
+const SEVERE_LOOP_ABS_BACKSTOP = 10;       // pathological: any 3-gram 10x+ (any spacing) — far above healthy max of 2-4
 
 /**
  * Conservative, deterministic detector for a SEVERE repetition loop in live STT text — the v4
@@ -77,9 +88,12 @@ export function hasSevereRepetitionLoop(text: string): boolean {
     if (words.length < SEVERE_LOOP_MIN_TOKENS) return false;
 
     const counts = new Map<string, number>();
+    const lastIndex = new Map<string, number>();   // last word-index a gram occurred at
+    const clusterRun = new Map<string, number>();   // current near-adjacent run length per gram
     let totalGrams = 0;
     let maxCount = 0;
     let repeatedGrams = 0;
+    let maxClusterRun = 0;
     for (let i = 0; i + 3 <= words.length; i += 1) {
         const gram = `${words[i]} ${words[i + 1]} ${words[i + 2]}`;
         const next = (counts.get(gram) ?? 0) + 1;
@@ -87,8 +101,23 @@ export function hasSevereRepetitionLoop(text: string): boolean {
         totalGrams += 1;
         if (next > maxCount) maxCount = next;
         if (next > 1) repeatedGrams += 1; // each occurrence past the first is a repeat
+        // Near-adjacency clustering: extend the run only when this occurrence is within
+        // CLUSTER_MAX_GAP words of the previous one (a tight loop), else the chain resets.
+        const prevIndex = lastIndex.get(gram);
+        if (prevIndex !== undefined && i - prevIndex <= SEVERE_LOOP_CLUSTER_MAX_GAP) {
+            const run = (clusterRun.get(gram) ?? 1) + 1;
+            clusterRun.set(gram, run);
+            if (run > maxClusterRun) maxClusterRun = run;
+        } else {
+            clusterRun.set(gram, 1);
+        }
+        lastIndex.set(gram, i);
     }
     if (totalGrams === 0) return false;
     const redundancy = repeatedGrams / totalGrams;
-    return maxCount >= SEVERE_LOOP_MAX_NGRAM_COUNT || redundancy >= SEVERE_LOOP_REDUNDANCY;
+    return (
+        maxClusterRun >= SEVERE_LOOP_CLUSTER_MIN_RUN   // tight cluster = runaway loop
+        || redundancy >= SEVERE_LOOP_REDUNDANCY         // global loop density (length-normalized)
+        || maxCount >= SEVERE_LOOP_ABS_BACKSTOP         // pathological absolute repetition backstop
+    );
 }

@@ -70,7 +70,7 @@ export const FeaturesSection = () => {
           transition={{ duration: 0.6 }}
         >
           <div className="space-y-3">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-900">
               Key Features
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-3">

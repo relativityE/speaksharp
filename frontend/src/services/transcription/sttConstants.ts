@@ -64,19 +64,63 @@ export const PRIV_STT = {
   // the full utterance buffer.
   LIVE_DECODE_WINDOW_SECONDS: 3.0,
   UTTERANCE_SILENCE_TAIL_SECONDS: 1.0,
+  // #891 capture-from-start: the final buffer accumulates from mic-start (not from speech-start
+  // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
+  // the BEGINNING (the opening) and stop appending, rather than rolling the buffer forward.
+  MAX_UTTERANCE_SECONDS: 600,
+  // #891 beta recording length = the PRODUCT REQUIREMENT: a single Private take may run the full
+  // 5 minutes (300s). The prior 90s value was a beta latency control (kept Stop→final under ~30s on
+  // single-thread WASM); it was REJECTED as beta behavior. Segmented finalization was supposed to lift
+  // it but the implementation failed on real audio and is parked — so we lift the cap directly and make
+  // the finalize wait HONEST instead (the Finalizing… state is shown for the full Stop→final decode,
+  // which on WASM is ~0.27x realtime => ~80s for a 5-min take). WebGPU (v4) is the future accelerator,
+  // NOT a prerequisite for correct capture. The 600s MAX_UTTERANCE_SECONDS hard memory guard stays.
+  MAX_PRIVATE_RECORDING_SECONDS: 300,
+  PRIVATE_RECORDING_CAP_WARNING_SECONDS: 20,
   PROCESSING_INTERVAL_MS: 250,
   MAX_RETRY_SECONDS: 12,
   WHISPER_WINDOW_SECONDS: STT_PROVIDER_REQUIREMENTS.PRIVATE_TRANSFORMERS_WHISPER.MODEL_CONTEXT_WINDOW_SECONDS,
   WHISPER_STRIDE_SECONDS: 5,
   SPEECH_START_RMS_THRESHOLD: SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
   SPEECH_START_MIN_MS: 100,
-  SPEECH_START_PREROLL_MS: 300,
+  // #891 Fix 1: pre-onset audio retained before speech-start confirms. 300ms could not hold a soft
+  // multi-word opening ("My main point is that…" ~1.2-1.5s) when confirmation fired late, so the
+  // opening was evicted from the ring before it reached the utterance buffer. 1500ms covers a slow
+  // human onset; cost is ~1.2s extra retained audio per session (negligible).
+  SPEECH_START_PREROLL_MS: 1500,
   SPEECH_START_RESET_TOLERANCE_MS: 300,
+  // #891 immediate-start readiness gate. Proven cause of the residual opening loss: when a user
+  // hits Record and speaks instantly, getUserMedia/AudioContext/worklet warmup (~0.5-0.7s) has not
+  // yet delivered stable frames, so the first words ("My main…") never reach the capture buffer.
+  // The "Speak now" cue is QUALITY-gated, not a timer: it requires N consecutive CLEAN frames (proves
+  // frames are flowing), and releases when the frame RMS SETTLES (AGC/noise floor converged), bounded
+  // by [MIN, MAX] warmup so a mistuned band can never fire too early nor hang. Frames are ~64ms
+  // (1024 @ 16kHz). Gates the user CUE only — capture-from-start keeps buffering from frame 1. The
+  // band/bounds are tuned from the on-device `mic_ready_to_speak` telemetry (timeToFirstFrame, RMS).
+  MIC_READY_MIN_CONSECUTIVE_FRAMES: 6,
+  MIC_READY_MIN_WARMUP_MS: 250,
+  MIC_READY_MAX_WARMUP_MS: 800,
+  MIC_READY_STABILITY_WINDOW_FRAMES: 6,
+  MIC_READY_RMS_STABILITY_BAND: 0.005,
   POST_TRANSCRIPT_PAINT_GRACE_MS: 600,
   PRE_TRANSCRIPT_METADATA_RETRY_LIMIT: 2,
   FIRST_TRANSCRIPT_LOCAL_AGREEMENT_ROUNDS: 2,
   FIRST_TRANSCRIPT_MIN_WORDS: 4,
   FIRST_TRANSCRIPT_PARTIAL_MIN_RMS: 0.04,
+  // #891 capture-from-start leading trim: a FIXED pure-silence floor used ONLY to drop true leading
+  // near-silence at finalize. Deliberately ~10x below FIRST_TRANSCRIPT_PARTIAL_MIN_RMS and below soft
+  // speech (~0.005) and the speech-start threshold, so opening WORDS are never trimmed (under-trim
+  // bias). This is NOT the dynamic speech-start threshold that caused the original miss.
+  LEADING_SILENCE_TRIM_RMS: 0.003,
+  LEADING_TRIM_KEEP_MARGIN_SECONDS: 0.5,
+  // #891 capture-from-start: a long quiet lead-in ABOVE the pure-silence floor (room tone ~0.004) is
+  // kept by the floor trim, and Whisper hallucinates a prefix on extended low-energy audio
+  // ("(crowd murmuring)" etc.). If the quiet run BEFORE the first loud-speech frame exceeds
+  // LEADING_MAX_QUIET_SECONDS (set well beyond the longest observed soft onset ~7.9s so real soft
+  // openings are NEVER trimmed), trim it down to LEADING_QUIET_KEEP_SECONDS before that loud onset.
+  // Verified: 30s room tone -> hallucinated "(crowd murmuring)"; trimmed to ~1s -> clean opening.
+  LEADING_MAX_QUIET_SECONDS: 12,
+  LEADING_QUIET_KEEP_SECONDS: 1,
   // Path C (first-paint): the previous 5.0s threshold held the first transcript
   // for so long that slow CPU decodes produced no visible live text during short
   // utterances (the "Holding first transcript until it has speech-like substance"
@@ -257,10 +301,9 @@ export const NATIVE_STT = {
   RESTART_MAX_ATTEMPTS: 3,
   RESTART_BASE_DELAY_MS: 100,
   RESTART_DEBOUNCE_MS: 300,
-  RESULT_STALL_RESTART_MS: 2_500,
-  RESULT_STALL_RESTART_MAX_ATTEMPTS: 2,
-  NO_RESULT_SPEECH_RESTART_MS: 3_500,
-  NO_RESULT_SPEECH_RESTART_MAX_ATTEMPTS: 2,
+  // #29 cold-start gate: conservative safety-net timeout to lift the "Getting mic ready…" cue if the
+  // real acoustic signal (onaudiostart/onspeechstart) never arrives. NOT the primary mechanism.
+  NATIVE_ACOUSTIC_READY_FALLBACK_MS: 1_500,
 } as const;
 
 export function secondsToSamples(
@@ -295,6 +338,22 @@ export const PRIV_STT_DERIVED = {
   ),
   UTTERANCE_SILENCE_TAIL_SAMPLES: secondsToSamples(
     PRIV_STT.UTTERANCE_SILENCE_TAIL_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  MAX_UTTERANCE_SAMPLES: secondsToSamples(
+    PRIV_STT.MAX_UTTERANCE_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LEADING_TRIM_KEEP_MARGIN_SAMPLES: secondsToSamples(
+    PRIV_STT.LEADING_TRIM_KEEP_MARGIN_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LEADING_MAX_QUIET_SAMPLES: secondsToSamples(
+    PRIV_STT.LEADING_MAX_QUIET_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LEADING_QUIET_KEEP_SAMPLES: secondsToSamples(
+    PRIV_STT.LEADING_QUIET_KEEP_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   MAX_RETRY_SAMPLES: secondsToSamples(

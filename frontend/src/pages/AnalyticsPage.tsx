@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
+import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
@@ -162,6 +163,17 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         void queryClient.invalidateQueries({ queryKey: ['userProfile'] });
     };
 
+    // #891 (review): reset handler for the Analytics render-crash boundary. It must REMOVE the cached
+    // analytics data, not just invalidate it — invalidate keeps the stale/bad data served while a
+    // refetch runs, so resetting the boundary would immediately re-render the dashboard against the same
+    // data that just threw and re-trip the boundary. removeQueries clears it -> the dashboard re-renders
+    // against undefined (its loading/empty state, which does not throw) and the active hooks refetch fresh.
+    const handleAnalyticsBoundaryReset = () => {
+        queryClient.removeQueries({ queryKey: ['sessionHistory'] });
+        queryClient.removeQueries({ queryKey: ['sessionCount'] });
+        queryClient.removeQueries({ queryKey: ['analyticsSummary'] });
+    };
+
     // Show loading state while fetching data
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
     const isLoading = loading || isProfileLoading;
@@ -198,17 +210,24 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     return (
         <div>
             <PageHeader isPro={isProUser} sessionId={sessionId} upgradeLoading={upgradeLoading} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
-            <AnalyticsDashboard
-                profile={profile || null}
-                isProUser={isProUser}
-                sessionHistory={sessionHistory || []}
-                overallStats={overallStats}
-                fillerWordTrends={fillerWordTrends}
-                loading={isLoading}
-                error={error || null}
-                onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
-                sessionId={sessionId}
-            />
+            {/* #891 Analytics-crash containment: a render throw in the dashboard (or a chart choking on
+                one bad session's data) previously bubbled to the app-level boundary — a full-page "Oops"
+                dead-end that ALSO didn't reach Sentry. Scope it: LocalErrorBoundary reports to Sentry +
+                PostHog (COMPONENT_CRASH) and shows a recoverable "Try Again" instead of the dead-end. The
+                real root-cause fix follows once the captured stack lands. */}
+            <LocalErrorBoundary componentName="Analytics" isolationKey="analytics" onReset={handleAnalyticsBoundaryReset}>
+                <AnalyticsDashboard
+                    profile={profile || null}
+                    isProUser={isProUser}
+                    sessionHistory={sessionHistory || []}
+                    overallStats={overallStats}
+                    fillerWordTrends={fillerWordTrends}
+                    loading={isLoading}
+                    error={error || null}
+                    onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
+                    sessionId={sessionId}
+                />
+            </LocalErrorBoundary>
         </div>
     );
 };

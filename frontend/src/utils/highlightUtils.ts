@@ -48,10 +48,9 @@ export const getWordColor = (word: string): string => {
     const color = COLOR_PALETTE[index];
 
     if (WORD_COLOR_CACHE.size >= MAX_WORD_COLOR_CACHE_SIZE) {
-        const oldestKey = WORD_COLOR_CACHE.keys().next().value;
-        if (oldestKey) {
-            WORD_COLOR_CACHE.delete(oldestKey);
-        }
+        // Flush on overflow instead of allocating a keys() iterator to evict one-by-one.
+        // Colors are a deterministic hash, so rebuilding after the rare flush is cheap.
+        WORD_COLOR_CACHE.clear();
     }
     WORD_COLOR_CACHE.set(normalized, color);
 
@@ -107,8 +106,9 @@ export const parseTranscriptForHighlighting = (text: string, userWords: string[]
 
         // Maintain cache size
         if (REGEX_CACHE.size >= MAX_CACHE_SIZE) {
-            const firstKey = REGEX_CACHE.keys().next().value;
-            if (firstKey !== undefined) REGEX_CACHE.delete(firstKey);
+            // Flush on overflow instead of allocating a keys() iterator; with MAX_CACHE_SIZE
+            // distinct word-configs this branch is effectively never hit in practice.
+            REGEX_CACHE.clear();
         }
         REGEX_CACHE.set(cacheKey, { regex: tokenRegex, fillers: allFillers, fillerMap });
     }

@@ -5,6 +5,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useProfile } from './useProfile';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { publishTelemetry } from '@/services/telemetry/sessionTelemetryBus';
+import { toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { useSessionMetrics } from './useSessionMetrics';
@@ -15,11 +17,19 @@ import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
+import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
+import {
+    PRIVATE_SAMPLE_EVENTS,
+    emitPrivateSample,
+    setPrivateSampleContext,
+    clearPrivateSampleContext,
+    buildSampleEnvProps,
+} from '@/services/transcription/privateSampleTelemetry';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -102,6 +112,28 @@ export const useSessionLifecycle = () => {
     // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
     const hasVADStoppedRef = useRef(false);
+    // Private-sample telemetry tracking: did a private sample recording start, and when.
+    const privateSampleActiveRef = useRef(false);
+    const recordingStartTsRef = useRef(0);
+    const firstTextSeenRef = useRef(false);
+    // If the user navigates away / unmounts mid-private-sample without saving, record it.
+    useEffect(() => {
+        const onPageHide = () => {
+            if (privateSampleActiveRef.current) {
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
+                privateSampleActiveRef.current = false;
+            }
+        };
+        window.addEventListener('pagehide', onPageHide);
+        return () => {
+            window.removeEventListener('pagehide', onPageHide);
+            if (privateSampleActiveRef.current) {
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
+                privateSampleActiveRef.current = false;
+                clearPrivateSampleContext();
+            }
+        };
+    }, []);
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
 
     const speechConfig = useMemo(() => ({
@@ -144,6 +176,7 @@ export const useSessionLifecycle = () => {
         chunks: chunks as unknown as Array<{ transcript: string; timestamp: number }>, // Cast to structural match to avoid strict Chunk mismatch
         fillerData: fillerData as FillerCounts,
         elapsedTime,
+        userWords: userFillerWords, // accepted for compat; live filler count is canonical (no recount source-routing)
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
@@ -166,6 +199,12 @@ export const useSessionLifecycle = () => {
                     type: 'info',
                     message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
+                if (privateSampleActiveRef.current) {
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STOPPED, { recording_duration_seconds: elapsedTime });
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED, { recording_duration_seconds: elapsedTime });
+                    privateSampleActiveRef.current = false;
+                    clearPrivateSampleContext();
+                }
                 isProcessingRef.current = false;
                 return;
             }
@@ -177,6 +216,11 @@ export const useSessionLifecycle = () => {
 
                 if (!stopResult) {
                     setShowAnalyticsPrompt(false);
+                    if (privateSampleActiveRef.current) {
+                        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
+                        privateSampleActiveRef.current = false;
+                        clearPrivateSampleContext();
+                    }
                     return;
                 }
 
@@ -192,6 +236,38 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
+                if (effectiveMode === 'private' && privateSampleActiveRef.current) {
+                    const sampleDuration = recordingStartTsRef.current
+                        ? Math.round((Date.now() - recordingStartTsRef.current) / 1000)
+                        : elapsedTime;
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STOPPED, { recording_duration_seconds: sampleDuration });
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SAVED, {
+                        recording_duration_seconds: sampleDuration,
+                        word_count: metrics.wordCount,
+                        save_success: true,
+                    });
+                    // usage_updated/exhausted emitted here (context still set, before clear) so the
+                    // sample's consumption is recorded reliably regardless of cache/usage-sync timing.
+                    {
+                        const sampleLimit = usageLimit?.private_sample_limit_seconds ?? null;
+                        const priorUsed = typeof usageLimit?.private_sample_seconds_used === 'number'
+                            ? usageLimit.private_sample_seconds_used
+                            : 0;
+                        const used = priorUsed + sampleDuration;
+                        const remaining = sampleLimit != null
+                            ? Math.max(0, sampleLimit - used)
+                            : (usageLimit?.private_sample_seconds_remaining ?? null);
+                        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.USAGE_UPDATED, {
+                            sample_seconds_used: used,
+                            sample_seconds_remaining: remaining,
+                        });
+                        if (remaining != null && remaining <= 0) {
+                            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.EXHAUSTED, { sample_seconds_used: used });
+                        }
+                    }
+                    privateSampleActiveRef.current = false;
+                    clearPrivateSampleContext();
+                }
 
                 if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
@@ -278,6 +354,18 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     ...getSessionCoachingExperimentProperties(),
                 });
+                if (latestMode === 'private') {
+                    // Set the resolved arm/assignment context, then emit recording_started.
+                    speechRuntimeController.applyPrivateSampleContext();
+                    recordingStartTsRef.current = Date.now();
+                    setPrivateSampleContext({
+                        sample_limit_seconds: usageLimit?.private_sample_limit_seconds ?? null,
+                        recording_start_ts: recordingStartTsRef.current,
+                    });
+                    privateSampleActiveRef.current = true;
+                    firstTextSeenRef.current = false;
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STARTED, { ...buildSampleEnvProps() });
+                }
             } catch (error) {
                 const err = error as Error;
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -306,6 +394,11 @@ export const useSessionLifecycle = () => {
                     error_message: err?.message || 'Unknown',
                     ...getSessionCoachingExperimentProperties(),
                 });
+                if (latestMode === 'private') {
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ERROR, { error_code: err?.name || 'Error' });
+                    privateSampleActiveRef.current = false;
+                    clearPrivateSampleContext();
+                }
                 try {
                     await speechRuntimeController.reset('start_failed');
                 } catch (resetError) {
@@ -354,6 +447,15 @@ export const useSessionLifecycle = () => {
         if (isListening) {
             const interval = setInterval(() => {
                 tick();
+                // #891 Phase 5.6 (SHADOW, PASSIVE): after the real tick, publish the authoritative session
+                // clock so the shadow pace/clarity/score derivers share the legacy elapsedTime basis. Gated
+                // OFF in production (zero cost) and error-swallowed; runs on this heartbeat, never on the
+                // transcription/audio path.
+                if (isShadowMetricsEngineEnabled()) {
+                    const st = useSessionStore.getState();
+                    const mode = toTelemetryMode(st.activeEngine ?? st.sttMode);
+                    if (mode) publishTelemetry({ type: 'session.tick', mode, t: performance.now(), elapsedSeconds: st.elapsedTime });
+                }
             }, 1000);
             return () => clearInterval(interval);
         }
@@ -439,6 +541,30 @@ export const useSessionLifecycle = () => {
         }
     }, [elapsedTime, effectiveMode, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
 
+    // #891 beta recording length = the product requirement: a single Private take may run the full
+    // 5 minutes (300s). This fires on WALL-CLOCK elapsedTime (not the sample count), so it cannot
+    // early-fire from any duration over-count. Independent of the usage allowance above — whichever
+    // limit (budget or 5-min cap) is hit first triggers the single auto-stop (shared hasAutoStoppedRef).
+    // Warns 20s before the cap. The Stop→final decode wait is shown honestly via the Finalizing… state.
+    useEffect(() => {
+        if (effectiveMode !== 'private' || !isListening) return;
+        const capRemaining = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS - elapsedTime;
+
+        if (capRemaining <= 0) {
+            if (hasAutoStoppedRef.current) return;
+            hasAutoStoppedRef.current = true;
+            logger.warn({ elapsedTime }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: Private 5-minute per-recording cap reached');
+            void handleStartStopRef.current?.({
+                stopReason: 'Private recordings are capped at 5 minutes during beta. We stopped and saved your session.',
+            });
+        } else if (capRemaining <= PRIV_STT.PRIVATE_RECORDING_CAP_WARNING_SECONDS) {
+            const warningMsg = `${Math.ceil(capRemaining)}s left — Private recordings are capped at 5 minutes during beta. We’ll stop and save automatically.`;
+            if (sttStatus.message !== warningMsg) {
+                setSTTStatus({ type: 'info', message: warningMsg });
+            }
+        }
+    }, [effectiveMode, isListening, elapsedTime, sttStatus.message, setSTTStatus]);
+
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);
     const lastActivityTimeRef = useRef(Date.now());
@@ -454,6 +580,13 @@ export const useSessionLifecycle = () => {
         if (transcript.transcript !== lastTranscriptRef.current) {
             lastTranscriptRef.current = transcript.transcript;
             lastActivityTimeRef.current = Date.now();
+            // First non-empty transcript of a Private sample → measure time-to-first-text.
+            if (privateSampleActiveRef.current && !firstTextSeenRef.current && transcript.transcript.trim().length > 0) {
+                firstTextSeenRef.current = true;
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.FIRST_TRANSCRIPT_SEEN, {
+                    time_to_first_text_ms: recordingStartTsRef.current ? Math.max(0, Date.now() - recordingStartTsRef.current) : null,
+                });
+            }
         }
 
         const inactivityLimit = 300 * 1000; // 5 minutes

@@ -96,6 +96,9 @@ export function updateLocalUsage(userId: string, additionalSeconds: number) {
         return;
     }
 
+    // Optimistic usage decrement. private_sample_usage_updated / _exhausted telemetry is emitted
+    // from the session-lifecycle save block (context-live, deterministic), not here — the usage
+    // sync timing relative to the sample-context lifecycle was unreliable.
     queryClient.setQueryData(['usageLimit', userId], (old: UsageLimitCheck | undefined) => {
         if (!old) return old;
         return {

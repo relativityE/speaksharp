@@ -16,6 +16,7 @@ const initialState: SessionState = {
     sttMode: null,
     modelLoadingProgress: null,
     activeEngine: null,
+    activeEngineVersion: null,
     isInitiating: false,
     runtimeState: 'IDLE',
     isLockHeldByOther: false,
@@ -107,6 +108,11 @@ export function createTestSessionStore(
         setActiveEngine: vi.fn((engine) =>
             set({
                 activeEngine: engine,
+            })),
+
+        setActiveEngineVersion: vi.fn((key) =>
+            set({
+                activeEngineVersion: key,
             })),
 
         setElapsedTime: vi.fn((seconds) =>

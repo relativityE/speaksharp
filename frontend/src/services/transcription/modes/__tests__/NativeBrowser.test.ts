@@ -319,8 +319,23 @@ describe('NativeBrowser Transcription Mode', () => {
       }
  
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'hello world' },
+        transcript: { final: 'hello world', replacesRollingTranscript: true },
       });
+    });
+
+    it('#NATIVE-SHADOW-TELEMETRY (Phase 2): publishes Native lifecycle + transcript.final to the telemetry bus', async () => {
+      const { getSessionTelemetryBus } = await import('@/services/telemetry/sessionTelemetryBus');
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const r0 = Object.assign([{ transcript: 'shadow bus proof', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const events = getSessionTelemetryBus().getBufferedEvents();
+      expect(events.some(e => e.type === 'webspeech.lifecycle' && e.event === 'start')).toBe(true);
+      expect(events.some(e => e.type === 'transcript.final' && e.text === 'shadow bus proof')).toBe(true);
     });
 
     it('preserves native browser punctuation when Chrome provides it', async () => {
@@ -336,7 +351,7 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.(event as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'hello, world.' },
+        transcript: { final: 'hello, world.', replacesRollingTranscript: true },
       });
     });
  
@@ -395,12 +410,14 @@ describe('NativeBrowser Transcription Mode', () => {
       const secondResult = Object.assign([{ transcript: 'second phrase', confidence: 0.9, isFinal: true }], { isFinal: true });
       mockRecognition.onresult?.({ results: [secondResult], resultIndex: 0 } as unknown as MockSpeechEvent);
 
+      // #NATIVE-APPEND-ONLY: cycle 2 (resultIndex reset to 0 after restart) must APPEND to cycle 1,
+      // not replace it. Native emits the ACCUMULATED transcript each time, so call 2 = both phrases.
       expect(onTranscriptUpdate).toHaveBeenCalledTimes(2);
       expect(onTranscriptUpdate).toHaveBeenNthCalledWith(1, {
-        transcript: { final: 'first phrase' },
+        transcript: { final: 'first phrase', replacesRollingTranscript: true },
       });
       expect(onTranscriptUpdate).toHaveBeenNthCalledWith(2, {
-        transcript: { final: 'second phrase' },
+        transcript: { final: 'first phrase second phrase', replacesRollingTranscript: true },
       });
       expect(await nativeBrowser.getTranscript()).toBe('first phrase second phrase');
 
@@ -508,7 +525,7 @@ describe('NativeBrowser Transcription Mode', () => {
 
       expect(onTranscriptUpdate).toHaveBeenCalledTimes(1);
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'the quick brown fox' },
+        transcript: { final: 'the quick brown fox', replacesRollingTranscript: true },
       });
     });
 
@@ -533,12 +550,14 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof');
     });
 
-    it('REGRESSION: replaces a short final with the richer pending interim when Chrome collapses its hypothesis on stop', async () => {
+    it('REGRESSION: a short final wins over a richer pending interim (finals are authoritative)', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
       mockRecognition.onstart?.({} as Event);
       await startPromise;
 
+      // #NATIVE-APPEND-ONLY rule 1: the browser's isFinal result is authoritative. A longer/stale
+      // pending interim must NOT be substituted over a shorter final, even on stop.
       const richInterim = Object.assign([{ transcript: 'native chrome microphone release validation native chrome microphone release validation', confidence: 0.8, isFinal: false }], { isFinal: false });
       const shortFinal = Object.assign([{ transcript: 'validation', confidence: 0.9, isFinal: true }], { isFinal: true });
 
@@ -550,9 +569,54 @@ describe('NativeBrowser Transcription Mode', () => {
       await stopPromise;
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { final: 'native chrome microphone release validation native chrome microphone release validation' },
+        transcript: { final: 'validation', replacesRollingTranscript: true },
       });
-      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone release validation native chrome microphone release validation');
+      expect(await nativeBrowser.getTranscript()).toBe('validation');
+    });
+
+    it('REGRESSION: repeated speech survives — appends finals verbatim without overlap deletion', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      // #NATIVE-APPEND-ONLY: the old fuzzy append dropped a segment when the base ended with it or
+      // stripped prefix overlap, deleting legitimately repeated speech. Two genuine finals with a
+      // repeated phrase must BOTH survive, exactly as spoken. (Web Speech results are cumulative;
+      // resultIndex advances to the newly-final result.)
+      const mkFinal = (t: string) => Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const r0 = mkFinal('the third thing');
+      const r1 = mkFinal('the third thing is evidence');
+
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [r0, r1], resultIndex: 1 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'the third thing the third thing is evidence', replacesRollingTranscript: true },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('the third thing the third thing is evidence');
+    });
+
+    it('REGRESSION: saved transcript contains every final segment exactly once, in order', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const mkFinal = (t: string) => Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const r0 = mkFinal('first sentence');
+      const r1 = mkFinal('second sentence');
+      const r2 = mkFinal('third sentence');
+
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [r0, r1], resultIndex: 1 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [r0, r1, r2], resultIndex: 2 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenCalledTimes(3);
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'first sentence second sentence third sentence', replacesRollingTranscript: true },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('first sentence second sentence third sentence');
     });
 
     it('REGRESSION: does not append a stale full interim after Chrome already committed the final', async () => {
@@ -640,12 +704,17 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.({ results: [finalWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { final: 'the quick brown fox' },
+        transcript: { final: 'the quick brown fox', replacesRollingTranscript: true },
       });
       expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
     });
 
-    it('REGRESSION: restarts a stalled Native recognition cycle after first meaningful interim', async () => {
+    it('CANONICAL: does NOT force-restart a stalled cycle mid-utterance (removed anti-pattern)', async () => {
+      // A 2.5s "result stall" timer used to call recognition.stop() to force a restart, cutting
+      // Chrome off mid-utterance and dropping speech (the owner's "kept overwriting / missed so
+      // much"). Phase 3 removes that anti-pattern: no timer-driven stop() may fire, no matter how
+      // long a meaningful interim sits without a following result. Only the reactive onend restart
+      // (which does not stop() a live cycle) keeps the session alive.
       vi.useFakeTimers();
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
@@ -655,25 +724,16 @@ describe('NativeBrowser Transcription Mode', () => {
       const firstWindow = Object.assign([{ transcript: 'native chrome microphone', confidence: 0.8, isFinal: false }], { isFinal: false });
       mockRecognition.onresult?.({ results: [firstWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
-      await vi.advanceTimersByTimeAsync(2500);
-      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
-
-      mockRecognition.onend?.({} as Event);
-      await vi.advanceTimersByTimeAsync(310);
-      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
-
-      mockRecognition.onstart?.({} as Event);
-      const secondWindow = Object.assign([{ transcript: 'the quick brown fox continues', confidence: 0.8, isFinal: false }], { isFinal: false });
-      mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
-
-      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'the quick brown fox continues' },
-      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(mockRecognition.stop).not.toHaveBeenCalled();
 
       vi.useRealTimers();
     });
 
-    it('REGRESSION: restarts when speech is detected but Chrome withholds transcript results', async () => {
+    it('CANONICAL: does NOT force-restart when speech is detected but Chrome withholds results (removed anti-pattern)', async () => {
+      // A 3.5s "no result speech" timer used to call recognition.stop() when onspeechstart fired
+      // without a following result. Phase 3 removes it: Chrome is trusted to emit results on its
+      // own; forcing a stop here cut off the utterance the user was still speaking.
       vi.useFakeTimers();
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
@@ -682,25 +742,36 @@ describe('NativeBrowser Transcription Mode', () => {
 
       mockRecognition.onspeechstart?.();
 
-      await vi.advanceTimersByTimeAsync(3499);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(mockRecognition.stop).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(1);
-      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
-
-      mockRecognition.onend?.({} as Event);
-      await vi.advanceTimersByTimeAsync(310);
-      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
-
-      mockRecognition.onstart?.({} as Event);
-      const recoveredWindow = Object.assign([{ transcript: 'native browser recovered after silence', confidence: 0.8, isFinal: false }], { isFinal: false });
-      mockRecognition.onresult?.({ results: [recoveredWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
-
-      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'native browser recovered after silence' },
-      });
-
       vi.useRealTimers();
+    });
+
+    it('CANONICAL: preserves the stopping cycle trailing final flushed after Stop (not dropped)', async () => {
+      // Chrome flushes a trailing FINAL for speech spoken before Stop, in the SAME recognition
+      // cycle that was active at Stop. Previously the hard-stop guard dropped it (lost last phrase).
+      // It must now be appended; only results from a LATER cycle (a new utterance after Stop) drop.
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const mkResult = (t: string) =>
+        Object.assign([{ transcript: t, confidence: 0.9, isFinal: true }], { isFinal: true });
+      const r0 = mkResult('closing remarks');
+      const r1 = mkResult('thank you all');
+
+      mockRecognition.onresult?.({ results: [r0], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('closing remarks');
+
+      const stopPromise = nativeBrowser.stop();
+      // Trailing flush of the SAME cycle at a new result index, after Stop was requested.
+      mockRecognition.onresult?.({ results: [r0, r1], resultIndex: 1 } as unknown as MockSpeechEvent);
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(await nativeBrowser.getTranscript()).toBe('closing remarks thank you all');
     });
 
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
@@ -829,6 +900,41 @@ describe('NativeBrowser Transcription Mode', () => {
       // hard-stop guard must drop it rather than append it to the completed transcript.
       const postStopFinal = Object.assign([{ transcript: 'Hey Dad', confidence: 0.9, isFinal: true }], { isFinal: true });
       mockRecognition.onresult?.({ results: [postStopFinal], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate.mock.calls.length).toBe(updatesAfterStop);
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
+    });
+
+    it('REGRESSION: a NEW recognition cycle after Stop cannot mutate the stopped transcript (cycle-id guard)', async () => {
+      // #925 permits a SAME-cycle trailing final after Stop so Chrome can flush speech spoken BEFORE
+      // Stop. This test closes the adjacent risk: a stray SECOND cycle actually STARTS after Stop
+      // (onstart fires -> recognitionCycleId increments, finalizedResultIndexes cleared) and emits a
+      // final at a FRESH index, so index-dedup alone would NOT catch it. The cycle-id guard
+      // (recognitionCycleId !== stopRequestedCycleId) must still drop it.
+      //
+      // Why same-cycle-vs-new-cycle is a SAFE distinction (documented limitation): recognition.stop()
+      // halts Chrome's audio capture, so Chrome cannot produce NEW same-cycle speech after Stop — a
+      // same-cycle trailing final is therefore always the flush of pre-Stop audio. Genuinely new
+      // speech requires a new cycle, which this guard drops. The safety rests on that stop() semantic.
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const committed = Object.assign([{ transcript: 'the quick brown fox', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [committed], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      const updatesAfterStop = onTranscriptUpdate.mock.calls.length;
+
+      // Stray new cycle starts AND emits a fresh-index final after Stop — must be dropped.
+      mockRecognition.onstart?.({} as Event);
+      const strayNewCycleFinal = Object.assign([{ transcript: 'brand new sentence after stop', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [strayNewCycleFinal], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate.mock.calls.length).toBe(updatesAfterStop);
       expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');

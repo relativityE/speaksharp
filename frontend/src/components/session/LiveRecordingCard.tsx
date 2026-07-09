@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Download, Lock, Mic, Square, ChevronDown } from 'lucide-react';
+import { AlertCircle, Download, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
-import { PRIV_STT_MODELS } from '@/services/transcription/sttConstants';
+import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
+import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 
 
@@ -35,6 +36,7 @@ interface LiveRecordingCardProps {
     fsmState?: RuntimeState; // master FSM state from controller
     sttStatusType?: string; // status type from service status
     recordingIntent?: boolean; // explicit user intent to record
+    isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
     className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -74,15 +76,27 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     fsmState,
     sttStatusType,
     recordingIntent = false,
+    isFinalizing = false,
     className = "",
     onModeChange,
     onStartStop,
     onDownloadModel,
 }) => {
+    // Emit private_sample_selected once when the user shows intent to use Private mode
+    // (selection, not passive render), then delegate to the real handler.
+    const privateSelectedRef = React.useRef(false);
+    const handleModeChange = (next: RecordingMode) => {
+        if (next === 'private' && !privateSelectedRef.current) {
+            privateSelectedRef.current = true;
+            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SELECTED);
+        }
+        onModeChange(next);
+    };
+
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
     const ACTIVE_INDICATOR_STATES: RuntimeState[] = ['RECORDING', 'ENGINE_INITIALIZING', 'INITIATING', 'STOPPING'];
-    const ACTIVE_INDICATOR_TYPES = ['recording', 'initializing', 'downloading', 'download-required', 'paused'];
+    const ACTIVE_INDICATOR_TYPES = ['recording', 'warming', 'initializing', 'downloading', 'download-required', 'paused'];
 
     const isIndicatorVisible = fsmState
         ? (ACTIVE_INDICATOR_STATES.includes(fsmState) || ACTIVE_INDICATOR_TYPES.includes(sttStatusType || '') || isPaused)
@@ -95,6 +109,43 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
+    // #891 immediate-start gate: the mic is warming up; the UI must NOT invite speech yet.
+    const isWarming = sttStatusType === 'warming';
+    // Surface a PROMINENT "Getting mic ready… -> Ready, speak now" cue. Hold the green "ready"
+    // state briefly after the mic becomes ready so the user clearly sees the transition and starts.
+    const [justBecameReady, setJustBecameReady] = React.useState(false);
+    const wasWarmingRef = React.useRef(false);
+    React.useEffect(() => {
+        const wasWarming = wasWarmingRef.current;
+        wasWarmingRef.current = isWarming;
+        if (wasWarming && !isWarming && isListening) {
+            setJustBecameReady(true);
+            const timer = setTimeout(() => setJustBecameReady(false), 2500);
+            return () => clearTimeout(timer);
+        }
+    }, [isWarming, isListening]);
+    // #891 state-colored status pill (white card stays; only the oval pill tints by state).
+    // neutral idle -> amber warming -> green ready -> blue finalizing. Recording stays neutral.
+    const pillState: 'finalizing' | 'warming' | 'ready' | 'recording' | 'idle' =
+        isFinalizing ? 'finalizing'
+            : isWarming ? 'warming'
+                : justBecameReady ? 'ready'
+                    : isListening ? 'recording'
+                        : 'idle';
+    const pillSurface = {
+        finalizing: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
+        warming: 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
+        ready: 'bg-green-100 text-green-800 ring-1 ring-green-400',
+        recording: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
+        idle: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
+    }[pillState];
+    const pillDot = {
+        finalizing: 'bg-blue-500',
+        warming: 'bg-amber-500 animate-pulse',
+        ready: 'bg-green-500',
+        recording: 'bg-primary animate-pulse',
+        idle: 'bg-muted-foreground',
+    }[pillState];
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
         displayStatusMessage = 'Private model setup';
@@ -109,21 +160,24 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
     };
     const modeHint: Record<RecordingMode, string> = {
-        native: 'Starts instantly with browser speech recognition. Accuracy depends on browser and room.',
-        private: 'Runs locally after model setup. All audio processing remains local.',
-        cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
+        native: "Starts instantly with your browser's speech recognition. Accuracy depends on your browser and room.",
+        private: 'Runs on your device after setup. Audio processing stays local.',
+        cloud: 'Highest accuracy for Pro. Audio is sent for cloud transcription.',
         mock: 'Test transcription mode.',
     };
     const hasPrivateSampleAccess = canUsePrivate && !isPaidProUser;
+    // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
+    const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
+    const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
     const privateModeDescription = isPaidProUser
-        ? 'Private transcription keeps transcription local after model setup. All audio processing remains local.'
+        ? `Private transcription runs on your device after setup — audio processing stays local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
         : canUsePrivate
-            ? 'Try one Private sample session. Record up to 5 minutes with local transcription so you can compare it with Browser transcription.'
+            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Local transcription so you can compare it with Browser transcription.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
-    const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
+    const nativeModeDescription = "Starts instantly with your browser's speech recognition. Accuracy depends on your browser and room.";
     const cloudModeDescription = canUseCloudStt
-        ? 'Pro cloud transcription workflow. Audio is sent to the cloud STT provider.'
-        : 'Cloud STT is a paid Early Access feature.';
+        ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
+        : 'Cloud transcription is a paid Early Access feature.';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
@@ -137,14 +191,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         <div>
                             <p className="text-sm font-bold leading-snug text-primary">
                                 {isPrivateDownloadRequired
-                                    ? 'Set up Private transcription on this computer. All audio processing remains local.'
+                                    ? 'Set up Private transcription on this computer. Audio processing stays local.'
                                     : modeHint[mode]}
                             </p>
                             {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && (
                                 <div className="mt-1 space-y-0.5">
                                     <button
                                         type="button"
-                                        onClick={() => onModeChange('private')}
+                                        onClick={() => handleModeChange('private')}
                                         className="text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
                                         data-testid="first-run-setup-private"
                                     >
@@ -154,7 +208,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     </button>
                                     {hasPrivateSampleAccess && (
                                         <p className="text-[10px] font-medium leading-snug text-foreground/60">
-                                            Record up to 5 minutes with local transcription so you can compare it with Browser transcription.
+                                            Up to {privateCapLabel} per recording during beta, with local transcription so you can compare it with Browser transcription.
                                         </p>
                                     )}
                                 </div>
@@ -202,7 +256,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-72">
-                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
+                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
                                     value="native"
                                     className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
@@ -293,12 +347,25 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="text-3xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-3 py-1">
-                                <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
-                                <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label">
+                            {/* #891 state-colored status pill: the white card stays; ONLY this oval tints
+                                by state — neutral idle, amber warming, green "speak now", blue finalizing. */}
+                            <div
+                                className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors duration-300 ${pillSurface}`}
+                                aria-live="polite"
+                            >
+                                {isFinalizing
+                                    ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                                    : <div className={`h-1.5 w-1.5 rounded-full ${pillDot}`} />}
+                                <span className="text-[11px] font-bold tracking-[0.06em]" data-testid="stt-status-label" data-pill-state={pillState}>
                                     {isPrivateDownloadRequired
                                         ? 'Ready'
-                                        : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
+                                        : isFinalizing
+                                            ? 'Finalizing your transcript…'
+                                            : isWarming
+                                                ? 'Getting mic ready — one moment…'
+                                                : justBecameReady
+                                                    ? 'Ready — speak now'
+                                                    : (displayStatusMessage || (isPaused ? 'Paused' : (isListening ? (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening') : 'Ready to record')))}
                                 </span>
                             </div>
                         </div>

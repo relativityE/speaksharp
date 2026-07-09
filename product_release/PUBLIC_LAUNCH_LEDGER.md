@@ -18,7 +18,7 @@ Historical artifact paths in this ledger may contain old `basic` filename slugs 
 |---|---|---:|---|---|---:|---|
 | PL-001 | Public signup + first-user onboarding | P0 | A public user must be able to enter without admin-created accounts. | Brand-new user signs up through public UI, reaches Session, logs out/in, and recovers state. | PASS | `/private/tmp/speaksharp-pl001-public-signup-1778802961686/report.json`; public `/signup` alias fixed in commit `994d06a1` |
 | PL-002 | First useful Free session | P0/P1 | New users need immediate product value. | Public user completes Native Browser session with transcript/save/history/detail/analytics, or receives clear browser/mic guidance. | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
-| PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning or test mode. | Free user starts Pro checkout from public UI and completes real payment. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Production launch still requires live Stripe keys and the same rerun with `cs_live_...`. |
+| PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning. | Checkout→entitlement journey proven; live keys configured for paid public. | ✅ JOURNEY PROVEN (TEST = accepted proof) / LIVE = OPS CUTOVER | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Per `RELEASE_CLOSEOUT_LEDGER.md` §D the test-mode journey **is** the accepted proof; opening paid public is a **config cutover** (swap to live keys + register live webhook + verify `stripeKeyClass==="live"`), not a required `cs_live_` money-proof. |
 | PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
 | PL-006 | Automatic trial lifecycle | P0/P1 | Launch includes trials, so trial entitlement must be safe. | New signup receives one trial window; expired trial downgrades through effective-tier checks. | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/report.json`; focused reuse proof `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; expired trial live smoke run `25894288884` passed with artifact `7008001175` |
@@ -97,7 +97,7 @@ Configure the deployed production checkout environment with live Stripe credenti
 | Frontend Stripe publishable key | `pk_live_...` for the deployed public app if Stripe.js is initialized client-side |
 | `SITE_URL` | `https://speaksharp-public.vercel.app` |
 
-After updating live Stripe configuration, rerun the same PL-003 flow from the public UI and require a `cs_live_...` Pro Checkout session plus real payment completion before broad public launch. Public Free signup must not create a Stripe Checkout session. Paid Basic remains a future placeholder and direct checkout requests must return `paid_basic_future`.
+At paid-public cutover, configure live Stripe keys/price/webhook (Ops launch-day step). The checkout→entitlement **journey is already the accepted proof in TEST mode** (`RELEASE_CLOSEOUT_LEDGER.md` §D) — a single controlled `cs_live_...` smoke after cutover is optional ops diligence, **not** a required money-proof gate. Public Free signup must not create a Stripe Checkout session. Paid Basic remains a future placeholder and direct checkout requests must return `paid_basic_future`.
 
 ## PL-004 Test-Mode Entitlement Summary
 
@@ -120,7 +120,7 @@ The Stripe test-mode checkout proves the entitlement path executes correctly in 
 | Live Stripe Checkout session `cs_live_...` | Pending live keys |
 | Live webhook signature verification from production Stripe event | Pending live keys |
 | Live paid user remains Pro after refresh/logout/login | Pending live payment |
-| Duplicate/replayed webhook remains idempotent | Covered locally; live replay proof pending if required |
+| Duplicate/replayed webhook remains idempotent | Webhook is signature-verified + fails-closed (mode-agnostic; proven in the test-mode journey, `RELEASE_CLOSEOUT_LEDGER.md` §D). A live event replay is optional ops diligence, not a required gate. |
 
 ## PL-005 Billing Lifecycle Summary
 
@@ -165,7 +165,7 @@ closure requires the #85 migration/app-path proof on a real Supabase stack.
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-003 / PL-004 / PL-005 Live Stripe configuration | Cloud provider-level proof is now green; the remaining public-launch blocker is live Stripe keys/events. | Configure production Stripe live keys/price/webhook secret and rerun checkout, entitlement, cancellation/failure, and idempotency proof with live-mode evidence. |
+| PL-003 / PL-004 / PL-005 Live Stripe configuration (Ops cutover) | The checkout→webhook→billing-portal **journey is PROVEN with Stripe TEST-mode keys = the accepted proof** (`RELEASE_CLOSEOUT_LEDGER.md` §D); live keys are not money-tested and not required as a proof. Only the **config cutover** remains for paid launch. | **Ops launch-day step (not a Dev/QA proof):** set `sk_live`/`pk_live`/live `whsec`/live price IDs in prod env, register the live webhook endpoint in the Stripe LIVE dashboard, then verify `window.__APP_RUNTIME_CONFIG__.stripeKeyClass==="live"`. The "Pending live keys/events" rows below are this cutover, not an outstanding proof. |
 
 ## PL-007 Cloud Transcript Attempt
 

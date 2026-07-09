@@ -27,7 +27,7 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 |---|---|---|---|
 | #770 migration reconciliation | Closed — merged | — | `46e0fd97`; prod migration run `27450253678` PASS |
 | #771 recovery actions | Closed — merged | — | `c11789ef` |
-| #773 exact-doubling collapse | Closed — merged (KEEP, do not revert) | — | `8cee74fe` |
+| #773 exact-doubling collapse | Closed — merged. **SUPERSEDED for the SAVED path by #903 (2026-06-30): the saved-transcript repetition collapse is now FLAG-ONLY** — `detectRepetitionRisk` records metadata, never mutates, at BOTH saved-authority sites (`PrivateWhisper.commitWholeUtteranceTranscript` + `TranscriptionService.stopTranscription`), per the data-integrity ruling. The display-only collapse (#772, saved untouched) remains. | — | `8cee74fe` (+ flag-only #903) |
 | #774 index dedup + analytics routing | Closed — merged | — | `75fb9ac0` (branch deleted) |
 | #774 migration apply (`supabase db push`) | Closed — merged | — | migration `20260613100000`; dispatched migration workflow `27470518053` PASS (deploy-production-db + push-migrations PASS) |
 | #775 canUsePrivate split + SunsetModals fix | Closed — merged | — | `9d4b90be`; deploy `27468389396`, canary `27468389402`, main CI `27468389406` PASS |
@@ -90,6 +90,24 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 - **Return URLs (already correct):** `success_url`/`cancel_url` server-derived from `SITE_URL` (`stripe-checkout/index.ts:258-259`); portal `return_url` from `SITE_URL`. No client-supplied URLs → open-redirect safe.
 - **Customer-id persistence (already correct):** `process_stripe_webhook_event(p_stripe_customer_id)` (migration `20260608190000`) — exercised in the test-mode journey.
 - **Not blocked on a proof.** The journey is proven (test mode). The only remaining item is the business decision to flip live keys at cutover.
+
+## E. DB hygiene closeout — production `auth.users` 1,445 → 35 (2026-06-26)
+
+Pre-onboarding production cleanup + recurring-drift fix. All deletes were gated (fail-closed confirm phrases, dry-run defaults, exact-count guards, ID-frozen lists, before/after audits).
+
+| Final state | Value |
+|---|---|
+| `auth.users` total | **35** (was 1,445) |
+| KEEP | **34** (soak registry, stable canary, reviewer/CI accounts) |
+| HELD / PRESERVED | **1** — `***@gmail.com` (known live-Stripe real account; hardcoded-protected via shared `PROTECTED_IDS`; do **not** treat as "INVESTIGATE") |
+| DELETE / NORMALIZE residue | **0 / 0** |
+| legacy canary residue | **0** (959 deleted) |
+| first-time-tester residue | **0** |
+| gate-induced auth drift | **0** (before/after audit around `gate=all` `28235534502`: 35 → 35) |
+
+- **Removed:** 959 legacy `canary-<runid>` accounts; 227 + 29 + 17 test/promo residue across Phases 1/2/2b/2c/Pass A; 14 Stripe-proof test accounts (Pass B, after owner confirmed Stripe **test-mode**).
+- **Schema fix:** `usage_checkpoints.user_id` → `ON DELETE CASCADE` (migration `20260625120000`) so user deletes cascade; promo tables (`promo_attempts`/`promo_redemptions`, NO ACTION) handled by scoped per-id cleanup (no global cascade — they may carry budget meaning).
+- **Recurring-drift root cause fixed:** 5 live specs that minted a unique account every run now reuse stable `-reuse@speaksharp.app` accounts (`tester-b`, `private-decode-ab`, `private-longform`, `account-mutex`); `first-time-tester` keeps fresh-account behavior but deletes it via `afterEach` (#869 passed the missing service-role key into the job; the classifier KEEPs the `-reuse` convention so the stable accounts aren't re-flagged as residue). Canary is fail-closed `CANARY_MAX=1`.
 
 ## Dev posture
 

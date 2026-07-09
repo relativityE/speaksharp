@@ -4,6 +4,21 @@ import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
+import { getV4FlagState } from '@/services/transcription/privateV4Flags';
+import { isPrivateEngineOverrideActive } from '@/services/transcription/engines/PrivateSTT';
+import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
+import { createShadowMetricsEngine, toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
+import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
+import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
+import { measureFillerDivergence, cloneFillerCounts, buildSanitizedFillerArtifact, type FillerDivergenceReport, type SanitizedFillerArtifact } from '@/services/telemetry/fillerDivergence';
+import {
+    PRIVATE_SAMPLE_EVENTS,
+    emitPrivateSample,
+    resolveSampleAssignment,
+    setPrivateSampleContext,
+    buildSampleEnvProps,
+    buildEngineVersion,
+} from '@/services/transcription/privateSampleTelemetry';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -21,8 +36,8 @@ import type { TranscriptionServiceOptions } from '@/services/transcription/Trans
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
-import { FillerCounts } from '@/utils/fillerWordUtils';
-import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
+import { FillerCounts, countFillerWords } from '@/utils/fillerWordUtils';
+import { calculateCoreSessionMetrics, getFillerTotal, isUsableFillerCounts } from '@/utils/sessionAnalysis';
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
@@ -278,6 +293,14 @@ export class SpeechRuntimeController {
     private commandQueue: Promise<void> = Promise.resolve();
     private activeTasks: Set<LifecycleToken> = new Set();
     private sessionId: string | null = null;
+    /** #891 Phase 5.6: shadow MetricsEngine (dev/test only; null in production). */
+    private shadowEngine: MetricsEngine | null = null;
+    /** #891 Phase 5.8 precursor: live filler counts snapshotted at STOP-entry, before finalize corrects the store. */
+    private liveFillerDataAtStop: FillerCounts | null = null;
+    /** #891 Phase 5.8 precursor: filler divergence computed at finalization (over the selected save transcript), cached so it survives shadow-engine disposal. */
+    private lastFillerDivergenceReport: FillerDivergenceReport | null = null;
+    /** #891 Phase 5.8 Step 1: sanitized numbers-only artifact for the owner known-script take (custom words anonymized, no transcript text). */
+    private lastFillerArtifact: SanitizedFillerArtifact | null = null;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
     private readonly MAX_HEARTBEAT_FAILURES = 3;
@@ -363,6 +386,9 @@ export class SpeechRuntimeController {
                 saveCandidate: this.lastSaveCandidateDebug,
                 selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
+                // #891 Phase 5.8 Step 1: DEV/TEST-ONLY numbers-only filler artifact for the known-script take.
+                // The getter self-gates (null in production); custom words anonymized; no transcript text.
+                ...(isShadowMetricsEngineEnabled() ? { fillerDivergence: this.getSanitizedFillerArtifact() } : {}),
             });
 
             // STT-EVIDENCE-SCHEMA step 2: read-only proof accessor. window.__STT_EVIDENCE__(overrides?)
@@ -420,6 +446,87 @@ export class SpeechRuntimeController {
      */
     public getStore() {
         return useSessionStore;
+    }
+
+    /** Active DB session id (null when no session is persisted). For sample telemetry. */
+    public getSessionId(): string | null {
+        return this.sessionId;
+    }
+
+    /** Resolved transcription engine type of the active service strategy, or null. */
+    public getResolvedEngineType(): string | null {
+        return this.service?.getEngineType?.() ?? null;
+    }
+
+    /**
+     * Set the session-scoped Private-sample telemetry context (engine_variant +
+     * assignment_source + flag attribution + model + release) so every downstream
+     * sample event is consistently attributable. Never throws.
+     */
+    public applyPrivateSampleContext(): void {
+        try {
+            const flags = getV4FlagState();
+            const assignment = resolveSampleAssignment({
+                resolvedEngineType: this.getResolvedEngineType(),
+                overrideActive: isPrivateEngineOverrideActive(),
+                allowlisted: flags.allowlisted,
+                rolloutEnabled: flags.v4Enabled,
+            });
+            const meta = this.service?.getMetadata?.();
+            // Fall back to the variant's default model id if metadata hasn't surfaced one yet, so
+            // the durable engine_version is always private_v2:<model> / private_v4:<model>.
+            const model = meta?.modelName ?? (assignment.engine_variant === 'private_v4' ? 'base_q4' : 'whisper-base.en');
+            const release = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
+            setPrivateSampleContext({
+                session_id: this.sessionId,
+                engine_variant: assignment.engine_variant,
+                assignment_source: assignment.assignment_source,
+                posthog_flag_key: assignment.posthog_flag_key,
+                posthog_flag_value: assignment.posthog_flag_value,
+                model,
+                release_sha: release,
+            });
+            // Capture the resolved arm now (engine is resolved here) for durable persistence at
+            // stop — independent of the telemetry context's clear timing.
+            this.resolvedPrivateEngineVersion = buildEngineVersion(assignment.engine_variant, model);
+        } catch {
+            /* telemetry context must never break the recording pipeline */
+        }
+    }
+
+    // Private-sample SETUP telemetry, driven by the engine status stream so it fires regardless
+    // of how the model load was triggered (warmUp / auto-init on mode select / explicit download).
+    private privateSetupStartedAt: number | null = null;
+    private privateSetupResolved = false;
+    /** Resolved Private arm (private_v2:<model> / private_v4:<model>), captured at engine-resolve
+     *  for durable persistence to sessions.engine_version at stop. */
+    private resolvedPrivateEngineVersion: string | null = null;
+    private emitPrivateSampleSetupStatus(type: string): void {
+        try {
+            if ((this.service?.getMode?.() ?? null) !== 'private') return;
+            const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            if (type === 'download-required' || type === 'downloading' || type === 'initializing') {
+                // (re)arm a setup cycle; emit started once per cycle
+                if (this.privateSetupStartedAt == null || this.privateSetupResolved) {
+                    this.privateSetupStartedAt = now;
+                    this.privateSetupResolved = false;
+                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_STARTED, { ...buildSampleEnvProps() });
+                }
+            } else if (type === 'ready' && !this.privateSetupResolved) {
+                this.privateSetupResolved = true;
+                this.applyPrivateSampleContext();
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED, {
+                    setup_duration_ms: this.privateSetupStartedAt != null ? Math.round(now - this.privateSetupStartedAt) : null,
+                    ...buildSampleEnvProps(),
+                });
+            } else if (type === 'error' && !this.privateSetupResolved && this.privateSetupStartedAt != null) {
+                this.privateSetupResolved = true;
+                this.applyPrivateSampleContext();
+                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED, { error_code: 'SetupError', ...buildSampleEnvProps() });
+            }
+        } catch {
+            /* telemetry must never break the recording pipeline */
+        }
     }
 
     /**
@@ -534,6 +641,9 @@ export class SpeechRuntimeController {
         if (!this.service) {
             await this.ensureReady({ skipIfDownloadPending: false });
         }
+        // Setup telemetry is emitted from handleStatusChange (path-agnostic: covers warmUp /
+        // auto-init / explicit download alike), not here — initiateModelDownload is only ONE of
+        // the model-load entry points and is skipped when the model auto-loads on mode select.
         await this.service!.initiateDownload(mode);
     }
 
@@ -1097,6 +1207,7 @@ export class SpeechRuntimeController {
         if (status.type === 'ready') {
             this.setEngineReady(true);
         }
+        this.emitPrivateSampleSetupStatus(status.type);
         // P0.2: surface engine-originated local finalization status to the store so
         // the UI shows "Processing speech locally…" during STOPPING instead of the
         // stale "Recording active". Scoped to informational status while a session
@@ -1379,6 +1490,124 @@ export class SpeechRuntimeController {
         syncRuntimeState(this.state, mode);
     }
 
+    /**
+     * #891 Phase 5.6 (SHADOW): stand up the shadow MetricsEngine for a session. No-op in production
+     * (createShadowMetricsEngine returns null). Wrapped so shadow telemetry can NEVER affect recording.
+     */
+    private startShadowMetricsEngine(sessionId: string, mode: string | null): void {
+        try {
+            this.disposeShadowMetricsEngine();
+            this.liveFillerDataAtStop = null;
+            this.lastFillerDivergenceReport = null;
+            this.lastFillerArtifact = null;
+            const tmode = toTelemetryMode(mode);
+            if (!tmode) return;
+            safeResetSessionTelemetry(sessionId);
+            this.shadowEngine = createShadowMetricsEngine(sessionId, tmode, {
+                userWords: this.userWords,
+                sessionStartT: performance.now(),
+            });
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    /**
+     * #891 Phase 5.7: confirm the ACTUAL negotiated/service mode on the provisional shadow engine and
+     * activate mode filtering — everything captured while provisional (incl. early fallback-mode events)
+     * is preserved. Prefer the live service mode; fall back to the requested mode only if unavailable.
+     */
+    private bindShadowMode(mode: string | null): void {
+        try {
+            if (!this.shadowEngine) return;
+            const tmode = toTelemetryMode(this.service?.getMode?.() ?? mode);
+            if (tmode) this.shadowEngine.bindMode(tmode);
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    /**
+     * #891 Phase 5.7: bind the real DB session id into an already-running shadow engine WITHOUT resetting —
+     * everything captured since the early (provisional-id) start is preserved — and confirm the actual mode.
+     */
+    private rebindShadowSession(sessionId: string, mode: string | null): void {
+        try {
+            if (!this.shadowEngine) return;
+            this.shadowEngine.setSessionId(sessionId);
+            this.bindShadowMode(mode);
+        } catch {
+            /* shadow telemetry must never affect the recording path */
+        }
+    }
+
+    private disposeShadowMetricsEngine(): void {
+        try {
+            this.shadowEngine?.dispose();
+        } catch {
+            /* ignore */
+        }
+        this.shadowEngine = null;
+    }
+
+    /** #891 Phase 5.6: diagnostics/tests only — the shadow snapshot is NOT consumed by any product surface. */
+    public getShadowMetricsSnapshot(): ReturnType<MetricsEngine['getSnapshot']> | null {
+        return this.shadowEngine?.getSnapshot() ?? null;
+    }
+
+    /**
+     * #891 Phase 5.7 (SHADOW): compare the shadow snapshot against the legacy product metrics computed
+     * from the same raw store inputs. Diagnostics/tests only — the parity report (numbers only, no
+     * transcript text) is NOT consumed by any product surface and drives no cutover.
+     */
+    public getShadowParityReport(): ParityReport | null {
+        const snapshot = this.shadowEngine?.getSnapshot();
+        if (!snapshot) return null;
+        const st = useSessionStore.getState();
+        const legacy = computeLegacyMetrics({
+            transcript: st.transcript.transcript,
+            elapsedSeconds: st.elapsedTime,
+            fillerData: st.fillerData,
+            pauseMetrics: st.pauseMetrics,
+            engine: snapshot.mode,
+            userWords: this.userWords,
+        });
+        return compareSnapshotToLegacy(snapshot, legacy);
+    }
+
+    /**
+     * #891 Phase 5.8 PRECURSOR (SHADOW): the filler divergence report computed AT FINALIZATION over the
+     * save-selected finalTranscript (live counter snapshotted before the finalize store-correction). Cached,
+     * so it does NOT depend on the shadow engine still being alive after stop. Numbers only — no transcript
+     * text. Diagnostics/tests only; drives no cutover and changes no product behavior.
+     */
+    public getFillerDivergenceReport(): FillerDivergenceReport | null {
+        return this.lastFillerDivergenceReport;
+    }
+
+    /**
+     * #891 Phase 5.8 Step 1 — DEV/TEST-ONLY sanitized filler artifact for the owner known-script take.
+     * Returns null in production (gated on isShadowMetricsEngineEnabled). Numbers-only: custom words are
+     * anonymized (custom_N) and no transcript text is present. Diagnostics only; no product behavior.
+     */
+    public getSanitizedFillerArtifact(): SanitizedFillerArtifact | null {
+        if (!isShadowMetricsEngineEnabled()) return null;
+        return this.lastFillerArtifact;
+    }
+
+    private logShadowParity(): void {
+        try {
+            const report = this.getShadowParityReport();
+            if (!report) return;
+            logger.info(
+                { allEqual: report.allEqual, divergentCount: report.divergentCount, fields: report.fields },
+                '[SHADOW_PARITY] snapshot vs legacy (numbers only)',
+            );
+        } catch {
+            /* diagnostics must never affect the stop path */
+        }
+    }
+
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
         this.policy = policy || null;
         this.userWords = userWords;
@@ -1524,7 +1753,16 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_service_startTranscription_start', {
                     mode: policy?.preferredMode ?? null,
                 });
+                // #891 Phase 5.7 (SHADOW): stand up the shadow engine BEFORE the strategy starts, using a
+                // provisional id (recordingId) + the preferred mode, so no early transcript/audio/lifecycle
+                // event is missed. The real DB id + negotiated mode are rebound below WITHOUT resetting the
+                // captured state. No-op in production.
+                this.startShadowMetricsEngine(recordingId, mode);
                 await service.startTranscription(policy, userWords);
+                // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
+                // engine filters by the REAL mode (not the requested one), keeping the early events it
+                // captured while provisional. rebindShadowSession re-confirms it at the DB-id step below.
+                this.bindShadowMode(mode);
                 pushNativeRuntimeTrace('controller_service_startTranscription_done');
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
                 const serviceState = typeof service.getState === 'function'
@@ -1598,6 +1836,10 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
+                        // running shadow engine WITHOUT resetting — events captured since the early start
+                        // (above, before startTranscription) are preserved. No-op in production.
+                        this.rebindShadowSession(this.sessionId, mode);
                     }
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {
@@ -1696,6 +1938,9 @@ export class SpeechRuntimeController {
     }
 
     public async stopRecording(): Promise<unknown> {
+        // #891 Phase 5.7: the shadow engine is torn down AFTER finalize (see below), not here, so its
+        // snapshot includes the committed final transcript before parity is measured. A leftover engine
+        // is always disposed by the next startShadowMetricsEngine.
         return this.enqueue(async (token) => {
             const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
             if (stopEntryMode === 'cloud') {
@@ -1781,6 +2026,12 @@ export class SpeechRuntimeController {
                 if (wasRecording) {
                     let sessionId = this.sessionId;
                     const startTime = service.getStartTime();
+                    // #891 Phase 5.8 precursor (SHADOW): snapshot the LIVE filler counts NOW, before
+                    // stopTranscription()'s committed final can re-correct/normalize the store transcript
+                    // (and any downstream filler recompute). This is the "live counter" side of the divergence.
+                    // DEFENSIVE DEEP COPY: the store may later mutate/replace fillerData in place, so clone the
+                    // counts — the snapshot must not drift afterward.
+                    this.liveFillerDataAtStop = cloneFillerCounts(useSessionStore.getState().fillerData) ?? null;
                     result = await service.stopTranscription();
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
@@ -1796,6 +2047,13 @@ export class SpeechRuntimeController {
                         controllerState: this.state,
                         serviceState: service.getState?.() ?? null,
                     }, '[DEBUG-STOP] after service.stopTranscription');
+
+                    // #891 Phase 5.7 (SHADOW, dev-only): the committed final has now flowed through the
+                    // choke point into the shadow engine, so its snapshot is complete. Measure shadow↔legacy
+                    // parity (NUMBERS ONLY — no transcript text) and dispose. Fully wrapped; never affects stop.
+                    this.logShadowParity();
+                    this.disposeShadowMetricsEngine();
+
                     if (token.cancelled) {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
@@ -1915,6 +2173,34 @@ export class SpeechRuntimeController {
                         const saveCandidateReason = selectedCandidate.source;
                         this.transcriptLifecycle.selectedTranscriptForSave = finalTranscript || null;
                         this.transcriptLifecycle.selectedTranscriptSource = saveCandidateReason;
+                        // #891 Phase 5.8 precursor (SHADOW, dev-only): measure the LIVE filler counter
+                        // (snapshotted at stop-entry) vs the RECOUNT over the SAVE-SELECTED finalTranscript —
+                        // the exact transcript + duration the save/scoring path uses — and CACHE it so the
+                        // report survives shadow-engine disposal. Numbers only; no transcript text; no cutover.
+                        if (isShadowMetricsEngineEnabled()) {
+                            try {
+                                const fillerReport = measureFillerDivergence({
+                                    transcript: finalTranscript,
+                                    elapsedSeconds: duration,
+                                    liveFillerData: this.liveFillerDataAtStop,
+                                    engine: modeForFinalization ?? undefined,
+                                    userWords: this.userWords,
+                                    selectedSource: saveCandidateReason,
+                                });
+                                this.lastFillerDivergenceReport = fillerReport;
+                                // #891 Phase 5.8 Step 1: sanitized numbers-only artifact for the owner known-script
+                                // take. The recount detail is derived from finalTranscript TRANSIENTLY (only counts
+                                // are kept); custom words are anonymized to custom_N; no transcript text is stored.
+                                this.lastFillerArtifact = buildSanitizedFillerArtifact({
+                                    report: fillerReport,
+                                    liveFillerData: this.liveFillerDataAtStop,
+                                    recountFillerData: countFillerWords(finalTranscript, this.userWords),
+                                    userWords: this.userWords,
+                                });
+                            } catch {
+                                /* diagnostics must never affect the save path */
+                            }
+                        }
                         const meaningfulTranscript = finalTranscript
                             .replace(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi, '')
                             .trim();
@@ -2059,16 +2345,26 @@ export class SpeechRuntimeController {
                             store.setSessionSaved(false);
                             result = null;
                         } else {
+                            // #SSOT (Product Owner decision): the LIVE filler counter is canonical. Use the
+                            // deep-cloned live snapshot captured at stop-entry (liveFillerDataAtStop, before
+                            // any recompute) as the saved filler count/data + the clarity/score filler input.
+                            // Word count/WPM still come from the final transcript. The transcript recount is
+                            // DIAGNOSTIC/FALLBACK ONLY — used just when the live snapshot is absent/malformed.
+                            const canonicalLiveFillers = isUsableFillerCounts(this.liveFillerDataAtStop)
+                                ? this.liveFillerDataAtStop
+                                : undefined;
+                            if (!canonicalLiveFillers) {
+                                logger.warn(
+                                    { sessionId, mode: stopEntryMode },
+                                    '[filler-ssot] live filler snapshot absent/malformed at save — falling back to transcript recount (diagnostic)',
+                                );
+                            }
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,
-                                // STT-P1: derive the saved/scored filler count from the FINAL
-                                // transcript, NOT the live store.fillerData — the live count is
-                                // accumulated incrementally and can be stale/undercount (e.g. a
-                                // saved "Umm" reported um:0). calculateCoreSessionMetrics re-counts
-                                // via countFillerWords when fillerData is omitted, so the count
-                                // matches the authoritative saved transcript ("Umm" -> "um").
-                                fillerData: undefined,
+                                // Canonical live snapshot → filler count/data + clarity; undefined only on the
+                                // fallback path, where calculateCoreSessionMetrics recounts the final transcript.
+                                fillerData: canonicalLiveFillers,
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;
@@ -2143,6 +2439,21 @@ export class SpeechRuntimeController {
                             });
                             if (!completion.success) {
                                 throw new Error('SESSION_COMPLETION_FAILED');
+                            }
+                            // Persist the resolved Private engine arm durably. The placeholder save
+                            // ran before the engine resolved (engine_version defaulted to
+                            // 'transformers-js'); completeSession does not touch engine_version. Read
+                            // the live sample context (engine_variant + model) and write the real arm
+                            // (private_v2:<model> / private_v4:<model>) so it is reconstructable from
+                            // the row even without PostHog. Non-fatal.
+                            try {
+                                if (this.resolvedPrivateEngineVersion) {
+                                    await updateSession(sessionId, {
+                                        engine_version: this.resolvedPrivateEngineVersion,
+                                    } as Parameters<typeof updateSession>[1]);
+                                }
+                            } catch (engineVersionError) {
+                                logger.warn({ engineVersionError, sessionId }, '[controller] engine_version persist failed (non-fatal)');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
