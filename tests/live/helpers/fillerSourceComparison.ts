@@ -8,7 +8,7 @@
  *
  * Input is the sanitized `fillerDivergence` artifact the controller caches at finalization (numbers +
  * anonymized detail labels only — no transcript text, no raw custom words), plus the declared ground
- * truth and an optional live DOM coherence flag. Kept dependency-free so it unit-tests in the vitest
+ * truth and an optional card-row coherence flag. Kept dependency-free so it unit-tests in the vitest
  * shards AND runs inside the Playwright live spec.
  */
 
@@ -28,14 +28,24 @@ export interface FillerDivergenceArtifact {
   recountDetail: FillerDetail;
 }
 
+/**
+ * Declared ground-truth per-word distributions for the known scripts (FILLER_KNOWN_SCRIPT_RUNBOOK).
+ * Labels match the sanitized detail keys (FILLER_WORD_KEYS + anonymized custom_N). Script 3 = no fillers.
+ */
+export const KNOWN_SCRIPT_EXPECTED_DETAIL: Record<string, FillerDetail> = {
+  '1': { um: 3, so: 2, like: 2, uh: 1, basically: 1 },
+  '2': { custom_1: 3 },
+  '3': {},
+};
+
 export interface ComparisonInput {
   artifact: FillerDivergenceArtifact;
   /** Owner/QA-declared count of fillers actually spoken in the fixture. */
   groundTruth: number;
-  /** Script id (1|2|3) — annotation only. */
+  /** Script id (1|2|3) — annotation, and selects the expected detail distribution. */
   script: string;
-  /** From the live DOM check: do the color-coded card rows agree with the selected source? null = not checked. */
-  colorTableCoherent?: boolean | null;
+  /** From the live DOM check: do the rendered card rows sum to the headline count? null = not checked. */
+  cardRowCountCoherent?: boolean | null;
 }
 
 export type CloserSource = 'live' | 'recount' | 'tie';
@@ -57,15 +67,33 @@ export interface ComparisonRow {
   recountDelta: number; // recountCount − groundTruth
   liveDetailCoherent: boolean;    // Σ(liveDetail) === liveCount
   recountDetailCoherent: boolean; // Σ(recountDetail) === recountCount
-  colorTableCoherent: boolean | null;
+  /** Does the source's per-word detail match the KNOWN_SCRIPT_EXPECTED_DETAIL? null = unknown script. */
+  liveDetailMatchesExpected: boolean | null;
+  recountDetailMatchesExpected: boolean | null;
+  cardRowCountCoherent: boolean | null;
   closerSource: CloserSource;
   recountUnderReports: boolean; // recountCount < groundTruth
   liveOverReports: boolean;     // liveCount > groundTruth
   hint: DecisionHint;
 }
 
+function nonZero(detail: FillerDetail): FillerDetail {
+  const out: FillerDetail = {};
+  for (const [k, v] of Object.entries(detail ?? {})) if (Number.isFinite(v) && v !== 0) out[k] = v;
+  return out;
+}
+
 function sumDetail(detail: FillerDetail): number {
   return Object.values(detail ?? {}).reduce<number>((acc, v) => acc + (Number.isFinite(v) ? v : 0), 0);
+}
+
+/** Exact per-word match: same non-zero labels with same counts (order-independent). */
+export function detailMatchesExpected(detail: FillerDetail, expected: FillerDetail): boolean {
+  const d = nonZero(detail);
+  const e = nonZero(expected);
+  const keys = new Set([...Object.keys(d), ...Object.keys(e)]);
+  for (const k of keys) if ((d[k] ?? 0) !== (e[k] ?? 0)) return false;
+  return true;
 }
 
 function hintFor(row: Omit<ComparisonRow, 'hint'>): DecisionHint {
@@ -87,6 +115,10 @@ export function buildComparisonRow(input: ComparisonInput): ComparisonRow {
   const absRecount = Math.abs(recountDelta);
   const closerSource: CloserSource = absLive < absRecount ? 'live' : absRecount < absLive ? 'recount' : 'tie';
 
+  const expected = Object.prototype.hasOwnProperty.call(KNOWN_SCRIPT_EXPECTED_DETAIL, script)
+    ? KNOWN_SCRIPT_EXPECTED_DETAIL[script]
+    : null;
+
   const base = {
     engine: artifact.engine,
     script,
@@ -97,7 +129,9 @@ export function buildComparisonRow(input: ComparisonInput): ComparisonRow {
     recountDelta,
     liveDetailCoherent: sumDetail(artifact.liveDetail) === liveCount,
     recountDetailCoherent: sumDetail(artifact.recountDetail) === recountCount,
-    colorTableCoherent: input.colorTableCoherent ?? null,
+    liveDetailMatchesExpected: expected ? detailMatchesExpected(artifact.liveDetail, expected) : null,
+    recountDetailMatchesExpected: expected ? detailMatchesExpected(artifact.recountDetail, expected) : null,
+    cardRowCountCoherent: input.cardRowCountCoherent ?? null,
     closerSource,
     recountUnderReports: recountCount < groundTruth,
     liveOverReports: liveCount > groundTruth,
@@ -112,7 +146,9 @@ export function summarizeComparison(rows: ComparisonRow[]): {
   liveCloserCount: number;
   recountCloserCount: number;
   tieCount: number;
-  colorIncoherentCount: number;
+  cardRowCountIncoherentCount: number;
+  liveDetailMatchCount: number;
+  recountDetailMatchCount: number;
 } {
   return {
     total: rows.length,
@@ -120,6 +156,8 @@ export function summarizeComparison(rows: ComparisonRow[]): {
     liveCloserCount: rows.filter((r) => r.closerSource === 'live').length,
     recountCloserCount: rows.filter((r) => r.closerSource === 'recount').length,
     tieCount: rows.filter((r) => r.closerSource === 'tie').length,
-    colorIncoherentCount: rows.filter((r) => r.colorTableCoherent === false).length,
+    cardRowCountIncoherentCount: rows.filter((r) => r.cardRowCountCoherent === false).length,
+    liveDetailMatchCount: rows.filter((r) => r.liveDetailMatchesExpected === true).length,
+    recountDetailMatchCount: rows.filter((r) => r.recountDetailMatchesExpected === true).length,
   };
 }
