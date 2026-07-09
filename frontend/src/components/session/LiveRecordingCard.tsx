@@ -282,49 +282,56 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-72">
-                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. */}
+                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. Hovering or
+                                keyboard-focusing an option reveals its description inline (Radix marks
+                                the active item with data-highlighted). Locked options show it by default. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
-                                    title={cloudModeDescription}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Cloud
                                     </span>
-                                    {!canUseCloudStt && (
-                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            Paid Early Access feature
-                                        </span>
-                                    )}
+                                    <span
+                                        data-testid="stt-desc-cloud"
+                                        className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUseCloudStt ? 'hidden group-data-[highlighted]:block' : ''}`}
+                                    >
+                                        {cloudModeDescription}
+                                    </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="native"
-                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                    title={nativeModeDescription}
                                 >
-                                    Browser
+                                    <span>Browser</span>
+                                    <span
+                                        data-testid="stt-desc-native"
+                                        className="hidden text-[10px] font-normal normal-case leading-snug text-muted-foreground group-data-[highlighted]:block"
+                                    >
+                                        {nativeModeDescription}
+                                    </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!canUsePrivate}
-                                    title={privateModeDescription}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                                         Private
                                     </span>
-                                    {!canUsePrivate && (
-                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            Private transcription is part of Early Access
-                                        </span>
-                                    )}
+                                    <span
+                                        data-testid="stt-desc-private"
+                                        className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUsePrivate ? 'hidden group-data-[highlighted]:block' : ''}`}
+                                    >
+                                        {privateModeDescription}
+                                    </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
