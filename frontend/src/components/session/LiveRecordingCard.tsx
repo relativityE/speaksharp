@@ -61,11 +61,14 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 // (rAF + ref, no per-frame React state) is tracked as a separate enhancement.
 const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 
-// A small neutral tooltip bubble that floats beside a dropdown row on hover / keyboard
-// focus (Radix sets data-highlighted on the active item). Absolutely positioned so the row
-// itself stays one-line; the row's parent menu must be overflow-visible so it isn't clipped.
+// A small, soft tooltip bubble that floats to the RIGHT of a dropdown row (open space —
+// away from the mic/timer) on hover / keyboard focus (Radix sets data-highlighted on the
+// active item). Rounded, neutral `muted` surface so it reads as part of the dropdown system,
+// with a small caret pointing back at the row. Absolutely positioned so the row stays
+// one-line; the parent menu is overflow-visible so it isn't clipped.
 const STT_TOOLTIP_CLASS =
-    'pointer-events-none absolute right-full top-1/2 z-50 mr-2 hidden w-56 -translate-y-1/2 rounded-md border border-border bg-popover p-2 text-[11px] font-normal normal-case leading-snug text-popover-foreground shadow-md group-data-[highlighted]:block';
+    'pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden w-60 max-w-[260px] -translate-y-1/2 rounded-xl border border-border bg-muted px-3 py-2 text-[11px] font-normal normal-case leading-relaxed text-foreground shadow group-data-[highlighted]:block '
+    + "before:absolute before:right-full before:top-1/2 before:-translate-y-1/2 before:border-[6px] before:border-transparent before:border-r-muted before:content-['']";
 
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
