@@ -61,6 +61,12 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 // (rAF + ref, no per-frame React state) is tracked as a separate enhancement.
 const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 
+// A small neutral tooltip bubble that floats beside a dropdown row on hover / keyboard
+// focus (Radix sets data-highlighted on the active item). Absolutely positioned so the row
+// itself stays one-line; the row's parent menu must be overflow-visible so it isn't clipped.
+const STT_TOOLTIP_CLASS =
+    'pointer-events-none absolute right-full top-1/2 z-50 mr-2 hidden w-56 -translate-y-1/2 rounded-md border border-border bg-popover p-2 text-[11px] font-normal normal-case leading-snug text-popover-foreground shadow-md group-data-[highlighted]:block';
+
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
     isListening,
@@ -290,14 +296,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-72">
-                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. Hovering or
-                                keyboard-focusing an option reveals its description inline (Radix marks
-                                the active item with data-highlighted). Locked options show it by default. */}
+                        <DropdownMenuContent align="end" className="w-56 overflow-visible">
+                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. Rows stay one-line;
+                                hovering or keyboard-focusing a row shows a small neutral tooltip bubble
+                                beside it. No accent-green / brand highlight — neutral system styling. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
                                 >
@@ -305,29 +311,23 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Cloud
                                     </span>
-                                    <span
-                                        data-testid="stt-desc-cloud"
-                                        className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUseCloudStt ? 'hidden group-data-[highlighted]:block' : ''}`}
-                                    >
+                                    <span role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
                                         {cloudOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="native"
-                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_NATIVE}
                                 >
                                     <span>Browser</span>
-                                    <span
-                                        data-testid="stt-desc-native"
-                                        className="hidden text-[10px] font-normal normal-case leading-snug text-muted-foreground group-data-[highlighted]:block"
-                                    >
+                                    <span role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
                                         {nativeOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!canUsePrivate}
                                 >
@@ -335,10 +335,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                                         Private
                                     </span>
-                                    <span
-                                        data-testid="stt-desc-private"
-                                        className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUsePrivate ? 'hidden group-data-[highlighted]:block' : ''}`}
-                                    >
+                                    <span role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
                                         {privateOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
