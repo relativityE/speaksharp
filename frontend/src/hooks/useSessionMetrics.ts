@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, calculateWpm } from '../utils/sessionAnalysis';
-import { isFillerRecountSsotEnabled } from '@/services/telemetry/fillerSsotFlag';
 import type { Chunk } from './useSpeechRecognition/types';
 
 interface UseSessionMetricsProps {
@@ -9,7 +8,7 @@ interface UseSessionMetricsProps {
     chunks: Chunk[];
     fillerData: FillerCounts;
     elapsedTime: number;
-    /** Session custom filler words — used by the transcript-recount path (SSOT flag ON). */
+    /** Accepted for call-site compatibility; NOT used to route the canonical filler source. */
     userWords?: string[];
 }
 
@@ -24,7 +23,7 @@ interface SessionMetrics {
     wpmLabel: string;
     wpmExplanation: string;
     fillerCount: number;
-    /** Selected-source filler DETAIL rows — coherent with fillerCount (recount-derived when the flag is ON). */
+    /** Filler DETAIL rows — always the LIVE counter (canonical); coherent with fillerCount. */
     fillerData: FillerCounts;
     fillerExplanation: string;
     wordCount: number;
@@ -38,7 +37,6 @@ export const useSessionMetrics = ({
     chunks,
     fillerData,
     elapsedTime,
-    userWords = [],
 }: UseSessionMetricsProps): SessionMetrics => {
     return useMemo(() => {
         // Format elapsed time as MM:SS
@@ -46,17 +44,15 @@ export const useSessionMetrics = ({
         const seconds = elapsedTime % 60;
         const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
-        // #891 Phase 5.8 APPLY (flag, DEFAULT OFF): when ON, the filler count comes from the deterministic
-        // transcript recount (fillerData undefined → countFillerWords(transcript, userWords)) — matching the
-        // save/Analytics/PDF basis — and clarity/score (which read this hook's output) inherit it. When OFF,
-        // the live counter (fillerData) drives everything exactly as today.
-        const useTranscriptRecount = isFillerRecountSsotEnabled();
+        // #SSOT (Product Owner decision): the LIVE filler counter is the ONLY user-facing filler source.
+        // There is NO runtime/PostHog/env flag that can route the visible filler count / clarity / score to a
+        // transcript recount — the recount is diagnostic/fallback only, handled in the save/analytics/PDF
+        // readers, never here. Always pass the live `fillerData`; never `fillerData: undefined`.
         const coreMetrics = calculateCoreSessionMetrics({
             transcript,
             durationSeconds: elapsedTime,
-            fillerData: useTranscriptRecount ? undefined : fillerData,
-            // OFF stays byte-identical to before (no userWords were passed); userWords only feed the recount.
-            userWords: useTranscriptRecount ? userWords : [],
+            fillerData,
+            userWords: [],
         });
 
         // Rolling WPM (last 15 seconds)
@@ -80,11 +76,10 @@ export const useSessionMetrics = ({
             wpmLabel: coreMetrics.wpmLabel,
             wpmExplanation: coreMetrics.wpmExplanation,
             fillerCount: coreMetrics.fillerCount,
-            // Detail rows coherent with fillerCount: recount-derived when ON; the raw live input when OFF
-            // (byte-identical to what the card received before — preserves current OFF behavior exactly).
-            fillerData: useTranscriptRecount ? coreMetrics.fillerData : fillerData,
+            // Always the LIVE counter's detail rows — canonical, coherent with fillerCount. No flag path.
+            fillerData,
             fillerExplanation: coreMetrics.fillerExplanation,
             wordCount: coreMetrics.wordCount,
         };
-    }, [transcript, chunks, fillerData, elapsedTime, userWords]);
+    }, [transcript, chunks, fillerData, elapsedTime]);
 };
