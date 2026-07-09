@@ -169,10 +169,19 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         : canUsePrivate
             ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Local transcription so you can compare it with Browser transcription.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
-    const nativeModeDescription = "Starts instantly with your browser's speech recognition. Accuracy depends on your browser and room.";
     const cloudModeDescription = canUseCloudStt
         ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
         : 'Cloud transcription is a paid Early Access feature.';
+    // Canonical per-mode descriptions shown as the dropdown option tooltip (revealed on hover /
+    // keyboard focus). Unlocked options use the approved copy — the same wording as the
+    // selected-mode help below; locked options keep their entitlement explanation.
+    const cloudOptionDesc = canUseCloudStt
+        ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
+        : cloudModeDescription;
+    const nativeOptionDesc = "Uses your browser's speech service. Audio may be processed by the browser provider.";
+    const privateOptionDesc = canUsePrivate
+        ? 'Private runs on your device after a one-time setup. Audio stays local.'
+        : privateModeDescription;
 
     // Short, scannable STT cue shown by default; the explanatory detail lives behind
     // the accessible help affordance (hover/focus/click/tap), never as a large paragraph.
@@ -300,7 +309,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         data-testid="stt-desc-cloud"
                                         className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUseCloudStt ? 'hidden group-data-[highlighted]:block' : ''}`}
                                     >
-                                        {cloudModeDescription}
+                                        {cloudOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -313,7 +322,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         data-testid="stt-desc-native"
                                         className="hidden text-[10px] font-normal normal-case leading-snug text-muted-foreground group-data-[highlighted]:block"
                                     >
-                                        {nativeModeDescription}
+                                        {nativeOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -330,7 +339,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         data-testid="stt-desc-private"
                                         className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUsePrivate ? 'hidden group-data-[highlighted]:block' : ''}`}
                                     >
-                                        {privateModeDescription}
+                                        {privateOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
