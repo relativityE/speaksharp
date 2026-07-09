@@ -67,7 +67,7 @@ const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 // with a small caret pointing back at the row. Absolutely positioned so the row stays
 // one-line; the parent menu is overflow-visible so it isn't clipped.
 const STT_TOOLTIP_CLASS =
-    'pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden w-60 max-w-[260px] -translate-y-1/2 rounded-xl border border-border bg-muted px-3 py-2 text-[11px] font-normal normal-case leading-relaxed text-foreground shadow group-data-[highlighted]:block '
+    'pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden w-60 max-w-[260px] -translate-y-1/2 rounded-2xl border border-border/70 bg-muted px-3 py-2 text-[11px] font-normal normal-case leading-relaxed text-foreground shadow-sm group-data-[highlighted]:block '
     + "before:absolute before:right-full before:top-1/2 before:-translate-y-1/2 before:border-[6px] before:border-transparent before:border-r-muted before:content-['']";
 
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
