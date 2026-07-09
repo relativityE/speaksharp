@@ -90,11 +90,39 @@ describe('fillerSsotFlag — build-env enable + hard-kill switch (import.meta.en
     vi.resetModules();
   });
 
-  it('build-env enable → ON (source build-env), even with the PostHog flag OFF', () => {
+  it('DEV/TEST build: build-env enable → ON (source build-env), even with the PostHog flag OFF', () => {
+    // In the unit env ENV.isTest is true (setupStrictZero sets __TEST__), so this is a dev/test build.
     vi.stubEnv('VITE_FILLER_RECOUNT_SSOT', 'true');
     isFeatureEnabled.mockReturnValue(undefined); // runtime flag absent
     expect(isFillerRecountSsotEnabled()).toBe(true);
     expect(getFillerRecountSsotSource()).toBe('build-env');
+  });
+
+  it('PRODUCTION build: build-env enable is INERT — PostHog is the sole authority (rollback preserved)', () => {
+    // Simulate a normal production build: NOT a dev/test build. The gate is `DEV || ENV.isTest`;
+    // in vitest DEV is true AND ENV.isTest is true, so force both to production values.
+    const env = import.meta.env as unknown as Record<string, unknown>;
+    const g = globalThis as unknown as { __TEST__?: boolean };
+    const prevDev = env.DEV;
+    const prevTest = g.__TEST__;
+    try {
+      env.DEV = false;   // production build
+      g.__TEST__ = false; // ENV.isUnit → false (and __SS_E2E__.isActive is false → isE2E false)
+      vi.stubEnv('VITE_FILLER_RECOUNT_SSOT', 'true'); // would enable in dev/test — must NOT in prod
+
+      // PostHog OFF → OFF, despite the build-env flag being 'true'. Build-env cannot bypass PostHog.
+      isFeatureEnabled.mockReturnValue(undefined);
+      expect(isFillerRecountSsotEnabled()).toBe(false);
+      expect(getFillerRecountSsotSource()).toBe('off');
+
+      // PostHog ON → ON, attributed to posthog. PostHog is the enablement authority in production.
+      isFeatureEnabled.mockImplementation((k) => k === FILLER_SSOT_FLAG_KEYS.ENABLED);
+      expect(isFillerRecountSsotEnabled()).toBe(true);
+      expect(getFillerRecountSsotSource()).toBe('posthog');
+    } finally {
+      env.DEV = prevDev;
+      g.__TEST__ = prevTest;
+    }
   });
 
   it('HARD-KILL forces OFF and wins over BOTH an ON PostHog flag and an ON build-env enable', async () => {

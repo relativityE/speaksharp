@@ -12,16 +12,20 @@
  *  - Test override (`__setFillerRecountSsotForTests`) = deterministic unit/e2e control, wins over all.
  *  - Build env hard kill (`VITE_FILLER_RECOUNT_SSOT_DISABLED=true`) = global kill switch; forces OFF
  *    regardless of the runtime flag or build-enable env.
- *  - PostHog runtime flag (`filler_recount_ssot_enabled`) = PRIMARY runtime control: real kill switch
- *    (set to 0% to roll back) + internal/canary cohort targeting enforced by PostHog.
- *  - Build env enable (`VITE_FILLER_RECOUNT_SSOT=true`) = dev/test/build override (unchanged behavior).
+ *  - Build env enable (`VITE_FILLER_RECOUNT_SSOT=true`) = **dev/test/local override ONLY**. It is gated
+ *    on a dev/test build (`import.meta.env.DEV || ENV.isTest`, same as isShadowMetricsEngineEnabled) and
+ *    is INERT in a normal production build — so it can never override or block a PostHog rollback in prod.
+ *  - PostHog runtime flag (`filler_recount_ssot_enabled`) = the runtime authority in production: real
+ *    kill switch (set to 0% to roll back) + internal/canary cohort targeting enforced by PostHog.
+ *    In a production build, after the hard-kill check PostHog is the ONLY enablement path.
  *
- * Reversible: nothing is deleted, no legacy writer removed. With the runtime flag at 0% and no build
- * env set, this returns OFF and today's behavior is preserved byte-for-byte. Safety: never throws —
- * SSR/no-window, uninitialized PostHog, or any read error all resolve to the safe default (OFF).
+ * Reversible: nothing is deleted, no legacy writer removed. In production, with the runtime flag at 0%,
+ * this returns OFF and today's behavior is preserved byte-for-byte (the dev/test build-env enable does
+ * not apply). Safety: never throws — SSR/no-window, uninitialized PostHog, or any read error resolve OFF.
  */
 import posthog from 'posthog-js';
 import logger from '@/lib/logger';
+import { ENV } from '@/config/TestFlags';
 
 /** PostHog flag keys. Keep in sync with the PostHog project. */
 export const FILLER_SSOT_FLAG_KEYS = {
@@ -45,10 +49,22 @@ const FILLER_SSOT_HARD_DISABLED: boolean = (() => {
   }
 })();
 
-/** Explicit build-env enable (existing dev/test/build path). Safe on any read error. */
+/** Dev/test build only (mirrors isShadowMetricsEngineEnabled). Never true in a normal prod build. */
+function isDevOrTestBuild(): boolean {
+  try {
+    return import.meta.env?.DEV === true || ENV.isTest;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Explicit build-env enable — **dev/test/local override ONLY**. Gated on a dev/test build so it is
+ * INERT in production, leaving PostHog as the sole runtime authority (and rollback path) there.
+ */
 function readBuildEnvEnabled(): boolean {
   try {
-    return import.meta.env?.VITE_FILLER_RECOUNT_SSOT === 'true';
+    return isDevOrTestBuild() && import.meta.env?.VITE_FILLER_RECOUNT_SSOT === 'true';
   } catch {
     return false;
   }
