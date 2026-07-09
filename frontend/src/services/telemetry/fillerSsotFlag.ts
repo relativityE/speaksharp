@@ -1,12 +1,19 @@
 /**
- * Phase 5.8 — flag for the transcript-recount filler SSOT.
+ * Phase 5.8 — runtime control flag for the FILLER-SOURCE comparison gate.
+ *
+ * NO source of truth has been chosen. The live filler counter is the INCUMBENT default; this flag gates
+ * the transcript-RECOUNT candidate for internal/canary VALIDATION only — to measure which source is more
+ * accurate against known ground truth and which better preserves the color-coded filler UX. It selects
+ * nothing permanently and deletes nothing. (The `Ssot` in these identifiers is historical, from the
+ * earlier phase naming; it does NOT mean recount has been chosen as the source of truth.)
  *
  * DEFAULT OFF. There is NO default production enablement. When OFF, the live filler counter
  * (useFillerWords → store.fillerData) drives the live display/clarity/score exactly as today.
  *
  * When ON, the filler count comes from the deterministic transcript RECOUNT —
- * `countFillerWords(selected/committed transcript, userWords)` — the same value Analytics/PDF/save
- * already use; the clarity and score that consume filler inherit that source.
+ * `countFillerWords(selected/committed transcript, userWords)` — which is (independently) the value the
+ * save/Analytics/PDF paths already compute; the clarity and score that consume filler inherit that source.
+ * This is the candidate under validation, not a decided default.
  *
  * Exposure hierarchy (mirrors privateV4Flags — product decision):
  *  - Test override (`__setFillerRecountSsotForTests`) = deterministic unit/e2e control, wins over all.
