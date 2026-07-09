@@ -299,7 +299,9 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
     });
 
-    it('recalculates session detail fillers from transcript when persisted analytics undercount highlighted words', () => {
+    it('SSOT: shows the persisted canonical filler count and does not inflate it from the transcript', () => {
+        // Live-canonical SSOT: persisted total 2 is authoritative even though the transcript text contains
+        // 4 filler-ish words. Previous behavior wrongly recalculated to max(persisted, recount) = 4.
         renderComponent({
             sessionId: 'session-1',
             sessionHistory: [
@@ -319,7 +321,7 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('4');
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('2');
     });
 
     it('explains session detail metrics so users can understand the numbers', () => {
