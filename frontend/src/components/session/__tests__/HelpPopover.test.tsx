@@ -65,4 +65,24 @@ describe('HelpPopover', () => {
         fireEvent.keyDown(document, { key: 'Escape' });
         expect(screen.queryByText(/Detailed explanation lives here/i)).toBeNull();
     });
+
+    it('shifts the panel back into the viewport when it would clip off the left edge (mobile)', () => {
+        const originalWidth = window.innerWidth;
+        const origGBCR = Element.prototype.getBoundingClientRect;
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+        // Panel measures as clipping past the left edge (left = -100), well inside the right.
+        Element.prototype.getBoundingClientRect = function () {
+            return { left: -100, right: 156, top: 40, bottom: 120, width: 256, height: 80, x: -100, y: 40, toJSON() { } } as DOMRect;
+        };
+        try {
+            renderHelp();
+            fireEvent.click(screen.getByTestId('demo-help'));
+            const panel = screen.getByTestId('demo-help-content');
+            // left -100, margin 8 -> shift +108px so the panel sits fully on-screen.
+            expect(panel.style.transform).toBe('translateX(108px)');
+        } finally {
+            Element.prototype.getBoundingClientRect = origGBCR;
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+        }
+    });
 });

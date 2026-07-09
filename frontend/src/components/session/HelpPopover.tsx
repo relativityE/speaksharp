@@ -31,7 +31,11 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     panelClassName = 'w-64',
 }) => {
     const [open, setOpen] = React.useState(false);
+    // Horizontal nudge (px) applied when the panel would otherwise clip off a viewport
+    // edge — keeps the help text fully readable on narrow/mobile screens. 0 on desktop.
+    const [shiftX, setShiftX] = React.useState(0);
     const rootRef = React.useRef<HTMLSpanElement>(null);
+    const panelRef = React.useRef<HTMLDivElement>(null);
     const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     // A click/tap "pins" the popover open so a subsequent hover-out or blur doesn't
     // dismiss it. Hover and focus open transiently (close when the pointer leaves /
@@ -77,6 +81,29 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         };
     }, [open, close]);
 
+    // Keep the panel inside the viewport. Measure its natural position (transform removed)
+    // and shift it horizontally so neither edge clips — fixes mobile where a right-anchored
+    // panel near the left edge would otherwise run off-screen. Desktop resolves to shift 0.
+    React.useLayoutEffect(() => {
+        if (!open) { setShiftX(0); return; }
+        const clamp = () => {
+            const el = panelRef.current;
+            if (!el) return;
+            const prev = el.style.transform;
+            el.style.transform = 'none';
+            const rect = el.getBoundingClientRect();
+            el.style.transform = prev;
+            const margin = 8;
+            let dx = 0;
+            if (rect.left < margin) dx = Math.round(margin - rect.left);
+            else if (rect.right > window.innerWidth - margin) dx = Math.round(window.innerWidth - margin - rect.right);
+            setShiftX(dx);
+        };
+        clamp();
+        window.addEventListener('resize', clamp);
+        return () => window.removeEventListener('resize', clamp);
+    }, [open]);
+
     return (
         <span
             ref={rootRef}
@@ -107,10 +134,12 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
             </button>
             {open && (
                 <div
+                    ref={panelRef}
                     role="dialog"
                     aria-label={label}
                     data-testid={testId ? `${testId}-content` : undefined}
-                    className={`absolute right-0 top-7 z-50 ${panelClassName} rounded-lg border border-border bg-card p-3 text-left text-xs font-medium leading-snug text-foreground/80 shadow-lg`}
+                    className={`absolute right-0 top-7 z-50 ${panelClassName} max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-card p-3 text-left text-xs font-medium leading-snug text-foreground/80 shadow-lg`}
+                    style={shiftX ? { transform: `translateX(${shiftX}px)` } : undefined}
                     onMouseEnter={cancelClose}
                     onMouseLeave={scheduleClose}
                 >
