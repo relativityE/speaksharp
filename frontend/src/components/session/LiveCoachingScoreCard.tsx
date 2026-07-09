@@ -1,5 +1,6 @@
 import React from 'react';
 import { Target, TrendingUp } from 'lucide-react';
+import { HelpPopover } from './HelpPopover';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { calculateSpeakingScore } from '@/utils/speakingScore';
 import type { SessionCoachingAssignment } from '@/services/sessionCoachingExperiment';
@@ -32,7 +33,6 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
     elapsedSeconds,
     pauseMetrics,
     engine,
-    isListening,
     experimentAssignment,
     className = '',
 }) => {
@@ -106,25 +106,64 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                         <Target className="h-4 w-4" />
                         Live Coaching
                     </div>
-                    <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score*</h2>
-                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
-                        The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact.
-                    </p>
-                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
-                        Improve the ingredients, then come back and try to lift the score.
-                    </p>
-                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
+                    <div className="flex items-center gap-1.5">
+                        <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score*</h2>
+                        <HelpPopover
+                            label="About the SpeakSharp Score"
+                            testId="score-help"
+                            panelClassName="w-72"
+                        >
+                            <div className="space-y-2" data-testid="score-help-body">
+                                <p>
+                                    The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact.
+                                </p>
+                                <p>
+                                    Improve the ingredients, then come back and try to lift the score.
+                                </p>
+                                <div className="rounded-md border border-border bg-white p-2.5">
+                                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-foreground/70">
+                                        Why this score moved
+                                    </div>
+                                    <div className="space-y-1" data-testid="live-score-evidence">
+                                        <div className="flex justify-between gap-2">
+                                            <span>Structure from transcript</span>
+                                            <span>{formatBreakdown(result.breakdown.messageStructure)}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-2">
+                                            <span>Pace, fillers, pauses</span>
+                                            <span>{formatBreakdown(result.breakdown.deliveryControl)}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-2">
+                                            <span>Clarity signal</span>
+                                            <span>{formatBreakdown(result.breakdown.languageClarity)}</span>
+                                        </div>
+                                        <div className="flex justify-between gap-2">
+                                            <span>Audience Impact</span>
+                                            <span>{formatBreakdown(result.breakdown.audienceImpact)}</span>
+                                        </div>
+                                    </div>
+                                    <p className="mt-2 text-[11px] leading-snug text-foreground/60">
+                                        The score is not a black box; it is a transparent rollup of the live signals shown here.
+                                    </p>
+                                </div>
+                                {result.qualityNote && (
+                                    <p
+                                        className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-amber-900"
+                                        data-testid="live-score-quality-caveat"
+                                        role="note"
+                                    >
+                                        {result.qualityNote}
+                                    </p>
+                                )}
+                                <p className="border-t border-border pt-2 text-[11px] leading-snug text-foreground/60">
+                                    *SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
+                                </p>
+                            </div>
+                        </HelpPopover>
+                    </div>
+                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75" data-testid="live-score-headline">
                         {result.headline}
                     </p>
-                    {result.qualityNote && (
-                        <p
-                            className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold leading-snug text-amber-900"
-                            data-testid="live-score-quality-caveat"
-                            role="note"
-                        >
-                            {result.qualityNote}
-                        </p>
-                    )}
                 </div>
 
                 <div className="min-w-[120px] rounded-lg border border-[hsl(var(--border-strong))] bg-white px-4 py-3 text-center surface-shadow">
@@ -161,56 +200,19 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     />
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-[1fr_0.9fr]">
-                    <div>
-                        <h3 className="mb-2 text-sm font-bold text-foreground">
-                            Try this now
-                        </h3>
-                        <ul className="space-y-1.5" data-testid="live-coaching-actions">
-                            {result.actions.map((action) => (
-                                <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
-                                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                                    <span>{action}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-white p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                            <span className="text-xs font-bold uppercase tracking-wider text-foreground/70">
-                                Why this score moved
-                            </span>
-                            <span className="text-xs font-bold text-foreground/70">
-                                {isListening ? confidenceLabel : 'Ready'}
-                            </span>
-                        </div>
-                        <div className="space-y-2 text-xs font-semibold text-foreground/75" data-testid="live-score-evidence">
-                            <div className="flex justify-between gap-2">
-                                <span>Structure from transcript</span>
-                                <span>{formatBreakdown(result.breakdown.messageStructure)}</span>
-                            </div>
-                            <div className="flex justify-between gap-2">
-                                <span>Pace, fillers, pauses</span>
-                                <span>{formatBreakdown(result.breakdown.deliveryControl)}</span>
-                            </div>
-                            <div className="flex justify-between gap-2">
-                                <span>Clarity signal</span>
-                                <span>{formatBreakdown(result.breakdown.languageClarity)}</span>
-                            </div>
-                            <div className="flex justify-between gap-2">
-                                <span>Audience Impact</span>
-                                <span>{formatBreakdown(result.breakdown.audienceImpact)}</span>
-                            </div>
-                        </div>
-                        <p className="mt-3 text-[11px] font-semibold leading-snug text-foreground/60">
-                            The score is not a black box; it is a transparent rollup of the live signals shown here.
-                        </p>
-                    </div>
+                <div>
+                    <h3 className="mb-2 text-sm font-bold text-foreground">
+                        Try this now
+                    </h3>
+                    <ul className="space-y-1.5" data-testid="live-coaching-actions">
+                        {result.actions.map((action) => (
+                            <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
+                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                                <span>{action}</span>
+                            </li>
+                        ))}
+                    </ul>
                 </div>
-                <p className="mt-3 border-t border-border pt-3 text-[11px] font-semibold leading-snug text-foreground/60">
-                    *SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
-                </p>
             </div>
         </section>
     );
