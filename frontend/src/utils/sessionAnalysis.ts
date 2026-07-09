@@ -82,6 +82,19 @@ export const isUsableFillerCounts = (
     );
 };
 
+/**
+ * #SSOT: normalize an accepted canonical filler-counts object so it ALWAYS exposes a numeric `total.count`.
+ * `isUsableFillerCounts` accepts a detail-only object (e.g. `{ um: { count: 1 } }`), but downstream readers
+ * (controller ANALYSIS_COMPLETE) read `fillerWords.total.count` directly. Normalizing here guarantees a
+ * `total` so those reads never crash. If a numeric total already exists it is returned unchanged (identity
+ * preserved); otherwise `total.count` = sum of the non-total entries.
+ */
+export const normalizeFillerCounts = (fillerWords: FillerCounts): FillerCounts => {
+    const existingTotal = fillerWords?.total?.count;
+    if (typeof existingTotal === 'number' && Number.isFinite(existingTotal)) return fillerWords;
+    return { ...fillerWords, total: { count: sumFillerCounts(fillerWords), color: fillerWords?.total?.color ?? '' } };
+};
+
 export const calculateWpm = (wordCount: number, durationSeconds: number): number =>
     durationSeconds > 0 ? Math.round((wordCount / durationSeconds) * 60) : 0;
 
@@ -217,9 +230,12 @@ export const calculateCoreSessionMetrics = ({
 }: CoreSessionMetricsInput): CoreSessionMetrics => {
     const normalizedFillerData = fillerData as FillerCounts | null | undefined;
     const hasSuppliedFillerData = normalizedFillerData && Object.keys(normalizedFillerData).length > 0;
-    const derivedFillerData = hasSuppliedFillerData
-        ? normalizedFillerData
-        : countFillerWords(transcript, userWords);
+    // #SSOT: normalize so the returned fillerData ALWAYS exposes total.count — a supplied detail-only
+    // canonical object (e.g. `{ um: { count: 1 } }`) would otherwise crash the controller's direct
+    // `fillerWords.total.count` read at ANALYSIS_COMPLETE.
+    const derivedFillerData = normalizeFillerCounts(
+        (hasSuppliedFillerData ? normalizedFillerData : countFillerWords(transcript, userWords)) as FillerCounts,
+    );
     const wordCount = countTranscriptWords(transcript);
     const wpm = calculateWpm(wordCount, durationSeconds);
     const fillerCount = getFillerTotal(derivedFillerData);

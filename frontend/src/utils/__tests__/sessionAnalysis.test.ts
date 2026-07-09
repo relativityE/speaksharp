@@ -4,8 +4,10 @@ import {
     getWpmLabel,
     getSessionAnalysisMetrics,
     isUsableFillerCounts,
+    normalizeFillerCounts,
 } from '../sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
+import type { FillerCounts } from '@/utils/fillerWordUtils';
 
 describe('sessionAnalysis metric truth', () => {
     it('counts captured filler words and explains their impact', () => {
@@ -231,5 +233,38 @@ describe('isUsableFillerCounts — valid-zero is usable; only absent/malformed i
     });
     it('malformed (non-numeric total, no numeric entry) is NOT usable', () => {
         expect(isUsableFillerCounts({ total: { count: 'x' } } as never)).toBe(false);
+    });
+});
+
+describe('normalizeFillerCounts — accepted canonical filler data ALWAYS exposes total.count', () => {
+    it('adds total.count = sum of non-total entries when total is missing (detail-only object)', () => {
+        const out = normalizeFillerCounts({ um: { count: 1, color: '' } } as FillerCounts);
+        expect(out.total.count).toBe(1);
+        expect(out.um.count).toBe(1);
+    });
+    it('sums multiple entries into total.count', () => {
+        const out = normalizeFillerCounts({ um: { count: 3, color: '' }, so: { count: 2, color: '' } } as FillerCounts);
+        expect(out.total.count).toBe(5);
+    });
+    it('preserves an existing numeric total (identity — no re-sum)', () => {
+        const input = { total: { count: 4, color: '' }, um: { count: 9, color: '' } } as FillerCounts;
+        expect(normalizeFillerCounts(input)).toBe(input); // same object, total not overwritten
+        expect(normalizeFillerCounts(input).total.count).toBe(4);
+    });
+    it('empty object gets total.count 0', () => {
+        expect(normalizeFillerCounts({} as FillerCounts).total.count).toBe(0);
+    });
+
+    it('SAVE edge case: a detail-only live snapshot does NOT crash and exposes total.count', () => {
+        // calculateCoreSessionMetrics is the single point where canonical filler data is accepted for save.
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'the plan is ready for the board',
+            durationSeconds: 20,
+            fillerData: { um: { count: 1, color: '' } } as FillerCounts, // detail-only, NO total
+        });
+        // Controller reads fillerWords.total.count at ANALYSIS_COMPLETE — must not throw.
+        expect(() => metrics.fillerData.total.count).not.toThrow();
+        expect(metrics.fillerData.total.count).toBe(1);
+        expect(metrics.fillerCount).toBe(1);
     });
 });
