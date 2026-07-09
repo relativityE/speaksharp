@@ -1,5 +1,6 @@
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { FILLER_WORD_KEYS } from '@/config';
 import { calculateCoreSessionMetrics } from '@/utils/sessionAnalysis';
 import { calculateSpeakingScore } from '@/utils/speakingScore';
 
@@ -150,5 +151,87 @@ export function summarizeFillerDivergence(reports: FillerDivergenceReport[]): Fi
     maxAbsClarityDelta: maxClarity,
     maxAbsScoreDelta: round2(maxScore),
     byCategory,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5.8 Step 1 — sanitized artifact for the owner known-script take.
+// Numbers-only + allowlisted labels. NO transcript text, NO raw custom-word text.
+// ---------------------------------------------------------------------------
+
+/** Allowlisted static filler labels (the FillerCounts keys produced by countFillerWords). */
+const STATIC_FILLER_LABELS: ReadonlySet<string> = new Set<string>(Object.values(FILLER_WORD_KEYS));
+
+/**
+ * Reduce filler DETAIL rows to numbers-only, allowlisted labels:
+ * - static filler labels (um/uh/so/…) pass through by their allowlisted key;
+ * - RAW custom words are anonymized to custom_1, custom_2, … in userWords order (no user text leaks);
+ * - 'total' is dropped (aggregate); any unexpected key buckets to 'custom_other' (defensive).
+ */
+export function sanitizeFillerDetail(
+  data: FillerCounts | null | undefined,
+  userWords: string[] = [],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!data) return out;
+  const customMap = new Map<string, string>();
+  userWords.forEach((w, i) => customMap.set(String(w).toLowerCase(), `custom_${i + 1}`));
+  for (const [key, val] of Object.entries(data)) {
+    if (key === 'total') continue;
+    const count = val?.count ?? 0;
+    if (count <= 0) continue;
+    if (STATIC_FILLER_LABELS.has(key)) {
+      out[key] = (out[key] ?? 0) + count;
+    } else if (customMap.has(key.toLowerCase())) {
+      const label = customMap.get(key.toLowerCase())!;
+      out[label] = (out[label] ?? 0) + count;
+    } else {
+      out['custom_other'] = (out['custom_other'] ?? 0) + count;
+    }
+  }
+  return out;
+}
+
+/** Numbers-only artifact for the known-script owner take. No transcript/partial text; custom words anonymized. */
+export interface SanitizedFillerArtifact {
+  engine: string;
+  selectedSource?: string;
+  liveFillerCount: number;
+  recountFillerCount: number;
+  delta: number;
+  clarityLive: number;
+  clarityRecount: number;
+  clarityDelta: number;
+  scoreLive: number;
+  scoreRecount: number;
+  scoreDelta: number;
+  usedCustomWords: boolean;
+  liveDetail: Record<string, number>;
+  recountDetail: Record<string, number>;
+}
+
+/** Build the sanitized artifact from a divergence report + the live/recount detail data. Numbers-only. */
+export function buildSanitizedFillerArtifact(params: {
+  report: FillerDivergenceReport;
+  liveFillerData: FillerCounts | null | undefined;
+  recountFillerData: FillerCounts | null | undefined;
+  userWords?: string[];
+}): SanitizedFillerArtifact {
+  const { report, liveFillerData, recountFillerData, userWords = [] } = params;
+  return {
+    engine: report.engine,
+    selectedSource: report.selectedSource,
+    liveFillerCount: report.liveFillerCount,
+    recountFillerCount: report.recountFillerCount,
+    delta: report.delta,
+    clarityLive: report.clarityLive,
+    clarityRecount: report.clarityRecount,
+    clarityDelta: report.clarityDelta,
+    scoreLive: report.scoreLive,
+    scoreRecount: report.scoreRecount,
+    scoreDelta: report.scoreDelta,
+    usedCustomWords: report.usedCustomWords,
+    liveDetail: sanitizeFillerDetail(liveFillerData, userWords),
+    recountDetail: sanitizeFillerDetail(recountFillerData, userWords),
   };
 }

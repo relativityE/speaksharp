@@ -10,7 +10,7 @@ import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
 import { createShadowMetricsEngine, toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
-import { measureFillerDivergence, cloneFillerCounts, type FillerDivergenceReport } from '@/services/telemetry/fillerDivergence';
+import { measureFillerDivergence, cloneFillerCounts, buildSanitizedFillerArtifact, type FillerDivergenceReport, type SanitizedFillerArtifact } from '@/services/telemetry/fillerDivergence';
 import {
     PRIVATE_SAMPLE_EVENTS,
     emitPrivateSample,
@@ -36,7 +36,7 @@ import type { TranscriptionServiceOptions } from '@/services/transcription/Trans
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
-import { FillerCounts } from '@/utils/fillerWordUtils';
+import { FillerCounts, countFillerWords } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
@@ -299,6 +299,8 @@ export class SpeechRuntimeController {
     private liveFillerDataAtStop: FillerCounts | null = null;
     /** #891 Phase 5.8 precursor: filler divergence computed at finalization (over the selected save transcript), cached so it survives shadow-engine disposal. */
     private lastFillerDivergenceReport: FillerDivergenceReport | null = null;
+    /** #891 Phase 5.8 Step 1: sanitized numbers-only artifact for the owner known-script take (custom words anonymized, no transcript text). */
+    private lastFillerArtifact: SanitizedFillerArtifact | null = null;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
     private readonly MAX_HEARTBEAT_FAILURES = 3;
@@ -384,6 +386,9 @@ export class SpeechRuntimeController {
                 saveCandidate: this.lastSaveCandidateDebug,
                 selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
+                // #891 Phase 5.8 Step 1: DEV/TEST-ONLY numbers-only filler artifact for the known-script take.
+                // The getter self-gates (null in production); custom words anonymized; no transcript text.
+                ...(isShadowMetricsEngineEnabled() ? { fillerDivergence: this.getSanitizedFillerArtifact() } : {}),
             });
 
             // STT-EVIDENCE-SCHEMA step 2: read-only proof accessor. window.__STT_EVIDENCE__(overrides?)
@@ -1494,6 +1499,7 @@ export class SpeechRuntimeController {
             this.disposeShadowMetricsEngine();
             this.liveFillerDataAtStop = null;
             this.lastFillerDivergenceReport = null;
+            this.lastFillerArtifact = null;
             const tmode = toTelemetryMode(mode);
             if (!tmode) return;
             safeResetSessionTelemetry(sessionId);
@@ -1577,6 +1583,16 @@ export class SpeechRuntimeController {
      */
     public getFillerDivergenceReport(): FillerDivergenceReport | null {
         return this.lastFillerDivergenceReport;
+    }
+
+    /**
+     * #891 Phase 5.8 Step 1 — DEV/TEST-ONLY sanitized filler artifact for the owner known-script take.
+     * Returns null in production (gated on isShadowMetricsEngineEnabled). Numbers-only: custom words are
+     * anonymized (custom_N) and no transcript text is present. Diagnostics only; no product behavior.
+     */
+    public getSanitizedFillerArtifact(): SanitizedFillerArtifact | null {
+        if (!isShadowMetricsEngineEnabled()) return null;
+        return this.lastFillerArtifact;
     }
 
     private logShadowParity(): void {
@@ -2163,13 +2179,23 @@ export class SpeechRuntimeController {
                         // report survives shadow-engine disposal. Numbers only; no transcript text; no cutover.
                         if (isShadowMetricsEngineEnabled()) {
                             try {
-                                this.lastFillerDivergenceReport = measureFillerDivergence({
+                                const fillerReport = measureFillerDivergence({
                                     transcript: finalTranscript,
                                     elapsedSeconds: duration,
                                     liveFillerData: this.liveFillerDataAtStop,
                                     engine: modeForFinalization ?? undefined,
                                     userWords: this.userWords,
                                     selectedSource: saveCandidateReason,
+                                });
+                                this.lastFillerDivergenceReport = fillerReport;
+                                // #891 Phase 5.8 Step 1: sanitized numbers-only artifact for the owner known-script
+                                // take. The recount detail is derived from finalTranscript TRANSIENTLY (only counts
+                                // are kept); custom words are anonymized to custom_N; no transcript text is stored.
+                                this.lastFillerArtifact = buildSanitizedFillerArtifact({
+                                    report: fillerReport,
+                                    liveFillerData: this.liveFillerDataAtStop,
+                                    recountFillerData: countFillerWords(finalTranscript, this.userWords),
+                                    userWords: this.userWords,
                                 });
                             } catch {
                                 /* diagnostics must never affect the save path */
