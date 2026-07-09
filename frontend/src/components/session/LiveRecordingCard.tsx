@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
+import { HelpPopover } from './HelpPopover';
 import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
 import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
@@ -159,12 +160,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
-    const modeHint: Record<RecordingMode, string> = {
-        native: "Starts instantly with your browser's speech recognition. Accuracy depends on your browser and room.",
-        private: 'Runs on your device after setup. Audio processing stays local.',
-        cloud: 'Highest accuracy for Pro. Audio is sent for cloud transcription.',
-        mock: 'Test transcription mode.',
-    };
     const hasPrivateSampleAccess = canUsePrivate && !isPaidProUser;
     // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
     const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
@@ -178,6 +173,45 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const cloudModeDescription = canUseCloudStt
         ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
         : 'Cloud transcription is a paid Early Access feature.';
+
+    // Short, scannable STT cue shown by default; the explanatory detail lives behind
+    // the accessible help affordance (hover/focus/click/tap), never as a large paragraph.
+    const modelSizeMB = PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB;
+    let sttCue: string;
+    let sttHelp: React.ReactNode;
+    if (mode === 'cloud') {
+        sttCue = 'External server';
+        sttHelp = <p>Audio is sent to an external transcription server. Cloud is available for Pro users.</p>;
+    } else if (mode === 'private') {
+        if (isPrivateDownloadRequired) {
+            sttCue = 'Set up Private';
+            sttHelp = (
+                <div className="space-y-1.5">
+                    <p>Private runs on your device after a one-time setup.</p>
+                    <p className="text-foreground/60" data-testid="private-model-size-note">
+                        {`One-time download of the on-device speech model (about ${modelSizeMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
+                    </p>
+                </div>
+            );
+        } else {
+            sttCue = 'Ready on this device';
+            sttHelp = <p>Runs locally on your device when supported. Best for privacy.</p>;
+        }
+    } else {
+        // native / Browser
+        sttCue = 'Browser provider';
+        sttHelp = (
+            <div className="space-y-1.5">
+                <p>Uses your browser&apos;s speech service. Audio may be processed by the browser provider.</p>
+                {hasPrivateSampleAccess && (
+                    <p className="text-foreground/60">
+                        {`Try one Private sample session — up to ${privateCapLabel} per recording during beta, with local transcription so you can compare it with Browser transcription.`}
+                    </p>
+                )}
+            </div>
+        );
+    }
+
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
@@ -189,53 +223,45 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </div>
                         )}
                         <div>
-                            <p className="text-sm font-bold leading-snug text-primary">
-                                {isPrivateDownloadRequired
-                                    ? 'Set up Private transcription on this computer. Audio processing stays local.'
-                                    : modeHint[mode]}
-                            </p>
-                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && (
-                                <div className="mt-1 space-y-0.5">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleModeChange('private')}
-                                        className="text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
-                                        data-testid="first-run-setup-private"
-                                    >
-                                        {hasPrivateSampleAccess
-                                            ? 'Try one Private sample session'
-                                            : 'Set up Private transcription for better local accuracy →'}
-                                    </button>
-                                    {hasPrivateSampleAccess && (
-                                        <p className="text-[10px] font-medium leading-snug text-foreground/60">
-                                            Up to {privateCapLabel} per recording during beta, with local transcription so you can compare it with Browser transcription.
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-                            {isPrivateDownloadRequired && (
-                                <p
-                                    className="mt-1 text-[11px] font-medium leading-snug text-foreground/60"
-                                    data-testid="private-model-size-note"
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-bold leading-snug text-primary" data-testid="stt-mode-cue">
+                                    {sttCue}
+                                </span>
+                                <HelpPopover
+                                    label={`About ${getModeLabel(mode)} transcription`}
+                                    testId="stt-mode-help"
+                                    panelClassName="w-64"
                                 >
-                                    {`One-time download of the on-device speech model (about ${PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
-                                </p>
+                                    {sttHelp}
+                                </HelpPopover>
+                            </div>
+
+                            {/* Browser path: privacy upsell that switches to Private (detail in help). */}
+                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleModeChange('private')}
+                                    className="mt-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                                    data-testid="first-run-setup-private"
+                                >
+                                    Want more privacy? Set up Private
+                                </button>
                             )}
-                            {isPrivateDownloadRequired && (
+
+                            {/* Private not set up: the one-time set-up action (download detail lives in help). */}
+                            {isPrivateDownloadRequired && onDownloadModel && (
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                                    {onDownloadModel && (
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={onDownloadModel}
-                                            className="h-6 gap-1 rounded-md px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
-                                            data-testid="download-model-button-inline"
-                                        >
-                                            <Download className="h-3 w-3" />
-                                            Set Up
-                                        </Button>
-                                    )}
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={onDownloadModel}
+                                        className="h-6 gap-1 rounded-md px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
+                                        data-testid="download-model-button-inline"
+                                    >
+                                        <Download className="h-3 w-3" />
+                                        Set up Private
+                                    </Button>
                                 </div>
                             )}
                         </div>
@@ -256,48 +282,56 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-72">
+                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. Hovering or
+                                keyboard-focusing an option reveals its description inline (Radix marks
+                                the active item with data-highlighted). Locked options show it by default. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
-                                    value="native"
-                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
-                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                    title={nativeModeDescription}
-                                >
-                                    Browser
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
-                                    value="private"
-                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
-                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
-                                    disabled={!canUsePrivate}
-                                    title={privateModeDescription}
-                                >
-                                    <span className="flex items-center gap-1.5">
-                                        {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                                        Private
-                                    </span>
-                                    {!canUsePrivate && (
-                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            Private transcription is part of Early Access
-                                        </span>
-                                    )}
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
-                                    title={cloudModeDescription}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Cloud
                                     </span>
-                                    {!canUseCloudStt && (
-                                        <span className="text-[10px] font-normal normal-case text-muted-foreground">
-                                            Paid Early Access feature
-                                        </span>
-                                    )}
+                                    <span
+                                        data-testid="stt-desc-cloud"
+                                        className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUseCloudStt ? 'hidden group-data-[highlighted]:block' : ''}`}
+                                    >
+                                        {cloudModeDescription}
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="native"
+                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                >
+                                    <span>Browser</span>
+                                    <span
+                                        data-testid="stt-desc-native"
+                                        className="hidden text-[10px] font-normal normal-case leading-snug text-muted-foreground group-data-[highlighted]:block"
+                                    >
+                                        {nativeModeDescription}
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="private"
+                                    className="group flex flex-col items-start gap-0.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
+                                    disabled={!canUsePrivate}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                                        Private
+                                    </span>
+                                    <span
+                                        data-testid="stt-desc-private"
+                                        className={`text-[10px] font-normal normal-case leading-snug text-muted-foreground ${canUsePrivate ? 'hidden group-data-[highlighted]:block' : ''}`}
+                                    >
+                                        {privateModeDescription}
+                                    </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>

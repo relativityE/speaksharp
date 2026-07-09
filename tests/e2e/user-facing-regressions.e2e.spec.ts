@@ -42,6 +42,8 @@ test.describe('User-facing session and analytics regressions', () => {
 
     await expect(page.getByTestId('live-coaching-score-card')).toBeVisible();
     await expect(page.getByTestId('live-session-score')).toHaveText('--');
+    // The score breakdown and transcript-quality caveat now live behind accessible help.
+    await page.getByTestId('score-help').click();
     await expect(page.getByTestId('live-score-quality-caveat')).toContainText(/miss filler words/i);
     await expect(page.getByTestId('live-score-evidence')).toContainText(/pace, fillers, pauses/i);
     await expect(page.getByTestId('live-coaching-actions')).toContainText(/\w+/);

@@ -104,21 +104,25 @@ describe('LiveRecordingCard', () => {
         const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
         expect(cloudOption).toHaveAttribute('data-disabled');
         expect(screen.getByText(/^Cloud$/i)).toBeDefined();
-        expect(cloudOption).toHaveAttribute('title', expect.stringMatching(/paid Early Access/i));
+        expect(screen.getByTestId('stt-desc-cloud')).toHaveTextContent(/paid Early Access/i);
     });
 
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" canUsePrivate={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Runs on your device after setup/i)).toBeDefined();
-        expect(screen.getByText(/Audio processing stays local/i)).toBeDefined();
+        // Short cue visible; the explanatory detail lives behind accessible help.
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Ready on this device');
+        expect(screen.queryByText(/Runs locally on your device/i)).toBeNull();
+        fireEvent.click(screen.getByTestId('stt-mode-help'));
+        expect(screen.getByText(/Runs locally on your device/i)).toBeInTheDocument();
+        expect(screen.getByText(/Best for privacy/i)).toBeInTheDocument();
 
+        // The dropdown option reveals its description (hover/keyboard focus) incl. the 5-minute cap.
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
-
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private transcription runs on your device after setup/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/audio processing stays local/i));
-        // #891 beta: the 5-minute per-recording cap is surfaced up front.
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/capped at 5 minutes/i));
+        await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        const privDesc = screen.getByTestId('stt-desc-private');
+        expect(privDesc).toHaveTextContent(/Private transcription runs on your device after setup/i);
+        expect(privDesc).toHaveTextContent(/capped at 5 minutes/i);
     });
 
     it('tints the status pill amber with "getting mic ready" while warming (#891)', () => {
@@ -151,7 +155,7 @@ describe('LiveRecordingCard', () => {
 
         const inlineSetupButton = screen.getByTestId('download-model-button-inline');
         expect(inlineSetupButton).toBeDefined();
-        expect(inlineSetupButton.textContent).toMatch(/Set Up/i);
+        expect(inlineSetupButton.textContent).toMatch(/Set up Private/i);
         fireEvent.click(inlineSetupButton);
         expect(onDownloadModel).toHaveBeenCalledTimes(1);
 
@@ -159,26 +163,34 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByTestId('download-model-button')).toBeNull();
     });
 
-    it('positions Browser STT as instant and browser-dependent without the old badge copy', async () => {
+    it('positions Browser STT with a short cue and moves the explanation into help', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Starts instantly with your browser's speech recognition/i)).toBeDefined();
-        expect(screen.getByText(/Accuracy depends on your browser and room/i)).toBeDefined();
+        // Short cue visible; the old long paragraph is NOT default-visible.
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Browser provider');
+        expect(screen.queryByText(/Starts instantly with your browser's speech recognition/i)).toBeNull();
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
-        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        // The explanation is available through help.
+        fireEvent.click(screen.getByTestId('stt-mode-help'));
+        expect(screen.getByText(/browser.s speech service/i)).toBeInTheDocument();
+        expect(screen.getByText(/processed by the browser provider/i)).toBeInTheDocument();
 
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Starts instantly with your browser's speech recognition/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Accuracy depends on your browser and room/i));
+        // The dropdown option reveals its description on hover / keyboard focus.
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
+        expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/Starts instantly with your browser's speech recognition/i);
     });
 
-    it('shows the approved Private sample CTA for sample-entitled users on the Browser path', () => {
+    it('shows the approved privacy CTA on the Browser path and the sample detail in help', () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
-        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try one Private sample session');
-        expect(screen.getByText(/up to 5 minutes per recording during beta/i)).toBeDefined();
-        expect(screen.getByText(/local transcription/i)).toBeDefined();
-        expect(screen.getByText(/compare it with Browser transcription/i)).toBeDefined();
+        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Want more privacy? Set up Private');
+        // The sample detail is not a default-visible paragraph.
+        expect(screen.queryByText(/up to 5 minutes per recording during beta/i)).toBeNull();
+        fireEvent.click(screen.getByTestId('stt-mode-help'));
+        expect(screen.getByText(/up to 5 minutes per recording during beta/i)).toBeInTheDocument();
+        expect(screen.getByText(/compare it with Browser transcription/i)).toBeInTheDocument();
     });
 
     it('explains why Private is unavailable after the sample is unavailable', async () => {
@@ -189,10 +201,10 @@ describe('LiveRecordingCard', () => {
         const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
         expect(privateOption).toHaveAttribute('data-disabled');
         expect(privateOption.textContent).toMatch(/^Private/i);
-        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/Private transcription is part of Early Access/i));
-        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/full session history, and deeper reports/i));
-        expect(screen.getByText(/Private transcription is part of Early Access/i)).toBeDefined();
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/paid Early Access/i));
+        const privDesc = screen.getByTestId('stt-desc-private');
+        expect(privDesc).toHaveTextContent(/Private transcription is part of Early Access/i);
+        expect(privDesc).toHaveTextContent(/full session history, and deeper reports/i);
+        expect(screen.getByTestId('stt-desc-cloud')).toHaveTextContent(/paid Early Access/i);
     });
 
     it('lets a Private-sample user switch to Browser while Private setup is downloading', async () => {
@@ -234,7 +246,7 @@ describe('LiveRecordingCard', () => {
         expect(onModeChange).toHaveBeenCalledWith('cloud');
     });
 
-    it('shows model size (not setup time) in the Private setup CTA (#30)', () => {
+    it('shows model size (not setup time) in the Private setup help (#30)', () => {
         render(
             <LiveRecordingCard
                 {...defaultProps}
@@ -243,11 +255,52 @@ describe('LiveRecordingCard', () => {
                 onDownloadModel={vi.fn()}
             />
         );
+        // The "Set up Private" action is visible; the download detail lives in help.
+        expect(screen.getByTestId('download-model-button-inline')).toBeInTheDocument();
+        expect(screen.queryByTestId('private-model-size-note')).toBeNull();
+
+        fireEvent.click(screen.getByTestId('stt-mode-help'));
         const note = screen.getByTestId('private-model-size-note');
         expect(note).toHaveTextContent(`about ${PRIV_STT.DEFAULT_MODEL_DOWNLOAD_MB} MB`);
         expect(note).toHaveTextContent('If site storage is cleared');
         // Approved spec: show model SIZE, never an estimated setup TIME.
         expect(note.textContent ?? '').not.toMatch(/minute|second|estimat|~\s*\d+\s*(s|m|min)\b/i);
-        expect(screen.getByTestId('download-model-button-inline')).toBeInTheDocument();
+    });
+
+    it('surfaces the Cloud external-server explanation through help, not a default paragraph', () => {
+        render(<LiveRecordingCard {...defaultProps} mode="cloud" canUseCloudStt={true} />);
+
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('External server');
+        expect(screen.queryByText(/sent to an external transcription server/i)).toBeNull();
+        fireEvent.click(screen.getByTestId('stt-mode-help'));
+        expect(screen.getByText(/Audio is sent to an external transcription server/i)).toBeInTheDocument();
+        expect(screen.getByText(/Cloud is available for Pro users/i)).toBeInTheDocument();
+    });
+
+    it('keeps the approved dropdown labels and order: Cloud, Browser, 🔒 Private', async () => {
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+        const browser = await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
+        const priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+
+        expect(cloud).toHaveTextContent('Cloud');
+        expect(browser).toHaveTextContent('Browser');
+        expect(priv).toHaveTextContent('Private');
+        // Approved order: Cloud before Browser before Private.
+        expect(cloud.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(browser.compareDocumentPosition(priv) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('reveals each STT mode description in the dropdown (hover / keyboard focus)', async () => {
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+
+        expect(screen.getByTestId('stt-desc-cloud')).toHaveTextContent(/Audio is sent for cloud transcription/i);
+        expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/browser's speech recognition/i);
+        expect(screen.getByTestId('stt-desc-private')).toHaveTextContent(/on your device/i);
     });
 });
