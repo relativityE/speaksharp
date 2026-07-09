@@ -77,13 +77,14 @@ export default defineConfig({
         'frontend/src/**/index.ts',
         '**/*.config.{ts,mjs,js}',
       ],
-      // Conservative starting thresholds — tighten each sprint once
-      // actual numbers are visible. CI fails with exact shortfall message.
+      // Floor raised 60 -> 75 to lock in current actual coverage (~76.5% lines/stmts, 77.8%
+      // functions, 80.2% branches) so regressions are caught. Branches held at 75 (not 80) for
+      // headroom; a future sprint can target 80. CI fails with the exact shortfall message.
       thresholds: {
-        statements: 60,
-        branches: 60,
-        functions: 60,
-        lines: 60,
+        statements: 75,
+        branches: 75,
+        functions: 75,
+        lines: 75,
         'frontend/src/services/transcription/ModelManager.ts': {
           statements: 75,
           branches: 75,
