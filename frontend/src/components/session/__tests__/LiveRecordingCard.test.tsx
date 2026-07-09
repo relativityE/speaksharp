@@ -117,12 +117,10 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/Runs locally on your device/i)).toBeInTheDocument();
         expect(screen.getByText(/Best for privacy/i)).toBeInTheDocument();
 
-        // The dropdown option reveals its description (hover/keyboard focus) incl. the 5-minute cap.
+        // The dropdown option reveals its approved description on hover / keyboard focus.
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
         await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
-        const privDesc = screen.getByTestId('stt-desc-private');
-        expect(privDesc).toHaveTextContent(/Private transcription runs on your device after setup/i);
-        expect(privDesc).toHaveTextContent(/capped at 5 minutes/i);
+        expect(screen.getByTestId('stt-desc-private')).toHaveTextContent(/Private runs on your device after a one-time setup/i);
     });
 
     it('tints the status pill amber with "getting mic ready" while warming (#891)', () => {
@@ -176,10 +174,10 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/browser.s speech service/i)).toBeInTheDocument();
         expect(screen.getByText(/processed by the browser provider/i)).toBeInTheDocument();
 
-        // The dropdown option reveals its description on hover / keyboard focus.
+        // The dropdown option reveals its approved description on hover / keyboard focus.
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
         await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
-        expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/Starts instantly with your browser's speech recognition/i);
+        expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/Uses your browser.s speech service/i);
     });
 
     it('shows the approved privacy CTA on the Browser path and the sample detail in help', () => {
@@ -299,8 +297,8 @@ describe('LiveRecordingCard', () => {
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
         await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
 
-        expect(screen.getByTestId('stt-desc-cloud')).toHaveTextContent(/Audio is sent for cloud transcription/i);
-        expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/browser's speech recognition/i);
+        expect(screen.getByTestId('stt-desc-cloud')).toHaveTextContent(/external transcription server/i);
+        expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/browser.s speech service/i);
         expect(screen.getByTestId('stt-desc-private')).toHaveTextContent(/on your device/i);
     });
 });
