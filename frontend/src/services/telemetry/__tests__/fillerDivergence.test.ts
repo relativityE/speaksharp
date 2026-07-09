@@ -3,6 +3,8 @@ import {
   measureFillerDivergence,
   summarizeFillerDivergence,
   cloneFillerCounts,
+  sanitizeFillerDetail,
+  buildSanitizedFillerArtifact,
   type FillerDivergenceInputs,
   type FillerDivergenceReport,
 } from '../fillerDivergence';
@@ -153,5 +155,50 @@ describe('Phase 5.8 precursor — REAL-FINALIZATION basis: recount uses the save
     expect(snapshot.total.count).toBe(3);
     expect(snapshot.um.count).toBe(3);
     expect(cloneFillerCounts(null)).toBeNull();
+  });
+});
+
+describe('Phase 5.8 Step 1 — sanitized filler artifact (numbers-only, custom words anonymized)', () => {
+  it('sanitizeFillerDetail: static labels pass through; total + zero-count dropped', () => {
+    const data = { total: { count: 5, color: '' }, um: { count: 3, color: '' }, so: { count: 2, color: '' }, uh: { count: 0, color: '' } } as unknown as FillerCounts;
+    expect(sanitizeFillerDetail(data)).toEqual({ um: 3, so: 2 });
+  });
+
+  it('sanitizeFillerDetail: RAW custom words are anonymized to custom_N — no user text leaks', () => {
+    const data = { total: { count: 2, color: '' }, honestly: { count: 2, color: '' } } as unknown as FillerCounts;
+    const out = sanitizeFillerDetail(data, ['honestly']);
+    expect(out).toEqual({ custom_1: 2 });
+    expect(JSON.stringify(out)).not.toContain('honestly');
+  });
+
+  it('sanitizeFillerDetail: null → {}', () => {
+    expect(sanitizeFillerDetail(null)).toEqual({});
+  });
+
+  it('buildSanitizedFillerArtifact: numbers-only — no transcript text, no raw custom word', () => {
+    const transcript = 'honestly the plan is honestly ready um so';
+    const report = measureFillerDivergence({
+      transcript, elapsedSeconds: 20,
+      liveFillerData: { total: { count: 9, color: '' } } as unknown as FillerCounts,
+      engine: 'private', userWords: ['honestly'], selectedSource: 'service_result',
+    });
+    const artifact = buildSanitizedFillerArtifact({
+      report,
+      liveFillerData: { total: { count: 9, color: '' }, honestly: { count: 9, color: '' } } as unknown as FillerCounts,
+      recountFillerData: countFillerWords(transcript, ['honestly']),
+      userWords: ['honestly'],
+    });
+
+    const json = JSON.stringify(artifact);
+    expect(json).not.toContain('honestly');   // no raw custom word
+    expect(json).not.toContain('the plan');    // no transcript text
+    expect(json).not.toContain('ready');
+    expect(artifact.selectedSource).toBe('service_result');
+    expect(artifact.recountDetail.custom_1).toBe(2); // "honestly" ×2, anonymized
+    expect(artifact.liveDetail.custom_1).toBe(9);
+    // every detail value is a number
+    for (const v of [...Object.values(artifact.liveDetail), ...Object.values(artifact.recountDetail)]) {
+      expect(typeof v).toBe('number');
+    }
   });
 });
