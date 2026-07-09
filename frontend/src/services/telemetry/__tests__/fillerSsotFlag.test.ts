@@ -74,3 +74,47 @@ describe('fillerSsotFlag — runtime PostHog flag, DEFAULT OFF, byte-identical w
     expect(isFillerRecountSsotEnabled()).toBe(false);
   });
 });
+
+// The build-env enable and the build-time HARD-KILL are read from import.meta.env. Exercise both
+// branches explicitly — the kill switch in particular must be proven to actually force OFF, and to
+// win over an ON runtime flag + an ON build-env enable.
+describe('fillerSsotFlag — build-env enable + hard-kill switch (import.meta.env branches)', () => {
+  beforeEach(() => {
+    __setFillerRecountSsotForTests(null);
+    isFeatureEnabled.mockReset();
+    isFeatureEnabled.mockReturnValue(undefined);
+  });
+  afterEach(() => {
+    __setFillerRecountSsotForTests(null);
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('build-env enable → ON (source build-env), even with the PostHog flag OFF', () => {
+    vi.stubEnv('VITE_FILLER_RECOUNT_SSOT', 'true');
+    isFeatureEnabled.mockReturnValue(undefined); // runtime flag absent
+    expect(isFillerRecountSsotEnabled()).toBe(true);
+    expect(getFillerRecountSsotSource()).toBe('build-env');
+  });
+
+  it('HARD-KILL forces OFF and wins over BOTH an ON PostHog flag and an ON build-env enable', async () => {
+    // The hard-kill is a module-level const evaluated at import, so re-import under the stubbed env.
+    vi.resetModules();
+    vi.stubEnv('VITE_FILLER_RECOUNT_SSOT_DISABLED', 'true'); // kill switch ON
+    vi.stubEnv('VITE_FILLER_RECOUNT_SSOT', 'true');          // build-env would otherwise say ON
+    isFeatureEnabled.mockReturnValue(true);                   // runtime flag would otherwise say ON
+    const mod = await import('../fillerSsotFlag');
+    expect(mod.isFillerRecountSsotEnabled()).toBe(false);
+    expect(mod.getFillerRecountSsotSource()).toBe('hard-disabled');
+  });
+
+  it('test override still wins even over the HARD-KILL (deterministic test control)', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_FILLER_RECOUNT_SSOT_DISABLED', 'true');
+    const mod = await import('../fillerSsotFlag');
+    mod.__setFillerRecountSsotForTests(true);
+    expect(mod.isFillerRecountSsotEnabled()).toBe(true);
+    expect(mod.getFillerRecountSsotSource()).toBe('test');
+    mod.__setFillerRecountSsotForTests(null);
+  });
+});
