@@ -62,6 +62,28 @@ jobs:
             const t = String(s ?? '').replace(/[|\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
             return t.length > n ? t.slice(0, n) + '…' : t;
           };
+          // Category display/normalization. Post-migration the table holds only new slugs, so this
+          // mainly renders the friendly label for readable triage output. The legacy fallback is
+          // defensive: if a stale-tab submission slipped an old value in, flag it and normalize.
+          const CATEGORY_LABEL = {
+            recording_transcription: 'Recording / transcription',
+            analytics_sessions: 'Analytics / saved sessions',
+            billing_subscription: 'Billing / subscription',
+            account_signin: 'Account / sign-in',
+            privacy_data: 'Privacy / data',
+            speed_performance: 'Speed / performance',
+            something_else: 'Something else',
+          };
+          const LEGACY_TO_SLUG = {
+            stt: 'recording_transcription', analytics: 'analytics_sessions', billing: 'billing_subscription',
+            account: 'account_signin', privacy: 'privacy_data', performance: 'speed_performance', general: 'something_else',
+          };
+          const normCategory = (raw) => {
+            const v = String(raw ?? '').trim();
+            const isLegacy = Object.prototype.hasOwnProperty.call(LEGACY_TO_SLUG, v);
+            const slug = isLegacy ? LEGACY_TO_SLUG[v] : v;
+            return { raw: v, slug, label: CATEGORY_LABEL[slug] || slug || '—', isLegacy };
+          };
           // Never surface secret-ish metadata values (defence in depth; metadata should hold none).
           const SECRET = /token|secret|key|cookie|auth|password|bearer/i;
           const mfield = (meta, k) => {
@@ -82,7 +104,9 @@ jobs:
           out.push('| When (UTC) | Sev | Category | Title | Page |');
           out.push('|---|---|---|---|---|');
           for (const r of rows) {
-            out.push(`| ${cell(r.created_at, 19)} | ${cell(r.severity, 10)} | ${cell(r.category, 26)} | ${cell(r.title, 40)} | ${cell(r.page_url, 36)} |`);
+            const c = normCategory(r.category);
+            const catCell = c.isLegacy ? `${c.label} (legacy: ${c.raw})` : c.label;
+            out.push(`| ${cell(r.created_at, 19)} | ${cell(r.severity, 10)} | ${cell(catCell, 34)} | ${cell(r.title, 40)} | ${cell(r.page_url, 36)} |`);
           }
           out.push('');
           // Per-report field verification (Beta-50 Report Issue gate evidence) — proves each
@@ -92,7 +116,8 @@ jobs:
             const m = r.metadata || {};
             out.push('');
             out.push(`- **id:** \`${cell(r.id, 36)}\` · **created_at:** ${cell(r.created_at, 19)}`);
-            out.push(`  - category: \`${cell(r.category, 30)}\` · severity: \`${cell(r.severity, 12)}\``);
+            const c = normCategory(r.category);
+            out.push(`  - category: \`${cell(r.category, 30)}\` → ${c.label}${c.isLegacy ? ` _(legacy value — normalizes to ${c.slug})_` : ''} · severity: \`${cell(r.severity, 12)}\``);
             out.push(`  - title: ${r.title ? 'present (' + cell(r.title, 50) + ')' : 'MISSING'}`);
             out.push(`  - description: ${r.description ? 'present (' + String(r.description).length + ' chars)' : 'MISSING'}`);
             out.push(`  - page_url: ${r.page_url ? 'present (' + cell(r.page_url, 50) + ')' : 'MISSING'}`);
