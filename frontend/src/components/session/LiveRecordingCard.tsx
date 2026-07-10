@@ -125,8 +125,17 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // button). While it downloads, the mic can't start a session; the pill shows progress and turns
     // green when the on-device model is ready.
     const isDownloadingModel = sttStatusType === 'downloading' || sttStatusType === 'initializing';
-    // Private model downloaded + engine idle-ready (not mid-download / warming / recording / finalizing).
-    const isPrivateModelReady = mode === 'private' && !isPrivateDownloadRequired && !isDownloadingModel && !isWarming && !isListening && !isFinalizing;
+    // POSITIVE readiness gate: the green "Ready to record" pill AND the ability to start a Private
+    // session require the engine to REPORT a real ready state (`ready` status + FSM READY/IDLE) — never
+    // inferred from the mere absence of transient states. This deliberately excludes every non-ready
+    // Private status: error / init-failed / fallback / warning / info / downloading / initializing /
+    // download-required / warming / unknown — none of which equal 'ready'.
+    const isPrivateModelReady =
+        mode === 'private'
+        && sttStatusType === 'ready'
+        && (fsmState === 'READY' || fsmState === 'IDLE')
+        && !isListening
+        && !isFinalizing;
     // Surface a PROMINENT "Getting mic ready… -> Ready, speak now" cue. Hold the green "ready"
     // state briefly after the mic becomes ready so the user clearly sees the transition and starts.
     const [justBecameReady, setJustBecameReady] = React.useState(false);
@@ -359,8 +368,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                             {!isStopControlVisible ? (
                                 <Button
-                                    onClick={() => { if (isPrivateDownloadRequired) { onDownloadModel?.(); } else { onStartStop(); } }}
-                                    disabled={isPrivateDownloadRequired ? false : (isButtonDisabled || isDownloadingModel)}
+                                    onClick={() => {
+                                        if (isPrivateDownloadRequired) { onDownloadModel?.(); return; }
+                                        // Never start a not-ready Private engine (that was the crash) — the mic
+                                        // is disabled in that state, and this guards even if the click slips through.
+                                        if (mode === 'private' && !isPrivateModelReady) { return; }
+                                        onStartStop();
+                                    }}
+                                    disabled={isPrivateDownloadRequired ? false : (mode === 'private' ? !isPrivateModelReady : isButtonDisabled)}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label={isPrivateDownloadRequired ? 'Set up Private — download the on-device model' : 'Start Recording'}

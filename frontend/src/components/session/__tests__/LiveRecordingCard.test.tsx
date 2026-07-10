@@ -170,6 +170,95 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByTestId('download-model-button')).toBeNull();
     });
 
+    // Positive-readiness gate: green "Ready to record" + a start are allowed ONLY when the engine
+    // positively reports ready. Every non-ready Private status must keep the mic from starting.
+    it('Private + downloading: mic disabled, blue downloading pill, cannot start', () => {
+        const onStartStop = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                sttStatusType="downloading"
+                statusMessage="Downloading model… 42%"
+                onStartStop={onStartStop}
+            />
+        );
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).toHaveAttribute('data-pill-state', 'downloading');
+        expect(pill.textContent).toMatch(/downloading/i);
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('Private + initializing: mic disabled, blue downloading pill, cannot start', () => {
+        const onStartStop = vi.fn();
+        render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="initializing" onStartStop={onStartStop} />);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        expect(screen.getByTestId('stt-status-label')).toHaveAttribute('data-pill-state', 'downloading');
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('Private + ready: green "Ready to record" pill and the mic can start', () => {
+        const onStartStop = vi.fn();
+        render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="ready" fsmState="READY" onStartStop={onStartStop} />);
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/ready to record/i);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).not.toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('Private + init-failed: not green, shows the failure message, cannot start a model-less engine', () => {
+        const onStartStop = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                sttStatusType="init-failed"
+                statusMessage="Private setup failed"
+                onStartStop={onStartStop}
+            />
+        );
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/Private setup failed/i);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('Private + error: not green and the mic cannot start', () => {
+        const onStartStop = vi.fn();
+        render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="error" statusMessage="Something went wrong" onStartStop={onStartStop} />);
+        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'ready');
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('Private + fallback or unknown status: not green and the mic cannot start', () => {
+        const onStartStop = vi.fn();
+        const { rerender } = render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="fallback" onStartStop={onStartStop} />);
+        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'ready');
+        expect(screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeDisabled();
+
+        // An unknown/undefined Private status must also never read as ready.
+        rerender(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="weird-unhandled" onStartStop={onStartStop} />);
+        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'ready');
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
     it('positions Browser STT with a short cue and moves the explanation into help', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
