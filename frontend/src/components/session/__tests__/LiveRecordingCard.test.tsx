@@ -137,8 +137,9 @@ describe('LiveRecordingCard', () => {
         expect(pill.textContent).toMatch(/finalizing your transcript/i);
     });
 
-    it('shows explicit Private setup inside the recording card when the model is missing', () => {
+    it('triggers the one-time model download from the mic (no separate setup button) when the model is missing', () => {
         const onDownloadModel = vi.fn();
+        const onStartStop = vi.fn();
         render(
             <LiveRecordingCard
                 {...defaultProps}
@@ -148,14 +149,22 @@ describe('LiveRecordingCard', () => {
                 sttStatusType="download-required"
                 isButtonDisabled={true}
                 onDownloadModel={onDownloadModel}
+                onStartStop={onStartStop}
             />
         );
 
-        const inlineSetupButton = screen.getByTestId('download-model-button-inline');
-        expect(inlineSetupButton).toBeDefined();
-        expect(inlineSetupButton.textContent).toMatch(/Set up Private/i);
-        fireEvent.click(inlineSetupButton);
+        // No separate "Set up" button — a first-run note explains the mic starts setup.
+        expect(screen.queryByTestId('download-model-button-inline')).toBeNull();
+        expect(screen.getByTestId('private-first-run-note')).toHaveTextContent(/Downloads once on first use/i);
+
+        // The mic is clickable even though isButtonDisabled=true, and it triggers the DOWNLOAD
+        // (never a recording start on a not-ready engine — that was the crash).
+        const micButton = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(micButton).toHaveAttribute('aria-label', 'Set up Private — download the on-device model');
+        expect(micButton).not.toBeDisabled();
+        fireEvent.click(micButton);
         expect(onDownloadModel).toHaveBeenCalledTimes(1);
+        expect(onStartStop).not.toHaveBeenCalled();
 
         expect(screen.queryByTestId('private-setup-panel')).toBeNull();
         expect(screen.queryByTestId('download-model-button')).toBeNull();
@@ -253,8 +262,8 @@ describe('LiveRecordingCard', () => {
                 onDownloadModel={vi.fn()}
             />
         );
-        // The "Set up Private" action is visible; the download detail lives in help.
-        expect(screen.getByTestId('download-model-button-inline')).toBeInTheDocument();
+        // First-run note is visible; the download size detail lives in help (not in the note).
+        expect(screen.getByTestId('private-first-run-note')).toBeInTheDocument();
         expect(screen.queryByTestId('private-model-size-note')).toBeNull();
 
         fireEvent.click(screen.getByTestId('stt-mode-help'));

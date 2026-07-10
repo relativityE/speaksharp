@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Download, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
+import { AlertCircle, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -121,6 +121,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
     // #891 immediate-start gate: the mic is warming up; the UI must NOT invite speech yet.
     const isWarming = sttStatusType === 'warming';
+    // First-run Private: clicking the mic triggers the one-time model download (no separate "Set up"
+    // button). While it downloads, the mic can't start a session; the pill shows progress and turns
+    // green when the on-device model is ready.
+    const isDownloadingModel = sttStatusType === 'downloading' || sttStatusType === 'initializing';
+    // Private model downloaded + engine idle-ready (not mid-download / warming / recording / finalizing).
+    const isPrivateModelReady = mode === 'private' && !isPrivateDownloadRequired && !isDownloadingModel && !isWarming && !isListening && !isFinalizing;
     // Surface a PROMINENT "Getting mic ready… -> Ready, speak now" cue. Hold the green "ready"
     // state briefly after the mic becomes ready so the user clearly sees the transition and starts.
     const [justBecameReady, setJustBecameReady] = React.useState(false);
@@ -136,23 +142,27 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     }, [isWarming, isListening]);
     // #891 state-colored status pill (white card stays; only the oval pill tints by state).
     // neutral idle -> amber warming -> green ready -> blue finalizing. Recording stays neutral.
-    const pillState: 'finalizing' | 'warming' | 'ready' | 'recording' | 'idle' =
+    const pillState: 'finalizing' | 'downloading' | 'warming' | 'ready' | 'recording' | 'idle' =
         isFinalizing ? 'finalizing'
-            : isWarming ? 'warming'
-                : justBecameReady ? 'ready'
-                    : isListening ? 'recording'
-                        : 'idle';
+            : isDownloadingModel ? 'downloading'
+                : isWarming ? 'warming'
+                    : (justBecameReady || isPrivateModelReady) ? 'ready'
+                        : isListening ? 'recording'
+                            : 'idle';
     const pillSurface = {
         finalizing: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
+        downloading: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
         warming: 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
-        ready: 'bg-green-100 text-green-800 ring-1 ring-green-400',
+        // Ready green intentionally a couple shades darker/greener than idle amber-adjacent tones.
+        ready: 'bg-green-200 text-green-900 ring-1 ring-green-500',
         recording: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
         idle: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
     }[pillState];
     const pillDot = {
         finalizing: 'bg-blue-500',
+        downloading: 'bg-blue-500 animate-pulse',
         warming: 'bg-amber-500 animate-pulse',
-        ready: 'bg-green-500',
+        ready: 'bg-green-600',
         recording: 'bg-primary animate-pulse',
         idle: 'bg-muted-foreground',
     }[pillState];
@@ -202,7 +212,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         sttHelp = <p>Audio is sent to an external transcription server. Cloud is available for Pro users.</p>;
     } else if (mode === 'private') {
         if (isPrivateDownloadRequired) {
-            sttCue = 'Set up Private';
+            sttCue = 'Private on-device';
             sttHelp = (
                 <div className="space-y-1.5">
                     <p>Private runs on your device after a one-time setup.</p>
@@ -266,21 +276,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </button>
                             )}
 
-                            {/* Private not set up: the one-time set-up action (download detail lives in help). */}
-                            {isPrivateDownloadRequired && onDownloadModel && (
-                                <div className="mt-1 flex flex-wrap items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={onDownloadModel}
-                                        className="h-6 gap-1 rounded-md px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
-                                        data-testid="download-model-button-inline"
-                                    >
-                                        <Download className="h-3 w-3" />
-                                        Set up Private
-                                    </Button>
-                                </div>
+                            {/* Private first-run: no separate "Set up" button — clicking the mic starts the
+                                one-time model download and the pill below shows progress until it's ready. */}
+                            {isPrivateDownloadRequired && (
+                                <p className="mt-1 text-[11px] font-medium text-muted-foreground" data-testid="private-first-run-note">
+                                    Downloads once on first use — tap the mic to set up.
+                                </p>
                             )}
                         </div>
                     </div>
@@ -358,12 +359,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                             {!isStopControlVisible ? (
                                 <Button
-                                    onClick={onStartStop}
-                                    disabled={isButtonDisabled}
+                                    onClick={() => { if (isPrivateDownloadRequired) { onDownloadModel?.(); } else { onStartStop(); } }}
+                                    disabled={isPrivateDownloadRequired ? false : (isButtonDisabled || isDownloadingModel)}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
-                                    aria-label="Start Recording"
-                                    title={isPrivateDownloadRequired ? 'Download required' : 'Start Recording'}
+                                    aria-label={isPrivateDownloadRequired ? 'Set up Private — download the on-device model' : 'Start Recording'}
+                                    title={isPrivateDownloadRequired ? 'Click to download the on-device model (one-time)' : isDownloadingModel ? 'Downloading model…' : 'Start Recording'}
                                     className="w-12 h-12 rounded-full bg-primary text-primary-foreground ring-1 ring-primary/35 hover:bg-primary/90 cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-primary disabled:text-primary-foreground disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-primary/35"
                                 >
                                     <span className="relative flex h-6 w-6 items-center justify-center text-primary-foreground">
@@ -401,14 +402,18 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     : <div className={`h-1.5 w-1.5 rounded-full ${pillDot}`} />}
                                 <span className="text-[11px] font-bold tracking-[0.06em]" data-testid="stt-status-label" data-pill-state={pillState}>
                                     {isPrivateDownloadRequired
-                                        ? 'Ready'
-                                        : isFinalizing
-                                            ? 'Finalizing your transcript…'
-                                            : isWarming
-                                                ? 'Getting mic ready — one moment…'
-                                                : justBecameReady
-                                                    ? 'Ready — speak now'
-                                                    : (displayStatusMessage || (isPaused ? 'Paused' : (isListening ? (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening') : 'Ready to record')))}
+                                        ? 'Tap the mic to set up'
+                                        : isDownloadingModel
+                                            ? (displayStatusMessage || 'Downloading model…')
+                                            : isFinalizing
+                                                ? 'Finalizing your transcript…'
+                                                : isWarming
+                                                    ? 'Getting mic ready — one moment…'
+                                                    : justBecameReady
+                                                        ? 'Ready — speak now'
+                                                        : isPrivateModelReady
+                                                            ? 'Ready to record'
+                                                            : (displayStatusMessage || (isPaused ? 'Paused' : (isListening ? (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening') : 'Ready to record')))}
                                 </span>
                             </div>
                         </div>
