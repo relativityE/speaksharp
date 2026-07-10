@@ -228,9 +228,12 @@ async function clearPrivateModelStorage(page: Page) {
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-    const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-    if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
-        await downloadButton.click();
+    // First-run Private downloads via the MIC (the separate "Set up" button was removed); trigger it
+    // only when setup is required so a warm cache auto-loads and the mic never starts a recording.
+    const setupNeeded = (await page.evaluate(() => document.documentElement.getAttribute('data-model-status')).catch(() => null)) === 'download-required'
+        || await page.locator('[data-testid="private-first-run-note"]').isVisible({ timeout: 10_000 }).catch(() => false);
+    if (setupNeeded) {
+        await page.locator('[data-testid="session-start-stop-button"]').first().click();
     }
     await page.waitForFunction(() => {
         const root = document.documentElement;

@@ -51,6 +51,7 @@ export const SessionPage: React.FC = () => {
         metrics,
         sttStatus,
         modelLoadingProgress,
+        privateModelStatus,
         mode,
         setMode,
         recordingIntent,
@@ -281,6 +282,7 @@ export const SessionPage: React.FC = () => {
                                     isPaused={sttStatus.type === 'paused'}
                                     fsmState={runtimeState}
                                     sttStatusType={sttStatus.type}
+                                    privateModelStatus={privateModelStatus}
                                     recordingIntent={recordingIntent}
                                     isFinalizing={isTranscriptFinalizing}
                                     canUsePrivate={canUsePrivateStt}
@@ -373,6 +375,9 @@ export const SessionPage: React.FC = () => {
                 onStartStop={() => { void handleStartStop(); }}
                 isFrozen={sttStatus.isFrozen}
                 onSwitchToNative={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.switchToNative()); }}
+                mode={mode}
+                privateModelStatus={privateModelStatus}
+                onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
             />
 
             {/* Sunset Modals */}
