@@ -137,28 +137,125 @@ describe('LiveRecordingCard', () => {
         expect(pill.textContent).toMatch(/finalizing your transcript/i);
     });
 
-    it('shows explicit Private setup inside the recording card when the model is missing', () => {
+    it('first run (download-required): the mic downloads the model (no separate button) and never starts', () => {
         const onDownloadModel = vi.fn();
+        const onStartStop = vi.fn();
         render(
             <LiveRecordingCard
                 {...defaultProps}
                 mode="private"
                 canUsePrivate={true}
                 canUseCloudStt={false}
-                sttStatusType="download-required"
+                privateModelStatus="download-required"
                 isButtonDisabled={true}
                 onDownloadModel={onDownloadModel}
+                onStartStop={onStartStop}
             />
         );
 
-        const inlineSetupButton = screen.getByTestId('download-model-button-inline');
-        expect(inlineSetupButton).toBeDefined();
-        expect(inlineSetupButton.textContent).toMatch(/Set up Private/i);
-        fireEvent.click(inlineSetupButton);
-        expect(onDownloadModel).toHaveBeenCalledTimes(1);
+        // No separate "Set up" button — a first-run note explains the mic starts setup.
+        expect(screen.queryByTestId('download-model-button-inline')).toBeNull();
+        expect(screen.getByTestId('private-first-run-note')).toHaveTextContent(/click the mic to download the model/i);
 
-        expect(screen.queryByTestId('private-setup-panel')).toBeNull();
+        // Clickable even though isButtonDisabled=true (download-required is the one override), and it
+        // triggers the DOWNLOAD — never a recording start on a model-less engine (that was the crash).
+        const micButton = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(micButton).toHaveAttribute('aria-label', 'Set up Private — download the on-device model');
+        expect(micButton).not.toBeDisabled();
+        fireEvent.click(micButton);
+        expect(onDownloadModel).toHaveBeenCalledTimes(1);
+        expect(onStartStop).not.toHaveBeenCalled();
         expect(screen.queryByTestId('download-model-button')).toBeNull();
+    });
+
+    // Start-ability follows the DURABLE privateModelStatus/isButtonDisabled, never a transient status
+    // pulse — so a returning user at post-session idle can record again without a reload.
+    it('downloading the model (privateModelStatus=loading): mic disabled, blue downloading pill, cannot start', () => {
+        const onStartStop = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                privateModelStatus="loading"
+                sttStatusType="downloading"
+                statusMessage="Downloading model… 42%"
+                isButtonDisabled={true}
+                onStartStop={onStartStop}
+            />
+        );
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).toHaveAttribute('data-pill-state', 'downloading');
+        expect(pill.textContent).toMatch(/downloading model… 42%/i);
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('model ready (privateModelStatus=ready): green "Ready to record" and the mic can start', () => {
+        const onStartStop = vi.fn();
+        render(<LiveRecordingCard {...defaultProps} mode="private" privateModelStatus="ready" isButtonDisabled={false} onStartStop={onStartStop} />);
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/ready to record/i);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).not.toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('returning user (post-session idle, model cached): the mic can start again WITHOUT a reload', () => {
+        // Regression guard: after a session the runtime rests at privateModelStatus 'idle' (model
+        // still cached) with isButtonDisabled=false. The mic MUST stay startable — an earlier fix that
+        // gated on the transient sttStatusType==='ready' dead-locked exactly this ('Private not ready').
+        const onStartStop = vi.fn();
+        render(<LiveRecordingCard {...defaultProps} mode="private" privateModelStatus="idle" isButtonDisabled={false} statusMessage="Ready" onStartStop={onStartStop} />);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).not.toBeDisabled();
+        expect(screen.getByTestId('stt-status-label').textContent).not.toMatch(/private not ready/i);
+        fireEvent.click(mic);
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('setup failed (init-failed): mic disabled, shows the failure message, never green, cannot start', () => {
+        const onStartStop = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                privateModelStatus="init-failed"
+                statusMessage="Private transcription could not finish setup."
+                isButtonDisabled={true}
+                onStartStop={onStartStop}
+            />
+        );
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/could not finish setup/i);
+        expect(pill.textContent).not.toMatch(/ready to record/i);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('setup error (privateModelStatus=error): mic disabled, shows the error message, never green, cannot start', () => {
+        const onStartStop = vi.fn();
+        render(<LiveRecordingCard {...defaultProps} mode="private" privateModelStatus="error" statusMessage="Something went wrong" isButtonDisabled={true} onStartStop={onStartStop} />);
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/something went wrong/i);
+        expect(pill.textContent).not.toMatch(/ready to record/i);
+        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        expect(mic).toBeDisabled();
+        fireEvent.click(mic);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+
+    it('Native/Cloud mic-init is never mislabelled as the blue "downloading" pill', () => {
+        // isDownloadingModel is Private-only; a Browser/Cloud 'initializing' phase must not paint blue.
+        render(<LiveRecordingCard {...defaultProps} mode="native" sttStatusType="initializing" statusMessage="Initializing engine..." />);
+        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'downloading');
     });
 
     it('positions Browser STT with a short cue and moves the explanation into help', async () => {
@@ -249,12 +346,12 @@ describe('LiveRecordingCard', () => {
             <LiveRecordingCard
                 {...defaultProps}
                 mode="private"
-                sttStatusType="download-required"
+                privateModelStatus="download-required"
                 onDownloadModel={vi.fn()}
             />
         );
-        // The "Set up Private" action is visible; the download detail lives in help.
-        expect(screen.getByTestId('download-model-button-inline')).toBeInTheDocument();
+        // First-run note is visible; the download size detail lives in help (not in the note).
+        expect(screen.getByTestId('private-first-run-note')).toBeInTheDocument();
         expect(screen.queryByTestId('private-model-size-note')).toBeNull();
 
         fireEvent.click(screen.getByTestId('stt-mode-help'));

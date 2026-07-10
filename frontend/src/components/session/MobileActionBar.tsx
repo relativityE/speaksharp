@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Play } from 'lucide-react';
+import { Play, Download } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 
 interface MobileActionBarProps {
@@ -10,6 +10,10 @@ interface MobileActionBarProps {
     onStartStop: () => void;
     isFrozen?: boolean;
     onSwitchToNative?: () => void;
+    /** Current mode + DURABLE Private model status, so mobile mirrors the desktop first-run flow. */
+    mode?: string | null;
+    privateModelStatus?: string;
+    onDownloadModel?: () => void;
 }
 
 /**
@@ -23,7 +27,13 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     onStartStop,
     isFrozen,
     onSwitchToNative,
+    mode,
+    privateModelStatus = 'idle',
+    onDownloadModel,
 }) => {
+    // First-run Private: the primary control downloads the on-device model (never starts a model-less
+    // engine). Mirrors the desktop mic. Every other state uses the durable isButtonDisabled gate.
+    const isPrivateDownloadRequired = mode === 'private' && privateModelStatus === 'download-required' && !isListening;
     // The sticky mobile bar stays visible in every session state — including IDLE — so the
     // primary "Start Recording" CTA is always reachable without scrolling to the recording
     // card (aligns mobile with the always-present desktop control). The button below already
@@ -42,14 +52,18 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                 </Button>
             )}
             <Button
-                onClick={onStartStop}
+                onClick={() => { if (isPrivateDownloadRequired) { onDownloadModel?.(); } else { onStartStop(); } }}
                 size="lg"
                 variant={isListening ? 'destructive' : 'default'}
                 className="h-12 w-full max-w-sm text-base font-semibold shadow-sm"
-                disabled={isButtonDisabled || (modelLoadingProgress !== null && modelLoadingProgress < 100)}
+                disabled={isPrivateDownloadRequired ? false : (isButtonDisabled || (modelLoadingProgress !== null && modelLoadingProgress < 100))}
                 data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}
             >
-                {modelLoadingProgress !== null ? (
+                {isPrivateDownloadRequired ? (
+                    <>
+                        <Download className="w-5 h-5 mr-2" /> Set up Private
+                    </>
+                ) : modelLoadingProgress !== null ? (
                     <>
                         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
                         Downloading {Math.round(modelLoadingProgress)}%

@@ -345,7 +345,7 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
         const rect = el.getBoundingClientRect();
         const active = document.activeElement as HTMLElement | null;
         const banner = document.querySelector(
-            '[data-testid="status-message-text"], [role="dialog"], [data-testid="download-model-button"]'
+            '[data-testid="status-message-text"], [role="dialog"], [data-testid="private-first-run-note"]'
         ) as HTMLElement | null;
         return {
             text: el.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? null,
@@ -459,14 +459,17 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
 }
 
 export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_000) {
-    const setupButton = page.locator(
-        [
-            '[data-testid="download-model-button"]',
-            '[data-testid="download-model-button-inline"]',
-        ].join(','),
-    ).first();
+    // First-run Private now downloads via the MIC (the separate "Set up" button was removed). We
+    // trigger the download ONLY when setup is actually required — detected via the durable
+    // data-model-status='download-required' or the visible first-run note — so a warm cache (model
+    // already downloaded) is left to auto-load and the mic is never clicked into a recording start.
+    const micButton = page.locator('[data-testid="session-start-stop-button"]').first();
+    const setupNeeded = (await page.evaluate(
+        () => document.documentElement.getAttribute('data-model-status'),
+    ).catch(() => null)) === 'download-required'
+        || await page.locator('[data-testid="private-first-run-note"]').isVisible({ timeout: 10_000 }).catch(() => false);
 
-    if (await setupButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (setupNeeded) {
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
         if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
             const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
@@ -476,13 +479,13 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_00
                 `${JSON.stringify(snapshot, null, 2)}`
             );
         }
-        await setupButton.scrollIntoViewIfNeeded().catch(() => undefined);
+        await micButton.scrollIntoViewIfNeeded().catch(() => undefined);
         try {
-            await setupButton.click({ timeout: 10_000 });
+            await micButton.click({ timeout: 10_000 });
         } catch (error) {
             await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_FORCE_CLICK_RETRY');
-            console.warn('[benchmark-utils] Private setup click needed force retry', error);
-            await setupButton.click({ force: true, timeout: 5_000 });
+            console.warn('[benchmark-utils] Private setup (mic) click needed force retry', error);
+            await micButton.click({ force: true, timeout: 5_000 });
         }
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
     } else {

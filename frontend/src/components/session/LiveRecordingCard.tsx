@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Download, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
+import { AlertCircle, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -35,7 +35,14 @@ interface LiveRecordingCardProps {
     isPaused?: boolean;
     activeEngine: RecordingMode | 'none' | null;
     fsmState?: RuntimeState; // master FSM state from controller
-    sttStatusType?: string; // status type from service status
+    sttStatusType?: string; // status type from service status (transient — DO NOT gate readiness on this)
+    /**
+     * DURABLE Private model availability, projected from `data-model-status` by the lifecycle hook.
+     * Values: 'idle' | 'loading' | 'ready' | 'download-required' | 'init-failed' | 'error'. This is
+     * the source of truth for "can Private start / is the model downloaded", because unlike the
+     * transient sttStatus pulse it survives idle/post-session (so returning users can record again).
+     */
+    privateModelStatus?: string;
     recordingIntent?: boolean; // explicit user intent to record
     isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
     className?: string;
@@ -85,6 +92,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     activeEngine,
     fsmState,
     sttStatusType,
+    privateModelStatus = 'idle',
     recordingIntent = false,
     isFinalizing = false,
     className = "",
@@ -118,9 +126,24 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
-    const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
+    // First-run Private: clicking the mic triggers the one-time model download (no separate "Set up"
+    // button). All three flags read the DURABLE `privateModelStatus` (data-model-status), NOT the
+    // transient sttStatus pulse — so they survive idle/post-session and never lock out a returning user.
+    const isPrivateDownloadRequired = mode === 'private' && privateModelStatus === 'download-required' && !isListening;
     // #891 immediate-start gate: the mic is warming up; the UI must NOT invite speech yet.
     const isWarming = sttStatusType === 'warming';
+    // Blue "downloading" pill ONLY during the actual model byte-download (sttStatusType 'downloading'
+    // carries the %). Mode-gated so Native/Cloud mic-init ('initializing') is never mislabelled.
+    const isDownloadingModel = mode === 'private' && sttStatusType === 'downloading';
+    // DURABLE positive readiness: green "Ready to record" only when the model is warm+ready. Mic
+    // START-ability is NOT gated on this (it uses the durable isButtonDisabled, which already blocks
+    // download-required/loading/init-failed/error and stays enabled at idle/ready) — so a returning
+    // user at post-session `idle` can record again without a reload.
+    const isPrivateModelReady =
+        mode === 'private'
+        && privateModelStatus === 'ready'
+        && !isListening
+        && !isFinalizing;
     // Surface a PROMINENT "Getting mic ready… -> Ready, speak now" cue. Hold the green "ready"
     // state briefly after the mic becomes ready so the user clearly sees the transition and starts.
     const [justBecameReady, setJustBecameReady] = React.useState(false);
@@ -136,23 +159,27 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     }, [isWarming, isListening]);
     // #891 state-colored status pill (white card stays; only the oval pill tints by state).
     // neutral idle -> amber warming -> green ready -> blue finalizing. Recording stays neutral.
-    const pillState: 'finalizing' | 'warming' | 'ready' | 'recording' | 'idle' =
+    const pillState: 'finalizing' | 'downloading' | 'warming' | 'ready' | 'recording' | 'idle' =
         isFinalizing ? 'finalizing'
-            : isWarming ? 'warming'
-                : justBecameReady ? 'ready'
-                    : isListening ? 'recording'
-                        : 'idle';
+            : isDownloadingModel ? 'downloading'
+                : isWarming ? 'warming'
+                    : (justBecameReady || isPrivateModelReady) ? 'ready'
+                        : isListening ? 'recording'
+                            : 'idle';
     const pillSurface = {
         finalizing: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
+        downloading: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
         warming: 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
-        ready: 'bg-green-100 text-green-800 ring-1 ring-green-400',
+        // Ready green intentionally a couple shades darker/greener than idle amber-adjacent tones.
+        ready: 'bg-green-200 text-green-900 ring-1 ring-green-500',
         recording: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
         idle: 'bg-muted/55 text-foreground/70 ring-1 ring-border',
     }[pillState];
     const pillDot = {
         finalizing: 'bg-blue-500',
+        downloading: 'bg-blue-500 animate-pulse',
         warming: 'bg-amber-500 animate-pulse',
-        ready: 'bg-green-500',
+        ready: 'bg-green-600',
         recording: 'bg-primary animate-pulse',
         idle: 'bg-muted-foreground',
     }[pillState];
@@ -161,6 +188,32 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         displayStatusMessage = 'Private model setup';
     } else if (/^error occurred$/i.test(_statusMessage?.trim() || '')) {
         displayStatusMessage = 'Recording could not start';
+    }
+    // Pill text, precedence-ordered. download-required never shows "Ready to record"; the actual
+    // model download shows progress; failures (init-failed/error/loading) carry their own status
+    // message and are never green. With the durable gate, Private `idle` is startable (model
+    // available), so "Ready to record" is correct there — no string-coupled scrub needed.
+    let pillText: string;
+    if (isPrivateDownloadRequired) {
+        pillText = 'Tap the mic to set up';
+    } else if (isDownloadingModel) {
+        pillText = displayStatusMessage || 'Downloading model…';
+    } else if (isFinalizing) {
+        pillText = 'Finalizing your transcript…';
+    } else if (isWarming) {
+        pillText = 'Getting mic ready — one moment…';
+    } else if (justBecameReady) {
+        pillText = 'Ready — speak now';
+    } else if (isPrivateModelReady) {
+        pillText = 'Ready to record';
+    } else if (isPaused) {
+        pillText = displayStatusMessage || 'Paused';
+    } else if (isListening) {
+        pillText = displayStatusMessage || (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening');
+    } else {
+        // Idle at rest. A not-ready Private state (init-failed/error/loading) supplies a real status
+        // message which wins here; otherwise the engine is idle+startable → "Ready to record".
+        pillText = displayStatusMessage || 'Ready to record';
     }
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
@@ -202,7 +255,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         sttHelp = <p>Audio is sent to an external transcription server. Cloud is available for Pro users.</p>;
     } else if (mode === 'private') {
         if (isPrivateDownloadRequired) {
-            sttCue = 'Set up Private';
+            sttCue = 'Private on-device';
             sttHelp = (
                 <div className="space-y-1.5">
                     <p>Private runs on your device after a one-time setup.</p>
@@ -266,21 +319,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </button>
                             )}
 
-                            {/* Private not set up: the one-time set-up action (download detail lives in help). */}
-                            {isPrivateDownloadRequired && onDownloadModel && (
-                                <div className="mt-1 flex flex-wrap items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={onDownloadModel}
-                                        className="h-6 gap-1 rounded-md px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
-                                        data-testid="download-model-button-inline"
-                                    >
-                                        <Download className="h-3 w-3" />
-                                        Set up Private
-                                    </Button>
-                                </div>
+                            {/* Private first-run: no separate "Set up" button — clicking the mic starts the
+                                one-time model download and the pill below shows progress until it's ready. */}
+                            {isPrivateDownloadRequired && (
+                                <p className="mt-1 text-[11px] font-medium text-muted-foreground" data-testid="private-first-run-note">
+                                    First-time use: click the mic to download the model. Available once the status turns green.
+                                </p>
                             )}
                         </div>
                     </div>
@@ -358,12 +402,19 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                             {!isStopControlVisible ? (
                                 <Button
-                                    onClick={onStartStop}
-                                    disabled={isButtonDisabled}
+                                    onClick={() => {
+                                        // download-required is the ONE model-less state — the mic downloads instead
+                                        // of starting. Every other state uses the durable isButtonDisabled gate,
+                                        // which already blocks the not-ready model states (loading/init-failed/error)
+                                        // and stays enabled at idle/ready — so a not-ready engine can never start.
+                                        if (isPrivateDownloadRequired) { onDownloadModel?.(); return; }
+                                        onStartStop();
+                                    }}
+                                    disabled={isPrivateDownloadRequired ? false : isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
-                                    aria-label="Start Recording"
-                                    title={isPrivateDownloadRequired ? 'Download required' : 'Start Recording'}
+                                    aria-label={isPrivateDownloadRequired ? 'Set up Private — download the on-device model' : 'Start Recording'}
+                                    title={isPrivateDownloadRequired ? 'Click to download the on-device model (one-time)' : isDownloadingModel ? 'Downloading model…' : 'Start Recording'}
                                     className="w-12 h-12 rounded-full bg-primary text-primary-foreground ring-1 ring-primary/35 hover:bg-primary/90 cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-primary disabled:text-primary-foreground disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-primary/35"
                                 >
                                     <span className="relative flex h-6 w-6 items-center justify-center text-primary-foreground">
@@ -400,15 +451,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                                     : <div className={`h-1.5 w-1.5 rounded-full ${pillDot}`} />}
                                 <span className="text-[11px] font-bold tracking-[0.06em]" data-testid="stt-status-label" data-pill-state={pillState}>
-                                    {isPrivateDownloadRequired
-                                        ? 'Ready'
-                                        : isFinalizing
-                                            ? 'Finalizing your transcript…'
-                                            : isWarming
-                                                ? 'Getting mic ready — one moment…'
-                                                : justBecameReady
-                                                    ? 'Ready — speak now'
-                                                    : (displayStatusMessage || (isPaused ? 'Paused' : (isListening ? (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening') : 'Ready to record')))}
+                                    {pillText}
                                 </span>
                             </div>
                         </div>
