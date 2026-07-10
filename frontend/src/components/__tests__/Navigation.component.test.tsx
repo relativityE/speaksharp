@@ -194,7 +194,7 @@ describe('Navigation', () => {
             }));
         });
 
-        it('attaches the account id and shows the support-follow-up disclosure for authenticated reports', async () => {
+        it('attaches the account id and shows the internal-ID support disclosure for authenticated reports', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user', email: 'user@example.com' } },
                 signOut: mockSignOut,
@@ -204,8 +204,10 @@ describe('Navigation', () => {
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
             // Single support-oriented disclosure — no anonymous/account-context branching anymore.
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Linked to your account for support follow-up/i);
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not include your email, name, transcript, or audio/i);
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Linked to your account using an internal ID/i);
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not include your email, name, password, login credentials, transcript, or audio/i);
+            // Raw DB field name must not leak into user-facing copy.
+            expect(screen.getByTestId('issue-report-disclosure')).not.toHaveTextContent(/user_id/i);
             expect(screen.queryByText(/Anonymous report/i)).not.toBeInTheDocument();
             expect(screen.queryByText(/Account support report/i)).not.toBeInTheDocument();
 

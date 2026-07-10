@@ -199,10 +199,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           </label>
 
           <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground" data-testid="issue-report-disclosure">
-            Linked to your account for support follow-up. We do not include your email, name, transcript,
-            or audio unless you choose to provide optional details. Automatically included: URL, route,
-            browser, viewport, timezone, release-proof config, plan, transcription mode, and the last Sentry
-            event id when available (used only to correlate with our logs).
+            Linked to your account using an internal ID so support can investigate the issue. We include
+            basic technical details to help debug. We do not include your email, name, password, login
+            credentials, transcript, or audio unless you choose to add optional details.
           </div>
 
           <label className="flex items-start gap-2 text-sm">
