@@ -3,7 +3,17 @@ import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
 
-export type IssueReportCategory = 'stt' | 'billing' | 'account' | 'analytics' | 'privacy' | 'performance' | 'general';
+// Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
+// are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
+// DB CHECK constraint (see migration 20260710000000_user_issue_reports_category_slugs.sql).
+export type IssueReportCategory =
+  | 'recording_transcription'
+  | 'analytics_sessions'
+  | 'billing_subscription'
+  | 'account_signin'
+  | 'privacy_data'
+  | 'speed_performance'
+  | 'something_else';
 export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export interface IssueReportMetadata {

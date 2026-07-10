@@ -31,7 +31,25 @@ interface IssueReportDialogProps {
 
 const MAX_TRANSCRIPT_SNIPPET = 4000;
 
-const CATEGORIES: IssueReportCategory[] = ['stt', 'analytics', 'billing', 'account', 'privacy', 'performance', 'general'];
+// DB slug -> friendly, user-facing label. Labels are display-only; the DB stores the slug.
+const CATEGORY_LABELS: Record<IssueReportCategory, string> = {
+  recording_transcription: 'Recording / transcription',
+  analytics_sessions: 'Analytics / saved sessions',
+  billing_subscription: 'Billing / subscription',
+  account_signin: 'Account / sign-in',
+  privacy_data: 'Privacy / data',
+  speed_performance: 'Speed / performance',
+  something_else: 'Something else',
+};
+const CATEGORIES: IssueReportCategory[] = [
+  'recording_transcription',
+  'analytics_sessions',
+  'billing_subscription',
+  'account_signin',
+  'privacy_data',
+  'speed_performance',
+  'something_else',
+];
 const SEVERITIES: IssueReportSeverity[] = ['medium', 'high', 'critical', 'low'];
 
 export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
@@ -43,7 +61,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const location = useLocation();
   const params = useParams();
   const [open, setOpen] = React.useState(false);
-  const [category, setCategory] = React.useState<IssueReportCategory>('stt');
+  const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -56,10 +74,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
-  const supportNeedsAccountContext = category === 'billing' || category === 'account';
+  // Attach the submitter's account id ONLY for account-context categories (kept in sync with
+  // the category slugs). Everything else stays anonymous (privacy design preserved).
+  const supportNeedsAccountContext = category === 'billing_subscription' || category === 'account_signin';
 
   const reset = () => {
-    setCategory('stt');
+    setCategory('recording_transcription');
     setSeverity('medium');
     setTitle('');
     setDescription('');
@@ -128,7 +148,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Report an issue</DialogTitle>
           <DialogDescription>
-            Send the app state we need to debug. Transcript and audio details are optional and never included unless you choose them.
+            Send the app state we need to debug. Transcript and audio details are optional and never included unless you choose them. Please don&apos;t include passwords or other sensitive personal information.
           </DialogDescription>
         </DialogHeader>
 
@@ -142,7 +162,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
                 onChange={(event) => setCategory(event.target.value as IssueReportCategory)}
                 data-testid="issue-report-category"
               >
-                {CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+                {CATEGORIES.map((item) => <option key={item} value={item}>{CATEGORY_LABELS[item]}</option>)}
               </select>
             </label>
             <label className="space-y-1 text-sm font-medium">

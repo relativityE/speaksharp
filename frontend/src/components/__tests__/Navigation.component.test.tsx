@@ -150,7 +150,7 @@ describe('Navigation', () => {
             });
             expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
                 userId: null,
-                category: 'stt',
+                category: 'recording_transcription',
                 pageUrl: expect.any(String),
                 includeTranscript: false,
                 transcriptExcerpt: null,
@@ -204,7 +204,7 @@ describe('Navigation', () => {
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
             fireEvent.change(screen.getByTestId('issue-report-category'), {
-                target: { value: 'billing' },
+                target: { value: 'billing_subscription' },
             });
             expect(screen.getByText(/Account support report/i)).toBeInTheDocument();
             expect(screen.getByText(/include your account id/i)).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe('Navigation', () => {
             });
             expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
                 userId: 'test-user',
-                category: 'billing',
+                category: 'billing_subscription',
             }));
         });
     });

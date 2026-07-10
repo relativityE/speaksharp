@@ -50,7 +50,7 @@ test.describe('Paid invite trust smoke', () => {
     await expect(page.getByText(/Anonymous report/i)).toBeVisible();
     await expect(page.getByText(/we do not collect your name, email, or account id/i)).toBeVisible();
 
-    await page.getByTestId('issue-report-category').selectOption('billing');
+    await page.getByTestId('issue-report-category').selectOption('billing_subscription');
     await expect(page.getByText(/Account support report/i)).toBeVisible();
     await expect(page.getByText(/include your account id/i)).toBeVisible();
     await expect(page.getByText(/Anonymous report/i)).toHaveCount(0);
