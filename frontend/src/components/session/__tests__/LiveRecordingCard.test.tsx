@@ -228,34 +228,53 @@ describe('LiveRecordingCard', () => {
         const pill = screen.getByTestId('stt-status-label');
         expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
         expect(pill.textContent).toMatch(/Private setup failed/i);
+        expect(pill.textContent).not.toMatch(/ready to record/i);
         const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
         expect(mic).toBeDisabled();
         fireEvent.click(mic);
         expect(onStartStop).not.toHaveBeenCalled();
     });
 
-    it('Private + error: not green and the mic cannot start', () => {
+    it('Private + error: not green, shows the error message (never "Ready to record"), cannot start', () => {
         const onStartStop = vi.fn();
         render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="error" statusMessage="Something went wrong" onStartStop={onStartStop} />);
-        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'ready');
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/Something went wrong/i);
+        expect(pill.textContent).not.toMatch(/ready to record/i);
         const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
         expect(mic).toBeDisabled();
         fireEvent.click(mic);
         expect(onStartStop).not.toHaveBeenCalled();
     });
 
-    it('Private + fallback or unknown status: not green and the mic cannot start', () => {
+    it('Private + fallback/warning/info/unknown (no message): neutral "Private not ready", never "Ready to record", cannot start', () => {
         const onStartStop = vi.fn();
-        const { rerender } = render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="fallback" onStartStop={onStartStop} />);
-        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'ready');
-        expect(screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeDisabled();
+        // Each non-ready Private status with no meaningful message must show the neutral label —
+        // never "Ready to record", green or not.
+        for (const status of ['fallback', 'warning', 'info', 'weird-unhandled']) {
+            const { unmount } = render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType={status} onStartStop={onStartStop} />);
+            const pill = screen.getByTestId('stt-status-label');
+            expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
+            expect(pill.textContent).toMatch(/private not ready/i);
+            expect(pill.textContent).not.toMatch(/ready to record/i);
+            expect(screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeDisabled();
+            unmount();
+        }
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
 
-        // An unknown/undefined Private status must also never read as ready.
-        rerender(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="weird-unhandled" onStartStop={onStartStop} />);
-        expect(screen.getByTestId('stt-status-label')).not.toHaveAttribute('data-pill-state', 'ready');
-        const mic = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-        expect(mic).toBeDisabled();
-        fireEvent.click(mic);
+    it('Private non-ready never leaks the idle-default "Ready to record" message into the pill', () => {
+        const onStartStop = vi.fn();
+        // The `idle` status default message is literally "Ready to record"; a non-ready Private state
+        // carrying it must still not display "Ready to record".
+        render(<LiveRecordingCard {...defaultProps} mode="private" sttStatusType="idle" statusMessage="Ready to record" onStartStop={onStartStop} />);
+        const pill = screen.getByTestId('stt-status-label');
+        expect(pill).not.toHaveAttribute('data-pill-state', 'ready');
+        expect(pill.textContent).toMatch(/private not ready/i);
+        expect(pill.textContent).not.toMatch(/^ready to record$/i);
+        expect(screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeDisabled();
+        fireEvent.click(screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON));
         expect(onStartStop).not.toHaveBeenCalled();
     });
 

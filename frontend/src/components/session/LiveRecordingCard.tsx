@@ -181,6 +181,35 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     } else if (/^error occurred$/i.test(_statusMessage?.trim() || '')) {
         displayStatusMessage = 'Recording could not start';
     }
+    // Pill text, precedence-ordered. Critically, NO non-ready Private state may render
+    // "Ready to record" — not green, not neutral. The `idle` status default message is literally
+    // "Ready to record", so for non-ready Private we must guard against surfacing it.
+    const trimmedStatus = displayStatusMessage?.trim();
+    const isReadyishMessage = !trimmedStatus || /^ready( to record)?$/i.test(trimmedStatus);
+    let pillText: string;
+    if (isPrivateDownloadRequired) {
+        pillText = 'Tap the mic to set up';
+    } else if (isDownloadingModel) {
+        pillText = displayStatusMessage || 'Downloading model…';
+    } else if (isFinalizing) {
+        pillText = 'Finalizing your transcript…';
+    } else if (isWarming) {
+        pillText = 'Getting mic ready — one moment…';
+    } else if (justBecameReady) {
+        pillText = 'Ready — speak now';
+    } else if (isPrivateModelReady) {
+        pillText = 'Ready to record';
+    } else if (isPaused) {
+        pillText = displayStatusMessage || 'Paused';
+    } else if (isListening) {
+        pillText = displayStatusMessage || (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening');
+    } else if (mode === 'private') {
+        // Non-ready Private (idle / error / init-failed / fallback / warning / info / unknown):
+        // show a real status/failure message, else a neutral non-ready label — never "Ready to record".
+        pillText = isReadyishMessage ? 'Private not ready' : displayStatusMessage!;
+    } else {
+        pillText = displayStatusMessage || 'Ready to record';
+    }
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
             case 'native': return 'Browser';
@@ -416,19 +445,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                                     : <div className={`h-1.5 w-1.5 rounded-full ${pillDot}`} />}
                                 <span className="text-[11px] font-bold tracking-[0.06em]" data-testid="stt-status-label" data-pill-state={pillState}>
-                                    {isPrivateDownloadRequired
-                                        ? 'Tap the mic to set up'
-                                        : isDownloadingModel
-                                            ? (displayStatusMessage || 'Downloading model…')
-                                            : isFinalizing
-                                                ? 'Finalizing your transcript…'
-                                                : isWarming
-                                                    ? 'Getting mic ready — one moment…'
-                                                    : justBecameReady
-                                                        ? 'Ready — speak now'
-                                                        : isPrivateModelReady
-                                                            ? 'Ready to record'
-                                                            : (displayStatusMessage || (isPaused ? 'Paused' : (isListening ? (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening') : 'Ready to record')))}
+                                    {pillText}
                                 </span>
                             </div>
                         </div>
