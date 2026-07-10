@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useUsageLimit } from '../useUsageLimit';
@@ -31,6 +31,8 @@ vi.mock('@/providers/useTranscriptionContext', () => ({
         },
     })),
 }));
+
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 vi.mock('@/providers/TranscriptionProvider', () => ({
     TranscriptionProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -1004,6 +1006,52 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         await waitFor(() => {
             expect(mockStore.getState().sttMode).toBe('native');
+        });
+    });
+
+    // #957 safety branch: mic start-ability is gated on the DURABLE privateModelStatus
+    // (data-model-status), not the transient sttStatus. This is the exact logic whose absence
+    // let an earlier fix regress returning users into a dead mic — so it is covered here directly.
+    describe('isButtonDisabled — durable Private model gate (#957)', () => {
+        afterEach(() => {
+            document.documentElement.removeAttribute('data-model-status');
+        });
+
+        const renderWithModelStatus = (status: string, sttMode: 'private' | 'native', runtimeState: string) => {
+            document.documentElement.setAttribute('data-model-status', status);
+            // isButtonDisabled reads runtimeState from the transcription context, not the store.
+            vi.mocked(useTranscriptionContext).mockReturnValue({
+                service: { getTranscriptionService: vi.fn() },
+                runtimeState,
+            } as never);
+            const mockStore = createTestSessionStore({ isListening: false, runtimeState, sttMode } as never);
+            (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+            (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+            (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+            return renderHook(() => useSessionLifecycle(), {
+                wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+            }).result;
+        };
+
+        it('keeps the mic ENABLED for a returning Private user at post-session idle (model cached)', () => {
+            // The regression an earlier fix caused: gating on transient status locked this out. The
+            // durable idle state (model still cached) must remain startable — no reload required.
+            expect(renderWithModelStatus('idle', 'private', 'READY').current.isButtonDisabled).toBe(false);
+        });
+
+        it('keeps the mic ENABLED when the Private model is ready', () => {
+            expect(renderWithModelStatus('ready', 'private', 'READY').current.isButtonDisabled).toBe(false);
+        });
+
+        it.each(['download-required', 'loading', 'init-failed', 'error'])(
+            'BLOCKS start for a not-ready Private model status: %s',
+            (status) => {
+                expect(renderWithModelStatus(status, 'private', 'READY').current.isButtonDisabled).toBe(true);
+            },
+        );
+
+        it('does not block Native mode regardless of data-model-status', () => {
+            expect(renderWithModelStatus('download-required', 'native', 'READY').current.isButtonDisabled).toBe(false);
         });
     });
 });
