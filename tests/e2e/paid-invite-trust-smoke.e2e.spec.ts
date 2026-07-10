@@ -42,18 +42,20 @@ test.describe('Paid invite trust smoke', () => {
     await expect(modeButton).toHaveAttribute('data-state', 'private');
   });
 
-  test('uses truthful support disclosure for anonymous versus billing reports', async ({ page }) => {
+  test('shows the account-linked support-follow-up disclosure for authenticated reports', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
     await page.getByTestId('nav-report-issue-button').click();
-    await expect(page.getByText(/Anonymous report/i)).toBeVisible();
-    await expect(page.getByText(/we do not collect your name, email, or account id/i)).toBeVisible();
-
-    await page.getByTestId('issue-report-category').selectOption('billing_subscription');
-    await expect(page.getByText(/Account support report/i)).toBeVisible();
-    await expect(page.getByText(/include your account id/i)).toBeVisible();
+    // Single support-oriented disclosure — reports are account-linked (opaque id only; no email/name).
+    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account for support follow-up/i);
+    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/do not include your email, name, transcript, or audio/i);
     await expect(page.getByText(/Anonymous report/i)).toHaveCount(0);
+    await expect(page.getByText(/Account support report/i)).toHaveCount(0);
+
+    // Disclosure is category-agnostic now (no anonymous/account-context branch).
+    await page.getByTestId('issue-report-category').selectOption('billing_subscription');
+    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account for support follow-up/i);
   });
 
   test('keeps pricing and AI copy aligned with paid early access', async ({ page }) => {

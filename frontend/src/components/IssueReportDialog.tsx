@@ -74,9 +74,6 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
-  // Attach the submitter's account id ONLY for account-context categories (kept in sync with
-  // the category slugs). Everything else stays anonymous (privacy design preserved).
-  const supportNeedsAccountContext = category === 'billing_subscription' || category === 'account_signin';
 
   const reset = () => {
     setCategory('recording_transcription');
@@ -102,11 +99,10 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       });
       const snippet = transcriptSnippet.trim().slice(0, MAX_TRANSCRIPT_SNIPPET);
       const includeSnippet = includeTranscript && snippet.length > 0;
-      // Account context for support: attach the submitter's id ONLY for billing/
-      // account categories, where support must act on the specific account (refunds,
-      // cancellations, billing). General reports stay anonymous (privacy design preserved).
+      // Attach the submitter's account id for all authenticated reports so support can
+      // follow up. The id is an opaque auth UUID — no email/name is stored in the row.
       await issueReportService.submit({
-        userId: supportNeedsAccountContext ? (userId ?? null) : null,
+        userId: userId ?? null,
         sessionId: params.sessionId ?? null,
         category,
         severity,
@@ -201,20 +197,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
             />
           </label>
 
-          <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-            {supportNeedsAccountContext ? (
-              <>
-                Account support report — we include your account id so we can help with billing or access.
-                Automatically included: URL, route, browser, viewport, timezone, release-proof config,
-                plan, transcription mode, and the last Sentry event id when available (used only to correlate with our logs).
-              </>
-            ) : (
-              <>
-                Anonymous report — we do not collect your name, email, or account id. Automatically
-                included: URL, route, browser, viewport, timezone, release-proof config, plan, transcription mode,
-                and the last Sentry event id when available (used only to correlate with our logs).
-              </>
-            )}
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground" data-testid="issue-report-disclosure">
+            Linked to your account for support follow-up. We do not include your email, name, transcript,
+            or audio unless you choose to provide optional details. Automatically included: URL, route,
+            browser, viewport, timezone, release-proof config, plan, transcription mode, and the last Sentry
+            event id when available (used only to correlate with our logs).
           </div>
 
           <label className="flex items-start gap-2 text-sm">
