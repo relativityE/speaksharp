@@ -1,12 +1,14 @@
 name: Issue Report Triage
 
-# Daily triage digest of user-submitted issue reports so they are actually reviewed
+# Triage digest of user-submitted issue reports so they are actually reviewed
 # (closes the Report-Issue ops gap: insert works, but nobody watched the table).
 #
 # Read-only: queries production `user_issue_reports` via PostgREST with the service-role
-# secret (RLS-bypass SELECT) and writes a digest to the run's job summary. This run IS the
-# triage channel; the release-owner is the default reviewer (configurable). The table stores
-# no email; only the reporter's own typed fields + a truncated user_id hint are shown.
+# secret (RLS-bypass SELECT). Writes a digest to BOTH the run's job summary and stdout
+# (the CI log) so release evidence can be read from the run log. The table stores no email;
+# only the reporter's own typed fields + a truncated user_id hint are shown, and metadata
+# values that look secret-ish are redacted; transcript/audio content is never printed
+# (only whether it is present and its length).
 
 on:
   schedule:
@@ -37,6 +39,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '24' }}
         run: |
+          set -o pipefail
           cat > "$RUNNER_TEMP/triage.mjs" <<'NODE'
           const url = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
           const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -44,9 +47,10 @@ jobs:
           if (!url || !key) { console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY'); process.exit(2); }
 
           const sinceIso = new Date(Date.now() - hours * 3600 * 1000).toISOString();
-          const cols = 'created_at,severity,category,title,description,page_url,user_id';
+          const cols = 'id,created_at,severity,category,title,description,page_url,user_id,session_id,' +
+            'metadata,include_transcript,transcript_excerpt,include_audio,audio_attachment_note';
           const endpoint = `${url}/rest/v1/user_issue_reports?created_at=gte.${encodeURIComponent(sinceIso)}` +
-            `&select=${cols}&order=created_at.desc`;
+            `&select=${cols}&order=created_at.desc&limit=5`;
 
           const res = await fetch(endpoint, {
             headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/json' },
@@ -54,10 +58,17 @@ jobs:
           if (!res.ok) { console.error(`PostgREST query failed: HTTP ${res.status}`); process.exit(1); }
           const rows = await res.json();
 
-          // Markdown-safe truncation: collapse whitespace, strip table-breaking chars, cap length.
           const cell = (s, n) => {
             const t = String(s ?? '').replace(/[|\n\r]+/g, ' ').replace(/\s+/g, ' ').trim();
             return t.length > n ? t.slice(0, n) + '…' : t;
+          };
+          // Never surface secret-ish metadata values (defence in depth; metadata should hold none).
+          const SECRET = /token|secret|key|cookie|auth|password|bearer/i;
+          const mfield = (meta, k) => {
+            if (!meta || typeof meta !== 'object' || !(k in meta) || meta[k] == null) return 'MISSING';
+            if (SECRET.test(k)) return 'present (redacted)';
+            const v = meta[k];
+            return 'present: ' + cell(typeof v === 'object' ? JSON.stringify(v) : String(v), 48);
           };
 
           const out = [`## 🐞 Issue Report Triage — last ${hours}h`, ''];
@@ -66,16 +77,38 @@ jobs:
             console.log(out.join('\n'));
             process.exit(0);
           }
-          out.push(`**${rows.length}** new report(s). Reviewer: **release-owner** (default; reassign in this workflow).`);
+          out.push(`**${rows.length}** report(s) in window. Reviewer: **release-owner** (default).`);
           out.push('');
-          out.push('| When (UTC) | Severity | Category | Title | Summary | Page | User |');
-          out.push('|---|---|---|---|---|---|---|');
+          out.push('| When (UTC) | Sev | Category | Title | Page |');
+          out.push('|---|---|---|---|---|');
           for (const r of rows) {
-            out.push(
-              `| ${cell(r.created_at, 19)} | ${cell(r.severity, 12)} | ${cell(r.category, 18)} ` +
-              `| ${cell(r.title, 50)} | ${cell(r.description, 120)} | ${cell(r.page_url, 40)} | ${cell(r.user_id, 8)}… |`,
-            );
+            out.push(`| ${cell(r.created_at, 19)} | ${cell(r.severity, 10)} | ${cell(r.category, 26)} | ${cell(r.title, 40)} | ${cell(r.page_url, 36)} |`);
+          }
+          out.push('');
+          // Per-report field verification (Beta-50 Report Issue gate evidence) — proves each
+          // field is present without printing private transcript/audio content.
+          out.push('### Field verification (latest reports)');
+          for (const r of rows) {
+            const m = r.metadata || {};
+            out.push('');
+            out.push(`- **id:** \`${cell(r.id, 36)}\` · **created_at:** ${cell(r.created_at, 19)}`);
+            out.push(`  - category: \`${cell(r.category, 30)}\` · severity: \`${cell(r.severity, 12)}\``);
+            out.push(`  - title: ${r.title ? 'present (' + cell(r.title, 50) + ')' : 'MISSING'}`);
+            out.push(`  - description: ${r.description ? 'present (' + String(r.description).length + ' chars)' : 'MISSING'}`);
+            out.push(`  - page_url: ${r.page_url ? 'present (' + cell(r.page_url, 50) + ')' : 'MISSING'}`);
+            out.push(`  - user_id: ${r.user_id ? cell(r.user_id, 8) + '…' : 'MISSING'} · session_id: ${r.session_id ? cell(r.session_id, 12) + '…' : 'null'}`);
+            out.push(`  - metadata.route: ${mfield(m, 'route')}`);
+            out.push(`  - metadata.userAgent: ${mfield(m, 'userAgent')}`);
+            out.push(`  - metadata.viewport: ${mfield(m, 'viewport')}`);
+            out.push(`  - metadata.timezone: ${mfield(m, 'timezone')}`);
+            out.push(`  - metadata.plan: ${mfield(m, 'plan')}`);
+            out.push(`  - metadata.sttMode: ${mfield(m, 'sttMode')}`);
+            out.push(`  - metadata.runtimeState: ${mfield(m, 'runtimeState')}`);
+            out.push(`  - include_transcript: \`${r.include_transcript}\``);
+            out.push(`  - transcript_excerpt: ${r.transcript_excerpt == null ? 'null' : 'present (' + String(r.transcript_excerpt).length + ' chars, content redacted)'}`);
+            out.push(`  - include_audio: \`${r.include_audio}\``);
+            out.push(`  - audio_attachment_note: ${r.audio_attachment_note == null ? 'null' : 'present (' + cell(r.audio_attachment_note, 40) + ')'}`);
           }
           console.log(out.join('\n'));
           NODE
-          node "$RUNNER_TEMP/triage.mjs" >> "$GITHUB_STEP_SUMMARY"
+          node "$RUNNER_TEMP/triage.mjs" | tee -a "$GITHUB_STEP_SUMMARY"
