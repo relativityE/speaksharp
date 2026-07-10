@@ -47,15 +47,15 @@ test.describe('Paid invite trust smoke', () => {
     await navigateToRoute(page, '/session');
 
     await page.getByTestId('nav-report-issue-button').click();
-    // Single support-oriented disclosure — reports are account-linked (opaque id only; no email/name).
-    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account for support follow-up/i);
-    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/do not include your email, name, transcript, or audio/i);
+    // Single support-oriented disclosure — reports are account-linked (internal id only; no email/name).
+    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account using an internal ID/i);
+    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/do not include your email, name, password, login credentials, transcript, or audio/i);
     await expect(page.getByText(/Anonymous report/i)).toHaveCount(0);
     await expect(page.getByText(/Account support report/i)).toHaveCount(0);
 
     // Disclosure is category-agnostic now (no anonymous/account-context branch).
     await page.getByTestId('issue-report-category').selectOption('billing_subscription');
-    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account for support follow-up/i);
+    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account using an internal ID/i);
   });
 
   test('keeps pricing and AI copy aligned with paid early access', async ({ page }) => {
