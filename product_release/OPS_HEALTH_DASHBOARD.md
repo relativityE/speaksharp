@@ -6,6 +6,18 @@ SpeakSharp uses a single high-level ops health workflow so release checks do not
 
 The protected operator webpage is **implemented**: the in-app route `/admin/ops-status` (`frontend/src/pages/OpsStatusPage.tsx`), gated at the edge by Vercel middleware HTTP Basic auth (`middleware.js`, env `OPS_STATUS_PASSWORD` + optional `OPS_STATUS_USERNAME`, default user `admin`). It renders from the Supabase **public** bucket object `ops-health/ops-health.summary.json` (with same-origin fallbacks), which the `ops-health.yml` workflow generates and publishes (via `scripts/publish-ops-health-summary.mjs`) on its daily schedule plus manual `workflow_dispatch`. The GitHub workflow summary and the `ops-health-dashboard` artifact remain the machine record. The data-path architecture lives in `ARCHITECTURE.operational.md`.
 
+### Production access model (how to reach the page)
+
+**Intended model:** `/admin/ops-status` is protected in production by **one** gate — HTTP Basic auth at the Vercel edge (`middleware.js`, `OPS_STATUS_PASSWORD`, default user `admin`). Enter the password in the browser's Basic-auth prompt; that is all that should be required.
+
+**Current-code caveat (fixed by PR #962):** in the shipped build the route was **also** wrapped in the app's `InternalRoute` guard (`frontend/src/App.tsx`), which renders the app's "Page not found" unless `VITE_ENABLE_INTERNAL_ROUTES === 'true'` is set at **build** time. Because that flag is off in a production build, `/admin/ops-status` returned "Page not found" **even with the correct password**. ⚠️ **Do NOT enable `VITE_ENABLE_INTERNAL_ROUTES` in production to work around this** — that flag also unlocks `/design` (the design-system page), which the edge middleware does **not** cover, so `/design` would become **publicly reachable**.
+
+**Fix:** [PR #962](https://github.com/relativityE/speaksharp/pull/962) decouples `/admin/ops-status` from `InternalRoute` so the edge Basic-auth middleware is its **sole** production gate (middleware matcher unchanged); `/design` stays behind `InternalRoute`. After that PR ships, the page is reachable in production with the password and **without** enabling internal routes.
+
+**Rotating `OPS_STATUS_PASSWORD`:** the value is bound into the Edge Middleware at **deploy** time — update it in Vercel (Prod + Preview) **and redeploy**; the old password keeps working until the next deployment. No code/CI change is needed (nothing else consumes it).
+
+**No-password alternative:** the identical data is in the `ops-health.yml` GitHub run summary + the `ops-health-dashboard` artifact — no Basic-auth password and no Vercel flag required.
+
 ## What It Answers
 
 The dashboard answers: "Are the main software/API interfaces we rely on reachable and credentialed right now?"
