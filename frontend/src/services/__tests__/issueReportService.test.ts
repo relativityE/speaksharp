@@ -28,7 +28,7 @@ describe('issueReportService', () => {
   it('stores metadata while excluding transcript and audio unless opted in', async () => {
     await issueReportService.submit({
       userId: 'user-1',
-      category: 'stt',
+      category: 'recording_transcription',
       severity: 'high',
       title: 'Private mic failed',
       description: 'The microphone button did not start recording.',
@@ -53,7 +53,7 @@ describe('issueReportService', () => {
   it('stores optional transcript and audio note only when opted in', async () => {
     await issueReportService.submit({
       userId: 'user-1',
-      category: 'stt',
+      category: 'recording_transcription',
       severity: 'medium',
       title: 'Transcript wrong',
       description: 'The final transcript replaced a phrase.',
@@ -74,10 +74,10 @@ describe('issueReportService', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
-  it('stores an anonymous report (user_id null) when no userId is provided (Option C)', async () => {
+  it('defaults user_id to null when no account id is supplied (defensive fallback)', async () => {
     await issueReportService.submit({
-      // no userId — anonymous
-      category: 'general',
+      // no userId — defensive fallback only; authenticated surfaces always pass the account id
+      category: 'something_else',
       severity: 'low',
       title: 'Minor wording issue',
       description: 'A label on the analytics page reads awkwardly.',

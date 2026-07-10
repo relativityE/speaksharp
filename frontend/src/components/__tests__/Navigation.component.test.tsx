@@ -149,8 +149,8 @@ describe('Navigation', () => {
                 expect(issueReportService.submit).toHaveBeenCalled();
             });
             expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
-                userId: null,
-                category: 'stt',
+                userId: 'test-user',
+                category: 'recording_transcription',
                 pageUrl: expect.any(String),
                 includeTranscript: false,
                 transcriptExcerpt: null,
@@ -194,7 +194,7 @@ describe('Navigation', () => {
             }));
         });
 
-        it('discloses and includes account context for billing reports only', async () => {
+        it('attaches the account id and shows the support-follow-up disclosure for authenticated reports', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user', email: 'user@example.com' } },
                 signOut: mockSignOut,
@@ -203,13 +203,15 @@ describe('Navigation', () => {
             renderNavigation('/pricing');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            fireEvent.change(screen.getByTestId('issue-report-category'), {
-                target: { value: 'billing' },
-            });
-            expect(screen.getByText(/Account support report/i)).toBeInTheDocument();
-            expect(screen.getByText(/include your account id/i)).toBeInTheDocument();
+            // Single support-oriented disclosure — no anonymous/account-context branching anymore.
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Linked to your account for support follow-up/i);
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not include your email, name, transcript, or audio/i);
             expect(screen.queryByText(/Anonymous report/i)).not.toBeInTheDocument();
+            expect(screen.queryByText(/Account support report/i)).not.toBeInTheDocument();
 
+            fireEvent.change(screen.getByTestId('issue-report-category'), {
+                target: { value: 'billing_subscription' },
+            });
             fireEvent.change(screen.getByTestId('issue-report-title'), {
                 target: { value: 'Billing portal issue' },
             });
@@ -221,9 +223,10 @@ describe('Navigation', () => {
             await waitFor(() => {
                 expect(issueReportService.submit).toHaveBeenCalled();
             });
+            // Under Option B the account id is attached for all authenticated reports.
             expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
                 userId: 'test-user',
-                category: 'billing',
+                category: 'billing_subscription',
             }));
         });
     });

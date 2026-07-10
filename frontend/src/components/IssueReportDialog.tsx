@@ -22,7 +22,8 @@ import {
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface IssueReportDialogProps {
-  /** Optional — omit for an anonymous report (Option C). When absent, no identity is stored. */
+  /** The submitter's account id (Option B): attached for authenticated reports so support can
+   *  follow up. Opaque auth UUID — no email/name stored. Null only as a defensive fallback. */
   userId?: string | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
@@ -31,7 +32,25 @@ interface IssueReportDialogProps {
 
 const MAX_TRANSCRIPT_SNIPPET = 4000;
 
-const CATEGORIES: IssueReportCategory[] = ['stt', 'analytics', 'billing', 'account', 'privacy', 'performance', 'general'];
+// DB slug -> friendly, user-facing label. Labels are display-only; the DB stores the slug.
+const CATEGORY_LABELS: Record<IssueReportCategory, string> = {
+  recording_transcription: 'Recording / transcription',
+  analytics_sessions: 'Analytics / saved sessions',
+  billing_subscription: 'Billing / subscription',
+  account_signin: 'Account / sign-in',
+  privacy_data: 'Privacy / data',
+  speed_performance: 'Speed / performance',
+  something_else: 'Something else',
+};
+const CATEGORIES: IssueReportCategory[] = [
+  'recording_transcription',
+  'analytics_sessions',
+  'billing_subscription',
+  'account_signin',
+  'privacy_data',
+  'speed_performance',
+  'something_else',
+];
 const SEVERITIES: IssueReportSeverity[] = ['medium', 'high', 'critical', 'low'];
 
 export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
@@ -43,7 +62,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const location = useLocation();
   const params = useParams();
   const [open, setOpen] = React.useState(false);
-  const [category, setCategory] = React.useState<IssueReportCategory>('stt');
+  const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -56,10 +75,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
-  const supportNeedsAccountContext = category === 'billing' || category === 'account';
 
   const reset = () => {
-    setCategory('stt');
+    setCategory('recording_transcription');
     setSeverity('medium');
     setTitle('');
     setDescription('');
@@ -82,11 +100,10 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       });
       const snippet = transcriptSnippet.trim().slice(0, MAX_TRANSCRIPT_SNIPPET);
       const includeSnippet = includeTranscript && snippet.length > 0;
-      // Account context for support: attach the submitter's id ONLY for billing/
-      // account categories, where support must act on the specific account (refunds,
-      // cancellations, billing). General reports stay anonymous (privacy design preserved).
+      // Attach the submitter's account id for all authenticated reports so support can
+      // follow up. The id is an opaque auth UUID — no email/name is stored in the row.
       await issueReportService.submit({
-        userId: supportNeedsAccountContext ? (userId ?? null) : null,
+        userId: userId ?? null,
         sessionId: params.sessionId ?? null,
         category,
         severity,
@@ -128,7 +145,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Report an issue</DialogTitle>
           <DialogDescription>
-            Send the app state we need to debug. Transcript and audio details are optional and never included unless you choose them.
+            Send the app state we need to debug. Transcript and audio details are optional and never included unless you choose them. Please don&apos;t include passwords or other sensitive personal information.
           </DialogDescription>
         </DialogHeader>
 
@@ -142,7 +159,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
                 onChange={(event) => setCategory(event.target.value as IssueReportCategory)}
                 data-testid="issue-report-category"
               >
-                {CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+                {CATEGORIES.map((item) => <option key={item} value={item}>{CATEGORY_LABELS[item]}</option>)}
               </select>
             </label>
             <label className="space-y-1 text-sm font-medium">
@@ -181,20 +198,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
             />
           </label>
 
-          <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-            {supportNeedsAccountContext ? (
-              <>
-                Account support report — we include your account id so we can help with billing or access.
-                Automatically included: URL, route, browser, viewport, timezone, release-proof config,
-                plan, transcription mode, and the last Sentry event id when available (used only to correlate with our logs).
-              </>
-            ) : (
-              <>
-                Anonymous report — we do not collect your name, email, or account id. Automatically
-                included: URL, route, browser, viewport, timezone, release-proof config, plan, transcription mode,
-                and the last Sentry event id when available (used only to correlate with our logs).
-              </>
-            )}
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground" data-testid="issue-report-disclosure">
+            Linked to your account for support follow-up. We do not include your email, name, transcript,
+            or audio unless you choose to provide optional details. Automatically included: URL, route,
+            browser, viewport, timezone, release-proof config, plan, transcription mode, and the last Sentry
+            event id when available (used only to correlate with our logs).
           </div>
 
           <label className="flex items-start gap-2 text-sm">
