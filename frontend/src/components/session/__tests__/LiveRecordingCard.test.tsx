@@ -155,7 +155,7 @@ describe('LiveRecordingCard', () => {
 
         // No separate "Set up" button — a first-run note explains the mic starts setup.
         expect(screen.queryByTestId('download-model-button-inline')).toBeNull();
-        expect(screen.getByTestId('private-first-run-note')).toHaveTextContent(/Downloads once on first use/i);
+        expect(screen.getByTestId('private-first-run-note')).toHaveTextContent(/click the mic to download the model/i);
 
         // The mic is clickable even though isButtonDisabled=true, and it triggers the DOWNLOAD
         // (never a recording start on a not-ready engine — that was the crash).

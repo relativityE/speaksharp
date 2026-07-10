@@ -280,7 +280,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 one-time model download and the pill below shows progress until it's ready. */}
                             {isPrivateDownloadRequired && (
                                 <p className="mt-1 text-[11px] font-medium text-muted-foreground" data-testid="private-first-run-note">
-                                    Downloads once on first use — tap the mic to set up.
+                                    First-time use: click the mic to download the model. Available once the status turns green.
                                 </p>
                             )}
                         </div>
