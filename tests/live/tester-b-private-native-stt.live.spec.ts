@@ -139,8 +139,12 @@ async function signUp(page: Page, accountEmail: string, accountPassword: string)
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+  // First-run Private downloads via the MIC (the separate "Set up" button was removed). Trigger it
+  // only when setup is required (durable data-model-status / first-run note), so a warm cache
+  // auto-loads and the mic is never clicked into a recording start.
+  const setupNeeded = (await page.evaluate(() => document.documentElement.getAttribute('data-model-status')).catch(() => null)) === 'download-required'
+    || await page.locator('[data-testid="private-first-run-note"]').isVisible({ timeout: 10_000 }).catch(() => false);
+  if (setupNeeded) {
     if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
       const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
       throw new Error(
@@ -149,7 +153,7 @@ async function preparePrivateModelIfPrompted(page: Page) {
         `${JSON.stringify(snapshot, null, 2)}`
       );
     }
-    await downloadButton.click();
+    await page.locator('[data-testid="session-start-stop-button"]').first().click();
   }
 
   await page.waitForFunction(() => {

@@ -223,8 +223,12 @@ async function clearPrivateModelStorage(page: Page) {
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
-  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+  // First-run Private downloads via the MIC (the separate "Set up" button was removed). Trigger it
+  // only when setup is required (durable data-model-status / first-run note), so a warm cache
+  // auto-loads and the mic is never clicked into a recording start.
+  const setupNeeded = (await page.evaluate(() => document.documentElement.getAttribute('data-model-status')).catch(() => null)) === 'download-required'
+    || await page.locator('[data-testid="private-first-run-note"]').isVisible({ timeout: 10_000 }).catch(() => false);
+  if (setupNeeded) {
     if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
       const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
       throw new Error(
@@ -233,7 +237,7 @@ async function preparePrivateModelIfPrompted(page: Page) {
         `${JSON.stringify(snapshot, null, 2)}`
       );
     }
-    await downloadButton.click();
+    await page.locator('[data-testid="session-start-stop-button"]').first().click();
   }
 
   await waitForPrivateReady(page);
@@ -396,7 +400,8 @@ async function getWarmupEvidence(page: Page): Promise<WarmupEvidence> {
 async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
   return await page.evaluate(() => {
     const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
+    // Setup UI is now the first-run note (the separate download button was removed).
+    const setupNote = document.querySelector('[data-testid="private-first-run-note"]');
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
 
     return {
@@ -404,7 +409,7 @@ async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
       runtimeState: root.getAttribute('data-runtime-state'),
       sttReady: root.getAttribute('data-stt-ready'),
       statusText: statusNode?.textContent?.trim() ?? document.body.innerText.slice(0, 500),
-      downloadVisible: Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none'),
+      downloadVisible: Boolean(setupNote && getComputedStyle(setupNote).display !== 'none'),
     };
   });
 }
