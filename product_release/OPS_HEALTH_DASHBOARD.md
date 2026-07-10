@@ -4,13 +4,21 @@ SpeakSharp uses a single high-level ops health workflow so release checks do not
 
 ## Implementation Status
 
-V1 is the GitHub artifact and workflow summary. The protected Vercel admin page is the intended product-facing operator view, but it is not implemented yet. The data-path architecture lives in `ARCHITECTURE.operational.md`.
+The protected operator webpage is **implemented**: the in-app route `/admin/ops-status` (`frontend/src/pages/OpsStatusPage.tsx`), gated at the edge by Vercel middleware HTTP Basic auth (`middleware.js`, env `OPS_STATUS_PASSWORD` + optional `OPS_STATUS_USERNAME`, default user `admin`). It renders from the Supabase **public** bucket object `ops-health/ops-health.summary.json` (with same-origin fallbacks), which the `ops-health.yml` workflow generates and publishes (via `scripts/publish-ops-health-summary.mjs`) on its daily schedule plus manual `workflow_dispatch`. The GitHub workflow summary and the `ops-health-dashboard` artifact remain the machine record. The data-path architecture lives in `ARCHITECTURE.operational.md`.
 
 ## What It Answers
 
 The dashboard answers: "Are the main software/API interfaces we rely on reachable and credentialed right now?"
 
 It is intentionally not a replacement for vendor dashboards. It is an early signal board with drill-down links.
+
+## Pre-Invite Release Gating (Beta-50)
+
+Before any controlled-beta invites go out, run this Ops Health pull as a **full-stack** check — all nine rows (SpeakSharp app, Vercel, Supabase, AssemblyAI, Gemini, Stripe, Sentry, PostHog, GitHub), not a single vendor.
+
+- **Sentry alone is insufficient.** Sentry reports client/edge *crashes* that were actually thrown; it does not prove the release gates are green, the STT/AI/billing providers are reachable and credentialed, or that the app deployment matches the intended SHA. A clean Sentry board with a red GitHub/rc-gates row is still NO-GO.
+- **Any 🔴 FAIL or ⚠️ REVIEW must be explicitly classified before invites release** as one of: resolved (with evidence), superseded by current Beta-50 scope, waived by owner decision, or still-blocking. Do not send invites while an unclassified red/review row stands.
+- The `GitHub API` row rolls up the release workflows, so a red rc-gates run (e.g. the current Gate 3 / DAST opening-fidelity failure) surfaces here as a GitHub 🔴 — that is the release-blocking signal, distinct from the vendor-reachability rows. `⚠️ REVIEW` on `Stripe API` for `basic=404` is the reserved/not-launched Basic price (non-blocking), not a failure. Current run-level verdicts and their classifications live in `RELEASE_STATUS.md`, not here.
 
 ## Current V1 Rows
 
@@ -58,7 +66,7 @@ GitHub:
 gh workflow run ops-health.yml
 ```
 
-The workflow runs once daily and uploads `ops-health/ops-health.json` plus `ops-health/ops-health.md` as artifacts. Keep the cadence low before product release to avoid unnecessary vendor API traffic; use manual dispatch for active investigations.
+The workflow runs once daily (scheduled) plus manual `workflow_dispatch`. It uploads the `ops-health/` directory (JSON + Markdown) as the `ops-health-dashboard` artifact, appends `ops-health.md` to the GitHub run summary, and publishes `ops-health.summary.json` to the Supabase public `ops-health` bucket so the `/admin/ops-status` page can read the latest summary without calling GitHub artifact APIs. Keep the cadence low before product release to avoid unnecessary vendor API traffic; use manual dispatch for active investigations.
 
 ## Work In Progress Checks
 
@@ -77,9 +85,8 @@ Some rows may show `🚧 NOT READY` until the corresponding secret is added to G
 
 ## Future Checks
 
-Good next additions after the first protected admin view exists:
+The protected admin view (`/admin/ops-status`) and Supabase-backed summary storage are now implemented. Good next additions:
 
 - Vercel production alias target compared to latest expected GitHub SHA.
 - Authenticated Supabase Edge Function smokes that prove real token paths without mutating production user data.
 - DNS/custom-domain status if SpeakSharp moves to a custom production domain.
-- Supabase-backed storage for the latest JSON so the Vercel admin page can read it without calling GitHub artifact APIs.

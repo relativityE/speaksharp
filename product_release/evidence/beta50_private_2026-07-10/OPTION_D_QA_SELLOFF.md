@@ -26,3 +26,5 @@
 
 ## Final recommendation (Option D functional QA)
 🟢 **QA-GO** — all Option D functional gates PASS on the deployed build. Private/Cloud/Browser each record → transcript → filler → save; Report Issue, Analytics, and PDF paths reachable; no console/network/Sentry blockers; mobile safe. Remaining items are non-blocking caveats with logged follow-ups. The overall invite/release decision stays with the owner (`RELEASE_STATUS.md`).
+
+> **⚠️ Option D QA-GO does NOT override the fresh RC Gate 3 (DAST) failure.** This sell-off is a **functional-QA verdict on `899161b2`** — it proves the paths work, not that the release gates are green. A subsequent full **rc-gates** run on prod `46682800` (run `29125536866`) **FAILS Gate 3 (DAST / Running App)**: the #892 fidelity gate reproduced a Private v2 saved-transcript **opening-clause drop** (session `4ea44584` dropped the opening ~2 sentences). **Final Beta-50 GO remains blocked** until that Gate 3 DAST failure is green on a fixed SHA or is explicitly reclassified with evidence by the owner. See `RELEASE_STATUS.md` and issue #960.

@@ -199,7 +199,7 @@ Required maintained live workflows:
 | Cloud token denied for Free/sample/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Free and Private-sample users return 403, over-quota returns 429, no token issued |
 | Private sample reuse | sample entitlement live/unit proof | A second unpaid Private session is denied after the one sample is claimed/completed |
 | Cloud Pro artifact path | `Pro STT Artifact Matrix` with `mode=cloud` | Transcript -> save -> history/detail -> AI -> PDF text |
-| Stripe checkout/webhook readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`, `tests/live/stripe-webhook-readiness.live.spec.ts` | Test-mode checkout/webhook path completes without production-charge assumptions |
+| Stripe checkout/webhook readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`, `tests/live/stripe-webhook-readiness.live.spec.ts` | Checkout/webhook readiness path completes without completing a real charge; webhook readiness signs with the live endpoint signing secret |
 | Stripe webhook replay | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Duplicate event skips mutation through idempotent RPC result |
 | Custom filler words live persistence | `tests/live/user-filler-words-persistence.live.spec.ts` | Filler words save, reload, and are retrievable for the same user |
 | Account-wide active recording mutex | `tests/live/account-wide-recording-mutex.live.spec.ts` | Same signed-in account cannot start concurrent recordings from two isolated browser contexts/profiles |
@@ -292,9 +292,4 @@ LIVE_OBSERVABILITY_API_EVIDENCE {
 }
 ```
 
-Latest recorded green workflow evidence:
-
-```text
-Observability API Smoke run 25764783852: passed
-Release Candidate Gates run 25769178359 on e73408c0: all five gates passed
-```
+Latest workflow run IDs and gate verdicts are not pinned here. Per the Update Rule, changing run IDs and pass/fail status live only in `RELEASE_STATUS.md` — see it for the current Observability API Smoke and Release Candidate Gates run IDs and their status.

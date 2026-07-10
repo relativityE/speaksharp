@@ -7,6 +7,21 @@
 > worse than the browser drop-in on h1_6 (app 37.5% vs drop-in 75%); a model ceiling
 > does not excuse an app-vs-drop-in gap. Lever order below reflects that.
 
+> **2026-07-10 reconciliation:** the Private release default has since moved to
+> **v2 `whisper-base.en`** (CPU/WASM, self-hosted under `public/models/`;
+> `PRIV_STT_MODELS.DEFAULT`). The "tiny.en ceiling" framing in the baselines and
+> Lever 4's tiny.en→base.en step are therefore **historical / already taken** —
+> base.en shipped as the default for transcript trust, tiny.en is now an
+> internal/emergency fallback only. The WebGPU path (Lever 3) is **v4, flag-gated,
+> NOT in the release path**. The 90s cap has since been lifted to **300s (5 min)**, and a
+> **5-minute Private recording IS in Beta-50 scope** (owner ruling 2026-07-10; the tester
+> invite is "Record one practice session, up to 5 minutes…"). The full-5-min post-stop
+> finalize-under-30s bar is a **tracked in-progress quality item** (tasks #19/#20), **not**
+> the current GO blocker — the current blocker is the Gate-3 DAST opening-clause fidelity
+> drop (#891/#892). Do NOT frame the latency work as "deferred because the invite is short."
+> Lever ordering/analysis below is retained as the decision trail; it does not describe a
+> pending tiny.en→base.en switch.
+
 ## Reference baselines (what each number proves)
 
 | Evidence | Value | Proves | Does NOT prove |

@@ -142,7 +142,7 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh tester starts Browser-first, intentionally enters the bounded Private sample path, records, saves, and reopens history. |
 | `tests/live/user-filler-words-persistence.live.spec.ts` | Gate 1 / Gate 3 | Product rule / persistence | Custom filler words persist in the deployed app and are retrievable for the same user. |
 | `tests/live/stt-switching-contract.live.spec.ts` | Gate 3 | State machine / running app | Deployed STT mode switching follows entitlement and lifecycle rules. |
-| `tests/live/stripe-checkout-readiness.live.spec.ts` | Gate 3 | Running app / payment rule | Stripe checkout readiness works in test mode without production-charge assumptions. |
+| `tests/live/stripe-checkout-readiness.live.spec.ts` | Gate 3 | Running app / payment rule | Stripe checkout readiness works without completing a real charge (paid-launch webhook readiness signs with the live endpoint secret). |
 | `tests/live/stripe-webhook-readiness.live.spec.ts` | Gate 3 | Running app / webhook rule | Stripe webhook readiness is observable against deployed infrastructure. |
 | `tests/live/stripe-security.canary.spec.ts` | Gate 2 / Gate 3 | Security rule | Checkout origin cannot be client-spoofed into unsafe redirects. |
 | `tests/canary/smoke.canary.spec.ts` | Gate 1 / Gate 5 | Human journey / running app | Production app is reachable and minimally usable with provisioned user. |

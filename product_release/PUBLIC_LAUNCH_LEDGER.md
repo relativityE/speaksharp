@@ -8,6 +8,8 @@
 **Controlled desktop tester decision:** tracked separately in `product_release/RELEASE_STATUS.md`
 **Workflow posture:** use `product_release/RELEASE_STATUS.md` for current CI, canary, RC, and ops-health evidence.
 
+> **Update 2026-07-10 — live Stripe keys are now deployed in prod.** The runtime is verified `stripeKeyClass="live"`: live **Pro** price reachable/working, **Basic price 404 = intentionally reserved/not-launched** (non-blocking). The "live keys/webhook pending" and "verify `stripeKeyClass==="live"`" cutover steps referenced in the historical PL-003/PL-004/PL-005 rows below have since been **applied** — treat those rows as historical test-mode evidence, not the current key state. Broad *paid* public launch (opening user-visible live checkout) remains a separate product decision. Current ship posture: `RELEASE_STATUS.md`.
+
 This ledger records broad public-launch gates and historical evidence. It must not be mixed with the controlled desktop tester burn-down, and it must not be used for current workflow status.
 
 Historical artifact paths in this ledger may contain old `basic` filename slugs from earlier evidence captures. Treat those as artifact names only; the current public baseline is Free and paid Basic is a future placeholder.
@@ -165,7 +167,7 @@ closure requires the #85 migration/app-path proof on a real Supabase stack.
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-003 / PL-004 / PL-005 Live Stripe configuration (Ops cutover) | The checkout→webhook→billing-portal **journey is PROVEN with Stripe TEST-mode keys = the accepted proof** (`RELEASE_CLOSEOUT_LEDGER.md` §D); live keys are not money-tested and not required as a proof. Only the **config cutover** remains for paid launch. | **Ops launch-day step (not a Dev/QA proof):** set `sk_live`/`pk_live`/live `whsec`/live price IDs in prod env, register the live webhook endpoint in the Stripe LIVE dashboard, then verify `window.__APP_RUNTIME_CONFIG__.stripeKeyClass==="live"`. The "Pending live keys/events" rows below are this cutover, not an outstanding proof. |
+| Paid-public checkout enablement (product decision) | The checkout→webhook→billing-portal **journey is PROVEN with Stripe TEST-mode keys = the accepted proof** (`RELEASE_CLOSEOUT_LEDGER.md` §D); live keys are not money-tested and not required as a proof. The **config cutover has been applied** — prod verified `stripeKeyClass="live"` (live Pro price reachable, Basic 404 reserved). What remains is the **business decision to open user-visible paid checkout**, not any Dev/QA or Ops proof. | **No outstanding proof.** Live keys are in prod (`window.__APP_RUNTIME_CONFIG__.stripeKeyClass==="live"`). The "Pending live keys/events" rows below are historical (pre-cutover) and are superseded by the 2026-07-10 update at the top of this ledger. |
 
 ## PL-007 Cloud Transcript Attempt
 

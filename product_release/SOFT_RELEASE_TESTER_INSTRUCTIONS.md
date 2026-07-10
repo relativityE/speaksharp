@@ -1,6 +1,6 @@
 # SpeakSharp — Beta Tester Guide
 
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-10
 
 This is the guide you send to testers. It is written for someone who has never seen the
 code. Keep it free of technical detail.
@@ -34,7 +34,7 @@ I'm opening a small private beta for SpeakSharp, a speaking-practice coach that 
 The goal of this beta is simple: confirm that real users can complete the core loop smoothly:
 1. Sign up.
 2. Start a short practice session.
-3. Record for 1–3 minutes.
+3. Record one practice session, up to 5 minutes.
 4. Review the transcript and your results.
 5. Save the session.
 6. Tell me what felt useful, confusing, or missing.
@@ -62,7 +62,7 @@ Akin
 ```text
 I'm opening a small private beta for SpeakSharp, a speaking-practice coach I've been building. You record a short practice session, see your transcript, and get feedback on filler words, pacing, and pauses.
 
-Would you try one 1–3 minute session and send honest feedback? I mainly want to know if the flow is clear, if the feedback feels useful, and what's confusing or missing.
+Would you record one practice session, up to 5 minutes, then review your transcript and feedback and send honest notes? I mainly want to know if the flow is clear, if the feedback feels useful, and what's confusing or missing.
 
 Beta link: [insert link]
 ```
@@ -80,7 +80,7 @@ Beta link: [insert link]
 You don't need to test this in any specific order. Use SpeakSharp naturally and take it for a
 spin. Here are a few useful things to try:
 
-- Record a short **1–3 minute** practice session. (Drop in a few "um"s and "like"s on purpose
+- Record one practice session, **up to 5 minutes**. (Drop in a few "um"s and "like"s on purpose
   so you can see how they're caught.)
 - Stop the recording, review your **transcript**, and **save** the session.
 - Open the saved session from **History** and see if the feedback makes sense.
@@ -89,13 +89,19 @@ spin. Here are a few useful things to try:
   results.
 - **Try Private mode** if you're curious. Free users get one Private sample of up to 5 minutes.
   You can choose when to use it; it does not start counting down when you sign up. Private mode
-  runs on your own device and may take a few seconds to get ready the first time.
+  runs on your own device — the first time you use it, **clicking the mic downloads a small
+  speech model**, so it can take a few seconds to get ready. A short note on screen explains
+  this; once the status turns green, you're ready to record.
 
 If anything feels **confusing, broken, slow, inaccurate, or surprising**, please use the
 **Report Issue** button. You don't need to explain it technically — just say what you were
 trying to do and what happened.
 
 > Tip: Chrome works best for recording and transcripts.
+
+> Heads-up about standard mode: the transcript may have limited punctuation, and it can miss
+> some quieter or very fast filler words (like a quick "um"). If a filler word you know you said
+> isn't counted, that's genuinely useful to flag — just mention it in your feedback.
 
 ---
 

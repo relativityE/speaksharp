@@ -78,6 +78,8 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 
 > **Correction (release-owner):** Stripe **live** keys are not — and cannot be — "tested" (no real-money transactions are run as a proof). The checkout → webhook → billing-portal **paths and full journey are proven with Stripe TEST-mode keys**, and they **PASS**. That test-mode journey is the accepted proof. Going to live paid launch is a **deployment/config cutover** (swap test keys for live keys + register the live webhook), performed by Ops at launch on the business go-decision — not a Dev/CI/QA money proof. Dev does not enter live keys.
 
+> **Update (2026-07-10):** the live-key config cutover described below has since been **applied in prod** — the deployed runtime is verified `stripeKeyClass="live"`, the live **Pro** price is reachable/working, and **Basic 404 = intentionally reserved/not-launched**. The "Go-live config cutover" steps that follow are retained as the historical record of what was done; enabling user-visible paid checkout remains a separate product decision. Current ship posture: `RELEASE_STATUS.md`.
+
 - **Accepted proof (test mode) — PASS:** `27441691671` test-mode spine, `27441691174` price audit (checkout/webhook/portal journey exercised with `sk_test_…`). No real-money proof exists or is required.
 - **Functions:** `stripe-checkout`, `stripe-billing-portal`, `stripe-webhook` (`backend/supabase/functions/`).
 - **Go-live config cutover (Ops, at launch):** swap deploy-env vars from test → live:

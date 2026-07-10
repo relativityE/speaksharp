@@ -15,6 +15,14 @@ The repair order is:
 
 No STT mode is acceptable because its internal engine logs text. It is acceptable only when useful text becomes visible quickly, survives stop, saves correctly, and feeds history/analytics from the same selected transcript.
 
+## 2026-07-10 Current-State Reconciliation
+
+The historical evidence below (2026-05-31 / 2026-06-01) was collected in the **whisper-tiny.en** era and is retained as the reviewer trail. The following current facts take precedence over any older row:
+
+- **Shipping Private engine is now v2 `whisper-base.en`** (`PRIV_STT_MODELS.DEFAULT`, self-hosted under `public/models/`, CPU/WASM). tiny.en is retained only as an internal/emergency fallback. The v4 `@huggingface/transformers` WebGPU path (`base_q4`) is a **flag-gated candidate, NOT in the release path**. Older "Private / Whisper tiny.en" and "Private CPU 93.89%" rows below describe the tiny.en-era model/drop-in control, not the current default.
+- **Private opening-clause fidelity (#891/#892) is a KNOWN, still-open blocker reproduced on the deployed build.** The Gate 3 live DAST spec `tests/live/stt-switching-contract.live.spec.ts` found a saved `private_v2:whisper-base.en` transcript that dropped the ~2 opening sentences of the fixture. The historical "saved/detail parity passes on Harvard 10" rows are therefore **not** a current full-fidelity proof; do not read them as Private transcript fidelity being fully proven.
+- **Browser / Native (Web Speech) has a known non-blocking P2 quality caveat:** it undercounts fillers (drops some um/uh) and adds no punctuation. Any Native quality row below must be read with that caveat; Private/Cloud preserve fillers and punctuation more reliably.
+
 ## 2026-06-01 Current Execution Addendum
 
 This addendum records the current state after the latest Private v2 timing work and Native duplicate-finalization regression coverage. It supersedes any optimistic interpretation of older corpus rows, but does not delete them because reviewers still need the historical trail.
@@ -61,6 +69,8 @@ This addendum records the current state after the latest Private v2 timing work 
 | Private CPU | 93.89% expected accuracy |
 | Private WebGPU | 93.00% expected accuracy |
 | Private v4 | 88.89% expected accuracy |
+
+> Note (2026-07-10): the stored `Private CPU` 93.89% figure was measured on **whisper-tiny.en**; the **shipping v2 Private default is `whisper-base.en`** (per `tests/STT_BENCHMARKS.json` `Private.cpu._floors_note` and `PRIV_STT_MODELS.DEFAULT`). `Private v4` (88.89%) is the flag-gated `@huggingface/transformers` candidate, not the release-path engine. The stored numbers above are retained as they appear in the JSON.
 
 ## Published Performance Objectives
 

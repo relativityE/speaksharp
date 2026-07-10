@@ -72,15 +72,17 @@ This document defines the structural invariants and authoritative sources of tru
 SpeakSharp ops health is split into a detailed machine record and a simplified operator view:
 
 ```text
-GitHub Actions generates detailed ops-health.json
+GitHub Actions generates detailed ops-health.json (+ ops-health.summary.json, ops-health.md)
         ↓
-GitHub uploads ops-health.json and ops-health.md as workflow artifacts
+GitHub uploads the ops-health/ dir as the ops-health-dashboard artifact + appends the summary to the run
         ↓
-Future Vercel protected admin page renders a simplified view from the JSON
+GitHub publishes ops-health.summary.json to the Supabase public ops-health bucket
+        ↓
+Protected admin page /admin/ops-status renders a simplified view from that summary JSON
 ```
 
 - GitHub Actions is the credential-backed generator because it can access repository secrets without exposing them to the browser.
 - `ops-health.json` is the detailed diagnostic source of truth: status, short evidence, latency, timestamp, run context, and drill-down URL.
-- `ops-health.md` is the interim operator summary for GitHub workflow summaries and artifacts.
-- A future protected Vercel admin page should render the simple human dashboard from the JSON, not run vendor checks from the browser.
-- Vendor secrets MUST remain server-side in GitHub Actions, Supabase, or a future server-side admin endpoint; they MUST NOT be exposed to frontend code.
+- `ops-health.md` is the operator summary appended to the GitHub workflow run; `ops-health.summary.json` is the compact payload published to the Supabase public `ops-health` bucket for the admin page.
+- The protected admin page is implemented as the in-app route `/admin/ops-status` (gated at the edge by Vercel middleware Basic auth, env `OPS_STATUS_PASSWORD`). It reads the published summary JSON, not vendor checks from the browser.
+- Vendor secrets MUST remain server-side in GitHub Actions, Supabase, or a server-side admin path; they MUST NOT be exposed to frontend code.

@@ -66,7 +66,7 @@ This table keeps product claims honest before product release. A feature can app
 
 | Capability | Status | Definition |
 | :--- | :--- | :--- |
-| **Browser Transcription** | Current | Free, zero-download browser speech recognition. Availability and accuracy vary by browser; Chrome desktop is the recommended baseline. |
+| **Browser Transcription** | Current | Free, zero-download browser speech recognition. Availability and accuracy vary by browser; Chrome desktop is the recommended baseline. Known non-blocking P2 caveat: Browser (Web Speech) output undercounts fillers (drops some um/uh) and adds no punctuation, so Browser filler coaching and readability are directional only. |
 | **Private STT** | One free sample / paid Early Access path | Local on-device transcription after initial model setup. Private STT audio data must not leave the user's browser. |
 | **Cloud STT** | Paid Early Access feature | AssemblyAI-powered cloud transcription selected explicitly by the user. Cloud STT requires paid entitlement evidence. |
 | **Real-Time Delivery Metrics** | Current | Live WPM, filler word counts, pause metrics, clarity signals, transcript capture, and mode/status feedback during practice. |
@@ -114,7 +114,7 @@ These are accepted product directions used to vet the current offering and futur
 | Transcription Modes | **Cloud STT** | Pro feature | Cloud transcription through AssemblyAI, selected explicitly by the user. | Cloud release validation requires live transcript proof, not just token/WebSocket readiness. |
 | Transcription Modes | **STT Mode Selector** | Current | Lets users choose Browser, Private, or Cloud when allowed by tier/runtime policy. | Must not silently switch Private users to Cloud. |
 | Real-Time Coaching | **Live Transcript** | Current | Shows live/interim transcript during practice and saved transcript after session. | Transcript quality depends on selected STT engine and browser/runtime behavior. |
-| Real-Time Coaching | **Filler Word Detection** | Current | Detects common fillers and custom tracked words where supported by engine/path. | Filler guidance should avoid shaming language and should favor actionable replacement with silence/pauses. |
+| Real-Time Coaching | **Filler Word Detection** | Current | Detects common fillers and custom tracked words where supported by engine/path. Browser / Native (Web Speech) is known to undercount fillers (drops some um/uh) and adds no punctuation — a non-blocking P2 caveat; Private/Cloud preserve fillers more reliably. | Filler guidance should avoid shaming language and should favor actionable replacement with silence/pauses. |
 | Real-Time Coaching | **Custom Filler Words** | Current | Users can define personalized words/phrases to track in addition to defaults. | Cloud may use user-specific vocabulary for accuracy support; Native support is browser-limited. |
 | Real-Time Coaching | **Speaking Pace / WPM** | Current | Provides real-time and session-level words-per-minute feedback. | WPM should be treated as a coaching band, not a precise public-speaking grade. |
 | Real-Time Coaching | **Pause / Vocal Variety Metrics** | Current | Tracks pause count, pause rate, average pause, longest pause, and rhythm signals. | Used for delivery feedback and the SpeakSharp Score delivery-control category. |

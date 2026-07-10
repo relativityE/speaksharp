@@ -7,6 +7,17 @@ Stripe keys or real payment. Live-money proof remains a separate Product/Ops + T
 > Hard rules: a **synthetic / signed test webhook is code-path evidence only — NOT
 > live-money proof.** No paid GO without a real live-money charge proven by Test.
 
+> **STATUS UPDATE — 2026-07-10 (live Stripe key now in prod).** The live publishable key is now
+> injected in production: the deployed runtime reports `window.__APP_RUNTIME_CONFIG__.stripeKeyClass
+> === "live"`, so `arePaymentsEnabledFor` returns `true` and the checkout kill switch is in its
+> **enabled (live)** state — the "no live keys required" framing below described the pre-injection
+> hardening pass, not the current deployed state. ops-health Stripe check = 🟡 REVIEW
+> (`balance=200 · pro=200 · basic=404`): the live **Pro** price is reachable/working; **Basic** is
+> intentionally reserved/not-launched (`404`, non-blocking). **Still NOT proven:** a real live-money
+> human charge end-to-end (the LIVE-MONEY gate below) — a present live key is not a completed charge.
+> Whether public checkout is deliberately exposed to users is a separate product decision; ship
+> posture / blockers live only in `RELEASE_STATUS.md`.
+
 ## How the paid path is gated (architecture)
 
 There is **no `STRIPE_RUNTIME_MODE` env**. The kill switch is the **publishable-key class**
@@ -67,7 +78,7 @@ BLOCKED:      if live keys absent -> classifier 'missing' -> checkout hidden /
 
 ## What is NOT proven here
 
-- Real live-money charge + live webhook + live entitlement (needs live keys + a human payment).
+- Real live-money charge + live webhook + live entitlement (live keys are now in prod; this still needs a completed human payment).
 - Pricing/Analytics checkout-failure copy audit (queued follow-up; Nav already customer-safe).
 
 ## Guardrails honored

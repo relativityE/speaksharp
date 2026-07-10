@@ -32,7 +32,12 @@ The working product feature list lives in `PRODUCT_FEATURES.operational.md`. Thi
 - **Cloud Streaming Audio Contract**: Cloud STT MUST send AssemblyAI PCM audio chunks between 50 ms and 1000 ms long. At the declared 16 kHz sample rate, this means each binary WebSocket payload MUST contain 800-16000 samples. SpeakSharp uses 100 ms chunks (1600 samples) as the default live-microphone target. Sending raw browser callback frames directly is prohibited because tiny frames can be interpreted by AssemblyAI as invalid input duration and rejected before transcription.
 
 ### UX Expectations
-- **Supported Browser Positioning**: Chrome desktop is recommended for Browser transcription. Availability and accuracy vary by browser. Edge/Safari/iOS must not be claimed as verified unless a browser-specific proof passes start, transcript, save, history/detail, and analytics.
+- **Recording-mode posture (Beta-50, 2026-07-10)** — the product presents three user-facing recording modes plus one gated candidate:
+  - **Browser (Web Speech)** — the **quickest way to start** (no download, no account tier). Quality is **browser-dependent**: it undercounts some fillers and adds no punctuation, so its filler coaching and readability are directional (non-blocking P2 caveat).
+  - **Cloud (AssemblyAI)** — the **strongest, provider-backed** transcript quality; a **first-class Pro** choice requiring explicit user selection (never an automatic fallback from Private).
+  - **Private (on-device)** — runs entirely in the browser; the Beta-50 default engine is **v2 `whisper-base.en`** (CPU/WASM, self-hosted). First use downloads the model once via the mic control.
+  - **v4 (`base_q4`, WebGPU)** — a **flag-gated candidate only, NOT in the release path**; used for controlled promotion data, not shipped as the default.
+- **Supported Browser Positioning**: Chrome desktop is recommended for Browser transcription. Availability and accuracy vary by browser. Edge/Safari/iOS must not be claimed as verified unless a browser-specific proof passes start, transcript, save, history/detail, and analytics. Browser (Web Speech) carries a known non-blocking P2 caveat: it undercounts fillers (drops some um/uh) and adds no punctuation, so Browser filler coaching and readability are directional only.
 - **Offline Mode**: Private STT requires an initial download but must function without internet thereafter.
 - **Quality Evidence Reporting**: The PRD states product promises. Coverage, Lighthouse, bundle metrics, flaky counts, and stress/endurance evidence live in the operational evidence system, not in dynamically rewritten PRD sections.
 

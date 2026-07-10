@@ -1,6 +1,6 @@
 # Internal Test Protocol — Soft Release (operators / dev / test agents)
 
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-10
 **Audience:** operators, dev, and test agents only. **Not for testers.**
 The tester-facing guide is **`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`** — keep all technical
 detail (flags, model variants, telemetry, evidence, acceptance criteria) out of that file.
@@ -12,10 +12,13 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 
 ## Release posture
 
-- **Controlled private beta / early-access — non-payment.** Payments are hidden
-  (`stripeKeyClass="test"`). Not broad public launch; not paid public.
-- Live paid checkout is a separate **Ops config cutover** (live Stripe key swap), not a code
-  blocker for this beta. See `RELEASE_CLOSEOUT_LEDGER.md` §D and `ROADMAP.operational.md`.
+- **Controlled private beta / early-access — testers are not asked to pay.** Not broad public
+  launch. The deployed Stripe key is now **LIVE** (`stripeKeyClass="live"`): the live **Pro**
+  price is reachable/working (`pro=200`); the **Basic** price is intentionally
+  **reserved / not launched** (`basic=404`, non-blocking).
+- The live Stripe key swap is **already done in production**; broadly opening paid checkout to
+  users is a separate **product/Ops decision**, not a code blocker for this beta. See
+  `RELEASE_CLOSEOUT_LEDGER.md` §D and `ROADMAP.operational.md`.
 - **Final pre-invite check:** re-run `gate=all` on the exact signoff SHA and confirm green
   (Final-SHA freshness — every merge to `main` resets the signoff clock). Record the run in
   `RELEASE_STATUS.md`.
