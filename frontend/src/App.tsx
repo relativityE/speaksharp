@@ -16,6 +16,7 @@ import type { TranscriptionState, TranscriptionEvent } from './services/transcri
 import { setAppVisibleReady } from '@/lib/forensicAnchors';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
+import { areInternalRoutesEnabled } from '@/config/internalRoutes';
 import logger from '@/lib/logger';
 
 const showTestModeBadge =
@@ -60,12 +61,8 @@ const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage').then(module
 const TermsPage = React.lazy(() => import('./pages/LegalPage').then(module => ({ default: module.TermsPage })));
 const PrivacyPage = React.lazy(() => import('./pages/LegalPage').then(module => ({ default: module.PrivacyPage })));
 
-const internalRoutesEnabled =
-  !import.meta.env.PROD ||
-  import.meta.env.VITE_ENABLE_INTERNAL_ROUTES === 'true';
-
 const InternalRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  return internalRoutesEnabled ? <>{children}</> : <NotFoundPage />;
+  return areInternalRoutesEnabled() ? <>{children}</> : <NotFoundPage />;
 };
 
 const PageLoader = () => (
@@ -349,7 +346,11 @@ const App: React.FC = () => {
                   <Route path="/terms" element={<PageTransition><TermsPage /></PageTransition>} />
                   <Route path="/privacy" element={<PageTransition><PrivacyPage /></PageTransition>} />
                   <Route path="/design" element={<InternalRoute><PageTransition><DesignSystemPage /></PageTransition></InternalRoute>} />
-                  <Route path="/admin/ops-status" element={<InternalRoute><PageTransition><OpsStatusPage /></PageTransition></InternalRoute>} />
+                  {/* /admin/ops-status is gated in production by HTTP Basic auth at the Vercel edge
+                      (middleware.js, OPS_STATUS_PASSWORD) — its sole production gate. It is intentionally
+                      NOT behind InternalRoute so operators can reach it with the password without enabling
+                      VITE_ENABLE_INTERNAL_ROUTES (which would also expose /design). */}
+                  <Route path="/admin/ops-status" element={<PageTransition><OpsStatusPage /></PageTransition>} />
                   <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
                   <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
