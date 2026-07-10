@@ -242,3 +242,23 @@ The 50-user go is blocked **only** on gates Dev cannot execute:
 This flips to **GO** when Runs A–E pass with no blocker (§13 clean) and owners are assigned; to **CONDITIONAL GO** only for a minor issue that has a workaround, a named owner, and a deadline.
 
 **Do not start 100-user planning or non-gating polish** (score-card tooltip, analytics copy, CI speedup, broad UI-primitive coverage). Only fix issues that surface in this pass or directly block a §14 gate.
+
+---
+
+### UPDATE 2026-07-10 — deployed-app QA (Runs A–E) captured → QA-evidence blocker satisfied
+
+The **deployed-app QA** blocker (#1 above) now has evidence on production `899161b2`. See `beta50_private_2026-07-10/OPTION_D_QA_SELLOFF.md` + `PRIVATE_PATH_VALIDATION.md`.
+
+| Run | Maps to | Result |
+|---|---|---|
+| A — desktop cradle-to-grave | Private + Cloud desktop record → transcript → filler → **save** (`sessions 204`); analytics reachable | ✅ PASS |
+| B — mobile | Mobile action bar starts Private (no model-less crash) | ✅ PASS |
+| C — Report Issue row + triage | "Browser QA 50" triage-verified (new slug + `user_id` + metadata + opt-outs null) | ✅ PASS |
+| D — filler SSOT parity | Displayed card `(4)` == saved `filler_words.total.count:4` | ✅ PASS |
+| E — PDF export | `/analytics` per-session `download-pdf-btn` present + reachable | ✅ PASS |
+
+Also validated: the #957 Private first-run fix (`899161b2`) — no post-session lockout, cached-return second recording without reload, no model-less start (desktop + mobile). No console/network/Sentry blockers. **v2/`whisper-base.en` stays the Private default; v4 NOT in the release path.**
+
+**Non-blocking caveats (logged follow-ups):** Web-Speech Browser filler undercount + no punctuation; `download-required` progress bar not live-reproducible on the served default model (deterministic live harness follow-up).
+
+**Net:** the Runs A–E QA-evidence blocker is **satisfied**. Remaining to flip §15 to GO = **owner sign-off only** (assign monitoring owners §11 + acknowledge stop-the-beta §13). That decision stays with the release owner.
