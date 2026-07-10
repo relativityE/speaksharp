@@ -74,9 +74,9 @@ describe('issueReportService', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
-  it('stores an anonymous report (user_id null) when no userId is provided (Option C)', async () => {
+  it('defaults user_id to null when no account id is supplied (defensive fallback)', async () => {
     await issueReportService.submit({
-      // no userId — anonymous
+      // no userId — defensive fallback only; authenticated surfaces always pass the account id
       category: 'something_else',
       severity: 'low',
       title: 'Minor wording issue',

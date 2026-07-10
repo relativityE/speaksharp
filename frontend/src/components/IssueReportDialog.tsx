@@ -22,7 +22,8 @@ import {
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface IssueReportDialogProps {
-  /** Optional — omit for an anonymous report (Option C). When absent, no identity is stored. */
+  /** The submitter's account id (Option B): attached for authenticated reports so support can
+   *  follow up. Opaque auth UUID — no email/name stored. Null only as a defensive fallback. */
   userId?: string | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;

@@ -31,10 +31,11 @@ export interface IssueReportMetadata {
 
 export interface SubmitIssueReportInput {
   /**
-   * Optional (Option C): reports are anonymous by default — we store no identity and rely on the
-   * row timestamp + sttMode/route metadata (and sentryLastEventId) to correlate with logs/Sentry.
-   * The insert still runs under an authenticated session (RLS `TO authenticated`), so reports are
-   * not internet-spammable; we simply do not record WHO submitted.
+   * The submitter's account id (Option B): attached for ALL authenticated reports so support can
+   * follow up. It is an opaque auth UUID — no email/name is stored in the row. Nullable only as a
+   * defensive fallback (e.g. no active session); callers on authenticated surfaces always pass it.
+   * The insert runs under an authenticated session (RLS `TO authenticated`), so reports are not
+   * internet-spammable.
    */
   userId?: string | null;
   sessionId?: string | null;
