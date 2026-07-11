@@ -18,17 +18,16 @@ export const test = base.extend({
     try { baseHost = baseURL ? new URL(baseURL).host : null; } catch { baseHost = null; }
 
     if (bypassSecret && baseHost) {
-      await context.route('**/*', async (route) => {
-        const request = route.request();
-        let sameHost = false;
-        try { sameHost = new URL(request.url()).host === baseHost; } catch { sameHost = false; }
-        if (sameHost) {
-          // Only the Vercel app host gets the protection-bypass header; nothing else does.
+      // Match ONLY requests to the Vercel app host (URL predicate). Cross-origin requests (Supabase
+      // edge functions, AssemblyAI token/streaming) are NOT intercepted at all — so nothing here can
+      // perturb their timing/preflight, and they never receive any Vercel bypass header.
+      await context.route(
+        (url) => { try { return url.host === baseHost; } catch { return false; } },
+        async (route) => {
+          const request = route.request();
           await route.continue({ headers: { ...request.headers(), 'x-vercel-protection-bypass': bypassSecret } });
-        } else {
-          await route.continue();
-        }
-      });
+        },
+      );
     }
 
     await use(context);
