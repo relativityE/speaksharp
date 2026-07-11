@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/deployedLiveTest';
 import { goToPublicRoute, navigateToRoute } from '../e2e/helpers';
 import { ROUTES, TEST_IDS } from '../constants';
 

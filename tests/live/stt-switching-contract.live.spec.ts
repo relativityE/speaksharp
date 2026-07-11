@@ -1,4 +1,5 @@
-import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { type Page, type TestInfo } from '@playwright/test';
+import { test, expect } from './helpers/deployedLiveTest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
