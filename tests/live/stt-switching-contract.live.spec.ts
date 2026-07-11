@@ -106,6 +106,25 @@ test.describe.serial('Live STT switching contract @live', () => {
   // (check_usage_limit: private_sample_available = tier<>'pro' AND completed_at IS NULL
   //  AND used < limit AND session_id IS NULL.)
   test('Free user with an UNUSED Private sample: Private enabled, Cloud disabled', async ({ page }) => {
+    // #960 :108 investigation: capture the check-usage-limit edge-function request/response so we can
+    // see, on Preview vs Prod, the origin, HTTP status, and the availability fields the app resolves.
+    const usageLimitEvents: Array<Record<string, unknown>> = [];
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (!/check-?usage-?limit/i.test(url)) return;
+      let body: unknown = null;
+      try { body = await response.json(); } catch { try { body = await response.text(); } catch { /* body unreadable */ } }
+      const req = response.request();
+      const headers = req.headers();
+      usageLimitEvents.push({
+        url,
+        method: req.method(),
+        origin: headers['origin'] ?? headers['Origin'] ?? null,
+        hasAuthHeader: Boolean(headers['authorization'] ?? headers['Authorization']),
+        status: response.status(),
+        body,
+      });
+    });
     const freeSampleUser = await createLiveUser(admin, `stt-switching-free-sample-${RUN_ID}@example.com`, {
       subscription_status: 'free',
       trial_started_at: '2024-01-01T00:00:00.000Z',
@@ -134,6 +153,24 @@ test.describe.serial('Live STT switching contract @live', () => {
 
     await modeSelect.click();
     await expect(page.getByTestId('stt-mode-native')).toBeVisible({ timeout: 10_000 });
+
+    // #960 :108 investigation: let entitlement resolve, then LOG the check-usage-limit evidence +
+    // resolved mode availability + user id BEFORE the (Preview-failing) assertion, so we capture it
+    // whether or not the assertion passes. Compared Preview-vs-Prod to classify the difference.
+    await page.waitForTimeout(9_000);
+    const userIdHint = await getSignedInUserId(page).catch(() => null);
+    const privateDisabled = await isModeDisabled(page, 'private').catch(() => null);
+    const cloudDisabled = await isModeDisabled(page, 'cloud').catch(() => null);
+    console.log(`LIVE_108_ENTITLEMENT_DIAG ${JSON.stringify({
+      baseUrl: BASE_URL,
+      seededUserId: freeSampleUser.id ?? null,
+      signedInUserIdHint: userIdHint,
+      resolvedPrivateDisabled: privateDisabled,
+      resolvedCloudDisabled: cloudDisabled,
+      seeded: { subscription_status: 'free', private_sample_limit_seconds: 300, private_sample_seconds_used: 0, private_sample_completed_at: null },
+      usageLimitEvents,
+    })}`);
+
     // The sample makes Private available; the gate resolves after the usage-limit fetch, so poll.
     await expectModeEnabled(page, 'private');
     // Cloud is always Pro-only → disabled for Free.
