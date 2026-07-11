@@ -8,21 +8,15 @@ const FIXTURE_URL_PATH = '/__e2e_fixture_audio__.wav';
  * Deterministic, position-0-aligned fake-audio injection for live STT specs (#960).
  *
  * WHY: `playwright.deployed-live.config.ts` feeds the fixture via Chrome
- * `--use-file-for-fake-audio-capture=<wav>`. That device is BROWSER-PROCESS-GLOBAL and free-runs the
- * file; it is NOT restarted/aligned to each engine's recording start. So when two engines record in
- * one run (Cloud first, Private later after model prep), the SECOND engine samples the fixture
- * mid-stream. That made the #892 opening-fidelity gate fail on fake-mic LOOP PHASE, not on a product
- * defect: Cloud captured "The stale smell…" at position 0 and passed; Private started at "Well, the
- * swan dive…" and failed — its LIVE DOM and saved DB row both began mid-fixture (drop is at capture,
- * not save/trim/decode). See issue #960.
+ * `--use-file-for-fake-audio-capture=<wav>`, a BROWSER-PROCESS-GLOBAL free-running device. When two
+ * engines record in one run (Cloud first, Private later), the second samples the fixture mid-stream.
  *
- * WHAT: override `navigator.mediaDevices.getUserMedia` so every audio capture returns a FRESH
- * MediaStream that plays the fixture from position 0. Both engines then start at the true opening, so
- * the #892 gate tests the app's real capture-from-start behavior instead of loop phase. If Private
- * STILL drops the opening under this aligned injection, that is a genuine product defect (not a
- * harness artifact) and should be fixed in the app.
- *
- * Call this ONCE per page, before the first navigation/getUserMedia in the spec that needs it.
+ * P1 (review): the app does NOT necessarily reacquire the mic per recording — `stopTranscription()`
+ * leaves `this.mic` set and `ensureMicReadyForStart()` reuses it — so overriding `getUserMedia` alone
+ * does NOT guarantee Private restarts at fixture position 0 (it may reuse Cloud's already-advanced
+ * stream). To make the harness DETERMINISTIC regardless of mic reuse we expose an explicit reset that
+ * restarts the fixture at position 0 on the live MediaStreamDestination(s); the spec calls it right
+ * before each recording. We also count getUserMedia calls so the run self-reports reuse vs reacquire.
  */
 export async function injectAlignedFixtureAudio(page: Page, fixturePath: string): Promise<void> {
   const wav = await readFile(fixturePath);
@@ -39,30 +33,70 @@ export async function injectAlignedFixtureAudio(page: Page, fixturePath: string)
       window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
 
+    interface FixtureEntry {
+      dest: MediaStreamAudioDestinationNode;
+      source: AudioBufferSourceNode | null;
+    }
+    const w = window as unknown as {
+      __ss_fixtureEntries__?: FixtureEntry[];
+      __ss_fixtureGumCalls__?: number;
+      __ss_resetFixtureAudio__?: () => void;
+    };
+    w.__ss_fixtureEntries__ = w.__ss_fixtureEntries__ ?? [];
+    w.__ss_fixtureGumCalls__ = w.__ss_fixtureGumCalls__ ?? 0;
+
     let ctx: AudioContext | null = null;
     let decoded: AudioBuffer | null = null;
 
+    const startAtZero = (entry: FixtureEntry) => {
+      if (!ctx || !decoded) return;
+      try { entry.source?.stop(); } catch { /* already stopped */ }
+      const src = ctx.createBufferSource();
+      src.buffer = decoded;
+      src.loop = true;
+      src.connect(entry.dest);
+      src.start(0); // fixture position 0
+      entry.source = src;
+    };
+
+    // Restart every live fixture stream at position 0. The spec calls this immediately before each
+    // recording, so the engine that records (even one reusing a warm mic) samples from the opening.
+    w.__ss_resetFixtureAudio__ = () => {
+      for (const entry of w.__ss_fixtureEntries__ ?? []) startAtZero(entry);
+    };
+
     md.getUserMedia = async (constraints?: MediaStreamConstraints) => {
-      // Only intercept audio captures; defer everything else to the real implementation.
       if (!constraints || !constraints.audio) return realGetUserMedia(constraints);
+      w.__ss_fixtureGumCalls__ = (w.__ss_fixtureGumCalls__ ?? 0) + 1;
+      console.log(`LIVE_FIXTURE_GETUSERMEDIA_CALL ${JSON.stringify({ call: w.__ss_fixtureGumCalls__ })}`);
 
       ctx = ctx ?? new AudioCtx();
       if (ctx.state === 'suspended') {
-        try { await ctx.resume(); } catch { /* best effort — automated browser usually allows it */ }
+        try { await ctx.resume(); } catch { /* automated browser usually allows it */ }
       }
       if (!decoded) {
         const bytes = await (await fetch(fixtureUrlPath, { cache: 'no-store' })).arrayBuffer();
         decoded = await ctx.decodeAudioData(bytes);
       }
 
-      const destination = ctx.createMediaStreamDestination();
-      const source = ctx.createBufferSource();
-      source.buffer = decoded;
-      source.loop = true;
-      source.connect(destination);
-      source.start(0); // fixture position 0 at THIS capture — aligned per recording
-
-      return destination.stream;
+      const entry: FixtureEntry = { dest: ctx.createMediaStreamDestination(), source: null };
+      startAtZero(entry);
+      (w.__ss_fixtureEntries__ ?? []).push(entry);
+      return entry.dest.stream;
     };
   }, FIXTURE_URL_PATH);
+}
+
+/** Restart the injected fixture at position 0 (call right before a recording starts). No-op if unset. */
+export async function resetFixtureAudioToStart(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __ss_resetFixtureAudio__?: () => void }).__ss_resetFixtureAudio__?.();
+  });
+}
+
+/** How many times the app called getUserMedia — 1 = mic reused across engines, 2+ = reacquired. */
+export async function getFixtureGetUserMediaCalls(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as unknown as { __ss_fixtureGumCalls__?: number }).__ss_fixtureGumCalls__ ?? 0,
+  );
 }

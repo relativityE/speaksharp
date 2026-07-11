@@ -11,7 +11,7 @@ import {
 } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO, HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 import { evaluateTranscriptFidelity, HARVARD_FIXTURE_FIDELITY } from './helpers/transcriptFidelity';
-import { injectAlignedFixtureAudio } from './helpers/fixtureAudioStream';
+import { injectAlignedFixtureAudio, resetFixtureAudioToStart, getFixtureGetUserMediaCalls } from './helpers/fixtureAudioStream';
 
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
@@ -521,6 +521,9 @@ async function recordCloudSession(page: Page, options: { assertSwitchLock: boole
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
 
+  // #960 P1: force the fixture to position 0 for THIS recording regardless of mic reuse.
+  await resetFixtureAudioToStart(page);
+
   const tokenResponsePromise = page.waitForResponse((response) =>
     response.url().includes('/functions/v1/assemblyai-token') &&
     response.request().method() === 'POST'
@@ -547,6 +550,9 @@ async function recordCloudSession(page: Page, options: { assertSwitchLock: boole
 async function recordPrivateSession(page: Page) {
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 90_000 });
+  // #960 P1: force the fixture to position 0 for THIS recording regardless of mic reuse (the app may
+  // reuse Cloud's warm mic, so overriding getUserMedia alone would leave Private sampling mid-stream).
+  await resetFixtureAudioToStart(page);
   // #960 Track-1 instrumentation: capture-vs-decode timing (diagnostic only, no product change).
   const recordClickAtMs = Date.now();
   await startStopButton.click();
@@ -574,8 +580,12 @@ async function recordPrivateSession(page: Page) {
       commitStart: last('whole_utterance_commit_start'),
     };
   });
+  const gumCalls = await getFixtureGetUserMediaCalls(page);
   console.log(`LIVE_PRIVATE_CAPTURE_TIMING ${JSON.stringify({
     fixtureSeconds: 34.5,
+    // getUserMedia calls across the whole test: 1 = mic REUSED for Private (position-0 forced via reset);
+    // 2+ = mic REACQUIRED per recording. Resolves the P1 mic-reuse determinism question.
+    getUserMediaCalls: gumCalls,
     msClickToRecording: recordingStartedAt - recordClickAtMs,
     msRecordingToFirstTranscript: firstTranscriptAtMs - recordingStartedAt,
     // DECISION KEY — timing.utteranceSeconds = RAW accumulated buffer (pre-trim);
