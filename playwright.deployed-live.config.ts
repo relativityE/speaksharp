@@ -39,6 +39,19 @@ export default defineConfig({
     trace: 'on',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    // Vercel PREVIEW deployments sit behind Deployment Protection (SSO), which redirects unauthenticated
+    // requests to vercel.com/sso and blocks DAST. When testing a preview (e.g. validating a fix before
+    // merge, or the #960 per-commit bisect), set VERCEL_AUTOMATION_BYPASS_SECRET (Vercel → Deployment
+    // Protection → Protection Bypass for Automation) so requests carry the bypass header. Absent (the
+    // default, e.g. against the PUBLIC prod URL) → no header, unchanged behavior.
+    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      ? {
+          extraHTTPHeaders: {
+            'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+            'x-vercel-set-bypass-cookie': 'true',
+          },
+        }
+      : {}),
   },
   projects: [
     {
