@@ -9,8 +9,9 @@ import {
   preparePrivateModelIfPrompted,
   selectBenchmarkMode,
 } from './helpers/benchmark-utils';
-import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { HARVARD_BENCHMARK_AUDIO, HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 import { evaluateTranscriptFidelity, HARVARD_FIXTURE_FIDELITY } from './helpers/transcriptFidelity';
+import { injectAlignedFixtureAudio } from './helpers/fixtureAudioStream';
 
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
@@ -245,6 +246,13 @@ test.describe.serial('Live STT switching contract @live', () => {
       test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
       test.setTimeout(300_000);
       installRuntimeDiagnostics(page);
+
+      // #960: align the fake-audio fixture to position 0 for EVERY recording in this test. Chrome's
+      // process-global --use-file-for-fake-audio-capture device free-runs the file, so the engine that
+      // records SECOND (Private, after Cloud + model prep) would otherwise sample it mid-stream and
+      // fail the #892 opening-fidelity gate on loop phase rather than on a product defect. With this
+      // override both Cloud and Private start at "The stale smell…", so #892 tests real capture-from-start.
+      await injectAlignedFixtureAudio(page, HARVARD_BENCHMARK_AUDIO);
 
       // Lighter Private path: fulfill the /models/ fetch with the APP-SHIPPED model bytes
       // (frontend/public/models/whisper-base.en, the same assets the app hosts at {origin}/models/),
