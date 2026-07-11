@@ -1769,7 +1769,15 @@ export class SpeechRuntimeController {
                     ? service.getState()
                     : (service.fsm?.is('RECORDING') ? 'RECORDING' : 'UNKNOWN');
                 if (serviceState !== 'RECORDING') {
-                    throw new Error(`TRANSCRIPTION_START_DID_NOT_RECORD:${serviceState}`);
+                    // #P1-observability: attach the underlying engine-start leaf (mic / AudioWorklet /
+                    // engine-init) as the wrapper's `cause` so the app-layer Sentry capture
+                    // (useSessionLifecycle) surfaces the ROOT cause instead of only this generic wrapper.
+                    // The leaf lives in the service (getStartError) — no Sentry import in the service layer.
+                    // `.cause` is set as a property (not the Error ctor option) to stay ES2020-safe.
+                    const wrapper = new Error(`TRANSCRIPTION_START_DID_NOT_RECORD:${serviceState}`);
+                    const startLeaf = (service as { getStartError?: () => Error | null }).getStartError?.();
+                    if (startLeaf) (wrapper as Error & { cause?: unknown }).cause = startLeaf;
+                    throw wrapper;
                 }
                 this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
