@@ -286,48 +286,10 @@ test.describe.serial('Live STT switching contract @live', () => {
       test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
       test.setTimeout(180_000);
       installRuntimeDiagnostics(page);
-
-      // #285 investigation: capture the assemblyai-token request lifecycle (incl. OPTIONS preflight)
-      // to classify the Preview-only timeout. Headers redacted; bypass-header presence recorded.
-      const tokenReqs: Array<Record<string, unknown>> = [];
-      const tokenResps: Array<Record<string, unknown>> = [];
-      const tokenFails: Array<Record<string, unknown>> = [];
-      const tokenConsole: string[] = [];
-      let setBypassCookieSeenAnywhere = false;
-      const isToken = (u: string) => /assemblyai-token/i.test(u);
-      const redact = (h: Record<string, string>) => {
-        const out: Record<string, string> = {};
-        for (const [k, v] of Object.entries(h)) {
-          const kl = k.toLowerCase();
-          if (kl === 'x-vercel-set-bypass-cookie') setBypassCookieSeenAnywhere = true;
-          if (['authorization', 'apikey', 'cookie', 'x-client-info'].includes(kl)) out[kl] = '<redacted>';
-          else if (kl === 'x-vercel-protection-bypass') out[kl] = '<present>';
-          else out[kl] = v.length > 60 ? `${v.slice(0, 60)}…` : v;
-        }
-        return out;
-      };
-      const shortPath = (u: string) => { try { return new URL(u).pathname; } catch { return u; } };
-      page.on('request', (req) => {
-        const h = req.headers();
-        for (const k of Object.keys(h)) if (k.toLowerCase() === 'x-vercel-set-bypass-cookie') setBypassCookieSeenAnywhere = true;
-        if (!isToken(req.url())) return;
-        const hl = Object.fromEntries(Object.entries(h).map(([k, v]) => [k.toLowerCase(), v]));
-        tokenReqs.push({ path: shortPath(req.url()), method: req.method(), origin: hl['origin'] ?? null,
-          hasProtectionBypass: 'x-vercel-protection-bypass' in hl, hasSetBypassCookie: 'x-vercel-set-bypass-cookie' in hl, headers: redact(h) });
-      });
-      page.on('response', async (resp) => {
-        if (!isToken(resp.url())) return;
-        let body: unknown = null;
-        try { const j = await resp.json() as Record<string, unknown>; body = { keys: Object.keys(j ?? {}), hasToken: Boolean(j?.token ?? j?.authorization), error: j?.error }; }
-        catch { try { body = (await resp.text()).slice(0, 120); } catch { /* unreadable */ } }
-        tokenResps.push({ status: resp.status(), method: resp.request().method(), body });
-      });
-      page.on('requestfailed', (req) => { if (isToken(req.url())) tokenFails.push({ method: req.method(), errorText: req.failure()?.errorText ?? null }); });
-      page.on('console', (msg) => {
-        if (msg.type() !== 'error' && msg.type() !== 'warning') return;
-        const t = msg.text();
-        if (/assemblyai|token|CORS|Access-Control|Failed to fetch|net::|preflight|blocked/i.test(t)) tokenConsole.push(`[${msg.type()}] ${t.slice(0, 240)}`);
-      });
+      // #285: Cloud recording must start deterministically. The raw Chrome fake-audio device starts
+      // Cloud on prod but stalls at "Mic ready" (no assemblyai-token request) on the Preview build;
+      // an injected position-0 fixture stream starts it reliably (same as the metadata test :245).
+      await injectAlignedFixtureAudio(page, HARVARD_BENCHMARK_AUDIO);
 
       await signIn(page, E2E_PRO_EMAIL!, E2E_PRO_PASSWORD!);
       await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
@@ -335,16 +297,8 @@ test.describe.serial('Live STT switching contract @live', () => {
 
       await selectBenchmarkMode(page, 'cloud');
       await assertPreStartMode(page, 'cloud');
-      // Click record and give the token flow a BOUNDED window, then LOG the captured lifecycle before
-      // the (Preview-failing) assertion — so we classify the timeout instead of just observing it.
-      const startStop = page.getByTestId('session-start-stop-button');
-      await expect(startStop).toBeEnabled({ timeout: 60_000 });
-      await startStop.click();
-      await page.waitForTimeout(50_000);
-      console.log(`LIVE_285_TOKEN_DIAG ${JSON.stringify({ baseUrl: BASE_URL, dataRecording: await startStop.getAttribute('data-recording'),
-        tokenRequests: tokenReqs, tokenResponses: tokenResps, tokenFailures: tokenFails, tokenConsole, xVercelSetBypassCookieSeenAnywhere: setBypassCookieSeenAnywhere })}`);
-      const tokenResp = await page.waitForResponse((r) => isToken(r.url()) && r.request().method() === 'POST', { timeout: 5_000 }).catch(() => null);
-      expect(tokenResp?.status(), 'assemblyai-token response').toBe(200);
+      // recordCloudSession asserts the mode-select stays locked while data-recording === 'true'.
+      await recordCloudSession(page, { assertSwitchLock: true });
     });
 
     test('Cloud and Private saved sessions persist separate engine metadata', async ({ page }) => {
