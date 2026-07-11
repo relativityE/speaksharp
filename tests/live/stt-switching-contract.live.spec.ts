@@ -111,7 +111,8 @@ test.describe.serial('Live STT switching contract @live', () => {
     const usageLimitEvents: Array<Record<string, unknown>> = [];
     page.on('response', async (response) => {
       const url = response.url();
-      if (!/check-?usage-?limit/i.test(url)) return;
+      // Match BOTH the edge function (check-usage-limit) AND the RPC (check_usage_limit, underscores).
+      if (!/check[-_]?usage[-_]?limit|rpc\/check_usage/i.test(url)) return;
       let body: unknown = null;
       try { body = await response.json(); } catch { try { body = await response.text(); } catch { /* body unreadable */ } }
       const req = response.request();
