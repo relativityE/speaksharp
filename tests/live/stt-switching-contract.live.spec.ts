@@ -268,6 +268,9 @@ test.describe.serial('Live STT switching contract @live', () => {
         window.REAL_WHISPER_TEST = true;
         window.__FORCE_TRANSFORMERS_JS__ = true;
         window.__STT_LOAD_TIMEOUT__ = 180000;
+        // #960 Track-1: enable the Private timeline trace so we can read exact capture/trim samples
+        // (whole_utterance_silence_trimmed: fullSamples/keptSamples/leadingTrimmedSamples). Diagnostic only.
+        (window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__ = true;
       });
 
       page.on('console', (message) => {
@@ -544,14 +547,45 @@ async function recordCloudSession(page: Page, options: { assertSwitchLock: boole
 async function recordPrivateSession(page: Page) {
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 90_000 });
+  // #960 Track-1 instrumentation: capture-vs-decode timing (diagnostic only, no product change).
+  const recordClickAtMs = Date.now();
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
   const recordingStartedAt = Date.now();
   const transcript = await waitForFixtureTranscript(page, 'private', 120_000);
+  const firstTranscriptAtMs = Date.now();
   await waitForSaveableRecordingDuration(page, recordingStartedAt);
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
   await expect(page.getByTestId('status-message-text')).toContainText(/Session saved/i, { timeout: 45_000 });
+  // Read the always-on Private timing summary + the trace timeline AFTER finalize
+  // (decodedUtteranceSeconds / whole_utterance_silence_trimmed are set at commit).
+  const capture = await page.evaluate(() => {
+    const w = window as unknown as {
+      __PRIVATE_TIMING__?: Record<string, unknown>;
+      __PRIVATE_STT_TIMELINE__?: Array<{ event: string; perfMs: number; payload?: Record<string, unknown> }>;
+    };
+    const timeline = w.__PRIVATE_STT_TIMELINE__ ?? [];
+    const last = (name: string) => timeline.filter((e) => e.event === name).slice(-1)[0]?.payload ?? null;
+    return {
+      timing: w.__PRIVATE_TIMING__ ?? null,
+      streamStart: last('stream_start'),
+      silenceTrimmed: last('whole_utterance_silence_trimmed'),
+      commitStart: last('whole_utterance_commit_start'),
+    };
+  });
+  console.log(`LIVE_PRIVATE_CAPTURE_TIMING ${JSON.stringify({
+    fixtureSeconds: 34.5,
+    msClickToRecording: recordingStartedAt - recordClickAtMs,
+    msRecordingToFirstTranscript: firstTranscriptAtMs - recordingStartedAt,
+    // DECISION KEY — timing.utteranceSeconds = RAW accumulated buffer (pre-trim);
+    // timing.decodedUtteranceSeconds = kept audio SENT TO WHISPER (post leading/trailing trim);
+    // silenceTrimmed.leadingTrimmedSamples/keptSamples/fullSamples = exact trim math.
+    // decoded << 34.5 AND utterance << 34.5 => CAPTURE LOSS (→ MicStream fix);
+    // utterance ~34.5 but decoded << 34.5 => TRIM removed it (→ diagnose trim, do NOT touch MicStream);
+    // both ~34.5 => DECODE omitted the opening (→ diagnose decode).
+    ...capture,
+  })}`);
   await waitForRecordingSettled(page);
   return transcript;
 }
