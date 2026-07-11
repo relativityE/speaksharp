@@ -111,20 +111,16 @@ test.describe.serial('Live STT switching contract @live', () => {
     const usageLimitEvents: Array<Record<string, unknown>> = [];
     page.on('response', async (response) => {
       const url = response.url();
-      // Match BOTH the edge function (check-usage-limit) AND the RPC (check_usage_limit, underscores).
-      if (!/check[-_]?usage[-_]?limit|rpc\/check_usage/i.test(url)) return;
+      // All Supabase API calls (auth/rest/rpc/functions) — NOT app assets — so we see exactly which
+      // entitlement call the free user makes and which (if any) fails.
+      if (!/\/(auth|rest|rpc|functions)\/v1\//i.test(url) && !/\.supabase\./i.test(url)) return;
+      const isEntitlement = /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
       let body: unknown = null;
-      try { body = await response.json(); } catch { try { body = await response.text(); } catch { /* body unreadable */ } }
-      const req = response.request();
-      const headers = req.headers();
-      usageLimitEvents.push({
-        url,
-        method: req.method(),
-        origin: headers['origin'] ?? headers['Origin'] ?? null,
-        hasAuthHeader: Boolean(headers['authorization'] ?? headers['Authorization']),
-        status: response.status(),
-        body,
-      });
+      // Only read bodies for entitlement endpoints (availability flags, non-sensitive); skip others.
+      if (isEntitlement) { try { body = await response.json(); } catch { /* ignore */ } }
+      let pathname = url;
+      try { pathname = new URL(url).pathname; } catch { /* keep url */ }
+      usageLimitEvents.push({ path: pathname, status: response.status(), isEntitlement, body });
     });
     const freeSampleUser = await createLiveUser(admin, `stt-switching-free-sample-${RUN_ID}@example.com`, {
       subscription_status: 'free',
