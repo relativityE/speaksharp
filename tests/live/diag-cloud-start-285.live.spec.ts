@@ -84,20 +84,61 @@ test('DIAG :285 Cloud start sequence — capture, do not hang on token', async (
   const isSentryUrl = (u: string) => /sentry|ingest\./i.test(u);
   const net: Array<{ kind: string; url: string; method?: string; status?: number; failure?: string; tMs: number }> = [];
   const consoleLog: Array<{ type: string; text: string; tMs: number }> = [];
+  const sentryExceptions: Array<{ type: string; value: string; topFrames: string[]; tags?: unknown; ctx?: unknown; tMs: number }> = [];
+  const allRequestFailures: Array<{ url: string; failure: string; tMs: number }> = [];
   let clickAt = 0;
   const now = () => (clickAt ? Date.now() - clickAt : 0); // ms relative to the Start click (negative = before)
 
-  const tag = (u: string) => (isTokenUrl(u) ? 'TOKEN' : isUsageUrl(u) ? 'USAGE' : isSentryUrl(u) ? 'SENTRY' : null);
-  page.on('request', (r) => { const k = tag(r.url()); if (k) net.push({ kind: `${k}:req`, url: r.url().slice(0, 140), method: r.method(), tMs: now() }); });
-  page.on('response', (r) => { const k = tag(r.url()); if (k) net.push({ kind: `${k}:res`, url: r.url().slice(0, 140), status: r.status(), tMs: now() }); });
-  page.on('requestfailed', (r) => { const k = tag(r.url()); if (k) net.push({ kind: `${k}:FAIL`, url: r.url().slice(0, 140), failure: r.failure()?.errorText ?? 'unknown', tMs: now() }); });
-  page.on('console', (m) => {
-    const type = m.type();
-    if (type === 'error' || type === 'warning' || /recording|start|cloud|assemblyai|token|Failed|Sentry|mic|engine/i.test(m.text())) {
-      consoleLog.push({ type, text: m.text().slice(0, 300), tMs: now() });
+  // Parse a Sentry envelope POST body (newline-delimited JSON) for exception details. The leaf error is
+  // NOT captured to Sentry (only the controller wrapper is), but the recording_start context/tags are.
+  const parseSentryEnvelope = (raw: string, tMs: number) => {
+    for (const line of raw.split('\n')) {
+      const s = line.trim(); if (!s || s[0] !== '{') continue;
+      let obj: Record<string, unknown>; try { obj = JSON.parse(s); } catch { continue; }
+      const exc = (obj as { exception?: { values?: Array<{ type?: string; value?: string; stacktrace?: { frames?: Array<{ function?: string; filename?: string; lineno?: number }> } }> } }).exception;
+      if (exc?.values) {
+        for (const v of exc.values) {
+          sentryExceptions.push({
+            type: v.type ?? '(none)',
+            value: (v.value ?? '').slice(0, 300),
+            topFrames: (v.stacktrace?.frames ?? []).slice(-6).reverse().map((f) => `${f.function ?? '?'}@${(f.filename ?? '?').split('/').pop()}:${f.lineno ?? '?'}`),
+            tags: (obj as { tags?: unknown }).tags,
+            ctx: (obj as { contexts?: { recording_start?: unknown } }).contexts?.recording_start,
+            tMs,
+          });
+        }
+      }
     }
+  };
+
+  const tag = (u: string) => (isTokenUrl(u) ? 'TOKEN' : isUsageUrl(u) ? 'USAGE' : isSentryUrl(u) ? 'SENTRY' : null);
+  page.on('request', (r) => {
+    const k = tag(r.url()); if (k) net.push({ kind: `${k}:req`, url: r.url().slice(0, 140), method: r.method(), tMs: now() });
+    if (k === 'SENTRY') { try { const pd = r.postData(); if (pd) parseSentryEnvelope(pd, now()); } catch { /* body unavailable */ } }
   });
-  page.on('pageerror', (e) => consoleLog.push({ type: 'pageerror', text: e.message.slice(0, 300), tMs: now() }));
+  page.on('response', (r) => { const k = tag(r.url()); if (k) net.push({ kind: `${k}:res`, url: r.url().slice(0, 140), status: r.status(), tMs: now() }); });
+  page.on('requestfailed', (r) => {
+    const k = tag(r.url()); if (k) net.push({ kind: `${k}:FAIL`, url: r.url().slice(0, 140), failure: r.failure()?.errorText ?? 'unknown', tMs: now() });
+    // ANY failed request (worklet asset, websocket, cross-origin) — catches blocked sub-resources.
+    allRequestFailures.push({ url: r.url().slice(0, 160), failure: r.failure()?.errorText ?? 'unknown', tMs: now() });
+  });
+  // Capture the FULL console untruncated (prod-MODE logger level is 'warn', so engine logger.warn/error
+  // DO reach console). The prior run truncated the leaf error via slice(-40); capture everything now.
+  page.on('console', (m) => { consoleLog.push({ type: m.type(), text: m.text().slice(0, 600), tMs: now() }); });
+  page.on('pageerror', (e) => consoleLog.push({ type: 'pageerror', text: `${e.name}: ${e.message}`.slice(0, 600), tMs: now() }));
+
+  // App-logger-independent global error capture (installed before navigation).
+  await page.addInitScript(() => {
+    const w = window as unknown as { __DIAG_ERRORS__?: Array<Record<string, unknown>> };
+    w.__DIAG_ERRORS__ = [];
+    window.addEventListener('error', (e) => {
+      w.__DIAG_ERRORS__!.push({ kind: 'window.onerror', message: String(e.message), filename: (e as ErrorEvent).filename, lineno: (e as ErrorEvent).lineno });
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const r = (e as PromiseRejectionEvent).reason;
+      w.__DIAG_ERRORS__!.push({ kind: 'unhandledrejection', message: String((r && (r as Error).message) || r), name: r && (r as Error).name });
+    });
+  });
 
   // ---- reproduce :285 setup up to the Start click ----
   await injectAlignedFixtureAudio(page, HARVARD_BENCHMARK_AUDIO);
@@ -143,6 +184,19 @@ test('DIAG :285 Cloud start sequence — capture, do not hang on token', async (
     await page.waitForTimeout(1_000);
   }
 
+  // App-logger-independent global errors captured in-page.
+  const diagErrors = await page.evaluate(() => {
+    const w = window as unknown as { __DIAG_ERRORS__?: Array<Record<string, unknown>> };
+    return w.__DIAG_ERRORS__ ?? [];
+  }).catch(() => [] as Array<Record<string, unknown>>);
+
+  // Emit the FULL console + errors + sentry exceptions as individual prefixed lines so they can be
+  // extracted from the CI job log without JSON truncation.
+  for (const c of consoleLog) console.log(`DIAG285_CON|${c.type}|${c.tMs}|${c.text.replace(/\n/g, ' ⏎ ')}`);
+  for (const e of diagErrors) console.log(`DIAG285_ERR|${JSON.stringify(e)}`);
+  for (const s of sentryExceptions) console.log(`DIAG285_SENTRY|${s.type}: ${s.value}|frames=${s.topFrames.join(' <- ')}|ctx=${JSON.stringify(s.ctx ?? null)}`);
+  for (const f of allRequestFailures) console.log(`DIAG285_REQFAIL|${f.tMs}|${f.failure}|${f.url}`);
+
   const report = {
     scenario: ':285 Pro Cloud-start (diagnostic reproduction)',
     baseUrl: process.env.BASE_URL ?? null,
@@ -151,7 +205,10 @@ test('DIAG :285 Cloud start sequence — capture, do not hang on token', async (
     trajectory,
     tokenRequestMade: net.some((n) => n.kind.startsWith('TOKEN')),
     network: net,
-    consoleTail: consoleLog.slice(-40),
+    diagErrors,
+    sentryExceptions,
+    allRequestFailures,
+    consoleFull: consoleLog,
     // Classification hint (owner's decision tree)
     classification:
       net.some((n) => n.kind.startsWith('TOKEN:FAIL')) ? 'TOKEN_REQUEST_FAILED (CORS/network — check headers/CORS)' :
