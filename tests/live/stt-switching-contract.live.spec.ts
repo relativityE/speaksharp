@@ -109,18 +109,29 @@ test.describe.serial('Live STT switching contract @live', () => {
     // #960 :108 investigation: capture the check-usage-limit edge-function request/response so we can
     // see, on Preview vs Prod, the origin, HTTP status, and the availability fields the app resolves.
     const usageLimitEvents: Array<Record<string, unknown>> = [];
+    const entitlementRequests: Array<Record<string, unknown>> = [];
+    const entitlementFailures: Array<Record<string, unknown>> = [];
+    const consoleErrors: string[] = [];
+    const isEnt = (url: string) => /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
+    const shortPath = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };
     page.on('response', async (response) => {
       const url = response.url();
-      // All Supabase API calls (auth/rest/rpc/functions) — NOT app assets — so we see exactly which
-      // entitlement call the free user makes and which (if any) fails.
       if (!/\/(auth|rest|rpc|functions)\/v1\//i.test(url) && !/\.supabase\./i.test(url)) return;
-      const isEntitlement = /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
       let body: unknown = null;
-      // Only read bodies for entitlement endpoints (availability flags, non-sensitive); skip others.
-      if (isEntitlement) { try { body = await response.json(); } catch { /* ignore */ } }
-      let pathname = url;
-      try { pathname = new URL(url).pathname; } catch { /* keep url */ }
-      usageLimitEvents.push({ path: pathname, status: response.status(), isEntitlement, body });
+      if (isEnt(url)) { try { body = await response.json(); } catch { /* ignore */ } }
+      usageLimitEvents.push({ path: shortPath(url), status: response.status(), isEntitlement: isEnt(url), body });
+    });
+    // #964: the missing failure path — a request that never returns a response (CORS preflight,
+    // network, edge-function error) fires 'requestfailed', not 'response'.
+    page.on('request', (req) => { if (isEnt(req.url())) entitlementRequests.push({ path: shortPath(req.url()), method: req.method() }); });
+    page.on('requestfailed', (req) => {
+      if (!isEnt(req.url())) return;
+      entitlementFailures.push({ path: shortPath(req.url()), method: req.method(), failure: req.failure()?.errorText ?? null });
+    });
+    page.on('console', (msg) => {
+      if (msg.type() !== 'error' && msg.type() !== 'warning') return;
+      const t = msg.text();
+      if (/usage|entitlement|check-?usage|private|sample|CORS|Access-Control|Failed to fetch|FunctionsError|invoke/i.test(t)) consoleErrors.push(`[${msg.type()}] ${t.slice(0, 220)}`);
     });
     const freeSampleUser = await createLiveUser(admin, `stt-switching-free-sample-${RUN_ID}@example.com`, {
       subscription_status: 'free',
@@ -158,6 +169,11 @@ test.describe.serial('Live STT switching contract @live', () => {
     const userIdHint = await getSignedInUserId(page).catch(() => null);
     const privateDisabled = await isModeDisabled(page, 'private').catch(() => null);
     const cloudDisabled = await isModeDisabled(page, 'cloud').catch(() => null);
+    // #964: is the real edge-function fetcher being overridden by an injected E2E dep on this build?
+    const e2eDeps = await page.evaluate(() => {
+      const w = window as unknown as { __E2E_DEPS__?: { fetchUsageLimit?: unknown } };
+      return { present: Boolean(w.__E2E_DEPS__), hasFetchUsageLimit: Boolean(w.__E2E_DEPS__?.fetchUsageLimit) };
+    }).catch(() => ({ present: null, hasFetchUsageLimit: null }));
     console.log(`LIVE_108_ENTITLEMENT_DIAG ${JSON.stringify({
       baseUrl: BASE_URL,
       seededUserId: freeSampleUser.id ?? null,
@@ -165,6 +181,10 @@ test.describe.serial('Live STT switching contract @live', () => {
       resolvedPrivateDisabled: privateDisabled,
       resolvedCloudDisabled: cloudDisabled,
       seeded: { subscription_status: 'free', private_sample_limit_seconds: 300, private_sample_seconds_used: 0, private_sample_completed_at: null },
+      e2eDeps,
+      entitlementRequestsCreated: entitlementRequests,
+      entitlementRequestsFailed: entitlementFailures,
+      consoleErrors,
       usageLimitEvents,
     })}`);
 
