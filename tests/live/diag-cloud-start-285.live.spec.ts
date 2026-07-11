@@ -27,8 +27,11 @@ const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const E2E_PRO_PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
 // Reproduced from stt-switching-contract.live.spec.ts (signIn is local to that spec).
+// RUN #2: ?testMode=true + __SS_E2E__ (set via addInitScript) raises the pino logger to 'info' on the
+// deployed build (TestFlags.ts:108-114), surfacing the info-level Cloud start trace. ENV.isE2E stays
+// FALSE on production-MODE builds, so the REAL engine + REAL token path are preserved (no mock).
 async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/auth/signin');
+  await page.goto('/auth/signin?testMode=true');
   await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('email-input').fill(email);
   await page.getByTestId('password-input').fill(password);
@@ -128,7 +131,12 @@ test('DIAG :285 Cloud start sequence — capture, do not hang on token', async (
   page.on('pageerror', (e) => consoleLog.push({ type: 'pageerror', text: `${e.name}: ${e.message}`.slice(0, 600), tMs: now() }));
 
   // App-logger-independent global error capture (installed before navigation).
+  // RUN #2: also set __SS_E2E__ so the deployed build's TestFlags promotes the pino logger to 'info'
+  // (with ?testMode=true in the first navigation). ENV.isE2E stays false (production MODE), so this only
+  // raises log verbosity — it does NOT flip the engine/token path to any mock. bridge.pushEvent is left
+  // undefined, so pushE2EEvent is a safe no-op.
   await page.addInitScript(() => {
+    (window as unknown as { __SS_E2E__?: { isActive: boolean } }).__SS_E2E__ = { isActive: true };
     const w = window as unknown as { __DIAG_ERRORS__?: Array<Record<string, unknown>> };
     w.__DIAG_ERRORS__ = [];
     window.addEventListener('error', (e) => {
