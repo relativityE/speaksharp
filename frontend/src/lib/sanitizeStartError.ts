@@ -65,3 +65,23 @@ export function sanitizeStartError(err: unknown): SanitizedLeafError | null {
 
   return { name, message, frames };
 }
+
+/**
+ * Builds a REDACTED `Error` clone suitable to attach as an exception `cause`, so Sentry's linked-error
+ * serialization can only ever see the scrubbed name/message/stack — never the raw leaf. Returns null
+ * when there is nothing to report.
+ *
+ * This is the ONLY value that should be attached as the cause of a Sentry-captured wrapper: attaching
+ * the raw leaf would let Sentry serialize its raw message/stack, bypassing this scrubbing.
+ */
+export function toSanitizedCause(err: unknown): Error | null {
+  const s = sanitizeStartError(err);
+  if (!s) return null;
+  const cause = new Error(s.message || 'Recording start failed');
+  cause.name = s.name;
+  // Rebuild the stack from already-scrubbed frames only (or drop it). Never reuse the raw `.stack`.
+  cause.stack = s.frames.length
+    ? [`${cause.name}: ${cause.message}`, ...s.frames].join('\n')
+    : undefined;
+  return cause;
+}

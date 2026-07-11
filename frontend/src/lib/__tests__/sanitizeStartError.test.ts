@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeStartError } from '../sanitizeStartError';
+import { sanitizeStartError, toSanitizedCause } from '../sanitizeStartError';
 
 describe('sanitizeStartError', () => {
   it('preserves a technical engine-start leaf message (worklet failure)', () => {
@@ -73,25 +73,55 @@ describe('sanitizeStartError', () => {
   });
 });
 
-describe('engine-start wrapper/cause contract', () => {
-  it('wrapper preserves its own message AND carries the leaf as cause; sanitize extracts the leaf with no PII', () => {
-    // Mirrors SpeechRuntimeController: wrapper with the leaf attached as `cause`.
-    const leaf = new Error("Unable to load a worklet's module.");
+describe('toSanitizedCause — the ONLY thing attached as wrapper.cause (privacy boundary)', () => {
+  it('produces a REDACTED clone (Error), never the raw leaf object', () => {
+    const raw = new Error("Unable to load a worklet's module.");
+    const cause = toSanitizedCause(raw);
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause).not.toBe(raw); // must be a clone, not the raw reference
+  });
+
+  it('strips email/token/query from BOTH the cause message and stack (AC #4)', () => {
+    // A "dirty" leaf that carries PII/secret-shaped material in message AND stack.
+    const raw = new Error('start failed for akin.oyedele@gmail.com using ?apikey=SECRETVALUE123');
+    raw.stack = [
+      'Error: start failed for akin.oyedele@gmail.com',
+      '  at fetchToken (https://app/main.js:1:2?token=OpaqueStackTokenValue0123456789)',
+      '  at start (https://app/main.js:3:4)',
+    ].join('\n');
+
+    const cause = toSanitizedCause(raw)!;
+    const serialized = `${cause.name}\n${cause.message}\n${cause.stack ?? ''}`;
+
+    // The raw sensitive material must NOT survive into the cause (what Sentry serializes).
+    expect(serialized).not.toContain('akin.oyedele@gmail.com');
+    expect(serialized).not.toContain('SECRETVALUE123');
+    expect(serialized).not.toContain('OpaqueStackTokenValue0123456789');
+    expect(serialized).toContain('[email]');
+    expect(serialized).toContain('?[redacted]');
+  });
+
+  it('still preserves the useful technical leaf (worklet module load failure)', () => {
+    const cause = toSanitizedCause(new Error("Unable to load a worklet's module."))!;
+    expect(cause.message).toBe("Unable to load a worklet's module.");
+  });
+
+  it('returns null when there is nothing to report', () => {
+    expect(toSanitizedCause(null)).toBeNull();
+    expect(toSanitizedCause(undefined)).toBeNull();
+  });
+
+  it('wrapper contract: generic wrapper message + sanitized cause (mirrors SpeechRuntimeController)', () => {
+    const rawLeaf = new Error('boom for user@example.com');
     const wrapper = new Error('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED');
-    (wrapper as Error & { cause?: unknown }).cause = leaf;
+    const safeCause = toSanitizedCause(rawLeaf);
+    if (safeCause) (wrapper as Error & { cause?: unknown }).cause = safeCause;
 
-    // AC: the wrapper itself still captures (unchanged message/identity).
+    // Wrapper still captures with its own generic message.
     expect(wrapper.message).toBe('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED');
-    // AC: the cause contains the leaf.
-    expect((wrapper as Error & { cause?: unknown }).cause).toBe(leaf);
-
-    // Mirrors useSessionLifecycle: sanitized context extracted from the cause.
-    const sanitized = sanitizeStartError((wrapper as Error & { cause?: unknown }).cause);
-    expect(sanitized!.message).toBe("Unable to load a worklet's module.");
-
-    // AC #4: no transcript/audio/token/email/PII in the sanitized payload.
-    const blob = JSON.stringify(sanitized);
-    expect(blob).not.toMatch(/@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/); // no email
-    expect(blob).not.toMatch(/Bearer\s+\S+/i);                  // no bearer token
+    // The attached cause is the sanitized clone — NOT the raw leaf.
+    expect((wrapper as Error & { cause?: unknown }).cause).toBe(safeCause);
+    expect((wrapper as Error & { cause?: unknown }).cause).not.toBe(rawLeaf);
+    expect((safeCause as Error).message).not.toContain('user@example.com');
   });
 });
