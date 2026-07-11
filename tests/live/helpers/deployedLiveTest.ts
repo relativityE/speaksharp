@@ -33,7 +33,25 @@ export const test = base.extend({
         (url) => { try { return url.host === baseHost; } catch { return false; } },
         async (route) => {
           const request = route.request();
-          await route.continue({ headers: { ...request.headers(), 'x-vercel-protection-bypass': bypassSecret } });
+          await route.continue({
+            headers: {
+              ...request.headers(),
+              'x-vercel-protection-bypass': bypassSecret,
+              // #963 worklet fix: also ask Vercel to persist an ORIGIN-SCOPED bypass cookie. Header
+              // injection alone does NOT cover `AudioWorklet.addModule('/audio/audio-processor.worklet.js')`
+              // — that module is fetched by the browser's internal worklet loader, which bypasses this
+              // route handler, so on the SSO-protected preview it received no bypass and returned a
+              // non-JS challenge → DOMException "Unable to load a worklet's module." → Cloud/Private mic
+              // start FAILED. Setting the cookie on these routed (navigation/XHR) requests makes the
+              // browser attach it automatically to the non-routed worklet sub-resource fetch.
+              //
+              // SAFETY (vs the #964 GLOBAL-header leak): this header is added ONLY on the base-host route,
+              // and the resulting cookie is domain-scoped by the browser to the preview host — so it is
+              // NEVER sent cross-origin to Supabase/AssemblyAI. `samesitenone` so it is included in the
+              // worklet fetch context. A green `:108` (check-usage-limit CORS) in the same run proves no leak.
+              'x-vercel-set-bypass-cookie': 'samesitenone',
+            },
+          });
         },
       );
     }
