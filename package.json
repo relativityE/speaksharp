@@ -61,6 +61,7 @@
     "ci:full": "pnpm ci:local",
     "ci:local": "node scripts/run-ci.mjs --full --write-quality-metrics=false",
     "ops:health": "node scripts/ops-health.mjs",
+    "billing:freeze-check": "node scripts/billing-freeze-check.mjs",
     "rc:sast:secrets": "node scripts/rc-secret-scan.mjs",
     "rc:dast:local": "cross-env BASE_URL= pnpm build:test && cross-env BASE_URL= pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts tests/e2e/analytics-truth.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-dast-local",
     "verify:test-users": "node scripts/verify-test-users.mjs",
