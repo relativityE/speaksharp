@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Sparkles, ArrowRight } from 'lucide-react';
 import { HeroStatsDashboard } from './HeroStatsDashboard';
-import { trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
+import { trackConversionCtaClicked, trackConversionCtaViewed, trackLandingPreviewClicked } from '@/services/conversionFunnel';
 import { useEffect } from 'react';
 
 const containerVariants = {
@@ -32,7 +32,6 @@ const itemVariants = {
 export const HeroSection = () => {
   useEffect(() => {
     trackConversionCtaViewed({ source: 'hero_primary' });
-    trackConversionCtaViewed({ source: 'hero_feedback' });
   }, []);
 
   return (
@@ -85,7 +84,7 @@ export const HeroSection = () => {
                   </Link>
                 </Button>
                 <Button variant="secondary" size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
-                  <a href="#see-feedback" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
+                  <a href="#see-feedback" onClick={() => trackLandingPreviewClicked()}>
                     See sample feedback
                   </a>
                 </Button>
