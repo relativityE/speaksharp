@@ -1,4 +1,5 @@
-import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { type Page, type TestInfo } from '@playwright/test';
+import { test, expect } from './helpers/deployedLiveTest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
@@ -9,8 +10,9 @@ import {
   preparePrivateModelIfPrompted,
   selectBenchmarkMode,
 } from './helpers/benchmark-utils';
-import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { HARVARD_BENCHMARK_AUDIO, HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 import { evaluateTranscriptFidelity, HARVARD_FIXTURE_FIDELITY } from './helpers/transcriptFidelity';
+import { injectAlignedFixtureAudio, resetFixtureAudioToStart, getFixtureGetUserMediaCalls } from './helpers/fixtureAudioStream';
 
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
@@ -105,6 +107,33 @@ test.describe.serial('Live STT switching contract @live', () => {
   // (check_usage_limit: private_sample_available = tier<>'pro' AND completed_at IS NULL
   //  AND used < limit AND session_id IS NULL.)
   test('Free user with an UNUSED Private sample: Private enabled, Cloud disabled', async ({ page }) => {
+    // #960 :108 investigation: capture the check-usage-limit edge-function request/response so we can
+    // see, on Preview vs Prod, the origin, HTTP status, and the availability fields the app resolves.
+    const usageLimitEvents: Array<Record<string, unknown>> = [];
+    const entitlementRequests: Array<Record<string, unknown>> = [];
+    const entitlementFailures: Array<Record<string, unknown>> = [];
+    const consoleErrors: string[] = [];
+    const isEnt = (url: string) => /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
+    const shortPath = (url: string) => { try { return new URL(url).pathname; } catch { return url; } };
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (!/\/(auth|rest|rpc|functions)\/v1\//i.test(url) && !/\.supabase\./i.test(url)) return;
+      let body: unknown = null;
+      if (isEnt(url)) { try { body = await response.json(); } catch { /* ignore */ } }
+      usageLimitEvents.push({ path: shortPath(url), status: response.status(), isEntitlement: isEnt(url), body });
+    });
+    // #964: the missing failure path — a request that never returns a response (CORS preflight,
+    // network, edge-function error) fires 'requestfailed', not 'response'.
+    page.on('request', (req) => { if (isEnt(req.url())) entitlementRequests.push({ path: shortPath(req.url()), method: req.method() }); });
+    page.on('requestfailed', (req) => {
+      if (!isEnt(req.url())) return;
+      entitlementFailures.push({ path: shortPath(req.url()), method: req.method(), failure: req.failure()?.errorText ?? null });
+    });
+    page.on('console', (msg) => {
+      if (msg.type() !== 'error' && msg.type() !== 'warning') return;
+      const t = msg.text();
+      if (/usage|entitlement|check-?usage|private|sample|CORS|Access-Control|Failed to fetch|FunctionsError|invoke/i.test(t)) consoleErrors.push(`[${msg.type()}] ${t.slice(0, 220)}`);
+    });
     const freeSampleUser = await createLiveUser(admin, `stt-switching-free-sample-${RUN_ID}@example.com`, {
       subscription_status: 'free',
       trial_started_at: '2024-01-01T00:00:00.000Z',
@@ -133,6 +162,33 @@ test.describe.serial('Live STT switching contract @live', () => {
 
     await modeSelect.click();
     await expect(page.getByTestId('stt-mode-native')).toBeVisible({ timeout: 10_000 });
+
+    // #960 :108 investigation: let entitlement resolve, then LOG the check-usage-limit evidence +
+    // resolved mode availability + user id BEFORE the (Preview-failing) assertion, so we capture it
+    // whether or not the assertion passes. Compared Preview-vs-Prod to classify the difference.
+    await page.waitForTimeout(9_000);
+    const userIdHint = await getSignedInUserId(page).catch(() => null);
+    const privateDisabled = await isModeDisabled(page, 'private').catch(() => null);
+    const cloudDisabled = await isModeDisabled(page, 'cloud').catch(() => null);
+    // #964: is the real edge-function fetcher being overridden by an injected E2E dep on this build?
+    const e2eDeps = await page.evaluate(() => {
+      const w = window as unknown as { __E2E_DEPS__?: { fetchUsageLimit?: unknown } };
+      return { present: Boolean(w.__E2E_DEPS__), hasFetchUsageLimit: Boolean(w.__E2E_DEPS__?.fetchUsageLimit) };
+    }).catch(() => ({ present: null, hasFetchUsageLimit: null }));
+    console.log(`LIVE_108_ENTITLEMENT_DIAG ${JSON.stringify({
+      baseUrl: BASE_URL,
+      seededUserId: freeSampleUser.id ?? null,
+      signedInUserIdHint: userIdHint,
+      resolvedPrivateDisabled: privateDisabled,
+      resolvedCloudDisabled: cloudDisabled,
+      seeded: { subscription_status: 'free', private_sample_limit_seconds: 300, private_sample_seconds_used: 0, private_sample_completed_at: null },
+      e2eDeps,
+      entitlementRequestsCreated: entitlementRequests,
+      entitlementRequestsFailed: entitlementFailures,
+      consoleErrors,
+      usageLimitEvents,
+    })}`);
+
     // The sample makes Private available; the gate resolves after the usage-limit fetch, so poll.
     await expectModeEnabled(page, 'private');
     // Cloud is always Pro-only → disabled for Free.
@@ -230,6 +286,10 @@ test.describe.serial('Live STT switching contract @live', () => {
       test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
       test.setTimeout(180_000);
       installRuntimeDiagnostics(page);
+      // #285: Cloud recording must start deterministically. The raw Chrome fake-audio device starts
+      // Cloud on prod but stalls at "Mic ready" (no assemblyai-token request) on the Preview build;
+      // an injected position-0 fixture stream starts it reliably (same as the metadata test :245).
+      await injectAlignedFixtureAudio(page, HARVARD_BENCHMARK_AUDIO);
 
       await signIn(page, E2E_PRO_EMAIL!, E2E_PRO_PASSWORD!);
       await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
@@ -246,6 +306,13 @@ test.describe.serial('Live STT switching contract @live', () => {
       test.setTimeout(300_000);
       installRuntimeDiagnostics(page);
 
+      // #960: align the fake-audio fixture to position 0 for EVERY recording in this test. Chrome's
+      // process-global --use-file-for-fake-audio-capture device free-runs the file, so the engine that
+      // records SECOND (Private, after Cloud + model prep) would otherwise sample it mid-stream and
+      // fail the #892 opening-fidelity gate on loop phase rather than on a product defect. With this
+      // override both Cloud and Private start at "The stale smell…", so #892 tests real capture-from-start.
+      await injectAlignedFixtureAudio(page, HARVARD_BENCHMARK_AUDIO);
+
       // Lighter Private path: fulfill the /models/ fetch with the APP-SHIPPED model bytes
       // (frontend/public/models/whisper-base.en, the same assets the app hosts at {origin}/models/),
       // fed into the REAL engine load path. This does NOT reuse browser Cache Storage/IndexedDB from a
@@ -260,6 +327,9 @@ test.describe.serial('Live STT switching contract @live', () => {
         window.REAL_WHISPER_TEST = true;
         window.__FORCE_TRANSFORMERS_JS__ = true;
         window.__STT_LOAD_TIMEOUT__ = 180000;
+        // #960 Track-1: enable the Private timeline trace so we can read exact capture/trim samples
+        // (whole_utterance_silence_trimmed: fullSamples/keptSamples/leadingTrimmedSamples). Diagnostic only.
+        (window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__ = true;
       });
 
       page.on('console', (message) => {
@@ -510,6 +580,9 @@ async function recordCloudSession(page: Page, options: { assertSwitchLock: boole
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
 
+  // #960 P1: force the fixture to position 0 for THIS recording regardless of mic reuse.
+  await resetFixtureAudioToStart(page);
+
   const tokenResponsePromise = page.waitForResponse((response) =>
     response.url().includes('/functions/v1/assemblyai-token') &&
     response.request().method() === 'POST'
@@ -536,14 +609,52 @@ async function recordCloudSession(page: Page, options: { assertSwitchLock: boole
 async function recordPrivateSession(page: Page) {
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeEnabled({ timeout: 90_000 });
+  // #960 P1: force the fixture to position 0 for THIS recording regardless of mic reuse (the app may
+  // reuse Cloud's warm mic, so overriding getUserMedia alone would leave Private sampling mid-stream).
+  await resetFixtureAudioToStart(page);
+  // #960 Track-1 instrumentation: capture-vs-decode timing (diagnostic only, no product change).
+  const recordClickAtMs = Date.now();
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
   const recordingStartedAt = Date.now();
   const transcript = await waitForFixtureTranscript(page, 'private', 120_000);
+  const firstTranscriptAtMs = Date.now();
   await waitForSaveableRecordingDuration(page, recordingStartedAt);
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
   await expect(page.getByTestId('status-message-text')).toContainText(/Session saved/i, { timeout: 45_000 });
+  // Read the always-on Private timing summary + the trace timeline AFTER finalize
+  // (decodedUtteranceSeconds / whole_utterance_silence_trimmed are set at commit).
+  const capture = await page.evaluate(() => {
+    const w = window as unknown as {
+      __PRIVATE_TIMING__?: Record<string, unknown>;
+      __PRIVATE_STT_TIMELINE__?: Array<{ event: string; perfMs: number; payload?: Record<string, unknown> }>;
+    };
+    const timeline = w.__PRIVATE_STT_TIMELINE__ ?? [];
+    const last = (name: string) => timeline.filter((e) => e.event === name).slice(-1)[0]?.payload ?? null;
+    return {
+      timing: w.__PRIVATE_TIMING__ ?? null,
+      streamStart: last('stream_start'),
+      silenceTrimmed: last('whole_utterance_silence_trimmed'),
+      commitStart: last('whole_utterance_commit_start'),
+    };
+  });
+  const gumCalls = await getFixtureGetUserMediaCalls(page);
+  console.log(`LIVE_PRIVATE_CAPTURE_TIMING ${JSON.stringify({
+    fixtureSeconds: 34.5,
+    // getUserMedia calls across the whole test: 1 = mic REUSED for Private (position-0 forced via reset);
+    // 2+ = mic REACQUIRED per recording. Resolves the P1 mic-reuse determinism question.
+    getUserMediaCalls: gumCalls,
+    msClickToRecording: recordingStartedAt - recordClickAtMs,
+    msRecordingToFirstTranscript: firstTranscriptAtMs - recordingStartedAt,
+    // DECISION KEY — timing.utteranceSeconds = RAW accumulated buffer (pre-trim);
+    // timing.decodedUtteranceSeconds = kept audio SENT TO WHISPER (post leading/trailing trim);
+    // silenceTrimmed.leadingTrimmedSamples/keptSamples/fullSamples = exact trim math.
+    // decoded << 34.5 AND utterance << 34.5 => CAPTURE LOSS (→ MicStream fix);
+    // utterance ~34.5 but decoded << 34.5 => TRIM removed it (→ diagnose trim, do NOT touch MicStream);
+    // both ~34.5 => DECODE omitted the opening (→ diagnose decode).
+    ...capture,
+  })}`);
   await waitForRecordingSettled(page);
   return transcript;
 }

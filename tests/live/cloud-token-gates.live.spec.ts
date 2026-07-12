@@ -1,4 +1,5 @@
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { request as playwrightRequest } from '@playwright/test';
+import { test, expect } from './helpers/deployedLiveTest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
