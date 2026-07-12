@@ -2,9 +2,15 @@ import logger from '../../../lib/logger';
 import { MicStream, MicStreamOptions } from './types';
 import { ENV } from '../../../config/TestFlags';
 import { PRIV_CLOUD_AUDIO } from '../sttConstants';
+import { FrameReplayBuffer } from './frameReplayBuffer';
 
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
+
+// #960: how much recent mic audio to retain for replay to a late onFrame subscriber. Sized well
+// beyond the worst observed subscribe latency (~6-9s on a loaded CI runner) so the opening is never
+// dropped, while staying bounded (~15s of 16kHz mono Float32 ≈ 0.96 MB).
+const REPLAY_BUFFER_SECONDS = 15;
 
 // Return worklet URL from public/ directory
 // AudioWorklets MUST be loaded from real HTTP URLs, not bundled data URLs
@@ -166,9 +172,18 @@ export async function createMicStreamImpl(
   });
 
   const listeners = new Set<(frame: Float32Array) => void>();
+  // #960: bounded replay ring so a LATE onFrame subscriber (Private's saved-utterance listener attaches
+  // only after PrivateWhisper.onStart's setup) still receives the frames emitted since mic-create.
+  // Without it, worklet frames produced before the late subscribe are dropped → capture loss of the
+  // opening on slow-startup environments (measured 28.3s buffer on a 34.5s fixture, no trim). Bounded to
+  // REPLAY_BUFFER_SECONDS so long sessions never grow unbounded; well beyond the observed ~6-9s gap.
+  const replayBuffer = new FrameReplayBuffer(Math.round(sampleRate * REPLAY_BUFFER_SECONDS));
   node.port.onmessage = (e: MessageEvent<Float32Array>) => {
     // e.data is Float32Array at 16kHz mono
-    for (const cb of listeners) cb(e.data);
+    const frame = e.data;
+    // Store a copy so a listener that transfers/mutates the live frame cannot corrupt the replay ring.
+    replayBuffer.push(frame.slice(0));
+    for (const cb of listeners) cb(frame);
   };
 
   const gainNode = audioCtx.createGain();
@@ -176,6 +191,7 @@ export async function createMicStreamImpl(
   source.connect(node).connect(gainNode).connect(audioCtx.destination); // destination keeps graph alive
 
   const stopAndClose = () => {
+    replayBuffer.clear(); // #960: release retained frames on teardown
     try {
       source.disconnect();
       node.disconnect();
@@ -192,6 +208,9 @@ export async function createMicStreamImpl(
     state: 'ready',
     sampleRate,
     onFrame: (cb: (frame: Float32Array) => void) => {
+      // #960: replay frames buffered since mic-create (bounded) so a late subscriber does not miss the
+      // opening, THEN attach for live frames. Replay is synchronous, so no live frame interleaves.
+      replayBuffer.replayTo(cb);
       listeners.add(cb);
       return () => listeners.delete(cb);
     },

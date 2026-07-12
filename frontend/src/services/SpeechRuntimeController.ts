@@ -1,6 +1,7 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
+import { toSanitizedCause } from '@/lib/sanitizeStartError';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
@@ -1769,7 +1770,20 @@ export class SpeechRuntimeController {
                     ? service.getState()
                     : (service.fsm?.is('RECORDING') ? 'RECORDING' : 'UNKNOWN');
                 if (serviceState !== 'RECORDING') {
-                    throw new Error(`TRANSCRIPTION_START_DID_NOT_RECORD:${serviceState}`);
+                    // #P1-observability: surface the underlying engine-start leaf (mic / AudioWorklet /
+                    // engine-init) as the wrapper's `cause` so the app-layer Sentry capture
+                    // (useSessionLifecycle) shows the ROOT cause, not only this generic wrapper.
+                    //
+                    // PRIVACY: attach ONLY a REDACTED clone. The raw leaf must never become the cause —
+                    // Sentry serializes Error.cause as a linked exception, which would ship the raw
+                    // message/stack and bypass sanitizeStartError. toSanitizedCause() scrubs
+                    // name/message/stack first. `.cause` is set as a property (not the ctor option) to
+                    // stay ES2020-safe. The raw leaf stays inside TranscriptionService (getStartError).
+                    const wrapper = new Error(`TRANSCRIPTION_START_DID_NOT_RECORD:${serviceState}`);
+                    const rawLeaf = (service as { getStartError?: () => Error | null }).getStartError?.();
+                    const safeCause = toSanitizedCause(rawLeaf);
+                    if (safeCause) (wrapper as Error & { cause?: unknown }).cause = safeCause;
+                    throw wrapper;
                 }
                 this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
