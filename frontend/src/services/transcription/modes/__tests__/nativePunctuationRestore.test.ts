@@ -1,0 +1,154 @@
+import { describe, it, expect, afterEach, vi } from 'vitest';
+
+vi.unmock('../nativeTranscriptFormatter');
+vi.unmock('../nativeDeterministicCleanup');
+vi.unmock('../nativePunctuationRestore');
+
+import {
+  restoreNativePunctuation,
+  isNativePunctuationRestoreEnabled,
+  NATIVE_PUNCTUATION_RESTORE_VERSION,
+} from '../nativePunctuationRestore';
+import {
+  registerNativeProductionFormatter,
+  assertNotPrivateMode,
+} from '../nativeDeterministicCleanup';
+import {
+  formatNativeTranscript,
+  registerNativeTranscriptFormatter,
+  isWordPreserving,
+  transcriptWordSequence,
+  getNativeFormatterTelemetry,
+  FORMATTER_LATENCY_BUDGET_MS,
+} from '../nativeTranscriptFormatter';
+
+afterEach(() => {
+  registerNativeTranscriptFormatter(null);
+});
+
+// A realistic run-on Native (Web Speech) transcript: near-punctuation-free, some
+// interior segment-start capitals, fillers present.
+const RUN_ON =
+  'so today i practiced my presentation about the quarterly results um i think it went well ' +
+  'but i need to work on my pacing you know i talked to Sarah about the feedback ' +
+  'Then we reviewed the slides one more time before the meeting';
+
+describe('restoreNativePunctuation — readability', () => {
+  it('adds internal sentence punctuation to run-on text', () => {
+    const out = restoreNativePunctuation(RUN_ON);
+    const periods = (out.match(/[.!?]/g) || []).length;
+    expect(periods).toBeGreaterThan(1); // more than just a trailing period
+    expect(out.endsWith('.')).toBe(true);
+    expect(out[0]).toBe(out[0].toUpperCase()); // sentence-initial capital
+  });
+
+  it('capitalizes sentence starts and standalone "i"', () => {
+    expect(restoreNativePunctuation('i finished the first section Then we moved on to questions'))
+      .toBe('I finished the first section. Then we moved on to questions.');
+  });
+
+  it('does NOT invent breaks at ambiguous lowercase words (well/so/and/then)', () => {
+    // "well" is an adverb, "so"/"then" connectives — breaking here would mislead.
+    expect(restoreNativePunctuation('i really wanted to finish the whole thing so we kept going'))
+      .toBe('I really wanted to finish the whole thing so we kept going.');
+    expect(restoreNativePunctuation('i think it went well but i need to work on it'))
+      .toBe('I think it went well but I need to work on it.');
+  });
+
+  it('does NOT invent a break in a long run-on that has no boundary signal', () => {
+    const words = Array.from({ length: 40 }, (_, i) => `word${i + 1}`).join(' ');
+    const out = restoreNativePunctuation(words);
+    expect((out.match(/\./g) || []).length).toBe(1); // only the terminal period — no invented breaks
+  });
+});
+
+describe('restoreNativePunctuation — proper-noun false-split guard', () => {
+  it('does NOT break before a capitalized word bound to a preposition/article', () => {
+    const out = restoreNativePunctuation('yesterday morning i talked to John about the whole plan');
+    expect(out).not.toMatch(/to\.\s+John/); // no "...to. John"
+    expect(out).toContain('to John');
+  });
+});
+
+describe('restoreNativePunctuation — word preservation (safety contract)', () => {
+  const inputs = [
+    RUN_ON,
+    'um so like you know basically i was literally just talking',
+    'i talked to John and Sarah about the New York trip',
+    '',
+    '7 seconds later we started again',
+  ];
+  it('never changes the word sequence (fillers included)', () => {
+    for (const input of inputs) {
+      const out = restoreNativePunctuation(input);
+      expect(isWordPreserving(input, out)).toBe(true);
+      expect(transcriptWordSequence(out)).toEqual(transcriptWordSequence(input));
+    }
+  });
+
+  it('preserves every filler token exactly', () => {
+    const out = restoreNativePunctuation('um i uh think like you know it was basically fine');
+    const seq = transcriptWordSequence(out);
+    for (const filler of ['um', 'uh', 'like', 'you', 'know', 'basically']) {
+      expect(seq).toContain(filler);
+    }
+  });
+
+  it('is idempotent (re-running does not add or move punctuation)', () => {
+    for (const input of inputs) {
+      const once = restoreNativePunctuation(input);
+      expect(restoreNativePunctuation(once)).toBe(once);
+    }
+  });
+});
+
+describe('nativePunctuationRestore — seam integration (raw-first / guard / fallback)', () => {
+  it('registers for Native mode and improves the saved transcript, word-preserving', async () => {
+    expect(isNativePunctuationRestoreEnabled()).toBe(true); // default on
+    registerNativeProductionFormatter('native');
+    const formatted = await formatNativeTranscript(RUN_ON);
+    expect(formatted).not.toBe(RUN_ON); // changed (punctuation added)
+    expect(isWordPreserving(RUN_ON, formatted)).toBe(true);
+    const t = getNativeFormatterTelemetry();
+    expect(t?.provider).toBe('deterministic-restore');
+    expect(t?.formatterVersion).toBe(NATIVE_PUNCTUATION_RESTORE_VERSION);
+    expect(t?.fallbackToRaw).toBe(false);
+    expect(t?.wordPreserving).toBe(true);
+  });
+
+  it('rejects a formatter that adds/removes/reorders words → keeps raw', async () => {
+    registerNativeTranscriptFormatter((raw) => `${raw} extra`);
+    expect(await formatNativeTranscript('hello world')).toBe('hello world');
+    expect(getNativeFormatterTelemetry()?.wordPreserving).toBe(false);
+    expect(getNativeFormatterTelemetry()?.errorCode).toBe('CLIENT_WORDS_CHANGED');
+  });
+
+  it('keeps raw when the restorer/provider throws', async () => {
+    registerNativeTranscriptFormatter(() => { throw new Error('boom'); });
+    expect(await formatNativeTranscript('hello world')).toBe('hello world');
+    expect(getNativeFormatterTelemetry()?.fallbackToRaw).toBe(true);
+  });
+
+  it('falls back to raw when the formatter exceeds the latency budget', async () => {
+    vi.useFakeTimers();
+    registerNativeTranscriptFormatter(
+      (raw) => new Promise<string>((resolve) => setTimeout(() => resolve(`${raw}.`), 20_000)),
+    );
+    const pending = formatNativeTranscript('hello world');
+    await vi.advanceTimersByTimeAsync(FORMATTER_LATENCY_BUDGET_MS + 10);
+    expect(await pending).toBe('hello world');
+    expect(getNativeFormatterTelemetry()?.errorCode).toBe('FORMATTER_TIMEOUT_CLIENT');
+    vi.useRealTimers();
+  });
+});
+
+describe('nativePunctuationRestore — Private privacy guard', () => {
+  it('Private mode can NEVER register the Native formatter', () => {
+    expect(() => assertNotPrivateMode('private')).toThrow(/Private/);
+    expect(() => registerNativeProductionFormatter('private')).toThrow(/Private/);
+  });
+
+  it('non-Native modes are a no-op (no formatter registered)', () => {
+    expect(registerNativeProductionFormatter('cloud')).toBeNull();
+  });
+});
