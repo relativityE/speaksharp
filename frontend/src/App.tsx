@@ -350,7 +350,12 @@ const App: React.FC = () => {
                       (middleware.js, OPS_STATUS_PASSWORD) — its sole production gate. It is intentionally
                       NOT behind InternalRoute so operators can reach it with the password without enabling
                       VITE_ENABLE_INTERNAL_ROUTES (which would also expose /design). */}
-                  <Route path="/admin/ops-status" element={<PageTransition><OpsStatusPage /></PageTransition>} />
+                  {/* SECURITY: `caseSensitive` so React Router (case-insensitive by default) cannot match
+                      case variants like /Admin/Ops-Status. The Vercel edge Basic-auth gate (middleware.js)
+                      only challenges the exact lowercase path, so without this a variant would render the
+                      ops page unauthenticated once InternalRoute was removed. Exact-case access stays
+                      edge-authed; variants fall through to NotFound. */}
+                  <Route path="/admin/ops-status" caseSensitive element={<PageTransition><OpsStatusPage /></PageTransition>} />
                   <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
                   <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />

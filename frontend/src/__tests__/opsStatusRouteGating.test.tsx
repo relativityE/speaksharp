@@ -79,3 +79,30 @@ describe('internal-routes gating — production posture (internal routes DISABLE
     expect(screen.queryByTestId('not-found-page')).not.toBeInTheDocument();
   });
 });
+
+// SECURITY (case-variant auth bypass): React Router is case-insensitive by default, and the edge
+// middleware only challenges the exact lowercase path, so without `caseSensitive` on the route a variant
+// like /Admin/Ops-Status would render the ops page unauthenticated once InternalRoute was removed.
+describe('ops-status route case-sensitivity (production posture)', () => {
+  beforeEach(() => {
+    mockAreInternalRoutesEnabled.mockReturnValue(false);
+  });
+
+  it('renders OpsStatusPage at the exact lowercase /admin/ops-status', async () => {
+    renderWithAllProviders(<App />, { route: '/admin/ops-status' });
+
+    expect(await screen.findByTestId('ops-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('not-found-page')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    '/Admin/Ops-Status',
+    '/ADMIN/OPS-STATUS',
+    '/admin/Ops-Status',
+  ])('does NOT render OpsStatusPage for case variant %s — caseSensitive route falls through to NotFound', async (route) => {
+    renderWithAllProviders(<App />, { route });
+
+    expect(await screen.findByTestId('not-found-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('ops-page')).not.toBeInTheDocument();
+  });
+});
