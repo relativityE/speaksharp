@@ -37,22 +37,22 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, ico
 const features = [
   {
     icon: <Mic className="size-8" />,
-    title: "Instant Free Practice",
-    description: "Start with Browser transcription for quick feedback. Accuracy depends on your browser and room, so Pro adds stronger paths when precision matters.",
+    title: "Quick browser practice",
+    description: "Start speaking in seconds. Browser mode is fastest, though punctuation and some filler-word capture may vary by browser.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
     icon: <BarChart3 className="size-8" />,
-    title: "Coaching That Goes Deeper",
-    description: "Review pacing, fillers, structure, vocabulary variety, and audience impact so practice becomes repeatable progress.",
+    title: "Feedback you can act on",
+    description: "See filler words, pace, structure, vocabulary variety, and Audience Impact so you know what to improve next.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
     icon: <ShieldCheck className="size-8" />,
-    title: "Private Transcription",
-    description: "Try one short Private sample, then continue with paid Early Access. It runs locally after one-time setup, keeping sensitive practice audio in your browser.",
+    title: "5-minute Private trial",
+    description: "Try a 5-minute on-device transcript for more complete practice feedback. Private runs in your browser after setup; longer recordings may take longer to finalize.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   }
@@ -71,13 +71,13 @@ export const FeaturesSection = () => {
         >
           <div className="space-y-3">
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-900">
-              Key Features
+              How it works
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-3">
-              Everything you need to <span className="text-amber-700">practice</span>
+              Start fast. Improve with <span className="text-amber-700">better feedback</span>.
             </h2>
             <p className="mt-3 max-w-[760px] text-lg font-medium leading-relaxed text-foreground/70">
-              SpeakSharp provides a suite of tools designed for focused speech practice, review, and coaching feedback.
+              Use quick browser practice to start, then try Private on-device transcription when transcript quality matters.
             </p>
           </div>
         </motion.div>

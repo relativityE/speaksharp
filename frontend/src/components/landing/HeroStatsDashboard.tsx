@@ -124,8 +124,8 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                             <Mic className="w-5 h-5 text-amber-700" />
                         </div>
                         <div>
-                            <div className="font-bold text-foreground">Live Demo Session</div>
-                            <div className="text-xs font-medium text-amber-700">Real-time analysis</div>
+                            <div className="font-bold text-foreground">Practice feedback preview</div>
+                            <div className="text-xs font-medium text-amber-700">See what to improve</div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-success/12 border border-success/25">
@@ -136,10 +136,10 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-4 mb-8">
-                    <StatCard value={clarityCount} suffix="%" label="Clarity" delay={0.1} colorClass="text-amber-700" />
-                    <StatCard value={fillersCount} label="Fillers" delay={0.2} colorClass="text-amber-700" />
-                    <StatCard value={wpmCount} label="WPM" delay={0.3} colorClass="text-amber-700" />
-                    <StatCard value={demoStats.duration} label="Duration" delay={0.4} colorClass="text-foreground" />
+                    <StatCard value={clarityCount} suffix="%" label="Audience Impact" delay={0.1} colorClass="text-amber-700" />
+                    <StatCard value={fillersCount} label="Filler Words" delay={0.2} colorClass="text-amber-700" />
+                    <StatCard value={wpmCount} label="Pace" delay={0.3} colorClass="text-amber-700" />
+                    <StatCard value="High" label="Transcript Quality" delay={0.4} colorClass="text-foreground" />
                 </div>
 
                 {/* Mini Bars Visualization */}
@@ -161,7 +161,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                     >
                         <Link to="/auth/signup">
                             <Mic className="w-5 h-5" />
-                            Start Practice Session
+                            Start free practice
                         </Link>
                     </Button>
                 </motion.div>
