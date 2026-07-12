@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { selectAuthoritativeRcRun } from './lib/authoritative-rc-run.mjs';
 
 const repo = process.env.GITHUB_REPOSITORY || 'relativityE/speaksharp';
 const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app').replace(/\/$/, '');
@@ -117,7 +118,7 @@ await row('GitHub API', 'Can we query repository metadata and release workflows?
   const body = await githubJson(`/repos/${repo}`, token);
   const checks = await Promise.all([
     { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
-    latestWorkflow(token, 'rc-gates.yml', 'rc'),
+    authoritativeRcStatus(token),
     latestWorkflow(token, 'ci.yml', 'ci'),
     latestWorkflow(token, 'canary.yml', 'canary'),
   ]);
@@ -237,6 +238,25 @@ async function latestWorkflow(token, workflowFile, label) {
     ok: run.conclusion === 'success',
     detail: `${label}=${run.conclusion ?? 'unknown'}`,
   };
+}
+
+// rc (release-candidate) health = the AUTHORITATIVE full Gate 3 run, NOT the single most-recent rc-gates
+// run. Diagnostic single-spec dispatches (and side-branch runs) must not flip the release-readiness
+// signal. Scan recent main-branch rc-gates runs and pick the first whose full live gate actually ran.
+async function authoritativeRcStatus(token) {
+  const body = await githubJson(
+    `/repos/${repo}/actions/workflows/rc-gates.yml/runs?branch=main&per_page=20`,
+    token,
+  );
+  const runs = body.workflow_runs ?? [];
+  const getJobs = async (runId) => {
+    const jobsBody = await githubJson(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=50`, token);
+    return jobsBody.jobs ?? [];
+  };
+  const result = await selectAuthoritativeRcRun(runs, getJobs);
+  return result.status
+    ? { status: result.status, detail: result.detail }
+    : { ok: result.ok, detail: result.detail };
 }
 
 async function edgePreflight(functionName) {
