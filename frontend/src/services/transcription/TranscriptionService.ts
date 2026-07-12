@@ -172,6 +172,11 @@ export default class TranscriptionService {
   private micFrameDisposer: (() => void) | null = null;
   private micFramePumpCount: number = 0;
   private micError: Error | null = null;
+  // Diagnostic-only leaf of a failed start (mic / AudioWorklet / AudioContext / engine-init). Held
+  // SEPARATELY from `lastError` on purpose: `lastError` drives the user-facing FAILED status copy, which
+  // must stay safe/generic — the raw leaf (e.g. "Unable to load a worklet's module.") is exposed ONLY via
+  // getStartError() for the controller to attach as the wrapper error's `cause` (→ Sentry), never to the UI.
+  private startError: Error | null = null;
   private watchdogTimer: NodeJS.Timeout | null = null;
   private isFrozen: boolean = false;
 
@@ -844,6 +849,15 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'MIC_ACQUIRED' });
     } catch (error) {
       this.micError = error as Error;
+      // #P1-observability: keep the diagnostic leaf so the controller can attach it as the wrapper's
+      // cause. logger.error surfaces it to the CONSOLE for live debugging (console breadcrumbs are
+      // dropped from Sentry by design — logRedaction — so this cannot leak transcript/PII there).
+      // Deliberately does NOT set lastError → user-facing FAILED copy stays safe/generic.
+      this.startError = error as Error;
+      logger.error(
+        { errName: (error as Error)?.name, errMessage: (error as Error)?.message },
+        '[TranscriptionService] mic/worklet acquisition failed during init — recording start will fail',
+      );
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       return { success: false };
     }
@@ -918,6 +932,9 @@ export default class TranscriptionService {
     this.assertAlive();
     this.options.userWords = userWords;
     if (runtimePolicy) await this.updatePolicy(runtimePolicy);
+    // #P1-observability: fresh diagnostic slate per start attempt so a stale leaf from a prior failed
+    // start can never be misattributed as the cause of a later, unrelated failure.
+    this.startError = null;
 
     if (this.fsm.is('CLEANING_UP')) {
       logger.warn('[TranscriptionService] startTranscription rejected - still cleaning up');
@@ -1098,6 +1115,13 @@ export default class TranscriptionService {
       return true;
     } catch (error) {
       this.micError = error as Error;
+      // #P1-observability: see init()'s catch above — keep the diagnostic leaf + console-log it, without
+      // touching lastError (user-facing copy stays generic).
+      this.startError = error as Error;
+      logger.error(
+        { errName: (error as Error)?.name, errMessage: (error as Error)?.message },
+        '[TranscriptionService] mic/worklet stream creation failed — recording start will fail',
+      );
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       return false;
     }
@@ -1470,6 +1494,13 @@ export default class TranscriptionService {
   public getSessionId(): string | null { return this.sessionId; }
 
   public getState(): TranscriptionState { return this.fsm.getState(); }
+
+  /**
+   * The diagnostic leaf error of the most recent failed start (mic / worklet / engine-init), or null.
+   * Read by SpeechRuntimeController to attach as the `cause` of the TRANSCRIPTION_START_DID_NOT_RECORD
+   * wrapper so the app-layer Sentry capture surfaces the root cause. NOT user-facing.
+   */
+  public getStartError(): Error | null { return this.startError; }
   public getMode(): TranscriptionMode | null { return this.mode; }
   public getPolicy(): TranscriptionPolicy { return this.policy; }
   public getTranscriptHistory(): HistorySegment[] { return this.transcriptHistory; }
@@ -1499,6 +1530,7 @@ export default class TranscriptionService {
     this.mode = null;
     this.isModeLocked = false;
     this.lastError = null;
+    this.startError = null;
     this.failureManager.resetFailureCount();
 
     this.sessionId = null;
@@ -1562,6 +1594,7 @@ export default class TranscriptionService {
     this.mode = null;
     this.isModeLocked = false;
     this.lastError = null;
+    this.startError = null;
     this.failureManager.resetFailureCount();
 
     // Clear Session State

@@ -9,6 +9,7 @@ import { publishTelemetry } from '@/services/telemetry/sessionTelemetryBus';
 import { toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { pushE2EEvent } from '@/lib/e2eProbe';
+import { sanitizeStartError } from '@/lib/sanitizeStartError';
 import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
@@ -373,14 +374,33 @@ export const useSessionLifecycle = () => {
                 const message = getStartFailureMessage(err, latestMode);
                 logger.error({ error: err, stack: err?.stack, mode: latestMode }, '[useSessionLifecycle] Failed to start recording');
                 Sentry.withScope((scope) => {
+                    // #P1-observability: surface the engine-start LEAF (mic / AudioWorklet / engine-init),
+                    // not just the generic TRANSCRIPTION_START_DID_NOT_RECORD wrapper. The controller
+                    // attaches the raw leaf as err.cause (Sentry links it in the exception chain); we ALSO
+                    // add a sanitized, PII-scrubbed context/tag so it is filterable without info-level traces.
+                    const wrapperMessage = err?.message ?? '';
+                    const serviceState = wrapperMessage.startsWith('TRANSCRIPTION_START_DID_NOT_RECORD:')
+                        ? wrapperMessage.slice('TRANSCRIPTION_START_DID_NOT_RECORD:'.length) || null
+                        : null;
+                    const startLeaf = sanitizeStartError((err as { cause?: unknown })?.cause);
                     scope.setTag('surface', 'recording_start');
+                    scope.setTag('failure_phase', 'recording_start');
                     scope.setTag('stt_mode', latestMode);
+                    if (startLeaf) scope.setTag('start_leaf_name', startLeaf.name);
+                    if (startLeaf) {
+                        scope.setContext('start_leaf', {
+                            name: startLeaf.name,
+                            message: startLeaf.message,
+                            frames: startLeaf.frames,
+                        });
+                    }
                     scope.setContext('recording_start', {
                         requestedMode,
                         latestMode,
                         canUseCloudStt,
                         canUsePrivateStt,
                         runtimeState,
+                        service_state: serviceState,
                         userTier: effectiveSubscriptionStatus,
                     });
                     Sentry.captureException(err);
