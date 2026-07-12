@@ -140,6 +140,10 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
+          # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
+          # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
+          # sends x-vercel-protection-bypass when this is set.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -167,6 +171,10 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' && github.event.inputs.paid_launch == 'true' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
+          # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
+          # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
+          # sends x-vercel-protection-bypass when this is set.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -198,6 +206,10 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
+          # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
+          # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
+          # sends x-vercel-protection-bypass when this is set.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}

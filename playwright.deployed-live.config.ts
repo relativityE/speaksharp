@@ -39,6 +39,9 @@ export default defineConfig({
     trace: 'on',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    // #964: the Vercel Protection Bypass is NOT a global header (that leaked x-vercel-* onto cross-origin
+    // Supabase requests and broke check-usage-limit CORS). It is injected HOST-SCOPED to the tested
+    // base_url only, via the shared fixture in tests/live/helpers/deployedLiveTest.ts.
   },
   projects: [
     {

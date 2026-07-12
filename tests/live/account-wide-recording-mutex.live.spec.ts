@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { type Browser, type Page } from '@playwright/test';
+import { test, expect } from './helpers/deployedLiveTest';
 import { AUDIO_ARGS, assertManualReleaseProofEnvironment, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 
