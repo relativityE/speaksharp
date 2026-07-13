@@ -28,4 +28,15 @@ jobs:
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          # Sanitized (masked-email) JSON report path + a rendered run-page step summary,
+          # so the full audit is auditable without grepping truncated step logs.
+          BILLING_FREEZE_REPORT_PATH: billing-freeze-report.json
         run: node scripts/billing-freeze-check.mjs
+
+      - name: Upload sanitized billing-freeze report
+        if: always() # upload on PASS or FAIL so a violation is still auditable
+        uses: actions/upload-artifact@v4
+        with:
+          name: billing-freeze-report
+          path: billing-freeze-report.json
+          if-no-files-found: warn
