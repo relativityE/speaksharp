@@ -474,18 +474,18 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
 
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">WPM</p>
+                    <p className="font-bold text-foreground text-lg">{wpm}<span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span></p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
                 </div>
                 <div className="text-center">
                     <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Fillers</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Filler Words</p>
                 </div>
                 <div className="text-center">
                     <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clarity</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
 
                 <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
