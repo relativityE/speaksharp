@@ -21,6 +21,8 @@ import {
   getNativeFormatterTelemetry,
   FORMATTER_LATENCY_BUDGET_MS,
 } from '../nativeTranscriptFormatter';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 afterEach(() => {
   registerNativeTranscriptFormatter(null);
@@ -32,6 +34,39 @@ const RUN_ON =
   'so today i practiced my presentation about the quarterly results um i think it went well ' +
   'but i need to work on my pacing you know i talked to Sarah about the feedback ' +
   'Then we reviewed the slides one more time before the meeting';
+
+// Reviewer STT corpus lives at repo-root tests/fixtures/speeches. Resolve it robustly
+// whether the vitest cwd is the repo root or the frontend project (jsdom-safe — no `new URL`).
+function findSpeechesDir(): string {
+  const candidates = [
+    resolve(process.cwd(), 'tests/fixtures/speeches'),
+    resolve(process.cwd(), '../tests/fixtures/speeches'),
+  ];
+  for (const c of candidates) {
+    try { if (statSync(c).isDirectory()) return c; } catch { /* try next candidate */ }
+  }
+  throw new Error(`reviewer corpus not found; looked in: ${candidates.join(', ')}`);
+}
+const SPEECHES_DIR = findSpeechesDir();
+interface CorpusItem { name: string; transcript: string; fillerWords: string[] }
+function loadReviewerCorpus(): CorpusItem[] {
+  return readdirSync(SPEECHES_DIR)
+    .filter((d) => statSync(join(SPEECHES_DIR, d)).isDirectory())
+    .map((d) => ({
+      name: d,
+      transcript: readFileSync(join(SPEECHES_DIR, d, 'transcript.txt'), 'utf-8'),
+      fillerWords: (JSON.parse(readFileSync(join(SPEECHES_DIR, d, 'metadata.json'), 'utf-8')).fillerWords ?? []) as string[],
+    }));
+}
+const REVIEWER_CORPUS = loadReviewerCorpus();
+
+// Count sentence-terminal marks that are NOT the trailing one. The restorer must never
+// introduce an internal boundary (no invented periods → no false proper-noun splits),
+// so this count is identical in and out.
+function internalStops(s: string): number {
+  const body = s.replace(/[\s.!?"')\]]+$/, '');
+  return (body.match(/[.!?]/g) || []).length;
+}
 
 describe('restoreNativePunctuation — safe readability (no invented breaks)', () => {
   it('applies first-cap, isolated "i" -> "I", and a terminal period', () => {
@@ -150,6 +185,52 @@ describe('nativePunctuationRestore — seam integration (raw-first / guard / fal
     expect(await pending).toBe('hello world');
     expect(getNativeFormatterTelemetry()?.errorCode).toBe('FORMATTER_TIMEOUT_CLIENT');
     vi.useRealTimers();
+  });
+});
+
+// Reviewer-corpus validation: run the SAME safe-cleanup invariants over the STT
+// review corpus (not just the 4 hand-written strings). NOTE: this validates the
+// deterministic transform's safety invariants — it is NOT a Native WER measurement,
+// and fake-audio WER is never used as release proof.
+describe('restoreNativePunctuation — reviewer corpus (tests/fixtures/speeches) invariants', () => {
+  it('loaded the reviewer corpus (fail loud if fixtures missing)', () => {
+    expect(REVIEWER_CORPUS.length).toBeGreaterThan(0);
+  });
+
+  it.each(REVIEWER_CORPUS.map((c) => [c.name, c.transcript, c.fillerWords] as const))(
+    'corpus %s: word-preserving, fillers kept, no invented breaks, i-fixed, terminal, idempotent',
+    (_name, transcript, fillerWords) => {
+      const out = restoreNativePunctuation(transcript);
+      // word-preserving (fillers included)
+      expect(isWordPreserving(transcript, out)).toBe(true);
+      expect(transcriptWordSequence(out)).toEqual(transcriptWordSequence(transcript));
+      // fillers preserved exactly (multi-word fillers split into tokens)
+      const outSeq = transcriptWordSequence(out);
+      for (const filler of fillerWords) {
+        for (const tok of filler.toLowerCase().split(/\s+/)) expect(outSeq).toContain(tok);
+      }
+      // no internal sentence breaks introduced ⇒ no false proper-noun boundaries
+      expect(internalStops(out)).toBe(internalStops(transcript));
+      // isolated "i" forms fixed — no bare lowercase "i" remains
+      expect(out).not.toMatch(/(^|\s)i(\s|$)/);
+      // terminal punctuation present
+      expect(/[.!?]["')\]]*$/.test(out.trimEnd())).toBe(true);
+      // idempotent
+      expect(restoreNativePunctuation(out)).toBe(out);
+    },
+  );
+});
+
+describe('restoreNativePunctuation — Native human-proof regression fixture', () => {
+  // Prior real Native human-mic proof text: Chrome emits erratic mid-sentence engine
+  // capitals ("Starts Now"). Safe cleanup ONLY — no invented internal periods.
+  const HUMAN_PROOF = 'speak sharp microphone proof Starts Now basically I want to make one simple point';
+  it('safe cleanup only, no invented internal periods before Starts/Now', () => {
+    const out = restoreNativePunctuation(HUMAN_PROOF);
+    expect(out).toBe('Speak sharp microphone proof Starts Now basically I want to make one simple point.');
+    expect(internalStops(out)).toBe(0); // no internal boundary invented
+    expect(isWordPreserving(HUMAN_PROOF, out)).toBe(true);
+    expect(restoreNativePunctuation(out)).toBe(out); // idempotent
   });
 });
 
