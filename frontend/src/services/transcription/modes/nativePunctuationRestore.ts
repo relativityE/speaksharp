@@ -5,46 +5,45 @@
  *
  * GOAL
  * ----
- * Materially improve the readability of a SAVED Native (Web Speech) transcript by
- * restoring internal sentence boundaries + capitalization. Web Speech returns a
- * near-punctuation-free run-on; this inserts periods and capitalizes sentence
- * starts so the saved/history/detail/PDF transcript reads in sentences.
+ * Modestly and SAFELY improve the readability of a SAVED Native (Web Speech)
+ * transcript. Runs after save through the async formatter seam.
  *
  * NON-GOALS (explicit)
  * --------------------
  *   - NOT perfect parity with Private/Cloud model punctuation.
- *   - NOT live punctuation (SAVED transcript only, runs after save via the seam).
+ *   - NOT live punctuation (SAVED transcript only).
  *   - NOT recovering fillers/words the browser never emitted.
  *   - NO audio, NO network, NO LLM, NO paid API, NO per-call cost.
  *
- * SAFETY CONTRACT
- * ---------------
- * WORD-PRESERVING BY CONSTRUCTION: this only changes whitespace, casing, and
- * inserted punctuation. It NEVER adds, removes, reorders, joins, or splits a word,
- * so fillers (um, uh, like, you know, basically, literally) are preserved exactly.
- * The `nativeTranscriptFormatter` seam independently re-checks word-preservation and
- * falls back to raw on any violation/timeout — this module is defence-in-depth, not
- * the sole guard.
+ * WHY NO INTERNAL SENTENCE BREAKS
+ * -------------------------------
+ * An earlier pass inserted periods before interior Title-case words (Web Speech
+ * capitalizes each result-segment's first word). But a lone interior capital is
+ * FUNDAMENTALLY AMBIGUOUS between a proper noun and a segment start, and no
+ * string-only signal separates them reliably: "i called Sarah" (proper noun,
+ * must NOT split) looks identical in structure to "... the feedback Then we ..."
+ * (segment start). Guessing produces FALSE sentence boundaries
+ * ("i called. Sarah ...", "to John and. Sarah ..."), which is worse than a
+ * run-on. Per the product decision, we ship the modest, safe improvement instead
+ * of aggressive punctuation that invents boundaries. (If real Web Speech segment
+ * boundaries are ever plumbed through from the capture path, revisit — that would
+ * be a high-confidence signal; the stitched string is not.)
  *
- * PRECISION OVER RECALL
- * ---------------------
- * Deterministic boundary detection on conversational speech is error-prone (the
- * 2026-06-08 product note is right to be wary). The ONE high-precision signal is the
- * engine's own segmentation: Web Speech capitalizes the first word of each
- * recognition result (a real pause boundary). So this breaks only at an interior
- * Title-case word — and only when it is not bound to a preceding article/preposition
- * (proper-noun guard) and the current sentence is already substantial. It respects
- * punctuation the engine already emitted. It deliberately does NOT break on ambiguous
- * lowercase discourse words (so/well/then/and/but) or at an arbitrary length cap —
- * both produce misleading breaks ("it went. Well ...", "first and. Then ..."). When
- * there is no boundary signal it leaves the text as one sentence rather than invent one.
+ * WHAT IT DOES (all word-preserving, all unambiguous)
+ * ---------------------------------------------------
+ *   1. collapse whitespace + trim
+ *   2. capitalize the first alphabetic character of the transcript
+ *   3. uppercase the isolated pronoun "i" (and i'm/i'll/i've/i'd)
+ *   4. append a single terminal period iff there is no closing . ! ?
+ * It NEVER adds/removes/reorders/joins/splits a word, so fillers (um, uh, like,
+ * you know, basically) are preserved exactly. The nativeTranscriptFormatter seam
+ * independently re-checks word-preservation and falls back to raw on any
+ * violation/timeout — this is defence-in-depth, not the sole guard.
  *
  * EASY TO DISABLE
  * ---------------
  * `isNativePunctuationRestoreEnabled()` (env `VITE_NATIVE_PUNCTUATION_RESTORE`)
  * selects this restorer vs. the minimal deterministic cleanup at registration time.
- * If the real-mic proof is weak, flip it off — the Native path reverts to the
- * whitespace/first-cap/trailing-period cleanup with zero other change.
  */
 import { reportNativeFormatterProviderMeta, type NativeTranscriptFormatter } from './nativeTranscriptFormatter';
 
@@ -69,32 +68,11 @@ export function isNativePunctuationRestoreEnabled(): boolean {
   return NATIVE_PUNCTUATION_RESTORE_DEFAULT;
 }
 
-// --- Tunables (conservative on purpose) -------------------------------------
-const MIN_SENTENCE_WORDS = 4; // don't emit tiny fragments between boundaries
-
-/**
- * Words that bind a following capitalized word into a noun phrase (article /
- * preposition / possessive / title). When an interior Title-case word follows one of
- * these it is almost certainly a proper noun, NOT a sentence start — so we do not
- * break there. This is the proper-noun false-split guard.
- */
-const NOUN_PHRASE_BINDERS = new Set([
-  'the', 'a', 'an', 'to', 'of', 'in', 'on', 'at', 'by', 'with', 'for', 'from',
-  'my', 'your', 'his', 'her', 'its', 'our', 'their',
-  'mr', 'mrs', 'ms', 'dr', 'st', 'mount', 'lake', 'san', 'new',
-]);
-
-/** "I" and its contractions — always capital, never a sentence-boundary signal. */
+/** "I" and its contractions — the one truly unambiguous casing fix. */
 const I_FORMS = new Set(["i", "i'm", "i'll", "i've", "i'd"]);
 
 function stripEdgePunct(word: string): string {
   return word.replace(/^[^A-Za-z0-9']+/, '').replace(/[^A-Za-z0-9']+$/, '');
-}
-
-/** Title-case (Xx…), i.e. an engine segment-start capital — not an ALLCAPS acronym. */
-function isTitleCaseWord(word: string): boolean {
-  const core = stripEdgePunct(word);
-  return /^[A-Z][a-z]/.test(core);
 }
 
 /** Ends a sentence already (allowing trailing closing quotes/brackets). */
@@ -107,73 +85,32 @@ function capitalizeFirstAlpha(word: string): string {
   return word.replace(/^([^A-Za-z0-9]*)([a-z])/, (_m, lead: string, ch: string) => lead + ch.toUpperCase());
 }
 
-/** Uppercase a standalone lowercase "i" token, preserving edge punctuation ("i," -> "I,"). */
+/** Uppercase an isolated "i" / "i'm" / "i'll" / "i've" / "i'd", preserving edge punctuation. */
 function fixStandaloneI(word: string): string {
-  if (stripEdgePunct(word).toLowerCase() === 'i') {
-    return word.replace(/i/, 'I');
+  if (I_FORMS.has(stripEdgePunct(word).toLowerCase())) {
+    return word.replace('i', 'I'); // first (leading) 'i' only; idempotent on already-"I"
   }
   return word;
 }
 
-function assembleSentence(tokens: string[]): string {
-  if (tokens.length === 0) return '';
-  const fixed = tokens.map((t, i) => {
-    const cased = fixStandaloneI(t);
-    return i === 0 ? capitalizeFirstAlpha(cased) : cased;
-  });
-  let sentence = fixed.join(' ');
-  if (!endsWithTerminal(fixed[fixed.length - 1])) sentence += '.';
-  return sentence;
-}
-
 /**
- * Deterministic, word-preserving punctuation restoration for a saved Native transcript.
- * Same word sequence in and out; only whitespace, casing, and inserted punctuation change.
+ * Deterministic, word-preserving readability cleanup for a saved Native transcript.
+ * Safe transformations only — NO internal sentence breaks (see file header). Same
+ * word sequence in and out; only whitespace, casing, and a single terminal period change.
  */
 export function restoreNativePunctuation(raw: string): string {
   const text = (raw ?? '').replace(/\s+/g, ' ').trim();
   if (!text) return text;
 
   const tokens = text.split(' ');
-  const sentences: string[][] = [];
-  let current: string[] = [];
+  const fixed = tokens.map((t, i) => {
+    const cased = fixStandaloneI(t);
+    return i === 0 ? capitalizeFirstAlpha(cased) : cased;
+  });
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    current.push(token);
-    const next = tokens[i + 1];
-    let boundary = false;
-
-    if (endsWithTerminal(token)) {
-      // Respect punctuation the engine already emitted.
-      boundary = true;
-    } else if (next) {
-      const prevCore = stripEdgePunct(token).toLowerCase();
-      const nextCore = stripEdgePunct(next).toLowerCase();
-      const longEnough = current.length >= MIN_SENTENCE_WORDS;
-
-      if (
-        longEnough &&
-        isTitleCaseWord(next) &&
-        !I_FORMS.has(nextCore) &&
-        !NOUN_PHRASE_BINDERS.has(prevCore)
-      ) {
-        // The one high-precision signal: an interior engine segment-start capital that
-        // is not bound to a preceding article/preposition (so it is a sentence start,
-        // not a proper noun). Ambiguous lowercase markers and length caps are NOT used
-        // — they invent misleading breaks.
-        boundary = true;
-      }
-    }
-
-    if (boundary && next) {
-      sentences.push(current);
-      current = [];
-    }
-  }
-  if (current.length) sentences.push(current);
-
-  return sentences.map(assembleSentence).join(' ');
+  let out = fixed.join(' ');
+  if (!endsWithTerminal(fixed[fixed.length - 1])) out += '.';
+  return out;
 }
 
 /**

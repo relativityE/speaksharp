@@ -27,28 +27,29 @@ afterEach(() => {
 });
 
 // A realistic run-on Native (Web Speech) transcript: near-punctuation-free, some
-// interior segment-start capitals, fillers present.
+// interior segment-start capitals + a proper noun, fillers present.
 const RUN_ON =
   'so today i practiced my presentation about the quarterly results um i think it went well ' +
   'but i need to work on my pacing you know i talked to Sarah about the feedback ' +
   'Then we reviewed the slides one more time before the meeting';
 
-describe('restoreNativePunctuation — readability', () => {
-  it('adds internal sentence punctuation to run-on text', () => {
+describe('restoreNativePunctuation — safe readability (no invented breaks)', () => {
+  it('applies first-cap, isolated "i" -> "I", and a terminal period', () => {
     const out = restoreNativePunctuation(RUN_ON);
-    const periods = (out.match(/[.!?]/g) || []).length;
-    expect(periods).toBeGreaterThan(1); // more than just a trailing period
+    expect(out[0]).toBe('S');           // first-letter capitalized
+    expect(out).toMatch(/\bI\b/);        // isolated "i" uppercased
+    expect(out).not.toMatch(/\bi\b/);    // no lowercase standalone "i" remains
     expect(out.endsWith('.')).toBe(true);
-    expect(out[0]).toBe(out[0].toUpperCase()); // sentence-initial capital
+    // No internal sentence breaks invented — only the terminal period.
+    expect((out.match(/\./g) || []).length).toBe(1);
   });
 
-  it('capitalizes sentence starts and standalone "i"', () => {
+  it('capitalizes the first word + standalone "i" but does not split before an interior capital', () => {
     expect(restoreNativePunctuation('i finished the first section Then we moved on to questions'))
-      .toBe('I finished the first section. Then we moved on to questions.');
+      .toBe('I finished the first section Then we moved on to questions.');
   });
 
   it('does NOT invent breaks at ambiguous lowercase words (well/so/and/then)', () => {
-    // "well" is an adverb, "so"/"then" connectives — breaking here would mislead.
     expect(restoreNativePunctuation('i really wanted to finish the whole thing so we kept going'))
       .toBe('I really wanted to finish the whole thing so we kept going.');
     expect(restoreNativePunctuation('i think it went well but i need to work on it'))
@@ -58,15 +59,25 @@ describe('restoreNativePunctuation — readability', () => {
   it('does NOT invent a break in a long run-on that has no boundary signal', () => {
     const words = Array.from({ length: 40 }, (_, i) => `word${i + 1}`).join(' ');
     const out = restoreNativePunctuation(words);
-    expect((out.match(/\./g) || []).length).toBe(1); // only the terminal period — no invented breaks
+    expect((out.match(/\./g) || []).length).toBe(1); // only the terminal period
   });
 });
 
-describe('restoreNativePunctuation — proper-noun false-split guard', () => {
-  it('does NOT break before a capitalized word bound to a preposition/article', () => {
-    const out = restoreNativePunctuation('yesterday morning i talked to John about the whole plan');
-    expect(out).not.toMatch(/to\.\s+John/); // no "...to. John"
-    expect(out).toContain('to John');
+// PO-required regression: an interior Title-case word (proper noun OR segment start)
+// must never produce a false sentence boundary. Reduced scope = no internal breaks.
+describe('restoreNativePunctuation — proper-noun / segment-start false-split regression', () => {
+  const cases: Array<[string, string]> = [
+    ['yesterday morning i called Sarah about the plan', 'Yesterday morning I called Sarah about the plan.'],
+    ['i talked to John and Sarah about the slides', 'I talked to John and Sarah about the slides.'],
+    ['we met with Sarah Then we reviewed the notes', 'We met with Sarah Then we reviewed the notes.'],
+    ['i talked to Sarah about the feedback Then we reviewed the slides', 'I talked to Sarah about the feedback Then we reviewed the slides.'],
+  ];
+  it.each(cases)('no false boundary: %s', (input, expected) => {
+    const out = restoreNativePunctuation(input);
+    expect(out).toBe(expected);
+    expect((out.match(/\./g) || []).length).toBe(1); // exactly the terminal period
+    expect(out).not.toMatch(/\.\s+Sarah/);           // never "... . Sarah"
+    expect(out).not.toMatch(/and\.\s/);              // never "... and. ..."
   });
 });
 
@@ -107,7 +118,7 @@ describe('nativePunctuationRestore — seam integration (raw-first / guard / fal
     expect(isNativePunctuationRestoreEnabled()).toBe(true); // default on
     registerNativeProductionFormatter('native');
     const formatted = await formatNativeTranscript(RUN_ON);
-    expect(formatted).not.toBe(RUN_ON); // changed (punctuation added)
+    expect(formatted).not.toBe(RUN_ON); // changed (casing + terminal period)
     expect(isWordPreserving(RUN_ON, formatted)).toBe(true);
     const t = getNativeFormatterTelemetry();
     expect(t?.provider).toBe('deterministic-restore');
