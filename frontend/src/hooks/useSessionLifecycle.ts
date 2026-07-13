@@ -372,6 +372,12 @@ export const useSessionLifecycle = () => {
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
                 const message = getStartFailureMessage(err, latestMode);
+                // #P1-observability: compute the sanitized engine-start leaf ONCE so both the Sentry
+                // scope AND the PostHog recording_start_failed event carry the root-cause name. This
+                // co-locates failure count + cause in analytics (Decision 1C) instead of leaving the
+                // leaf only in Sentry. Name only — a DOMException type (e.g. NotReadableError); the
+                // sanitizer never lets message/stack/url ride along.
+                const startLeaf = sanitizeStartError((err as { cause?: unknown })?.cause);
                 logger.error({ error: err, stack: err?.stack, mode: latestMode }, '[useSessionLifecycle] Failed to start recording');
                 Sentry.withScope((scope) => {
                     // #P1-observability: surface the engine-start LEAF (mic / AudioWorklet / engine-init),
@@ -382,7 +388,6 @@ export const useSessionLifecycle = () => {
                     const serviceState = wrapperMessage.startsWith('TRANSCRIPTION_START_DID_NOT_RECORD:')
                         ? wrapperMessage.slice('TRANSCRIPTION_START_DID_NOT_RECORD:'.length) || null
                         : null;
-                    const startLeaf = sanitizeStartError((err as { cause?: unknown })?.cause);
                     scope.setTag('surface', 'recording_start');
                     scope.setTag('failure_phase', 'recording_start');
                     scope.setTag('stt_mode', latestMode);
@@ -412,6 +417,9 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     error_name: err?.name || 'Error',
                     error_message: err?.message || 'Unknown',
+                    // #P1-observability (Decision 1C): root-cause leaf name co-located with the failure
+                    // event so recording_start_failed is self-diagnosing without Sentry. Name only.
+                    start_leaf_name: startLeaf?.name ?? null,
                     ...getSessionCoachingExperimentProperties(),
                 });
                 if (latestMode === 'private') {
