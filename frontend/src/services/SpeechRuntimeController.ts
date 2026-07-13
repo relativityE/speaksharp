@@ -2046,6 +2046,15 @@ export class SpeechRuntimeController {
                     // DEFENSIVE DEEP COPY: the store may later mutate/replace fillerData in place, so clone the
                     // counts — the snapshot must not drift afterward.
                     this.liveFillerDataAtStop = cloneFillerCounts(useSessionStore.getState().fillerData) ?? null;
+                    // #metrics-duration: the persisted/scored session duration must be the SPOKEN
+                    // recording length (start → stop), captured NOW — BEFORE the post-Stop finalize
+                    // decode below, which can take tens of seconds on Private. Computing duration at
+                    // save time (after the await) folds the finalize wait into the session length, so
+                    // pace/WPM divide by an inflated denominator and misclassify the user (a 5:00 take
+                    // showed 6:28 / 132 WPM instead of ~169). The finalize wall-clock stays separate
+                    // (telemetry / __PRIVATE_TIMING__ / proof) and is NOT a session-length input.
+                    const recordingStoppedAt = Date.now();
+                    const recordingDurationSeconds = startTime ? Math.max(0, (recordingStoppedAt - startTime) / 1000) : 0;
                     result = await service.stopTranscription();
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
@@ -2096,7 +2105,7 @@ export class SpeechRuntimeController {
 
                         if (userId) {
                             const mode = service.getMode() || stopEntryMode || 'unknown';
-                            const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                            const duration = recordingDurationSeconds; // spoken recording length — excludes post-Stop finalize (see recordingStoppedAt above)
                             const metadata = service.getMetadata?.() || (
                                 mode === 'private'
                                     ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
@@ -2149,7 +2158,7 @@ export class SpeechRuntimeController {
                     }, '[DEBUG-STOP] before result/session branch');
 
                     if (result && sessionId) {
-                        const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                        const duration = recordingDurationSeconds; // spoken recording length — excludes post-Stop finalize (see recordingStoppedAt above)
                         this.syncTranscriptLifecycleFromStore();
                         const store = useSessionStore.getState();
                         const chunkTranscript = store.chunks.map(chunk => chunk.transcript).join(' ').trim();
