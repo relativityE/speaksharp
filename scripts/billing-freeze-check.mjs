@@ -44,6 +44,11 @@ const maskEmail = (email) => {
   return `${user.slice(0, 1)}***@${domain}`;
 };
 
+// stripeGet error messages embed the full request path, which for the /customers?email=...
+// lookup contains the raw (percent-encoded) audited email. Strip any query string before
+// this text is persisted anywhere (artifact/summary/logs) so a failure can't leak addresses.
+const sanitizeError = (msg) => String(msg ?? '').replace(/\?[^\s]*/g, '').trim();
+
 async function stripeGet(pathname) {
   const res = await fetch(`${STRIPE}${pathname}`, { headers: { Authorization: `Bearer ${key}` } });
   if (!res.ok) throw new Error(`GET ${pathname} -> ${res.status}`);
@@ -97,7 +102,7 @@ try {
 } catch (err) {
   // Fail closed: if we cannot enumerate open sessions we cannot confirm the freeze.
   console.error(
-    `BILLING_FREEZE_CHECK: could not enumerate open checkout sessions (fail closed): ${String(err.message ?? err)}`,
+    `BILLING_FREEZE_CHECK: could not enumerate open checkout sessions (fail closed): ${sanitizeError(err.message ?? err)}`,
   );
   process.exit(1);
 }
@@ -109,7 +114,7 @@ for (const email of emails) {
   try {
     customers = (await stripeGet(`/customers?email=${encodeURIComponent(email)}&limit=100`)).data ?? [];
   } catch (err) {
-    report.push({ email: masked, error: String(err.message ?? err) });
+    report.push({ email: masked, error: sanitizeError(err.message ?? err) });
     violations++; // fail closed: an unreadable account is not "confirmed clean"
     continue;
   }
