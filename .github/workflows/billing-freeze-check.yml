@@ -1,0 +1,31 @@
+name: Billing Freeze Safety Check (read-only)
+
+# READ-ONLY audit of live Stripe state for internal QA / test accounts (Beta-50 billing freeze).
+# Manual dispatch only. scripts/billing-freeze-check.mjs issues Stripe GET requests ONLY — it can never
+# create a charge/subscription/invoice/checkout session. Fails the job if any active subscription, open
+# invoice, or open checkout session exists for the audited accounts.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  billing-freeze-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Billing freeze check (read-only live Stripe)
+        env:
+          # LIVE key — the deployed app runs live keys; read-only use here (GET only).
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_LIVE_SECRET_KEY }}
+          # Preferred: an explicit audit list (repo/org variable). Falls back to the test-email secrets.
+          BILLING_FREEZE_EMAILS: ${{ vars.BILLING_FREEZE_EMAILS }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+        run: node scripts/billing-freeze-check.mjs
