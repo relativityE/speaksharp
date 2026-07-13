@@ -23,6 +23,27 @@ Operating cycle:
 3. Complete and verify the item through active coordination.
 4. Mark the backlog row completed/closed, with evidence.
 5. Remove the item from active coordination.
+
+## 2026-07-12 — STT Release-Review Findings (first-impression, prioritized)
+
+Independent + reviewer STT review before the imminent RC. Go-to-market reframe: **free signup leads with Browser/Native; Private 5-min trial is the value prop; Cloud stays Pro-only**. Decision: **v2 (`whisper-base.en`) stays the Private default; v4 stays flag-gated/off**. The 80/20 = expectation-setting + one 5-min proof.
+
+These are **long-term prioritized findings**. Current pre-tag blocker status and go/no-go posture live **only** in `RELEASE_STATUS.md` (SSOT) — see its *Current Blockers* section; do not restate changing release posture here.
+
+| Priority | ID | Issue | Impact | Disposition |
+|---|---|---|---|---|
+| P0 | RC-BROWSER-CAVEAT | Free users default to Browser/Native (`TranscriptionPolicy.ts:46`), the weakest path — no punctuation + filler undercount | First impression = weakest transcript on the default path | **Fix:** in-UI + tester caveat copy; do not claim Browser polish; nudge Private after a Browser session |
+| P0 | RC-PRIVATE-FINALIZE-COPY | Private 5-min v2 finalize ≈80s (WASM 0.27×, `sttConstants.ts:76`, by design) | Stop→final ~80s reads as a hang without honest state | **Fix:** honest visible Finalizing progress/estimate (task #19); Private "longer recordings take longer to finalize" copy |
+| P0 | RC-5MIN-PROOF | No current 5-min Private production proof (`private-longform-timing` targets 65.8s) | "Up to 5 min" unproven; could hide loop/corruption | **Fix:** owner-driven 5-min v2 proof; GO/CONDITIONAL/NO-GO on measured stop-to-final (<30s GREEN; 30–90s + honest state CONDITIONAL; >90s/stuck/loops NO-GO) |
+| P0 | RC-V2-DEFAULT-GUARD | Confirm default Private saves `private_v2:whisper-base.en`; v4 off/flag-gated | Prevent accidental v4 default | **Fix:** guard/proof a default Private user never gets v4 |
+| P1 | STT-FILLER-NATIVE | Browser/Native filler undercount (`OPTION_D_QA_SELLOFF.md`, `BETA_50_RELEASE_EVIDENCE_2026-07-09.md`) | Directly falsifies the core coaching signal (filler feedback) | Assess applying the deterministic filler recount (#944 SSOT) to the Native transcript; caveat interim |
+| P1 | STT-NATIVE-PUNCT | Native/Web-Speech no punctuation / run-on (`BACKLOG.md:344`; server formatter provider disabled for beta) | ~75–100% sentence boundaries lost; perceived quality | **NOT this RC** — no live punctuation (caveat copy only, see RC-BROWSER-CAVEAT). **If PO approves:** separate **post-save** Native punctuation PR via the **existing async formatter seam** (`nativeAsyncFormatter.ts` + `nativeTranscriptFormatter.ts`, wired in `EngineFactory.configureNativeFormatter` + `SpeechRuntimeController.ts:2480`). Seam is already raw-first (raw saved immediately), word-preserving (client seam guard = final authority), timeout-safe (`FormatterTimeoutError` budget), **Native-only** (cleared for cloud/private), fallback-to-raw, telemetried; **identity by default** (zero behavior change until a trusted formatter is registered). Scope = re-enable + validate a trusted formatter provider behind the seam, prove word-preservation/fallback/timeout on real Native takes, QA. **Est 1–2 dev days + 0.5–1 QA.** Constraints: raw-first, word-preserving, timeout-safe, Native-only. (Local-ONNX restorer is an alternative, not chosen for this scope.) |
+| P1 | STT-PRIV-FINALIZE-SPEED | Private 5-min finalize ≈80s (v2 WASM) — real fix, not just honest copy | Slow lead-path UX | Segmented finalize (parked; failed on real audio) OR v4-on-WebGPU device-adaptive OR streaming decode |
+| P1 | STT-V2-LONGTAKE-LOOP | v2 long-take decode loop/duplication; generation anti-loop is v4-only (tasks #20/#21 open) | Potential corruption on the 5-min lead path | Runtime anti-loop for v2 OR v4 gating. **ESCALATE to P0 if the RC-5MIN-PROOF surfaces looping/duplication.** |
+| P1 | OBS-STT-SESSION-TELEMETRY | Per-session STT-health metrics captured for tests/evidence but not reliably streamed to PostHog for real users | Cannot map incoming user complaints → data for fast triage | Emit a per-session PostHog event on save: `{mode, engineVersion, durationSec, msToFirstTranscript, stopFinalizationMs, repetitionRisk, fillerLive, fillerRecount}` |
+| P2 | STT-PRIV-LIVE-DELAY | Private ~17s to first live transcript (`LIVE_DECODE_WINDOW_SECONDS=3` + warmup) | "It is not hearing me" first-impression | Earlier "Listening/preparing" affordance; shorten first-draft window |
+| P2 | STT-DOWNLOAD-REQUIRED | download-required first-run progress not live-proven (default auto-loads `/models/`) | OK only while default is served locally; not OK if we market a visible first-run download | Deterministic live harness for the progress branch |
+| P2 | STT-V4-DEVICE-ADAPTIVE | v4-on-WebGPU device-adaptive default (post-beta) | Faster finalize (~28s/5min) on WebGPU; +62MB payload, WASM fallback ~216s | Reconsider only after side-by-side beating v2 on: 5-min stop-to-final, opening fidelity, phrase-loop, download/setup, browser-compat, memory |
 6. Pull the next incomplete backlog item forward.
 
 Runtime validation rule:
