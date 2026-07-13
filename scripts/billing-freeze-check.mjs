@@ -48,13 +48,60 @@ async function stripeGet(pathname) {
   return res.json();
 }
 
+// The Checkout Sessions list API has NO email filter, and a session can be created
+// with only `customer_email` (no Stripe customer yet) — an abandoned first-time QA
+// checkout. So enumerate ALL open sessions and index them by email client-side, so
+// accounts with no customer are still audited (not silently passed).
+async function listAllOpenSessions() {
+  const out = [];
+  let startingAfter = null;
+  const MAX_PAGES = 20; // 2000 open sessions is pathological for QA; surface if hit
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const after = startingAfter ? `&starting_after=${startingAfter}` : '';
+    const res = await stripeGet(`/checkout/sessions?status=open&limit=100${after}`);
+    const data = res.data ?? [];
+    // Belt-and-suspenders: filter status client-side in case the query param is ignored.
+    out.push(...data.filter((s) => s.status === 'open'));
+    if (!res.has_more || data.length === 0) return { data: out, truncated: false };
+    startingAfter = data[data.length - 1].id;
+  }
+  return { data: out, truncated: true };
+}
+
+const sessionEmails = (s) =>
+  [s.customer_email, s.customer_details?.email]
+    .filter(Boolean)
+    .map((e) => String(e).toLowerCase());
+
 const ACTIVE_SUB_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'incomplete']);
 const OPEN_INVOICE_STATUSES = new Set(['open', 'draft']);
 
 const report = [];
 let violations = 0;
 
+// Enumerate open Checkout Sessions once and index by email, so the audit covers
+// email-only sessions that exist BEFORE any Stripe customer is created.
+let openSessionsByEmail = new Map(); // lowercased email -> [session id]
+let sessionsTruncated = false;
+try {
+  const listed = await listAllOpenSessions();
+  sessionsTruncated = listed.truncated;
+  for (const s of listed.data) {
+    for (const e of sessionEmails(s)) {
+      if (!openSessionsByEmail.has(e)) openSessionsByEmail.set(e, []);
+      openSessionsByEmail.get(e).push(s.id);
+    }
+  }
+} catch (err) {
+  // Fail closed: if we cannot enumerate open sessions we cannot confirm the freeze.
+  console.error(
+    `BILLING_FREEZE_CHECK: could not enumerate open checkout sessions (fail closed): ${String(err.message ?? err)}`,
+  );
+  process.exit(1);
+}
+
 for (const email of emails) {
+  const emailOpenSessions = openSessionsByEmail.get(email.toLowerCase()) ?? [];
   const masked = maskEmail(email);
   let customers = [];
   try {
@@ -66,7 +113,16 @@ for (const email of emails) {
   }
 
   if (customers.length === 0) {
-    report.push({ email: masked, noStripeCustomer: true });
+    // No Stripe customer yet — but an email-only open Checkout Session can still exist.
+    const violation = emailOpenSessions.length > 0;
+    if (violation) violations++;
+    report.push({
+      email: masked,
+      noStripeCustomer: true,
+      clean: !violation,
+      openCheckoutSessions: emailOpenSessions.length,
+      openCheckoutSessionSource: 'customer_email (no Stripe customer)',
+    });
     continue;
   }
 
@@ -76,9 +132,14 @@ for (const email of emails) {
     const invoices = (await stripeGet(`/invoices?customer=${customer.id}&limit=100`)).data ?? [];
     const openInvoices = invoices.filter((i) => OPEN_INVOICE_STATUSES.has(i.status));
     const sessions = (await stripeGet(`/checkout/sessions?customer=${customer.id}&limit=100`)).data ?? [];
-    const openSessions = sessions.filter((s) => s.status === 'open');
+    // Union of sessions attached to this customer + email-only sessions not yet
+    // attached to any customer id (deduped by session id).
+    const openSessionIds = new Set([
+      ...sessions.filter((s) => s.status === 'open').map((s) => s.id),
+      ...emailOpenSessions,
+    ]);
 
-    const violation = activeSubs.length > 0 || openInvoices.length > 0 || openSessions.length > 0;
+    const violation = activeSubs.length > 0 || openInvoices.length > 0 || openSessionIds.size > 0;
     if (violation) violations++;
     report.push({
       email: masked,
@@ -87,9 +148,18 @@ for (const email of emails) {
       activeSubscriptions: activeSubs.length,
       subscriptionStatuses: activeSubs.map((s) => s.status),
       openInvoices: openInvoices.length,
-      openCheckoutSessions: openSessions.length,
+      openCheckoutSessions: openSessionIds.size,
     });
   }
+}
+
+if (sessionsTruncated) {
+  // Never silently under-count: if the open-session enumeration hit the page cap we
+  // cannot prove completeness, so fail closed.
+  console.error(
+    'BILLING_FREEZE_CHECK: open checkout-session enumeration hit the page cap; cannot confirm completeness — failing closed.',
+  );
+  violations++;
 }
 
 const mode = key.startsWith('sk_live') ? 'LIVE' : 'test';
