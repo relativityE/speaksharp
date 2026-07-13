@@ -24,6 +24,39 @@ Operating cycle:
 4. Mark the backlog row completed/closed, with evidence.
 5. Remove the item from active coordination.
 
+## 2026-07-13 — Post-RC Lanes (RC v0.9.0-rc1 tagged, CONDITIONAL GO)
+
+RC `v0.9.0-rc1` tagged from main `18ef834d` (CONDITIONAL GO). Material blockers from the 2026-07-12 findings are closed and **prod-confirmed** (session `dd6c4e92`, `release_sha=18ef834d`): duration semantics fixed (**#974** — persisted duration = spoken recording length, not save-time wall-clock incl. finalization; WPM/pace divide by recording duration), saved-session/PDF labels aligned (**#975** — Speaking Pace / Filler Words / Clear Delivery), start-leaf telemetry (**#972**), Native readability cleanup (**#970**, NOT punctuation repair). `RC-5MIN-PROOF` measured stop-to-final = **91.7s on prod** (over the prior `>90s` NO-GO line) — **accepted as a known RC limitation** (revised product decision) because transcript/duration/WPM/persistence are correct and the UI shows a finalizing estimate.
+
+Two **independent** post-RC lanes remain. They solve **different** problems; neither replaces the other. Do not use Lane 2 to justify skipping Lane 1.
+
+### Lane 1 — Reduce Private finalization wait (post-RC engineering)
+
+Problem: 5-min Private v2 finalizes in ~90s after Stop (prod 91.7s; decode-bound, whisper-base/WASM). Extends **STT-PRIV-FINALIZE-SPEED (P1)** + **STT-V4-DEVICE-ADAPTIVE (P2)**. Reputable paths by RC-suitability:
+
+| Path | Impact | RC suitability |
+|---|---|---|
+| Better "Finalizing…" UX | Doesn't reduce time; makes the wait tolerable | Shipped this RC (RC-PRIVATE-FINALIZE-COPY) |
+| v4 / WebGPU / device-adaptive | Material on capable devices (~28s/5min target); +payload/browser tradeoffs | Not this RC |
+| Segmented / streaming finalization | Avoids the full 5-min decode at Stop — finalizes only the tail | Post-RC engineering lane |
+| COOP/COEP multithread WASM | Incremental; likely not enough alone | Post-RC |
+| Cloud path | Fast, but privacy/product tradeoff | Already Pro/Cloud, not Private |
+
+Do NOT cap Private <5min. Do NOT constant-tweak — v4/WebGPU + segmented/streaming are the meaningful speed paths.
+
+### Lane 2 — Native final-transcript punctuation (post-RC investigation)
+
+Problem: Browser/Native saved transcript is fast but bare/run-on. Extends **STT-NATIVE-PUNCT (P1)**. #970 did NOT fix this (readability cleanup only) — **do NOT reopen #970**. Reputable pathway (NOT regex guessing):
+
+1. Capture raw Web Speech final events (index / isFinal / transcript / alternatives).
+2. Verdict: does Chrome emit punctuation/segment boundaries, or bare text?
+3. If the browser emits better final text and the app drops it → fix **selection/sequencing first** (save-candidate priority), not a formatter.
+4. If the browser emits bare text → add a **text-only, Native-only, post-save/background** punctuation formatter behind the existing async formatter seam (`nativeAsyncFormatter.ts`).
+5. Strict guard (fallback to raw on any violation): same words in same order · same filler tokens · no invented/deleted words · no false "called. Sarah" / "and. Sarah" boundaries · timeout-safe.
+6. Keep the Browser caveat. No claim of Private/Cloud parity. No Gemini/paid API unless PO explicitly approves.
+
+Native punctuation gives a faster convenience path but does NOT reduce Private finalization and does NOT replace Private (weaker transcription/filler fidelity).
+
 ## 2026-07-12 — STT Release-Review Findings (first-impression, prioritized)
 
 Independent + reviewer STT review before the imminent RC. Go-to-market reframe: **free signup leads with Browser/Native; Private 5-min trial is the value prop; Cloud stays Pro-only**. Decision: **v2 (`whisper-base.en`) stays the Private default; v4 stays flag-gated/off**. The 80/20 = expectation-setting + one 5-min proof.
