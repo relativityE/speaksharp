@@ -6,7 +6,6 @@ export type CheckoutPlan = 'pro';
 
 export type ConversionSource =
   | 'hero_primary'
-  | 'hero_feedback'
   | 'landing_cta'
   | 'pricing_free_card'
   | 'pricing_pro_card'
@@ -59,6 +58,20 @@ export function trackConversionCtaClicked(context: ConversionContext): void {
 
 export function trackCheckoutStarted(context: ConversionContext & { plan: CheckoutPlan }): void {
   analyticsBuffer.push('checkout_started', getConversionProperties(context), 'HIGH');
+}
+
+// Non-conversion engagement signal: the "See sample feedback" anchor scrolls to
+// the on-page preview, it is NOT a signup/checkout conversion. Kept out of the
+// conversion_cta_* funnel so it does not skew conversion metrics.
+export function trackLandingPreviewClicked(): void {
+  analyticsBuffer.push(
+    'landing_preview_clicked',
+    {
+      route: getCurrentRoute(),
+      ...getSessionCoachingExperimentProperties(),
+    },
+    'LOW',
+  );
 }
 
 function getConversionProperties(context: ConversionContext): Record<string, unknown> {

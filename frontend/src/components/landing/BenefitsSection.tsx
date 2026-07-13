@@ -5,10 +5,10 @@ import { CheckCircle2 } from 'lucide-react';
 const benefits = [
     "Track filler words over time",
     "Track progress over time",
-    "Practice presentation skills",
+    "Practice talks, interviews, and presentations",
     "Build speaking confidence",
-    "AI-assisted insights",
-    "Live practice feedback",
+    "Coaching insights",
+    "Live feedback while you practice",
 ];
 
 export const BenefitsSection = () => {
@@ -23,7 +23,7 @@ export const BenefitsSection = () => {
                         </span>
                     </h2>
                     <p className="mx-auto max-w-2xl text-lg font-medium text-foreground/70">
-                        Practice with structured feedback that helps you notice patterns and build stronger speaking habits.
+                        Practice with structured feedback that helps you notice filler words, pace, and patterns over time.
                     </p>
                 </div>
 
@@ -45,7 +45,7 @@ export const BenefitsSection = () => {
                         className="px-8 h-12 text-base"
                         asChild
                     >
-                        <Link to="/auth/signup">Get Started Free</Link>
+                        <Link to="/auth/signup">Start free practice</Link>
                     </Button>
                 </div>
             </div>
