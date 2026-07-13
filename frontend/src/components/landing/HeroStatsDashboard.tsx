@@ -139,7 +139,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                     <StatCard value={clarityCount} suffix="%" label="Audience Impact" delay={0.1} colorClass="text-amber-700" />
                     <StatCard value={fillersCount} label="Filler Words" delay={0.2} colorClass="text-amber-700" />
                     <StatCard value={wpmCount} label="Pace" delay={0.3} colorClass="text-amber-700" />
-                    <StatCard value="High" label="Transcript Quality" delay={0.4} colorClass="text-foreground" />
+                    <StatCard value="Good" label="Transcript Quality" delay={0.4} colorClass="text-foreground" />
                 </div>
 
                 {/* Mini Bars Visualization */}
