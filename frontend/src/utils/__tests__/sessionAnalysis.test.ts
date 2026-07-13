@@ -268,3 +268,35 @@ describe('normalizeFillerCounts — accepted canonical filler data ALWAYS expose
         expect(metrics.fillerCount).toBe(1);
     });
 });
+
+describe('metrics-duration: pace uses the persisted RECORDING duration, not finalize-inflated wall-clock', () => {
+    // Companion to the SpeechRuntimeController fix: the controller now persists session.duration as
+    // the spoken recording length (Stop − Start), excluding the post-Stop finalize decode. This
+    // proves the analysis/detail layer divides pace by that persisted duration, so the correct value
+    // reaches the user. 750 words over a real 5:00 take = 150 WPM (top of the 130–150 target band).
+    const base = {
+        id: 's-dur', user_id: 'u', created_at: '2026-07-13T12:00:00.000Z', updated_at: '2026-07-13T12:00:00.000Z',
+        title: '5-min take', total_words: 750, transcript: 'point one point two point three',
+        filler_words: { total: { count: 0 } }, clarity_score: null, wpm: null,
+    };
+
+    it('a 5:00 recording (duration=300) yields 150 WPM — the correct pace', () => {
+        const session = { ...base, duration: 300 } as unknown as PracticeSession;
+        const metrics = getSessionAnalysisMetrics(session);
+        expect(metrics.wordCount).toBe(750);
+        expect(metrics.wpm).toBe(150); // 750 words / 5.0 min
+    });
+
+    it('dividing by finalize-inflated duration (388s) would understate the SAME words to 116 WPM (the bug)', () => {
+        // Guards the exact regression: a 5:00 take whose persisted duration folded in ~88s of finalize
+        // shows ~116 WPM ("slow", below the 130 target) instead of 150 ("in target") — a ~23% miscue.
+        const good = getSessionAnalysisMetrics({ ...base, duration: 300 } as unknown as PracticeSession).wpm;
+        const buggy = getSessionAnalysisMetrics({ ...base, duration: 388 } as unknown as PracticeSession).wpm;
+        expect(good).toBe(150);
+        expect(buggy).toBe(116);
+        expect(good).toBeGreaterThan(buggy);
+        // Coaching impact: the recording duration keeps pace in the target band; the wall-clock drops it below.
+        expect(good).toBeGreaterThanOrEqual(130);
+        expect(buggy).toBeLessThan(130);
+    });
+});

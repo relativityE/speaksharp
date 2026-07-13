@@ -488,6 +488,100 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
+    // #metrics-duration: the persisted session duration must be the SPOKEN recording length
+    // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
+    // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.
+    it.each(['native', 'private', 'cloud'] as const)(
+        'persists the SPOKEN recording duration for %s — excludes the post-Stop finalize decode (completeSession path)',
+        async (mode) => {
+            const storage = await import('../../lib/storage');
+            vi.mocked(storage.completeSession).mockClear();
+
+            const T0 = 1_700_000_000_000;
+            vi.setSystemTime(T0 + 300_000); // "now" = user pressed Stop, exactly 5:00 after record start
+
+            // The finalize decode elapses DURING stopTranscription() — 88s here. A correct impl
+            // captured the recording length BEFORE this await; a buggy one measures at save time.
+            const stopTranscription = vi.fn().mockImplementation(async () => {
+                vi.setSystemTime(T0 + 388_000); // +88s finalize → save happens at 6:28 wall-clock
+                return {
+                    success: true,
+                    transcript: 'point one point two point three point four point five point six',
+                    stats: { total_words: 7, filler_words: {}, speaking_rate: 0, duration: 300, accuracy: 1 },
+                };
+            });
+            (controller as unknown as { service: unknown }).service = {
+                getMode: vi.fn().mockReturnValue(mode),
+                getState: vi.fn().mockReturnValue('RECORDING'),
+                getStartTime: vi.fn().mockReturnValue(T0), // recording started at T0
+                stopTranscription,
+                destroy: vi.fn().mockResolvedValue(undefined),
+                getMetadata: vi.fn().mockReturnValue({ engineVersion: mode, modelName: mode, deviceType: mode }),
+                setSessionId: vi.fn(),
+                isServiceDestroyed: () => false,
+            };
+            (controller as unknown as { state: string }).state = 'RECORDING';
+            (controller as unknown as { sessionId: string }).sessionId = `sess-dur-${mode}`;
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            useSessionStore.getState().setSTTMode(mode);
+            (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+                transcript: { partial: 'point one point two point three point four point five point six' },
+            });
+
+            await controller.stopRecording();
+            await controller.whenStable();
+
+            const payload = vi.mocked(storage.completeSession).mock.calls[0]?.[1] as { duration?: number } | undefined;
+            expect(payload).toBeDefined();
+            // Spoken length (300s), NOT the 388s save-time wall-clock that folds in the finalize wait.
+            expect(payload?.duration).toBe(300);
+            expect(payload?.duration).not.toBe(388);
+        },
+    );
+
+    it('persists the SPOKEN recording duration on the fallback/late-create save path (saveSession) — excludes finalize', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+
+        const T0 = 1_700_000_000_000;
+        vi.setSystemTime(T0 + 300_000); // Stop at start + 5:00
+
+        const stopTranscription = vi.fn().mockImplementation(async () => {
+            vi.setSystemTime(T0 + 388_000); // +88s finalize
+            return {
+                success: true,
+                transcript: 'point one point two point three point four point five',
+                stats: { total_words: 6, filler_words: {}, speaking_rate: 0, duration: 300, accuracy: 1 },
+            };
+        });
+        (controller as unknown as { service: unknown }).service = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getStartTime: vi.fn().mockReturnValue(T0),
+            stopTranscription,
+            destroy: vi.fn().mockResolvedValue(undefined),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+        };
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        // No sessionId → the stop path creates the session via saveSession (fallback branch).
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode('private');
+        (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: 'point one point two point three point four point five' },
+        });
+
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        const firstArg = vi.mocked(storage.saveSession).mock.calls[0]?.[0] as { duration?: number } | undefined;
+        expect(firstArg).toBeDefined();
+        expect(firstArg?.duration).toBe(300);
+        expect(firstArg?.duration).not.toBe(388);
+    });
+
     it('flags repetitionRisk on the save candidate for a Whisper loop WITHOUT altering the saved transcript', async () => {
         const storage = await import('../../lib/storage');
         window.__SS_TRANSCRIPT_TRACE__ = [];
