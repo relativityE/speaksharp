@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Sparkles, ArrowRight } from 'lucide-react';
 import { HeroStatsDashboard } from './HeroStatsDashboard';
-import { trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
+import { trackConversionCtaClicked, trackConversionCtaViewed, trackLandingPreviewClicked } from '@/services/conversionFunnel';
 import { useEffect } from 'react';
 
 const containerVariants = {
@@ -32,7 +32,6 @@ const itemVariants = {
 export const HeroSection = () => {
   useEffect(() => {
     trackConversionCtaViewed({ source: 'hero_primary' });
-    trackConversionCtaViewed({ source: 'hero_feedback' });
   }, []);
 
   return (
@@ -50,7 +49,7 @@ export const HeroSection = () => {
             <motion.div variants={itemVariants}>
               <Badge className="w-fit bg-amber-100 text-amber-900 border border-amber-200 px-4 py-1.5 text-[11px] font-semibold flex items-center gap-2 rounded-full shadow-none">
                 <Sparkles className="size-3 fill-current" />
-                AI-Powered Speaking Coach
+                Free browser practice + 5-minute Private trial
               </Badge>
             </motion.div>
 
@@ -67,7 +66,7 @@ export const HeroSection = () => {
               variants={itemVariants}
             className="text-lg font-medium leading-relaxed text-foreground/70 max-w-xl"
             >
-              Practice with live feedback, filler word detection, and coaching insights that help you track patterns and speak with more confidence.
+              Cut filler words, fix your pace, and speak clearer. Start fast in your browser, then use Private for on-device transcription — your practice audio stays on your device in Private mode.
             </motion.p>
 
             {/* Buttons + Trust badges share the same max-width so edges align */}
@@ -80,14 +79,14 @@ export const HeroSection = () => {
                     className="flex items-center justify-center gap-2"
                     onClick={() => trackConversionCtaClicked({ source: 'hero_primary' })}
                   >
-                    Start Practice Session
+                    Start free practice
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
                 <Button variant="secondary" size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
-                  <Link to="/auth/signup" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
-                    Create Account to View Feedback
-                  </Link>
+                  <a href="#see-feedback" onClick={() => trackLandingPreviewClicked()}>
+                    See sample feedback
+                  </a>
                 </Button>
               </motion.div>
 
@@ -98,19 +97,20 @@ export const HeroSection = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
-                  <span>No installation</span>
+                  <span>Browser starts instantly</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
-                  <span>Live feedback</span>
+                  <span>Private runs on your device</span>
                 </div>
               </motion.div>
             </div>
           </motion.div>
 
-          {/* Right Column: Dashboard */}
+          {/* Right Column: Dashboard (sample-feedback preview; secondary CTA anchors here) */}
           <motion.div
-            className="w-full flex justify-center lg:justify-end"
+            id="see-feedback"
+            className="w-full flex justify-center lg:justify-end scroll-mt-24"
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6, duration: 0.8, ease: "easeOut" }}

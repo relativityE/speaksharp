@@ -14,13 +14,13 @@ export const CTASection = () => {
             <div className="container px-4 md:px-6 max-w-3xl mx-auto">
                 <div className="bg-white border border-border rounded-lg p-8 md:p-10 text-center space-y-4 surface-shadow">
                     <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground leading-tight">
-                        Ready to Speak with{' '}
-                        <span className="text-amber-700">Confidence?</span>
+                        Ready to practice before it{' '}
+                        <span className="text-amber-700">matters?</span>
                     </h2>
                     <p className="mx-auto max-w-xl text-base font-medium text-foreground/70">
-                        Start your journey to clearer communication today. No credit card required.
+                        Start free in your browser.
                     </p>
-                    <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
+                    <div className="flex justify-center pt-4">
                         <Button
                             size="lg"
                             className="px-8 h-12 text-base"
@@ -31,17 +31,9 @@ export const CTASection = () => {
                                 className="flex items-center gap-2"
                                 onClick={() => trackConversionCtaClicked({ source: 'landing_cta' })}
                             >
-                                Start Free Session
+                                Start free practice
                                 <ArrowRight className="size-4" />
                             </Link>
-                        </Button>
-                        <Button
-                            size="lg"
-                            variant="secondary"
-                            className="px-8 h-12 text-base"
-                            asChild
-                        >
-                            <Link to="/auth/signup">Create Account to View Analytics</Link>
                         </Button>
                     </div>
                 </div>
