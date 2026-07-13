@@ -33,6 +33,10 @@ import {
   reportNativeFormatterProviderMeta,
   type NativeTranscriptFormatter,
 } from './nativeTranscriptFormatter';
+import {
+  createPunctuationRestoreNativeFormatter,
+  isNativePunctuationRestoreEnabled,
+} from './nativePunctuationRestore';
 
 export const NATIVE_DETERMINISTIC_FORMATTER_VERSION = 'native-deterministic@1.0.0';
 
@@ -106,5 +110,15 @@ export function registerNativeProductionFormatter(
     logger.info({ mode }, '[NativeDeterministicCleanup] Skipping registration for non-Native mode');
     return null;
   }
-  return registerNativeTranscriptFormatter(createDeterministicNativeFormatter());
+  // Flag-selected: the word-preserving punctuation restorer (readability win) or the
+  // minimal deterministic cleanup. Both are $0/offline and go through the same
+  // word-preservation + timeout + Private guard seam. Flip the flag to disable the
+  // restorer if its proof is weak — the Native path reverts to the minimal cleanup.
+  const useRestore = isNativePunctuationRestoreEnabled();
+  logger.info({ mode, formatter: useRestore ? 'punctuation-restore' : 'deterministic-cleanup' },
+    '[NativeDeterministicCleanup] Registering Native saved-transcript formatter');
+  const formatter = useRestore
+    ? createPunctuationRestoreNativeFormatter()
+    : createDeterministicNativeFormatter();
+  return registerNativeTranscriptFormatter(formatter);
 }
