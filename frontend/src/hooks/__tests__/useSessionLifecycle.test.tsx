@@ -11,6 +11,7 @@ import { SttStatus } from '@/types/transcription';
 import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { UserProfile } from '@/types/user';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 // Mock ALL hooks used inside useSessionLifecycle
 vi.mock('@/hooks/useProfile', () => ({
@@ -676,6 +677,73 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             type: 'error',
             message: '⚠️ Microphone access is blocked. Allow microphone access and try again.'
         });
+    });
+
+    it('surfaces the sanitized engine-start leaf name on the recording_start_failed event (Decision 1C)', async () => {
+        // Production shape: the controller throws the generic wrapper with the root leaf attached as
+        // `cause`. The failure event must carry the leaf NAME (co-located with the failure) so it is
+        // self-diagnosing without Sentry — name only, no message/stack.
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(
+            Object.assign(new Error('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED'), {
+                cause: Object.assign(new Error('Requested device in use'), { name: 'NotReadableError' }),
+            })
+        );
+
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'pro',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: -1,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+
+        const failedCall = pushSpy.mock.calls.find(([event]) => event === 'recording_start_failed');
+        expect(failedCall).toBeDefined();
+        expect(failedCall?.[1]).toMatchObject({ start_leaf_name: 'NotReadableError' });
+        // The wrapper's own name/message never leak the leaf; the leaf name is the extra diagnostic.
+        expect(failedCall?.[1]).toMatchObject({ error_message: 'TRANSCRIPTION_START_DID_NOT_RECORD:FAILED' });
+        pushSpy.mockRestore();
     });
 
     it('should not show saved success when stopRecording discards an empty session', async () => {
