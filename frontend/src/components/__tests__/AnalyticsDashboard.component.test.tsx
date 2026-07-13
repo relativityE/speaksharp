@@ -92,6 +92,19 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard-skeleton')).toBeInTheDocument();
     });
 
+    it('saved-session (PDF report) row uses current vocabulary labels, not the old WPM/Fillers/Clarity card labels', () => {
+        renderComponent({ sessionHistory: mockSessionHistory });
+        // New product vocabulary on the saved-session row (matches the stat cards + PDF generator;
+        // getAllByText because the same vocabulary intentionally appears on the stat cards too).
+        expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Filler Words').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Clear Delivery').length).toBeGreaterThan(0);
+        // The stale bare card labels are gone. "WPM" survives ONLY as the unit beside the value,
+        // never as a standalone label element.
+        expect(screen.queryByText('Fillers')).not.toBeInTheDocument();
+        expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
+    });
+
     it('should render error display when error occurs', () => {
         renderComponent({ error: new Error('Test error') });
         expect(screen.getByText(/Test error/i)).toBeInTheDocument();
