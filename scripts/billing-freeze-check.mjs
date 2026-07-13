@@ -14,6 +14,8 @@
 //   BILLING_FREEZE_EMAILS    comma-separated QA/test emails to audit (preferred; keeps emails out of git).
 //   PRO_TEST_EMAIL / CHECKOUT_TEST_EMAIL / BASIC_TEST_EMAIL   fallbacks if BILLING_FREEZE_EMAILS is unset.
 
+import { writeFileSync, appendFileSync } from 'node:fs';
+
 const STRIPE = 'https://api.stripe.com/v1';
 const key = process.env.STRIPE_SECRET_KEY;
 if (!key) {
@@ -163,9 +165,66 @@ if (sessionsTruncated) {
 }
 
 const mode = key.startsWith('sk_live') ? 'LIVE' : 'test';
-console.log(
-  `BILLING_FREEZE_CHECK ${JSON.stringify({ mode, emailsAudited: emails.length, violations, report }, null, 2)}`,
-);
+
+// Sanitized audit report — masked emails only, no secrets/raw emails. Uniform per-account
+// fields so it is auditable without grepping truncated logs.
+const auditReport = {
+  mode,
+  emailsAudited: emails.length,
+  violations,
+  sessionsTruncated,
+  result: violations === 0 ? 'PASS' : 'FAIL',
+  report: report.map((r) => ({
+    email: r.email, // already masked (maskEmail)
+    noStripeCustomer: r.noStripeCustomer ?? false,
+    clean: r.clean ?? false,
+    activeSubscriptions: r.activeSubscriptions ?? 0,
+    subscriptionStatuses: r.subscriptionStatuses ?? [],
+    openInvoices: r.openInvoices ?? 0,
+    openCheckoutSessions: r.openCheckoutSessions ?? 0,
+    openCheckoutSessionSource:
+      r.openCheckoutSessionSource ?? (r.noStripeCustomer ? 'customer_email (no Stripe customer)' : 'customer + customer_email'),
+    ...(r.customer ? { customer: r.customer } : {}),
+    ...(r.error ? { error: r.error } : {}),
+  })),
+};
+
+// Durable artifact for the workflow to upload (no raw emails/secrets).
+const reportPath = process.env.BILLING_FREEZE_REPORT_PATH;
+if (reportPath) {
+  try {
+    writeFileSync(reportPath, JSON.stringify(auditReport, null, 2));
+  } catch (err) {
+    console.error(`BILLING_FREEZE_CHECK: could not write report to ${reportPath}: ${String(err.message ?? err)}`);
+  }
+}
+
+// GitHub step summary — renders on the run page (not truncated like step logs).
+const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+if (summaryPath) {
+  const rows = auditReport.report
+    .map((r) =>
+      `| \`${r.email}\` | ${r.noStripeCustomer ? 'yes' : 'no'} | ${r.activeSubscriptions} | ${r.openInvoices} | ${r.openCheckoutSessions} | ${r.error ? '⚠️ error' : r.clean ? '✅' : '❌'} |`,
+    )
+    .join('\n');
+  const md = [
+    `## Billing Freeze Check — ${mode}`,
+    ``,
+    `**result: ${auditReport.result}** · violations: ${violations} · emailsAudited: ${emails.length}${sessionsTruncated ? ' · ⚠️ session enumeration truncated (failed closed)' : ''}`,
+    ``,
+    `| account (masked) | no-customer | active subs | open invoices | open checkout | clean |`,
+    `|---|---|---|---|---|---|`,
+    rows,
+    ``,
+  ].join('\n');
+  try {
+    appendFileSync(summaryPath, md);
+  } catch (err) {
+    console.error(`BILLING_FREEZE_CHECK: could not write step summary: ${String(err.message ?? err)}`);
+  }
+}
+
+console.log(`BILLING_FREEZE_CHECK ${JSON.stringify(auditReport, null, 2)}`);
 console.log(violations === 0
   ? 'BILLING_FREEZE_CHECK: PASS — no active subscriptions / open invoices / open checkout sessions for audited accounts.'
   : `BILLING_FREEZE_CHECK: FAIL — ${violations} account(s) have live billing artifacts. Investigate before GO.`);
