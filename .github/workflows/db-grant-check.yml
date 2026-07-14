@@ -1,0 +1,42 @@
+name: DB grant check (read-only)
+
+# READ-ONLY security verification for Wave-1: reports EXECUTE grants on specific RPCs so we can
+# confirm whether a function is publicly executable (account-enumeration risk). SELECT-only against
+# the catalog via the Supabase Management API SQL endpoint. No writes, no deletes, no data access.
+# Prints has_function_privilege() for PUBLIC/anon/authenticated + the raw ACL. Not destructive.
+
+on:
+  workflow_dispatch:
+    inputs:
+      function_signature:
+        description: 'Function signature to check, e.g. public.get_user_id_by_email(text)'
+        required: false
+        default: 'public.get_user_id_by_email(text)'
+
+permissions:
+  contents: read
+
+jobs:
+  grant-check:
+    name: RPC EXECUTE grant check (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query EXECUTE grants (SELECT-only)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          FN: ${{ github.event.inputs.function_signature || 'public.get_user_id_by_email(text)' }}
+        run: |
+          set -o pipefail
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "Missing SUPABASE_ACCESS_TOKEN or SUPABASE_PROJECT_ID"; exit 2; fi
+          # Single read-only SELECT. has_function_privilege() returns true/false for each role.
+          SQL="SELECT has_function_privilege('public','${FN}','EXECUTE') AS public_exec, has_function_privilege('anon','${FN}','EXECUTE') AS anon_exec, has_function_privilege('authenticated','${FN}','EXECUTE') AS authenticated_exec, has_function_privilege('service_role','${FN}','EXECUTE') AS service_role_exec;"
+          BODY=$(printf '{"query":%s}' "$(printf '%s' "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")
+          RES=$(curl -s -X POST "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_ID}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H "Content-Type: application/json" -d "$BODY")
+          echo "## DB grant check — \`${FN}\`" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```json' | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$RES" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' | tee -a "$GITHUB_STEP_SUMMARY"
