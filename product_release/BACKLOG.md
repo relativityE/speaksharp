@@ -24,6 +24,13 @@ Operating cycle:
 4. Mark the backlog row completed/closed, with evidence.
 5. Remove the item from active coordination.
 
+## 2026-07-14 — Salvaged prototype branches (deleted after capture)
+
+Stale unmerged `#891` branches were deleted in the Wave-1 branch-hygiene pass; their one-sentence value is captured here (commits remain recoverable by SHA):
+
+- **WebGPU capability round-trip + silent-fallback detector** — `webgpuEngagement.ts` (+test), branch `feat/891-webgpu-engagement` @ `0ec60240`. Reusable if/when **Lane 1 (STT-V4-DEVICE-ADAPTIVE)** v4/WebGPU device-adaptive work resumes.
+- **Suppress `ENGINE_ALREADY_TERMINATED` toast at the stale caller** — `SpeechRuntimeController.ts` (+race tests), branch `fix/891-engine-terminated-toast` @ `33d116eb`. A candidate fix for the active P1 `ENGINE_ALREADY_TERMINATED` (homepage-stability backlog); revisit there.
+
 ## 2026-07-13 — Post-RC Lanes (RC v0.9.0-rc1 tagged, CONDITIONAL GO)
 
 RC `v0.9.0-rc1` tagged from main `18ef834d` (CONDITIONAL GO). Material blockers from the 2026-07-12 findings are closed and **prod-confirmed** (session `dd6c4e92`, `release_sha=18ef834d`): duration semantics fixed (**#974** — persisted duration = spoken recording length, not save-time wall-clock incl. finalization; WPM/pace divide by recording duration), saved-session/PDF labels aligned (**#975** — Speaking Pace / Filler Words / Clear Delivery), start-leaf telemetry (**#972**), Native readability cleanup (**#970**, NOT punctuation repair). `RC-5MIN-PROOF` measured stop-to-final = **91.7s on prod** (over the prior `>90s` NO-GO line) — **accepted as a known RC limitation** (revised product decision) because transcript/duration/WPM/persistence are correct and the UI shows a finalizing estimate.
