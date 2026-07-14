@@ -44,7 +44,7 @@ A simple way to test it:
 3. Try Private transcription, which runs on your own device.
 4. Review your saved feedback in Analytics.
 5. Download a PDF report.
-6. Use "Report issue" for anything confusing, slow, inaccurate, or broken.
+6. Use the "Report issue" button for any feedback, confusion, or problems.
 
 Note: Private mode keeps transcription on your own device. For a full 5-minute recording, finalizing may take about 90 seconds after you stop.
 
