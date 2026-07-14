@@ -1,6 +1,6 @@
 # SpeakSharp — Beta Tester Guide
 
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-13
 
 This is the guide you send to testers. It is written for someone who has never seen the
 code. Keep it free of technical detail.
@@ -18,7 +18,7 @@ transcript of what you said, and get feedback on things like filler words ("um",
 pacing, and pauses — so you can improve one thing at a time.
 
 This is a small private beta. It is **free** for you, there is nothing to pay, and you do
-not need a card. Please try one short session and send a few sentences of honest feedback.
+not need a card.
 
 ---
 
@@ -27,86 +27,85 @@ not need a card. Please try one short session and send a few sentences of honest
 **Email:**
 
 ```text
+Subject: You're invited to try SpeakSharp
+
 Hi [Name],
 
-I'm opening a small private beta for SpeakSharp, a speaking-practice coach that helps you record a short practice session, see your transcript, and get feedback on clarity, filler words, pacing, pauses, and delivery.
+We're opening a small early test of SpeakSharp and would value your feedback.
 
-The goal of this beta is simple: confirm that real users can complete the core loop smoothly:
-1. Sign up.
-2. Start a short practice session.
-3. Record for 1–3 minutes.
-4. Review the transcript and your results.
-5. Save the session.
-6. Tell me what felt useful, confusing, or missing.
+We'd love for you to try SpeakSharp and tell us what you liked or what we can improve. Please use the "Report issue" button for any feedback or problems.
 
-A few notes before you try it:
-- The standard recording mode is the easiest way to start, and works best in Chrome.
-- There is also a private mode that runs entirely on your own device; it can take a few seconds to get ready the first time.
-- Feedback is directional — it's meant to help you improve one thing at a time, not grade you perfectly.
-- If something feels off, unclear, or broken, please use Report Issue or send me a note.
+SpeakSharp helps you practice speaking, notice filler words, review your pace, and get structured feedback after each session.
 
-If you're willing to try it, I'd appreciate one short session and a few sentences on:
-- Was it obvious what to do next?
-- Did the transcript feel trustworthy enough?
-- Did the feedback help you identify one thing to improve?
-- What would make you more likely to use it again?
+A simple way to test it:
 
-Here is the beta link: [insert link]
+1. Create an account.
+2. Record a short practice using Browser transcription.
+3. Try Private transcription, which runs on your own device.
+4. Review your saved feedback in Analytics.
+5. Download a PDF report.
+6. Use the "Report issue" button for any feedback, confusion, or problems.
 
-Thanks,
+Note: Private mode keeps transcription on your own device. For a full 5-minute recording, finalizing may take about 90 seconds after you stop.
+
+Natural speech is best. Try an interview answer, presentation intro, or anything you would actually practice.
+
+[Start testing SpeakSharp]
+
+Thank you,
 Akin
 ```
 
 **Short text message:**
 
 ```text
-I'm opening a small private beta for SpeakSharp, a speaking-practice coach I've been building. You record a short practice session, see your transcript, and get feedback on filler words, pacing, and pauses.
+I'm opening a small private beta for SpeakSharp, a speaking-practice coach. You record a short practice session, see your transcript, and get feedback on filler words, pacing, and pauses.
 
-Would you try one 1–3 minute session and send honest feedback? I mainly want to know if the flow is clear, if the feedback feels useful, and what's confusing or missing.
+We'd love for you to try it and tell us what you liked or what we can improve — use the "Report issue" button for any feedback or problems. Natural speech is best.
 
 Beta link: [insert link]
 ```
 
 ---
 
-## Getting started (about 2 minutes)
+## A simple walkthrough
 
-1. Open the link: **[insert link]** (Chrome works best.)
-2. Create an account with your email and a password.
-3. That's it — you're on the free plan. Nothing to buy.
+We'd love for you to try SpeakSharp and tell us what you liked or what we can improve.
+Please use the **Report Issue** button for any feedback or problems. (Chrome works best.)
 
-## A few things to try
+1. Create an account and start a practice session.
+2. Try **Browser** transcription first. Say a short answer, interview response, or
+   presentation intro. (Drop in a few "um"s and "like"s on purpose so you can see how
+   they're caught.)
+3. Notice the live feedback: filler words, pace, and your SpeakSharp score.
+4. Try **Private** transcription next. Private runs on your own device, so your practice
+   audio stays local. It may take a few seconds to get ready the first time. Free users get
+   one Private sample of up to 5 minutes; it does not start counting down when you sign up —
+   you choose when to use it.
+5. For a longer Private recording, give it time to finalize after you stop. A full 5-minute
+   take may take about 90 seconds to finish.
+6. Review your saved session in **Analytics**.
+7. Look at your transcript, filler words, SpeakSharp score, and AI speech suggestions.
+8. Try the Analytics focus/theme options to see which view helps you most.
+9. **Download a PDF report** from a saved session.
+10. Use **Report Issue** anytime you have feedback or run into a problem.
 
-You don't need to test this in any specific order. Use SpeakSharp naturally and take it for a
-spin. Here are a few useful things to try:
+You don't need to be polished. Natural speech is more useful for testing.
 
-- Record a short **1–3 minute** practice session. (Drop in a few "um"s and "like"s on purpose
-  so you can see how they're caught.)
-- Stop the recording, review your **transcript**, and **save** the session.
-- Open the saved session from **History** and see if the feedback makes sense.
-- **Download the PDF summary** if you want to see what the report looks like.
-- **Add a custom word**, such as a name or phrase you often use, and see if it appears in your
-  results.
-- **Try Private mode** if you're curious. Free users get one Private sample of up to 5 minutes.
-  You can choose when to use it; it does not start counting down when you sign up. Private mode
-  runs on your own device and may take a few seconds to get ready the first time.
-
-If anything feels **confusing, broken, slow, inaccurate, or surprising**, please use the
-**Report Issue** button. You don't need to explain it technically — just say what you were
-trying to do and what happened.
-
-> Tip: Chrome works best for recording and transcripts.
+> If anything feels **confusing, broken, slow, inaccurate, or surprising**, please use the
+> **Report Issue** button. You don't need to explain it technically — just say what you were
+> trying to do and what happened.
 
 ---
 
 ## What feedback helps most
 
-You don't need to know anything technical. Just tell me:
+After trying SpeakSharp, please rate your experience from **1–10**, and tell us:
 
-1. Was it **obvious what to do next**?
-2. Did the **transcript** look about right?
-3. Did the **feedback** help you spot one thing to improve?
-4. Did anything **freeze, confuse, or surprise** you?
-5. Would you **use it again**? Why or why not?
+1. What felt most **useful**?
+2. What felt **confusing or slow**?
+3. Did the **transcript and feedback** feel accurate enough to help you improve?
+4. Would you **use it again** before a meeting, interview, or presentation?
+5. What is the **one thing** you would fix first?
 
 Even 3–4 sentences is a huge help. Thank you for testing it.
