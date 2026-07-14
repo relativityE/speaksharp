@@ -182,11 +182,11 @@ describe('StatusNotificationBar', () => {
             expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
         });
 
-        it('pulse is bounded (~6.5s) then turns off on its own — never repeats indefinitely', () => {
+        it('cue is bounded (~6.5s) then turns off on its own — never repeats indefinitely', () => {
             vi.useFakeTimers();
             try {
                 mockStore();
-                renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ pulse: true }} />);
+                renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
                 const action = screen.getByTestId('post-save-review-session-link');
                 expect(action).toHaveAttribute('data-cue-active', 'true');
                 expect(action.className).toMatch(/animate-pulse/);
@@ -198,16 +198,37 @@ describe('StatusNotificationBar', () => {
             }
         });
 
+        it('cue is SESSION-SCOPED: a new cueKey re-fires it without an unmount', () => {
+            vi.useFakeTimers();
+            try {
+                mockStore();
+                const { rerender } = renderRouted(
+                    <StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />,
+                );
+                const action = () => screen.getByTestId('post-save-review-session-link');
+                // First session fires, then settles.
+                act(() => { vi.advanceTimersByTime(6600); });
+                expect(action()).toHaveAttribute('data-cue-active', 'false');
+                // Second session finalized WITHOUT unmounting → cue re-fires on the new key.
+                rerender(
+                    <MemoryRouter>
+                        <StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-2' }} />
+                    </MemoryRouter>,
+                );
+                expect(action()).toHaveAttribute('data-cue-active', 'true');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
         it('reduced-motion users get a static ring during the cue, not the pulse animation', () => {
             vi.useFakeTimers();
             try {
                 mockStore();
-                renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ pulse: true }} />);
+                renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
                 const action = screen.getByTestId('post-save-review-session-link');
-                // Static emphasis is present during the cue and disabled for motion-reduce.
                 expect(action.className).toMatch(/motion-reduce:ring-2/);
                 expect(action.className).toMatch(/motion-reduce:animate-none/);
-                // ...and clears on the same bounded interval.
                 act(() => { vi.advanceTimersByTime(6600); });
                 expect(action.className).not.toMatch(/motion-reduce:ring-2/);
             } finally {
@@ -215,10 +236,18 @@ describe('StatusNotificationBar', () => {
             }
         });
 
+        it('preserves the exact label "Analytics" + aria-hidden arrow while cueing', () => {
+            mockStore();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
+            const action = screen.getByTestId('post-save-review-session-link');
+            expect(action).toHaveAccessibleName('Analytics');
+            expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
+        });
+
         it('selecting the action stops the cue immediately and calls onSelect', () => {
             mockStore();
             const onSelect = vi.fn();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ pulse: true, onSelect }} />);
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1', onSelect }} />);
             const action = screen.getByTestId('post-save-review-session-link');
             expect(action).toHaveAttribute('data-cue-active', 'true');
             fireEvent.click(action);

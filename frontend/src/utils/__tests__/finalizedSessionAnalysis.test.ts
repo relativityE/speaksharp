@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
     reconcileFinalizedFillers,
     reconciliationStatusCopy,
+    selectFinalizedHighlightTokens,
 } from '../finalizedSessionAnalysis';
 import { countFillerWords, FillerCounts } from '../fillerWordUtils';
+import { parseTranscriptForHighlighting } from '../highlightUtils';
 
 // Build a canonical (live) FillerCounts map from a plain {key: count} object.
 const canonical = (m: Record<string, number>): FillerCounts => {
@@ -14,55 +16,53 @@ const canonical = (m: Record<string, number>): FillerCounts => {
     return out;
 };
 const c = (f: FillerCounts, k: string) => f[k]?.count ?? 0;
+const fillerTokens = (tokens: { type: string; transcript: string }[], word: string) =>
+    tokens.filter((t) => t.type === 'filler' && t.transcript.toLowerCase().trim() === word).length;
 
 describe('reconcileFinalizedFillers — observation vs explicit source selection', () => {
     // ---- POLICY: canonical (#944 live) wins; a transcript recount is never promoted ----
 
     it('semantic "so" in the transcript does NOT increase the persisted total above canonical', () => {
-        // Speaker used no filler "so"; the transcript contains conjunction "so" the regex still matches.
         const transcript = 'so I went to the store so that I could buy milk and so on';
-        const visibleSo = c(countFillerWords(transcript), 'so');
-        expect(visibleSo).toBeGreaterThan(0); // regex over-counts semantic "so"
+        const candSo = c(countFillerWords(transcript), 'so');
+        expect(candSo).toBeGreaterThan(0); // regex over-counts semantic "so"
 
         const r = reconcileFinalizedFillers(transcript, canonical({ so: 0, um: 2 }));
-        expect(r.selection['so'].reason).toBe('visible-exceeds-canonical');
-        expect(c(r.transcriptVisibleCounts, 'so')).toBe(visibleSo); // observed, reported
-        expect(c(r.transcriptExcessCounts, 'so')).toBe(visibleSo);  // flagged as excess...
-        expect(c(r.persistedCounts, 'so')).toBe(0);                 // ...but NOT promoted
-        expect(r.persistedTotal).toBe(2);                           // only the canonical um:2 counts
+        expect(r.selection['so'].reason).toBe('candidate-exceeds-canonical');
+        expect(c(r.transcriptCandidateCounts, 'so')).toBe(candSo); // observed, reported
+        expect(c(r.transcriptExcessCounts, 'so')).toBe(candSo);    // flagged as excess...
+        expect(c(r.persistedCounts, 'so')).toBe(0);                // ...but NOT promoted
+        expect(r.persistedTotal).toBe(2);                          // only the canonical um:2 counts
     });
 
     it('semantic "like" in the transcript does NOT increase the persisted total above canonical', () => {
         const transcript = 'things like apples and oranges taste like fruit like that';
-        const visibleLike = c(countFillerWords(transcript), 'like');
-        expect(visibleLike).toBeGreaterThan(0);
+        const candLike = c(countFillerWords(transcript), 'like');
+        expect(candLike).toBeGreaterThan(0);
 
         const r = reconcileFinalizedFillers(transcript, canonical({ like: 1 }));
-        expect(c(r.transcriptExcessCounts, 'like')).toBe(visibleLike - 1);
-        expect(c(r.persistedCounts, 'like')).toBe(1); // canonical, not the inflated visible count
+        expect(c(r.transcriptExcessCounts, 'like')).toBe(candLike - 1);
+        expect(c(r.persistedCounts, 'like')).toBe(1); // canonical, not the inflated candidate count
         expect(r.persistedTotal).toBe(1);
     });
 
-    it('a visible recount LARGER than live never auto-wins (no per-category max)', () => {
+    it('a candidate recount LARGER than live never auto-wins (no per-category max)', () => {
         const transcript = 'so so so um';
         const r = reconcileFinalizedFillers(transcript, canonical({ so: 1, um: 1 }));
-        // visible so = 3 > canonical 1, but persisted stays canonical.
-        expect(c(r.transcriptVisibleCounts, 'so')).toBe(3);
+        expect(c(r.transcriptCandidateCounts, 'so')).toBe(3);
         expect(c(r.persistedCounts, 'so')).toBe(1);
         expect(r.persistedTotal).toBe(r.retainedCanonicalTotal);
         expect(r.persistedTotal).toBe(2);
     });
 
-    it('a live count LARGER than visible is reported as an INFERRED gap, NOT proven missing-token identity', () => {
-        // Native: um/uh live-detected but stripped from Web Speech text.
+    it('a live count LARGER than candidate is an INFERRED gap, NOT proven missing-token identity', () => {
         const transcript = 'the opening and the ending';
         const r = reconcileFinalizedFillers(transcript, canonical({ um: 2, uh: 2 }));
-        expect(c(r.transcriptVisibleCounts, 'um')).toBe(0);
+        expect(c(r.transcriptCandidateCounts, 'um')).toBe(0);
         expect(c(r.notVisibleCountGap, 'um')).toBe(2); // inferred count difference
-        expect(r.selection['um'].reason).toBe('canonical-exceeds-visible');
-        // The gap is a count, exposed for disclosure — the module claims no per-occurrence evidence:
-        // persisted is canonical, and there is no "exact speech-time-only occurrences" field.
+        expect(r.selection['um'].reason).toBe('canonical-exceeds-candidate');
         expect(c(r.persistedCounts, 'um')).toBe(2);
+        // The module claims no per-occurrence evidence: no "exact speech-only" field exists.
         expect(r).not.toHaveProperty('speechTimeOnlyCounts');
         expect(r.notVisibleGapTotal).toBe(4);
     });
@@ -73,7 +73,7 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         for (const key of Object.keys(r.selection)) {
             expect(r.selection[key].persisted).toBe(r.selection[key].canonical);
             expect(c(r.persistedCounts, key)).toBe(c(r.retainedCanonicalCounts, key));
-            expect(['canonical-only', 'canonical-exceeds-visible', 'visible-exceeds-canonical'])
+            expect(['canonical-only', 'canonical-exceeds-candidate', 'candidate-exceeds-canonical'])
                 .toContain(r.selection[key].reason);
         }
     });
@@ -91,7 +91,7 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         // @ts-expect-error deliberately malformed transcript
         const r1 = reconcileFinalizedFillers(null, null);
         expect(r1.persistedTotal).toBe(0);
-        expect(r1.transcriptVisibleTotal).toBe(0);
+        expect(r1.transcriptCandidateTotal).toBe(0);
         // @ts-expect-error deliberately malformed canonical shape
         const r2 = reconcileFinalizedFillers('um and um', { um: { count: 'NaN', color: 1 }, total: null });
         expect(Number.isFinite(r2.persistedTotal)).toBe(true);
@@ -99,72 +99,116 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
     });
 
     it('custom-tracked words obey canonical-wins and never double-count or leak via source merging', () => {
-        // A user-tracked custom filler ("gonna", not a static key): transcript has 3, live canonical 2.
+        // userWords ADD a custom filler to detection ("gonna", not a static key): transcript has 3, live 2.
         const transcript = 'gonna gonna gonna and a sonorous tone';
         const r = reconcileFinalizedFillers(transcript, canonical({ gonna: 2 }), ['gonna']);
-        expect(c(r.transcriptVisibleCounts, 'gonna')).toBe(3);
+        expect(c(r.transcriptCandidateCounts, 'gonna')).toBe(3);
         expect(c(r.persistedCounts, 'gonna')).toBe(2);        // canonical wins — not 3, not 5 (no merge/add)
         expect(c(r.transcriptExcessCounts, 'gonna')).toBe(1); // excess reported, not counted
-        // "sonorous" must not leak into the "so" filler via substring matching.
-        expect(c(r.transcriptVisibleCounts, 'so')).toBe(0);
-        // Reconciliation must not invent a category absent from BOTH sources.
+        expect(c(r.transcriptCandidateCounts, 'so')).toBe(0); // "sonorous" must not leak into "so"
         const sources = new Set([
             ...Object.keys(r.retainedCanonicalCounts),
-            ...Object.keys(r.transcriptVisibleCounts),
+            ...Object.keys(r.transcriptCandidateCounts),
         ]);
         for (const key of Object.keys(r.persistedCounts)) expect(sources.has(key)).toBe(true);
     });
 
-    // ---- Dogfood regression: the finalized selector must NOT turn 8 into 10 ----
+    // ---- SYNTHETIC selector regression (does NOT reproduce the real dogfood session) ----
 
-    it('DOGFOOD REGRESSION: 8 spoken fillers do not become 10 via transcript recount of semantic "so"', () => {
-        // Synthetic reconstruction of the Private dogfood shape (session c9149661, persisted 10 vs expected 8).
-        // Canonical live counted the 8 genuinely-spoken fillers; the transcript ALSO contains 2 semantic
-        // "so" the regex matches. A max()/promotion policy would surface 10; canonical-wins keeps 8.
-        const canonicalLive = canonical({ um: 3, uh: 2, like: 2, actually: 1 }); // 8 real spoken fillers
+    it('SYNTHETIC SELECTOR REGRESSION: 8 canonical fillers do not become 10 via transcript semantic "so"', () => {
+        // Synthetic shape only. The real Private dogfood session (persisted 10 vs expected 8) is NOT
+        // reproduced here — telemetry retains no per-category/transcript data to reconstruct it. This
+        // proves ONLY that the SELECTOR does not add transcript candidates on top of canonical.
+        const canonicalLive = canonical({ um: 3, uh: 2, like: 2, actually: 1 }); // 8 canonical fillers
         const transcript =
             'um so I think uh the plan is like this and um so we can like proceed uh and actually um finish';
         const r = reconcileFinalizedFillers(transcript, canonicalLive);
 
-        const visibleSo = c(r.transcriptVisibleCounts, 'so');
-        expect(visibleSo).toBeGreaterThanOrEqual(2);        // the transcript DID add semantic "so"
-        expect(c(r.persistedCounts, 'so')).toBe(0);         // ...never promoted (canonical so = 0)
-        expect(r.persistedTotal).toBe(8);                   // the reconciled total stays 8, not 10
-        expect(r.transcriptExcessTotal).toBeGreaterThanOrEqual(2); // excess is reported, not counted
-        // NOTE: if the LIVE counter itself over-counts semantic "so" (the actual dogfood cause), the
-        // canonical total is already inflated upstream — that is a DETECTION fix, out of scope here.
-        // This test proves only that the SELECTOR does not add transcript recounts on top.
+        expect(c(r.transcriptCandidateCounts, 'so')).toBeGreaterThanOrEqual(2); // transcript DID add "so"
+        expect(c(r.persistedCounts, 'so')).toBe(0);                             // ...never promoted
+        expect(r.persistedTotal).toBe(8);                                       // reconciled total stays 8
+        expect(r.transcriptExcessTotal).toBeGreaterThanOrEqual(2);             // excess reported, not counted
     });
 });
 
-describe('reconciliationStatusCopy — status-bar-only, three approved variants', () => {
-    it('Native omission → discrepancy copy with the persisted count', () => {
+describe('selectFinalizedHighlightTokens — bounded highlight budget (never the raw candidates)', () => {
+    it('canonical 0 + semantic "so" candidates → ZERO finalized "so" highlights', () => {
+        const raw = parseTranscriptForHighlighting('so so so and um');
+        expect(fillerTokens(raw, 'so')).toBeGreaterThan(0); // raw highlighter marks every "so"
+        const bounded = selectFinalizedHighlightTokens(raw, canonical({ um: 1 })); // no canonical "so"
+        expect(fillerTokens(bounded, 'so')).toBe(0);        // ...all demoted to text
+        expect(fillerTokens(bounded, 'um')).toBe(1);
+    });
+
+    it('candidates > canonical → finalized highlights never exceed the canonical count per category', () => {
+        const raw = parseTranscriptForHighlighting('um um um um');
+        expect(fillerTokens(raw, 'um')).toBe(4);
+        const bounded = selectFinalizedHighlightTokens(raw, canonical({ um: 1 }));
+        expect(fillerTokens(bounded, 'um')).toBe(1); // capped at canonical
+    });
+
+    it('highlighted count may be LOWER than the card when Native omitted tokens; status bar acknowledges', () => {
+        // Native: um live-detected but stripped from the transcript text.
+        const transcript = 'the opening and the ending';
+        const raw = parseTranscriptForHighlighting(transcript);
+        const r = reconcileFinalizedFillers(transcript, canonical({ um: 2 }));
+        const bounded = selectFinalizedHighlightTokens(raw, r.persistedCounts);
+        expect(fillerTokens(bounded, 'um')).toBe(0);   // nothing to highlight (omitted from text)
+        expect(r.finalizedHighlightTotal).toBe(0);
+        expect(r.persistedTotal).toBe(2);              // card still shows the canonical 2
+        expect(reconciliationStatusCopy(r, { mode: 'native' })).toMatch(/Browser may omit some/);
+    });
+
+    it('the raw regex-candidate object is NOT the highlight source — finalized budget is bounded/separate', () => {
+        const transcript = 'so so um';
+        const r = reconcileFinalizedFillers(transcript, canonical({ so: 0, um: 1 }));
+        // Candidate total (raw regex) exceeds the finalized highlight budget — they are distinct objects.
+        expect(r.transcriptCandidateTotal).toBeGreaterThan(r.finalizedHighlightTotal);
+        expect(r.finalizedHighlightTotal).toBeLessThanOrEqual(r.persistedTotal);
+        expect(c(r.finalizedHighlightCounts, 'so')).toBe(0); // canonical 0 → 0 budget
+    });
+});
+
+describe('reconciliationStatusCopy — status-bar-only, mode-aware, three approved variants', () => {
+    it('NATIVE omission → Browser-omission copy with the persisted count', () => {
         const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 2, uh: 2 }));
-        expect(reconciliationStatusCopy(r)).toBe(
+        expect(reconciliationStatusCopy(r, { mode: 'native' })).toBe(
             'Session saved · 4 filler words detected. Browser may omit some from the transcript.',
         );
+    });
+
+    it('PRIVATE never receives Browser-specific copy, even with an omission gap', () => {
+        const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 2, uh: 2 }));
+        expect(r.notVisibleGapTotal).toBeGreaterThan(0);
+        const copy = reconciliationStatusCopy(r, { mode: 'private' });
+        expect(copy).not.toMatch(/Browser/);
+        expect(copy).toBe('Session saved · Your final feedback is ready.');
+    });
+
+    it('mode omitted → conservative (no Browser copy)', () => {
+        const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 2 }));
+        expect(reconciliationStatusCopy(r)).not.toMatch(/Browser/);
     });
 
     it('count changed without omission → "updated to" copy', () => {
         const r = reconcileFinalizedFillers('um and um', canonical({ um: 2 }));
         expect(r.notVisibleGapTotal).toBe(0);
-        expect(reconciliationStatusCopy(r, { priorDisplayedTotal: 3 })).toBe(
+        expect(reconciliationStatusCopy(r, { mode: 'native', priorDisplayedTotal: 3 })).toBe(
             'Session saved · Filler words updated to 2.',
         );
     });
 
     it('no discrepancy → plain ready copy', () => {
         const r = reconcileFinalizedFillers('um and um', canonical({ um: 2 }));
-        expect(reconciliationStatusCopy(r, { priorDisplayedTotal: 2 })).toBe(
+        expect(reconciliationStatusCopy(r, { mode: 'native', priorDisplayedTotal: 2 })).toBe(
             'Session saved · Your final feedback is ready.',
         );
-        expect(reconciliationStatusCopy(r)).toBe('Session saved · Your final feedback is ready.');
     });
 
-    it('is concise (single line, no card primary/secondary contract exported)', async () => {
+    it('is concise (single line) and exports no card disclosure contract', async () => {
         const mod = await import('../finalizedSessionAnalysis');
         expect(mod).not.toHaveProperty('fillerDisclosure');
         const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 2 }));
-        expect(reconciliationStatusCopy(r)).not.toMatch(/\n/);
+        expect(reconciliationStatusCopy(r, { mode: 'native' })).not.toMatch(/\n/);
     });
 });

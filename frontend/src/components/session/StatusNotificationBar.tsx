@@ -11,11 +11,15 @@ interface StatusNotificationBarProps {
     className?: string;
     /**
      * Post-save Analytics action folded into this single status bar (replaces the separate
-     * post-save-review-actions surface). Reuses the existing /analytics destination — NOT a new
-     * button. `pulse` runs a bounded, reduced-motion-safe highlight on the action only.
+     * post-save-review-actions surface). Reuses the existing /analytics destination — NOT a new button.
+     *
+     * `cueKey` is SESSION-SCOPED: pass the finalized session's id (or any value that changes once per
+     * newly finalized session). A change in cueKey fires the bounded, reduced-motion-safe cue exactly
+     * once — so a second session finalized WITHOUT unmounting SessionPage re-triggers it. Leave it
+     * undefined for no cue.
      */
     analyticsAction?: {
-        pulse?: boolean;
+        cueKey?: string | number;
         onSelect?: () => void;
     };
 }
@@ -119,15 +123,18 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
 
-    // Bounded post-save cue on the Analytics action: ~6.5s, then off. Stops immediately on select.
-    // motion-safe users see the pulse; reduced-motion users get a static ring for the same interval.
+    // Bounded, SESSION-SCOPED post-save cue on the Analytics action: ~6.5s, then off. Stops immediately
+    // on select. Keyed on the finalized session id (cueKey) so each newly finalized session fires it
+    // once — including a second session finalized without unmounting. motion-safe users see the pulse;
+    // reduced-motion users get a static ring for the same interval.
+    const cueKey = analyticsAction?.cueKey;
     const [cueActive, setCueActive] = React.useState(false);
     React.useEffect(() => {
-        if (!analyticsAction?.pulse) { setCueActive(false); return; }
+        if (cueKey === undefined || cueKey === null) { setCueActive(false); return; }
         setCueActive(true);
         const t = setTimeout(() => setCueActive(false), 6500);
         return () => clearTimeout(t);
-    }, [analyticsAction?.pulse]);
+    }, [cueKey]);
     const modelLoadingProgress = status.progress ?? null;
     const hasSecondary = modelLoadingProgress !== null;
 
