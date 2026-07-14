@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock, ArrowRight } from 'lucide-react';
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -8,6 +9,15 @@ import { speechRuntimeController } from '../../services/SpeechRuntimeController'
 interface StatusNotificationBarProps {
     status: SttStatus;
     className?: string;
+    /**
+     * Post-save Analytics action folded into this single status bar (replaces the separate
+     * post-save-review-actions surface). Reuses the existing /analytics destination — NOT a new
+     * button. `pulse` runs a bounded, reduced-motion-safe highlight on the action only.
+     */
+    analyticsAction?: {
+        pulse?: boolean;
+        onSelect?: () => void;
+    };
 }
 
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
@@ -97,7 +107,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * Displays above the Live Recording card to inform users of initialization,
  * fallback, and error states.
  */
-export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '' }) => {
+export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction }) => {
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
@@ -211,6 +221,24 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             )}
 
             <div className="hidden sm:block flex-1" />
+
+            {/* Post-save Analytics action (folded in from the removed post-save-review-actions surface).
+                Existing /analytics destination; bounded, reduced-motion-safe pulse; no new button. */}
+            {analyticsAction && (
+                <Link
+                    to="/analytics"
+                    onClick={() => analyticsAction.onSelect?.()}
+                    data-testid="post-save-review-session-link"
+                    className={`inline-flex items-center gap-1 self-start rounded-md px-3 py-1.5 text-[13px] font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:self-auto ${
+                        analyticsAction.pulse
+                            ? 'motion-safe:animate-[pulse_1.6s_ease-in-out_4] motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
+                            : ''
+                    }`}
+                >
+                    Check out Analytics
+                    <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+            )}
 
             {/* Secondary Status Indicator (Background Task) - Far Right */}
             {hasSecondary && (
