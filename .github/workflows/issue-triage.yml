@@ -86,6 +86,15 @@ jobs:
           };
           // Never surface secret-ish metadata values (defence in depth; metadata should hold none).
           const SECRET = /token|secret|key|cookie|auth|password|bearer/i;
+          // Redact secret-looking substrings inside free-text fields. title/description are the
+          // reporter's own support message and MUST be readable by triage, but a user could paste
+          // a token/key into them — scrub known secret shapes before printing (defence in depth).
+          const redactText = (s) => String(s ?? '')
+            .replace(/eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}/g, '[REDACTED_JWT]')
+            .replace(/\b(?:sk|pk|rk|whsec)_[A-Za-z0-9]{12,}/g, '[REDACTED_KEY]')
+            .replace(/\bBearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer [REDACTED]')
+            .replace(/\b[A-Fa-f0-9]{40,}\b/g, '[REDACTED_HEX]')
+            .replace(/\b(token|secret|password|api[_-]?key|authorization|cookie)\b\s*[:=]\s*\S+/gi, '$1=[REDACTED]');
           const mfield = (meta, k) => {
             if (!meta || typeof meta !== 'object' || !(k in meta) || meta[k] == null) return 'MISSING';
             if (SECRET.test(k)) return 'present (redacted)';
@@ -118,8 +127,8 @@ jobs:
             out.push(`- **id:** \`${cell(r.id, 36)}\` · **created_at:** ${cell(r.created_at, 19)}`);
             const c = normCategory(r.category);
             out.push(`  - category: \`${cell(r.category, 30)}\` → ${c.label}${c.isLegacy ? ` _(legacy value — normalizes to ${c.slug})_` : ''} · severity: \`${cell(r.severity, 12)}\``);
-            out.push(`  - title: ${r.title ? 'present (' + cell(r.title, 50) + ')' : 'MISSING'}`);
-            out.push(`  - description: ${r.description ? 'present (' + String(r.description).length + ' chars)' : 'MISSING'}`);
+            out.push(`  - title: ${r.title ? redactText(cell(r.title, 120)) : 'MISSING'}`);
+            out.push(`  - description: ${r.description ? redactText(cell(r.description, 600)) + ` _(${String(r.description).length} chars)_` : 'MISSING'}`);
             out.push(`  - page_url: ${r.page_url ? 'present (' + cell(r.page_url, 50) + ')' : 'MISSING'}`);
             out.push(`  - user_id: ${r.user_id ? cell(r.user_id, 8) + '…' : 'MISSING'} · session_id: ${r.session_id ? cell(r.session_id, 12) + '…' : 'null'}`);
             out.push(`  - metadata.route: ${mfield(m, 'route')}`);
