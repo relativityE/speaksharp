@@ -118,6 +118,16 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     // progress does not leak into Free/Native Browser views.
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
+
+    // Bounded post-save cue on the Analytics action: ~6.5s, then off. Stops immediately on select.
+    // motion-safe users see the pulse; reduced-motion users get a static ring for the same interval.
+    const [cueActive, setCueActive] = React.useState(false);
+    React.useEffect(() => {
+        if (!analyticsAction?.pulse) { setCueActive(false); return; }
+        setCueActive(true);
+        const t = setTimeout(() => setCueActive(false), 6500);
+        return () => clearTimeout(t);
+    }, [analyticsAction?.pulse]);
     const modelLoadingProgress = status.progress ?? null;
     const hasSecondary = modelLoadingProgress !== null;
 
@@ -227,15 +237,16 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {analyticsAction && (
                 <Link
                     to="/analytics"
-                    onClick={() => analyticsAction.onSelect?.()}
+                    onClick={() => { setCueActive(false); analyticsAction.onSelect?.(); }}
                     data-testid="post-save-review-session-link"
+                    data-cue-active={cueActive}
                     className={`inline-flex items-center gap-1 self-start rounded-md px-3 py-1.5 text-[13px] font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:self-auto ${
-                        analyticsAction.pulse
-                            ? 'motion-safe:animate-[pulse_1.6s_ease-in-out_4] motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
+                        cueActive
+                            ? 'motion-safe:animate-pulse motion-reduce:animate-none motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
                             : ''
                     }`}
                 >
-                    Check out Analytics
+                    Analytics
                     <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </Link>
             )}
