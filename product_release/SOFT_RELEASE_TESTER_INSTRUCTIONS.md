@@ -48,6 +48,8 @@ A simple way to test it:
 
 Note: Private mode keeps transcription on your own device. For a full 5-minute recording, finalizing may take about 90 seconds after you stop.
 
+Pro purchases aren't open during this test. If you'd like Pro when it becomes available, reply to this invitation or use "Report issue" and select Billing. Beta testers can use the free Browser plan and one included Private sample — no card is required.
+
 Natural speech is best. Try an interview answer, presentation intro, or anything you would actually practice.
 
 [Start testing SpeakSharp]
@@ -62,6 +64,8 @@ Akin
 I'm opening a small private beta for SpeakSharp, a speaking-practice coach. You record a short practice session, see your transcript, and get feedback on filler words, pacing, and pauses.
 
 We'd love for you to try it and tell us what you liked or what we can improve — use the "Report issue" button for any feedback or problems. Natural speech is best.
+
+Pro purchases aren't open during this test — the free Browser plan and one included Private sample need no card. Want Pro when it opens? Reply, or use Report Issue → Billing.
 
 Beta link: [insert link]
 ```
@@ -81,7 +85,8 @@ Please use the **Report Issue** button for any feedback or problems. (Chrome wor
 4. Try **Private** transcription next. Private runs on your own device, so your practice
    audio stays local. It may take a few seconds to get ready the first time. Free users get
    one Private sample of up to 5 minutes; it does not start counting down when you sign up —
-   you choose when to use it.
+   you choose when to use it. **No Pro purchase is needed for this beta** — the Private sample
+   is included, and Pro purchasing isn't open during the test.
 5. For a longer Private recording, give it time to finalize after you stop. A full 5-minute
    take may take about 90 seconds to finish.
 6. Review your saved session in **Analytics**.

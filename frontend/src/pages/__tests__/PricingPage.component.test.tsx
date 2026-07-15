@@ -4,18 +4,26 @@ import userEvent from '@testing-library/user-event';
 import { PricingPage } from '../PricingPage';
 import * as supabaseClient from '@/lib/supabaseClient';
 import * as UserProfileHook from '@/hooks/useUserProfile';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 
 // Mock modules
 vi.mock('@/lib/supabaseClient');
+// Control the payments-enabled gate; default true preserves the existing enabled-state tests.
+vi.mock('@/config/appRuntimeConfig', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/config/appRuntimeConfig')>()),
+    arePaymentsEnabled: vi.fn(() => true),
+}));
 
 const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
+const mockArePaymentsEnabled = vi.mocked(arePaymentsEnabled);
 
 describe('PricingPage', () => {
     const mockInvoke = vi.fn();
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockArePaymentsEnabled.mockReturnValue(true); // enabled by default; disabled cases opt in
 
         // Default Supabase client mock
         mockGetSupabaseClient.mockReturnValue({
@@ -111,6 +119,41 @@ describe('PricingPage', () => {
 
             const proButton = screen.getByText('Upgrade to Pro');
             expect(proButton).not.toBeDisabled();
+        });
+    });
+
+    describe('Payments disabled (Wave-1 non-payment beta)', () => {
+        beforeEach(() => {
+            mockArePaymentsEnabled.mockReturnValue(false);
+        });
+
+        it('shows a visible beta-unavailable notice instead of a checkout CTA, and keeps the Pro plan visible', () => {
+            renderPricingPage();
+
+            // Pro plan still visible for transparency.
+            expect(screen.getByText('Pro')).toBeInTheDocument();
+            expect(screen.getByText('$9.99')).toBeInTheDocument();
+
+            // Informational, non-clickable state replaces the missing checkout CTA.
+            const notice = screen.getByTestId('pricing-pro-beta-unavailable');
+            expect(notice).toBeInTheDocument();
+            expect(screen.getByText(/Pro enrollment isn't open during this beta/i)).toBeInTheDocument();
+            expect(screen.getByText(/free Browser plan and one included Private sample\. No card is required/i)).toBeInTheDocument();
+
+            // No clickable Pro checkout action; the Free CTA remains.
+            expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();
+            expect(screen.queryByText('Starting checkout...')).not.toBeInTheDocument();
+            expect(screen.getByText('Start Free')).toBeInTheDocument();
+        });
+
+        it('does not invoke stripe-checkout from the beta-unavailable state', async () => {
+            const user = userEvent.setup();
+            renderPricingPage();
+
+            // The notice is not a button; there is nothing to click that starts checkout.
+            const notice = screen.getByTestId('pricing-pro-beta-unavailable');
+            await user.click(notice);
+            expect(mockInvoke).not.toHaveBeenCalled();
         });
     });
 
