@@ -26,10 +26,28 @@ Operating cycle:
 
 ## 2026-07-14 — Salvaged prototype branches (deleted after capture)
 
-Stale unmerged `#891` branches were deleted in the Wave-1 branch-hygiene pass; their one-sentence value is captured here (commits remain recoverable by SHA):
+Stale unmerged `#891` branches were deleted in the Wave-1 branch-hygiene pass. Each is preserved by an **immutable annotated archive tag** (the deleted branches are otherwise unreachable), and captured here with its **full 40-character SHA**, purpose, and limitations:
 
-- **WebGPU capability round-trip + silent-fallback detector** — `webgpuEngagement.ts` (+test), branch `feat/891-webgpu-engagement` @ `0ec60240`. Reusable if/when **Lane 1 (STT-V4-DEVICE-ADAPTIVE)** v4/WebGPU device-adaptive work resumes.
-- **Suppress `ENGINE_ALREADY_TERMINATED` toast at the stale caller** — `SpeechRuntimeController.ts` (+race tests), branch `fix/891-engine-terminated-toast` @ `33d116eb`. A candidate fix for the active P1 `ENGINE_ALREADY_TERMINATED` (homepage-stability backlog); revisit there.
+- **WebGPU capability round-trip + silent-fallback detector** — `webgpuEngagement.ts` (+test).
+  - Deleted branch: `feat/891-webgpu-engagement`
+  - Full SHA: `0ec60240845eb016a4c792288ecd9872a830c271`
+  - Archive tag: `archive/891-webgpu-engagement-2026-07-15` → https://github.com/relativityE/speaksharp/tree/archive/891-webgpu-engagement-2026-07-15
+  - Purpose: reusable if/when **Lane 1 (STT-V4-DEVICE-ADAPTIVE)** v4/WebGPU device-adaptive work resumes.
+  - Limitations: flag-off prototype; never merged; not rebased on current main.
+
+- **Suppress `ENGINE_ALREADY_TERMINATED` toast at the stale caller** — `SpeechRuntimeController.ts` (+race tests).
+  - Deleted branch: `fix/891-engine-terminated-toast`
+  - Full SHA: `33d116eb3df70069696668ded68c02b36df45f6a`
+  - Archive tag: `archive/891-engine-terminated-toast-2026-07-15` → https://github.com/relativityE/speaksharp/tree/archive/891-engine-terminated-toast-2026-07-15
+  - Purpose: candidate fix for the active P1 `ENGINE_ALREADY_TERMINATED` (homepage-stability backlog); revisit there.
+  - Limitations: prototype fix; never merged; superseded call sites may have drifted on main.
+
+- **Private segmented-finalization prototype** — segmented finalizing-draft under flag (`#891`).
+  - Deleted branch: `feat/891-private-segmented-finalization` (no open PR; 24 unique commits, 63 behind main)
+  - Full SHA: `20559c79bf09386fcb5b3eb22f082c91eb72b012`
+  - Archive tag: `archive/891-private-segmented-finalization-2026-07-15` → https://github.com/relativityE/speaksharp/tree/archive/891-private-segmented-finalization-2026-07-15
+  - Purpose: inactive flag-off prototype of Private segmented decode / finalizing draft; reference only.
+  - Limitations: flag-off, never merged, 63 commits behind main; the segmentation direction was superseded by the v4/WebGPU re-platform — treat as historical.
 
 ## 2026-07-13 — Post-RC Lanes (RC v0.9.0-rc1 tagged, CONDITIONAL GO)
 
