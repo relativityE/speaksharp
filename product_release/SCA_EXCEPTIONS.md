@@ -58,8 +58,14 @@ begins exposing the Vitest UI/API server.
 Severity: 11 low | 48 moderate | 49 high | 2 critical (1 ignored)
 ```
 
-So the GHSA-5xrq suppression **is honored in CI** (the "1 ignored"), and the gate is green under pinned pnpm 10.29.1.
+That gate-4-sca run **predates the npm legacy-audit endpoint retirement** (see below); its summary is retained as historical context.
 
-**Open verification (unresolved).** The summary reads `2 critical (1 ignored)` — one critical advisory beyond the ignored vitest one is reported, yet the gate passes. Confirm whether the second critical is (a) a second dependency path to the same GHSA-5xrq (so effectively 0 unignored critical → correct pass), or (b) a distinct critical that should be triaged. pnpm's summary does not print per-advisory detail; run `pnpm audit --json` in CI to enumerate. Until confirmed, treat "the gate proves zero unignored criticals" as **provisional**.
+**Both criticals identified — PROVEN, not provisional (2026-07-15).** The `2 critical (1 ignored)` summary is a **duplicate-path artifact of a single advisory**, confirmed two ways:
+- **`pnpm audit --json` re-run in CI with the exact pinned pnpm 10.29.1** now returns `ERR_PNPM_AUDIT_BAD_RESPONSE` — HTTP **410** from `registry.npmjs.org/-/npm/v1/security/audits` (*"This endpoint is being retired. Use the bulk advisory endpoint instead."*). pnpm 10.29.1's `audit` calls the retired legacy endpoint, so it can no longer enumerate — **and `pnpm audit --audit-level critical` now exits 1**, i.e. the `rc:gate:4:sca` gate is currently broken in CI, not just locally.
+- **`osv-scanner` (endpoint-independent, dedupes by advisory) over the root `pnpm-lock.yaml`** reports the full tree — `1 critical | 46 high | 46 moderate | 11 low` — and the **only critical is `vitest@3.2.4` → GHSA-5xrq-8626-4rwp**, i.e. the already-ignored advisory. There is **no second distinct critical**. `vitest@3.2.4` is resolved into two importers (root devDependency and frontend via `@vitest/coverage-v8@4.1.9(vitest@3.2.4)`), which is exactly why pnpm counts *2 critical findings of the same advisory*.
 
-**Real remediation (recommended).** Upgrade `vitest` to `>= 4.1.0` (retires GHSA-5xrq entirely, removing the suppression). This is a major 3→4 bump requiring unit-suite + coverage + `vitest.config.mjs` re-validation; schedule as a standalone change. Separately, fix the local audit path (the retired endpoint) if local `rc:gate:4:sca` reproduction is desired — e.g. pin a pnpm that uses the bulk advisory endpoint.
+**Conclusion: zero unignored *distinct* criticals.** The sole critical advisory is GHSA-5xrq, fully covered by the `pnpm.auditConfig.ignoreGhsas` suppression.
+
+**Required remediation (two items).**
+1. **Un-break the SCA gate.** `pnpm audit` (pinned 10.29.1) hits the retired endpoint and now fails/errors everywhere. Move the gate off it: upgrade to a pnpm that uses the bulk advisory endpoint, or replace `rc:gate:4:sca` with `osv-scanner` (used for this enumeration) or GitHub Dependency Review. Until then the gate cannot produce a valid pass/fail.
+2. **Retire the suppression.** Upgrade `vitest` to `>= 4.1.0` (removes GHSA-5xrq and the `ignoreGhsas` entry entirely). Major 3→4 bump — re-validate unit suite + coverage + `vitest.config.mjs`; schedule standalone.
