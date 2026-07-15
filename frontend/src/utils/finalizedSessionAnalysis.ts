@@ -178,7 +178,10 @@ export function reconcileFinalizedFillers(
  * Copy variants (approved):
  *   - native + notVisibleGap > 0  → "Session saved · {n} filler words detected. Browser transcription may omit some from the written transcript."
  *   - count changed, no omission  → "Session saved · Filler words updated to {n}."
- *   - no discrepancy              → "Session saved · Your final feedback is ready."
+ *   - no discrepancy              → "Session saved · Your transcript is ready."
+ *
+ * NOTE: the ordinary settled copy says the TRANSCRIPT is ready — deliberately not "your final feedback",
+ * which would over-claim while the coaching score may still read "Score Soon" / "Confidence: Building".
  */
 export function reconciliationStatusCopy(
     r: FinalizedFillerReconciliation,
@@ -192,5 +195,5 @@ export function reconciliationStatusCopy(
     if (opts && typeof opts.priorDisplayedTotal === 'number' && opts.priorDisplayedTotal !== n) {
         return `Session saved · Filler words updated to ${n}.`;
     }
-    return 'Session saved · Your final feedback is ready.';
+    return 'Session saved · Your transcript is ready.';
 }

@@ -12,29 +12,35 @@ describe('PostSaveToast', () => {
         expect(screen.queryByTestId('post-save-toast')).toBeNull();
     });
 
-    it('renders once with the "Next: Analytics" title, supporting copy, aria-live=polite, and NO button/CTA', () => {
+    it('renders once with the "Next: Analytics" title, the short supporting copy, aria-live=polite, and NO button/CTA', () => {
         render(<PostSaveToast sessionKey="sess-1" />);
         const toast = screen.getByTestId('post-save-toast');
         expect(toast).toHaveAttribute('aria-live', 'polite');
         expect(toast).toHaveAttribute('role', 'status');
         expect(toast).toHaveTextContent('Next: Analytics');
-        expect(toast).toHaveTextContent(/Open Analytics when you.?re ready/i);
+        expect(toast).toHaveTextContent('See your trends and deeper feedback.');
+        // Truthfulness: does NOT claim Analytics holds the full transcript.
+        expect(toast).not.toHaveTextContent(/full transcript/i);
         // Informational only — the action lives on the status bar.
         expect(toast.querySelector('button')).toBeNull();
         expect(toast.querySelector('a')).toBeNull();
+        // In normal flow — not fixed/absolute/sticky.
+        expect(toast.className).not.toMatch(/fixed|absolute|sticky/);
         // Does not steal focus.
         expect(toast).not.toBe(document.activeElement);
     });
 
-    it('stays visible for ≥5s then auto-dismisses (~8s)', () => {
+    it('stays visible for ≥5s then dismisses via a bounded fade+collapse (~8s + collapse)', () => {
         vi.useFakeTimers();
         try {
             render(<PostSaveToast sessionKey="sess-1" />);
             expect(screen.getByTestId('post-save-toast')).toBeInTheDocument();
             act(() => { vi.advanceTimersByTime(5000); });
-            expect(screen.getByTestId('post-save-toast')).toBeInTheDocument(); // still up at 5s
+            expect(screen.getByTestId('post-save-toast')).toHaveAttribute('data-leaving', 'false'); // still up at 5s
             act(() => { vi.advanceTimersByTime(3100); });
-            expect(screen.queryByTestId('post-save-toast')).toBeNull();        // gone by ~8s
+            expect(screen.getByTestId('post-save-toast')).toHaveAttribute('data-leaving', 'true');  // collapsing at ~8s
+            act(() => { vi.advanceTimersByTime(300); });
+            expect(screen.queryByTestId('post-save-toast')).toBeNull();                             // unmounted after collapse
         } finally {
             vi.useRealTimers();
         }
@@ -50,7 +56,7 @@ describe('PostSaveToast', () => {
             act(() => { vi.advanceTimersByTime(20000); });
             expect(screen.getByTestId('post-save-toast')).toBeInTheDocument(); // still up while hovered
             fireEvent.mouseLeave(toast);          // resume
-            act(() => { vi.advanceTimersByTime(8100); });
+            act(() => { vi.advanceTimersByTime(8400); });
             expect(screen.queryByTestId('post-save-toast')).toBeNull();
         } finally {
             vi.useRealTimers();
@@ -62,7 +68,7 @@ describe('PostSaveToast', () => {
         try {
             const { rerender } = render(<PostSaveToast sessionKey="sess-1" />);
             expect(screen.getByTestId('post-save-toast')).toBeInTheDocument();
-            act(() => { vi.advanceTimersByTime(8100); });
+            act(() => { vi.advanceTimersByTime(8400); });
             expect(screen.queryByTestId('post-save-toast')).toBeNull();
             // Same key again → does NOT re-show.
             rerender(<PostSaveToast sessionKey="sess-1" />);

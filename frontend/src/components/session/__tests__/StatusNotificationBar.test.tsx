@@ -159,7 +159,7 @@ describe('StatusNotificationBar', () => {
     describe('post-save Analytics action (folded-in, single status bar)', () => {
         it('renders no action when analyticsAction is absent (default behaviour unchanged)', () => {
             mockStore();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your final feedback is ready.' }} />);
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} />);
             expect(screen.queryByTestId('post-save-review-session-link')).toBeNull();
             // Still exactly one status bar.
             expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
@@ -167,7 +167,7 @@ describe('StatusNotificationBar', () => {
 
         it('labels the action exactly "Analytics" (not "Check out Analytics"/"View analytics") with an aria-hidden arrow', () => {
             mockStore();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your final feedback is ready.' }} analyticsAction={{}} />);
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} analyticsAction={{}} />);
             const action = screen.getByTestId('post-save-review-session-link');
             // Accessible name is exactly "Analytics" — the arrow icon must not contribute text.
             expect(action).toHaveAccessibleName('Analytics');

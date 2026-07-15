@@ -288,6 +288,10 @@ export class SpeechRuntimeController {
     private readonly HEARTBEAT_THRESHOLD_MS =
         import.meta.env.VITE_E2E_MODE ? 60000 : 30000;
     private lifecycleVersion: number = 0;
+    // Monotonic stop counter. The finalized-analysis signal (toast/cue/settled copy) is published only
+    // at the TERMINAL of a stop (persist → reconcile → native formatter complete/failed → final display).
+    // A newer stop bumps this so a stale async formatter result can never publish over a newer session.
+    private finalizeSequence: number = 0;
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     public service: TranscriptionService | null = null;
@@ -2487,10 +2491,40 @@ export class SpeechRuntimeController {
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
 
+                            // Track 1 finalized reconciliation (disclosure-only). Computed against the
+                            // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,
+                            // canonical live under #944; word-preserving formatting never changes the count).
+                            // PUBLISHED only at the TERMINAL of finalization so the toast / Analytics cue /
+                            // settled status never fire while the transcript is still being tidied.
+                            let finalizedReconciliation: ReturnType<typeof reconcileFinalizedFillers> | null = null;
+                            try {
+                                finalizedReconciliation = reconcileFinalizedFillers(
+                                    finalTranscript, fillerWords as unknown as FillerCounts, this.userWords,
+                                );
+                            } catch (reconErr) {
+                                logger.warn({ reconErr, sessionId }, '[controller] finalized reconciliation compute failed (non-fatal)');
+                            }
+                            const finalizedMode = modeForFinalization ?? stopEntryMode ?? 'unknown';
+                            const finalizedPersistedTotal = fillerWords.total.count;
+                            const finalizeToken = ++this.finalizeSequence;
+                            const publishFinalized = () => {
+                                if (!sessionId || !finalizedReconciliation) return;
+                                // Guard: a newer stop bumped the sequence — do not clobber a newer session.
+                                if (this.finalizeSequence !== finalizeToken) return;
+                                useSessionStore.getState().setFinalizedAnalysis({
+                                    sessionId,
+                                    mode: finalizedMode,
+                                    reconciliation: finalizedReconciliation,
+                                    persistedTotal: finalizedPersistedTotal,
+                                });
+                            };
+
                             // Native RAW-FIRST async formatting: the raw transcript is now saved.
                             // Punctuation/casing is restored in the BACKGROUND and replaces the saved
-                            // transcript only on word-preserving success — Stop/save/history/detail
-                            // never wait on the network formatter. Private/Cloud are unaffected.
+                            // transcript only on word-preserving success — Stop/save/history/detail never
+                            // wait on the formatter. The finalized signal is published ONLY once the
+                            // formatter reaches a terminal state (complete OR failed→raw fallback) and the
+                            // selected final text has been applied to the display. Private/Cloud publish now.
                             if ((modeForFinalization ?? stopEntryMode) === 'native') {
                                 // Threshold-only "tidying up punctuation…" notice: mark pending now;
                                 // the panel surfaces copy ONLY if this stays pending past ~1.5s, so the
@@ -2512,9 +2546,14 @@ export class SpeechRuntimeController {
                                         status: formattingState.status === 'failed' ? 'failed' : 'complete',
                                         startedAt: null,
                                     });
+                                    publishFinalized(); // TERMINAL: formatter complete (or word-preserving raw fallback)
                                 }).catch(() => {
                                     useSessionStore.getState().setNativeFormatting({ status: 'failed', startedAt: null });
+                                    publishFinalized(); // TERMINAL: formatter failed → raw fallback is the final text
                                 });
+                            } else {
+                                // Non-native: no async formatter — persistence + reconciliation is terminal.
+                                publishFinalized();
                             }
                             if (token.cancelled) {
                                 logger.warn({
@@ -2579,29 +2618,9 @@ export class SpeechRuntimeController {
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
-
-                            // Track 1 finalized reconciliation (disclosure-only). Reconcile against the
-                            // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,
-                            // canonical live under #944), not the raw live snapshot which may be absent on the
-                            // fallback path. Publishes the mode-aware status copy, the session-scoped Analytics
-                            // cue key, and the one-shot toast key. Selects nothing; changes no persisted value.
-                            if (sessionId) {
-                                try {
-                                    const reconciliation = reconcileFinalizedFillers(
-                                        finalTranscript,
-                                        fillerWords as unknown as FillerCounts,
-                                        this.userWords,
-                                    );
-                                    useSessionStore.getState().setFinalizedAnalysis({
-                                        sessionId,
-                                        mode: modeForFinalization ?? stopEntryMode ?? 'unknown',
-                                        reconciliation,
-                                        persistedTotal: fillerWords.total.count,
-                                    });
-                                } catch (reconErr) {
-                                    logger.warn({ reconErr, sessionId }, '[controller] finalized reconciliation publish failed (non-fatal)');
-                                }
-                            }
+                            // The finalized signal (finalizedAnalysis) is published by publishFinalized() at
+                            // the formatter terminal above — NOT here — so the settled UI waits for the final
+                            // text. Non-native published synchronously in the else-branch above.
                         }
                     }
                 }

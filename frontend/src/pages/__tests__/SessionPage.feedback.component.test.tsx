@@ -17,6 +17,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import React from 'react';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
+
+// Post-save UI is gated on the TERMINAL finalizedAnalysis signal (published after the native formatter
+// completes). Seed it so `postSaveReady` is true in tests that exercise the settled bar.
+const seedFinalized = (mode: string) => useSessionStore.setState({
+    finalizedAnalysis: { sessionId: 'sess-test', mode, reconciliation: reconcileFinalizedFillers('hello there', null), persistedTotal: 0 },
+});
 
 // --- Mocks ---
 const mockNavigate = vi.fn();
@@ -127,6 +135,7 @@ describe('SessionPage Feedback Logic', () => {
         vi.clearAllMocks();
         vi.mocked(getSessionRecoveryDraft).mockReturnValue(null);
         vi.mocked(useSessionLifecycle).mockReturnValue(defaultMock as unknown as ReturnType<typeof useSessionLifecycle>);
+        useSessionStore.setState({ finalizedAnalysis: null }); // reset terminal signal between tests
     });
 
     it('should show "Session too short" warning in status bar when hook provides error message', async () => {
@@ -150,6 +159,7 @@ describe('SessionPage Feedback Logic', () => {
             sttStatus: { type: 'ready' },
             showAnalyticsPrompt: true,
         } as unknown as ReturnType<typeof useSessionLifecycle>);
+        seedFinalized('native'); // finalization terminal reached
 
         render(<SessionPage />);
 
@@ -172,6 +182,7 @@ describe('SessionPage Feedback Logic', () => {
             sttStatus: { type: 'ready' },
             showAnalyticsPrompt: true,
         } as unknown as ReturnType<typeof useSessionLifecycle>);
+        seedFinalized('native'); // finalization terminal reached
 
         render(<SessionPage />);
 

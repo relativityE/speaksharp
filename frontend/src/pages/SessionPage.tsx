@@ -138,11 +138,18 @@ export const SessionPage: React.FC = () => {
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
 
-    // Track 1: mode-aware reconciliation status copy for the consolidated status bar's left side.
+    // Track 1: the post-save UI (settled copy, Analytics action, Private CTA, toast) is shown only once
+    // finalization is TERMINAL — the controller publishes finalizedAnalysis after persistence +
+    // reconciliation + the native formatter reaches complete/failed and the final text is applied. Until
+    // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
+    const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
+    // Mode-aware reconciliation status copy for the consolidated status bar's left side.
     // Native discrepancy → "…Browser transcription may omit some…"; Private never gets Browser copy.
     const reconciliationCopy = finalizedAnalysis
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
         : null;
+    // After a saved Native session, the status-bar Private CTA replaces the Browser-card nudge — never both.
+    const suppressBrowserCardPrivateNudge = postSaveReady && mode === 'native' && canUsePrivateStt;
 
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
@@ -158,11 +165,11 @@ export const SessionPage: React.FC = () => {
             return sttStatus as SttStatus;
         }
 
-        // 2b. Post-save: the mode-aware reconciliation copy is the authoritative left-side status once a
-        // session is finalized+persisted. It supersedes the generic save-feedback message (which is only a
-        // success confirmation) but NOT the FAILED/download guards above. showAnalyticsPrompt is only true
-        // after a successful save, so this never masks an error.
-        if (showAnalyticsPrompt && reconciliationCopy) {
+        // 2b. Post-save (TERMINAL only): the mode-aware reconciliation copy is the authoritative left-side
+        // status once finalization is complete. It supersedes the generic save-feedback message but NOT the
+        // FAILED/download guards above. Gated on postSaveReady so no settled/ready claim shows while the
+        // native formatter is still tidying.
+        if (postSaveReady && reconciliationCopy) {
             return { type: 'ready', message: reconciliationCopy } as SttStatus;
         }
 
@@ -228,9 +235,9 @@ export const SessionPage: React.FC = () => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 <StatusNotificationBar
                     status={displayStatus}
-                    analyticsAction={showAnalyticsPrompt ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                    analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
                     privateCta={
-                        showAnalyticsPrompt && mode === 'native' && canUsePrivateStt
+                        postSaveReady && mode === 'native' && canUsePrivateStt
                             ? { onSelect: () => setMode('private') }
                             : undefined
                     }
@@ -272,17 +279,17 @@ export const SessionPage: React.FC = () => {
                     the single StatusNotificationBar above (atomic with this removal). */}
             </div>
 
-            {/* One-shot post-save completion toast — fires only once reconciliation + persistence finish
-                (keyed on the finalized session id), never contains a CTA (the action is on the bar). */}
-            <PostSaveToast sessionKey={showAnalyticsPrompt && finalizedAnalysis ? finalizedAnalysis.sessionId : null} />
-
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
                 <div className="pt-6">
                     <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
                         <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
+                          {/* Row 1: recording card + (optional) in-flow post-save toast, so the toast sits
+                              between the two cards without displacing the transcript's flexible row. */}
+                          <div className="flex flex-col gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
+                                    suppressPrivateNudge={suppressBrowserCardPrivateNudge}
                                     mode={mode || 'native'}
                                     isListening={isListening}
                                     isReady={isReady}
@@ -307,6 +314,13 @@ export const SessionPage: React.FC = () => {
                                     }}
                                 />
                             </LocalErrorBoundary>
+
+                            {/* One-shot post-save completion toast — in normal document flow between the
+                                recording card and the transcript panel, so it can never cover the transcript
+                                or collide with the mobile sticky bar. Fires once per finalized session, only
+                                after finalization is terminal (postSaveReady). No CTA inside. */}
+                            <PostSaveToast sessionKey={postSaveReady ? finalizedAnalysis?.sessionId ?? null : null} />
+                          </div>
 
                             <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel

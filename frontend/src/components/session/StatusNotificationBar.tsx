@@ -248,37 +248,41 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
             <div className="hidden sm:block flex-1" />
 
-            {/* Quiet secondary Native→Private nudge (folded in from the removed post-save surface).
-                Preserves the existing copy + setMode('private') action; muted so Analytics stays primary. */}
-            {privateCta && (
-                <button
-                    type="button"
-                    onClick={() => privateCta.onSelect()}
-                    data-testid="post-save-private-cta"
-                    className="inline-flex items-center self-start rounded-md px-3 py-1.5 text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:self-auto"
-                >
-                    Set up Private for cleaner local transcription
-                </button>
-            )}
+            {/* Post-save actions. Mobile: ONE compact row below the message — Private CTA left, Analytics
+                pushed right (rightmost). Desktop: inline on the right. Analytics always rightmost + carries
+                the cue. Tap targets ≥ min-h-9; visible keyboard focus rings. */}
+            {(privateCta || analyticsAction) && (
+                <div className="flex w-full items-center gap-3 sm:w-auto">
+                    {/* Quiet secondary Native→Private nudge — muted so Analytics stays primary. */}
+                    {privateCta && (
+                        <button
+                            type="button"
+                            onClick={() => privateCta.onSelect()}
+                            data-testid="post-save-private-cta"
+                            className="inline-flex min-h-9 items-center rounded-md px-2 py-1.5 text-left text-[13px] font-medium leading-snug text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                            Set up Private for cleaner local transcription
+                        </button>
+                    )}
 
-            {/* Post-save Analytics action (folded in from the removed post-save-review-actions surface).
-                Existing /analytics destination; bounded, reduced-motion-safe pulse; no new button.
-                Kept rightmost — the primary post-save action. */}
-            {analyticsAction && (
-                <Link
-                    to="/analytics"
-                    onClick={() => { setCueActive(false); analyticsAction.onSelect?.(); }}
-                    data-testid="post-save-review-session-link"
-                    data-cue-active={cueActive}
-                    className={`inline-flex items-center gap-1 self-start rounded-md px-3 py-1.5 text-[13px] font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:self-auto ${
-                        cueActive
-                            ? 'motion-safe:animate-pulse motion-reduce:animate-none motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
-                            : ''
-                    }`}
-                >
-                    Analytics
-                    <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </Link>
+                    {/* Existing /analytics destination; bounded reduced-motion-safe cue; no new button. */}
+                    {analyticsAction && (
+                        <Link
+                            to="/analytics"
+                            onClick={() => { setCueActive(false); analyticsAction.onSelect?.(); }}
+                            data-testid="post-save-review-session-link"
+                            data-cue-active={cueActive}
+                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
+                                cueActive
+                                    ? 'motion-safe:animate-pulse motion-reduce:animate-none motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
+                                    : ''
+                            }`}
+                        >
+                            Analytics
+                            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                        </Link>
+                    )}
+                </div>
             )}
 
             {/* Secondary Status Indicator (Background Task) - Far Right */}
