@@ -1,5 +1,7 @@
 # Product Release Archive
 
+> **HISTORICAL / SUPERSEDED.** Every file under `archive/` is retained as historical evidence only and is not current release truth. Commit SHAs cited in these files predate the **2026-07-15 attribution history sanitation**; map old→new SHAs via `../attribution-sanitation-crosswalk.md`.
+
 This folder keeps historical release evidence, audits, rehearsal notes, and second-opinion packets.
 
 Archived Markdown is useful context, but it is not current release truth. If an archived file conflicts with an active release document, use:

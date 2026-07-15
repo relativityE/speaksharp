@@ -34,6 +34,10 @@ This document defines the structural invariants and authoritative sources of tru
 > **Transcription cannot enter RECORDING before engine initialization succeeds.**
 - The finite state machine MUST gate the recording pulse behind a verified `READY` engine handshake.
 
+### 2a. Finalized-Producer Invariant (#982)
+> **The "finalized" signal is published exactly once, only at the terminal join, and is session-guarded.**
+- Post-save UI (single `StatusNotificationBar`, completion toast, filler disclosure) MUST consume the finalized snapshot published only after the terminal join completes (persist → reconcile → formatter terminal). It MUST NOT react to a mid-finalization or stale buffer, and a signal from a superseded session MUST be discarded.
+
 ### 3. Billing Invariant
 > **Quota enforcement must fail closed.**
 - If the usage check service is unreachable, the system MUST deny the start of a new metered session.

@@ -1,7 +1,7 @@
-**Owner:** [unassigned]
-**Last Reviewed:** 2026-06-18
-**Version:** v0.6.19-rc0
-**Last Updated:** 2026-06-18
+**Owner:** relativityE
+**Last Reviewed:** 2026-07-15
+**Version:** v0.9.0-rc-series (sanitized lineage; see `RELEASE_STATUS.md` crosswalk)
+**Last Updated:** 2026-07-15
 
 # Runtime Configuration Verification (Launch Checklist)
 
@@ -77,6 +77,15 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).
 - [ ] **SSL/TLS**: Production domain has a valid, active certificate.
 - [ ] **Private Sample Entitlement**: Migration `20260610143000_private_sample_entitlement.sql` is deployed. A fresh production signup creates a Free profile with sample fields and does not create an active Pro trial window.
+- [ ] **#979 RPC grant lockdown**: Migration `20260714000000_harden_get_user_id_by_email_grant.sql` deployed; `db-grant-check.yml` reports EXECUTE on `public.get_user_id_by_email(text)` granted to **service_role only** (PUBLIC/anon/authenticated = none).
+
+## 8. STT feature flags & runtime toggles (verify live build)
+- [ ] **Native punctuation restore**: `VITE_NATIVE_PUNCTUATION_RESTORE` unset or `true` in the prod Vercel build (default-on word-preserving restore).
+- [ ] **v4 disabled for release**: v4 WebGPU is OFF — PostHog `private_stt_v4_*` flags at 0%/off, and (if used) `VITE_PRIVATE_STT_V4_DISABLED='true'` build kill confirmed. Default Private saves `private_v2:whisper-base.en`.
+- [ ] **Developer premium access**: `VITE_DEV_PREMIUM_ACCESS` is NOT relied on in production — it is unused in `src`; entitlement is server-driven (`stripe_subscription_id` required). No env Pro bypass in the prod build.
+- [ ] **Sentry environment**: `VITE_SENTRY_DSN` set to the prod DSN; Sentry `environment` resolves to the prod build `MODE` (`production`).
+- [ ] **SITE_URL**: Supabase Edge secret `SITE_URL` set to the production origin (Stripe checkout/portal redirects); no localhost fallback in prod.
+- [ ] **Stripe gating**: `stripeKeyClass` matches intended mode (`test` for controlled beta / `live` only after the paid cutover). Beta-50 billing freeze respected.
 
 ---
 

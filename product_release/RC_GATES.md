@@ -50,7 +50,7 @@ Real-mic engine-liveness + metadata are NOT sufficient: they passed 3/3 while th
 - **History/detail matches** the saved transcript end-to-end (mic → buffer → decode → DB) AND the **finalize state shows the dimmed draft + honest progress** (#905/#906), never the wrong rolling text as final;
 - **Long leading silence** does not produce a hallucinated prefix;
 - **Real-mic proof** after any Private capture/buffer/trim change — fake-device tests do not substitute;
-- **stop-to-final latency** — **owner ruling 2026-06-30: this is a BLOCKING gate, not just "recorded."** Full 5-min single recording must finalize **<30s** pre-beta (the 90s cap is REJECTED as beta behavior). Primary path Moonshine v2 streaming prototype; fallback segmented finalization.
+- **stop-to-final latency** — **accepted RC limitation (owner, 2026-07-14): a full 5-min single Private v2 recording finalizes in ≈90s** of post-stop processing, surfaced as honest visible "Finalizing…" progress. The earlier `<30s` requirement is **withdrawn/obsolete**; do not gate on it. Faster finalization (streaming / segmentation / multithread) is a post-limitation improvement lane, not a blocker. This is NOT a blocking gate for controlled beta.
 
 For a **v4-targeted** session also confirm `engine_version=private_v4`, runtime/backend/assignment metadata, and no visible/saved phrase loop.
 

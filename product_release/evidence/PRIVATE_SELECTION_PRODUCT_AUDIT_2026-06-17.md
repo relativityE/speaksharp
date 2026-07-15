@@ -1,6 +1,6 @@
 # Audit — Private-selection product behavior (2026-06-17)
 
-**Author:** dev-agent (claude) · **Scope:** the product behavior when a user selects **Private** STT mode (idle, pre-recording) — not the test harness.
+**Author:** dev-agent · **Scope:** the product behavior when a user selects **Private** STT mode (idle, pre-recording) — not the test harness.
 
 ## Why this audit exists
 RC Gate-3's `stt-switching-contract` "Pro idle switching" test recently flaked (a 7-min hang) and was then fixed in #821/#822. That fix was a **test-harness** change (bounding Playwright waits). Closing the harness flake proved Private selection *via that one harness path only*; it did **not** independently confirm the underlying product behavior is correct. This audit closes that gap by reading the actual product code path and mapping it to existing deterministic tests.

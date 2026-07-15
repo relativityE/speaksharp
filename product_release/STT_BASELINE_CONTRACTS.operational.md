@@ -98,6 +98,8 @@ WER is lower-is-better. Accuracy is `100% - WER`.
 | Stop | Stop freezes the latest visible transcript before destructive teardown. |
 | Save | Save uses the selected transcript from the same lifecycle chain the user saw. |
 | History/analytics/PDF | Downstream outputs must use the saved selected transcript, not an alternate raw buffer. |
+| Finalized-filler contract (#982) | Filler disclosure and downstream filler counts read the **finalized snapshot**, published only at the terminal join (persist → reconcile → formatter terminal) and session-guarded — never a mid-finalization or stale buffer. Post-save UI (`StatusNotificationBar`, completion toast) is gated on this terminal finalized state. |
+| Private finalization latency | A full 5-min Private v2 recording finalizes in ≈90s post-stop (accepted RC limitation), surfaced as honest "Finalizing…" progress; the earlier `<30s` requirement is withdrawn. |
 
 ## Baseline Matrix
 

@@ -67,9 +67,10 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
   coverage threshold passes; no ≥5-word verbatim loop; History/detail matches; long leading
   silence produces no hallucinated prefix; the finalize state shows the **dimmed draft + honest
   progress, never the wrong rolling text as final**; and **stop-to-final latency is recorded**
-  (measure at ~1–3 min and ~4–5 min — **owner ruling 2026-06-30: the 90s cap is REJECTED for beta;
-  a full 5-min single recording under 30s is REQUIRED pre-beta**; primary path = Moonshine v2
-  streaming prototype, fallback = segmented finalization). For a **v4-targeted** session also
+  (measure at ~1–3 min and ~4–5 min — **accepted RC limitation (owner, 2026-07-14): a full 5-min
+  single Private v2 recording finalizes in ≈90s post-stop, shown as honest "Finalizing…" progress;
+  the earlier `<30s` requirement is withdrawn**; faster paths = Moonshine v2 streaming / segmented
+  finalization are post-limitation improvements, not a gate). For a **v4-targeted** session also
   confirm `engine_version=private_v4` and no visible/saved phrase loop.
 
 ---
