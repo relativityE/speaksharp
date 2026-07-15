@@ -1,6 +1,6 @@
 /**
  * CVSS v3.0/3.1 base-score computation (official spec) + OSV severity mapping.
- * Pure, dependency-free, unit-tested (tests/sca/sca-gate.test.ts).
+ * Pure, dependency-free, unit-tested (tests/sca/sca-gate.test.js).
  */
 const AV = { N: 0.85, A: 0.62, L: 0.55, P: 0.2 };
 const AC = { L: 0.77, H: 0.44 };
