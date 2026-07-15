@@ -46,14 +46,35 @@ async function assertOneBarNoOldSurface(page: Page) {
   await expect(analytics).toHaveAttribute('href', '/analytics');
 }
 
-// The in-flow toast must sit ABOVE the transcript and never overlap it.
-async function assertToastDoesNotObscureTranscript(page: Page) {
-  const toast = page.getByTestId('post-save-toast');
-  await expect(toast).toBeVisible();
-  const tBox = await toast.boundingBox();
-  const trBox = await page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).boundingBox();
-  expect(tBox && trBox).toBeTruthy();
-  if (tBox && trBox) expect(tBox.y + tBox.height).toBeLessThanOrEqual(trBox.y + 2); // toast fully above transcript
+type Box = { x: number; y: number; width: number; height: number };
+const intersects = (a: Box | null, b: Box | null) =>
+  !!(a && b) && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+// The toast must STRADDLE the recording/transcript boundary (overlap both cards' adjacent edges) while
+// never intersecting the transcript heading, the transcript content, or the mobile sticky action bar.
+async function assertToastStraddleGeometry(page: Page) {
+  const toast = await page.getByTestId('post-save-toast').boundingBox();
+  const rec = await page.getByTestId('live-recording-card').boundingBox();
+  const panel = await page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL).boundingBox();
+  const heading = await page.getByRole('heading', { name: 'Live Transcript' }).boundingBox();
+  const content = await page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).boundingBox();
+  expect(toast && rec && panel && heading && content).toBeTruthy();
+  if (!toast || !rec || !panel || !heading || !content) return;
+  const recBottom = rec.y + rec.height;
+  const toastBottom = toast.y + toast.height;
+  // Overlaps the recording card's bottom boundary...
+  expect(toast.y).toBeLessThan(recBottom);
+  expect(toastBottom).toBeGreaterThan(recBottom);
+  // ...and the transcript card's top boundary.
+  expect(toast.y).toBeLessThan(panel.y);
+  expect(toastBottom).toBeGreaterThan(panel.y);
+  // Never covers the left "Live Transcript" heading or the transcript content.
+  expect(intersects(toast, heading)).toBeFalsy();
+  expect(intersects(toast, content)).toBeFalsy();
+  // ~12–16px from the right card edge.
+  const rightGap = (panel.x + panel.width) - (toast.x + toast.width);
+  expect(rightGap).toBeGreaterThanOrEqual(6);
+  expect(rightGap).toBeLessThanOrEqual(28);
 }
 
 async function shoot(page: Page, prefix: string) {
@@ -81,15 +102,15 @@ test.describe('Post-save consolidation', () => {
     await expect(cta).toHaveText(/Set up Private for cleaner local transcription/i);
     await expect(page.getByTestId('first-run-setup-private')).toHaveCount(0);
 
-    // Toast: in-flow (not fixed), informational (no inner CTA), and does not cover the transcript.
+    // Toast: absolute (anchored to the boundary, not fixed/sticky), informational (no inner CTA).
     const toast = page.getByTestId('post-save-toast');
     await expect(toast).toContainText('Next: Analytics');
     await expect(toast).toContainText('See your trends and deeper feedback.');
     await expect(toast).not.toContainText(/full transcript/i);
     await expect(toast.locator('button, a')).toHaveCount(0);
     const pos = await toast.evaluate((el) => getComputedStyle(el).position);
-    expect(['static', 'relative']).toContain(pos);
-    await assertToastDoesNotObscureTranscript(page);
+    expect(pos).toBe('absolute');
+    await assertToastStraddleGeometry(page);
 
     // Bounded Analytics cue: active on settle, inactive after ~6.5s.
     await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('data-cue-active', 'true');
@@ -99,15 +120,30 @@ test.describe('Post-save consolidation', () => {
     await shoot(page, 'native');
   });
 
-  test('Native: toast auto-dismisses after its minimum window', async ({ page }) => {
+  test('Native: toast adds no layout movement, clears the sticky bar, and auto-dismisses', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
     await expect(page.getByTestId('post-save-toast')).toBeVisible();
-    await page.setViewportSize({ width: 375, height: 812 });
+
+    // Card coordinates WITH the toast present.
+    const recDuring = await page.getByTestId('live-recording-card').boundingBox();
+    const panelDuring = await page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL).boundingBox();
+    // Toast must not intersect the mobile sticky Start Recording bar.
+    const toastBox = await page.getByTestId('post-save-toast').boundingBox();
+    const stickyBar = await page.getByTestId(`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`).boundingBox();
+    expect(intersects(toastBox, stickyBar)).toBeFalsy();
     await page.screenshot({ path: `${SHOTS}/native-toast-visible.png` });
-    await page.waitForTimeout(9000); // > 8s + collapse
+
+    await page.waitForTimeout(9000); // > 8s + fade
     await expect(page.getByTestId('post-save-toast')).toHaveCount(0);
+
+    // Card coordinates AFTER the toast is gone must be identical (absolute toast → no layout movement).
+    const recAfter = await page.getByTestId('live-recording-card').boundingBox();
+    const panelAfter = await page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL).boundingBox();
+    expect(recAfter?.y).toBeCloseTo(recDuring?.y ?? -1, 0);
+    expect(panelAfter?.y).toBeCloseTo(panelDuring?.y ?? -1, 0);
     await page.screenshot({ path: `${SHOTS}/native-toast-expired.png` });
   });
 
@@ -123,7 +159,7 @@ test.describe('Post-save consolidation', () => {
     await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
     await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
     await expect(page.getByTestId('live-session-header')).not.toContainText(/Browser transcription may omit/i);
-    await assertToastDoesNotObscureTranscript(page);
+    await assertToastStraddleGeometry(page);
 
     await shoot(page, 'private');
   });

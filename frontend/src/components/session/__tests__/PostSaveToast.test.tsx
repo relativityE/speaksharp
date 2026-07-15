@@ -24,8 +24,10 @@ describe('PostSaveToast', () => {
         // Informational only — the action lives on the status bar.
         expect(toast.querySelector('button')).toBeNull();
         expect(toast.querySelector('a')).toBeNull();
-        // In normal flow — not fixed/absolute/sticky.
-        expect(toast.className).not.toMatch(/fixed|absolute|sticky/);
+        // Anchored to the card boundary (absolute within a relative wrapper) — NOT fixed/sticky and NOT
+        // adding layout (so cards never move).
+        expect(toast.className).toMatch(/\babsolute\b/);
+        expect(toast.className).not.toMatch(/\bfixed\b|\bsticky\b/);
         // Does not steal focus.
         expect(toast).not.toBe(document.activeElement);
     });

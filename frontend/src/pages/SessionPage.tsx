@@ -284,9 +284,6 @@ export const SessionPage: React.FC = () => {
                 <div className="pt-6">
                     <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
                         <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
-                          {/* Row 1: recording card + (optional) in-flow post-save toast, so the toast sits
-                              between the two cards without displacing the transcript's flexible row. */}
-                          <div className="flex flex-col gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     suppressPrivateNudge={suppressBrowserCardPrivateNudge}
@@ -315,14 +312,14 @@ export const SessionPage: React.FC = () => {
                                 />
                             </LocalErrorBoundary>
 
-                            {/* One-shot post-save completion toast — in normal document flow between the
-                                recording card and the transcript panel, so it can never cover the transcript
-                                or collide with the mobile sticky bar. Fires once per finalized session, only
-                                after finalization is terminal (postSaveReady). No CTA inside. */}
-                            <PostSaveToast sessionKey={postSaveReady ? finalizedAnalysis?.sessionId ?? null : null} />
-                          </div>
-
-                            <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                            {/* Transcript wrapper is the positioning context: the one-shot post-save toast is
+                                absolutely anchored to STRADDLE the card boundary (centered near the gap), so it
+                                adds no vertical space and never moves either card. Right-aligned and biased up
+                                so its bottom stays in the transcript card's top padding — above the left
+                                "Live Transcript" heading and clear of the transcript text / sticky bar. */}
+                            <div className="relative">
+                              <PostSaveToast sessionKey={postSaveReady ? finalizedAnalysis?.sessionId ?? null : null} />
+                              <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel
                                     transcript={transcriptContent}
                                     interimTranscript={interimTranscript}
@@ -337,7 +334,8 @@ export const SessionPage: React.FC = () => {
                                     nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"
                                 />
-                            </LocalErrorBoundary>
+                              </LocalErrorBoundary>
+                            </div>
                         </div>
 
                         <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
