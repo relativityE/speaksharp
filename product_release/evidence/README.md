@@ -1,5 +1,7 @@
 # Release Evidence Index
 
+> **HISTORICAL EVIDENCE.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `../attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
+
 This directory stores dated release-proof artifacts and historical STT/UX reports.
 It is an evidence archive, not the current coordination board.
 

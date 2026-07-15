@@ -1,6 +1,6 @@
 # Environment Variable Inventory (Single Source of Truth)
 
-**Owner:** [unassigned] · **Last updated:** 2026-06-08 · maps to `main@c5a2a460`
+**Owner:** relativityE · **Last updated:** 2026-07-15 · maps to `main@84f720d2`
 
 This is the **canonical catalog** of every environment variable SpeakSharp uses, **where each
 one is stored**, who consumes it, and its scope. Use it to **add new vars, migrate/replicate
@@ -214,6 +214,22 @@ The **real production** values for the §1 `VITE_*` live here (Production scope)
 5. **Verification:** add a check line to `LAUNCH_ENV_CHECKLIST.md`. If it's a rotatable secret, add it to `SECRET_ROTATION_RUNBOOK.md`.
 6. Update **this file** (it is the source of truth) — keep names only, no values.
 
+## Feature-flag & runtime vars — code-verified sync (2026-07-15)
+
+Verified by reading the source at `main@84f720d2`. Names/homes only; no values.
+
+| Variable | Home | Where read (code) | Default / effect |
+|---|---|---|---|
+| `VITE_NATIVE_PUNCTUATION_RESTORE` | A/B (`VITE_*`) | `frontend/src/services/transcription/modes/nativePunctuationRestore.ts:62` | Default **true**; only `'false'` disables. Selects word-preserving punctuation restore vs minimal cleanup for saved Native transcripts. |
+| `VITE_PRIVATE_STT_V4_DISABLED` | A/B (`VITE_*`) | `frontend/src/services/transcription/privateV4Flags.ts:63` | Default off. `'true'` = build-time hard kill of v4 WebGPU, forcing v2-base. Primary v4 control is PostHog flags (`private_stt_v4_enabled`, `_distil_enabled`, `_internal_only`, `_allowlist`), all default off. |
+| `VITE_DEV_PREMIUM_ACCESS` | (test-only) | Stubbed `'false'` in `frontend/tests/setup.ts:314`; **no read in `frontend/src`** | Dead/historical — no shipping code consumes it. Pro entitlement is server-driven: `hasPaidProEntitlement()` requires `subscription_status==='pro'` **and** a real `stripe_subscription_id` (`frontend/src/constants/subscriptionTiers.ts:49`); no env dev/owner bypass exists. |
+| `VITE_SENTRY_DSN` | A/B (`VITE_*`) | `frontend/src/main.tsx:104,116` | Frontend Sentry DSN; skipped if absent or contains `example.invalid`. Sentry **environment** = `import.meta.env.MODE` (Vite build mode), `main.tsx:121` — not a dedicated var. Gating flags: `VITE_ENABLE_SENTRY_TRACING`, `VITE_ENABLE_SENTRY_REPLAY`, `VITE_ENABLE_SENTRY_CONSOLE_CAPTURE`. |
+| `SENTRY_DSN` (backend) | C (Supabase) / D (CI `vars`) | `backend/supabase/functions/observability-smoke/index.ts:27`; workflows also use `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` | Edge/observability Sentry sender (`_shared/sentry.ts`). |
+| `SITE_URL` | C (Supabase Edge secret) | `stripe-checkout/index.ts:99,103,212`, `stripe-billing-portal/index.ts:75,130` (via `getEnv`) | Base URL for Stripe checkout/portal redirect URLs. Prod-required (errors if missing); local-dev fallback `http://localhost:${DEV_PORT}`. No `VITE_SITE_URL`/`PUBLIC_SITE_URL` variant exists. |
+| Stripe gating | C / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge); `VITE_STRIPE_PUBLISHABLE_KEY` (client); `VITE_ENABLE_FREE_PLAN_SUPPORT` (`config.ts:54`) | Live vs test gating is by key class + `rc-gates.yml` `paid_launch` input + `billing-freeze-check.yml` (`BILLING_FREEZE_EMAILS`). Beta-50 billing freeze active. |
+| #979 grant check | (workflow inputs) | `.github/workflows/db-grant-check.yml` — inputs `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`; default target `public.get_user_id_by_email(text)` | Read-only `has_function_privilege()` audit of EXECUTE grants; enforced by migration `20260714000000_harden_get_user_id_by_email_grant.sql`. |
+
 ## Open decisions affecting this inventory
 - **ENV-PROD:** whether to migrate the Home-A committed `VITE_*` (public) into Home B (Vercel), to match the Stripe-key pattern. This table is the migration checklist if so.
 - **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` re-assessment addendum.
+- **VITE_DEV_PREMIUM_ACCESS cleanup:** remove the dead test-only stub or wire an intentional owner-QA path; today it is stubbed but unused in `src`.

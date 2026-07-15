@@ -1,5 +1,6 @@
-> Archived historical release readiness packet.
-> Current release status lives in `../../RELEASE_STATUS.md`.
+> **HISTORICAL / SUPERSEDED (2026-07-15).** Archived release-readiness packet — retained as historical evidence only.
+> Current release status lives in `../../RELEASE_STATUS.md`. Any commit SHAs cited below predate the
+> 2026-07-15 attribution history sanitation; map old→new via `../../attribution-sanitation-crosswalk.md`.
 
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-24
@@ -183,10 +184,10 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 
 ## 📋 Evidence Registry
 
-- **Audit Report**: [release_audit.md](./release_audit.md)
-- **Architecture**: [ARCHITECTURE.md](../docs/ARCHITECTURE.md)
-- **Product Specs**: [PRD.md](../docs/PRD.md)
-- **Infrastructure Probe**: [infra.probe.e2e.spec.ts](../tests/e2e/infra.probe.e2e.spec.ts)
+- **Audit Report**: [release_audit.md](../audits/release_audit.md)
+- **Architecture**: [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md)
+- **Product Specs**: [PRD.md](../../../docs/PRD.md)
+- **Infrastructure Probe**: [infra.probe.e2e.spec.ts](../../../tests/e2e/infra.probe.e2e.spec.ts)
 
 ---
 

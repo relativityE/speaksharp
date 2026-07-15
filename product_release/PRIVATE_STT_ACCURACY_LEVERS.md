@@ -65,11 +65,11 @@ Do not change the product default from this data.
 If h1_6 remains launch-blocking, the next useful evidence is a multi-repeat live
 A/B plus final-decode input-buffer diagnostics, not a one-line mic-default change.
 
-> **LATENCY DIRECTION (2026-06-30 owner ruling):** the 90s recording cap is **REJECTED for beta**;
-> a full 5-min single recording with <30s post-stop is **REQUIRED pre-beta**. Levers 2–3 below are
-> **secondary accelerators that do NOT clear that bar alone** on the default v2 path. The PRIMARY
-> full-5-min path is **Moonshine v2 (streaming) prototype on a branch**; fallback is **segmented
-> finalization** (decode only the unfinalized tail at Stop, design at `/private/tmp/SEGMENTATION_DESIGN.md`).
+> **LATENCY DIRECTION (updated 2026-07-14 owner ruling):** the earlier `<30s` post-stop requirement is
+> **withdrawn**. A full 5-min single Private v2 recording finalizing in **≈90s** is the **accepted RC
+> limitation** for controlled beta, surfaced as honest visible "Finalizing…" progress. Levers 2–3 below
+> remain **improvement accelerators, not blockers**. Faster paths (Moonshine v2 streaming prototype;
+> fallback **segmented finalization** — decode only the unfinalized tail at Stop) are post-limitation work.
 > See RELEASE_STATUS + BACKLOG.
 
 ## Lever 2 — Cross-origin isolation → WASM multithreading (LATENCY, not accuracy)

@@ -1,27 +1,23 @@
 # RC Test Inventory And Gate Map
 
-**Last reviewed:** 2026-05-25
+**Last reviewed:** 2026-07-15 (counts regenerated from the repository at `main@84f720d2`)
 
 This document maps the test estate into release-candidate buckets. The goal is not to count every test as equally valuable. The goal is to make clear which tests close RC gates, which tests are advisory, which are benchmark/probe-only, and where we have gaps or redundant spend.
 
 ## Executive Summary
 
-Current test inventory by file count:
+Test inventory by file count — **regenerated from the repo on 2026-07-15** (`find` over the current tree; backend lives under `backend/supabase/`):
 
-| Bucket | Test Files | Counts Toward RC Gate? | Notes |
-|---|---:|---:|---|
-| Frontend unit/component | 106 | Yes, selectively | Broad correctness coverage; release value depends on domain. |
-| Supabase Edge Deno tests | 7 | Yes | High-value entitlement, quota, token, CORS, webhook coverage. |
-| Mocked E2E | 10 | Yes | Main everyday browser regression suite. |
-| E2E diagnostics / dump ground | 5 | Mostly no | Useful for investigation; should not inflate release confidence. |
-| Live/deployed tests | 19 | Yes, selectively | Highest signal for production integration; slower and secret-dependent. |
-| Benchmarks | 3 | No, unless engine changes | Performance/ceiling evidence, not release correctness. |
-| Canary | 2 | Yes | Production smoke and minimal live sanity. |
-| Release doc assertions | 1 | Yes | Keeps tester instructions aligned with removed promo-code flow and current copy. |
-| Analytics standalone | 1 | Yes | High-value math integrity gate. |
-| Soak | 2 | Advisory | Useful for durability, not every RC unless specifically needed. |
-| STT correctness baseline | 1 | Advisory / targeted | Useful when changing STT engines or fixtures. |
-| **Total** | **157** | Mixed | RC confidence comes from mapped gate evidence, not total count. |
+| Bucket | Location (glob) | Test Files | Counts Toward RC Gate? |
+|---|---|---:|---:|
+| Frontend unit/component | `frontend/src/**/*.{test,spec}.{ts,tsx}` (excl. e2e) | **190** | Yes, selectively |
+| Frontend unit harness | `frontend/tests/**/*.{test,spec}.*` | **11** | Yes |
+| Supabase Edge (Deno) tests | `backend/supabase/functions/**/*.test.ts` | **9** | Yes |
+| E2E (mocked + diagnostics) | `tests/e2e/**/*.spec.ts` | **24** | Yes, selectively (19 top-level + 5 in subdirs) |
+| Live / deployed tests | `tests/live/**/*.spec.ts` | **30** | Yes, selectively |
+| DB migrations (schema surface) | `backend/supabase/migrations/*.sql` | **74** | Deploy gate (`Deploy Supabase`) |
+
+> Earlier revisions of this table (frontend 106, total 157, Edge 7, E2E 10/5, live 19) were stale and are superseded by the regenerated counts above. Bucket sub-classifications (benchmarks / canary / soak / analytics / STT-baseline) remain within the per-file triage below; the counts above are the authoritative file totals per directory.
 
 ## Per-File Triage Status
 
@@ -148,7 +144,7 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/canary/smoke.canary.spec.ts` | Gate 1 / Gate 5 | Human journey / running app | Production app is reachable and minimally usable with provisioned user. |
 | `tests/canary/user-filler-words.canary.spec.ts` | Gate 1 | Product rule / running app | Production custom-filler path remains alive; secondary to live persistence matrix. |
 
-Non-counted unless explicitly promoted: `tests/e2e/dump-ground/*`, `tests/e2e/diagnostics/*`, `tests/live/benchmark-*.live.spec.ts`, `tests/live/stt-accuracy-integration.live.spec.ts`, `tests/live/stt-integration.live.spec.ts`, `tests/live/live-transcript.live.spec.ts`, `tests/live/analytics-live-native-probe.live.spec.ts`, `tests/live/analytics-journey.live.spec.ts`, `tests/live/auth.live.spec.ts`, `tests/live/upgrade.live.spec.ts`, `tests/live/tester-b-private-native-stt.live.spec.ts`, `tests/live/driver-dependent/private-stt.live.spec.ts`, `tests/soak/*`, and `tests/stt-correctness/wer-baseline.spec.ts`. These remain diagnostic, advisory, legacy-overlap, or release-scope-dependent until a specific RC contract promotes them.
+Non-counted unless explicitly promoted: `tests/e2e/dump-ground/*`, `tests/e2e/diagnostics/*`, `tests/live/benchmark-*.live.spec.ts`, `tests/live/stt-accuracy-integration.live.spec.ts`, `tests/live/stt-integration.live.spec.ts`, `tests/live/analytics-live-native-probe.live.spec.ts`, `tests/live/analytics-journey.live.spec.ts`, `tests/live/auth.live.spec.ts`, `tests/live/upgrade.live.spec.ts`, `tests/live/tester-b-private-native-stt.live.spec.ts`, `tests/live/driver-dependent/private-stt.live.spec.ts`, `tests/soak/*`, and `tests/stt-correctness/wer-baseline.spec.ts`. These remain diagnostic, advisory, legacy-overlap, or release-scope-dependent until a specific RC contract promotes them.
 
 ## RC-Counted Unit / Component Ledger
 
