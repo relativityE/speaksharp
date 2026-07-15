@@ -79,7 +79,7 @@ On 2026-07-15 the Git history was sanitized to remove Claude/Anthropic attributi
 ## Open items / unresolved decisions
 
 - **Send controlled-beta invites?** Held; owner decision, none made.
-- **SCA gate advisory count.** The pinned `pnpm audit --audit-level critical` gate passes in CI but reports `2 critical (1 ignored)`; the second critical needs confirmation (see `SCA_EXCEPTIONS.md`).
+- **SCA — critical advisories resolved (proven 2026-07-15).** osv-scanner confirms exactly **one** critical (`vitest@3.2.4` GHSA-5xrq, the ignored one); pnpm's `2 critical (1 ignored)` is the same advisory via two importers. **Zero unignored distinct criticals.** But the `rc:gate:4:sca` command (`pnpm audit`, pinned 10.29.1) now hits the **retired npm endpoint (HTTP 410)** and errors — the gate must move to a working scanner (osv-scanner / bulk endpoint). See `SCA_EXCEPTIONS.md`.
 - **Vitest 3→4 upgrade** to retire the GHSA-5xrq suppression (see `SCA_EXCEPTIONS.md`).
 - **Faster Private finalization** (below ~90s) — improvement lane, not a blocker.
 
