@@ -50,10 +50,25 @@ vi.mock('@/services/sessionRecoveryDraft', () => ({
 
 // Mock child components to verify props passed to them
 vi.mock('@/components/session/StatusNotificationBar', () => ({
-    StatusNotificationBar: ({ status }: { status: { message?: string, type?: string } }) => (
+    StatusNotificationBar: ({ status, analyticsAction, privateCta }: {
+        status: { message?: string, type?: string },
+        analyticsAction?: { cueKey?: string | number },
+        privateCta?: { onSelect: () => void },
+    }) => (
         <div data-testid="status-bar">
             {status?.message}
             {status?.type && <span data-testid="status-type">{status.type}</span>}
+            {/* Consolidated post-save actions now live inside the ONE status bar. */}
+            {privateCta && (
+                <button data-testid="post-save-private-cta" onClick={() => privateCta.onSelect()}>
+                    Set up Private for cleaner local transcription
+                </button>
+            )}
+            {analyticsAction && (
+                <a data-testid="post-save-review-session-link" href="/analytics" data-cue-key={String(analyticsAction.cueKey ?? '')}>
+                    Analytics
+                </a>
+            )}
         </div>
     ),
 }));
@@ -140,7 +155,8 @@ describe('SessionPage Feedback Logic', () => {
 
         expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved/);
         expect(screen.getByTestId('status-type')).toHaveTextContent('ready');
-        expect(screen.getByTestId('post-save-review-actions')).toHaveTextContent(/Review trends/i);
+        // Consolidated: the separate post-save surface is gone; the Analytics action lives in the one bar.
+        expect(screen.queryByTestId('post-save-review-actions')).toBeNull();
         expect(screen.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
     });
 

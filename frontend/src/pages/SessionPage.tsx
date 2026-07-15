@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Settings } from 'lucide-react';
-import { Link } from 'react-router-dom';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -23,6 +22,8 @@ import {
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
+import { PostSaveToast } from '@/components/session/PostSaveToast';
 
 /**
  * ARCHITECTURE:
@@ -44,6 +45,7 @@ export const SessionPage: React.FC = () => {
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
+    const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
 
     const {
         isListening,
@@ -136,6 +138,12 @@ export const SessionPage: React.FC = () => {
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
 
+    // Track 1: mode-aware reconciliation status copy for the consolidated status bar's left side.
+    // Native discrepancy → "…Browser transcription may omit some…"; Private never gets Browser copy.
+    const reconciliationCopy = finalizedAnalysis
+        ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
+        : null;
+
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
         // 1. High Priority: FSM Failure Hold (Controller Lock)
@@ -166,7 +174,7 @@ export const SessionPage: React.FC = () => {
         if (showAnalyticsPrompt) {
             return {
                 type: 'ready',
-                message: '✓ Session saved. Review it in Analytics when you are ready.'
+                message: reconciliationCopy ?? '✓ Session saved. Review it in Analytics when you are ready.'
             } as SttStatus;
         }
         return sttStatus as SttStatus;
@@ -205,9 +213,20 @@ export const SessionPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Status Bar - Spans full width of the main content area */}
+            {/* Status Bar - Spans full width of the main content area.
+                Post-save, this ONE bar carries the reconciliation copy (left), the quiet Private CTA
+                (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
+                surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                <StatusNotificationBar status={displayStatus} />
+                <StatusNotificationBar
+                    status={displayStatus}
+                    analyticsAction={showAnalyticsPrompt ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                    privateCta={
+                        showAnalyticsPrompt && mode === 'native' && canUsePrivateStt
+                            ? { onSelect: () => setMode('private') }
+                            : undefined
+                    }
+                />
                 {recoveryDraft && !isListening && (
                     <div
                         className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
@@ -241,33 +260,13 @@ export const SessionPage: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {showAnalyticsPrompt && (
-                    <div
-                        className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                        data-testid="post-save-review-actions"
-                    >
-                        <span className="font-medium text-foreground/80">
-                            Your session is saved. Review trends, transcript detail, and coaching notes in Analytics.
-                        </span>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            {mode === 'native' && canUsePrivateStt && (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setMode('private')}
-                                    data-testid="post-save-private-cta"
-                                >
-                                    Set up Private for cleaner local transcription
-                                </Button>
-                            )}
-                            <Button asChild size="sm" data-testid="post-save-review-session-link">
-                                <Link to="/analytics">View analytics</Link>
-                            </Button>
-                        </div>
-                    </div>
-                )}
+                {/* The separate post-save-review-actions surface was removed and its actions folded into
+                    the single StatusNotificationBar above (atomic with this removal). */}
             </div>
+
+            {/* One-shot post-save completion toast — fires only once reconciliation + persistence finish
+                (keyed on the finalized session id), never contains a CTA (the action is on the bar). */}
+            <PostSaveToast sessionKey={showAnalyticsPrompt && finalizedAnalysis ? finalizedAnalysis.sessionId : null} />
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">

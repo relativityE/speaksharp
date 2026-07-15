@@ -42,6 +42,7 @@ import { calculateCoreSessionMetrics, getFillerTotal, isUsableFillerCounts } fro
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
+import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
@@ -2578,6 +2579,29 @@ export class SpeechRuntimeController {
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
+
+                            // Track 1 finalized reconciliation (disclosure-only). Reconcile against the
+                            // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,
+                            // canonical live under #944), not the raw live snapshot which may be absent on the
+                            // fallback path. Publishes the mode-aware status copy, the session-scoped Analytics
+                            // cue key, and the one-shot toast key. Selects nothing; changes no persisted value.
+                            if (sessionId) {
+                                try {
+                                    const reconciliation = reconcileFinalizedFillers(
+                                        finalTranscript,
+                                        fillerWords as unknown as FillerCounts,
+                                        this.userWords,
+                                    );
+                                    useSessionStore.getState().setFinalizedAnalysis({
+                                        sessionId,
+                                        mode: modeForFinalization ?? stopEntryMode ?? 'unknown',
+                                        reconciliation,
+                                        persistedTotal: fillerWords.total.count,
+                                    });
+                                } catch (reconErr) {
+                                    logger.warn({ reconErr, sessionId }, '[controller] finalized reconciliation publish failed (non-fatal)');
+                                }
+                            }
                         }
                     }
                 }

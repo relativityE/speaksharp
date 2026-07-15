@@ -22,6 +22,15 @@ interface StatusNotificationBarProps {
         cueKey?: string | number;
         onSelect?: () => void;
     };
+    /**
+     * Existing Native→Private nudge, folded into this bar as the QUIET secondary action (left of the
+     * Analytics action, which stays rightmost). SessionPage decides visibility (post-save + Native +
+     * canUsePrivateStt); when omitted, nothing renders. Preserves the existing copy + setMode('private')
+     * action. On mobile the bar stacks (flex-col), so this sits within the same surface — never a new one.
+     */
+    privateCta?: {
+        onSelect: () => void;
+    };
 }
 
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
@@ -111,7 +120,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * Displays above the Live Recording card to inform users of initialization,
  * fallback, and error states.
  */
-export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction }) => {
+export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction, privateCta }) => {
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
@@ -239,8 +248,22 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
             <div className="hidden sm:block flex-1" />
 
+            {/* Quiet secondary Native→Private nudge (folded in from the removed post-save surface).
+                Preserves the existing copy + setMode('private') action; muted so Analytics stays primary. */}
+            {privateCta && (
+                <button
+                    type="button"
+                    onClick={() => privateCta.onSelect()}
+                    data-testid="post-save-private-cta"
+                    className="inline-flex items-center self-start rounded-md px-3 py-1.5 text-[13px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:self-auto"
+                >
+                    Set up Private for cleaner local transcription
+                </button>
+            )}
+
             {/* Post-save Analytics action (folded in from the removed post-save-review-actions surface).
-                Existing /analytics destination; bounded, reduced-motion-safe pulse; no new button. */}
+                Existing /analytics destination; bounded, reduced-motion-safe pulse; no new button.
+                Kept rightmost — the primary post-save action. */}
             {analyticsAction && (
                 <Link
                     to="/analytics"

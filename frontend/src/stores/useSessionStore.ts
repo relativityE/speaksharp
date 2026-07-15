@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { FillerCounts } from '@/utils/fillerWordUtils';
+import type { FinalizedFillerReconciliation } from '@/utils/finalizedSessionAnalysis';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { SttStatus, HistorySegment } from '@/types/transcription';
@@ -26,6 +27,20 @@ export interface NativeFormattingUiState {
     startedAt: number | null;
 }
 
+/**
+ * Published by the controller AFTER a session is persisted (Track 1 finalized reconciliation).
+ * Drives the consolidated status bar's mode-aware copy, the Analytics cue (session-scoped via
+ * `sessionId`), and the one-shot completion toast. Persisted total == canonical live (#944).
+ */
+export interface FinalizedAnalysisState {
+    sessionId: string;
+    /** Engine that finalized this session ('native' | 'private' | 'cloud' | ...). */
+    mode: string;
+    reconciliation: FinalizedFillerReconciliation;
+    /** Persisted / user-facing filler total (== canonical live). */
+    persistedTotal: number;
+}
+
 export interface SessionState {
     runtimeState: RuntimeState;
     isLockHeldByOther: boolean;
@@ -50,6 +65,8 @@ export interface SessionState {
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
+    /** Post-persistence finalized reconciliation for the settled Session page; null until a save. */
+    finalizedAnalysis: FinalizedAnalysisState | null;
     sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
     isBooting: boolean;
 }
@@ -82,6 +99,7 @@ interface SessionActions {
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
+    setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
     setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
@@ -121,6 +139,7 @@ const initialState: SessionState = {
     },
     sessionSaved: false,
     nativeFormatting: { status: 'idle', startedAt: null },
+    finalizedAnalysis: null,
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
 };
@@ -330,6 +349,9 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setNativeFormatting: (nativeFormatting) =>
         set({ nativeFormatting }),
+
+    setFinalizedAnalysis: (finalizedAnalysis) =>
+        set({ finalizedAnalysis }),
 
     addChunk: (chunk) =>
         set((state) => ({
