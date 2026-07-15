@@ -158,6 +158,14 @@ export const SessionPage: React.FC = () => {
             return sttStatus as SttStatus;
         }
 
+        // 2b. Post-save: the mode-aware reconciliation copy is the authoritative left-side status once a
+        // session is finalized+persisted. It supersedes the generic save-feedback message (which is only a
+        // success confirmation) but NOT the FAILED/download guards above. showAnalyticsPrompt is only true
+        // after a successful save, so this never masks an error.
+        if (showAnalyticsPrompt && reconciliationCopy) {
+            return { type: 'ready', message: reconciliationCopy } as SttStatus;
+        }
+
         // 3. User Feedback (Transient messages like "Session saved")
         if (sessionFeedbackMessage) {
             const isError = sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔');
