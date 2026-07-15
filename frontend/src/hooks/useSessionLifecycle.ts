@@ -270,19 +270,21 @@ export const useSessionLifecycle = () => {
                     clearPrivateSampleContext();
                 }
 
-                if (options?.stopReason) {
+                // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
+                // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
+                // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
+                // stopReason) as well as manual stops. The controller owns the terminal status when
+                // persistence is degraded; overwriting it would hide the failure.
+                const controllerStatusType = useSessionStore.getState().sttStatus?.type;
+                if (controllerStatusType === 'warning' || controllerStatusType === 'error') {
+                    // preserve — no stopReason, no success copy
+                } else if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
                 } else {
-                    // P1: do NOT overwrite a warning/error the controller set during finalization (e.g.
-                    // filler/metrics persistence failed → guardedStopStatus). The controller owns the
-                    // terminal status when persistence is degraded; a blanket success message would hide it.
-                    const currentType = useSessionStore.getState().sttStatus?.type;
-                    if (currentType !== 'warning' && currentType !== 'error') {
-                        const finalMsg = streakResult.isNewDay
-                            ? ` 🔥 ${streakResult.currentStreak} Day Streak! Session saved.`
-                            : '✓ Great practice! Session saved.';
-                        setSTTStatus({ type: 'info', message: finalMsg });
-                    }
+                    const finalMsg = streakResult.isNewDay
+                        ? ` 🔥 ${streakResult.currentStreak} Day Streak! Session saved.`
+                        : '✓ Great practice! Session saved.';
+                    setSTTStatus({ type: 'info', message: finalMsg });
                 }
 
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });

@@ -808,6 +808,55 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('P1: an AUTO-STOP (stopReason present) does NOT overwrite the controller metrics-persistence warning', async () => {
+        // Real lifecycle path: stopRecording RESOLVES SUCCESSFULLY and the controller leaves a
+        // warning (guardedStopStatus) because filler/metrics persistence failed. A non-empty stopReason
+        // (auto-stop) must NOT replace that warning with success/stopReason info.
+        const warning = {
+            type: 'warning' as const,
+            message: 'Session saved.',
+            detail: 'some analysis metrics could not be updated yet.',
+        };
+        const mockStore = createTestSessionStore({
+            isListening: true,
+            elapsedTime: 301,
+            startTime: Date.now() - 301000,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript, chunks: [], interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening, stopListening: mockStopListening,
+            isListening: true, isReady: true, isSupported: true, error: null, reset: mockReset,
+            pauseMetrics: basePauseMetrics, modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' },
+            mode: 'native', micWarning: null, micLevel: 0, hasSpeechActivity: false,
+        });
+
+        // stopRecording resolves a VALID result (truthy → not the empty-session path) and leaves the
+        // controller warning, exactly as the real controller does on degraded persistence.
+        vi.mocked(speechRuntimeController.stopRecording).mockImplementationOnce(async () => {
+            mockStore.getState().setSTTStatus(warning);
+            return { transcript: 'hello there', total_words: 2, accuracy: 100, duration: 301 } as TranscriptStats;
+        });
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>{children}</TranscriptionProvider>
+            ),
+        });
+
+        await act(async () => {
+            await result.current.handleStartStop({ stopReason: 'Auto-stopped: your 5-minute sample ended.' });
+        });
+
+        // The warning + detail survive: neither the auto-stop stopReason nor the success copy replaced them.
+        expect(mockStore.getState().sttStatus).toEqual(warning);
+    });
+
     it('should force downgraded users back to native mode and clear stale private errors', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
