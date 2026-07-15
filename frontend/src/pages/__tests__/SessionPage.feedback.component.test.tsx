@@ -152,22 +152,67 @@ describe('SessionPage Feedback Logic', () => {
         expect(screen.getByTestId('status-type')).toHaveTextContent('error');
     });
 
-    it('should show "Session saved" success in status bar when hook shows analytics prompt', async () => {
+    // STATE C — terminal success: reconciled status + Analytics action + toast all appear.
+    it('terminal success: reconciled status, Analytics action, and completion toast appear', async () => {
         vi.mocked(useSessionLifecycle).mockReturnValue({
             ...defaultMock,
             isListening: false,
             sttStatus: { type: 'ready' },
             showAnalyticsPrompt: true,
         } as unknown as ReturnType<typeof useSessionLifecycle>);
-        seedFinalized('native'); // finalization terminal reached
+        seedFinalized('native'); // BOTH tracks terminal → finalizedAnalysis published
 
         render(<SessionPage />);
 
-        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved/);
+        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved · Your transcript is ready\./);
         expect(screen.getByTestId('status-type')).toHaveTextContent('ready');
-        // Consolidated: the separate post-save surface is gone; the Analytics action lives in the one bar.
         expect(screen.queryByTestId('post-save-review-actions')).toBeNull();
         expect(screen.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
+        expect(screen.getByTestId('post-save-toast')).toBeInTheDocument(); // one-shot completion toast
+    });
+
+    // STATE A — metrics/persistence failure: the warning is preserved; NO success UI (P1).
+    it('metrics-persistence failure: warning retained, no toast / cue / Analytics action', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            canUsePrivateStt: true,
+            isListening: false,
+            // Controller-set warning after a degraded save; finalizedAnalysis is NOT published.
+            sttStatus: { type: 'warning', message: 'Session saved.', detail: 'some analysis metrics could not be updated yet.' },
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        // finalizedAnalysis stays null (beforeEach reset) — the two-track gate never published.
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('status-type')).toHaveTextContent('warning'); // warning NOT overwritten
+        expect(screen.getByTestId('status-bar')).not.toHaveTextContent(/Your transcript is ready/);
+        expect(screen.queryByTestId('post-save-review-session-link')).toBeNull(); // no Analytics action
+        expect(screen.queryByTestId('post-save-private-cta')).toBeNull();         // no Private CTA
+        expect(screen.queryByTestId('post-save-toast')).toBeNull();               // no completion toast
+    });
+
+    // STATE B — native formatter pending: explicit finalizing status; no ready copy / no success UI (P2).
+    it('native formatter pending: explicit finalizing status, no ready copy or success UI', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            canUsePrivateStt: true,
+            isListening: false,
+            sttStatus: { type: 'ready' }, // even a benign success message must not leak through
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        useSessionStore.setState({ nativeFormatting: { status: 'pending', startedAt: Date.now() }, finalizedAnalysis: null });
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Finalizing your transcript/);
+        expect(screen.getByTestId('status-bar')).not.toHaveTextContent(/Your transcript is ready/);
+        expect(screen.queryByTestId('post-save-review-session-link')).toBeNull(); // no Analytics action yet
+        expect(screen.queryByTestId('post-save-private-cta')).toBeNull();
+        expect(screen.queryByTestId('post-save-toast')).toBeNull();               // no toast pre-terminal
+        useSessionStore.setState({ nativeFormatting: { status: 'idle', startedAt: null } }); // cleanup
     });
 
     it('offers Private setup after a saved Browser session for eligible users', async () => {

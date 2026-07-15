@@ -165,12 +165,24 @@ export const SessionPage: React.FC = () => {
             return sttStatus as SttStatus;
         }
 
-        // 2b. Post-save (TERMINAL only): the mode-aware reconciliation copy is the authoritative left-side
-        // status once finalization is complete. It supersedes the generic save-feedback message but NOT the
-        // FAILED/download guards above. Gated on postSaveReady so no settled/ready claim shows while the
-        // native formatter is still tidying.
+        // 2b. Post-save (TERMINAL success only): the mode-aware reconciliation copy is the authoritative
+        // left-side status once BOTH finalization tracks succeed (finalizedAnalysis published). It
+        // supersedes the generic save-feedback message but NOT the FAILED/download guards above.
         if (postSaveReady && reconciliationCopy) {
             return { type: 'ready', message: reconciliationCopy } as SttStatus;
+        }
+
+        // 2c. Persistence-degraded: the controller set a warning (e.g. filler/metrics persistence failed).
+        // Preserve it — never let a "saved/ready" claim or the finalizing status overwrite a real warning.
+        if ((sttStatus as SttStatus).type === 'warning') {
+            return sttStatus as SttStatus;
+        }
+
+        // 2d. P2 — pre-terminal: persisted, but the finalized signal has NOT published yet (native formatter
+        // still tidying, or reconciliation/persistence not yet joined). Show an EXPLICIT finalizing status;
+        // never a "Session saved / Review in Analytics" ready claim while showAnalyticsPrompt && !postSaveReady.
+        if (showAnalyticsPrompt && !postSaveReady) {
+            return { type: 'initializing', message: 'Finalizing your transcript…' } as SttStatus;
         }
 
         // 3. User Feedback (Transient messages like "Session saved")

@@ -273,10 +273,16 @@ export const useSessionLifecycle = () => {
                 if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
                 } else {
-                    const finalMsg = streakResult.isNewDay
-                        ? ` 🔥 ${streakResult.currentStreak} Day Streak! Session saved.`
-                        : '✓ Great practice! Session saved.';
-                    setSTTStatus({ type: 'info', message: finalMsg });
+                    // P1: do NOT overwrite a warning/error the controller set during finalization (e.g.
+                    // filler/metrics persistence failed → guardedStopStatus). The controller owns the
+                    // terminal status when persistence is degraded; a blanket success message would hide it.
+                    const currentType = useSessionStore.getState().sttStatus?.type;
+                    if (currentType !== 'warning' && currentType !== 'error') {
+                        const finalMsg = streakResult.isNewDay
+                            ? ` 🔥 ${streakResult.currentStreak} Day Streak! Session saved.`
+                            : '✓ Great practice! Session saved.';
+                        setSTTStatus({ type: 'info', message: finalMsg });
+                    }
                 }
 
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
