@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { platform, arch } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseOsvJson, evaluateOsv, ignoreSetFromPkg } from './lib/sca-gate.mjs';
+import { parseOsvJson, evaluateOsv, ignoreSetFromPkg, scannerStdoutOrThrow } from './lib/sca-gate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const LOCKFILE = join(ROOT, 'pnpm-lock.yaml');
@@ -45,14 +45,18 @@ async function resolveScanner() {
 async function main() {
   if (!existsSync(LOCKFILE)) die(2, `[sca] lockfile not found: ${LOCKFILE}`);
   const scanner = await resolveScanner();
-  let out = '';
+  // Normalise the execFileSync outcome to {status, signal, stdout}: on success
+  // execFileSync returns stdout (exit 0); on nonzero exit it throws with e.status/
+  // e.signal/e.stdout. scannerStdoutOrThrow fails CLOSED on anything but exit 0/1.
+  let result;
   try {
-    out = execFileSync(scanner, ['--lockfile', LOCKFILE, '--format', 'json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    const stdout = execFileSync(scanner, ['--lockfile', LOCKFILE, '--format', 'json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    result = { status: 0, signal: null, stdout };
   } catch (e) {
-    // osv-scanner exits non-zero when it FINDS vulnerabilities; JSON is still on stdout.
-    out = e.stdout?.toString() || '';
-    if (!out) die(2, `[sca] osv-scanner failed with no output: ${e.message}`);
+    result = { status: e.status ?? null, signal: e.signal ?? null, stdout: e.stdout };
   }
+  let out;
+  try { out = scannerStdoutOrThrow(result); } catch (e) { die(2, `[sca] ${e.message}`); }
   let data;
   try { data = parseOsvJson(out); } catch (e) { die(2, `[sca] ${e.message}`); }
   const ignore = ignoreSetFromPkg(JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')));

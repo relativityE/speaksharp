@@ -20,17 +20,28 @@ function roundup(x) {
  * @param {string} vector e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
  * @returns {number|null} base score 0.0–10.0, or null if not a parseable CVSS v3 vector.
  */
+const MANDATORY = ['AV', 'AC', 'PR', 'UI', 'S', 'C', 'I', 'A'];
 export function cvssBaseScore(vector) {
   if (typeof vector !== 'string') return null;
   if (!/^CVSS:3\.[01]\//.test(vector)) return null;
-  const m = Object.fromEntries(
-    vector.split('/').slice(1).map((p) => p.split(':')).filter((kv) => kv.length === 2),
-  );
+  // Strict parse: reject malformed segments and DUPLICATED metrics.
+  const m = {};
+  for (const seg of vector.split('/').slice(1)) {
+    const kv = seg.split(':');
+    if (kv.length !== 2 || !kv[0] || kv[1] === '') return null; // malformed segment
+    const [k, v] = kv;
+    if (Object.prototype.hasOwnProperty.call(m, k)) return null; // duplicated metric
+    m[k] = v;
+  }
+  // Require each mandatory base metric present exactly once (dup already rejected).
+  for (const k of MANDATORY) if (!(k in m)) return null; // missing mandatory metric
+  // Scope must be exactly U or C.
+  if (m.S !== 'U' && m.S !== 'C') return null;
   const scopeChanged = m.S === 'C';
   const av = AV[m.AV], ac = AC[m.AC], ui = UI[m.UI];
   const pr = (scopeChanged ? PR_C : PR_U)[m.PR];
   const c = CIA[m.C], i = CIA[m.I], a = CIA[m.A];
-  if ([av, ac, ui, pr, c, i, a].some((v) => v === undefined)) return null;
+  if ([av, ac, ui, pr, c, i, a].some((v) => v === undefined)) return null; // invalid metric value
   const iss = 1 - (1 - c) * (1 - i) * (1 - a);
   const impact = scopeChanged
     ? 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15)

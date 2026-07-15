@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cvssBaseScore, scoreToRating, severityOf } from '../../scripts/lib/sca-severity.mjs';
-import { parseOsvJson, evaluateOsv, ignoreSetFromPkg } from '../../scripts/lib/sca-gate.mjs';
+import { parseOsvJson, evaluateOsv, ignoreSetFromPkg, scannerStdoutOrThrow } from '../../scripts/lib/sca-gate.mjs';
 
 const VITEST_GHSA = 'GHSA-5xrq-8626-4rwp';
 
@@ -25,6 +25,21 @@ describe('CVSS v3.1 base-score parser (proven against official scores)', () => {
     expect(cvssBaseScore('not-a-vector')).toBeNull();
     expect(cvssBaseScore('CVSS:2.0/AV:N')).toBeNull();
     expect(cvssBaseScore(undefined)).toBeNull();
+  });
+  it('strict: rejects a missing Scope metric (S) as null', () => {
+    expect(cvssBaseScore('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/C:H/I:H/A:H')).toBeNull();
+  });
+  it('strict: rejects an invalid Scope value S:X as null', () => {
+    expect(cvssBaseScore('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:X/C:H/I:H/A:H')).toBeNull();
+  });
+  it('strict: rejects a missing mandatory metric (no A) as null', () => {
+    expect(cvssBaseScore('CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H')).toBeNull();
+  });
+  it('strict: rejects a duplicated mandatory metric as null', () => {
+    expect(cvssBaseScore('CVSS:3.1/AV:N/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H')).toBeNull();
+  });
+  it('strict: rejects an invalid metric value (AC:Z) as null', () => {
+    expect(cvssBaseScore('CVSS:3.1/AV:N/AC:Z/PR:N/UI:N/S:U/C:H/I:H/A:H')).toBeNull();
   });
   it('maps scores to ratings at the official boundaries', () => {
     expect(scoreToRating(9.0)).toBe('CRITICAL');
@@ -98,6 +113,28 @@ describe('parseOsvJson (scanner-failure / invalid-input handling)', () => {
   });
   it('accepts a valid results envelope', () => {
     expect(parseOsvJson('{"results":[]}')).toEqual({ results: [] });
+  });
+});
+
+describe('scannerStdoutOrThrow (fail-closed classifier)', () => {
+  it('exit 0 returns stdout (clean run)', () => {
+    expect(scannerStdoutOrThrow({ status: 0, signal: null, stdout: '{"results":[]}' })).toBe('{"results":[]}');
+  });
+  it('exit 1 returns stdout (vulnerabilities found)', () => {
+    expect(scannerStdoutOrThrow({ status: 1, signal: null, stdout: 'X' })).toBe('X');
+  });
+  it('exit 127 throws (does not return partial stdout)', () => {
+    expect(() => scannerStdoutOrThrow({ status: 127, signal: null, stdout: '{"results":[]}' })).toThrow(/status 127|infrastructure failure/);
+  });
+  it('exit 128 / 129 throw', () => {
+    expect(() => scannerStdoutOrThrow({ status: 128, stdout: 'x' })).toThrow();
+    expect(() => scannerStdoutOrThrow({ status: 129, stdout: 'x' })).toThrow();
+  });
+  it('signal termination throws', () => {
+    expect(() => scannerStdoutOrThrow({ status: null, signal: 'SIGKILL', stdout: 'x' })).toThrow(/signal SIGKILL/);
+  });
+  it('missing status throws', () => {
+    expect(() => scannerStdoutOrThrow({ stdout: 'x' })).toThrow(/status none|infrastructure failure/);
   });
 });
 

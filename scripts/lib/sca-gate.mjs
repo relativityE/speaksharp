@@ -5,6 +5,31 @@
  */
 import { severityOf } from './sca-severity.mjs';
 
+/**
+ * Classify an osv-scanner execution outcome and fail CLOSED on anything that is
+ * not a clean run.
+ *
+ * osv-scanner exit codes: 0 = no vulnerabilities, 1 = vulnerabilities found
+ * (documented). Only those two produce trustworthy stdout to evaluate. Any
+ * other outcome — 127 (not found), 128/129, signal termination, missing status,
+ * or any other nonzero — is an infrastructure/scanner failure; its partial
+ * stdout must NOT be parsed.
+ *
+ * @param {{status:(number|null|undefined), signal:(string|null|undefined), stdout:*}} result
+ * @returns {string} stdout to parse (exit 0 or 1 only)
+ * @throws {Error} on any infra/scanner failure
+ */
+export function scannerStdoutOrThrow(result) {
+  if (result && result.signal) {
+    throw new Error(`osv-scanner terminated by signal ${result.signal} — scanner/infrastructure failure`);
+  }
+  const status = result ? result.status : undefined;
+  if (status === 0 || status === 1) {
+    return result.stdout != null ? String(result.stdout) : '';
+  }
+  throw new Error(`osv-scanner exited with status ${status ?? 'none'} — scanner/infrastructure failure (partial output not parsed)`);
+}
+
 /** Parse osv-scanner JSON; throws a clear error on invalid input. */
 export function parseOsvJson(raw) {
   if (typeof raw !== 'string' || raw.trim() === '') {
