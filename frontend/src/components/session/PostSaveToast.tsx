@@ -12,27 +12,28 @@ interface PostSaveToastProps {
 }
 
 /**
- * One-shot post-save completion notice (Track 1). Rendered in NORMAL DOCUMENT FLOW between the recording
- * card and the transcript panel — no fixed/absolute/sticky positioning, no backdrop blur — so it can never
- * cover the transcript or collide with the mobile sticky action bar. Informational only: NO button/CTA
- * (the Analytics action lives on the status bar). aria-live="polite", never steals focus, visible ≥5s,
- * pauses on hover/focus, and dismisses with a smooth bounded fade+collapse (reduced-motion → instant).
+ * One-shot post-save completion notice (Track 1). ABSOLUTELY positioned inside a `relative` transcript
+ * wrapper so it STRADDLES the recording/transcript card boundary — out of flow, so the cards never move on
+ * appear/removal. Right-aligned, opaque (bg-card, no backdrop blur), and clear of the "Live Transcript"
+ * heading and transcript text. Informational only: NO button/CTA (the Analytics action lives on the status
+ * bar). aria-live="polite", never steals focus, visible ≥5s, pauses on hover/focus, and dismisses with a
+ * smooth bounded opacity fade (reduced-motion → instant).
  */
 export const PostSaveToast: React.FC<PostSaveToastProps> = ({ sessionKey, className = '' }) => {
     const DURATION_MS = 8000;   // ≥ 5s; hover/focus pauses the countdown.
-    const COLLAPSE_MS = 260;    // bounded fade+collapse on dismiss (no abrupt page jump).
+    const FADE_OUT_MS = 260;    // bounded opacity fade-out on dismiss (absolute → no layout jump).
     const [mounted, setMounted] = React.useState(false);
     const [leaving, setLeaving] = React.useState(false);
     const shownForRef = React.useRef<string | number | null | undefined>(null);
     const dismissTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const collapseTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const fadeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const clearDismiss = React.useCallback(() => {
         if (dismissTimer.current) { clearTimeout(dismissTimer.current); dismissTimer.current = null; }
     }, []);
     const beginLeave = React.useCallback(() => {
         setLeaving(true);
-        collapseTimer.current = setTimeout(() => { setMounted(false); setLeaving(false); }, COLLAPSE_MS);
+        fadeTimer.current = setTimeout(() => { setMounted(false); setLeaving(false); }, FADE_OUT_MS);
     }, []);
     const startDismiss = React.useCallback(() => {
         clearDismiss();
@@ -49,7 +50,7 @@ export const PostSaveToast: React.FC<PostSaveToastProps> = ({ sessionKey, classN
         startDismiss();
         return () => {
             clearDismiss();
-            if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
+            if (fadeTimer.current) { clearTimeout(fadeTimer.current); fadeTimer.current = null; }
         };
     }, [sessionKey, startDismiss, clearDismiss]);
 

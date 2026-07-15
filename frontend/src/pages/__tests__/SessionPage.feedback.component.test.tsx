@@ -192,6 +192,24 @@ describe('SessionPage Feedback Logic', () => {
         expect(setMode).toHaveBeenCalledWith('private');
     });
 
+    it('free tester with a Private-sample entitlement sees EXACTLY ONE Private CTA after a Native save', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            isProUser: false,             // not Pro...
+            canUsePrivateStt: true,       // ...but has a Private-sample entitlement
+            isListening: false,
+            sttStatus: { type: 'ready' },
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        seedFinalized('native');
+
+        render(<SessionPage />);
+
+        // Exactly one Private nudge — the consolidated status-bar CTA (the Browser-card nudge is mocked out).
+        expect(screen.getAllByTestId('post-save-private-cta')).toHaveLength(1);
+    });
+
     it('shows a same-page recovery action when an unsaved draft exists after a save issue', async () => {
         vi.mocked(getSessionRecoveryDraft).mockReturnValue({
             sessionId: 'draft-session',

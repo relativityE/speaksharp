@@ -4,8 +4,8 @@
  * Proves the settled post-save Session page: ONE status bar (no separate post-save surface, never two
  * Analytics actions), the Analytics action (rightmost, /analytics) with a bounded cue, the quiet Private
  * CTA visibility + de-duplication (exactly one visible "Set up Private" nudge after a Native save), the
- * mode-aware reconciliation copy (Browser-omission is Native-only), and the in-flow completion toast that
- * never obscures the transcript. Captures 320 / 375 / 390 / desktop screenshots for Native and Private.
+ * mode-aware reconciliation copy (Browser-omission is Native-only), and the boundary-anchored completion toast that
+ * never obscures the transcript or moves the cards. Captures 320 / 375 / 390 / desktop screenshots for Native and Private.
  */
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
@@ -14,6 +14,7 @@ import {
   mockLiveTranscript,
   selectTranscriptionEngine,
   programmaticLoginWithRoutes,
+  openSessionDetailFromHistoryItem,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
@@ -86,7 +87,7 @@ async function shoot(page: Page, prefix: string) {
 }
 
 test.describe('Post-save consolidation', () => {
-  test('Native (eligible): one bar, one Private nudge, in-flow toast, bounded cue', async ({ page }) => {
+  test('Native (eligible): one bar, one Private nudge, boundary-anchored toast, bounded cue', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await expect(page.getByText(/Practice Session/i)).toBeVisible();
@@ -170,6 +171,25 @@ test.describe('Post-save consolidation', () => {
     await recordAndStop(page);
     await assertOneBarNoOldSurface(page);
     await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
+  });
+
+  test('SessionPage final transcript equals the persisted Analytics/detail transcript', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await navigateToRoute(page, '/session');
+    await recordAndStop(page);
+    // Let the native formatter reach terminal (the displayed final text is settled).
+    await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const sessionText = norm(await page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).innerText());
+    expect(sessionText.length).toBeGreaterThan(0);
+
+    await navigateToRoute(page, '/analytics');
+    const latest = page.getByTestId(/session-history-item-/).first();
+    await openSessionDetailFromHistoryItem(page, latest);
+    const detailText = norm(await page.getByTestId('session-detail-transcript').innerText());
+
+    // The persisted detail transcript must match what SessionPage displayed as final.
+    expect(detailText).toContain(sessionText);
   });
 
   test('Reduced motion: the Analytics cue uses a static ring, not the pulse animation', async ({ page }) => {

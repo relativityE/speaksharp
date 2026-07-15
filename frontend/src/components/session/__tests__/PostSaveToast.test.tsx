@@ -32,7 +32,7 @@ describe('PostSaveToast', () => {
         expect(toast).not.toBe(document.activeElement);
     });
 
-    it('stays visible for ≥5s then dismisses via a bounded fade+collapse (~8s + collapse)', () => {
+    it('stays visible for ≥5s then dismisses via a bounded opacity fade (~8s + fade)', () => {
         vi.useFakeTimers();
         try {
             render(<PostSaveToast sessionKey="sess-1" />);
@@ -40,9 +40,9 @@ describe('PostSaveToast', () => {
             act(() => { vi.advanceTimersByTime(5000); });
             expect(screen.getByTestId('post-save-toast')).toHaveAttribute('data-leaving', 'false'); // still up at 5s
             act(() => { vi.advanceTimersByTime(3100); });
-            expect(screen.getByTestId('post-save-toast')).toHaveAttribute('data-leaving', 'true');  // collapsing at ~8s
+            expect(screen.getByTestId('post-save-toast')).toHaveAttribute('data-leaving', 'true');  // fading out at ~8s
             act(() => { vi.advanceTimersByTime(300); });
-            expect(screen.queryByTestId('post-save-toast')).toBeNull();                             // unmounted after collapse
+            expect(screen.queryByTestId('post-save-toast')).toBeNull();                             // unmounted after fade
         } finally {
             vi.useRealTimers();
         }
