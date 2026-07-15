@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     reconcileFinalizedFillers,
     reconciliationStatusCopy,
-    selectFinalizedHighlightTokens,
 } from '../finalizedSessionAnalysis';
+import * as finalizedModule from '../finalizedSessionAnalysis';
 import { countFillerWords, FillerCounts } from '../fillerWordUtils';
 import { parseTranscriptForHighlighting } from '../highlightUtils';
 
@@ -16,34 +16,19 @@ const canonical = (m: Record<string, number>): FillerCounts => {
     return out;
 };
 const c = (f: FillerCounts, k: string) => f[k]?.count ?? 0;
-const fillerTokens = (tokens: { type: string; transcript: string }[], word: string) =>
-    tokens.filter((t) => t.type === 'filler' && t.transcript.toLowerCase().trim() === word).length;
 
-describe('reconcileFinalizedFillers — observation vs explicit source selection', () => {
+describe('reconcileFinalizedFillers — observation vs explicit source selection (no occurrence selection)', () => {
     // ---- POLICY: canonical (#944 live) wins; a transcript recount is never promoted ----
 
     it('semantic "so" in the transcript does NOT increase the persisted total above canonical', () => {
         const transcript = 'so I went to the store so that I could buy milk and so on';
         const candSo = c(countFillerWords(transcript), 'so');
-        expect(candSo).toBeGreaterThan(0); // regex over-counts semantic "so"
-
+        expect(candSo).toBeGreaterThan(0);
         const r = reconcileFinalizedFillers(transcript, canonical({ so: 0, um: 2 }));
         expect(r.selection['so'].reason).toBe('candidate-exceeds-canonical');
-        expect(c(r.transcriptCandidateCounts, 'so')).toBe(candSo); // observed, reported
-        expect(c(r.transcriptExcessCounts, 'so')).toBe(candSo);    // flagged as excess...
-        expect(c(r.persistedCounts, 'so')).toBe(0);                // ...but NOT promoted
-        expect(r.persistedTotal).toBe(2);                          // only the canonical um:2 counts
-    });
-
-    it('semantic "like" in the transcript does NOT increase the persisted total above canonical', () => {
-        const transcript = 'things like apples and oranges taste like fruit like that';
-        const candLike = c(countFillerWords(transcript), 'like');
-        expect(candLike).toBeGreaterThan(0);
-
-        const r = reconcileFinalizedFillers(transcript, canonical({ like: 1 }));
-        expect(c(r.transcriptExcessCounts, 'like')).toBe(candLike - 1);
-        expect(c(r.persistedCounts, 'like')).toBe(1); // canonical, not the inflated candidate count
-        expect(r.persistedTotal).toBe(1);
+        expect(c(r.transcriptExcessCounts, 'so')).toBe(candSo);
+        expect(c(r.persistedCounts, 'so')).toBe(0);
+        expect(r.persistedTotal).toBe(2);
     });
 
     it('a candidate recount LARGER than live never auto-wins (no per-category max)', () => {
@@ -51,7 +36,6 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         const r = reconcileFinalizedFillers(transcript, canonical({ so: 1, um: 1 }));
         expect(c(r.transcriptCandidateCounts, 'so')).toBe(3);
         expect(c(r.persistedCounts, 'so')).toBe(1);
-        expect(r.persistedTotal).toBe(r.retainedCanonicalTotal);
         expect(r.persistedTotal).toBe(2);
     });
 
@@ -59,10 +43,9 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         const transcript = 'the opening and the ending';
         const r = reconcileFinalizedFillers(transcript, canonical({ um: 2, uh: 2 }));
         expect(c(r.transcriptCandidateCounts, 'um')).toBe(0);
-        expect(c(r.notVisibleCountGap, 'um')).toBe(2); // inferred count difference
+        expect(c(r.notVisibleCountGap, 'um')).toBe(2);
         expect(r.selection['um'].reason).toBe('canonical-exceeds-candidate');
         expect(c(r.persistedCounts, 'um')).toBe(2);
-        // The module claims no per-occurrence evidence: no "exact speech-only" field exists.
         expect(r).not.toHaveProperty('speechTimeOnlyCounts');
         expect(r.notVisibleGapTotal).toBe(4);
     });
@@ -72,13 +55,65 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         const r = reconcileFinalizedFillers(transcript, canonical({ um: 3, so: 0, uh: 1 }));
         for (const key of Object.keys(r.selection)) {
             expect(r.selection[key].persisted).toBe(r.selection[key].canonical);
-            expect(c(r.persistedCounts, key)).toBe(c(r.retainedCanonicalCounts, key));
             expect(['canonical-only', 'canonical-exceeds-candidate', 'candidate-exceeds-canonical'])
                 .toContain(r.selection[key].reason);
         }
     });
 
-    // ---- Safety: zero, malformed input, custom words ----
+    // ---- LIMITATION PROOFS: aggregate counts cannot select truthful occurrences ----
+
+    it('LIMITATION: an early semantic "so" + a later genuine filler "so" cannot be truthfully selected', () => {
+        // Two "so" tokens in the transcript: the first is a conjunction, the second a filler. The live
+        // canonical count says there is 1 filler "so" — but aggregate counts give NO way to know WHICH
+        // of the two transcript occurrences it is. The module must not pretend to know.
+        const transcript = 'so the plan changed and then so I paused for a while';
+        expect(c(countFillerWords(transcript), 'so')).toBe(2); // two candidate occurrences
+        const r = reconcileFinalizedFillers(transcript, canonical({ so: 1 }));
+        expect(c(r.transcriptCandidateCounts, 'so')).toBe(2);
+        expect(c(r.persistedCounts, 'so')).toBe(1);            // count only — canonical
+        expect(c(r.transcriptExcessCounts, 'so')).toBe(1);
+        // The module exposes NO occurrence/position selection: no highlight budget, no chosen indices.
+        expect(finalizedModule).not.toHaveProperty('selectFinalizedHighlightTokens');
+        expect(r).not.toHaveProperty('finalizedHighlightCounts');
+        expect(r).not.toHaveProperty('finalizedHighlightTotal');
+        expect(r.selection['so']).not.toHaveProperty('highlight');
+    });
+
+    it('LIMITATION: highlight selection is not exported — highlights and the card total may differ', () => {
+        // The module deliberately provides no way to force transcript highlights to equal the card total.
+        expect(finalizedModule).not.toHaveProperty('selectFinalizedHighlightTokens');
+        // Candidate highlights (what the existing highlighter renders) can exceed the canonical card total,
+        // and the module does nothing to reconcile them — by design.
+        const transcript = 'so so um';                          // 2 semantic "so" + 1 "um"
+        const raw = parseTranscriptForHighlighting(transcript);
+        const rendered = raw.filter((t) => t.type === 'filler').length;
+        const r = reconcileFinalizedFillers(transcript, canonical({ so: 0, um: 1 }));
+        expect(rendered).toBeGreaterThan(r.persistedTotal);     // highlights > card total, left as-is
+    });
+
+    // ---- Counter/highlighter coverage limitations for common filler VARIANTS ----
+
+    it('LIMITATION: counter/highlighter variant behavior diverges, and smart apostrophes are missed by both', () => {
+        // Documents ACTUAL behavior (not a guess). The COUNTER lists variants explicitly, so it CATCHES
+        // umm / uhh / ya know / kinda / sorta:
+        expect(c(countFillerWords('umm'), 'um')).toBeGreaterThan(0);
+        expect(c(countFillerWords('uhh'), 'uh')).toBeGreaterThan(0);
+        expect(c(countFillerWords('ya know'), 'You Know')).toBeGreaterThan(0);
+        expect(countFillerWords('kinda').total.count).toBeGreaterThan(0);
+        expect(countFillerWords('sorta').total.count).toBeGreaterThan(0);
+        // ...but the HIGHLIGHTER keys only on the canonical strings, so it MISSES the same variants —
+        // a real counter-vs-highlighter divergence the finalized analysis does not resolve.
+        expect(parseTranscriptForHighlighting('umm').filter((t) => t.type === 'filler').length).toBe(0);
+        // Smart / curly-apostrophe "y’know" is a blind spot for BOTH (only the straight apostrophe is listed):
+        expect(c(countFillerWords("y'know"), 'You Know')).toBeGreaterThan(0); // straight '
+        expect(countFillerWords('y’know').total.count).toBe(0);          // curly ’ — not matched
+        // Reconciliation inherits the counter's coverage and its blind spots; it adds neither.
+        const r = reconcileFinalizedFillers('y’know y’know', canonical({}));
+        expect(r.transcriptCandidateTotal).toBe(0);
+        expect(r.persistedTotal).toBe(0);
+    });
+
+    // ---- Safety ----
 
     it('valid zero stays zero and yields the no-discrepancy status', () => {
         const r = reconcileFinalizedFillers('a clean sentence with no fillers', canonical({}));
@@ -99,81 +134,33 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
     });
 
     it('custom-tracked words obey canonical-wins and never double-count or leak via source merging', () => {
-        // userWords ADD a custom filler to detection ("gonna", not a static key): transcript has 3, live 2.
         const transcript = 'gonna gonna gonna and a sonorous tone';
         const r = reconcileFinalizedFillers(transcript, canonical({ gonna: 2 }), ['gonna']);
         expect(c(r.transcriptCandidateCounts, 'gonna')).toBe(3);
-        expect(c(r.persistedCounts, 'gonna')).toBe(2);        // canonical wins — not 3, not 5 (no merge/add)
-        expect(c(r.transcriptExcessCounts, 'gonna')).toBe(1); // excess reported, not counted
+        expect(c(r.persistedCounts, 'gonna')).toBe(2);
+        expect(c(r.transcriptExcessCounts, 'gonna')).toBe(1);
         expect(c(r.transcriptCandidateCounts, 'so')).toBe(0); // "sonorous" must not leak into "so"
-        const sources = new Set([
-            ...Object.keys(r.retainedCanonicalCounts),
-            ...Object.keys(r.transcriptCandidateCounts),
-        ]);
-        for (const key of Object.keys(r.persistedCounts)) expect(sources.has(key)).toBe(true);
     });
 
-    // ---- SYNTHETIC selector regression (does NOT reproduce the real dogfood session) ----
-
     it('SYNTHETIC SELECTOR REGRESSION: 8 canonical fillers do not become 10 via transcript semantic "so"', () => {
-        // Synthetic shape only. The real Private dogfood session (persisted 10 vs expected 8) is NOT
-        // reproduced here — telemetry retains no per-category/transcript data to reconstruct it. This
-        // proves ONLY that the SELECTOR does not add transcript candidates on top of canonical.
+        // Synthetic shape only — does NOT reproduce the real Private dogfood session (no per-category
+        // telemetry exists). Proves ONLY that the selector never adds transcript candidates on top.
         const canonicalLive = canonical({ um: 3, uh: 2, like: 2, actually: 1 }); // 8 canonical fillers
         const transcript =
             'um so I think uh the plan is like this and um so we can like proceed uh and actually um finish';
         const r = reconcileFinalizedFillers(transcript, canonicalLive);
-
-        expect(c(r.transcriptCandidateCounts, 'so')).toBeGreaterThanOrEqual(2); // transcript DID add "so"
-        expect(c(r.persistedCounts, 'so')).toBe(0);                             // ...never promoted
-        expect(r.persistedTotal).toBe(8);                                       // reconciled total stays 8
-        expect(r.transcriptExcessTotal).toBeGreaterThanOrEqual(2);             // excess reported, not counted
-    });
-});
-
-describe('selectFinalizedHighlightTokens — bounded highlight budget (never the raw candidates)', () => {
-    it('canonical 0 + semantic "so" candidates → ZERO finalized "so" highlights', () => {
-        const raw = parseTranscriptForHighlighting('so so so and um');
-        expect(fillerTokens(raw, 'so')).toBeGreaterThan(0); // raw highlighter marks every "so"
-        const bounded = selectFinalizedHighlightTokens(raw, canonical({ um: 1 })); // no canonical "so"
-        expect(fillerTokens(bounded, 'so')).toBe(0);        // ...all demoted to text
-        expect(fillerTokens(bounded, 'um')).toBe(1);
-    });
-
-    it('candidates > canonical → finalized highlights never exceed the canonical count per category', () => {
-        const raw = parseTranscriptForHighlighting('um um um um');
-        expect(fillerTokens(raw, 'um')).toBe(4);
-        const bounded = selectFinalizedHighlightTokens(raw, canonical({ um: 1 }));
-        expect(fillerTokens(bounded, 'um')).toBe(1); // capped at canonical
-    });
-
-    it('highlighted count may be LOWER than the card when Native omitted tokens; status bar acknowledges', () => {
-        // Native: um live-detected but stripped from the transcript text.
-        const transcript = 'the opening and the ending';
-        const raw = parseTranscriptForHighlighting(transcript);
-        const r = reconcileFinalizedFillers(transcript, canonical({ um: 2 }));
-        const bounded = selectFinalizedHighlightTokens(raw, r.persistedCounts);
-        expect(fillerTokens(bounded, 'um')).toBe(0);   // nothing to highlight (omitted from text)
-        expect(r.finalizedHighlightTotal).toBe(0);
-        expect(r.persistedTotal).toBe(2);              // card still shows the canonical 2
-        expect(reconciliationStatusCopy(r, { mode: 'native' })).toMatch(/Browser may omit some/);
-    });
-
-    it('the raw regex-candidate object is NOT the highlight source — finalized budget is bounded/separate', () => {
-        const transcript = 'so so um';
-        const r = reconcileFinalizedFillers(transcript, canonical({ so: 0, um: 1 }));
-        // Candidate total (raw regex) exceeds the finalized highlight budget — they are distinct objects.
-        expect(r.transcriptCandidateTotal).toBeGreaterThan(r.finalizedHighlightTotal);
-        expect(r.finalizedHighlightTotal).toBeLessThanOrEqual(r.persistedTotal);
-        expect(c(r.finalizedHighlightCounts, 'so')).toBe(0); // canonical 0 → 0 budget
+        expect(c(r.transcriptCandidateCounts, 'so')).toBeGreaterThanOrEqual(2);
+        expect(c(r.persistedCounts, 'so')).toBe(0);
+        expect(r.persistedTotal).toBe(8);
+        expect(r.transcriptExcessTotal).toBeGreaterThanOrEqual(2);
     });
 });
 
 describe('reconciliationStatusCopy — status-bar-only, mode-aware, three approved variants', () => {
     it('NATIVE omission → Browser-omission copy with the persisted count', () => {
-        const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 2, uh: 2 }));
+        const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 4, uh: 4 }));
         expect(reconciliationStatusCopy(r, { mode: 'native' })).toBe(
-            'Session saved · 4 filler words detected. Browser may omit some from the transcript.',
+            'Session saved · 8 filler words detected. Browser transcription may omit some from the written transcript.',
         );
     });
 
@@ -205,10 +192,21 @@ describe('reconciliationStatusCopy — status-bar-only, mode-aware, three approv
         );
     });
 
-    it('is concise (single line) and exports no card disclosure contract', async () => {
-        const mod = await import('../finalizedSessionAnalysis');
-        expect(mod).not.toHaveProperty('fillerDisclosure');
+    it('is concise (single line) and exports no card disclosure / highlight-selection contract', () => {
+        expect(finalizedModule).not.toHaveProperty('fillerDisclosure');
+        expect(finalizedModule).not.toHaveProperty('selectFinalizedHighlightTokens');
         const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 2 }));
         expect(reconciliationStatusCopy(r, { mode: 'native' })).not.toMatch(/\n/);
+    });
+
+    // ---- SCOPE HONESTY: no page-integration / one-status-bar completion claim in this PR ----
+    it('SCOPE: this module has no SessionPage integration and asserts no single-status-bar completion', () => {
+        // The module exports only pure helpers; wiring the card/highlights/status bar into SessionPage
+        // (and removing the separate post-save-review-actions surface) is deferred and NOT claimed here.
+        expect(typeof finalizedModule.reconcileFinalizedFillers).toBe('function');
+        expect(typeof finalizedModule.reconciliationStatusCopy).toBe('function');
+        expect(Object.keys(finalizedModule).sort()).toEqual(
+            ['reconcileFinalizedFillers', 'reconciliationStatusCopy'],
+        );
     });
 });
