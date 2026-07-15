@@ -14,11 +14,11 @@ This file tracks known issues, tech debt, and deferred cleanup that should not i
 
 `product_release/BACKLOG.md` is the exhaustive inventory of everything known that needs a decision, fix, proof, or explicit deferral for SpeakSharp. It includes release blockers, hygiene items, post-beta cleanup, product-ops decisions, and historical findings that still matter.
 
-`/private/tmp/ACTIVE_COORDINATION.md` is only the current working subset of this backlog: active items plus the next self-assigned pull-forward task. It must not become a second backlog or a historical ping log.
+`product_release/ACTIVE_COORDINATION.md` (tracked SSOT) is only the current working subset of this backlog: active items plus the next self-assigned pull-forward task. It must not become a second backlog or a historical ping log.
 
 Operating cycle:
 
-1. Pull the highest-priority incomplete backlog item into `/private/tmp/ACTIVE_COORDINATION.md`.
+1. Pull the highest-priority incomplete backlog item into `product_release/ACTIVE_COORDINATION.md` (tracked SSOT).
 2. Claim one owner and one verifier.
 3. Complete and verify the item through active coordination.
 4. Mark the backlog row completed/closed, with evidence.
@@ -361,7 +361,7 @@ Please review whether the current guard and process are sufficient, or whether w
 
 ## Current STT Ownership
 
-Current ownership belongs only in `/private/tmp/ACTIVE_COORDINATION.md`.
+Current ownership belongs only in `product_release/ACTIVE_COORDINATION.md` (tracked SSOT).
 The repo copy `product_release/ACTIVE_COORDINATION.md` has been deleted because there must be one active coordination source of truth.
 Old proof chatter has been removed from active reports; use git history only for audit.
 | **product** | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
