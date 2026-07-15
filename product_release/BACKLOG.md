@@ -48,6 +48,14 @@ Stale unmerged `#891` branches were deleted in the Wave-1 branch-hygiene pass. E
   - Archive tag: `archive/891-private-segmented-finalization-2026-07-15` → https://github.com/relativityE/speaksharp/tree/archive/891-private-segmented-finalization-2026-07-15
   - Purpose: inactive flag-off prototype of Private segmented decode / finalizing draft; reference only.
   - Limitations: flag-off, never merged, 63 commits behind main; the segmentation direction was superseded by the v4/WebGPU re-platform — treat as historical.
+## 2026-07-14 — Post-invite: permanent Pro conversion funnel (not a pre-invite blocker)
+
+Wave 1 uses a no-code Pro-interest path (invite reply or Report Issue → Billing). Build the durable in-app funnel **during/after Wave 1** — must NOT move the rc3 tag or enable payments:
+- **"Notify me when Pro opens"** CTA while `arePaymentsEnabled()` is false (replaces the beta-unavailable notice with a capture action; sanitized interest telemetry only).
+- Conversion points at natural value moments: after the included Private sample is consumed · when locked **Cloud** is selected · at Free usage/history limits · when the user wants more history/coaching/export.
+- When payments are enabled, swap the interest CTA for the real **Upgrade to Pro**.
+- Positioning to preserve: Browser = immediate Free; one Private sample (≤5 min) included Free; continued Private = Pro; **Cloud = a first-class Pro choice (never "fallback/rescue/degraded")**; Pro also = expanded history/analytics/coaching/export.
+- Telemetry: sanitized interest/conversion events only — **no transcript/audio** in analytics.
 
 ## 2026-07-13 — Post-RC Lanes (RC v0.9.0-rc1 tagged, CONDITIONAL GO)
 
