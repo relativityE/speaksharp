@@ -83,6 +83,32 @@ On 2026-07-15 the Git history was sanitized to remove Claude/Anthropic attributi
 - **Vitest 3→4 upgrade** to retire the GHSA-5xrq suppression (see `SCA_EXCEPTIONS.md`).
 - **Faster Private finalization** (below ~90s) — improvement lane, not a blocker.
 
+## Tester Scope
+
+Send testers the plain-language `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; operators run the validation per `INTERNAL_TEST_PROTOCOL.md`. The tester path is:
+
+1. Fresh account starts with free Browser transcription.
+2. Private sample model download/setup if prompted.
+3. Private sample recording, transcript, stop/save, history/detail, analytics.
+4. Custom word added through UI and spoken during recording.
+5. PDF export from saved session.
+6. Optional Browser transcription in Chrome with browser-dependent wording.
+
+## Evidence Freshness Contract
+
+Each release gate is green only when the definition of green is backed by a named artifact that a reviewer can inspect without relying on operator memory. The active artifact is always the latest complete passing run. If a newer run fails any required criterion, the parent gate returns to red until a later complete run passes every criterion. Every artifact update must record `Last updated by: [initials] [date] [artifact path]`.
+
+## Named STT Gate Artifacts
+
+| Gate | Required Current Artifact |
+|---|---|
+| G6 Fresh Trial Private STT Transcript/Save/History Path | `/private/tmp/speaksharp-private-human-[timestamp].json`; must include `SESSION_LIFECYCLE_WARMUP`, model setup/download state, chunk RMS/duration rows, first partial timestamp/text, console events, save result, and history/detail proof. |
+| Native Browser Chrome human-mic proof | `/private/tmp/speaksharp-native-[timestamp].json`; must include event order from `onspeechstart -> first onresult`, selected transcript on stop, save/history/detail proof, analytics proof, and no unintended 4-word sequence appearing more than once. |
+| Cloud Pro proof | `/private/tmp/cloud-artifact-[timestamp].log`; must show AssemblyAI token HTTP 200, transcript/save/history/detail proof, AI suggestions, PDF export, and Pro entitlement context. |
+| Custom word analytics proof | Browser/session artifact showing words such as `like = 1` or `basically = 1` after adding the custom word through the UI, then saving and opening detail/analytics. |
+| PDF export proof | Saved-session PDF artifact whose transcript, duration, WPM, filler/custom word counts, and session metadata match the saved detail view within ±15%. |
+| Session Status UX | Screenshot/video or browser trace showing one clear status/progress surface (`StatusNotificationBar`), Private setup/download/ready states, and no duplicate or internal FSM/debug status obstructing the user flow. |
+
 ## Update rule
 
-Only this file receives changing release status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence. Every artifact update records `Last updated by: [owner] [date] [artifact path]`.
+Only this file receives changing release status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence. Every artifact update records `Last updated by: [initials] [date] [artifact path]`.
