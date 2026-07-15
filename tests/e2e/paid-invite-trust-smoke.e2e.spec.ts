@@ -34,7 +34,10 @@ test.describe('Paid invite trust smoke', () => {
     await startButton.click();
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    await expect(page.getByTestId('post-save-review-actions')).toContainText(/Review trends/i);
+    // Consolidated post-save experience: ONE status bar carries the reconciliation copy, the Analytics
+    // action, and the quiet Private CTA (Native + eligible) — the separate post-save surface is gone.
+    await expect(page.getByTestId('post-save-review-actions')).toHaveCount(0);
+    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
     await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
     await expect(page.getByTestId('post-save-private-cta')).toContainText(/Private/i);
 

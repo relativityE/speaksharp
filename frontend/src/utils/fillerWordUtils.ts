@@ -102,8 +102,10 @@ export const createFillerPatterns = (userWords: string[] = []): FillerPatterns =
 };
 
 /**
- * Counts filler words using a combination of Regex (for unambiguous tokens)
- * and NLP (for context-dependent words like "like").
+ * Counts filler words with word-boundary REGEX only. There is NO NLP / context classification:
+ * ambiguous words such as "so", "like", and "actually" are counted on every match, including
+ * semantic/non-filler uses (e.g. conjunction "so", comparison "like"). Callers must treat the result
+ * as a candidate count, not a context-aware filler judgement.
  */
 export const countFillerWords = (text: string, userWords: string[] = []): FillerCounts => {
     const counts: FillerCounts = createInitialFillerData(userWords);

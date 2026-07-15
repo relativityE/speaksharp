@@ -270,7 +270,15 @@ export const useSessionLifecycle = () => {
                     clearPrivateSampleContext();
                 }
 
-                if (options?.stopReason) {
+                // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
+                // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
+                // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
+                // stopReason) as well as manual stops. The controller owns the terminal status when
+                // persistence is degraded; overwriting it would hide the failure.
+                const controllerStatusType = useSessionStore.getState().sttStatus?.type;
+                if (controllerStatusType === 'warning' || controllerStatusType === 'error') {
+                    // preserve — no stopReason, no success copy
+                } else if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
                 } else {
                     const finalMsg = streakResult.isNewDay

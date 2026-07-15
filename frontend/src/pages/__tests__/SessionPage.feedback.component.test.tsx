@@ -17,6 +17,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import React from 'react';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
+
+// Post-save UI is gated on the TERMINAL finalizedAnalysis signal (published after the native formatter
+// completes). Seed it so `postSaveReady` is true in tests that exercise the settled bar.
+const seedFinalized = (mode: string) => useSessionStore.setState({
+    finalizedAnalysis: { sessionId: 'sess-test', mode, reconciliation: reconcileFinalizedFillers('hello there', null), persistedTotal: 0 },
+});
 
 // --- Mocks ---
 const mockNavigate = vi.fn();
@@ -50,10 +58,25 @@ vi.mock('@/services/sessionRecoveryDraft', () => ({
 
 // Mock child components to verify props passed to them
 vi.mock('@/components/session/StatusNotificationBar', () => ({
-    StatusNotificationBar: ({ status }: { status: { message?: string, type?: string } }) => (
+    StatusNotificationBar: ({ status, analyticsAction, privateCta }: {
+        status: { message?: string, type?: string },
+        analyticsAction?: { cueKey?: string | number },
+        privateCta?: { onSelect: () => void },
+    }) => (
         <div data-testid="status-bar">
             {status?.message}
             {status?.type && <span data-testid="status-type">{status.type}</span>}
+            {/* Consolidated post-save actions now live inside the ONE status bar. */}
+            {privateCta && (
+                <button data-testid="post-save-private-cta" onClick={() => privateCta.onSelect()}>
+                    Set up Private for cleaner local transcription
+                </button>
+            )}
+            {analyticsAction && (
+                <a data-testid="post-save-review-session-link" href="/analytics" data-cue-key={String(analyticsAction.cueKey ?? '')}>
+                    Analytics
+                </a>
+            )}
         </div>
     ),
 }));
@@ -112,6 +135,7 @@ describe('SessionPage Feedback Logic', () => {
         vi.clearAllMocks();
         vi.mocked(getSessionRecoveryDraft).mockReturnValue(null);
         vi.mocked(useSessionLifecycle).mockReturnValue(defaultMock as unknown as ReturnType<typeof useSessionLifecycle>);
+        useSessionStore.setState({ finalizedAnalysis: null }); // reset terminal signal between tests
     });
 
     it('should show "Session too short" warning in status bar when hook provides error message', async () => {
@@ -128,20 +152,67 @@ describe('SessionPage Feedback Logic', () => {
         expect(screen.getByTestId('status-type')).toHaveTextContent('error');
     });
 
-    it('should show "Session saved" success in status bar when hook shows analytics prompt', async () => {
+    // STATE C — terminal success: reconciled status + Analytics action + toast all appear.
+    it('terminal success: reconciled status, Analytics action, and completion toast appear', async () => {
         vi.mocked(useSessionLifecycle).mockReturnValue({
             ...defaultMock,
             isListening: false,
             sttStatus: { type: 'ready' },
             showAnalyticsPrompt: true,
         } as unknown as ReturnType<typeof useSessionLifecycle>);
+        seedFinalized('native'); // BOTH tracks terminal → finalizedAnalysis published
 
         render(<SessionPage />);
 
-        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved/);
+        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved · Your transcript is ready\./);
         expect(screen.getByTestId('status-type')).toHaveTextContent('ready');
-        expect(screen.getByTestId('post-save-review-actions')).toHaveTextContent(/Review trends/i);
+        expect(screen.queryByTestId('post-save-review-actions')).toBeNull();
         expect(screen.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
+        expect(screen.getByTestId('post-save-toast')).toBeInTheDocument(); // one-shot completion toast
+    });
+
+    // STATE A — metrics/persistence failure: the warning is preserved; NO success UI (P1).
+    it('metrics-persistence failure: warning retained, no toast / cue / Analytics action', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            canUsePrivateStt: true,
+            isListening: false,
+            // Controller-set warning after a degraded save; finalizedAnalysis is NOT published.
+            sttStatus: { type: 'warning', message: 'Session saved.', detail: 'some analysis metrics could not be updated yet.' },
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        // finalizedAnalysis stays null (beforeEach reset) — the two-track gate never published.
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('status-type')).toHaveTextContent('warning'); // warning NOT overwritten
+        expect(screen.getByTestId('status-bar')).not.toHaveTextContent(/Your transcript is ready/);
+        expect(screen.queryByTestId('post-save-review-session-link')).toBeNull(); // no Analytics action
+        expect(screen.queryByTestId('post-save-private-cta')).toBeNull();         // no Private CTA
+        expect(screen.queryByTestId('post-save-toast')).toBeNull();               // no completion toast
+    });
+
+    // STATE B — native formatter pending: explicit finalizing status; no ready copy / no success UI (P2).
+    it('native formatter pending: explicit finalizing status, no ready copy or success UI', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            canUsePrivateStt: true,
+            isListening: false,
+            sttStatus: { type: 'ready' }, // even a benign success message must not leak through
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        useSessionStore.setState({ nativeFormatting: { status: 'pending', startedAt: Date.now() }, finalizedAnalysis: null });
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Finalizing your transcript/);
+        expect(screen.getByTestId('status-bar')).not.toHaveTextContent(/Your transcript is ready/);
+        expect(screen.queryByTestId('post-save-review-session-link')).toBeNull(); // no Analytics action yet
+        expect(screen.queryByTestId('post-save-private-cta')).toBeNull();
+        expect(screen.queryByTestId('post-save-toast')).toBeNull();               // no toast pre-terminal
+        useSessionStore.setState({ nativeFormatting: { status: 'idle', startedAt: null } }); // cleanup
     });
 
     it('offers Private setup after a saved Browser session for eligible users', async () => {
@@ -156,6 +227,7 @@ describe('SessionPage Feedback Logic', () => {
             sttStatus: { type: 'ready' },
             showAnalyticsPrompt: true,
         } as unknown as ReturnType<typeof useSessionLifecycle>);
+        seedFinalized('native'); // finalization terminal reached
 
         render(<SessionPage />);
 
@@ -163,6 +235,24 @@ describe('SessionPage Feedback Logic', () => {
         expect(privateCta).toHaveTextContent(/Private/i);
         fireEvent.click(privateCta);
         expect(setMode).toHaveBeenCalledWith('private');
+    });
+
+    it('free tester with a Private-sample entitlement sees EXACTLY ONE Private CTA after a Native save', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            mode: 'native',
+            isProUser: false,             // not Pro...
+            canUsePrivateStt: true,       // ...but has a Private-sample entitlement
+            isListening: false,
+            sttStatus: { type: 'ready' },
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        seedFinalized('native');
+
+        render(<SessionPage />);
+
+        // Exactly one Private nudge — the consolidated status-bar CTA (the Browser-card nudge is mocked out).
+        expect(screen.getAllByTestId('post-save-private-cta')).toHaveLength(1);
     });
 
     it('shows a same-page recovery action when an unsaved draft exists after a save issue', async () => {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { StatusNotificationBar } from '../StatusNotificationBar';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -8,6 +9,15 @@ import { useSessionStore } from '@/stores/useSessionStore';
 vi.mock('../../../stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
 }));
+
+const mockStore = (overrides: Record<string, unknown> = {}) => {
+    vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+        const state = { activeEngine: 'native', isListening: false, modelLoadingProgress: null, ...overrides };
+        return typeof selector === 'function' ? selector(state) : state;
+    });
+};
+
+const renderRouted = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
 describe('StatusNotificationBar', () => {
     beforeEach(() => {
@@ -144,5 +154,141 @@ describe('StatusNotificationBar', () => {
         expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private ready/i);
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Complete');
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('100%');
+    });
+
+    describe('post-save Analytics action (folded-in, single status bar)', () => {
+        it('renders no action when analyticsAction is absent (default behaviour unchanged)', () => {
+            mockStore();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} />);
+            expect(screen.queryByTestId('post-save-review-session-link')).toBeNull();
+            // Still exactly one status bar.
+            expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
+        });
+
+        it('labels the action exactly "Analytics" (not "Check out Analytics"/"View analytics") with an aria-hidden arrow', () => {
+            mockStore();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} analyticsAction={{}} />);
+            const action = screen.getByTestId('post-save-review-session-link');
+            // Accessible name is exactly "Analytics" — the arrow icon must not contribute text.
+            expect(action).toHaveAccessibleName('Analytics');
+            expect(action).toHaveTextContent(/^Analytics$/);
+            expect(screen.queryByText(/Check out Analytics/i)).toBeNull();
+            expect(screen.queryByText(/View analytics/i)).toBeNull();
+            // Destination is the existing /analytics route, not a new button.
+            expect(action.tagName).toBe('A');
+            expect(action).toHaveAttribute('href', '/analytics');
+            expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
+            // One bar only.
+            expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
+        });
+
+        it('cue is bounded (~6.5s) then turns off on its own — never repeats indefinitely', () => {
+            vi.useFakeTimers();
+            try {
+                mockStore();
+                renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
+                const action = screen.getByTestId('post-save-review-session-link');
+                expect(action).toHaveAttribute('data-cue-active', 'true');
+                expect(action.className).toMatch(/animate-pulse/);
+                act(() => { vi.advanceTimersByTime(6600); });
+                expect(action).toHaveAttribute('data-cue-active', 'false');
+                expect(action.className).not.toMatch(/animate-pulse/);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('cue is SESSION-SCOPED: a new cueKey re-fires it without an unmount', () => {
+            vi.useFakeTimers();
+            try {
+                mockStore();
+                const { rerender } = renderRouted(
+                    <StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />,
+                );
+                const action = () => screen.getByTestId('post-save-review-session-link');
+                // First session fires, then settles.
+                act(() => { vi.advanceTimersByTime(6600); });
+                expect(action()).toHaveAttribute('data-cue-active', 'false');
+                // Second session finalized WITHOUT unmounting → cue re-fires on the new key.
+                rerender(
+                    <MemoryRouter>
+                        <StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-2' }} />
+                    </MemoryRouter>,
+                );
+                expect(action()).toHaveAttribute('data-cue-active', 'true');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('reduced-motion users get a static ring during the cue, not the pulse animation', () => {
+            vi.useFakeTimers();
+            try {
+                mockStore();
+                renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
+                const action = screen.getByTestId('post-save-review-session-link');
+                expect(action.className).toMatch(/motion-reduce:ring-2/);
+                expect(action.className).toMatch(/motion-reduce:animate-none/);
+                act(() => { vi.advanceTimersByTime(6600); });
+                expect(action.className).not.toMatch(/motion-reduce:ring-2/);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('preserves the exact label "Analytics" + aria-hidden arrow while cueing', () => {
+            mockStore();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
+            const action = screen.getByTestId('post-save-review-session-link');
+            expect(action).toHaveAccessibleName('Analytics');
+            expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
+        });
+
+        it('selecting the action stops the cue immediately and calls onSelect', () => {
+            mockStore();
+            const onSelect = vi.fn();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1', onSelect }} />);
+            const action = screen.getByTestId('post-save-review-session-link');
+            expect(action).toHaveAttribute('data-cue-active', 'true');
+            fireEvent.click(action);
+            expect(onSelect).toHaveBeenCalledTimes(1);
+            expect(action).toHaveAttribute('data-cue-active', 'false');
+            expect(action.className).not.toMatch(/animate-pulse/);
+        });
+    });
+
+    describe('quiet Private CTA (folded into the one bar)', () => {
+        it('renders the exact existing copy and calls onSelect (setMode) on click', () => {
+            mockStore();
+            const onSelect = vi.fn();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} privateCta={{ onSelect }} />);
+            const cta = screen.getByTestId('post-save-private-cta');
+            expect(cta).toHaveTextContent('Set up Private for cleaner local transcription');
+            fireEvent.click(cta);
+            expect(onSelect).toHaveBeenCalledTimes(1);
+        });
+
+        it('is absent when not provided (Private sessions / ineligible users)', () => {
+            mockStore();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 's1' }} />);
+            expect(screen.queryByTestId('post-save-private-cta')).toBeNull();
+        });
+
+        it('keeps Analytics rightmost and renders exactly ONE Analytics action alongside the CTA', () => {
+            mockStore();
+            renderRouted(
+                <StatusNotificationBar
+                    status={{ type: 'ready', message: 'Session saved' }}
+                    analyticsAction={{ cueKey: 's1' }}
+                    privateCta={{ onSelect: vi.fn() }}
+                />,
+            );
+            // Never two Analytics actions in a rendered state.
+            const analytics = screen.getAllByTestId('post-save-review-session-link');
+            expect(analytics).toHaveLength(1);
+            const cta = screen.getByTestId('post-save-private-cta');
+            // Analytics comes AFTER the Private CTA in DOM order (rightmost in the flex row).
+            expect(cta.compareDocumentPosition(analytics[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
     });
 });

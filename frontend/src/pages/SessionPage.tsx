@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Settings } from 'lucide-react';
-import { Link } from 'react-router-dom';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -23,6 +22,8 @@ import {
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
+import { PostSaveToast } from '@/components/session/PostSaveToast';
 
 /**
  * ARCHITECTURE:
@@ -44,6 +45,7 @@ export const SessionPage: React.FC = () => {
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
+    const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
 
     const {
         isListening,
@@ -136,6 +138,19 @@ export const SessionPage: React.FC = () => {
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
 
+    // Track 1: the post-save UI (settled copy, Analytics action, Private CTA, toast) is shown only once
+    // finalization is TERMINAL — the controller publishes finalizedAnalysis after persistence +
+    // reconciliation + the native formatter reaches complete/failed and the final text is applied. Until
+    // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
+    const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
+    // Mode-aware reconciliation status copy for the consolidated status bar's left side.
+    // Native discrepancy → "…Browser transcription may omit some…"; Private never gets Browser copy.
+    const reconciliationCopy = finalizedAnalysis
+        ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
+        : null;
+    // After a saved Native session, the status-bar Private CTA replaces the Browser-card nudge — never both.
+    const suppressBrowserCardPrivateNudge = postSaveReady && mode === 'native' && canUsePrivateStt;
+
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
         // 1. High Priority: FSM Failure Hold (Controller Lock)
@@ -148,6 +163,26 @@ export const SessionPage: React.FC = () => {
         // 2. Medium Priority: Download Required (Pre-session)
         if (sttStatus.type === 'download-required') {
             return sttStatus as SttStatus;
+        }
+
+        // 2b. Post-save (TERMINAL success only): the mode-aware reconciliation copy is the authoritative
+        // left-side status once BOTH finalization tracks succeed (finalizedAnalysis published). It
+        // supersedes the generic save-feedback message but NOT the FAILED/download guards above.
+        if (postSaveReady && reconciliationCopy) {
+            return { type: 'ready', message: reconciliationCopy } as SttStatus;
+        }
+
+        // 2c. Persistence-degraded: the controller set a warning (e.g. filler/metrics persistence failed).
+        // Preserve it — never let a "saved/ready" claim or the finalizing status overwrite a real warning.
+        if ((sttStatus as SttStatus).type === 'warning') {
+            return sttStatus as SttStatus;
+        }
+
+        // 2d. P2 — pre-terminal: persisted, but the finalized signal has NOT published yet (native formatter
+        // still tidying, or reconciliation/persistence not yet joined). Show an EXPLICIT finalizing status;
+        // never a "Session saved / Review in Analytics" ready claim while showAnalyticsPrompt && !postSaveReady.
+        if (showAnalyticsPrompt && !postSaveReady) {
+            return { type: 'initializing', message: 'Finalizing your transcript…' } as SttStatus;
         }
 
         // 3. User Feedback (Transient messages like "Session saved")
@@ -166,7 +201,7 @@ export const SessionPage: React.FC = () => {
         if (showAnalyticsPrompt) {
             return {
                 type: 'ready',
-                message: '✓ Session saved. Review it in Analytics when you are ready.'
+                message: reconciliationCopy ?? '✓ Session saved. Review it in Analytics when you are ready.'
             } as SttStatus;
         }
         return sttStatus as SttStatus;
@@ -205,9 +240,20 @@ export const SessionPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Status Bar - Spans full width of the main content area */}
+            {/* Status Bar - Spans full width of the main content area.
+                Post-save, this ONE bar carries the reconciliation copy (left), the quiet Private CTA
+                (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
+                surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                <StatusNotificationBar status={displayStatus} />
+                <StatusNotificationBar
+                    status={displayStatus}
+                    analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                    privateCta={
+                        postSaveReady && mode === 'native' && canUsePrivateStt
+                            ? { onSelect: () => setMode('private') }
+                            : undefined
+                    }
+                />
                 {recoveryDraft && !isListening && (
                     <div
                         className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
@@ -241,32 +287,8 @@ export const SessionPage: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {showAnalyticsPrompt && (
-                    <div
-                        className="mt-3 flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                        data-testid="post-save-review-actions"
-                    >
-                        <span className="font-medium text-foreground/80">
-                            Your session is saved. Review trends, transcript detail, and coaching notes in Analytics.
-                        </span>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            {mode === 'native' && canUsePrivateStt && (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setMode('private')}
-                                    data-testid="post-save-private-cta"
-                                >
-                                    Set up Private for cleaner local transcription
-                                </Button>
-                            )}
-                            <Button asChild size="sm" data-testid="post-save-review-session-link">
-                                <Link to="/analytics">View analytics</Link>
-                            </Button>
-                        </div>
-                    </div>
-                )}
+                {/* The separate post-save-review-actions surface was removed and its actions folded into
+                    the single StatusNotificationBar above (atomic with this removal). */}
             </div>
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
@@ -276,6 +298,7 @@ export const SessionPage: React.FC = () => {
                         <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
+                                    suppressPrivateNudge={suppressBrowserCardPrivateNudge}
                                     mode={mode || 'native'}
                                     isListening={isListening}
                                     isReady={isReady}
@@ -301,7 +324,14 @@ export const SessionPage: React.FC = () => {
                                 />
                             </LocalErrorBoundary>
 
-                            <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                            {/* Transcript wrapper is the positioning context: the one-shot post-save toast is
+                                absolutely anchored to STRADDLE the card boundary (centered near the gap), so it
+                                adds no vertical space and never moves either card. Right-aligned and biased up
+                                so its bottom stays in the transcript card's top padding — above the left
+                                "Live Transcript" heading and clear of the transcript text / sticky bar. */}
+                            <div className="relative">
+                              <PostSaveToast sessionKey={postSaveReady ? finalizedAnalysis?.sessionId ?? null : null} />
+                              <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel
                                     transcript={transcriptContent}
                                     interimTranscript={interimTranscript}
@@ -316,7 +346,8 @@ export const SessionPage: React.FC = () => {
                                     nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"
                                 />
-                            </LocalErrorBoundary>
+                              </LocalErrorBoundary>
+                            </div>
                         </div>
 
                         <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">

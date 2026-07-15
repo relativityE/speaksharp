@@ -169,7 +169,7 @@ const Navigation = () => {
             )}
 
             {/* User Actions */}
-            <div className="flex items-center space-x-4">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
               {session ? (
                 <>
                   {showNavUpgrade && (
@@ -209,9 +209,9 @@ const Navigation = () => {
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Sign Out
+                  <Button variant="ghost" size="sm" onClick={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON} aria-label="Sign Out" className="shrink-0 px-2 sm:px-3">
+                    <LogOut className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Sign Out</span>
                   </Button>
                 </>
               ) : (

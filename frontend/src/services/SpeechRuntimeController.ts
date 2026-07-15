@@ -42,6 +42,8 @@ import { calculateCoreSessionMetrics, getFillerTotal, isUsableFillerCounts } fro
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
+import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
+import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
@@ -287,6 +289,10 @@ export class SpeechRuntimeController {
     private readonly HEARTBEAT_THRESHOLD_MS =
         import.meta.env.VITE_E2E_MODE ? 60000 : 30000;
     private lifecycleVersion: number = 0;
+    // Monotonic stop counter. The finalized-analysis signal (toast/cue/settled copy) is published only
+    // at the TERMINAL of a stop (persist → reconcile → native formatter complete/failed → final display).
+    // A newer stop bumps this so a stale async formatter result can never publish over a newer session.
+    private finalizeSequence: number = 0;
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     public service: TranscriptionService | null = null;
@@ -1612,6 +1618,11 @@ export class SpeechRuntimeController {
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
         this.policy = policy || null;
         this.userWords = userWords;
+        // A new recording supersedes any prior stop's pending finalization: bump the finalize token so a
+        // still-in-flight formatter/metrics callback from the previous session cannot publish or mutate
+        // this one, and clear the prior finalized signal so its settled UI (toast/cue/copy) does not linger.
+        this.finalizeSequence++;
+        useSessionStore.getState().setFinalizedAnalysis(null);
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
         pushNativeRuntimeTrace('controller_start_requested', {
@@ -2486,10 +2497,47 @@ export class SpeechRuntimeController {
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
 
+                            // Track 1 finalized reconciliation (disclosure-only). Computed against the
+                            // PERSISTED filler counts (`fillerWords` — exactly what was written to the DB,
+                            // canonical live under #944; word-preserving formatting never changes the count).
+                            // PUBLISHED only at the TERMINAL of finalization so the toast / Analytics cue /
+                            // settled status never fire while the transcript is still being tidied.
+                            let finalizedReconciliation: ReturnType<typeof reconcileFinalizedFillers> | null = null;
+                            try {
+                                finalizedReconciliation = reconcileFinalizedFillers(
+                                    finalTranscript, fillerWords as unknown as FillerCounts, this.userWords,
+                                );
+                            } catch (reconErr) {
+                                logger.warn({ reconErr, sessionId }, '[controller] finalized reconciliation compute failed (non-fatal)');
+                            }
+                            const finalizedMode = modeForFinalization ?? stopEntryMode ?? 'unknown';
+                            const finalizedPersistedTotal = fillerWords.total.count;
+                            const finalizeToken = ++this.finalizeSequence;
+                            const isFinalizeTokenValid = () => this.finalizeSequence === finalizeToken;
+
+                            // TWO-TRACK terminal join. The finalized-ready signal publishes ONLY when BOTH
+                            // the transcript track (formatterDone) AND the analysis-persistence track
+                            // (metricsDone && metricsOk) are terminal, and the finalize token is still current.
+                            // Metrics-persistence failure keeps the warning status and shows no success UI.
+                            let formatterDone = false;
+                            let metricsDone = false;
+                            let metricsOk = false;
+                            const maybePublishFinalized = () => {
+                                if (!sessionId || !finalizedReconciliation) return;
+                                if (!shouldPublishFinalized({ formatterDone, metricsDone, metricsOk, tokenValid: isFinalizeTokenValid() })) return;
+                                useSessionStore.getState().setFinalizedAnalysis({
+                                    sessionId,
+                                    mode: finalizedMode,
+                                    reconciliation: finalizedReconciliation,
+                                    persistedTotal: finalizedPersistedTotal,
+                                });
+                            };
+
                             // Native RAW-FIRST async formatting: the raw transcript is now saved.
                             // Punctuation/casing is restored in the BACKGROUND and replaces the saved
-                            // transcript only on word-preserving success — Stop/save/history/detail
-                            // never wait on the network formatter. Private/Cloud are unaffected.
+                            // transcript only on word-preserving success — Stop/save/history/detail never
+                            // wait on the formatter. Every callback below is guarded by the finalize token so
+                            // a stale formatter can never touch a newer session's display or status.
                             if ((modeForFinalization ?? stopEntryMode) === 'native') {
                                 // Threshold-only "tidying up punctuation…" notice: mark pending now;
                                 // the panel surfaces copy ONLY if this stays pending past ~1.5s, so the
@@ -2499,21 +2547,31 @@ export class SpeechRuntimeController {
                                     sessionId,
                                     rawTranscript: finalTranscript,
                                     onUpdated: (formatted) => {
+                                        if (!isFinalizeTokenValid()) return; // stale formatter — never touch a newer session
                                         const liveStore = useSessionStore.getState();
-                                        // Only refresh the display if it still shows this session's raw
-                                        // final (don't clobber a newly started session).
+                                        // Only refresh the display if it still shows this session's raw final.
                                         if (liveStore.transcript.transcript.trim() === finalTranscript.trim()) {
                                             liveStore.updateTranscript(formatted, '');
                                         }
                                     },
                                 }).then((formattingState) => {
+                                    if (!isFinalizeTokenValid()) return; // stale — do not touch a newer session's status
                                     useSessionStore.getState().setNativeFormatting({
                                         status: formattingState.status === 'failed' ? 'failed' : 'complete',
                                         startedAt: null,
                                     });
+                                    formatterDone = true; // transcript track terminal (complete or raw fallback)
+                                    maybePublishFinalized();
                                 }).catch(() => {
+                                    if (!isFinalizeTokenValid()) return;
                                     useSessionStore.getState().setNativeFormatting({ status: 'failed', startedAt: null });
+                                    formatterDone = true;
+                                    maybePublishFinalized();
                                 });
+                            } else {
+                                // Non-native: no async formatter — the transcript track is already terminal.
+                                formatterDone = true;
+                                maybePublishFinalized(); // waits for the metrics track below
                             }
                             if (token.cancelled) {
                                 logger.warn({
@@ -2559,6 +2617,11 @@ export class SpeechRuntimeController {
                             } else {
                                 logger.info('[DEBUG-STOP] updateSession done');
                             }
+                            // Analysis-persistence track terminal. On failure (metricsOk=false) the two-track
+                            // gate never publishes → the warning above stands and no success toast/cue shows.
+                            metricsDone = true;
+                            metricsOk = updateResult.success;
+                            maybePublishFinalized();
                             clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
@@ -2578,6 +2641,9 @@ export class SpeechRuntimeController {
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
+                            // The finalized signal (finalizedAnalysis) is published by publishFinalized() at
+                            // the formatter terminal above — NOT here — so the settled UI waits for the final
+                            // text. Non-native published synchronously in the else-branch above.
                         }
                     }
                 }

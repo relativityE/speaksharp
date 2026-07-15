@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock, ArrowRight } from 'lucide-react';
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -8,6 +9,28 @@ import { speechRuntimeController } from '../../services/SpeechRuntimeController'
 interface StatusNotificationBarProps {
     status: SttStatus;
     className?: string;
+    /**
+     * Post-save Analytics action folded into this single status bar (replaces the separate
+     * post-save-review-actions surface). Reuses the existing /analytics destination — NOT a new button.
+     *
+     * `cueKey` is SESSION-SCOPED: pass the finalized session's id (or any value that changes once per
+     * newly finalized session). A change in cueKey fires the bounded, reduced-motion-safe cue exactly
+     * once — so a second session finalized WITHOUT unmounting SessionPage re-triggers it. Leave it
+     * undefined for no cue.
+     */
+    analyticsAction?: {
+        cueKey?: string | number;
+        onSelect?: () => void;
+    };
+    /**
+     * Existing Native→Private nudge, folded into this bar as the QUIET secondary action (left of the
+     * Analytics action, which stays rightmost). SessionPage decides visibility (post-save + Native +
+     * canUsePrivateStt); when omitted, nothing renders. Preserves the existing copy + setMode('private')
+     * action. On mobile the bar stacks (flex-col), so this sits within the same surface — never a new one.
+     */
+    privateCta?: {
+        onSelect: () => void;
+    };
 }
 
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
@@ -97,7 +120,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * Displays above the Live Recording card to inform users of initialization,
  * fallback, and error states.
  */
-export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '' }) => {
+export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction, privateCta }) => {
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
@@ -108,6 +131,19 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     // progress does not leak into Free/Native Browser views.
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
+
+    // Bounded, SESSION-SCOPED post-save cue on the Analytics action: ~6.5s, then off. Stops immediately
+    // on select. Keyed on the finalized session id (cueKey) so each newly finalized session fires it
+    // once — including a second session finalized without unmounting. motion-safe users see the pulse;
+    // reduced-motion users get a static ring for the same interval.
+    const cueKey = analyticsAction?.cueKey;
+    const [cueActive, setCueActive] = React.useState(false);
+    React.useEffect(() => {
+        if (cueKey === undefined || cueKey === null) { setCueActive(false); return; }
+        setCueActive(true);
+        const t = setTimeout(() => setCueActive(false), 6500);
+        return () => clearTimeout(t);
+    }, [cueKey]);
     const modelLoadingProgress = status.progress ?? null;
     const hasSecondary = modelLoadingProgress !== null;
 
@@ -211,6 +247,43 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             )}
 
             <div className="hidden sm:block flex-1" />
+
+            {/* Post-save actions. Mobile: ONE compact row below the message — Private CTA left, Analytics
+                pushed right (rightmost). Desktop: inline on the right. Analytics always rightmost + carries
+                the cue. Tap targets ≥ min-h-9; visible keyboard focus rings. */}
+            {(privateCta || analyticsAction) && (
+                <div className="flex w-full items-center gap-3 sm:w-auto">
+                    {/* Quiet secondary Native→Private nudge — muted so Analytics stays primary. */}
+                    {privateCta && (
+                        <button
+                            type="button"
+                            onClick={() => privateCta.onSelect()}
+                            data-testid="post-save-private-cta"
+                            className="inline-flex min-h-9 items-center rounded-md px-2 py-1.5 text-left text-[13px] font-medium leading-snug text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                            Set up Private for cleaner local transcription
+                        </button>
+                    )}
+
+                    {/* Existing /analytics destination; bounded reduced-motion-safe cue; no new button. */}
+                    {analyticsAction && (
+                        <Link
+                            to="/analytics"
+                            onClick={() => { setCueActive(false); analyticsAction.onSelect?.(); }}
+                            data-testid="post-save-review-session-link"
+                            data-cue-active={cueActive}
+                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
+                                cueActive
+                                    ? 'motion-safe:animate-pulse motion-reduce:animate-none motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
+                                    : ''
+                            }`}
+                        >
+                            Analytics
+                            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                        </Link>
+                    )}
+                </div>
+            )}
 
             {/* Secondary Status Indicator (Background Task) - Far Right */}
             {hasSecondary && (

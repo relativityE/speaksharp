@@ -45,6 +45,9 @@ interface LiveRecordingCardProps {
     privateModelStatus?: string;
     recordingIntent?: boolean; // explicit user intent to record
     isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
+    // Suppress the Browser-card "Want more privacy? Set up Private" nudge — set after a saved Native
+    // session, when the consolidated status bar shows the Private CTA instead (never both visible).
+    suppressPrivateNudge?: boolean;
     className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -82,6 +85,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     canUsePrivate,
+    suppressPrivateNudge = false,
     isPaidProUser = canUsePrivate,
     canUseCloudStt = canUsePrivate,
     statusMessage: _statusMessage,
@@ -308,7 +312,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </div>
 
                             {/* Browser path: privacy upsell that switches to Private (detail in help). */}
-                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && (
+                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && !suppressPrivateNudge && (
                                 <button
                                     type="button"
                                     onClick={() => handleModeChange('private')}
