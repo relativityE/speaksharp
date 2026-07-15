@@ -8,7 +8,7 @@ It is an evidence archive, not the current coordination board.
 ## Current Truth Source
 
 - Exhaustive backlog: `product_release/BACKLOG.md`
-- Active work subset: `/private/tmp/ACTIVE_COORDINATION.md`
+- Active work subset: `product_release/ACTIVE_COORDINATION.md` (tracked SSOT)
 - Current release verdicts should point at the newest validated artifact and the
   commit SHA under test.
 

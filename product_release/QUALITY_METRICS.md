@@ -6,12 +6,14 @@ Authoritative interpretation lives in `SOFTWARE_QUALITY.operational.md`. Current
 
 ## Current Evidence Files
 
-| File | Purpose |
+> These `*.latest.*` files are **CI-generated artifacts, not committed to the repository.** They are produced during the CI run and uploaded as workflow artifacts — download them from the relevant GitHub Actions run. They are not present in the working tree.
+
+| File (CI-generated artifact) | Purpose |
 |---|---|
-| `product_release/evidence/software-quality.latest.json` | Machine-readable CI quality metrics. |
-| `product_release/evidence/software-quality-summary.latest.md` | Human-readable CI quality summary. |
-| `product_release/evidence/service-levels.latest.json` | Machine-readable SLO/SLC evidence. |
-| `product_release/evidence/service-levels-summary.latest.md` | Target-vs-measured service-level summary. |
+| `software-quality.latest.json` | Machine-readable CI quality metrics. |
+| `software-quality-summary.latest.md` | Human-readable CI quality summary. |
+| `service-levels.latest.json` | Machine-readable SLO/SLC evidence. |
+| `service-levels-summary.latest.md` | Target-vs-measured service-level summary. |
 
 ## Release Targets
 
@@ -22,10 +24,10 @@ Use these targets unless a release owner explicitly overrides them in `RC_GATES.
 | Unit tests | 0 unexpected failures | 100% pass |
 | Browser E2E | 0 unexpected failures | 100% pass |
 | Release-path skipped tests | 0 | 0 |
-| Statements coverage | 60% | 80% |
-| Branch coverage | 60% | 80% |
-| Function coverage | 60% | 80% |
-| Line coverage | 60% | 80% |
+| Statements coverage | 75% | 80% |
+| Branch coverage | 75% | 80% |
+| Function coverage | 75% | 80% |
+| Line coverage | 75% | 80% |
 | Lighthouse accessibility | 90 | 90+ |
 | Lighthouse performance | 90 | 90+ |
 | Backend p95 latency | < 2000 ms | < 1000 ms |
@@ -44,10 +46,10 @@ This is a digest, not final RC signoff. The current local evidence is useful for
 |---|---:|---:|---|---|
 | Unit + E2E correctness | 0 failing tests | 0 failing tests out of 975 total | PASS in latest local quality artifact | Current latest GitHub CI still needs a new green run after the analytics-truth fix. |
 | Release-path skipped tests | 0 | 1 skipped | REVIEW | Keep skipped-test count visible; do not treat it as hidden green. |
-| Statements coverage | 60% floor / 80% industry target | 72.56% | PASS floor / below industry target | Advisory improvement target remains 80%. |
-| Branch coverage | 60% floor / 80% industry target | 76.83% | PASS floor / below industry target | Stronger than floor, still below industry target. |
-| Function coverage | 60% floor / 80% industry target | 73.55% | PASS floor / below industry target | Prioritize STT/session/billing/analytics truth coverage before broad vanity coverage. |
-| Line coverage | 60% floor / 80% industry target | 72.56% | PASS floor / below industry target | Same interpretation as statement coverage. |
+| Statements coverage | 75% floor / 80% industry target | ~76.5% | PASS floor / below industry target | Floor raised 60→75 in `frontend/vitest.config.mjs` to lock in current actuals; exact values in the latest CI `software-quality.latest.json`. |
+| Branch coverage | 75% floor / 80% industry target | ~80.2% | PASS floor / at/near industry target | Held at 75 floor; exact value in the latest CI artifact. |
+| Function coverage | 75% floor / 80% industry target | ~77.8% | PASS floor / below industry target | Prioritize STT/session/billing/analytics truth coverage before broad vanity coverage. |
+| Line coverage | 75% floor / 80% industry target | ~76.5% | PASS floor / below industry target | Same interpretation as statement coverage. |
 | Lighthouse accessibility | >= 90 | 94 | PASS | Latest local quality artifact. |
 | Lighthouse performance | >= 90 | 97 | PASS | Latest local quality artifact. |
 | Backend auth p95 latency | < 2000 ms floor / < 1000 ms industry target | Missing | NOT CLOSED | Needs fresh backend stress artifact. |

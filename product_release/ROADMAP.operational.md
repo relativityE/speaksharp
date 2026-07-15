@@ -41,7 +41,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 
 1. **Validate Fail-Closed Quota**: Verify the deployed `check-usage-limit` function returns fail-closed responses on RPC/internal uncertainty.
 2. **Validate AI Suggestions**: Verify the deployed Gemini suggestion path returns safe fallback output on malformed responses and does not 500 the analytics page.
-3. **Stripe Verification**: Complete a live $0.50 transaction to verify webhook parity.
+3. **Stripe Verification**: Not required for the controlled **no-billing beta** — paid checkout is intentionally closed (`stripeKeyClass="test"`, Beta-50 billing freeze). The billing journey is proven in Stripe **test** mode (accepted proof). A live-money transaction belongs to the separate future paid cutover (`PAID_OPS_HARDENING_RUNBOOK.md`), gated on written owner approval — do **not** run a live charge during this beta.
 4. **Env Verification**: Complete the [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md).
 5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; record changing run IDs only in `RELEASE_STATUS.md`.
 6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited to engines with current benchmark evidence. Native Browser STT is not a corpus/WER release benchmark.

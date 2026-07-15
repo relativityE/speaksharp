@@ -115,7 +115,7 @@ V4_VARIANT=base_q4   V4_DEVICE=wasm   pnpm exec playwright test tests/live/bench
 - Gate 2: the `STT_CORPUS_OUT` JSON artifacts (3A + 3B + 3C) showing the PASS fields above.
 - Gate 3: the updated `floors` in `tests/STT_BENCHMARKS.json` + the per-config accuracy vs 93.89%.
 - A one-line verdict per gate (PASS/FAIL) and the overall readiness recommendation.
-- Hand the result to Dev/release-owner on `/private/tmp/ACTIVE_COORDINATION.md`.
+- Hand the result to Dev/release-owner on `product_release/ACTIVE_COORDINATION.md` (tracked SSOT).
 
 ## 7. Troubleshooting
 
