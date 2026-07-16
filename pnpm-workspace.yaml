@@ -1,5 +1,6 @@
 packages:
   - 'backend/functions/*'
+  - 'frontend'
 supportedArchitectures:
   os:
     - linux
