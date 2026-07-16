@@ -137,7 +137,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
         </ul>
       </CardContent>
       <div className="p-6">
-        {(tier.action !== 'checkout' || arePaymentsEnabled()) && (
+        {(tier.action !== 'checkout' || arePaymentsEnabled()) ? (
           <Button
             onClick={() => { void handleUpgrade(); }}
             className="w-full"
@@ -146,6 +146,20 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
           >
             {isSubmitting && tier.action === 'checkout' ? 'Starting checkout...' : tier.cta}
           </Button>
+        ) : (
+          // Non-payment Wave-1 beta: the paid Pro checkout channel is not open. Keep the Pro plan
+          // visible for transparency, but replace the (otherwise missing) checkout CTA with a
+          // visible, NON-clickable informational state so the card does not read as broken. This
+          // element emits NO checkout/conversion events and does not describe Pro as purchasable.
+          <div
+            data-testid="pricing-pro-beta-unavailable"
+            className="w-full rounded-md border border-border bg-muted/40 px-4 py-3 text-center"
+          >
+            <p className="text-sm font-semibold text-foreground">Pro enrollment isn&apos;t open during this beta.</p>
+            <p className="mt-1 text-xs text-foreground/70">
+              Beta testers can use the free Browser plan and one included Private sample. No card is required.
+            </p>
+          </div>
         )}
       </div>
     </Card>
