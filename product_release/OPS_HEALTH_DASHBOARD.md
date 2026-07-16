@@ -4,7 +4,11 @@ SpeakSharp uses a single high-level ops health workflow so release checks do not
 
 ## Implementation Status
 
-V1 is the GitHub artifact and workflow summary. The protected Vercel admin page is the intended product-facing operator view, but it is not implemented yet. The data-path architecture lives in `ARCHITECTURE.operational.md`.
+Two layers now exist:
+- **V1 — GitHub artifact + workflow summary.** `ops-health.yml` runs daily (cron `6 13 * * *`) and on manual dispatch, uploading `ops-health/ops-health.json` + `.md`.
+- **Protected operator page — SHIPPED.** `/admin/ops-status` (`frontend/src/pages/OpsStatusPage.tsx`, wired in `App.tsx`, case-sensitive route) is the product-facing operator view. It is **gated** by the internal-routes guard (`frontend/src/config/internalRoutes.ts`, `VITE_ENABLE_INTERNAL_ROUTES`), covered by `frontend/src/__tests__/opsStatusRouteGating.test.tsx` and `frontend/src/pages/__tests__/OpsStatusPage.component.test.tsx`. When internal routes are disabled the path does not resolve to the operator view.
+
+The data-path architecture lives in `ARCHITECTURE.operational.md`.
 
 ## What It Answers
 

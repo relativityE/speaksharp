@@ -1,12 +1,14 @@
 # Release Evidence Index
 
+> **HISTORICAL EVIDENCE.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `../attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
+
 This directory stores dated release-proof artifacts and historical STT/UX reports.
 It is an evidence archive, not the current coordination board.
 
 ## Current Truth Source
 
 - Exhaustive backlog: `product_release/BACKLOG.md`
-- Active work subset: `/private/tmp/ACTIVE_COORDINATION.md`
+- Active work subset: `product_release/ACTIVE_COORDINATION.md` (tracked SSOT)
 - Current release verdicts should point at the newest validated artifact and the
   commit SHA under test.
 

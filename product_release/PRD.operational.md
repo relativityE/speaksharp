@@ -34,6 +34,8 @@ The working product feature list lives in `PRODUCT_FEATURES.operational.md`. Thi
 ### UX Expectations
 - **Supported Browser Positioning**: Chrome desktop is recommended for Browser transcription. Availability and accuracy vary by browser. Edge/Safari/iOS must not be claimed as verified unless a browser-specific proof passes start, transcript, save, history/detail, and analytics.
 - **Offline Mode**: Private STT requires an initial download but must function without internet thereafter.
+- **Post-save reconciliation (shipped #982)**: After a session is saved, the user sees **one consolidated status bar** (`StatusNotificationBar`) — not multiple overlapping banners — with the finalized transcript, a **retained secondary Private CTA**, and an Analytics link at the right. A **completion toast ("Next: Analytics")** appears once per finalized session, in-flow (no fixed/blur overlay), for ≥5s, `aria-live="polite"`. The **filler disclosure reads the finalized snapshot**; the finalized signal is published only at the terminal join (persist → reconcile → formatter terminal). On mobile the bar uses a 2-row layout.
+- **Private finalization expectation**: A full 5-minute Private (v2) recording finalizes in **≈90s** post-stop, shown as honest visible "Finalizing…" progress (accepted RC limitation).
 - **Quality Evidence Reporting**: The PRD states product promises. Coverage, Lighthouse, bundle metrics, flaky counts, and stress/endurance evidence live in the operational evidence system, not in dynamically rewritten PRD sections.
 
 ---

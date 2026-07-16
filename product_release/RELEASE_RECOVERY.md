@@ -1,7 +1,7 @@
-**Owner:** [unassigned]
-**Last Reviewed:** 2026-05-26
-**Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-26
+**Owner:** relativityE
+**Last Reviewed:** 2026-07-15
+**Version:** v0.9.0-rc-series (sanitized lineage; see `RELEASE_STATUS.md`)
+**Last Updated:** 2026-07-15
 
 # 🛠️ Release Recovery Strategy
 
@@ -24,7 +24,7 @@ SpeakSharp utilizes a **Forward-Fix** doctrine. Because the system relies on sta
 | Quota Fail-Open (Revenue Leak) | **P0** | Deploy "Emergency Closed" limit function (hardcode `can_start: false`). |
 | Database Connection Exhaustion | **P0** | Scale Supabase instance or terminate idle connections via Dashboard. |
 | Private STT Model 404s | **P1** | Disable or retry the CPU/Transformers.js Private setup, explain the outage, and present Cloud/Native as explicit user-selectable alternatives. Do not silently switch a Private session to Cloud. |
-| Transcript Data Loss | **P1** | Switch `TranscriptionService` to "Aggressive Persistence" mode (save every 5s). |
+| Transcript Data Loss | **P1** | The in-session safeguard is the **localStorage recovery draft** (`frontend/src/services/sessionRecoveryDraft.ts`, key `speaksharp_unsaved_session_draft`): a throttled heartbeat (`App.tsx` `flushRecoveryDraft`, ~every 2s) plus a `beforeunload` flush, consumed on resume in `SessionPage.tsx`. If it regresses, verify the heartbeat interval and `beforeunload` handler are wired; there is no separate "aggressive persistence" mode. |
 
 ## 1. Emergency Rollback Criteria
 Only rollback the frontend if:
@@ -45,12 +45,18 @@ supabase functions deploy [FUNCTION_NAME] --project-ref [PROJECT_ID]
 
 ## 3. Data Integrity Recovery
 If a bug causes incorrect billing status:
-1. Identify affected users via `users_profiles` audit.
-2. Manually trigger a "Sync from Stripe" script to restore integrity.
-3. Notify users of the disruption via the `system_notifications` table.
+1. **Identify affected users** via the real profile table **`user_profiles`** (singular; created in `20250811062708_initial_schema.sql`). There is no `users_profiles` table.
+2. **Reconcile billing state from Stripe** via the real mechanism — the **`stripe-webhook` edge function** (`backend/supabase/functions/stripe-webhook/index.ts`) calling the idempotent RPC **`process_stripe_webhook_event`** (`20260310000000_stripe_webhook_rpc.sql`), de-duplicated by the `processed_webhook_events` table. Re-deliver the affected event(s) from the Stripe dashboard so the webhook re-processes them; there is no standalone "Sync from Stripe" script. (`scripts/stripe-price-audit.mjs` audits prices only — it does not reconcile user state.)
+3. **Notify users** via Sentry/PostHog + in-app toasts. There is **no `system_notifications` table** — the schema has no notifications table of any name.
 
 ## 4. Communication Protocol
 1. **Minute 0**: Detect failure via Sentry/PostHog.
-2. **Minute 5**: Update Internal Status.
+2. **Minute 5**: Update Internal Status (`/admin/ops-status`; workflow `ops-health.yml`).
 3. **Minute 15**: If unpatched, post "Investigating" to public status page.
-4. **Minute 60**: If still broken, declare Launch Postponed and activate refund scripts if necessary.
+4. **Minute 60**: If still broken, declare Launch Postponed. Note the Beta-50 billing freeze — no live Stripe charges/refunds in testing; any refund action requires written owner approval.
+
+## 5. Deployment & schema facts (recovery-relevant)
+- **Frontend rollback:** `vercel rollback [PREVIOUS_DEPLOYMENT_ID]` (manual; no automated frontend-rollback workflow).
+- **Backend migrations:** forward-only via `deploy-supabase-migrations.yml` (runs `supabase migration repair … --status applied`, then `supabase db push --dry-run`, then apply; pinned Supabase CLI v2.101.0). **No down-migrations exist** — consistent with Forward-Fix.
+- **Canary:** `canary.yml` (push to main + daily cron) provisions a single reused canary user and runs `pnpm test:deploy:prod` against the public site (fail-closed, `CANARY_MAX=1`).
+- **Real schema tables** (from migrations): `user_profiles`, `sessions`, `user_goals`, `custom_vocabulary`, `processed_webhook_events`, `tier_configs`, `trial_entitlements`, `usage_checkpoints`, `ai_suggestion_usage_daily`, `formatter_usage_daily`, `active_recording_lease`, `user_issue_reports`. (No `users_profiles`, no `system_notifications`.)

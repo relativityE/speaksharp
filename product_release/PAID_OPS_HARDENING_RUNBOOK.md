@@ -1,8 +1,16 @@
 # Paid Soft-Launch Ops Hardening Runbook (no live keys required)
 
-Owner: Dev. Branch: `dev/paid-ops-hardening` (off `main@4726b55a`). Purpose: document and
-verify the operational guardrails for the paid soft launch that do **not** require live
-Stripe keys or real payment. Live-money proof remains a separate Product/Ops + Test gate.
+Owner: relativityE. Purpose: document and verify the operational guardrails for a **future** paid
+cutover that do **not** require live Stripe keys or real payment. Live-money proof remains a separate
+Product/Ops + Test gate.
+
+> **Policy reconciliation (2026-07-15):** the current release is a **controlled, no-billing beta** —
+> paid checkout is intentionally NOT open. Production runtime is `stripeKeyClass="test"`, the checkout
+> CTA does not render (`arePaymentsEnabled()` is false), and the Beta-50 billing freeze is active (no
+> live Stripe charges/subscriptions/refunds; comped-DB entitlement only for Pro QA). **This runbook is
+> the procedure for a LATER paid cutover, not an active step.** Enabling paid is a separate, written
+> owner-approved Ops action (deploy `pk_live_`/`sk_live_`/live `whsec_`/live price IDs, register the
+> live webhook, verify `stripeKeyClass==="live"`).
 
 > Hard rules: a **synthetic / signed test webhook is code-path evidence only — NOT
 > live-money proof.** No paid GO without a real live-money charge proven by Test.
@@ -72,5 +80,5 @@ BLOCKED:      if live keys absent -> classifier 'missing' -> checkout hidden /
 
 ## Guardrails honored
 
-v2-base default unchanged; no v4 touched; `0d5f87c9` not touched; no live Stripe secrets handled;
+v2-base default unchanged; no v4 touched; STT engine defaults not touched; no live Stripe secrets handled;
 no real payment; synthetic webhook never labeled live-money; no merges.
