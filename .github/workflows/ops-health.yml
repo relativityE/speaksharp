@@ -25,6 +25,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The GitHub API row probes api.github.com from inside GitHub Actions (a circular vendor
+      # dependency), so a single upstream 5xx must not raise a false product emergency. The probe uses
+      # bounded resilience (scripts/lib/github-ops-fetch.mjs): max 3 attempts, jittered backoff, a
+      # per-attempt timeout and a hard total budget. Transient-then-recovered → non-gating REVIEW
+      # ("recovered after N attempts"); exhausted retries or a real 401/permission-403/4xx → RED;
+      # a rate-limit wait beyond budget → RED/RATE_LIMITED (never busy-retried). Failed attempts log
+      # sanitized diagnostics (endpoint label, status, x-github-request-id, rate-limit trio) — never tokens.
+      # Tunables (optional): OPS_HEALTH_GH_MAX_ATTEMPTS, OPS_HEALTH_TIMEOUT_MS, OPS_HEALTH_GH_BUDGET_MS.
       - name: Collect ops health
         env:
           BASE_URL: https://speaksharp-public.vercel.app

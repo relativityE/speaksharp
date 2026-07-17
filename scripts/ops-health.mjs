@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { selectAuthoritativeRcRun } from './lib/authoritative-rc-run.mjs';
+import { githubGet } from './lib/github-ops-fetch.mjs';
 
 const repo = process.env.GITHUB_REPOSITORY || 'relativityE/speaksharp';
 const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app').replace(/\/$/, '');
@@ -115,14 +116,15 @@ await row('PostHog API', 'Can we query PostHog analytics?', async () => {
 
 await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
   const token = normalizeBearerToken(env('GITHUB_TOKEN', ['GH_PAT']));
-  const body = await githubJson(`/repos/${repo}`, token);
+  const probe = createGithubProbe(token);
+  const body = await probe.getJson(`/repos/${repo}`, 'repository metadata');
   const checks = await Promise.all([
     { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
-    authoritativeRcStatus(token),
-    latestWorkflow(token, 'ci.yml', 'ci'),
-    latestWorkflow(token, 'canary.yml', 'canary'),
+    authoritativeRcStatus(probe),
+    latestWorkflow(probe, 'ci.yml', 'ci'),
+    latestWorkflow(probe, 'canary.yml', 'canary'),
   ]);
-  return combined(checks, `https://github.com/${repo}/actions`);
+  return combinedGithub(checks, probe, `https://github.com/${repo}/actions`);
 });
 
 const summary = summarize(rows);
@@ -227,8 +229,8 @@ async function vercelDeployments(projectId, token, teamId) {
   });
 }
 
-async function latestWorkflow(token, workflowFile, label) {
-  const body = await githubJson(`/repos/${repo}/actions/workflows/${workflowFile}/runs?per_page=1`, token);
+async function latestWorkflow(probe, workflowFile, label) {
+  const body = await probe.getJson(`/repos/${repo}/actions/workflows/${workflowFile}/runs?per_page=1`, `${label} workflow query`);
   const run = body.workflow_runs?.[0];
   if (!run) return { ok: false, detail: `${label}=missing` };
   if (run.status !== 'completed') {
@@ -243,14 +245,14 @@ async function latestWorkflow(token, workflowFile, label) {
 // rc (release-candidate) health = the AUTHORITATIVE full Gate 3 run, NOT the single most-recent rc-gates
 // run. Diagnostic single-spec dispatches (and side-branch runs) must not flip the release-readiness
 // signal. Scan recent main-branch rc-gates runs and pick the first whose full live gate actually ran.
-async function authoritativeRcStatus(token) {
-  const body = await githubJson(
+async function authoritativeRcStatus(probe) {
+  const body = await probe.getJson(
     `/repos/${repo}/actions/workflows/rc-gates.yml/runs?branch=main&per_page=20`,
-    token,
+    'authoritative RC status',
   );
   const runs = body.workflow_runs ?? [];
   const getJobs = async (runId) => {
-    const jobsBody = await githubJson(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=50`, token);
+    const jobsBody = await probe.getJson(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=50`, 'authoritative RC status');
     return jobsBody.jobs ?? [];
   };
   const result = await selectAuthoritativeRcRun(runs, getJobs);
@@ -338,17 +340,40 @@ async function http(url, init = {}) {
   }
 }
 
-async function githubJson(pathname, token) {
-  const response = await http(`https://api.github.com${pathname}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
+// A resilient GitHub probe: bounded retry for transient failures (see lib/github-ops-fetch.mjs), labeled
+// per sub-check so a failure names the exact endpoint (repository metadata / authoritative RC status /
+// ci|canary workflow query) instead of collapsing to `github=<status>`. Transient failures that later
+// succeed are recorded as recoveries (non-gating yellow); terminal failures throw a labeled, sanitized error.
+function createGithubProbe(token) {
+  const recoveries = [];
+  const config = {
+    token,
+    maxAttempts: Number(process.env.OPS_HEALTH_GH_MAX_ATTEMPTS || 3),
+    perAttemptTimeoutMs: Number(process.env.OPS_HEALTH_TIMEOUT_MS || 15_000),
+    totalBudgetMs: Number(process.env.OPS_HEALTH_GH_BUDGET_MS || 30_000),
+  };
+  return {
+    recoveries,
+    async getJson(pathname, subLabel) {
+      const result = await githubGet(`https://api.github.com${pathname}`, { ...config, label: subLabel });
+      if (result.recovered) recoveries.push({ label: subLabel, attempts: result.attempts });
+      return result.body;
     },
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`github=${response.status}`);
-  return JSON.parse(text);
+  };
+}
+
+// Fold recovered-after-retry transients into a non-gating yellow: if every sub-check ultimately passed but
+// one or more needed a retry, surface REVIEW ("recovered after N attempts") rather than a clean green — so
+// the recovery stays visible in the release ledger without raising a hard product failure.
+function combinedGithub(parts, probe, drilldownUrl) {
+  const base = combined(parts, drilldownUrl);
+  if (!probe.recoveries.length) return base;
+  const note = probe.recoveries.map((r) => `${r.label} recovered after ${r.attempts} attempts`).join(', ');
+  return {
+    status: base.status === 'pass' ? 'warn' : base.status,
+    detail: `${base.detail}; GitHub API ${note}`,
+    drilldownUrl,
+  };
 }
 
 function env(name, aliases = []) {
