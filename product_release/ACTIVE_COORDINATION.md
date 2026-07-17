@@ -1,6 +1,6 @@
 # Active Coordination (tracked SSOT)
 
-**Owner:** relativityE · **Last updated:** 2026-07-15
+**Owner:** Prod Owner (relativityE) · **Last updated:** 2026-07-17
 
 This is the **tracked, reviewable** active-coordination board — the current working subset of
 `BACKLOG.md` (active items + the next self-assigned pull-forward task). It replaces the former
@@ -16,10 +16,15 @@ Rules:
 
 ## Current active items
 
+**No active release PRs.** All release-track PRs are merged and their branches deleted; `main` is at `df909805` and tagged `v0.9.0-rc4`.
+
 | Item | Owner | State | Notes |
 |---|---|---|---|
-| PR #986 — product_release doc sync | relativityE | In review | Corrected head; all required CI green. Do not merge without owner sign-off. |
-| PR #981 — Wave-1 Pro availability | relativityE | In review (stacked on #986) | Rebase onto main after #986 merges. |
-| Attribution history sanitation | relativityE | Done (executed 2026-07-15) | main `84f720d2`; crosswalk in `attribution-sanitation-crosswalk.md`. |
+| PR #986 — product_release doc sync | Prod Owner | Merged | On `main`. |
+| PR #981 — Wave-1 Pro availability | Prod Owner | Merged | On `main` (`7c5da5e9`). |
+| PR #988 — permanent OSV SCA Gate 4 | Prod Owner | Merged | `sca-osv` now a required context. |
+| PR #989 — pin `pdfjs-dist` (live PDF assertion) | Prod Owner | Merged | On `main` (`847ed735`). |
+| PR #990 — ops-health GitHub resilience | Prod Owner | Merged | On `main` (`df909805`). |
+| Attribution history sanitation | Prod Owner | Done (2026-07-15) | crosswalk in `attribution-sanitation-crosswalk.md`. |
 
-Held (owner decision, not started): controlled-beta invites, rc4, paid cutover.
+Release posture: **`v0.9.0-rc4` cut; first controlled tester batch (3–5) authorized.** Held (Prod Owner decision): expansion beyond the first batch, paid cutover, v4 activation. Current ship status/go-no-go lives in `RELEASE_STATUS.md`.

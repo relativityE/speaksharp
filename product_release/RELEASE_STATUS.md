@@ -1,17 +1,18 @@
 # Release Status
 
-**Last updated:** 2026-07-15 · Owner: relativityE (release owner).
+**Last updated:** 2026-07-17 · Owner: Prod Owner (relativityE).
 **Scope:** Single source of truth (SSOT) for current release posture. If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational and RC-gate docs; current ship status lives here only.
 
-> **No release authorization is implied by this document.** It records posture and evidence only. No tester invitations have been sent, no `rc4` has been cut, and no paid launch is authorized. Any of those requires a separate, explicit release-owner decision.
+> **Controlled small-batch release candidate `v0.9.0-rc4` is cut and authorized by the Prod Owner** (annotated tag at `df909805`, peels to `df909805947d4ecc245692cff491515a1b6c6345`). Scope is the **first controlled batch of 3–5 testers only** — no paid checkout, no broad release, no v4 activation. Any expansion beyond this batch, and any paid launch, requires a separate explicit Prod Owner decision.
 
 ## Current main & production posture
 
 | Item | Value |
 |---|---|
-| Production `main` | `84f720d22422e930a9f58936bceb24c551e73c73` (sanitized lineage — see [Attribution history sanitation](#attribution-history-sanitation--sha-crosswalk)) |
-| Deployment | Auto-deploy on push to `main`. Exact-head gates on `84f720d2` all green: **CI - Test Audit** ✅ · **Production Canary Smoke Test** ✅ · **Deploy Supabase** ✅ · **Vercel Production** ✅. |
-| Branch protection | `enforce_admins=true`, `allow_force_pushes=false`, `allow_deletions=false`, 10 required GitHub Actions contexts, 0 rulesets. |
+| Production `main` | `df909805947d4ecc245692cff491515a1b6c6345` (sanitized lineage — see [Attribution history sanitation](#attribution-history-sanitation--sha-crosswalk)) |
+| Release tag | **`v0.9.0-rc4`** (annotated, tag-object `f0687ec0aeed2f3e3a77360f964345d228ee2091`) → peels to `df909805`. |
+| Deployment | Auto-deploy on push to `main`. Exact-head gates on `df909805` all green: **CI - Test Audit** ✅ (run 29599262192) · **RC Gates** ✅ all 5 incl. full live DAST (run 29599349765) · **OSV SCA — Gate 4** ✅ (run 29599261257) · **Production Canary** ✅ (run 29599261419) · **Ops Health** ✅ (run 29599351078) · **Billing Freeze** ✅ (run 29599352794) · **DB grant check** ✅ (run 29599354335) · **Vercel Production** SHA-equal (`VITE_VERCEL_GIT_COMMIT_SHA = df909805`) · **checkout = 0** · **v4 = 0** (PostHog 7d, live control `session_saved > 0`). |
+| Branch protection | `enforce_admins=true`, `allow_force_pushes=false`, `allow_deletions=false`, **11 required GitHub Actions contexts (including `sca-osv`)**, 0 rulesets. |
 | Payments | Prod runtime `stripeKeyClass="test"`; live checkout not open. Paid launch is a separate Ops key-swap cutover, not a pending Dev/QA test. |
 
 ## Shipped since the last SSOT update
@@ -19,7 +20,7 @@
 ### #982 — post-save reconciliation (MERGED, on `main` at `0a8246ae`)
 `feat(session): post-save reconciliation — one status bar, completion toast, finalized-filler contract`. Shipped user-visible state:
 - **One consolidated status bar** (`StatusNotificationBar`) replacing the prior `post-save-review-actions` block — consolidated left copy, **Private CTA as a secondary action (retained)**, Analytics link rightmost; gated on the terminal finalized state; mobile 2-row layout.
-- **Completion toast** — "Next: Analytics", in-flow between cards (no fixed/blur overlay), shown once per finalized session, ≥5s, `aria-live="polite"`, collapse-on-dismiss.
+- **Completion toast** — "Next: Analytics", rendered as an **absolute element straddling the card boundary** (not an in-flow block between cards, and no fixed/blur overlay), shown once per finalized session, ≥5s, `aria-live="polite"`, collapse-on-dismiss.
 - **Finalized-filler contract** — filler disclosure reads the live finalized snapshot; the completion/finalized signal is published only at the terminal join (persist → reconcile → formatter terminal), guarded by session.
 - **Final transcript** wired into the consolidated surface; `post-save-review-actions` removed atomically.
 
@@ -47,9 +48,15 @@ A full **five-minute single Private (v2 / whisper-base.en) recording finalizes i
 | Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU is OFF for the release path (`VITE_PRIVATE_STT_V4_DISABLED` hard-kill available; primary control is PostHog flags, default off). |
 | **Cloud (AssemblyAI)** | **Paid Pro only** | **Available to paid Pro entitlement (real `stripe_subscription_id`). NOT available in the no-billing trial.** Current strongest STT path. |
 
-## #981 — Wave-1 Pro-availability clarification (OPEN, not live)
+## Merged since the last SSOT update (all on `main`)
 
-PR [#981](https://github.com/relativityE/speaksharp/pull/981) (`docs/wave1-pro-availability-clarification`, head `64b8f63a`) remains **open**. It adjusts `PricingPage` copy plus tester/BACKLOG notes clarifying that Cloud is a paid-Pro capability. **Its copy is not on `main` and is not live.** #981 must be rebased onto this corrected SSOT before any merge; its prior append-only `RELEASE_STATUS.md` edit must not be applied to this file unchanged.
+| PR | Title | Status |
+|---|---|---|
+| [#981](https://github.com/relativityE/speaksharp/pull/981) | Wave-1 Pro-availability expectation-setting (`PricingPage` copy + tester/BACKLOG notes clarifying Cloud is paid-Pro) | **MERGED** |
+| [#986](https://github.com/relativityE/speaksharp/pull/986) | `docs(release)`: synchronize product_release with sanitized main | **MERGED** |
+| [#988](https://github.com/relativityE/speaksharp/pull/988) | `ci(sca)`: permanent OSV-based Gate 4 (replaces the retired pnpm-audit endpoint) | **MERGED** |
+| [#989](https://github.com/relativityE/speaksharp/pull/989) | `test(live)`: pin Node-compatible `pdfjs-dist` for the live PDF-parse assertion | **MERGED** |
+| [#990](https://github.com/relativityE/speaksharp/pull/990) | `fix(ops-health)`: bounded, deadline-enforced GitHub API resilience + correct failure classification | **MERGED** |
 
 ## Attribution history sanitation — SHA crosswalk
 
@@ -72,14 +79,14 @@ On 2026-07-15 the Git history was sanitized to remove Claude/Anthropic attributi
 
 | Track | Status | Why |
 |---|---|---|
-| Controlled private beta / early-access (non-payment) | Owner decision — invites NOT sent | Exact-head prod gates green on `84f720d2`; #982 finalization UX shipped; Private ~90s finalization accepted. Sending invites is a separate owner decision; none has been made. |
+| Controlled private beta / early-access (non-payment) | **GO — first controlled batch (3–5 testers), `v0.9.0-rc4`** | Exact-head prod gates green on `df909805`; #982 finalization UX shipped; Private ~90s finalization accepted. Prod Owner authorized the first controlled small batch only; any expansion is a separate decision, and any confirmed P0/P1 stops expansion. |
 | Paid public launch (live checkout) | NO-GO until Ops key-swap cutover | Billing journey proven in Stripe test mode. Going live = set `sk_live`/`pk_live`/live `whsec`/live price IDs, register the live webhook, verify `stripeKeyClass==="live"`. |
 | Broad public launch | NO-GO | Broader than controlled tester scope; separately gated. |
 
 ## Open items / unresolved decisions
 
-- **Send controlled-beta invites?** Held; owner decision, none made.
-- **SCA — critical advisories resolved (proven 2026-07-15).** osv-scanner confirms exactly **one** critical (`vitest@3.2.4` GHSA-5xrq, the ignored one); pnpm's `2 critical (1 ignored)` is the same advisory via two importers. **Zero unignored distinct criticals.** But the `rc:gate:4:sca` command (`pnpm audit`, pinned 10.29.1) now hits the **retired npm endpoint (HTTP 410)** and errors — the gate must move to a working scanner (osv-scanner / bulk endpoint). See `SCA_EXCEPTIONS.md`.
+- **Send controlled-beta invites?** GO for the **first controlled batch (3–5 testers)** on `v0.9.0-rc4`; expansion beyond that batch is held pending 24h monitoring and Prod Owner decision.
+- **SCA gate — resolved (#988 merged).** Gate 4 is now the permanent **OSV-based** scanner (`sca-osv`, a required status context); the retired pnpm-audit HTTP-410 endpoint is no longer used. GHSA-5xrq (`vitest@3.2.4`) remains the single ignored advisory. See `SCA_EXCEPTIONS.md`.
 - **Vitest 3→4 upgrade** to retire the GHSA-5xrq suppression (see `SCA_EXCEPTIONS.md`).
 - **Faster Private finalization** (below ~90s) — improvement lane, not a blocker.
 
