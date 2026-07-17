@@ -200,6 +200,16 @@ describe('githubGet — rate-limit behavior', () => {
     expect(h.sleeps).toEqual([]);
   });
 
+  it('403 with x-ratelimit-remaining:0 but no reset header → RATE_LIMITED (not permission RED)', async () => {
+    const f = scriptedFetch([res(403, { headers: { 'x-ratelimit-remaining': '0' } })]);
+    const h = harness(f);
+    const err = await githubGet('https://api.github.com/repos/x', opts({ totalBudgetMs: 30_000 }), h.deps).catch((e) => e);
+    // remaining=0 is rate-limit evidence; no usable reset → 60s fallback exceeds budget → RATE_LIMITED.
+    expect(err.classification).toBe(Classification.RATE_LIMITED);
+    expect(f.calls.count).toBe(1);
+    expect(h.sleeps).toEqual([]);
+  });
+
   it('429 with reset beyond budget → RATE_LIMITED, no busy retry', async () => {
     const f = scriptedFetch([res(429, { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '999999999' } })]);
     const h = harness(f);
@@ -207,6 +217,45 @@ describe('githubGet — rate-limit behavior', () => {
     expect(err.classification).toBe(Classification.RATE_LIMITED);
     expect(f.calls.count).toBe(1);
     expect(h.sleeps).toEqual([]);
+  });
+});
+
+describe('githubGet — hard deadline through body consumption', () => {
+  const abortingBody = (clock) => async () => {
+    clock.advance(31_000); // stall past the 30s deadline
+    const e = new Error('The operation was aborted');
+    e.name = 'AbortError';
+    throw e;
+  };
+
+  it('headers arrive but the successful JSON body stalls past the deadline → BUDGET_EXHAUSTED, not green', async () => {
+    const clock = makeClock();
+    const stalled = { ok: true, status: 200, headers: { get: () => null }, json: abortingBody(clock), text: async () => '' };
+    const f = scriptedFetch([stalled]);
+    const h = harness(f, { clock });
+    const err = await githubGet('https://api.github.com/repos/x', opts({ totalBudgetMs: 30_000 }), h.deps).catch((e) => e);
+    expect(err).toBeInstanceOf(GithubOpsError);
+    expect(err.classification).toBe(Classification.BUDGET_EXHAUSTED);
+    expect(f.calls.count).toBe(1);
+  });
+
+  it('headers arrive but the 403 error body stalls past the deadline → BUDGET_EXHAUSTED', async () => {
+    const clock = makeClock();
+    const stalled = { ok: false, status: 403, headers: { get: () => null }, json: async () => ({}), text: abortingBody(clock) };
+    const f = scriptedFetch([stalled]);
+    const h = harness(f, { clock });
+    const err = await githubGet('https://api.github.com/repos/x', opts({ totalBudgetMs: 30_000 }), h.deps).catch((e) => e);
+    expect(err.classification).toBe(Classification.BUDGET_EXHAUSTED);
+  });
+
+  it('the abort timer stays active until body parsing completes (cleared only after)', async () => {
+    const events = [];
+    const response = { ok: true, status: 200, headers: { get: () => null }, json: async () => { events.push('body-read'); return {}; }, text: async () => '' };
+    const f = scriptedFetch([response]);
+    const h = harness(f, { overrides: { clearTimer: () => events.push('timer-cleared') } });
+    const r = await githubGet('https://api.github.com/repos/x', opts(), h.deps);
+    expect(r.ok).toBe(true);
+    expect(events).toEqual(['body-read', 'timer-cleared']); // body consumed BEFORE the timer is cleared
   });
 });
 
