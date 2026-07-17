@@ -2,8 +2,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { selectAuthoritativeRcRun } from './lib/authoritative-rc-run.mjs';
-import { githubGet } from './lib/github-ops-fetch.mjs';
+import { evaluateGithubRow } from './lib/github-ops-row.mjs';
+import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from './lib/ops-health-report.mjs';
 
 const repo = process.env.GITHUB_REPOSITORY || 'relativityE/speaksharp';
 const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app').replace(/\/$/, '');
@@ -116,15 +116,8 @@ await row('PostHog API', 'Can we query PostHog analytics?', async () => {
 
 await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
   const token = normalizeBearerToken(env('GITHUB_TOKEN', ['GH_PAT']));
-  const probe = createGithubProbe(token);
-  const body = await probe.getJson(`/repos/${repo}`, 'repository metadata');
-  const checks = await Promise.all([
-    { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
-    authoritativeRcStatus(probe),
-    latestWorkflow(probe, 'ci.yml', 'ci'),
-    latestWorkflow(probe, 'canary.yml', 'canary'),
-  ]);
-  return combinedGithub(checks, probe, `https://github.com/${repo}/actions`);
+  // Resilient, labeled, hard-deadline-bounded (see lib/github-ops-row.mjs + lib/github-ops-fetch.mjs).
+  return evaluateGithubRow(repo, token);
 });
 
 const summary = summarize(rows);
@@ -144,7 +137,7 @@ if (publicOutputDir) {
 
 console.log(markdown);
 
-if (summary.fail > 0) process.exitCode = 1;
+process.exitCode = exitCodeForRows(rows);
 
 async function row(name, question, fn) {
   const started = performance.now();
@@ -229,38 +222,6 @@ async function vercelDeployments(projectId, token, teamId) {
   });
 }
 
-async function latestWorkflow(probe, workflowFile, label) {
-  const body = await probe.getJson(`/repos/${repo}/actions/workflows/${workflowFile}/runs?per_page=1`, `${label} workflow query`);
-  const run = body.workflow_runs?.[0];
-  if (!run) return { ok: false, detail: `${label}=missing` };
-  if (run.status !== 'completed') {
-    return { status: 'warn', detail: `${label}=${run.status}` };
-  }
-  return {
-    ok: run.conclusion === 'success',
-    detail: `${label}=${run.conclusion ?? 'unknown'}`,
-  };
-}
-
-// rc (release-candidate) health = the AUTHORITATIVE full Gate 3 run, NOT the single most-recent rc-gates
-// run. Diagnostic single-spec dispatches (and side-branch runs) must not flip the release-readiness
-// signal. Scan recent main-branch rc-gates runs and pick the first whose full live gate actually ran.
-async function authoritativeRcStatus(probe) {
-  const body = await probe.getJson(
-    `/repos/${repo}/actions/workflows/rc-gates.yml/runs?branch=main&per_page=20`,
-    'authoritative RC status',
-  );
-  const runs = body.workflow_runs ?? [];
-  const getJobs = async (runId) => {
-    const jobsBody = await probe.getJson(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=50`, 'authoritative RC status');
-    return jobsBody.jobs ?? [];
-  };
-  const result = await selectAuthoritativeRcRun(runs, getJobs);
-  return result.status
-    ? { status: result.status, detail: result.detail }
-    : { ok: result.ok, detail: result.detail };
-}
-
 async function edgePreflight(functionName) {
   const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
   const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
@@ -340,42 +301,6 @@ async function http(url, init = {}) {
   }
 }
 
-// A resilient GitHub probe: bounded retry for transient failures (see lib/github-ops-fetch.mjs), labeled
-// per sub-check so a failure names the exact endpoint (repository metadata / authoritative RC status /
-// ci|canary workflow query) instead of collapsing to `github=<status>`. Transient failures that later
-// succeed are recorded as recoveries (non-gating yellow); terminal failures throw a labeled, sanitized error.
-function createGithubProbe(token) {
-  const recoveries = [];
-  const config = {
-    token,
-    maxAttempts: Number(process.env.OPS_HEALTH_GH_MAX_ATTEMPTS || 3),
-    perAttemptTimeoutMs: Number(process.env.OPS_HEALTH_TIMEOUT_MS || 15_000),
-    totalBudgetMs: Number(process.env.OPS_HEALTH_GH_BUDGET_MS || 30_000),
-  };
-  return {
-    recoveries,
-    async getJson(pathname, subLabel) {
-      const result = await githubGet(`https://api.github.com${pathname}`, { ...config, label: subLabel });
-      if (result.recovered) recoveries.push({ label: subLabel, attempts: result.attempts });
-      return result.body;
-    },
-  };
-}
-
-// Fold recovered-after-retry transients into a non-gating yellow: if every sub-check ultimately passed but
-// one or more needed a retry, surface REVIEW ("recovered after N attempts") rather than a clean green — so
-// the recovery stays visible in the release ledger without raising a hard product failure.
-function combinedGithub(parts, probe, drilldownUrl) {
-  const base = combined(parts, drilldownUrl);
-  if (!probe.recoveries.length) return base;
-  const note = probe.recoveries.map((r) => `${r.label} recovered after ${r.attempts} attempts`).join(', ');
-  return {
-    status: base.status === 'pass' ? 'warn' : base.status,
-    detail: `${base.detail}; GitHub API ${note}`,
-    drilldownUrl,
-  };
-}
-
 function env(name, aliases = []) {
   for (const key of [name, ...aliases]) {
     if (process.env[key]) return process.env[key];
@@ -407,123 +332,4 @@ function json(text) {
   } catch {
     return null;
   }
-}
-
-function summarize(items) {
-  return items.reduce((acc, item) => {
-    acc[item.status] = (acc[item.status] ?? 0) + 1;
-    return acc;
-  }, { pass: 0, warn: 0, fail: 0, skip: 0 });
-}
-
-function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
-  const hardFailure = summary.fail > 0;
-  const credentialLimited = runContext !== 'GitHub Actions' && checks.some((check) => /missing=|skip\(/.test(check.detail));
-  const lines = [
-    '# SpeakSharp Ops Health',
-    '',
-    `Generated: ${generatedAt}`,
-    `Target: ${baseUrl}`,
-    `Repository: ${repo}`,
-    `Run context: ${runContext}`,
-    '',
-    `Verdict: ${hardFailure ? 'ACTION REQUIRED' : 'NO HARD FAILURES IN CHECKS THAT RAN'}`,
-    `Coverage: ${summary.pass} ok / ${summary.warn} review / ${summary.fail} fail / ${summary.skip} not checked`,
-  ];
-
-  if (credentialLimited) {
-    lines.push(
-      '',
-      '> This local run is not authoritative for vendor credentials because GitHub Actions secrets are not available in the local shell. Use the GitHub Ops Health workflow for the secret-backed view.'
-    );
-  }
-
-  lines.push(
-    '',
-    '| Area | Status | Meaning | Evidence | Next Action | Drill-down |',
-    '|---|---|---|---|---|---|',
-  );
-
-  for (const check of checks) {
-    lines.push([
-      esc(check.name),
-      esc(statusBadge(check)),
-      esc(check.question),
-      esc(check.detail),
-      esc(nextAction(check, runContext)),
-      check.drilldownUrl ? `[Open](${check.drilldownUrl})` : '',
-    ].join(' | '));
-  }
-
-  lines.push(
-    '',
-    '## How To Read This',
-    '',
-    '- `OK` means the check ran and passed.',
-    '- `REVIEW` means no hard outage was proven, but freshness, optional credentials, or external status needs attention.',
-    '- `FAIL` means a launch-relevant dependency or workflow is red.',
-    '- `NOT READY` means the check could not produce a useful signal yet, usually because this run lacks credentials or the integration is intentionally deferred.',
-    '',
-    '> Keep this dashboard simple. It is an early warning board, not a replacement for vendor dashboards.'
-  );
-  return `${lines.join('\n')}\n`;
-}
-
-function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
-  return {
-    generatedAt,
-    baseUrl,
-    repo,
-    runContext,
-    summary,
-    verdict: summary.fail > 0 ? 'ACTION REQUIRED' : 'NO HARD FAILURES',
-    checks: checks.map((check) => ({
-      name: check.name,
-      status: check.status,
-      label: verdictLabel(check),
-      icon: statusIcon(check),
-      question: check.question,
-      evidence: check.detail,
-      nextAction: nextAction(check, runContext),
-      latencyMs: check.latencyMs,
-      checkedAt: check.checkedAt,
-      drilldownUrl: check.drilldownUrl,
-    })),
-  };
-}
-
-function verdictLabel(check) {
-  if (check.status === 'pass') return 'OK';
-  if (check.status === 'fail') return 'DOWN';
-  if (check.status === 'skip') return 'NOT READY';
-  return 'REVIEW';
-}
-
-function statusBadge(check) {
-  const label = verdictLabel(check);
-  return `${statusIcon(check)} ${label}`;
-}
-
-function statusIcon(check) {
-  if (check.status === 'pass') return '🟢';
-  if (check.status === 'fail') return '🔴';
-  if (check.status === 'skip') return '🚧';
-  return '🟡';
-}
-
-function nextAction(check, runContext) {
-  if (check.status === 'pass') return 'No action.';
-  if (/stale\/missing=/.test(check.detail)) return 'Run or refresh the named benchmark before making benchmark claims.';
-  if (/missing=|skip\(/.test(check.detail)) {
-    return runContext === 'GitHub Actions'
-      ? 'Wire the expected GitHub secret name or update the check to the real secret name.'
-      : 'Run the GitHub Ops Health workflow for the secret-backed result.';
-  }
-  if (check.name === 'GitHub') return 'Open Actions and fix the red release workflow before tester release.';
-  if (check.status === 'fail') return 'Open the vendor dashboard or drill-down and resolve before release.';
-  return 'Review before release.';
-}
-
-function esc(value) {
-  return String(value ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
