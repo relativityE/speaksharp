@@ -2,7 +2,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { selectAuthoritativeRcRun } from './lib/authoritative-rc-run.mjs';
+import { evaluateGithubRow } from './lib/github-ops-row.mjs';
+import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from './lib/ops-health-report.mjs';
 
 const repo = process.env.GITHUB_REPOSITORY || 'relativityE/speaksharp';
 const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app').replace(/\/$/, '');
@@ -115,14 +116,8 @@ await row('PostHog API', 'Can we query PostHog analytics?', async () => {
 
 await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
   const token = normalizeBearerToken(env('GITHUB_TOKEN', ['GH_PAT']));
-  const body = await githubJson(`/repos/${repo}`, token);
-  const checks = await Promise.all([
-    { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
-    authoritativeRcStatus(token),
-    latestWorkflow(token, 'ci.yml', 'ci'),
-    latestWorkflow(token, 'canary.yml', 'canary'),
-  ]);
-  return combined(checks, `https://github.com/${repo}/actions`);
+  // Resilient, labeled, hard-deadline-bounded (see lib/github-ops-row.mjs + lib/github-ops-fetch.mjs).
+  return evaluateGithubRow(repo, token);
 });
 
 const summary = summarize(rows);
@@ -142,7 +137,7 @@ if (publicOutputDir) {
 
 console.log(markdown);
 
-if (summary.fail > 0) process.exitCode = 1;
+process.exitCode = exitCodeForRows(rows);
 
 async function row(name, question, fn) {
   const started = performance.now();
@@ -227,38 +222,6 @@ async function vercelDeployments(projectId, token, teamId) {
   });
 }
 
-async function latestWorkflow(token, workflowFile, label) {
-  const body = await githubJson(`/repos/${repo}/actions/workflows/${workflowFile}/runs?per_page=1`, token);
-  const run = body.workflow_runs?.[0];
-  if (!run) return { ok: false, detail: `${label}=missing` };
-  if (run.status !== 'completed') {
-    return { status: 'warn', detail: `${label}=${run.status}` };
-  }
-  return {
-    ok: run.conclusion === 'success',
-    detail: `${label}=${run.conclusion ?? 'unknown'}`,
-  };
-}
-
-// rc (release-candidate) health = the AUTHORITATIVE full Gate 3 run, NOT the single most-recent rc-gates
-// run. Diagnostic single-spec dispatches (and side-branch runs) must not flip the release-readiness
-// signal. Scan recent main-branch rc-gates runs and pick the first whose full live gate actually ran.
-async function authoritativeRcStatus(token) {
-  const body = await githubJson(
-    `/repos/${repo}/actions/workflows/rc-gates.yml/runs?branch=main&per_page=20`,
-    token,
-  );
-  const runs = body.workflow_runs ?? [];
-  const getJobs = async (runId) => {
-    const jobsBody = await githubJson(`/repos/${repo}/actions/runs/${runId}/jobs?per_page=50`, token);
-    return jobsBody.jobs ?? [];
-  };
-  const result = await selectAuthoritativeRcRun(runs, getJobs);
-  return result.status
-    ? { status: result.status, detail: result.detail }
-    : { ok: result.ok, detail: result.detail };
-}
-
 async function edgePreflight(functionName) {
   const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
   const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
@@ -338,19 +301,6 @@ async function http(url, init = {}) {
   }
 }
 
-async function githubJson(pathname, token) {
-  const response = await http(`https://api.github.com${pathname}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`github=${response.status}`);
-  return JSON.parse(text);
-}
-
 function env(name, aliases = []) {
   for (const key of [name, ...aliases]) {
     if (process.env[key]) return process.env[key];
@@ -382,123 +332,4 @@ function json(text) {
   } catch {
     return null;
   }
-}
-
-function summarize(items) {
-  return items.reduce((acc, item) => {
-    acc[item.status] = (acc[item.status] ?? 0) + 1;
-    return acc;
-  }, { pass: 0, warn: 0, fail: 0, skip: 0 });
-}
-
-function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
-  const hardFailure = summary.fail > 0;
-  const credentialLimited = runContext !== 'GitHub Actions' && checks.some((check) => /missing=|skip\(/.test(check.detail));
-  const lines = [
-    '# SpeakSharp Ops Health',
-    '',
-    `Generated: ${generatedAt}`,
-    `Target: ${baseUrl}`,
-    `Repository: ${repo}`,
-    `Run context: ${runContext}`,
-    '',
-    `Verdict: ${hardFailure ? 'ACTION REQUIRED' : 'NO HARD FAILURES IN CHECKS THAT RAN'}`,
-    `Coverage: ${summary.pass} ok / ${summary.warn} review / ${summary.fail} fail / ${summary.skip} not checked`,
-  ];
-
-  if (credentialLimited) {
-    lines.push(
-      '',
-      '> This local run is not authoritative for vendor credentials because GitHub Actions secrets are not available in the local shell. Use the GitHub Ops Health workflow for the secret-backed view.'
-    );
-  }
-
-  lines.push(
-    '',
-    '| Area | Status | Meaning | Evidence | Next Action | Drill-down |',
-    '|---|---|---|---|---|---|',
-  );
-
-  for (const check of checks) {
-    lines.push([
-      esc(check.name),
-      esc(statusBadge(check)),
-      esc(check.question),
-      esc(check.detail),
-      esc(nextAction(check, runContext)),
-      check.drilldownUrl ? `[Open](${check.drilldownUrl})` : '',
-    ].join(' | '));
-  }
-
-  lines.push(
-    '',
-    '## How To Read This',
-    '',
-    '- `OK` means the check ran and passed.',
-    '- `REVIEW` means no hard outage was proven, but freshness, optional credentials, or external status needs attention.',
-    '- `FAIL` means a launch-relevant dependency or workflow is red.',
-    '- `NOT READY` means the check could not produce a useful signal yet, usually because this run lacks credentials or the integration is intentionally deferred.',
-    '',
-    '> Keep this dashboard simple. It is an early warning board, not a replacement for vendor dashboards.'
-  );
-  return `${lines.join('\n')}\n`;
-}
-
-function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
-  return {
-    generatedAt,
-    baseUrl,
-    repo,
-    runContext,
-    summary,
-    verdict: summary.fail > 0 ? 'ACTION REQUIRED' : 'NO HARD FAILURES',
-    checks: checks.map((check) => ({
-      name: check.name,
-      status: check.status,
-      label: verdictLabel(check),
-      icon: statusIcon(check),
-      question: check.question,
-      evidence: check.detail,
-      nextAction: nextAction(check, runContext),
-      latencyMs: check.latencyMs,
-      checkedAt: check.checkedAt,
-      drilldownUrl: check.drilldownUrl,
-    })),
-  };
-}
-
-function verdictLabel(check) {
-  if (check.status === 'pass') return 'OK';
-  if (check.status === 'fail') return 'DOWN';
-  if (check.status === 'skip') return 'NOT READY';
-  return 'REVIEW';
-}
-
-function statusBadge(check) {
-  const label = verdictLabel(check);
-  return `${statusIcon(check)} ${label}`;
-}
-
-function statusIcon(check) {
-  if (check.status === 'pass') return '🟢';
-  if (check.status === 'fail') return '🔴';
-  if (check.status === 'skip') return '🚧';
-  return '🟡';
-}
-
-function nextAction(check, runContext) {
-  if (check.status === 'pass') return 'No action.';
-  if (/stale\/missing=/.test(check.detail)) return 'Run or refresh the named benchmark before making benchmark claims.';
-  if (/missing=|skip\(/.test(check.detail)) {
-    return runContext === 'GitHub Actions'
-      ? 'Wire the expected GitHub secret name or update the check to the real secret name.'
-      : 'Run the GitHub Ops Health workflow for the secret-backed result.';
-  }
-  if (check.name === 'GitHub') return 'Open Actions and fix the red release workflow before tester release.';
-  if (check.status === 'fail') return 'Open the vendor dashboard or drill-down and resolve before release.';
-  return 'Review before release.';
-}
-
-function esc(value) {
-  return String(value ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
