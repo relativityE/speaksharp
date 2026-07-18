@@ -16,10 +16,11 @@ Rules:
 
 ## Current active items
 
-**No active release PRs.** All release-track PRs are merged and their branches deleted; `main` is at `df909805` and tagged `v0.9.0-rc4`.
+**One open PR — #991, the final docs-only SSOT reconciliation** (this document). All release-track **code** PRs are merged and their branches deleted. `main` is at `df909805` — the `v0.9.0-rc4` release SHA. Merging #991 advances `main` by **documentation only** (no product / runtime / gate change; rc4 stays pinned to `df909805`), at which point **"0 active PRs" becomes true**.
 
 | Item | Owner | State | Notes |
 |---|---|---|---|
+| PR #991 — final docs-only SSOT reconciliation | Prod Owner | Open → merging | This document; advances `main` docs-only; rc4 stays at `df909805`; "0 active PRs" true once merged. |
 | PR #986 — product_release doc sync | Prod Owner | Merged | On `main`. |
 | PR #981 — Wave-1 Pro availability | Prod Owner | Merged | On `main` (`7c5da5e9`). |
 | PR #988 — permanent OSV SCA Gate 4 | Prod Owner | Merged | `sca-osv` now a required context. |

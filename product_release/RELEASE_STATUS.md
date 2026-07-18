@@ -9,11 +9,14 @@
 
 | Item | Value |
 |---|---|
-| Production `main` | `df909805947d4ecc245692cff491515a1b6c6345` (sanitized lineage — see [Attribution history sanitation](#attribution-history-sanitation--sha-crosswalk)) |
-| Release tag | **`v0.9.0-rc4`** (annotated, tag-object `f0687ec0aeed2f3e3a77360f964345d228ee2091`) → peels to `df909805`. |
+| **`v0.9.0-rc4` release SHA (code / runtime)** | `df909805947d4ecc245692cff491515a1b6c6345` — **frozen**; the deployed product release point (sanitized lineage — see [Attribution history sanitation](#attribution-history-sanitation--sha-crosswalk)). This is the release/code SHA, **not** necessarily the current `main` HEAD. |
+| Current `main` HEAD | `df909805` at the rc4 cut. **Advances by documentation-only** when PR #991 (this SSOT reconciliation) merges; the rc4 release SHA, the deployed product, and every gate result stay at `df909805` regardless. |
+| Release tag | **`v0.9.0-rc4`** (annotated, tag-object `f0687ec0aeed2f3e3a77360f964345d228ee2091`) → **continues to peel to `df909805`** (unchanged by the #991 docs merge). |
 | Deployment | Auto-deploy on push to `main`. Exact-head gates on `df909805` all green: **CI - Test Audit** ✅ (run 29599262192) · **RC Gates** ✅ all 5 incl. full live DAST (run 29599349765) · **OSV SCA — Gate 4** ✅ (run 29599261257) · **Production Canary** ✅ (run 29599261419) · **Ops Health** ✅ (run 29599351078) · **Billing Freeze** ✅ (run 29599352794) · **DB grant check** ✅ (run 29599354335) · **Vercel Production** SHA-equal (`VITE_VERCEL_GIT_COMMIT_SHA = df909805`) · **checkout = 0** · **v4 = 0** (PostHog 7d, live control `session_saved > 0`). |
 | Branch protection | `enforce_admins=true`, `allow_force_pushes=false`, `allow_deletions=false`, **11 required GitHub Actions contexts (including `sca-osv`)**, 0 rulesets. |
 | Payments | Prod runtime `stripeKeyClass="test"`; live checkout not open. Paid launch is a separate Ops key-swap cutover, not a pending Dev/QA test. |
+
+> **Docs-only `main` advance (PR #991):** merging PR #991 advances `main` to a new commit whose delta from `df909805` is **documentation-only** — no product, runtime, gate, or deployment-behavior change. Any Vercel rebuild it triggers ships the identical rc4 runtime. `v0.9.0-rc4` remains the annotated tag at `df909805`; production continues to serve the rc4 code SHA.
 
 ## Shipped since the last SSOT update
 
