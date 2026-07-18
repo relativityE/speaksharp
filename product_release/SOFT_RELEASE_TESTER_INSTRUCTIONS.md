@@ -29,11 +29,15 @@ not need a card.
 ```text
 Subject: A quick favor — test SpeakSharp (about 10 minutes)
 
-Hi [Name],
+Hi there,
 
-I'm inviting a small group to test SpeakSharp, a speaking-practice coach, and I'd value your honest feedback.
+Thanks in advance for your help.
 
-Could you spend about 10 minutes trying it? Please navigate the app naturally—the ease of finding and understanding everything is part of the test.
+I'm inviting a small group to test SpeakSharp, and I'd value your honest feedback, when you get a moment.
+
+SpeakSharp is a speaking-practice coach that helps you become a clearer, more confident communicator. Record yourself practicing an interview answer, presentation, meeting update, or everyday conversation, then review your transcript, filler words, pace, and personalized feedback.
+
+If you have a free 10 minutes in the next day or two, could you give SpeakSharp a try? Please navigate the app naturally—the ease of finding and understanding everything is part of the test.
 
 1. Create an account and start a practice session.
 2. Record one short practice using Browser transcription.
@@ -41,11 +45,13 @@ Could you spend about 10 minutes trying it? Please navigate the app naturally—
 4. Try the included Private sample.
 5. Find your saved sessions and feedback in Analytics.
 6. Download a PDF report.
-7. Use Report Issue to submit a rating from 1–10 and tell me what felt most useful or confusing.
+7. Use Report Issue to tell me whether you completed these steps without help, what felt most useful, and what you would change.
 
-Browser transcription is fast and convenient, but it may omit punctuation and some filler words. Private is slower to finalize, but usually produces a more readable transcript and keeps transcription on your device.
+Please be candid—all observations are welcome and useful, and your feedback will directly shape what we improve next.
 
-This beta is free—no card is needed, and Pro purchases and Cloud transcription are not open during this test. Please also use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
+Note: Browser transcription is fast and convenient, but it may omit punctuation and some filler words. Private is slower to finalize, but usually produces a more readable transcript and keeps transcription on your device.
+
+This beta is free! Please stay on the free plan—do not select Upgrade or enter payment information. Cloud transcription is not part of this test. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
 
 Start testing SpeakSharp!
 https://speaksharp-public.vercel.app/
