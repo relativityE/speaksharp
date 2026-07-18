@@ -1,6 +1,6 @@
 # SpeakSharp — Beta Tester Guide
 
-**Last updated:** 2026-07-13
+**Last updated:** 2026-07-18 (v0.9.0-rc4 controlled first batch, 3–5 testers)
 
 This is the guide you send to testers. It is written for someone who has never seen the
 code. Keep it free of technical detail.
@@ -22,37 +22,33 @@ not need a card.
 
 ---
 
-## Beta invitation copy (fill `[Name]` / `[insert link]`)
+## Beta invitation copy (fill `[Name]`; email is send-ready, link included)
 
-**Email:**
+**Email (official — v0.9.0-rc4 controlled first batch):**
 
 ```text
-Subject: You're invited to try SpeakSharp
+Subject: A quick favor — test SpeakSharp (about 10 minutes)
 
 Hi [Name],
 
-We're opening a small early test of SpeakSharp and would value your feedback.
+I'm inviting a small group to test SpeakSharp, a speaking-practice coach, and I'd value your honest feedback.
 
-We'd love for you to try SpeakSharp and tell us what you liked or what we can improve. Please use the "Report issue" button for any feedback or problems.
+Could you spend about 10 minutes trying it? Please navigate the app naturally—the ease of finding and understanding everything is part of the test.
 
-SpeakSharp helps you practice speaking, notice filler words, review your pace, and get structured feedback after each session.
+1. Create an account and start a practice session.
+2. Record one short practice using Browser transcription.
+3. Save the session and review your initial feedback.
+4. Try the included Private sample.
+5. Find your saved sessions and feedback in Analytics.
+6. Download a PDF report.
+7. Use Report Issue to submit a rating from 1–10 and tell me what felt most useful or confusing.
 
-A simple way to test it:
+Browser transcription is fast and convenient, but it may omit punctuation and some filler words. Private is slower to finalize, but usually produces a more readable transcript and keeps transcription on your device.
 
-1. Create an account.
-2. Record a short practice using Browser transcription.
-3. Try Private transcription, which runs on your own device.
-4. Review your saved feedback in Analytics.
-5. Download a PDF report.
-6. Use the "Report issue" button for any feedback, confusion, or problems.
+This beta is free—no card is needed, and Pro purchases and Cloud transcription are not open during this test. Please also use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
 
-Note: Private mode keeps transcription on your own device. For a full 5-minute recording, finalizing may take about 90 seconds after you stop.
-
-Pro purchases aren't open during this test. If you'd like Pro when it becomes available, reply to this invitation or use "Report issue" and select Billing. Beta testers can use the free Browser plan and one included Private sample — no card is required.
-
-Natural speech is best. Try an interview answer, presentation intro, or anything you would actually practice.
-
-[Start testing SpeakSharp]
+Start testing SpeakSharp!
+https://speaksharp-public.vercel.app/
 
 Thank you,
 Akin
