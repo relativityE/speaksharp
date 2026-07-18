@@ -28,9 +28,19 @@ It is intentionally not a replacement for vendor dashboards. It is an early sign
 | Stripe API | Billing credential and price reachability | Stripe dashboard |
 | Sentry API | Error monitoring project query reachability | Sentry |
 | PostHog API | Analytics query reachability | PostHog |
-| GitHub API | Repository metadata and release workflow rollup | GitHub Actions |
+| GitHub API | Repository metadata and release workflow rollup (bounded-retry, see below) | GitHub Actions |
 
 Detailed lower-level checks, such as frontend env contract, Private model assets, Private worker assets, release evidence freshness, SAST/DAST/SCA, canary, and benchmark proof freshness, belong in the JSON/admin drill-down or release docs, not in the simple v1 health table.
+
+## GitHub API row — bounded-retry & recovery semantics (#990)
+
+The GitHub row probes `api.github.com` **from inside GitHub Actions** (a circular vendor dependency: a GitHub API blip can hit both the probe target and the runner). To stop a single transient upstream `5xx` from raising a false product-emergency RED, the probe uses **bounded** resilience (`scripts/lib/github-ops-fetch.mjs` + `scripts/lib/github-ops-row.mjs`) — it does **not** "retry until green":
+
+- **Bounded retry:** at most **3 attempts**, jittered exponential backoff; retries only idempotent GET on network error / timeout / `408/500/502/503/504`.
+- **Hard deadline, shared across the whole row:** one deadline is shared by every sub-check request (repository metadata / authoritative RC status / ci|canary workflow query), and it stays active **through response-body consumption** — a server that returns headers then stalls the body still hits the deadline. Exceeding it yields `BUDGET_EXHAUSTED`; a response arriving after the deadline never counts as green.
+- **Rate limiting:** honors `Retry-After` and `x-ratelimit-remaining/reset` (and `x-ratelimit-remaining: 0` even without a usable reset), plus secondary-limit body language. A required wait beyond the budget → `RATE_LIMITED`; an unqualified 429 uses GitHub's ≥60s fallback → `RATE_LIMITED` immediately (never busy-retried). A `403` with no rate-limit evidence → permission RED.
+- **Recovery is a non-gating yellow:** a sub-check that fails transiently and then succeeds within budget surfaces as **`🟡 REVIEW`** ("recovered after N attempts"), recorded in the release ledger, **not** a hard failure. Only an exhausted-retry / non-retryable / permission / auth / rate-limited / budget-exhausted terminal is **`🔴 FAIL`**.
+- **Labeled failures:** a terminal failure names the exact sub-check (e.g. "repository metadata") rather than collapsing to `github=<status>`, and emits sanitized diagnostics (status, `x-github-request-id`, rate-limit trio) — never the token or `Authorization` header.
 
 ## Status Vocabulary
 
