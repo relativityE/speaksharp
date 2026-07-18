@@ -37,21 +37,21 @@ I'm inviting a small group to test SpeakSharp, and I'd value your honest feedbac
 
 SpeakSharp is a speaking-practice coach that helps you become a clearer, more confident communicator. Record yourself practicing an interview answer, presentation, meeting update, or everyday conversation, then review your transcript, filler words, pace, and personalized feedback.
 
-If you have a free 10 minutes in the next day or two, could you give SpeakSharp a try? Please navigate the app naturally—the ease of finding and understanding everything is part of the test.
+Could you take about 10 minutes to try SpeakSharp? As you go, please note anything in the interface that feels unclear, out of place, or interrupts the flow—the ease of finding and understanding everything is part of the test.
 
 1. Create an account and start a practice session.
-2. Record one short practice using Browser transcription.
+2. Use Browser transcription for a brief first look at SpeakSharp's coaching flow.
 3. Save the session and review your initial feedback.
-4. Try the included Private sample.
+4. Use the included Private sample for your main practice, then review its transcript and feedback.
 5. Find your saved sessions and feedback in Analytics.
 6. Download a PDF report.
-7. Use Report Issue to tell me whether you completed these steps without help, what felt most useful, and what you would change.
+7. Use Report Issue to tell me whether you completed the experience without help, whether Private felt meaningfully more useful than Browser, and what you would improve.
 
 Please be candid—all observations are welcome and useful, and your feedback will directly shape what we improve next.
 
-Note: Browser transcription is fast and convenient, but it may omit punctuation and some filler words. Private is slower to finalize, but usually produces a more readable transcript and keeps transcription on your device.
+Note: Browser is a quick orientation and may miss some punctuation; Private is the main experience we're evaluating. Please tell us whether it feels like a meaningful improvement.
 
-This beta is free! Please stay on the free plan—do not select Upgrade or enter payment information. Cloud transcription is not part of this test. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
+This beta is free—no payment information is needed. Please skip any Upgrade option during this test. Cloud transcription is not part of the test. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
 
 Start testing SpeakSharp!
 https://speaksharp-public.vercel.app/
