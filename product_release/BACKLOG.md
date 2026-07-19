@@ -24,12 +24,6 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 
 ## 2. Remaining P0
 
-### P0.1 — Fail-closed beta billing
-- **Evidence/gap:** Deployed prod ships a live Stripe publishable key; `arePaymentsEnabled()` returns true purely from `classifyStripeKey()==='live'` (`frontend/src/config/appRuntimeConfig.ts`). The `/pricing` "Upgrade to Pro" $9.99 CTA is live and `UpgradePromptDialog` renders. No independent payments-enabled flag; no server-side checkout guard — frontend hiding alone is insufficient.
-- **Outcome:** During a no-billing beta a free tester cannot initiate checkout or reach Cloud; existing paid Pro users keep Pro/Cloud; the Private sample entitlement is unchanged.
-- **Acceptance:** explicit `payments-enabled` config defaulting to **false**; payments require both explicit enablement AND valid live Stripe config; server-side checkout guard fails closed; with payments off → no actionable Upgrade control, never emit `checkout_started`, concise "Pro enrollment is not open during this beta" copy; missing/invalid config fails closed; focused tests for each bullet.
-- **Priority:** P0.
-
 ### P0.2 — Private-first mode hierarchy
 - **Evidence/gap:** The selector presents Browser and Private with near-equal weight; copy frames Private mainly as a privacy option / Browser comparison. No single "Recommended" treatment; "Browser provider" label persists.
 - **Outcome:** Testers understand Private is the main beta experience and Browser is a zero-setup preview; Cloud shows as the Pro path but is unavailable to Free.

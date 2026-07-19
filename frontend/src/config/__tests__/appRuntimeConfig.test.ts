@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { arePaymentsEnabledFor, classifyStripeKey, computeAppRuntimeConfig, type AppModeMeta } from '../appRuntimeConfig';
+import { arePaymentsEnabledFor, paymentsEnabled, classifyStripeKey, computeAppRuntimeConfig, type AppModeMeta } from '../appRuntimeConfig';
 
 const MANUAL: AppModeMeta = { viteMode: 'development', port: 5174, authMode: 'real', releaseProofEligible: true };
 const TEST_MODE: AppModeMeta = { viteMode: 'test', port: 5173, authMode: 'mock', releaseProofEligible: false };
@@ -94,5 +94,26 @@ describe('arePaymentsEnabledFor (fail-closed to LIVE)', () => {
     expect(arePaymentsEnabledFor('   ')).toBe(false);
     expect(arePaymentsEnabledFor(undefined)).toBe(false);
     expect(arePaymentsEnabledFor(null)).toBe(false);
+  });
+});
+
+describe('paymentsEnabled (fail-closed beta: explicit flag AND live key)', () => {
+  it('is enabled ONLY when explicitly enabled AND the key is live', () => {
+    expect(paymentsEnabled(true, 'pk_live_51Abc')).toBe(true);
+  });
+  it('a live key alone does NOT enable payments without the explicit flag', () => {
+    // This is the core P0.1 guarantee: a stray live publishable key in prod must fail closed.
+    expect(paymentsEnabled(false, 'pk_live_51Abc')).toBe(false);
+  });
+  it('the explicit flag alone does NOT enable payments without a live key', () => {
+    expect(paymentsEnabled(true, 'pk_test_51Abc')).toBe(false);
+    expect(paymentsEnabled(true, 'garbage')).toBe(false);
+    expect(paymentsEnabled(true, '')).toBe(false);
+    expect(paymentsEnabled(true, undefined)).toBe(false);
+    expect(paymentsEnabled(true, null)).toBe(false);
+  });
+  it('both off is disabled', () => {
+    expect(paymentsEnabled(false, undefined)).toBe(false);
+    expect(paymentsEnabled(false, 'pk_test_51Abc')).toBe(false);
   });
 });
