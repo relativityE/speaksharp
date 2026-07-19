@@ -68,7 +68,8 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only). See `vali
 |---|---|---|---|
 | `VITE_SUPABASE_URL` | **required** | A (committed) | Production Supabase project URL. |
 | `VITE_SUPABASE_ANON_KEY` | **required** | A (committed) | Public anon key (RLS-guarded). |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | optional | **B (Vercel only)** | Committed **empty** on purpose (fail-closed). Prod MUST inject `pk_live_…`; verify `window.__APP_RUNTIME_CONFIG__.stripeKeyClass === "live"`. |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | optional | **B (Vercel only)** | Committed **empty** on purpose (fail-closed). Prod MUST inject `pk_live_…`; verify `window.__APP_RUNTIME_CONFIG__.stripeKeyClass === "live"`. **Not sufficient alone** — also requires `VITE_PAYMENTS_ENABLED=true` (see below). |
+| `VITE_PAYMENTS_ENABLED` | optional | **B (Vercel only)** | **Explicit frontend payments kill-switch (P0.1). Default OFF.** `arePaymentsEnabled()` is true ONLY when this === `"true"` AND the publishable key is `pk_live_`. Beta = unset/false → checkout & Upgrade UI hidden even with a live key present. Mirrors backend `PAYMENTS_ENABLED`; **both** must be deliberately enabled to sell Pro. |
 | `VITE_SENTRY_DSN` | optional | A (committed) | Absent → error monitoring disabled. |
 | `VITE_POSTHOG_KEY` | optional | A (committed) | Analytics; absent → disabled. |
 | `VITE_POSTHOG_HOST` | optional | A (committed) | PostHog ingest host. |
@@ -102,6 +103,7 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `SUPABASE_URL` | C (auto) | all edge fns | platform |
 | `SUPABASE_ANON_KEY` | C (auto) | edge fns | platform (rolls with JWT secret) |
 | `SUPABASE_SERVICE_ROLE_KEY` | C (auto) | create-user, admin paths | product-ops |
+| `PAYMENTS_ENABLED` | Supabase Edge secret | stripe-checkout | **Explicit backend payments kill-switch (P0.1). Default OFF.** `stripe-checkout` returns `403 payments_disabled` (before any Stripe call) unless this === `"true"` AND `STRIPE_SECRET_KEY` is `sk_live_`. Mirrors frontend `VITE_PAYMENTS_ENABLED`; **both** frontend and backend must be deliberately enabled to sell Pro. |
 | `STRIPE_SECRET_KEY` | C (+D sync) | stripe-checkout, stripe-webhook | product-ops |
 | `STRIPE_WEBHOOK_SECRET` | C (+D sync) | stripe-webhook | product-ops |
 | `STRIPE_PRO_PRICE_ID` | C (+D sync) | checkout | product-ops |

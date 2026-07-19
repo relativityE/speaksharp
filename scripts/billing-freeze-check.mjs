@@ -5,8 +5,12 @@
 //   - no active/trialing/past_due/unpaid/incomplete subscriptions;
 //   - no open/draft (scheduled/unpaid) invoices;
 //   - no open checkout sessions.
+// It ALSO proves the DEPLOYED beta cannot initiate checkout (P0.1): one unauthenticated POST to the
+// stripe-checkout Edge Function must be refused before any Stripe call (403 payments_disabled = CLOSED;
+// any 2xx checkout URL = OPEN violation). This never creates a Checkout Session.
 //
-// SAFETY: this script issues Stripe **GET** requests ONLY. It never creates, updates, charges, refunds,
+// SAFETY: this script issues Stripe **GET** requests ONLY, plus one non-mutating checkout POST that the
+// server fail-closed guard rejects before touching Stripe. It never creates, updates, charges, refunds,
 // or cancels anything — no live charge is possible. Exit 0 = clean; 1 = violation(s) found; 2 = misconfig.
 //
 // Env:
@@ -53,6 +57,47 @@ async function stripeGet(pathname) {
   const res = await fetch(`${STRIPE}${pathname}`, { headers: { Authorization: `Bearer ${key}` } });
   if (!res.ok) throw new Error(`GET ${pathname} -> ${res.status}`);
   return res.json();
+}
+
+// ── Non-destructive deployed-checkout probe (P0.1) ─────────────────────────────
+// Proves the DEPLOYED beta cannot initiate checkout. Issues ONE UNAUTHENTICATED POST to the
+// stripe-checkout Edge Function. The fail-closed billing guard runs before any auth or Stripe API
+// call, so this can NEVER create a Checkout Session or risk a charge. Classification:
+//   - 2xx with a checkout URL   -> OPEN  (violation: checkout is initiable)
+//   - 403 payments_disabled     -> CLOSED (deployed guard confirmed)
+//   - any other non-2xx         -> not-open, guard-not-confirmed (warn; e.g. pre-guard-deploy auth gate)
+// Only the HTTP status + a short, token-redacted body snippet are recorded — never auth headers/secrets.
+async function probeCheckoutClosed() {
+  const base = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+  const anon = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!base || !anon) return { ran: false, classification: 'skipped', detail: 'SUPABASE_URL/ANON_KEY not set' };
+  try {
+    const res = await fetch(`${base}/functions/v1/stripe-checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: anon },
+      body: JSON.stringify({ plan: 'pro', probe: 'billing-freeze' }),
+    });
+    const status = res.status;
+    const snippet = (await res.text().catch(() => ''))
+      .slice(0, 200)
+      .replace(/sk_[a-z]+_[A-Za-z0-9]+/g, '[redacted]')
+      .replace(/eyJ[A-Za-z0-9._-]+/g, '[jwt]');
+    const opened = status >= 200 && status < 300 && /checkouturl/i.test(snippet);
+    const closed = status === 403 && /payments_disabled/i.test(snippet);
+    return {
+      ran: true,
+      status,
+      classification: opened ? 'OPEN' : closed ? 'CLOSED' : 'not-open-unconfirmed',
+      detail: opened
+        ? 'checkout endpoint returned a checkout URL — payments are OPEN'
+        : closed
+          ? '403 payments_disabled (deployed guard confirmed closed, before any Stripe call)'
+          : `endpoint rejected (status ${status}); guard-closed not confirmed (e.g. pre-deploy auth gate)`,
+      bodySnippet: snippet,
+    };
+  } catch (err) {
+    return { ran: true, classification: 'error', detail: sanitizeError(err.message ?? err) };
+  }
 }
 
 // The Checkout Sessions list API has NO email filter, and a session can be created
@@ -169,6 +214,15 @@ if (sessionsTruncated) {
   violations++;
 }
 
+// Non-destructive deployed-checkout probe: a beta that can initiate checkout is a hard violation.
+const checkout = await probeCheckoutClosed();
+if (checkout.classification === 'OPEN') {
+  console.error('BILLING_FREEZE_CHECK: the deployed checkout endpoint is OPEN — a beta tester could initiate checkout.');
+  violations++;
+} else if (checkout.classification === 'not-open-unconfirmed') {
+  console.warn(`BILLING_FREEZE_CHECK: checkout endpoint rejected (status ${checkout.status}) but payments_disabled not confirmed — verify the fail-closed guard is deployed.`);
+}
+
 const mode = key.startsWith('sk_live') ? 'LIVE' : 'test';
 
 // Sanitized audit report — masked emails only, no secrets/raw emails. Uniform per-account
@@ -178,6 +232,12 @@ const auditReport = {
   emailsAudited: emails.length,
   violations,
   sessionsTruncated,
+  checkoutEndpoint: {
+    ran: checkout.ran,
+    classification: checkout.classification,
+    ...(checkout.status !== undefined ? { status: checkout.status } : {}),
+    detail: checkout.detail,
+  },
   result: violations === 0 ? 'PASS' : 'FAIL',
   report: report.map((r) => ({
     email: r.email, // already masked (maskEmail)
