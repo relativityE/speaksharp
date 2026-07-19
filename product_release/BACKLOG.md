@@ -70,12 +70,6 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **Acceptance:** full matrix (Browser preview; Private sample→setup→capture→finalize→persist/detail/PDF equality; Cloud existing-Pro-only no-fallback; Free no-Cloud/no-checkout; existing-Pro Cloud works; Report Issue persists + sanitized alert); reconcile BACKLOG.md, RELEASE_STATUS.md, PRODUCT_FEATURES.operational.md, SOFT_RELEASE_TESTER_INSTRUCTIONS.md, UI copy/tests, telemetry docs.
 - **Priority:** P1.
 
-### P1.5 — Restore the automated Private **v4** model-pipeline smoke (test-infra)
-- **Evidence/root cause:** the smoke (`scripts/private-model-smoke.mjs`) tests the DORMANT Private **v4** stack (`@huggingface/transformers@4.2.0`), NOT production Private **v2** (`@xenova/transformers@2.17.2`). The v4 ESM bundle directly imports `Tensor` from `onnxruntime-common` but does **not declare it as a direct dependency**; three copies exist in the tree (1.14.0, a 1.24 prerelease, 1.24.3) and pnpm resolves the undeclared import to the hoisted **1.14.0** (CommonJS, inherited from the v2 Xenova stack) → `SyntaxError: Named export 'Tensor' not found`. All 5 runs since introduction (Jun 29 / Jul 6 / 13 / 16 / 19) failed in the exec step within the same second — **before** model download/init/inference/transcript. So it is a broken v4 smoke, never a Private-v2 product signal; production Private v2 evidence stays valid.
-- **Outcome:** the v4 smoke reliably exercises real model load/inference so v4 is verifiable before any activation; the workflow name reflects that it is v4-specific.
-- **Acceptance:** add a `packageExtensions` entry in `pnpm-workspace.yaml` mapping `@huggingface/transformers@4.2.0 → onnxruntime-common@1.24.3` (place the ESM 1.24.3 beside the package); regenerate the lockfile with repo-pinned pnpm 10.29.1; **do NOT use `createRequire()`** (it hides the import error but can mix the 1.14 `Tensor` with ONNX Runtime 1.24.3 — an unsound config); rename the workflow/output to "Private v4 model-pipeline smoke"; add a fast Node 22 import test before the expensive model download; rerun the full inference smoke to a PASS artifact; no production Private-v2 runtime change; exact-head CI/SCA green; remove this row when complete.
-- **Priority:** P1. Separate PR (not mixed into P0.2). Must be green before v4 activation or before citing it as Private regression coverage, and before the seven-item plan is declared complete.
-
 ---
 
 ## 4. Deferred P2 / P3
