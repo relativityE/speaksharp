@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { hasPaidProEntitlement, hasCloudSttEntitlement } from '@/constants/subscriptionTiers';
+import { hasPaidProEntitlement, hasCloudSttEntitlement, hasActivePrivateSample } from '@/constants/subscriptionTiers';
 import * as runtimeConfig from '@/config/appRuntimeConfig';
 
 // P0.1 regression — PROVING (not inferring) that fail-closed beta billing does NOT touch entitlement.
@@ -41,5 +41,33 @@ describe('P0.1 — entitlement is independent of the billing kill-switch', () =>
     const enabled = [hasCloudSttEntitlement(proProfile), hasCloudSttEntitlement(freeProfile)];
     expect(disabled).toEqual(enabled);
     expect(disabled).toEqual([true, false]);
+  });
+});
+
+describe('P0.1 — Private sample availability is independent of the billing kill-switch', () => {
+  const availableSample = { private_sample_available: true, private_sample_seconds_remaining: 120 };
+  const exhaustedBySeconds = { private_sample_available: true, private_sample_seconds_remaining: 0 };
+  const exhaustedByFlag = { private_sample_available: false, private_sample_seconds_remaining: 120 };
+
+  it('an available sample remains available with payments DISABLED', () => {
+    vi.spyOn(runtimeConfig, 'arePaymentsEnabled').mockReturnValue(false);
+    expect(hasActivePrivateSample(availableSample)).toBe(true);
+  });
+
+  it('an exhausted sample remains denied (no seconds, or server marks unavailable)', () => {
+    expect(hasActivePrivateSample(exhaustedBySeconds)).toBe(false);
+    expect(hasActivePrivateSample(exhaustedByFlag)).toBe(false);
+    expect(hasActivePrivateSample(null)).toBe(false);
+    expect(hasActivePrivateSample(undefined)).toBe(false);
+  });
+
+  it('enabling payments does not change sample availability/consumption state', () => {
+    vi.spyOn(runtimeConfig, 'arePaymentsEnabled').mockReturnValue(false);
+    const whenDisabled = [hasActivePrivateSample(availableSample), hasActivePrivateSample(exhaustedBySeconds)];
+    vi.restoreAllMocks();
+    vi.spyOn(runtimeConfig, 'arePaymentsEnabled').mockReturnValue(true);
+    const whenEnabled = [hasActivePrivateSample(availableSample), hasActivePrivateSample(exhaustedBySeconds)];
+    expect(whenDisabled).toEqual(whenEnabled);
+    expect(whenDisabled).toEqual([true, false]);
   });
 });

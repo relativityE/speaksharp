@@ -179,6 +179,8 @@ vi.mock('@/constants/subscriptionTiers', () => ({
     isActiveTrialProfile: vi.fn(() => false),
     hasPaidProEntitlement: vi.fn(() => false),
     hasCloudSttEntitlement: vi.fn(() => false),
+    hasActivePrivateSample: vi.fn((u: { private_sample_available?: boolean; private_sample_seconds_remaining?: number } | null | undefined) =>
+        u?.private_sample_available === true && Math.max(0, u?.private_sample_seconds_remaining ?? 0) > 0),
     getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'free'),
 }));
 
