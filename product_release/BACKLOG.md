@@ -70,6 +70,12 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **Acceptance:** full matrix (Browser preview; Private sample→setup→capture→finalize→persist/detail/PDF equality; Cloud existing-Pro-only no-fallback; Free no-Cloud/no-checkout; existing-Pro Cloud works; Report Issue persists + sanitized alert); reconcile BACKLOG.md, RELEASE_STATUS.md, PRODUCT_FEATURES.operational.md, SOFT_RELEASE_TESTER_INSTRUCTIONS.md, UI copy/tests, telemetry docs.
 - **Priority:** P1.
 
+### P1.5 — Restore the automated Private model smoke (test-infra)
+- **Gap:** `Private model-pipeline smoke (automated)` (`scripts/private-model-smoke.mjs`) fails at Node module load — `SyntaxError: Named export 'Tensor' not found` from `onnxruntime-common` (CommonJS) via `@huggingface/transformers`. Pre-existing (red on prior SHAs), a test-harness ESM/CJS boundary issue — **not** a deployed Private product regression (P0.1/#995 changed nothing here).
+- **Outcome:** the smoke reliably exercises real Private model load/inference again so Private regressions are caught automatically.
+- **Acceptance:** fix the Node ESM/CJS loading boundary **without changing production Private runtime behavior**; the smoke reaches actual model load/inference and its fixture-transcript assertion runs; no production bundle/runtime dependency change unless separately reviewed; exact-head CI/SCA green; remove this row when complete.
+- **Priority:** P1. Fix in a separate PR (not mixed into P0.2); no later than item 6's regression reconciliation, and green before the seven-item plan is declared complete.
+
 ---
 
 ## 4. Deferred P2 / P3
