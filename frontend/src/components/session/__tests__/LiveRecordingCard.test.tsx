@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '../../../../tests/support/test-utils';
+import { within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { LiveRecordingCard } from '../LiveRecordingCard';
 import { TEST_IDS } from '@/constants/testIds';
@@ -112,10 +113,11 @@ describe('LiveRecordingCard', () => {
 
         // Short cue visible; the explanatory detail lives behind accessible help.
         expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Ready on this device');
-        expect(screen.queryByText(/Runs locally on your device/i)).toBeNull();
+        expect(screen.queryByText(/main beta experience/i)).toBeNull();
         fireEvent.click(screen.getByTestId('stt-mode-help'));
-        expect(screen.getByText(/Runs locally on your device/i)).toBeInTheDocument();
-        expect(screen.getByText(/Best for privacy/i)).toBeInTheDocument();
+        // Private is framed as the main beta experience (not privacy-only).
+        expect(screen.getByText(/main beta experience/i)).toBeInTheDocument();
+        expect(screen.getByText(/transcribed locally and never uploaded/i)).toBeInTheDocument();
 
         // The dropdown option reveals its approved description on hover / keyboard focus.
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
@@ -261,8 +263,8 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT with a short cue and moves the explanation into help', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        // Short cue visible; the old long paragraph is NOT default-visible.
-        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Browser provider');
+        // Short cue visible; "Browser provider" is gone — Browser is framed as a Quick preview.
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Quick preview');
         expect(screen.queryByText(/Starts instantly with your browser's speech recognition/i)).toBeNull();
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
@@ -280,7 +282,7 @@ describe('LiveRecordingCard', () => {
     it('shows the approved privacy CTA on the Browser path and the sample detail in help', () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
-        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Want more privacy? Set up Private');
+        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try Private — the main beta experience');
         // The sample detail is not a default-visible paragraph.
         expect(screen.queryByText(/up to 5 minutes per recording during beta/i)).toBeNull();
         fireEvent.click(screen.getByTestId('stt-mode-help'));
@@ -372,20 +374,28 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/Cloud is available for Pro users/i)).toBeInTheDocument();
     });
 
-    it('keeps the approved dropdown labels and order: Cloud, Browser, 🔒 Private', async () => {
+    it('uses the Private-first dropdown order and tags: Private (Recommended), Browser (Quick preview), Cloud (Pro)', async () => {
         render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
-        const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
-        const browser = await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
         const priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        const browser = await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
+        const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
 
-        expect(cloud).toHaveTextContent('Cloud');
-        expect(browser).toHaveTextContent('Browser');
         expect(priv).toHaveTextContent('Private');
-        // Approved order: Cloud before Browser before Private.
-        expect(cloud.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        expect(browser.compareDocumentPosition(priv) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(browser).toHaveTextContent('Browser');
+        expect(cloud).toHaveTextContent('Cloud');
+
+        // ONLY Private carries the Recommended tag; Browser = Quick preview; Cloud = Pro.
+        expect(within(priv).getByTestId('stt-mode-tag-recommended')).toBeInTheDocument();
+        expect(within(browser).getByTestId('stt-mode-tag-quick-preview')).toBeInTheDocument();
+        expect(within(cloud).getByTestId('stt-mode-tag-pro')).toBeInTheDocument();
+        expect(within(browser).queryByTestId('stt-mode-tag-recommended')).toBeNull();
+        expect(within(cloud).queryByTestId('stt-mode-tag-recommended')).toBeNull();
+
+        // Private-first order: Private before Browser before Cloud.
+        expect(priv.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(browser.compareDocumentPosition(cloud) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('reveals each STT mode description in the dropdown (hover / keyboard focus)', async () => {

@@ -270,11 +270,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             );
         } else {
             sttCue = 'Ready on this device';
-            sttHelp = <p>Runs locally on your device when supported. Best for privacy.</p>;
+            sttHelp = <p>The main beta experience — runs on your device; your audio is transcribed locally and never uploaded.</p>;
         }
     } else {
-        // native / Browser
-        sttCue = 'Browser provider';
+        // native / Browser — a quick preview of the coaching flow, not the main experience.
+        sttCue = 'Quick preview';
         sttHelp = (
             <div className="space-y-1.5">
                 <p>Uses your browser&apos;s speech service. Audio may be processed by the browser provider.</p>
@@ -311,7 +311,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </HelpPopover>
                             </div>
 
-                            {/* Browser path: privacy upsell that switches to Private (detail in help). */}
+                            {/* Browser (Quick preview) → the one transition to Private, the main beta
+                                experience. Single CTA (suppressed after a Browser save to avoid duplication). */}
                             {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && !suppressPrivateNudge && (
                                 <button
                                     type="button"
@@ -319,7 +320,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     className="mt-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
                                     data-testid="first-run-setup-private"
                                 >
-                                    Want more privacy? Set up Private
+                                    Try Private — the main beta experience
                                 </button>
                             )}
 
@@ -348,34 +349,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 overflow-visible">
-                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. Rows stay one-line;
-                                hovering or keyboard-focusing a row shows a small neutral tooltip bubble
-                                beside it. No accent-green / brand highlight — neutral system styling. */}
+                            {/* Private-first hierarchy (P0.2): order Private (Recommended) → Browser
+                                (Quick preview) → Cloud (Pro). ONLY Private carries the Recommended tag.
+                                Rows stay one-line; hover/keyboard-focus reveals a small neutral tooltip. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
-                                <DropdownMenuRadioItem
-                                    value="cloud"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
-                                    data-testid={TEST_IDS.STT_MODE_CLOUD}
-                                    disabled={!canUseCloudStt}
-                                >
-                                    <span className="flex items-center gap-1.5">
-                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                                        Cloud
-                                    </span>
-                                    <span role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
-                                        {cloudOptionDesc}
-                                    </span>
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
-                                    value="native"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
-                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                >
-                                    <span>Browser</span>
-                                    <span role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
-                                        {nativeOptionDesc}
-                                    </span>
-                                </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
                                     className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
@@ -385,9 +362,38 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex items-center gap-1.5">
                                         <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                                         Private
+                                        <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
                                     </span>
                                     <span role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
                                         {privateOptionDesc}
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="native"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        Browser
+                                        <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
+                                    </span>
+                                    <span role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
+                                        {nativeOptionDesc}
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="cloud"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_CLOUD}
+                                    disabled={!canUseCloudStt}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Cloud
+                                        <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
+                                    </span>
+                                    <span role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
+                                        {cloudOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
