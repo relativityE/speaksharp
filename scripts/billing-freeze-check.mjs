@@ -5,8 +5,12 @@
 //   - no active/trialing/past_due/unpaid/incomplete subscriptions;
 //   - no open/draft (scheduled/unpaid) invoices;
 //   - no open checkout sessions.
+// It ALSO proves the DEPLOYED beta cannot initiate checkout (P0.1): one unauthenticated POST to the
+// stripe-checkout Edge Function must be refused before any Stripe call (403 payments_disabled = CLOSED;
+// any 2xx checkout URL = OPEN violation). This never creates a Checkout Session.
 //
-// SAFETY: this script issues Stripe **GET** requests ONLY. It never creates, updates, charges, refunds,
+// SAFETY: this script issues Stripe **GET** requests ONLY, plus one non-mutating checkout POST that the
+// server fail-closed guard rejects before touching Stripe. It never creates, updates, charges, refunds,
 // or cancels anything — no live charge is possible. Exit 0 = clean; 1 = violation(s) found; 2 = misconfig.
 //
 // Env:
@@ -15,6 +19,7 @@
 //   PRO_TEST_EMAIL / CHECKOUT_TEST_EMAIL / BASIC_TEST_EMAIL   fallbacks if BILLING_FREEZE_EMAILS is unset.
 
 import { writeFileSync, appendFileSync } from 'node:fs';
+import { probeCheckoutClosed, CHECKOUT_PROBE } from './lib/checkout-probe.mjs';
 
 const STRIPE = 'https://api.stripe.com/v1';
 const key = process.env.STRIPE_SECRET_KEY;
@@ -54,6 +59,9 @@ async function stripeGet(pathname) {
   if (!res.ok) throw new Error(`GET ${pathname} -> ${res.status}`);
   return res.json();
 }
+
+// Non-destructive deployed-checkout probe (P0.1) — see scripts/lib/checkout-probe.mjs. Fail-closed:
+// ONLY a confirmed 403 payments_disabled passes the checkout-closure gate.
 
 // The Checkout Sessions list API has NO email filter, and a session can be created
 // with only `customer_email` (no Stripe customer yet) — an abandoned first-time QA
@@ -169,6 +177,24 @@ if (sessionsTruncated) {
   violations++;
 }
 
+// Non-destructive deployed-checkout probe — FAIL CLOSED. Only a confirmed CLOSED (403 payments_disabled)
+// may pass; missing config is NOT RUNNABLE (exit 2); every other outcome fails the freeze.
+const checkout = await probeCheckoutClosed({
+  baseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+  anonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY,
+  sanitizeError,
+});
+if (checkout.classification === CHECKOUT_PROBE.NOT_RUNNABLE) {
+  console.error('BILLING_FREEZE_CHECK: checkout probe NOT RUNNABLE — set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  process.exit(2);
+}
+if (checkout.classification !== CHECKOUT_PROBE.CLOSED) {
+  console.error(
+    `BILLING_FREEZE_CHECK: deployed checkout NOT confirmed closed (classification=${checkout.classification}). ${checkout.detail}`,
+  );
+  violations++;
+}
+
 const mode = key.startsWith('sk_live') ? 'LIVE' : 'test';
 
 // Sanitized audit report — masked emails only, no secrets/raw emails. Uniform per-account
@@ -178,6 +204,11 @@ const auditReport = {
   emailsAudited: emails.length,
   violations,
   sessionsTruncated,
+  checkoutEndpoint: {
+    classification: checkout.classification, // PASS requires this === 'CLOSED'
+    ...(checkout.status !== undefined ? { status: checkout.status } : {}),
+    detail: checkout.detail,
+  },
   result: violations === 0 ? 'PASS' : 'FAIL',
   report: report.map((r) => ({
     email: r.email, // already masked (maskEmail)
@@ -231,6 +262,6 @@ if (summaryPath) {
 
 console.log(`BILLING_FREEZE_CHECK ${JSON.stringify(auditReport, null, 2)}`);
 console.log(violations === 0
-  ? 'BILLING_FREEZE_CHECK: PASS — no active subscriptions / open invoices / open checkout sessions for audited accounts.'
-  : `BILLING_FREEZE_CHECK: FAIL — ${violations} account(s) have live billing artifacts. Investigate before GO.`);
+  ? 'BILLING_FREEZE_CHECK: PASS — Stripe freeze clean AND deployed checkout confirmed CLOSED (403 payments_disabled).'
+  : `BILLING_FREEZE_CHECK: FAIL — ${violations} issue(s) (Stripe billing artifacts and/or checkout not confirmed closed). Investigate before GO.`);
 process.exit(violations === 0 ? 0 : 1);

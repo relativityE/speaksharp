@@ -60,6 +60,22 @@ export function hasCloudSttEntitlement(profile: TierProfile): boolean {
     return hasPaidProEntitlement(profile);
 }
 
+type SampleUsageLimit = {
+    private_sample_available?: boolean;
+    private_sample_seconds_remaining?: number;
+} | null | undefined;
+
+/**
+ * Private-sample entitlement — server-driven (check_usage_limit): a free user has an ACTIVE Private
+ * sample when the server marks it available AND seconds remain. Pure w.r.t. billing: it never reads the
+ * payments kill-switch (arePaymentsEnabled), so fail-closed beta billing cannot change whether the
+ * sample is available or consumed. Exhausted (no seconds / not available) => denied.
+ */
+export function hasActivePrivateSample(usageLimit: SampleUsageLimit): boolean {
+    const remaining = Math.max(0, usageLimit?.private_sample_seconds_remaining ?? 0);
+    return usageLimit?.private_sample_available === true && remaining > 0;
+}
+
 export function getEffectiveSubscriptionStatus(
     usageLimitStatus?: string | null,
     profile?: TierProfile

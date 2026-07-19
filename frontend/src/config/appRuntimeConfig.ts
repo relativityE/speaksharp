@@ -51,9 +51,31 @@ export function arePaymentsEnabledFor(key: string | undefined | null): boolean {
   return classifyStripeKey(key) === 'live';
 }
 
-/** Runtime convenience wrapper reading the live Stripe publishable key. */
+/**
+ * Explicit beta billing kill-switch, defaulting OFF. A live Stripe publishable key must NOT, on its
+ * own, enable checkout: payments require a deliberate `VITE_PAYMENTS_ENABLED=true` in addition to a
+ * valid live key. This makes the no-billing beta fail closed even if a live key is present in prod.
+ */
+export function isPaymentsExplicitlyEnabled(): boolean {
+  return (import.meta.env.VITE_PAYMENTS_ENABLED as string | undefined) === 'true';
+}
+
+/**
+ * Pure, testable: public payment/checkout surfaces are enabled ONLY when BOTH conditions hold —
+ * payments are explicitly enabled AND the Stripe publishable key classifies as `live`. Anything
+ * else (flag off, missing/test/unknown key) is disabled. Frontend hiding is not the security
+ * boundary; the `stripe-checkout` edge function enforces the same rule server-side.
+ */
+export function paymentsEnabled(explicitlyEnabled: boolean, key: string | undefined | null): boolean {
+  return explicitlyEnabled === true && arePaymentsEnabledFor(key);
+}
+
+/** Runtime convenience wrapper: explicit enablement flag AND a live publishable key. */
 export function arePaymentsEnabled(): boolean {
-  return arePaymentsEnabledFor(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
+  return paymentsEnabled(
+    isPaymentsExplicitlyEnabled(),
+    import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
+  );
 }
 
 export interface AppRuntimeConfig {

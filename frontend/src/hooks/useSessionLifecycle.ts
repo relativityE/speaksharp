@@ -14,7 +14,7 @@ import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
-import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasActivePrivateSample, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
@@ -72,8 +72,7 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    const privateSampleRemainingSeconds = Math.max(0, usageLimit?.private_sample_seconds_remaining ?? 0);
-    const hasPrivateSampleEntitlement = usageLimit?.private_sample_available === true && privateSampleRemainingSeconds > 0;
+    const hasPrivateSampleEntitlement = hasActivePrivateSample(usageLimit);
     const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
     const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
     const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;

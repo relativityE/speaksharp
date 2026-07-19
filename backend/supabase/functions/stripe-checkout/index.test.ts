@@ -12,15 +12,34 @@ function request(plan?: string) {
   });
 }
 
+// Baseline env for the ENABLED path: payments explicitly on + a LIVE secret key. Both are required by
+// the fail-closed beta guard before any checkout logic runs.
 const env = (key: string) => {
   const values: Record<string, string> = {
+    PAYMENTS_ENABLED: "true",
     SUPABASE_URL: "https://example.supabase.co",
     SUPABASE_ANON_KEY: "anon-key",
-    STRIPE_SECRET_KEY: "stripe-secret",
+    STRIPE_SECRET_KEY: "sk_live_testsecret",
     STRIPE_PRO_PRICE_ID: "price_1TbnH175Lp2WYe28RTatJout",
     SITE_URL: "https://speaksharp-public.vercel.app",
   };
   return values[key];
+};
+
+/** Build an env getter overriding the enabled baseline (e.g. to disable payments or use a test key). */
+const envWith = (overrides: Record<string, string | undefined>) => (key: string) => {
+  if (key in overrides) return overrides[key];
+  return env(key);
+};
+
+const neverCallStripe = () => {
+  let called = false;
+  return {
+    called: () => called,
+    client: {
+      checkout: { sessions: { create: async () => { called = true; return { id: "cs_unexpected", url: "x" }; } } },
+    },
+  };
 };
 
 const createSupabase = (stripeCustomerId: string | null = null, profileError: unknown = null) => () =>
@@ -172,5 +191,45 @@ Deno.test("stripe-checkout edge function", async (t) => {
     assertEquals(res.status, 500);
     assertEquals(json.error.code, "DATABASE_ERROR");
     assertEquals(stripeCalled, false);
+  });
+
+  await t.step("fails closed with 403 when payments are not explicitly enabled (no checkout created)", async () => {
+    const stripe = neverCallStripe();
+    const res = await handler(request("pro"), {
+      getEnv: envWith({ PAYMENTS_ENABLED: undefined }),
+      createSupabase: createSupabase(),
+      stripeClient: stripe.client,
+    });
+    const json = await res.json();
+    assertEquals(res.status, 403);
+    assertEquals(json.error.code, "payments_disabled");
+    assertEquals(json.error.message, "Pro enrollment is not open during this beta.");
+    assertEquals(stripe.called(), false);
+  });
+
+  await t.step("fails closed with 403 when the Stripe secret key is not a live key", async () => {
+    const stripe = neverCallStripe();
+    const res = await handler(request("pro"), {
+      getEnv: envWith({ STRIPE_SECRET_KEY: "sk_test_notlive" }),
+      createSupabase: createSupabase(),
+      stripeClient: stripe.client,
+    });
+    const json = await res.json();
+    assertEquals(res.status, 403);
+    assertEquals(json.error.code, "payments_disabled");
+    assertEquals(stripe.called(), false);
+  });
+
+  await t.step("fails closed with 403 when payments enabled but no secret key present", async () => {
+    const stripe = neverCallStripe();
+    const res = await handler(request("pro"), {
+      getEnv: envWith({ STRIPE_SECRET_KEY: undefined }),
+      createSupabase: createSupabase(),
+      stripeClient: stripe.client,
+    });
+    const json = await res.json();
+    assertEquals(res.status, 403);
+    assertEquals(json.error.code, "payments_disabled");
+    assertEquals(stripe.called(), false);
   });
 });

@@ -85,6 +85,25 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     return new Response("ok", { headers: responseHeaders })
   }
 
+  // Fail-closed beta billing (authoritative server guard — frontend hiding is not sufficient).
+  // Checkout is refused unless BOTH: payments are explicitly enabled AND a LIVE Stripe secret key is
+  // configured. Defaults to closed, so a stray live publishable key alone can never open checkout.
+  // This does NOT touch existing entitlements: it only refuses to CREATE new checkout sessions.
+  {
+    const paymentsExplicitlyEnabled = getEnv("PAYMENTS_ENABLED") === "true";
+    const secretKey = getEnv("STRIPE_SECRET_KEY");
+    const hasLiveSecret = typeof secretKey === "string" && secretKey.startsWith("sk_live_");
+    if (!paymentsExplicitlyEnabled || !hasLiveSecret) {
+      console.warn("[Stripe Checkout] ⛔ payments disabled — refusing checkout (fail-closed beta)");
+      return createErrorResponse(
+        ErrorCodes.PAYMENTS_DISABLED,
+        "Pro enrollment is not open during this beta.",
+        responseHeaders,
+        { paymentsEnabled: false },
+      );
+    }
+  }
+
   try {
     // DIAGNOSTIC LOGGING
     console.log('[Stripe Checkout] 🔍 Starting request processing');

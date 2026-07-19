@@ -307,10 +307,14 @@ if (typeof window !== 'undefined') {
     // Mock environment variables for consistent testing
     vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon-key');
-    // Fake LIVE-class key (format-only) so component tests exercise the payments-ENABLED
-    // UI path under the live-only gate (arePaymentsEnabledFor). The test/missing -> hidden
-    // behavior is asserted deterministically in appRuntimeConfig.test.ts.
+    // Fail-closed beta DEFAULT (P0.1): a fake LIVE-class key is present (format-only) but the explicit
+    // payments-enabled flag is OFF, so arePaymentsEnabled() is FALSE by default — exactly the deployed
+    // beta posture (live key present, checkout closed). This is deliberate: the broad suite must FAIL if
+    // a new Upgrade control ever renders without checking arePaymentsEnabled(). Tests that exercise the
+    // ENABLED paid-enrollment state opt in LOCALLY via tests/support/payments.ts (enablePaymentsForTest),
+    // and the global afterEach below resets both flags so no test can leak an enabled state.
     vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_live_FAKE_FOR_TESTS');
+    vi.stubEnv('VITE_PAYMENTS_ENABLED', 'false');
     vi.stubEnv('VITE_DEV_PREMIUM_ACCESS', 'false');
     // crypto.randomUUID polyfill (JSDOM requirement)
     if (typeof crypto === 'undefined' || !crypto.randomUUID) {
@@ -412,6 +416,11 @@ afterEach(async () => {
     // 3. Clear all mock calls/state
     vi.clearAllMocks();
     vi.clearAllTimers();
+
+    // 3b. Reset the P0.1 payment flags to the fail-closed beta default so a test that opted into the
+    // payments-ENABLED state (enablePaymentsForTest) can never leak that flag into a later test.
+    vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_live_FAKE_FOR_TESTS');
+    vi.stubEnv('VITE_PAYMENTS_ENABLED', 'false');
 
     // Reset DOM state safely
     if (typeof document !== 'undefined') {
