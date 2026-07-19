@@ -19,6 +19,7 @@
 //   PRO_TEST_EMAIL / CHECKOUT_TEST_EMAIL / BASIC_TEST_EMAIL   fallbacks if BILLING_FREEZE_EMAILS is unset.
 
 import { writeFileSync, appendFileSync } from 'node:fs';
+import { probeCheckoutClosed, CHECKOUT_PROBE } from './lib/checkout-probe.mjs';
 
 const STRIPE = 'https://api.stripe.com/v1';
 const key = process.env.STRIPE_SECRET_KEY;
@@ -59,46 +60,8 @@ async function stripeGet(pathname) {
   return res.json();
 }
 
-// ── Non-destructive deployed-checkout probe (P0.1) ─────────────────────────────
-// Proves the DEPLOYED beta cannot initiate checkout. Issues ONE UNAUTHENTICATED POST to the
-// stripe-checkout Edge Function. The fail-closed billing guard runs before any auth or Stripe API
-// call, so this can NEVER create a Checkout Session or risk a charge. Classification:
-//   - 2xx with a checkout URL   -> OPEN  (violation: checkout is initiable)
-//   - 403 payments_disabled     -> CLOSED (deployed guard confirmed)
-//   - any other non-2xx         -> not-open, guard-not-confirmed (warn; e.g. pre-guard-deploy auth gate)
-// Only the HTTP status + a short, token-redacted body snippet are recorded — never auth headers/secrets.
-async function probeCheckoutClosed() {
-  const base = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-  const anon = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!base || !anon) return { ran: false, classification: 'skipped', detail: 'SUPABASE_URL/ANON_KEY not set' };
-  try {
-    const res = await fetch(`${base}/functions/v1/stripe-checkout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: anon },
-      body: JSON.stringify({ plan: 'pro', probe: 'billing-freeze' }),
-    });
-    const status = res.status;
-    const snippet = (await res.text().catch(() => ''))
-      .slice(0, 200)
-      .replace(/sk_[a-z]+_[A-Za-z0-9]+/g, '[redacted]')
-      .replace(/eyJ[A-Za-z0-9._-]+/g, '[jwt]');
-    const opened = status >= 200 && status < 300 && /checkouturl/i.test(snippet);
-    const closed = status === 403 && /payments_disabled/i.test(snippet);
-    return {
-      ran: true,
-      status,
-      classification: opened ? 'OPEN' : closed ? 'CLOSED' : 'not-open-unconfirmed',
-      detail: opened
-        ? 'checkout endpoint returned a checkout URL — payments are OPEN'
-        : closed
-          ? '403 payments_disabled (deployed guard confirmed closed, before any Stripe call)'
-          : `endpoint rejected (status ${status}); guard-closed not confirmed (e.g. pre-deploy auth gate)`,
-      bodySnippet: snippet,
-    };
-  } catch (err) {
-    return { ran: true, classification: 'error', detail: sanitizeError(err.message ?? err) };
-  }
-}
+// Non-destructive deployed-checkout probe (P0.1) — see scripts/lib/checkout-probe.mjs. Fail-closed:
+// ONLY a confirmed 403 payments_disabled passes the checkout-closure gate.
 
 // The Checkout Sessions list API has NO email filter, and a session can be created
 // with only `customer_email` (no Stripe customer yet) — an abandoned first-time QA
@@ -214,13 +177,22 @@ if (sessionsTruncated) {
   violations++;
 }
 
-// Non-destructive deployed-checkout probe: a beta that can initiate checkout is a hard violation.
-const checkout = await probeCheckoutClosed();
-if (checkout.classification === 'OPEN') {
-  console.error('BILLING_FREEZE_CHECK: the deployed checkout endpoint is OPEN — a beta tester could initiate checkout.');
+// Non-destructive deployed-checkout probe — FAIL CLOSED. Only a confirmed CLOSED (403 payments_disabled)
+// may pass; missing config is NOT RUNNABLE (exit 2); every other outcome fails the freeze.
+const checkout = await probeCheckoutClosed({
+  baseUrl: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+  anonKey: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY,
+  sanitizeError,
+});
+if (checkout.classification === CHECKOUT_PROBE.NOT_RUNNABLE) {
+  console.error('BILLING_FREEZE_CHECK: checkout probe NOT RUNNABLE — set SUPABASE_URL and SUPABASE_ANON_KEY.');
+  process.exit(2);
+}
+if (checkout.classification !== CHECKOUT_PROBE.CLOSED) {
+  console.error(
+    `BILLING_FREEZE_CHECK: deployed checkout NOT confirmed closed (classification=${checkout.classification}). ${checkout.detail}`,
+  );
   violations++;
-} else if (checkout.classification === 'not-open-unconfirmed') {
-  console.warn(`BILLING_FREEZE_CHECK: checkout endpoint rejected (status ${checkout.status}) but payments_disabled not confirmed — verify the fail-closed guard is deployed.`);
 }
 
 const mode = key.startsWith('sk_live') ? 'LIVE' : 'test';
@@ -233,8 +205,7 @@ const auditReport = {
   violations,
   sessionsTruncated,
   checkoutEndpoint: {
-    ran: checkout.ran,
-    classification: checkout.classification,
+    classification: checkout.classification, // PASS requires this === 'CLOSED'
     ...(checkout.status !== undefined ? { status: checkout.status } : {}),
     detail: checkout.detail,
   },
@@ -291,6 +262,6 @@ if (summaryPath) {
 
 console.log(`BILLING_FREEZE_CHECK ${JSON.stringify(auditReport, null, 2)}`);
 console.log(violations === 0
-  ? 'BILLING_FREEZE_CHECK: PASS — no active subscriptions / open invoices / open checkout sessions for audited accounts.'
-  : `BILLING_FREEZE_CHECK: FAIL — ${violations} account(s) have live billing artifacts. Investigate before GO.`);
+  ? 'BILLING_FREEZE_CHECK: PASS — Stripe freeze clean AND deployed checkout confirmed CLOSED (403 payments_disabled).'
+  : `BILLING_FREEZE_CHECK: FAIL — ${violations} issue(s) (Stripe billing artifacts and/or checkout not confirmed closed). Investigate before GO.`);
 process.exit(violations === 0 ? 0 : 1);
