@@ -78,6 +78,7 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **P2 — Recording lease / no-concurrent-recording reliability epic** (was #794; single-session recording ownership).
 - **P2 — Dormant v4 Private STT activation epic** (converged, activation-gated; not launched; device-adaptive WebGPU path).
 - **P2 — Paid Stripe operations epic** (refund/cancel admin tooling, billing-portal, identity persistence; post-launch product-ops).
+- **P2 — Pro-interest capture epic** — outcome: measure Pro demand without enabling billing. While payments are off, replace the beta-unavailable notice with a durable in-app "Notify me when Pro opens" CTA at natural value moments (Private sample consumed, locked Cloud selected, usage/history limits); sanitized interest telemetry only (no transcript/audio/PII). Acceptance: interest capture works with payments disabled, emits no `checkout_started`, and swaps to the real Upgrade CTA only when payments are enabled. Aligns with PRODUCT_FEATURES.operational.md "Upgrade / Conversion Funnel" + "Free-To-Pro Upgrade Support".
 - **P2 — MFA / auth hardening security epic** (account-recovery + MFA; not in initial release).
 - **P2 — Private performance epic** (reduce Private setup + ~90s finalization wait; segmented/streaming/multithread/v4 paths).
 - **P2 — Dependency / bloat maintenance epic** (Browserslist refresh, ORT WASM duplication, large-chunk code-splitting).
