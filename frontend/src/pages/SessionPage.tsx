@@ -149,7 +149,6 @@ export const SessionPage: React.FC = () => {
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
         : null;
     // After a saved Native session, the status-bar Private CTA replaces the Browser-card nudge — never both.
-    const suppressBrowserCardPrivateNudge = postSaveReady && mode === 'native' && canUsePrivateStt;
 
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
@@ -298,7 +297,6 @@ export const SessionPage: React.FC = () => {
                         <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
-                                    suppressPrivateNudge={suppressBrowserCardPrivateNudge}
                                     mode={mode || 'native'}
                                     isListening={isListening}
                                     isReady={isReady}

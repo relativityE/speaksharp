@@ -263,7 +263,7 @@ describe('StatusNotificationBar', () => {
             const onSelect = vi.fn();
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} privateCta={{ onSelect }} />);
             const cta = screen.getByTestId('post-save-private-cta');
-            expect(cta).toHaveTextContent('Set up Private for cleaner local transcription');
+            expect(cta).toHaveTextContent('Try Private — the main beta experience');
             fireEvent.click(cta);
             expect(onSelect).toHaveBeenCalledTimes(1);
         });

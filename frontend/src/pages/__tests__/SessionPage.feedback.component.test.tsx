@@ -69,7 +69,7 @@ vi.mock('@/components/session/StatusNotificationBar', () => ({
             {/* Consolidated post-save actions now live inside the ONE status bar. */}
             {privateCta && (
                 <button data-testid="post-save-private-cta" onClick={() => privateCta.onSelect()}>
-                    Set up Private for cleaner local transcription
+                    Try Private — the main beta experience
                 </button>
             )}
             {analyticsAction && (

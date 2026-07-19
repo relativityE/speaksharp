@@ -268,10 +268,11 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByText(/Starts instantly with your browser's speech recognition/i)).toBeNull();
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
-        // The explanation is available through help.
+        // The explanation is available through help: Browser = quick preview, with the
+        // punctuation/filler expectation set.
         fireEvent.click(screen.getByTestId('stt-mode-help'));
-        expect(screen.getByText(/browser.s speech service/i)).toBeInTheDocument();
-        expect(screen.getByText(/processed by the browser provider/i)).toBeInTheDocument();
+        expect(screen.getByText(/quick preview of the coaching flow/i)).toBeInTheDocument();
+        expect(screen.getByText(/may miss some punctuation and filler words/i)).toBeInTheDocument();
 
         // The dropdown option reveals its approved description on hover / keyboard focus.
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
@@ -279,15 +280,18 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByTestId('stt-desc-native')).toHaveTextContent(/Uses your browser.s speech service/i);
     });
 
-    it('shows the approved privacy CTA on the Browser path and the sample detail in help', () => {
+    it('shows NO pre-save Browser card CTA; the Private sample detail lives in help (P0.2 single post-save transition)', () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} isPaidProUser={false} canUseCloudStt={false} />);
 
-        expect(screen.getByTestId('first-run-setup-private')).toHaveTextContent('Try Private — the main beta experience');
+        // The single Browser→Private transition is post-save (status bar), so there is NO pre-save card CTA.
+        expect(screen.queryByTestId('first-run-setup-private')).toBeNull();
         // The sample detail is not a default-visible paragraph.
         expect(screen.queryByText(/up to 5 minutes per recording during beta/i)).toBeNull();
         fireEvent.click(screen.getByTestId('stt-mode-help'));
         expect(screen.getByText(/up to 5 minutes per recording during beta/i)).toBeInTheDocument();
-        expect(screen.getByText(/compare it with Browser transcription/i)).toBeInTheDocument();
+        // Private framed as the recommended main experience — no "compare it with Browser".
+        expect(screen.getByText(/recommended main experience/i)).toBeInTheDocument();
+        expect(screen.queryByText(/compare it with Browser/i)).toBeNull();
     });
 
     it('explains why Private is unavailable after the sample is unavailable', async () => {

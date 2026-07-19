@@ -45,9 +45,6 @@ interface LiveRecordingCardProps {
     privateModelStatus?: string;
     recordingIntent?: boolean; // explicit user intent to record
     isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
-    // Suppress the Browser-card "Want more privacy? Set up Private" nudge — set after a saved Native
-    // session, when the consolidated status bar shows the Private CTA instead (never both visible).
-    suppressPrivateNudge?: boolean;
     className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -85,7 +82,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     canUsePrivate,
-    suppressPrivateNudge = false,
     isPaidProUser = canUsePrivate,
     canUseCloudStt = canUsePrivate,
     statusMessage: _statusMessage,
@@ -233,7 +229,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const privateModeDescription = isPaidProUser
         ? `Private transcription runs on your device after setup — audio processing stays local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
         : canUsePrivate
-            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Local transcription so you can compare it with Browser transcription.`
+            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Private is the recommended main experience: transcription runs on your device and stays local.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
     const cloudModeDescription = canUseCloudStt
         ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
@@ -244,7 +240,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const cloudOptionDesc = canUseCloudStt
         ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
         : cloudModeDescription;
-    const nativeOptionDesc = "Uses your browser's speech service. Audio may be processed by the browser provider.";
+    const nativeOptionDesc = "A quick preview — uses your browser's speech service; the transcript may miss some punctuation and filler words.";
     const privateOptionDesc = canUsePrivate
         ? 'Private runs on your device after a one-time setup. Audio stays local.'
         : privateModeDescription;
@@ -277,10 +273,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         sttCue = 'Quick preview';
         sttHelp = (
             <div className="space-y-1.5">
-                <p>Uses your browser&apos;s speech service. Audio may be processed by the browser provider.</p>
+                <p>A quick preview of the coaching flow. Uses your browser&apos;s speech service; the transcript may miss some punctuation and filler words.</p>
                 {hasPrivateSampleAccess && (
                     <p className="text-foreground/60">
-                        {`Try one Private sample session — up to ${privateCapLabel} per recording during beta, with local transcription so you can compare it with Browser transcription.`}
+                        {`Private is the recommended main experience — try one Private sample session (up to ${privateCapLabel} per recording during beta), transcribed on your device.`}
                     </p>
                 )}
             </div>
@@ -311,18 +307,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </HelpPopover>
                             </div>
 
-                            {/* Browser (Quick preview) → the one transition to Private, the main beta
-                                experience. Single CTA (suppressed after a Browser save to avoid duplication). */}
-                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && !suppressPrivateNudge && (
-                                <button
-                                    type="button"
-                                    onClick={() => handleModeChange('private')}
-                                    className="mt-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
-                                    data-testid="first-run-setup-private"
-                                >
-                                    Try Private — the main beta experience
-                                </button>
-                            )}
+                            {/* P0.2: the single Browser→Private transition happens AFTER a Browser save
+                                (post-save status-bar CTA in StatusNotificationBar). The selector already
+                                advertises Private as Recommended before recording, so there is intentionally
+                                NO pre-save card CTA here — avoids a duplicate transition. */}
 
                             {/* Private first-run: no separate "Set up" button — clicking the mic starts the
                                 one-time model download and the pill below shows progress until it's ready. */}
@@ -360,7 +348,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!canUsePrivate}
                                 >
                                     <span className="flex items-center gap-1.5">
-                                        <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                                        {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Private
                                         <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
                                     </span>
