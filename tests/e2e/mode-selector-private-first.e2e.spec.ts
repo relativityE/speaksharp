@@ -51,7 +51,39 @@ test.describe('Private-first mode selector (responsive)', () => {
 
       // Keyboard: ArrowDown highlights the first item (Private) and reveals its description.
       await page.keyboard.press('ArrowDown');
-      await expect(page.getByTestId('stt-desc-private')).toBeVisible();
+      const privDesc = page.getByTestId('stt-desc-private');
+      await expect(privDesc).toBeVisible();
+
+      // Accessible relationship: the item points at its description via aria-describedby.
+      await expect(priv).toHaveAttribute('aria-describedby', 'stt-desc-private');
+
+      // Hover must ALSO expose a description (not keyboard-only).
+      await cloud.hover();
+      await expect(page.getByTestId('stt-desc-cloud')).toBeVisible();
+
+      // Re-highlight Private for the containment checks + screenshot.
+      await priv.hover();
+      await expect(privDesc).toBeVisible();
+
+      // Containment: the revealed description stays fully inside the viewport (no right-edge clip)
+      // and inside the dropdown menu box (no spill onto Live Coaching / transcript / action bar).
+      const menu = page.getByRole('menu');
+      const descBox = await privDesc.boundingBox();
+      const menuBox = await menu.boundingBox();
+      expect(descBox).not.toBeNull();
+      expect(menuBox).not.toBeNull();
+      if (descBox && menuBox) {
+        expect(descBox.x).toBeGreaterThanOrEqual(0);
+        expect(descBox.x + descBox.width).toBeLessThanOrEqual(vp.width + 1);
+        // Description is contained within the menu (allow 1px AA rounding).
+        expect(descBox.x).toBeGreaterThanOrEqual(menuBox.x - 1);
+        expect(descBox.x + descBox.width).toBeLessThanOrEqual(menuBox.x + menuBox.width + 1);
+      }
+
+      // No horizontal overflow of the document at this width.
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
 
       await page.screenshot({ path: `/tmp/ss-mode-selector-${vp.name}.png` });
     });
