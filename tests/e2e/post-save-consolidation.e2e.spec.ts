@@ -100,7 +100,7 @@ test.describe('Post-save consolidation', () => {
     // De-dup: exactly ONE visible "Set up Private" nudge after save — the status-bar CTA, NOT the card nudge.
     const cta = page.getByTestId('post-save-private-cta');
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveText(/Set up Private for cleaner local transcription/i);
+    await expect(cta).toHaveText(/Try Private — the main beta experience/i);
     await expect(page.getByTestId('first-run-setup-private')).toHaveCount(0);
 
     // Toast: absolute (anchored to the boundary, not fixed/sticky), informational (no inner CTA).

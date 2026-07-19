@@ -45,9 +45,6 @@ interface LiveRecordingCardProps {
     privateModelStatus?: string;
     recordingIntent?: boolean; // explicit user intent to record
     isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
-    // Suppress the Browser-card "Want more privacy? Set up Private" nudge — set after a saved Native
-    // session, when the consolidated status bar shows the Private CTA instead (never both visible).
-    suppressPrivateNudge?: boolean;
     className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -85,7 +82,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     canUsePrivate,
-    suppressPrivateNudge = false,
     isPaidProUser = canUsePrivate,
     canUseCloudStt = canUsePrivate,
     statusMessage: _statusMessage,
@@ -233,7 +229,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const privateModeDescription = isPaidProUser
         ? `Private transcription runs on your device after setup — audio processing stays local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
         : canUsePrivate
-            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Local transcription so you can compare it with Browser transcription.`
+            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Private is the recommended main experience: transcription runs on your device and stays local.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
     const cloudModeDescription = canUseCloudStt
         ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
@@ -244,7 +240,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const cloudOptionDesc = canUseCloudStt
         ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
         : cloudModeDescription;
-    const nativeOptionDesc = "Uses your browser's speech service. Audio may be processed by the browser provider.";
+    const nativeOptionDesc = "A quick preview — uses your browser's speech service; the transcript may miss some punctuation and filler words.";
     const privateOptionDesc = canUsePrivate
         ? 'Private runs on your device after a one-time setup. Audio stays local.'
         : privateModeDescription;
@@ -270,17 +266,17 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             );
         } else {
             sttCue = 'Ready on this device';
-            sttHelp = <p>Runs locally on your device when supported. Best for privacy.</p>;
+            sttHelp = <p>The main beta experience — runs on your device; your audio is transcribed locally and never uploaded.</p>;
         }
     } else {
-        // native / Browser
-        sttCue = 'Browser provider';
+        // native / Browser — a quick preview of the coaching flow, not the main experience.
+        sttCue = 'Quick preview';
         sttHelp = (
             <div className="space-y-1.5">
-                <p>Uses your browser&apos;s speech service. Audio may be processed by the browser provider.</p>
+                <p>A quick preview of the coaching flow. Uses your browser&apos;s speech service; the transcript may miss some punctuation and filler words.</p>
                 {hasPrivateSampleAccess && (
                     <p className="text-foreground/60">
-                        {`Try one Private sample session — up to ${privateCapLabel} per recording during beta, with local transcription so you can compare it with Browser transcription.`}
+                        {`Private is the recommended main experience — try one Private sample session (up to ${privateCapLabel} per recording during beta), transcribed on your device.`}
                     </p>
                 )}
             </div>
@@ -311,17 +307,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </HelpPopover>
                             </div>
 
-                            {/* Browser path: privacy upsell that switches to Private (detail in help). */}
-                            {!isPrivateDownloadRequired && mode === 'native' && canUsePrivate && !isListening && !suppressPrivateNudge && (
-                                <button
-                                    type="button"
-                                    onClick={() => handleModeChange('private')}
-                                    className="mt-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
-                                    data-testid="first-run-setup-private"
-                                >
-                                    Want more privacy? Set up Private
-                                </button>
-                            )}
+                            {/* P0.2: the single Browser→Private transition happens AFTER a Browser save
+                                (post-save status-bar CTA in StatusNotificationBar). The selector already
+                                advertises Private as Recommended before recording, so there is intentionally
+                                NO pre-save card CTA here — avoids a duplicate transition. */}
 
                             {/* Private first-run: no separate "Set up" button — clicking the mic starts the
                                 one-time model download and the pill below shows progress until it's ready. */}
@@ -348,10 +337,38 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 overflow-visible">
-                            {/* Approved order + labels: Cloud, Browser, 🔒 Private. Rows stay one-line;
-                                hovering or keyboard-focusing a row shows a small neutral tooltip bubble
-                                beside it. No accent-green / brand highlight — neutral system styling. */}
+                            {/* Private-first hierarchy (P0.2): order Private (Recommended) → Browser
+                                (Quick preview) → Cloud (Pro). ONLY Private carries the Recommended tag.
+                                Rows stay one-line; hover/keyboard-focus reveals a small neutral tooltip. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
+                                <DropdownMenuRadioItem
+                                    value="private"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
+                                    disabled={!canUsePrivate}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Private
+                                        <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
+                                    </span>
+                                    <span role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
+                                        {privateOptionDesc}
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="native"
+                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        Browser
+                                        <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
+                                    </span>
+                                    <span role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
+                                        {nativeOptionDesc}
+                                    </span>
+                                </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="cloud"
                                     className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
@@ -361,33 +378,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex items-center gap-1.5">
                                         {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Cloud
+                                        <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
                                     </span>
                                     <span role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
                                         {cloudOptionDesc}
-                                    </span>
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
-                                    value="native"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
-                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                >
-                                    <span>Browser</span>
-                                    <span role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
-                                        {nativeOptionDesc}
-                                    </span>
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
-                                    value="private"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
-                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
-                                    disabled={!canUsePrivate}
-                                >
-                                    <span className="flex items-center gap-1.5">
-                                        <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
-                                        Private
-                                    </span>
-                                    <span role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
-                                        {privateOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>

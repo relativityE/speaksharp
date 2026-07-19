@@ -261,7 +261,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                             data-testid="post-save-private-cta"
                             className="inline-flex min-h-9 items-center rounded-md px-2 py-1.5 text-left text-[13px] font-medium leading-snug text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         >
-                            Set up Private for cleaner local transcription
+                            Try Private — the main beta experience
                         </button>
                     )}
 
