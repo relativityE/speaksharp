@@ -68,14 +68,20 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 // (rAF + ref, no per-frame React state) is tracked as a separate enhancement.
 const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 
-// A small, soft tooltip bubble that floats to the RIGHT of a dropdown row (open space —
-// away from the mic/timer) on hover / keyboard focus (Radix sets data-highlighted on the
-// active item). Rounded, neutral `muted` surface so it reads as part of the dropdown system,
-// with a small caret pointing back at the row. Absolutely positioned so the row stays
-// one-line; the parent menu is overflow-visible so it isn't clipped.
+// The per-mode description, revealed on hover / keyboard focus (Radix sets data-highlighted on
+// the active item). It renders INLINE, stacked under the row label and contained within the
+// dropdown's own width — never a flyout. A right-side flyout overflowed the viewport at narrow
+// widths (the menu is align="end") and overlapped the Live Coaching panel on desktop; keeping the
+// text inside the Radix-positioned menu (which auto-collides to stay on-screen) makes it fully
+// contained at every width with no horizontal overflow. `whitespace-normal break-words` wraps the
+// text; `w-full` keeps it inside the menu box. The item itself switches to a column layout so the
+// one-line label and this description stack cleanly.
 const STT_TOOLTIP_CLASS =
-    'pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden w-60 max-w-[260px] -translate-y-1/2 rounded-2xl border border-border/70 bg-muted px-3 py-2 text-[11px] font-normal normal-case leading-relaxed text-foreground shadow-sm group-data-[highlighted]:block '
-    + "before:absolute before:right-full before:top-1/2 before:-translate-y-1/2 before:border-[6px] before:border-transparent before:border-r-muted before:content-['']";
+    'mt-1 hidden w-full whitespace-normal break-words rounded-md bg-background/70 px-2 py-1 text-[11px] font-normal normal-case leading-snug text-muted-foreground group-data-[highlighted]:block';
+
+// Applied to each mode row so the label sits on its own line with the inline description beneath it.
+const STT_MODE_ITEM_CLASS =
+    'group relative flex-col items-start gap-1 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground';
 
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
@@ -336,51 +342,54 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 overflow-visible">
+                        <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)]">
                             {/* Private-first hierarchy (P0.2): order Private (Recommended) → Browser
                                 (Quick preview) → Cloud (Pro). ONLY Private carries the Recommended tag.
                                 Rows stay one-line; hover/keyboard-focus reveals a small neutral tooltip. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    className={STT_MODE_ITEM_CLASS}
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!canUsePrivate}
+                                    aria-describedby="stt-desc-private"
                                 >
                                     <span className="flex items-center gap-1.5">
                                         {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Private
                                         <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
                                     </span>
-                                    <span role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
+                                    <span id="stt-desc-private" role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
                                         {privateOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="native"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    className={STT_MODE_ITEM_CLASS}
                                     data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                    aria-describedby="stt-desc-native"
                                 >
                                     <span className="flex items-center gap-1.5">
                                         Browser
                                         <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
                                     </span>
-                                    <span role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
+                                    <span id="stt-desc-native" role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
                                         {nativeOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground"
+                                    className={STT_MODE_ITEM_CLASS}
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
+                                    aria-describedby="stt-desc-cloud"
                                 >
                                     <span className="flex items-center gap-1.5">
                                         {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Cloud
                                         <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
                                     </span>
-                                    <span role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
+                                    <span id="stt-desc-cloud" role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
                                         {cloudOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
