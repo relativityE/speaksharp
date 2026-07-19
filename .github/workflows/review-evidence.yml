@@ -1,0 +1,70 @@
+name: Review Evidence (E2E screenshots)
+
+# Produces reviewer-accessible evidence as a GitHub Actions artifact (NOT committed to the repo).
+# Runs a chosen Playwright spec against a fresh production build and uploads the screenshots it
+# captures. Artifacts are short-lived (retention-days: 1) and named with the PR number and the
+# exact reviewed head SHA so a reviewer can trace evidence -> PR -> commit.
+#
+# Non-blocking: workflow_dispatch only. Never a PR-required check.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: 'Playwright spec to run for evidence'
+        required: false
+        default: 'tests/e2e/mode-selector-private-first.e2e.spec.ts'
+      pr:
+        description: 'PR number this evidence supports'
+        required: true
+      reviewed_sha:
+        description: 'Exact reviewed head SHA (full 40-char)'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-evidence-${{ github.ref }}-${{ github.event.inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review-evidence:
+    name: review-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Build production app (served by serve:e2e)
+        run: pnpm build
+
+      - name: Run evidence spec
+        env:
+          STT_ENGINE: mock
+        run: npx playwright test "${{ github.event.inputs.spec }}" --project=full-suite --reporter=line
+
+      - name: Collect screenshots
+        if: always()
+        run: |
+          mkdir -p evidence
+          # The mode-selector spec writes /tmp/ss-mode-selector-*.png; also sweep test-results.
+          cp /tmp/ss-mode-selector-*.png evidence/ 2>/dev/null || true
+          find test-results -name '*.png' -exec cp {} evidence/ \; 2>/dev/null || true
+          echo "Collected evidence files:"
+          ls -la evidence/ || echo "(none)"
+
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots
+          path: evidence/
+          retention-days: 1
+          if-no-files-found: error
