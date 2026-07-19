@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from '../_shared/errors.ts';
-import { corsHeaders } from '../_shared/cors.ts';
+import { corsGuard, corsHeaders } from '../_shared/cors.ts';
 
 interface UsageLimitResponse {
     can_start: boolean;
@@ -65,11 +65,12 @@ function getUserIdFromAuthHeader(authHeader: string | null): string | null {
 
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
-    const headers = corsHeaders(req);
+    // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+    // auth parsing or Supabase RPC.
+    const corsRejection = corsGuard(req);
+    if (corsRejection) return corsRejection;
 
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers });
-    }
+    const headers = corsHeaders(req);
 
     try {
         const authHeader = req.headers.get('Authorization');

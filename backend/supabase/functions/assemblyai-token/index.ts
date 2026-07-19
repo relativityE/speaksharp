@@ -4,7 +4,7 @@
  * Note: This runs in Deno runtime, not Node.js. IDE warnings about "Cannot find
  * name 'Deno'" or ESM imports are expected - the code works correctly when deployed.
  */
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsGuard, corsHeaders } from "../_shared/cors.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 type SupabaseClientFactory = (authHeader: string) => SupabaseClient;
@@ -31,10 +31,10 @@ export async function handler(
   fetchImpl: Fetcher = fetch,
   getEnv: EnvGetter = (key) => Deno.env.get(key) ?? undefined,
 ) {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders(req) });
-  }
+  // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+  // env read, JWT auth, Supabase access, or AssemblyAI provider/token call.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
 
   try {
     const ASSEMBLYAI_KEY = getEnv("ASSEMBLYAI_API_KEY");

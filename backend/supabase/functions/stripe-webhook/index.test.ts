@@ -48,9 +48,10 @@ Deno.test("stripe-webhook handlers", async (t) => {
       "secret"
     );
 
-    assertEquals(response.status, 200);
+    assertEquals(response.status, 204); // approved-origin preflight → 204 (exact-origin CORS)
     assertEquals(constructed, false);
     assertEquals(response.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
+    assertEquals(response.headers.get("Access-Control-Allow-Origin"), "https://speaksharp-public.vercel.app");
   });
 
   await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {

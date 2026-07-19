@@ -71,6 +71,14 @@ This document defines the structural invariants and authoritative sources of tru
 - Public Edge Functions MUST use the shared request-aware CORS helper unless a documented exception exists.
 - Secrets SHOULD be loaded lazily inside handlers or guarded with actionable error responses; module-scope non-null assertions create cold-start crash risk.
 
+#### Exact-origin CORS contract (`_shared/cors.ts`)
+- **Exact allowlist, no matching tricks.** Allowed browser origins are an exact set. Every candidate origin (request `Origin` header AND each `ALLOWED_ORIGIN` entry) is parsed with the WHATWG `URL` parser and reduced to its canonical `URL.origin`; comparison is exact string equality. There is NO `includes`/`endsWith`/`startsWith`/substring/wildcard matching. Only `http:`/`https:` are considered; credentials (userinfo), path, query, fragment, `Origin: null`, multiple/comma-separated values, control characters, and malformed URLs are rejected.
+- **Fail-closed rejection.** A browser request whose `Origin` is present but not allowed is rejected with **403** (`origin_not_allowed`) BEFORE any auth, database, provider, Stripe, or token side effect, and receives **no** `Access-Control-Allow-Origin` (never a fallback, never a reflected value). Allowed origins get exactly their own origin echoed plus `Vary: Origin`; approved preflights return **204**, hostile preflights **403**.
+- **No-Origin = server-to-server.** A request with NO `Origin` header (Stripe/webhooks, health checks, trusted secret-gated automation) is allowed to proceed and never receives a fabricated `Access-Control-Allow-Origin`. CORS is not authentication — each function keeps its own JWT/secret checks.
+- **Built-in allowlist:** the active production host (`https://speaksharp-public.vercel.app`), approved product domains (`https://speaksharp.ai`, `https://www.speaksharp.ai`), and exact local-dev origins (`http://localhost:5173/5174`, `http://127.0.0.1:5173/5174`). No arbitrary localhost ports, no localhost subdomains, no `*.vercel.app`.
+- **Preview must be explicit.** Preview deployments are NOT matched by pattern; each must be added as an exact origin — fail closed otherwise.
+- **Adding an approved origin safely:** append the precise `scheme://host[:port]` value to the comma-separated `ALLOWED_ORIGIN` env (Supabase Dashboard). Never add a suffix/wildcard; malformed entries are ignored observably (logged) and never allowed. Changing `ALLOWED_ORIGIN` is a configuration action taken outside the code PR.
+
 ### Ops Health Data Path
 
 SpeakSharp ops health is split into a detailed machine record and a simplified operator view:

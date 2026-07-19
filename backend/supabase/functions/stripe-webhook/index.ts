@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
-import { corsHeaders } from "../_shared/cors.ts"
+import { corsGuard, corsHeaders } from "../_shared/cors.ts"
 
 type SupabaseClient = any;
 type StripeClient = any;
@@ -34,11 +34,13 @@ export async function handler(
   supabase: SupabaseClient,
   webhookSecret: string
 ) {
-  const responseHeaders = corsHeaders(req)
+  // Stripe → server webhooks send NO Origin, so corsGuard lets them through untouched (server-to-
+  // server behavior preserved). It only rejects a browser request carrying a hostile/unapproved
+  // Origin, before signature verification or any DB write — such requests are never legitimate here.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
 
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 200, headers: responseHeaders })
-  }
+  const responseHeaders = corsHeaders(req)
 
   const signature = req.headers.get("Stripe-Signature")
   const body = await req.text()

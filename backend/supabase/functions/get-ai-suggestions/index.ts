@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
+import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 const MAX_TRANSCRIPT_CHARS = 8000;
@@ -82,11 +82,12 @@ function parseSuggestions(rawText: string): AISuggestions | null {
 
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
-  const responseHeaders = buildCorsHeaders(req);
+  // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+  // auth or Supabase/AI provider access.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
 
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: responseHeaders });
-  }
+  const responseHeaders = buildCorsHeaders(req);
 
   try {
     // Production mode: Use RLS to enforce auth - no need for separate getUser() call

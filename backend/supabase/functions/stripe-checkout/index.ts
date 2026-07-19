@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
-import { corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
+import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
 const DEV_PORT = 5174;
@@ -69,6 +69,11 @@ const fetchExistingStripeCustomerId = async (
 };
 
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
+  // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+  // env read, payments-enabled check, auth, Supabase, or Stripe API/session-creation call.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
+
   const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
   const stripeClient = deps.stripeClient ?? stripe;
@@ -80,10 +85,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     )
   );
 
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: responseHeaders })
-  }
+  // (CORS preflight + hostile-origin rejection handled by corsGuard above.)
 
   // Fail-closed beta billing (authoritative server guard — frontend hiding is not sufficient).
   // Checkout is refused unless BOTH: payments are explicitly enabled AND a LIVE Stripe secret key is
