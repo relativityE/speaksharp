@@ -214,6 +214,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
         });
         const res = await handler(req, failingMockCreateSupabase);
 
-        assertEquals(res.status, 200);
+        assertEquals(res.status, 204); // preflight → 204 (exact-origin CORS)
+        assertEquals(res.headers.get('Access-Control-Allow-Origin'), null); // no Origin → no fabricated ACAO
     });
 });

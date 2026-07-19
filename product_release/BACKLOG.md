@@ -30,12 +30,6 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **Acceptance:** order Private (Recommended) → Browser (Quick preview) → Cloud (Pro); only Private shows Recommended; "Browser provider" → "Quick preview"; one Browser→Private transition after a Browser save; no duplicate Private CTA; onboarding/selector/help/status-bar/invite/docs aligned; Browser STT logic unchanged; no Native punctuation heuristics; a11y + desktop/mobile screenshots.
 - **Priority:** P0.
 
-### P0.3 — Exact-origin CORS hardening
-- **Evidence/gap:** Edge-function origin checks use substring/suffix matching that accepts hostile lookalikes (e.g. `evil-speaksharp.ai`, `speaksharp.ai.evil.com`, `localhost.example.com`). Any prior "closed" claim for this is **false** and is deleted.
-- **Outcome:** Only exact approved origins are honored; lookalike/malformed origins are rejected; production, preview, and local-dev behavior preserved.
-- **Acceptance:** parse origins as URLs; allowlist explicit prod hosts + exact approved localhost/loopback; reject malformed origins, lookalikes, unapproved protocols/ports; positive test per approved origin + negative tests per lookalike; preflight + normal request coverage.
-- **Priority:** P0.
-
 ### P0.4 — Timely, privacy-safe tester feedback alert
 - **Evidence/gap:** Report Issue persists to the protected store but only surfaces via a daily digest — too slow for a rolling beta.
 - **Outcome:** On report submission the owner gets a sanitized real-time alert via the existing private Sentry/ops path; full content stays in the protected store; a bad alert never blocks persistence.
