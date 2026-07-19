@@ -43,10 +43,17 @@ jobs:
           install-playwright: 'true'
 
       - name: Build production app (served by serve:e2e)
-        run: pnpm build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: pnpm ci:build
 
       - name: Run evidence spec
         env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STT_ENGINE: mock
         run: npx playwright test "${{ github.event.inputs.spec }}" --project=full-suite --reporter=line
 
