@@ -1,8 +1,9 @@
 name: telemetry-outbox-harness
 
-# Behavioral proof for the P0 incident telemetry-outbox foundation. Runs the migrations against a REAL
-# PostgreSQL engine (PGlite/WASM for the full A–F suite, and a postgres:16 service for the true
-# SKIP LOCKED concurrency race). Content-free: synthetic fixtures only, no secrets, no tester data.
+# Behavioral proof for the P0 incident telemetry-outbox foundation. The FULL A–H suite runs against
+# BOTH a real postgres:16 service (authoritative, multi-connection) AND PGlite (fast hermetic
+# secondary). The SKIP LOCKED concurrency race also runs on postgres:16. Content-free: synthetic
+# fixtures only. Dependencies are PINNED (no @latest) so CI is reproducible and SCA-visible.
 
 on:
   pull_request:
@@ -16,7 +17,12 @@ on:
 permissions:
   contents: read
 
+env:
+  PGLITE_VERSION: '0.5.4'
+  PG_VERSION: '8.22.0'
+
 jobs:
+  # Fast hermetic secondary — same suite, PGlite (PostgreSQL/WASM).
   behavioral-pglite:
     runs-on: ubuntu-latest
     steps:
@@ -24,14 +30,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install PGlite (ephemeral, no lockfile pollution)
+      - name: Install PGlite (pinned)
         working-directory: tests/db
-        run: npm init -y >/dev/null 2>&1 && npm install @electric-sql/pglite@latest
-      - name: Run behavioral suite (A–F) against real PostgreSQL/WASM
+        run: npm init -y >/dev/null 2>&1 && npm install "@electric-sql/pglite@${PGLITE_VERSION}"
+      - name: Behavioral suite (A–H) on PGlite
         working-directory: tests/db
         run: node run-behavioral.mjs
 
-  concurrency-postgres:
+  # Authoritative — full suite AND the SKIP LOCKED race on a real multi-connection postgres:16.
+  behavioral-postgres:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -44,16 +51,21 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/harness
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install pg client (ephemeral)
+      - name: Install pg client (pinned)
         working-directory: tests/db
-        run: npm init -y >/dev/null 2>&1 && npm install pg@latest
+        run: npm init -y >/dev/null 2>&1 && npm install "pg@${PG_VERSION}"
+      # Race first, on a CLEAN database — it counts global pending rows, so it must run before the
+      # behavioral suite leaves state behind.
       - name: SKIP LOCKED concurrency race (2 real connections)
         working-directory: tests/db
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/harness
         run: node skiplocked-race.mjs
+      - name: Behavioral suite (A–H) on postgres:16
+        working-directory: tests/db
+        run: node run-behavioral.mjs

@@ -137,9 +137,33 @@ CREATE TRIGGER trg_session_telemetry_outbox
   AFTER INSERT OR UPDATE OF status ON public.sessions
   FOR EACH ROW EXECUTE FUNCTION public.trg_enqueue_session_telemetry();
 
--- Authoritative reconciliation: enqueue an outbox row for every completed session / report missing
--- one, preserving the ORIGINAL event timestamp, full provenance (all four marker fields), backfilled
--- flag, and (reports only) the untrusted client SHA from metadata. Returns rows repaired.
+-- Dry-run: count reconciliation CANDIDATES (completed sessions / reports missing an outbox row) within
+-- a boundary, WITHOUT inserting anything. This is the required pre-flight before any backfill so the
+-- operator sees exact candidate counts (and can classify provenance) before a single event is enqueued
+-- or delivered. p_since NULL = full history (use ONLY for an explicit owner-approved one-time count).
+CREATE OR REPLACE FUNCTION public.reconcile_telemetry_candidates(p_since timestamptz DEFAULT NULL)
+RETURNS TABLE (event_type text, candidate_count bigint, unclassified_count bigint)
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public STABLE AS $$
+  SELECT 'session_saved', count(*),
+         count(*) FILTER (WHERE public.resolve_data_origin(s.user_id) = 'legacy_unclassified')
+  FROM public.sessions s
+  WHERE s.status = 'completed' AND (p_since IS NULL OR s.created_at >= p_since)
+    AND NOT EXISTS (SELECT 1 FROM public.telemetry_outbox o WHERE o.event_type='session_saved' AND o.record_id=s.id)
+  UNION ALL
+  SELECT 'report_issue_submitted', count(*),
+         count(*) FILTER (WHERE public.resolve_data_origin(r.user_id) = 'legacy_unclassified')
+  FROM public.user_issue_reports r
+  WHERE (p_since IS NULL OR r.created_at >= p_since)
+    AND NOT EXISTS (SELECT 1 FROM public.telemetry_outbox o WHERE o.event_type='report_issue_submitted' AND o.record_id=r.id);
+$$;
+
+-- Authoritative reconciliation: enqueue an outbox row for every completed session / report missing one
+-- WITHIN A BOUNDARY, preserving the ORIGINAL event timestamp, full provenance (all four marker
+-- fields), backfilled flag, and (reports only) the untrusted client SHA from metadata. Returns rows
+-- repaired. BOUNDARY POLICY: the worker passes a bounded rolling window every run (never NULL). p_since
+-- NULL scans ALL history and must be used ONLY for an explicit, owner-approved one-time backfill (the
+-- incident backfill uses the recorded invitation boundary 2026-07-18T17:43:56Z). Always run
+-- reconcile_telemetry_candidates() first and review the counts before an unbounded call.
 CREATE OR REPLACE FUNCTION public.reconcile_telemetry_outbox(p_since timestamptz DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -254,10 +278,14 @@ BEGIN
   RETURN v_updated > 0;
 END; $$;
 
--- Owner retrieval: sanitized per-account delivery status. The outbox is keyed by record_id (no
--- user_id column, to stay PII-minimal), so this joins back to the authoritative tables to scope by
--- account and returns COUNTS ONLY (event_type × status) — never content. Service-role only.
-CREATE OR REPLACE FUNCTION public.telemetry_delivery_status(p_user_id uuid)
+-- OPERATOR/SERVICE delivery-status RPC (NOT owner-facing). Sanitized per-account DELIVERY COUNTS for
+-- ops/support to answer "did this account's telemetry get delivered?". It is service-role-only and
+-- returns COUNTS ONLY (event_type × status) — it does NOT return report content and is NOT directly
+-- callable by an authenticated owner. Authenticated owner retrieval of the full report (by report id,
+-- with ownership authorization + receipt) is a SEPARATE product surface (see the report service /
+-- report-issue-alert integration), not this function. The outbox is keyed by record_id (no user_id
+-- column, to stay PII-minimal), so this joins back to the authoritative tables to scope by account.
+CREATE OR REPLACE FUNCTION public.operator_telemetry_delivery_status(p_user_id uuid)
 RETURNS TABLE (event_type text, status text, n bigint)
 LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public STABLE AS $$
   SELECT o.event_type, o.status, count(*) AS n
@@ -272,13 +300,15 @@ $$;
 -- Lock down every RPC to the service role (worker) only.
 REVOKE ALL ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.reconcile_telemetry_candidates(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.claim_telemetry_batch(integer, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.replay_telemetry_deadletter(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.telemetry_delivery_status(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.operator_telemetry_delivery_status(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_candidates(timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.claim_telemetry_batch(integer, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.replay_telemetry_deadletter(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.telemetry_delivery_status(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.operator_telemetry_delivery_status(uuid) TO service_role;

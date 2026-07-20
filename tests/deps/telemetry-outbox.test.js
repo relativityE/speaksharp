@@ -147,7 +147,7 @@ describe('P0 — telemetry outbox (corrected)', () => {
   });
 
   it('every worker RPC is service-role-only (revoked + granted)', () => {
-    for (const fn of ['enqueue_telemetry_event', 'reconcile_telemetry_outbox', 'claim_telemetry_batch', 'mark_telemetry_result', 'replay_telemetry_deadletter', 'telemetry_delivery_status']) {
+    for (const fn of ['enqueue_telemetry_event', 'reconcile_telemetry_outbox', 'reconcile_telemetry_candidates', 'claim_telemetry_batch', 'mark_telemetry_result', 'replay_telemetry_deadletter', 'operator_telemetry_delivery_status']) {
       expect(outbox).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`));
       expect(outbox).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role`));
     }

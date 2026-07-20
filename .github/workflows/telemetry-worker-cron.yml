@@ -1,20 +1,22 @@
 name: telemetry-worker-cron
 
-# Durable schedule for the telemetry delivery worker. Every run the worker reconciles (repairs any
-# session/report missing an outbox row) then drains a batch to PostHog. Idempotent by $insert_id, so a
-# missed or doubled tick is harmless. Secrets are never embedded — the URL + shared secret come from
-# repo/environment secrets and are passed as a request header.
+# Durable schedule for the telemetry delivery worker. Every run the worker reconciles a BOUNDED
+# rolling window (never full history) then drains a batch to PostHog. Idempotent by $insert_id, so a
+# missed or doubled tick is harmless.
 #
-# Alternative (Supabase-native) scheduler: pg_cron + pg_net can POST to the same function URL on a
-# 1-minute cadence entirely inside the database. That avoids the 5-minute GitHub floor but requires
-# enabling the cron/pg_net extensions and storing the worker secret in Supabase Vault. This workflow is
-# the zero-extra-infrastructure default; switch to pg_cron if sub-5-minute latency becomes a
-# requirement. Either way the worker itself is the same idempotent endpoint.
+# FAIL-CLOSED: this workflow is workflow_dispatch-only until the final activation step. It does NOT
+# carry a `schedule:` trigger yet — a disabled telemetry system must never appear green on a timer.
+# Missing URL/secret is a HARD FAILURE (not a skip). The cron trigger is added ONLY in the activation
+# commit, after migrations + function + secrets are live.
+#
+# Supabase-native alternative: pg_cron + pg_net can POST to the same idempotent endpoint on a
+# sub-minute cadence entirely in-database (needs the cron/pg_net extensions + the worker secret in
+# Supabase Vault). This workflow is the zero-extra-infrastructure default.
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum granularity)
   workflow_dispatch: {}
+  # schedule: ADDED IN THE ACTIVATION COMMIT ONLY — see the activation sequence. Until then this
+  # workflow is manual and fail-closed so nothing can look healthy while delivery is disabled.
 
 permissions:
   contents: read
@@ -26,27 +28,42 @@ concurrency:
 jobs:
   drain:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-observability   # gates on the protected env (reviewers/branch policy)
     steps:
-      - name: Invoke telemetry worker
+      - name: Invoke telemetry worker (fail-closed)
         env:
           WORKER_URL: ${{ secrets.TELEMETRY_WORKER_URL }}
           WORKER_SECRET: ${{ secrets.TELEMETRY_WORKER_SECRET }}
         run: |
-          if [ -z "$WORKER_URL" ] || [ -z "$WORKER_SECRET" ]; then
-            echo "TELEMETRY_WORKER_URL / TELEMETRY_WORKER_SECRET not configured — skipping (not yet wired)."
-            exit 0
-          fi
-          # -sS: quiet but show errors. Fail the job on a non-2xx so a broken drain is visible in CI.
-          # Response body is a content-free counts summary; printing it is safe.
-          http_code=$(curl -sS -o /tmp/telemetry-worker-response.json -w '%{http_code}' \
+          set -euo pipefail
+          # Missing configuration is a HARD FAILURE — a disabled worker must never report success.
+          if [ -z "${WORKER_URL:-}" ]; then echo "::error::TELEMETRY_WORKER_URL is not configured"; exit 1; fi
+          if [ -z "${WORKER_SECRET:-}" ]; then echo "::error::TELEMETRY_WORKER_SECRET is not configured"; exit 1; fi
+
+          # --fail-with-body: non-2xx → curl exits non-zero but still prints the body.
+          # --max-time: bound the whole request. Body is a content-free counts summary.
+          http_body=$(curl -sS --fail-with-body --max-time 90 \
             -X POST "$WORKER_URL" \
             -H "x-telemetry-worker-secret: $WORKER_SECRET" \
             -H 'content-type: application/json' \
-            --data '{}')
-          echo "worker HTTP $http_code"
-          cat /tmp/telemetry-worker-response.json || true
-          echo
-          case "$http_code" in
-            2*) echo "drain ok" ;;
-            *) echo "worker returned $http_code"; exit 1 ;;
-          esac
+            --data '{}') || { echo "::error::worker request failed"; exit 1; }
+
+          # Print ONLY the allowlisted counts schema (never arbitrary future response fields).
+          echo "$http_body" | python3 -c '
+import sys, json
+ALLOW = ["ok","reconciled","reconcile_since","claimed","sent","failed","lease_lost","discarded","dead_lettered"]
+d = json.load(sys.stdin)
+out = {k: d.get(k) for k in ALLOW if k in d}
+# failure_categories: emit category NAMES + counts only (both are non-sensitive).
+if isinstance(d.get("failure_categories"), dict):
+    out["failure_categories"] = {str(k): int(v) for k, v in d["failure_categories"].items()}
+print(json.dumps(out, sort_keys=True))
+dead = int(d.get("dead_lettered") or 0)
+if dead > 0:
+    sys.stderr.write("::error::%d event(s) dead-lettered\n" % dead)
+    sys.exit(2)
+if d.get("ok") is not True:
+    sys.stderr.write("::error::worker did not report ok\n")
+    sys.exit(3)
+'

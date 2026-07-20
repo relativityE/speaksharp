@@ -20,7 +20,6 @@
  * Run:  node tests/db/run-behavioral.mjs
  * Exit: 0 iff every case passes.
  */
-import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -28,6 +27,22 @@ import { dirname, resolve } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIG = resolve(HERE, '../../backend/supabase/migrations');
 const sql = (p) => readFileSync(p, 'utf8');
+
+// Driver adapter: DATABASE_URL → real multi-connection postgres (node-postgres); otherwise PGlite
+// (PostgreSQL/WASM, fast + hermetic). The SAME suite runs on both — the full behavioral contract must
+// hold against the real engine, not only the WASM one.
+async function makeDb() {
+  const url = process.env.DATABASE_URL;
+  if (url) {
+    const pg = (await import('pg')).default;
+    const client = new pg.Client({ connectionString: url });
+    await client.connect();
+    return { engine: 'postgres:16', exec: (s) => client.query(s), query: (s, p) => client.query(s, p), close: () => client.end() };
+  }
+  const { PGlite } = await import('@electric-sql/pglite');
+  const pglite = new PGlite();
+  return { engine: 'pglite/wasm', exec: (s) => pglite.exec(s), query: (s, p) => pglite.query(s, p), close: () => pglite.close() };
+}
 
 const results = [];
 let currentGroup = '';
@@ -43,7 +58,7 @@ async function check(name, fn) {
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
 function eq(a, b, msg) { if (String(a) !== String(b)) throw new Error(`${msg}: expected ${b}, got ${a}`); }
 
-const db = new PGlite(); // ephemeral in-WASM datadir
+let db; // assigned in main() from makeDb() — PGlite or real postgres
 const q = (text, params) => db.query(text, params);
 const one = async (text, params) => (await q(text, params)).rows[0];
 // Claim due rows and return the outbox row for a specific record_id (session/report id). Uses the max
@@ -72,6 +87,7 @@ const UREG = '33333333-3333-3333-3333-333333333333';   // registered automated_t
 const UEXP = '44444444-4444-4444-4444-444444444444';   // expired registry row
 
 async function main() {
+  db = await makeDb();
   // ---- load schema ----
   await db.exec(sql(resolve(HERE, 'harness/bootstrap.sql')));
   await db.exec(sql(resolve(MIG, '20260720140000_report_session_ownership_guard.sql')));
@@ -152,11 +168,31 @@ async function main() {
   // ============================ C. permissions (role boundary) ============================
   group('C permissions');
   await expectDenied('C1 anon cannot read telemetry_outbox', 'anon', `SELECT * FROM public.telemetry_outbox LIMIT 1`);
-  await expectDenied('C2 authenticated cannot read observability_actor_registry', 'authenticated', `SELECT * FROM public.observability_actor_registry LIMIT 1`);
-  await expectDenied('C3 anon cannot EXECUTE claim_telemetry_batch', 'anon', `SELECT public.claim_telemetry_batch(10,'w')`);
-  await check('C4 service_role CAN EXECUTE claim_telemetry_batch', async () => {
+  await expectDenied('C2 anon cannot read observability_actor_registry', 'anon', `SELECT * FROM public.observability_actor_registry LIMIT 1`);
+  await expectDenied('C2b authenticated cannot read observability_actor_registry', 'authenticated', `SELECT * FROM public.observability_actor_registry LIMIT 1`);
+
+  // EVERY RPC must be denied to BOTH untrusted roles.
+  const RPC_CALLS = {
+    reconcile_telemetry_outbox: `SELECT public.reconcile_telemetry_outbox()`,
+    claim_telemetry_batch: `SELECT public.claim_telemetry_batch(1,'w')`,
+    mark_telemetry_result: `SELECT public.mark_telemetry_result(gen_random_uuid(),gen_random_uuid(),'sent',NULL)`,
+    replay_telemetry_deadletter: `SELECT public.replay_telemetry_deadletter(gen_random_uuid())`,
+    enqueue_telemetry_event: `SELECT public.enqueue_telemetry_event('session_saved',gen_random_uuid(),gen_random_uuid(),now(),NULL)`,
+    operator_telemetry_delivery_status: `SELECT public.operator_telemetry_delivery_status(gen_random_uuid())`,
+    resolve_actor_provenance: `SELECT public.resolve_actor_provenance(gen_random_uuid())`,
+    resolve_data_origin: `SELECT public.resolve_data_origin(gen_random_uuid())`,
+  };
+  for (const role of ['anon', 'authenticated']) {
+    for (const [fn, callSql] of Object.entries(RPC_CALLS)) {
+      await expectDenied(`C3 ${role} cannot EXECUTE ${fn}`, role, callSql);
+    }
+  }
+  // EVERY RPC must be callable by service_role (executes without a permission error; result ignored).
+  await check('C4 service_role CAN EXECUTE every worker/operator RPC', async () => {
     await db.exec('SET ROLE service_role');
-    try { await q(`SELECT public.claim_telemetry_batch(1,'svc')`); } finally { await db.exec('RESET ROLE'); }
+    try {
+      for (const callSql of Object.values(RPC_CALLS)) await q(callSql);
+    } finally { await db.exec('RESET ROLE'); }
   });
 
   // ============================ D. leases / concurrency ============================
@@ -280,26 +316,75 @@ async function main() {
     eq(o.test_run_id, 'run-9', 'run'); eq(o.test_suite, 'suite-b', 'suite'); assert(o.backfilled === true, 'backfilled');
   });
 
-  // ============================ G. owner retrieval ============================
-  group('G owner retrieval');
-  await check('G1 delivery status is per-account, counts-only, scoped by ownership', async () => {
-    // U2 owns exactly one completed session (sA2) → one session_saved row, status pending.
-    const rows = (await q(`SELECT event_type,status,n FROM public.telemetry_delivery_status('${U2}') ORDER BY event_type`)).rows;
-    assert(rows.length >= 1, 'U2 should have at least one delivery row');
-    const s = rows.find((x) => x.event_type === 'session_saved');
-    assert(s, 'session_saved status present for U2'); assert(Number(s.n) >= 1, 'count >= 1');
-    // must NOT leak U1's rows: every returned row belongs to a U2-owned record.
-    const leak = (await q(`
-      SELECT count(*)::int c FROM public.telemetry_delivery_status('${U2}') d
-      WHERE d.event_type='session_saved' AND NOT EXISTS (
-        SELECT 1 FROM public.sessions s WHERE s.user_id='${U2}' )`)).rows[0].c;
-    eq(leak, 0, 'status must be strictly account-scoped');
+  // ============================ G. operator delivery status ============================
+  group('G operator delivery status');
+  await check('G1 EXACT per-account counts; zero cross-account leak (fresh isolated users)', async () => {
+    const UG1 = 'a0000001-0000-0000-0000-000000000001';
+    const UG2 = 'a0000002-0000-0000-0000-000000000002';
+    await db.exec(`INSERT INTO auth.users (id,email) VALUES ('${UG1}','g1'),('${UG2}','g2')`);
+    // UG1: exactly 2 completed sessions. UG2: exactly 1 completed session + 1 report.
+    await q(`INSERT INTO public.sessions (user_id,status) VALUES ('${UG1}','completed'),('${UG1}','completed')`);
+    await q(`INSERT INTO public.sessions (user_id,status) VALUES ('${UG2}','completed')`);
+    await q(`INSERT INTO public.user_issue_reports (user_id) VALUES ('${UG2}')`);
+    const g1 = (await q(`SELECT event_type,status,n FROM public.operator_telemetry_delivery_status('${UG1}')`)).rows;
+    const g2 = (await q(`SELECT event_type,status,n FROM public.operator_telemetry_delivery_status('${UG2}')`)).rows;
+    // UG1: EXACTLY one row — session_saved/pending/2 — and NOTHING else (proves UG2 never leaks in).
+    eq(g1.length, 1, 'UG1 must have exactly one status row');
+    eq(g1[0].event_type, 'session_saved', 'UG1 event'); eq(g1[0].status, 'pending', 'UG1 status');
+    eq(Number(g1[0].n), 2, 'UG1 EXACT count = 2 (would be 3 if UG2 leaked)');
+    // UG2: session_saved=1 AND report_issue_submitted=1.
+    const g2s = g2.find((r) => r.event_type === 'session_saved');
+    const g2r = g2.find((r) => r.event_type === 'report_issue_submitted');
+    assert(g2s && g2r, 'UG2 must see both event types');
+    eq(Number(g2s.n), 1, 'UG2 exact session count'); eq(Number(g2r.n), 1, 'UG2 exact report count');
   });
+
+  // ============================ H. hardening / adversarial proofs ============================
+  group('H hardening');
+  await check('H1 forced enqueue EXCEPTION cannot lose the source row; reconcile repairs it', async () => {
+    // Break enqueue so the trigger's PERFORM raises; the EXCEPTION guard must swallow it and still persist.
+    await db.exec(`CREATE OR REPLACE FUNCTION public.enqueue_telemetry_event(p_event_type text,p_record_id uuid,p_user_id uuid,p_event_timestamp timestamptz,p_client_release_sha text,p_backfilled boolean DEFAULT false) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $x$ BEGIN RAISE EXCEPTION 'forced enqueue failure'; END; $x$;`);
+    const s = await one(`INSERT INTO public.sessions (user_id,status) VALUES ('${U1}','completed') RETURNING id`);
+    eq((await one(`SELECT count(*)::int c FROM public.sessions WHERE id='${s.id}'`)).c, 1, 'session persists despite enqueue throwing');
+    eq((await one(`SELECT count(*)::int c FROM public.telemetry_outbox WHERE record_id='${s.id}'`)).c, 0, 'no outbox row after the failure');
+    // Restore the real enqueue (re-exec migration is idempotent) and reconcile → gap repaired.
+    await db.exec(sql(resolve(MIG, '20260720150100_telemetry_outbox.sql')));
+    await q(`SELECT public.reconcile_telemetry_outbox()`);
+    const o = await one(`SELECT backfilled FROM public.telemetry_outbox WHERE record_id='${s.id}' AND event_type='session_saved'`);
+    assert(o && o.backfilled === true, 'reconcile must repair the missed enqueue');
+  });
+  await check('H2 an UNEXPIRED sending row cannot be reclaimed by another worker', async () => {
+    const sid = await mkDue();
+    const r = await claimRow(sid, 'w1'); assert(r, 'first claim'); // sending, ~5min lease
+    const again = await claimRow(sid, 'w2');
+    assert(!again, 'a live-leased row must not be handed to a second worker');
+  });
+  await check('H3 after reclaim: stale token fails, current token succeeds', async () => {
+    const sid = await mkDue();
+    const a = await claimRow(sid, 'w1');
+    await q(`UPDATE public.telemetry_outbox SET lease_expires_at = now() - interval '1 min' WHERE id='${a.id}'`);
+    const b = await claimRow(sid, 'w2'); assert(b, 'expired lease reclaimed'); // same row id, new token, fresh lease
+    eq((await one(`SELECT public.mark_telemetry_result('${b.id}','${a.lease_token}','sent',NULL) AS ok`)).ok, false, 'stale token must be rejected');
+    eq((await one(`SELECT public.mark_telemetry_result('${b.id}','${b.lease_token}','sent',NULL,'sha') AS ok`)).ok, true, 'current token succeeds');
+  });
+  await check('H4 repeated dead-letter replay returns false (idempotent)', async () => {
+    const sid = await mkDue();
+    const row0 = await one(`SELECT id FROM public.telemetry_outbox WHERE record_id='${sid}' AND event_type='session_saved'`);
+    await q(`UPDATE public.telemetry_outbox SET max_attempts=1 WHERE id='${row0.id}'`);
+    const r = await claimRow(sid, 'w1');
+    await q(`SELECT public.mark_telemetry_result('${r.id}','${r.lease_token}','failed','unknown')`); // → dead_letter
+    eq((await one(`SELECT public.replay_telemetry_deadletter('${r.id}') AS ok`)).ok, true, 'first replay succeeds');
+    eq((await one(`SELECT public.replay_telemetry_deadletter('${r.id}') AS ok`)).ok, false, 'second replay (now pending) returns false');
+  });
+  await expectDenied('H5 anon cannot INSERT the outbox (browser cannot fabricate provenance)', 'anon',
+    `INSERT INTO public.telemetry_outbox (event_type,record_id,insert_id,event_timestamp,data_origin) VALUES ('session_saved',gen_random_uuid(),'x',now(),'production_user')`);
+  await expectDenied('H6 authenticated cannot EXECUTE enqueue (no client-driven provenance path)', 'authenticated',
+    `SELECT public.enqueue_telemetry_event('session_saved',gen_random_uuid(),gen_random_uuid(),now(),NULL)`);
 
   // ---- report ----
   const pass = results.filter((r) => r.ok).length;
   const fail = results.length - pass;
-  console.log('\n===== BEHAVIORAL HARNESS RESULTS (PGlite — real PostgreSQL/WASM) =====');
+  console.log(`\n===== BEHAVIORAL HARNESS RESULTS (engine: ${db.engine}) =====`);
   let g = '';
   for (const r of results) {
     if (r.group !== g) { g = r.group; console.log(`\n[${g}]`); }
