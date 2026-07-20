@@ -14,7 +14,7 @@ CREATE OR REPLACE FUNCTION public.enforce_report_session_ownership()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 BEGIN
   IF NEW.session_id IS NOT NULL THEN

@@ -1,15 +1,15 @@
 -- P0 (incident) — durable TELEMETRY OUTBOX for critical PostHog events.
 --
--- Guarantee: "transactional enqueue when successful, automatic authoritative reconciliation when
--- enqueue fails." Supabase stays authoritative; a downstream PostHog/Sentry failure NEVER rolls back
--- or hides a saved session/report. The enqueue trigger is EXCEPTION-guarded so it can never block
--- persistence — and reconcile_telemetry_outbox() authoritatively repairs any session/report that is
--- missing an outbox row, so an enqueue failure is never silently unrecovered.
+-- Guarantee: authoritative reconciliation FUNCTION implemented; AUTOMATIC recovery is pending the
+-- worker/schedule that calls it before every claim (until then, recovery is not automatic). Supabase
+-- stays authoritative; a downstream PostHog/Sentry failure NEVER rolls back or hides a saved
+-- session/report. The enqueue trigger is EXCEPTION-guarded so it can never block persistence, and
+-- reconcile_telemetry_outbox() authoritatively repairs any session/report missing an outbox row.
 --
 -- Idempotency: stable insert_id `<event_type>:<record_id>` + UNIQUE(event_type, record_id). The worker
--- MUST send this to PostHog as the `$insert_id` property (with the dollar prefix) so PostHog itself
--- also dedupes. Leases (lease_token + lease_expires_at) make claims crash-safe; max_attempts routes
--- exhausted rows to a dead_letter terminal state with an operator replay.
+-- MUST send this to PostHog as the `$insert_id` property (dollar prefix) so PostHog also dedupes.
+-- Leases (lease_token + lease_expires_at) make claims crash-safe; max_attempts routes exhausted rows
+-- to a dead_letter terminal state with an operator replay.
 
 CREATE TABLE IF NOT EXISTS public.telemetry_outbox (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -23,13 +23,11 @@ CREATE TABLE IF NOT EXISTS public.telemetry_outbox (
   last_failure_category text,
   terminal_failed_at timestamptz,
   event_timestamp timestamptz NOT NULL,
-  -- Lease (crash-safe claim): a worker owns a row only while its token is current and unexpired.
   lease_token uuid,
   lease_expires_at timestamptz,
   claimed_by text,
-  -- Server-assigned provenance (never client-chosen). client_release_sha is the browser-reported
-  -- value (UNTRUSTED); server_verified_release_sha is filled by the trusted worker from deployment
-  -- config. Never represent the client value as server-verified.
+  -- Server-assigned provenance (never client-chosen). client_release_sha = browser-reported
+  -- (UNTRUSTED); server_verified_release_sha = worker-filled from deployment config.
   data_origin text NOT NULL DEFAULT 'legacy_unclassified',
   cohort_id text,
   test_run_id text,
@@ -43,6 +41,16 @@ CREATE TABLE IF NOT EXISTS public.telemetry_outbox (
   CONSTRAINT telemetry_outbox_status_safe CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'dead_letter')),
   CONSTRAINT telemetry_outbox_failure_safe CHECK (
     last_failure_category IS NULL OR last_failure_category IN ('config_missing', 'ingest_rejected', 'transport_error', 'unknown')
+  ),
+  CONSTRAINT telemetry_outbox_data_origin_safe CHECK (
+    data_origin IN ('automated_test', 'seed_fixture', 'owner_manual_test', 'beta_tester', 'production_user', 'synthetic_monitor', 'legacy_unclassified')
+  ),
+  CONSTRAINT telemetry_outbox_attempts_nonneg CHECK (attempt_count >= 0),
+  CONSTRAINT telemetry_outbox_max_attempts_range CHECK (max_attempts BETWEEN 1 AND 20),
+  -- terminal_failed_at present iff dead_letter.
+  CONSTRAINT telemetry_outbox_terminal_consistency CHECK (
+    (status = 'dead_letter' AND terminal_failed_at IS NOT NULL)
+    OR (status <> 'dead_letter' AND terminal_failed_at IS NULL)
   ),
   CONSTRAINT telemetry_outbox_dedupe UNIQUE (event_type, record_id)
 );
@@ -59,8 +67,8 @@ CREATE INDEX IF NOT EXISTS telemetry_outbox_lease_idx
   ON public.telemetry_outbox (lease_expires_at)
   WHERE status = 'sending';
 
--- Enqueue helper — resolves server-assigned provenance and inserts idempotently. Wrapped by triggers
--- so a failure never rolls back persistence; reconcile repairs any gap.
+-- Enqueue helper — resolves server-assigned provenance (all four marker fields) and inserts
+-- idempotently. Wrapped by triggers so a failure never rolls back persistence; reconcile repairs gaps.
 CREATE OR REPLACE FUNCTION public.enqueue_telemetry_event(
   p_event_type text,
   p_record_id uuid,
@@ -72,7 +80,7 @@ CREATE OR REPLACE FUNCTION public.enqueue_telemetry_event(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_prov record;
@@ -90,10 +98,10 @@ BEGIN
 END;
 $$;
 
--- Report trigger — EXCEPTION-guarded so the report insert survives an enqueue failure.
+-- Report trigger — EXCEPTION-guarded. Report event_timestamp = created_at; client SHA from metadata.
 CREATE OR REPLACE FUNCTION public.trg_enqueue_report_telemetry()
 RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   BEGIN
     PERFORM public.enqueue_telemetry_event(
@@ -109,14 +117,16 @@ CREATE TRIGGER trg_report_telemetry_outbox
   AFTER INSERT ON public.user_issue_reports
   FOR EACH ROW EXECUTE FUNCTION public.trg_enqueue_report_telemetry();
 
--- Session trigger — enqueue session_saved once the session reaches 'completed'.
+-- Session trigger — session_saved when a session reaches 'completed'. event_timestamp = the
+-- COMPLETION time (updated_at), not the row creation time. No authoritative client SHA source → NULL.
 CREATE OR REPLACE FUNCTION public.trg_enqueue_session_telemetry()
 RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF NEW.status = 'completed' THEN
     BEGIN
-      PERFORM public.enqueue_telemetry_event('session_saved', NEW.id, NEW.user_id, NEW.created_at, NULL);
+      PERFORM public.enqueue_telemetry_event('session_saved', NEW.id, NEW.user_id,
+        COALESCE(NEW.updated_at, NEW.created_at), NULL);
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
   END IF;
@@ -127,39 +137,47 @@ CREATE TRIGGER trg_session_telemetry_outbox
   AFTER INSERT OR UPDATE OF status ON public.sessions
   FOR EACH ROW EXECUTE FUNCTION public.trg_enqueue_session_telemetry();
 
--- Authoritative reconciliation: enqueue an outbox row for every completed session / report that is
--- missing one (idempotent via the unique claim). This is the guarantee that a swallowed enqueue is
--- never permanently lost. Returns the number of rows repaired.
+-- Authoritative reconciliation: enqueue an outbox row for every completed session / report missing
+-- one, preserving the ORIGINAL event timestamp, full provenance (all four marker fields), backfilled
+-- flag, and (reports only) the untrusted client SHA from metadata. Returns rows repaired.
 CREATE OR REPLACE FUNCTION public.reconcile_telemetry_outbox(p_since timestamptz DEFAULT NULL)
 RETURNS integer
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE v_count integer := 0;
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE v_count integer := 0; v_n integer;
 BEGIN
-  INSERT INTO public.telemetry_outbox (event_type, record_id, insert_id, event_timestamp, data_origin, backfilled)
-  SELECT 'session_saved', s.id, 'session_saved:' || s.id::text, s.created_at,
-         public.resolve_data_origin(s.user_id), true
+  INSERT INTO public.telemetry_outbox
+    (event_type, record_id, insert_id, event_timestamp, data_origin, cohort_id, test_run_id, test_suite, client_release_sha, backfilled)
+  SELECT 'session_saved', s.id, 'session_saved:' || s.id::text,
+         COALESCE(s.updated_at, s.created_at),
+         p.data_origin, p.cohort_id, p.test_run_id, p.test_suite,
+         NULL, true
   FROM public.sessions s
+  CROSS JOIN LATERAL public.resolve_actor_provenance(s.user_id) p
   WHERE s.status = 'completed' AND (p_since IS NULL OR s.created_at >= p_since)
     AND NOT EXISTS (SELECT 1 FROM public.telemetry_outbox o WHERE o.event_type='session_saved' AND o.record_id=s.id)
   ON CONFLICT (event_type, record_id) DO NOTHING;
-  GET DIAGNOSTICS v_count = ROW_COUNT;
+  GET DIAGNOSTICS v_n = ROW_COUNT; v_count := v_count + v_n;
 
-  INSERT INTO public.telemetry_outbox (event_type, record_id, insert_id, event_timestamp, data_origin, backfilled)
-  SELECT 'report_issue_submitted', r.id, 'report_issue_submitted:' || r.id::text, r.created_at,
-         public.resolve_data_origin(r.user_id), true
+  INSERT INTO public.telemetry_outbox
+    (event_type, record_id, insert_id, event_timestamp, data_origin, cohort_id, test_run_id, test_suite, client_release_sha, backfilled)
+  SELECT 'report_issue_submitted', r.id, 'report_issue_submitted:' || r.id::text,
+         r.created_at,
+         p.data_origin, p.cohort_id, p.test_run_id, p.test_suite,
+         NULLIF(r.metadata->'appRuntimeConfig'->>'release', ''), true
   FROM public.user_issue_reports r
+  CROSS JOIN LATERAL public.resolve_actor_provenance(r.user_id) p
   WHERE (p_since IS NULL OR r.created_at >= p_since)
     AND NOT EXISTS (SELECT 1 FROM public.telemetry_outbox o WHERE o.event_type='report_issue_submitted' AND o.record_id=r.id)
   ON CONFLICT (event_type, record_id) DO NOTHING;
-  GET DIAGNOSTICS v_count = v_count + ROW_COUNT;
+  GET DIAGNOSTICS v_n = ROW_COUNT; v_count := v_count + v_n;
   RETURN v_count;
 END; $$;
 
--- Worker claim: clamp the limit, lease due rows (incl. reclaiming expired 'sending' leases), mark
--- them 'sending' with a fresh token, and return them. Concurrency-safe via FOR UPDATE SKIP LOCKED.
+-- Worker claim: clamp limit, lease due rows (incl. reclaiming EXPIRED 'sending' leases), mark
+-- 'sending' with a fresh token + owner, return them. Concurrency-safe via FOR UPDATE SKIP LOCKED.
 CREATE OR REPLACE FUNCTION public.claim_telemetry_batch(p_limit integer DEFAULT 50, p_worker text DEFAULT NULL)
 RETURNS SETOF public.telemetry_outbox
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
 BEGIN
   RETURN QUERY
@@ -181,48 +199,52 @@ BEGIN
     RETURNING t.*;
 END; $$;
 
--- Worker mark: validate inputs, require the CURRENT lease token (a stale worker can't mark a
--- reclaimed row), then terminal 'sent', bounded-backoff 'failed', or 'dead_letter' at max_attempts.
+-- Worker mark: a worker owns the row ONLY while its lease is unexpired. Validates inputs strictly and
+-- clears ALL lease fields (token, expiry, claimed_by) on every transition.
 CREATE OR REPLACE FUNCTION public.mark_telemetry_result(
   p_id uuid, p_lease_token uuid, p_status text, p_failure_category text
 )
 RETURNS boolean
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_attempts integer; v_max integer; v_updated integer;
 BEGIN
   IF p_status NOT IN ('sent', 'failed') THEN RAISE EXCEPTION 'invalid status %', p_status; END IF;
-  IF p_failure_category IS NOT NULL AND p_failure_category NOT IN ('config_missing','ingest_rejected','transport_error','unknown')
-    THEN RAISE EXCEPTION 'invalid failure_category %', p_failure_category; END IF;
+  IF p_status = 'sent' AND p_failure_category IS NOT NULL THEN RAISE EXCEPTION 'sent must not carry a failure_category'; END IF;
+  IF p_status = 'failed' AND (p_failure_category IS NULL OR p_failure_category NOT IN ('config_missing','ingest_rejected','transport_error','unknown'))
+    THEN RAISE EXCEPTION 'failed requires an allowed failure_category (got %)', p_failure_category; END IF;
 
+  -- Ownership requires the CURRENT, UNEXPIRED lease on a row still in 'sending'.
   SELECT attempt_count, max_attempts INTO v_attempts, v_max
-    FROM public.telemetry_outbox WHERE id = p_id AND lease_token = p_lease_token FOR UPDATE;
-  IF NOT FOUND THEN RETURN false; END IF; -- stale/none: caller lost the lease
+    FROM public.telemetry_outbox
+    WHERE id = p_id AND status = 'sending' AND lease_token = p_lease_token AND lease_expires_at > now()
+    FOR UPDATE;
+  IF NOT FOUND THEN RETURN false; END IF;
 
   IF p_status = 'sent' THEN
-    UPDATE public.telemetry_outbox SET status='sent', last_failure_category=NULL, lease_token=NULL, lease_expires_at=NULL WHERE id=p_id;
+    UPDATE public.telemetry_outbox SET status='sent', last_failure_category=NULL,
+      lease_token=NULL, lease_expires_at=NULL, claimed_by=NULL WHERE id=p_id;
   ELSIF v_attempts >= v_max THEN
-    UPDATE public.telemetry_outbox
-      SET status='dead_letter', last_failure_category=p_failure_category, terminal_failed_at=now(), lease_token=NULL, lease_expires_at=NULL
-      WHERE id=p_id;
+    UPDATE public.telemetry_outbox SET status='dead_letter', last_failure_category=p_failure_category,
+      terminal_failed_at=now(), lease_token=NULL, lease_expires_at=NULL, claimed_by=NULL WHERE id=p_id;
   ELSE
-    UPDATE public.telemetry_outbox
-      SET status='failed', last_failure_category=p_failure_category, lease_token=NULL, lease_expires_at=NULL,
-          next_retry_at = now() + (LEAST(power(2, LEAST(v_attempts, 6))::int, 60) || ' minutes')::interval
+    UPDATE public.telemetry_outbox SET status='failed', last_failure_category=p_failure_category,
+      lease_token=NULL, lease_expires_at=NULL, claimed_by=NULL,
+      next_retry_at = now() + (LEAST(power(2, LEAST(v_attempts, 6))::int, 60) || ' minutes')::interval
       WHERE id=p_id;
   END IF;
   GET DIAGNOSTICS v_updated = ROW_COUNT;
   RETURN v_updated > 0;
 END; $$;
 
--- Operator replay of a dead_letter row (explicit, idempotent): back to pending, attempts reset.
+-- Operator replay of a dead_letter row (explicit, idempotent): back to pending; clears lease fields.
 CREATE OR REPLACE FUNCTION public.replay_telemetry_deadletter(p_id uuid)
 RETURNS boolean
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_updated integer;
 BEGIN
   UPDATE public.telemetry_outbox
     SET status='pending', attempt_count=0, next_retry_at=now(), terminal_failed_at=NULL, last_failure_category=NULL,
-        lease_token=NULL, lease_expires_at=NULL
+        lease_token=NULL, lease_expires_at=NULL, claimed_by=NULL
     WHERE id=p_id AND status='dead_letter';
   GET DIAGNOSTICS v_updated = ROW_COUNT;
   RETURN v_updated > 0;

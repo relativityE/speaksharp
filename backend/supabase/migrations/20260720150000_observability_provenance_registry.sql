@@ -45,7 +45,7 @@ CREATE OR REPLACE FUNCTION public.resolve_data_origin(p_user_id uuid)
 RETURNS text
 LANGUAGE sql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 STABLE
 AS $$
   SELECT COALESCE(
@@ -61,7 +61,7 @@ CREATE OR REPLACE FUNCTION public.resolve_actor_provenance(p_user_id uuid)
 RETURNS TABLE (data_origin text, cohort_id text, test_run_id text, test_suite text)
 LANGUAGE sql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = pg_catalog, public
 STABLE
 AS $$
   SELECT

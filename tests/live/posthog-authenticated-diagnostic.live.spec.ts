@@ -136,11 +136,13 @@ test('content-free authenticated PostHog diagnostic (refined; no recording, no r
   const afterPrivate = await readProbes();
   const privateSelectedBoundary = { product_invoked: afterPrivate.privateEvents.includes('private_sample_selected'), ...captureStats(tPrivate) };
 
-  // ---- H. one more buffered event via a UI nav (no recording) ----
-  const tBuf = Date.now();
+  // ---- H. navigate to /analytics (no recording). NOTE: this only evidences /flags|/decide activity;
+  // it does NOT exercise AnalyticsBuffer.push → scheduleFlush → send → capture, so it does NOT prove
+  // the buffered path. The buffered session_saved cause stays OPEN until a dedicated buffer probe. ----
+  const tNav = Date.now();
   await page.goto('/analytics');
   await page.waitForTimeout(3000);
-  const bufferedBoundary = { ...captureStats(tBuf) };
+  const navigationConfigOnly = { note: 'config-only; NOT a buffered capture proof', ...captureStats(tNav) };
 
   // ---- J. query PostHog (Node side, protected key) ----
   const sinceIso = new Date(tLogin - 60_000).toISOString().replace('T', ' ').replace('Z', '');
@@ -168,7 +170,9 @@ test('content-free authenticated PostHog diagnostic (refined; no recording, no r
     boundaries: {
       account_identified: accountIdentifiedBoundary,
       private_sample_selected: privateSelectedBoundary,
-      buffered_ui_event: bufferedBoundary,
+      // NOT a buffered-capture boundary — /analytics nav only touches config endpoints. Buffered
+      // session_saved cause stays OPEN; see header note.
+      analytics_nav_config_only: navigationConfigOnly,
     },
     posthog_query: phQuery,
   };
