@@ -1,0 +1,4 @@
+# Ephemeral harness deps — installed ad hoc (locally + in CI), never committed.
+node_modules/
+package.json
+package-lock.json

@@ -1,0 +1,59 @@
+name: telemetry-outbox-harness
+
+# Behavioral proof for the P0 incident telemetry-outbox foundation. Runs the migrations against a REAL
+# PostgreSQL engine (PGlite/WASM for the full A–F suite, and a postgres:16 service for the true
+# SKIP LOCKED concurrency race). Content-free: synthetic fixtures only, no secrets, no tester data.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/2026072014*.sql'
+      - 'backend/supabase/migrations/2026072015*.sql'
+      - 'tests/db/**'
+      - '.github/workflows/telemetry-harness.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  behavioral-pglite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install PGlite (ephemeral, no lockfile pollution)
+        working-directory: tests/db
+        run: npm init -y >/dev/null 2>&1 && npm install @electric-sql/pglite@latest
+      - name: Run behavioral suite (A–F) against real PostgreSQL/WASM
+        working-directory: tests/db
+        run: node run-behavioral.mjs
+
+  concurrency-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: harness
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pg client (ephemeral)
+        working-directory: tests/db
+        run: npm init -y >/dev/null 2>&1 && npm install pg@latest
+      - name: SKIP LOCKED concurrency race (2 real connections)
+        working-directory: tests/db
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/harness
+        run: node skiplocked-race.mjs
