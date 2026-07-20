@@ -87,7 +87,10 @@ export const issueReportService = {
     const transcriptExcerpt = input.includeTranscript ? sanitizeOptionalText(input.transcriptExcerpt) : null;
     const audioAttachmentNote = input.includeAudio ? sanitizeOptionalText(input.audioAttachmentNote) : null;
 
-    const { error } = await supabase
+    // Store-first: persist the complete report and capture its durable id. `.select('id')` (no
+    // single()) returns [] rather than throwing when RLS won't return the row (e.g. an anonymous
+    // report where the SELECT policy is own-reports-only), so submission never regresses.
+    const { data, error } = await supabase
       .from('user_issue_reports')
       .insert({
         user_id: input.userId ?? null,
@@ -102,12 +105,15 @@ export const issueReportService = {
         transcript_excerpt: transcriptExcerpt,
         include_audio: input.includeAudio,
         audio_attachment_note: audioAttachmentNote,
-      });
+      })
+      .select('id');
 
     if (error) {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');
       throw error;
     }
+
+    const reportId: string | null = Array.isArray(data) && data[0]?.id ? String(data[0].id) : null;
 
     // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
     // journey (session id, and the Private arm/release via the active sample context).
@@ -121,6 +127,28 @@ export const issueReportService = {
       release_sha: arm.release_sha ?? null,
     });
 
-    return { id: null };
+    // P0.4: after the report is safely stored, trigger the trusted-backend owner alert. This is
+    // fire-and-forget — the report is already persisted, so submission success never depends on the
+    // alert, and alert latency never blocks the UI. Only the durable report id is passed (never any
+    // report content); the backend builds the sanitized alert from the stored row. Anonymous reports
+    // (no returnable id) simply skip the client trigger.
+    if (reportId) {
+      void triggerOwnerAlert(supabase, reportId);
+    }
+
+    return { id: reportId };
   },
 };
+
+async function triggerOwnerAlert(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  reportId: string,
+): Promise<void> {
+  try {
+    await supabase.functions.invoke('report-issue-alert', { body: { reportId } });
+  } catch {
+    // Never rethrow: the report is already stored and the backend tracks delivery state durably.
+    // Log without any report content.
+    logger.debug({ scope: 'report-issue-alert', reportId }, 'owner alert trigger failed (non-fatal)');
+  }
+}

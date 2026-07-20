@@ -24,17 +24,7 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 
 ## 2. Remaining P0
 
-### P0.2 — Private-first mode hierarchy
-- **Evidence/gap:** The selector presents Browser and Private with near-equal weight; copy frames Private mainly as a privacy option / Browser comparison. No single "Recommended" treatment; "Browser provider" label persists.
-- **Outcome:** Testers understand Private is the main beta experience and Browser is a zero-setup preview; Cloud shows as the Pro path but is unavailable to Free.
-- **Acceptance:** order Private (Recommended) → Browser (Quick preview) → Cloud (Pro); only Private shows Recommended; "Browser provider" → "Quick preview"; one Browser→Private transition after a Browser save; no duplicate Private CTA; onboarding/selector/help/status-bar/invite/docs aligned; Browser STT logic unchanged; no Native punctuation heuristics; a11y + desktop/mobile screenshots.
-- **Priority:** P0.
-
-### P0.4 — Timely, privacy-safe tester feedback alert
-- **Evidence/gap:** Report Issue persists to the protected store but only surfaces via a daily digest — too slow for a rolling beta.
-- **Outcome:** On report submission the owner gets a sanitized real-time alert via the existing private Sentry/ops path; full content stays in the protected store; a bad alert never blocks persistence.
-- **Acceptance:** alert payload allowlist = {report ID, severity, release SHA, route/page, STT mode, session ID when available, timestamp} and NOTHING else (no prose/transcript/audio/email/name/tokens/PII); dedupe by report ID; alert failure does not block persistence and is observable; P0/P1 reports elevated severity; owner can retrieve full report by ID; focused tests for persistence-on-success, persistence-on-alert-failure, payload allowlist, no-leakage, dedupe, context, severity mapping.
-- **Priority:** P0.
+_None open._
 
 ---
 
@@ -62,6 +52,7 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **Gap:** three-mode behavior + docs/copy need a consolidated pass after P0/P1.
 - **Outcome:** proven three-mode matrix and reconciled docs.
 - **Acceptance:** full matrix (Browser preview; Private sample→setup→capture→finalize→persist/detail/PDF equality; Cloud existing-Pro-only no-fallback; Free no-Cloud/no-checkout; existing-Pro Cloud works; Report Issue persists + sanitized alert); reconcile BACKLOG.md, RELEASE_STATUS.md, PRODUCT_FEATURES.operational.md, SOFT_RELEASE_TESTER_INSTRUCTIONS.md, UI copy/tests, telemetry docs.
+- **Finding (auth-class normalization):** Production approved-origin unauthenticated `get-ai-suggestions` requests currently classify as HTTP 500 rather than an authentication-class 401. No provider call or data exposure occurs; normalize the response and add regression coverage during P1 reconciliation.
 - **Priority:** P1.
 
 ---

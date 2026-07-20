@@ -24,6 +24,7 @@ const BROWSER_CALLABLE = [
   'get-ai-suggestions',
   'stripe-checkout',
   'stripe-billing-portal',
+  'report-issue-alert',
 ];
 
 // Server-to-server functions: NOT browser-callable, but intentionally also deployed with
