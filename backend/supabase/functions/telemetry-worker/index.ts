@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders } from '../_shared/cors.ts';
 import { captureSentryEvent, createSentryEventId } from '../_shared/sentry.ts';
+import { makeBudget, rpcBounded, runBounded } from '../_shared/deadline.ts';
 
 /**
  * Durable telemetry delivery worker (P0 incident foundation).
@@ -256,90 +257,92 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
   };
   const bump = (cat: DeliveryFailure) => { summary.failure_categories[cat] = (summary.failure_categories[cat] ?? 0) + 1; };
 
+  // ONE absolute deadline governs every remote op below (reconcile/claim/source/provider/mark/discard/
+  // status/alert). markReserveMs is held back so the terminal mark always fits.
+  const budget = makeBudget(deps.now, deadlineMs, markReserveMs);
+
+  // Failure-alert Sentry send is bounded to remaining time — it can NEVER keep the function alive past
+  // the deadline. If there is no budget, the alert is skipped (the non-green result still surfaces it).
   const sentryAlert = async (level: 'error' | 'warning', message: string) => {
+    const b = budget.markBudget(eventTimeoutMs);
+    if (b <= 0) return;
     try {
-      await deps.captureSentry(sentryDsn, {
+      await runBounded(b, (signal) => deps.captureSentry(sentryDsn, {
         event_id: createSentryEventId(), timestamp: new Date().toISOString(), platform: 'javascript',
         level, message, environment: 'production',
         tags: { component: 'telemetry-worker', surface: 'edge' },
         extra: { ...summary }, // WorkerSummary is content-free (counts + category names only)
-      });
+      }, { signal }));
     } catch { /* alerting must never fail the drain */ }
   };
 
-  // mark helpers — every RPC error/false is accounted for; NO recursive re-mark on a lost lease.
+  // mark helpers — bounded; every RPC error/abort/false accounted for; NO recursive re-mark on a lost lease.
   const markSent = async (row: OutboxRow) => {
-    const { data, error } = await supabase.rpc('mark_telemetry_result', {
+    const mb = budget.markBudget(eventTimeoutMs);
+    if (mb <= 0) { summary.time_budget_exhausted = true; return; } // no time to mark → row reclaimed
+    const { data, error, aborted } = await rpcBounded((s) => supabase.rpc('mark_telemetry_result', {
       p_id: row.id, p_lease_token: row.lease_token, p_status: 'sent', p_failure_category: null,
       p_server_verified_release_sha: serverVerifiedSha,
-    });
-    if (error) { summary.infra_errors++; return; }
-    if (data === true) summary.sent++; else summary.lease_lost++; // lease lost → left sending, reclaimed later
+    }).abortSignal(s), mb);
+    if (aborted || error) { summary.infra_errors++; return; }
+    if (data === true) summary.sent++; else summary.lease_lost++;
   };
   const markFailed = async (row: OutboxRow, cat: DeliveryFailure) => {
-    const { data, error } = await supabase.rpc('mark_telemetry_result', {
+    const mb = budget.markBudget(eventTimeoutMs);
+    if (mb <= 0) { summary.time_budget_exhausted = true; return; }
+    const { data, error, aborted } = await rpcBounded((s) => supabase.rpc('mark_telemetry_result', {
       p_id: row.id, p_lease_token: row.lease_token, p_status: 'failed', p_failure_category: cat,
-    });
-    if (error) { summary.infra_errors++; return; }
+    }).abortSignal(s), mb);
+    if (aborted || error) { summary.infra_errors++; return; }
     if (data !== true) { summary.lease_lost++; return; }
     summary.failed++; bump(cat);
-    const { data: statusRow, error: readErr } = await supabase.from('telemetry_outbox').select('status').eq('id', row.id).maybeSingle();
-    if (readErr) { summary.infra_errors++; return; }
-    if ((statusRow as { status?: string } | null)?.status === 'dead_letter') summary.dead_lettered++;
+    const sb = budget.markBudget(eventTimeoutMs);
+    if (sb <= 0) { summary.time_budget_exhausted = true; return; }
+    const sr = await rpcBounded((s) => supabase.from('telemetry_outbox').select('status').eq('id', row.id).abortSignal(s).maybeSingle(), sb);
+    if (sr.aborted || sr.error) { summary.infra_errors++; return; }
+    if ((sr.data as { status?: string } | null)?.status === 'dead_letter') summary.dead_lettered++;
   };
   const discard = async (row: OutboxRow) => {
-    const { data, error } = await supabase.rpc('discard_telemetry_event', { p_id: row.id, p_lease_token: row.lease_token });
-    if (error) { summary.infra_errors++; return; }
+    const mb = budget.markBudget(eventTimeoutMs);
+    if (mb <= 0) { summary.time_budget_exhausted = true; return; }
+    const { data, error, aborted } = await rpcBounded((s) => supabase.rpc('discard_telemetry_event', { p_id: row.id, p_lease_token: row.lease_token }).abortSignal(s), mb);
+    if (aborted || error) { summary.infra_errors++; return; }
     if (data === true) summary.discarded++; else summary.lease_lost++;
   };
 
-  // (4/5) deliver + mark, one row at a time, under BOUNDED CONCURRENCY. Worst-case wall-clock is
-  // ceil(batch/concurrency)*eventTimeout, kept ≤ deadline by the batch clamp above.
-  // Absolute-deadline budget: time left, and the op budget after RESERVING markReserveMs for the mark.
-  const remaining = () => deadlineMs - (deps.now() - start);
-  const opBudget = () => Math.min(eventTimeoutMs, remaining() - markReserveMs);
-
+  // (4/5) deliver + mark under BOUNDED CONCURRENCY; every op checks the shared budget first.
   const processRow = async (row: OutboxRow) => {
-    // Before the SOURCE READ: need time for read + provider + a reserved mark.
-    let budget = opBudget();
-    if (budget <= 0) { summary.time_budget_exhausted = true; return; } // don't start; row stays leased → reclaimed
-    const srcCtl = new AbortController();
-    const srcTimer = setTimeout(() => srcCtl.abort(), budget);
-    let src: unknown, srcErr: unknown;
-    try {
-      const r = await supabase.from(SOURCE_TABLE[row.event_type]).select(SOURCE_COLUMNS[row.event_type])
-        .eq('id', row.record_id).abortSignal(srcCtl.signal).maybeSingle();
-      src = r.data; srcErr = r.error;
-    } catch (e) { srcErr = e; } finally { clearTimeout(srcTimer); }
-    if (srcErr) { summary.infra_errors++; return; } // transient/aborted DB read → leave leased, retry later
-    if (!src) { await discard(row); return; }        // source gone (deleted account/session) → tombstone
+    // SOURCE READ — bounded (reserve mark time).
+    const srcBudget = budget.opBudget(eventTimeoutMs);
+    if (srcBudget <= 0) { summary.time_budget_exhausted = true; return; }
+    const sr = await rpcBounded((s) => supabase.from(SOURCE_TABLE[row.event_type]).select(SOURCE_COLUMNS[row.event_type]).eq('id', row.record_id).abortSignal(s).maybeSingle(), srcBudget);
+    if (sr.aborted || sr.error) { summary.infra_errors++; return; } // transient/aborted DB read → leave leased
+    if (!sr.data) { await discard(row); return; }
 
-    const source = src as unknown as Record<string, unknown>;
+    const source = sr.data as unknown as Record<string, unknown>;
     const distinctId = row.event_type === 'session_saved'
-      ? (source.user_id as string | null)               // sessions.user_id is NOT NULL when the row exists
-      : ((source.user_id as string | null) ?? anonDistinctId(row.record_id)); // legitimate anonymous report
-    if (!distinctId) { await discard(row); return; }  // defensive: no attributable identity
+      ? (source.user_id as string | null)
+      : ((source.user_id as string | null) ?? anonDistinctId(row.record_id));
+    if (!distinctId) { await discard(row); return; }
 
     const productProps = row.event_type === 'session_saved' ? buildSessionProps(source) : buildReportProps(source);
     const payload = buildCapturePayload({ row, distinctId, productProps, projectKey, serverVerifiedSha });
 
-    // Before the PROVIDER REQUEST: recompute budget (reserving mark time). A nonpositive budget must
-    // NEVER be replaced with a fresh 1000ms request — we stop instead.
-    budget = opBudget();
-    if (budget <= 0) { summary.time_budget_exhausted = true; return; }
+    // PROVIDER REQUEST — bounded (reserve mark time); a nonpositive budget is never a fresh 1000ms request.
+    const provBudget = budget.opBudget(eventTimeoutMs);
+    if (provBudget <= 0) { summary.time_budget_exhausted = true; return; }
     let status: number | null = null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), budget);
     try {
-      const res = await deps.fetchImpl(`${ingestHost}/capture/`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal,
+      status = await runBounded(provBudget, async (signal) => {
+        const res = await deps.fetchImpl(`${ingestHost}/capture/`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal,
+        });
+        await res.text().catch(() => ''); // drain; never read/log content
+        return res.status;
       });
-      status = res.status;
-      await res.text().catch(() => ''); // drain; never read/log content
-    } catch { status = null; } finally { clearTimeout(timer); }
+    } catch { status = null; }
 
-    // Before the MARK: if the provider consumed everything, do NOT mark (row reclaimed; $insert_id dedupes).
-    if (remaining() <= 0) { summary.time_budget_exhausted = true; return; }
+    // MARK (final op) — markSent/markFailed each re-check the reserved budget.
     if (status !== null && status >= 200 && status < 300) await markSent(row);
     else await markFailed(row, classifyDeliveryFailure(status));
   };
@@ -349,36 +352,35 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
     if (proofEvent !== 'session_saved' && proofEvent !== 'report_issue_submitted') {
       return json({ ok: false, result: 'not_runnable', error: 'proof_event_invalid' }, 400);
     }
-    const { data: proofRows, error: proofErr } = await supabase.rpc('claim_telemetry_proof_row', {
+    const pc = await rpcBounded((s) => supabase.rpc('claim_telemetry_proof_row', {
       p_record_id: proofRecord, p_event_type: proofEvent, p_worker: 'edge-telemetry-worker-proof',
-    });
-    if (proofErr) { summary.infra_errors++; return json({ ...summary, ok: false, result: 'hard_failure', error: 'proof_claim_failed' }, 500); }
-    const claimed = (proofRows ?? []) as OutboxRow[];
-    // Refuses a non-automated_test / non-existent / already-delivered row (the RPC returns nothing).
+    }).abortSignal(s), budget.opBudget(eventTimeoutMs));
+    if (pc.aborted || pc.error) { summary.infra_errors++; return json({ ...summary, ok: false, result: 'hard_failure', error: 'proof_claim_failed' }, 500); }
+    const claimed = (pc.data ?? []) as OutboxRow[];
     if (claimed.length === 0) return json({ ...summary, ok: false, result: 'not_runnable', error: 'no_claimable_automated_test_row' }, 200);
     summary.claimed = claimed.length;
     await processRow(claimed[0]);
-    const hard = summary.infra_errors > 0 || summary.dead_lettered > 0 || summary.lease_lost > 0;
+    const hard = summary.infra_errors > 0 || summary.dead_lettered > 0 || summary.lease_lost > 0 || summary.time_budget_exhausted;
     summary.ok = !hard;
     summary.result = hard ? 'hard_failure' : (summary.failed > 0 ? 'partial_retry' : 'success');
     return json({ ...summary, proof_mode: true }, 200);
   }
 
-  // (2) reconcile a BOUNDED rolling window (never full history).
-  const { data: reconciledData, error: reconcileErr } = await supabase.rpc('reconcile_telemetry_outbox', { p_since: reconcileSince });
-  if (reconcileErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: reconcile failed'); return json({ ...summary, error: 'reconcile_failed' }, 500); }
-  summary.reconciled = Number(reconciledData ?? 0);
+  // (2) reconcile a BOUNDED rolling window (never full history) — bounded remote op.
+  const rec = await rpcBounded((s) => supabase.rpc('reconcile_telemetry_outbox', { p_since: reconcileSince }).abortSignal(s), budget.opBudget(eventTimeoutMs));
+  if (rec.aborted || rec.error) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: reconcile failed/timed out'); return json({ ...summary, error: 'reconcile_failed' }, 500); }
+  summary.reconciled = Number(rec.data ?? 0);
 
-  // (3) claim a bounded batch.
-  const { data: rowsData, error: claimErr } = await supabase.rpc('claim_telemetry_batch', { p_limit: batchSize, p_worker: 'edge-telemetry-worker' });
-  if (claimErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: claim failed'); return json({ ...summary, error: 'claim_failed' }, 500); }
-  const rows = (rowsData ?? []) as OutboxRow[];
+  // (3) claim a bounded batch — bounded remote op.
+  const cl = await rpcBounded((s) => supabase.rpc('claim_telemetry_batch', { p_limit: batchSize, p_worker: 'edge-telemetry-worker' }).abortSignal(s), budget.opBudget(eventTimeoutMs));
+  if (cl.aborted || cl.error) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: claim failed/timed out'); return json({ ...summary, error: 'claim_failed' }, 500); }
+  const rows = (cl.data ?? []) as OutboxRow[];
   summary.claimed = rows.length;
 
   let next = 0;
   const runLane = async () => {
     for (;;) {
-      if (deps.now() - start > deadlineMs) { summary.time_budget_exhausted = true; return; } // rest stay leased → reclaimed next run
+      if (budget.remaining() <= 0) { summary.time_budget_exhausted = true; return; }
       const i = next++;
       if (i >= rows.length) return;
       await processRow(rows[i]);

@@ -95,23 +95,33 @@ function makeSupabase(opts: {
   sources?: Record<string, Record<string, unknown> | null>; statusById?: Record<string, string>;
   markData?: boolean; markErr?: unknown; discardData?: boolean;
   proofRows?: FakeRow[]; proofErr?: unknown;
-  srcErr?: unknown; onSourceRead?: () => void;
+  srcErr?: unknown; onSourceRead?: () => void; onRpc?: (name: string) => void; statusReadThrows?: Error;
 }) {
   const calls = { rpc: [] as Array<{ name: string; args: Record<string, unknown> }> };
+  // A PostgREST-like builder: awaitable AND supports .abortSignal(); onRpc runs a per-name hook first.
+  // deno-lint-ignore no-explicit-any
+  const builder = (result: any, hook?: () => void) => ({
+    abortSignal: () => { if (hook) hook(); return Promise.resolve(result); },
+    then: (f: (v: unknown) => unknown, r?: (e: unknown) => unknown) => { if (hook) hook(); return Promise.resolve(result).then(f, r); },
+  });
   const supa = {
     calls,
     rpc(name: string, args: Record<string, unknown>) {
       calls.rpc.push({ name, args });
-      if (name === 'reconcile_telemetry_outbox') return Promise.resolve({ data: opts.reconcile ?? 0, error: opts.reconcileErr ?? null });
-      if (name === 'claim_telemetry_batch') return Promise.resolve({ data: opts.rows, error: opts.claimErr ?? null });
-      if (name === 'claim_telemetry_proof_row') return Promise.resolve({ data: opts.proofRows ?? [], error: opts.proofErr ?? null });
-      if (name === 'mark_telemetry_result') return Promise.resolve({ data: opts.markData ?? true, error: opts.markErr ?? null });
-      if (name === 'discard_telemetry_event') return Promise.resolve({ data: opts.discardData ?? true, error: null });
-      return Promise.resolve({ data: null, error: null });
+      const hook = opts.onRpc ? () => opts.onRpc!(name) : undefined;
+      if (name === 'reconcile_telemetry_outbox') return builder({ data: opts.reconcile ?? 0, error: opts.reconcileErr ?? null }, hook);
+      if (name === 'claim_telemetry_batch') return builder({ data: opts.rows, error: opts.claimErr ?? null }, hook);
+      if (name === 'claim_telemetry_proof_row') return builder({ data: opts.proofRows ?? [], error: opts.proofErr ?? null }, hook);
+      if (name === 'mark_telemetry_result') return builder({ data: opts.markData ?? true, error: opts.markErr ?? null }, hook);
+      if (name === 'discard_telemetry_event') return builder({ data: opts.discardData ?? true, error: null }, hook);
+      return builder({ data: null, error: null }, hook);
     },
     from(table: string) {
       const maybeSingle = (val: string) => {
-        if (table === 'telemetry_outbox') return Promise.resolve({ data: { status: opts.statusById?.[val] ?? 'failed' }, error: null });
+        if (table === 'telemetry_outbox') {
+          if (opts.statusReadThrows) return Promise.reject(opts.statusReadThrows); // simulate a stalled/aborted status read
+          return Promise.resolve({ data: { status: opts.statusById?.[val] ?? 'failed' }, error: null });
+        }
         if (opts.onSourceRead) opts.onSourceRead(); // hook so a test can advance the clock during the read
         const s = opts.sources?.[val];
         return Promise.resolve({ data: s === undefined ? null : s, error: opts.srcErr ?? null });
@@ -377,6 +387,60 @@ Deno.test('handler DEADLINE: no operation begins after the deadline is exceeded 
   assertEquals(fetched, 0); // provider never started for either
   assertEquals(body.time_budget_exhausted, true);
   assertEquals(body.result, 'hard_failure');
+});
+
+// ---- every remote op is deadline-bounded: a stalled/aborted op is hard_failure, accounted ----
+const throwOn = (name: string) => (n: string) => { if (n === name) throw new Error(`aborted:${name}`); };
+
+Deno.test('handler DEADLINE: stalled reconcile (aborted) → 500 hard_failure, never claims', async () => {
+  const supa = makeSupabase({ rows: [], onRpc: throwOn('reconcile_telemetry_outbox') });
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, () => { throw new Error('no'); }, []));
+  assertEquals(res.status, 500);
+  const body = await res.json();
+  assertEquals(body.result, 'hard_failure');
+  assert(!supa.calls.rpc.some((c) => c.name === 'claim_telemetry_batch'));
+});
+
+Deno.test('handler DEADLINE: stalled claim (aborted) → 500 hard_failure', async () => {
+  const supa = makeSupabase({ rows: [], onRpc: throwOn('claim_telemetry_batch') });
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, () => { throw new Error('no'); }, []));
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).result, 'hard_failure');
+});
+
+Deno.test('handler DEADLINE: stalled mark (aborted) → infra_errors, hard_failure, not sent', async () => {
+  const supa = makeSupabase({ rows: [sessionRow('o1', 'r1', 'l1')], sources: { r1: { user_id: 'u', engine: 'Private' } }, onRpc: throwOn('mark_telemetry_result') });
+  const fetchImpl = (() => Promise.resolve(new Response('{}', { status: 200 }))) as unknown as typeof fetch;
+  const body = await (await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, []))).json();
+  assertEquals(body.sent, 0);
+  assert(body.infra_errors >= 1);
+  assertEquals(body.result, 'hard_failure');
+});
+
+Deno.test('handler DEADLINE: stalled discard (aborted, missing source) → infra_errors, hard_failure', async () => {
+  const supa = makeSupabase({ rows: [sessionRow('o1', 'r-gone', 'l1')], sources: {}, onRpc: throwOn('discard_telemetry_event') });
+  const body = await (await handler(post('sekret'), depsFor(BASE_ENV, supa, () => { throw new Error('no fetch'); }, []))).json();
+  assert(body.infra_errors >= 1);
+  assertEquals(body.discarded, 0);
+  assertEquals(body.result, 'hard_failure');
+});
+
+Deno.test('handler DEADLINE: stalled dead-letter status read (aborted) → infra_errors, hard_failure', async () => {
+  // fetch 400 → markFailed succeeds → status re-read stalls (aborted).
+  const supa = makeSupabase({ rows: [sessionRow('o1', 'r1', 'l1')], sources: { r1: { user_id: 'u', engine: 'Private' } }, statusReadThrows: new Error('status read aborted') });
+  const fetchImpl = (() => Promise.resolve(new Response('bad', { status: 400 }))) as unknown as typeof fetch;
+  const body = await (await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, []))).json();
+  assert(body.infra_errors >= 1);
+  assertEquals(body.result, 'hard_failure');
+});
+
+Deno.test('handler DEADLINE: failure-alert Sentry send is bounded (never keeps the function alive past deadline)', async () => {
+  // reconcile aborts → sentryAlert fires; the alert must be bounded (captured, not unbounded).
+  const supa = makeSupabase({ rows: [], onRpc: throwOn('reconcile_telemetry_outbox') });
+  const sentry: unknown[] = [];
+  await handler(post('sekret'), depsFor(BASE_ENV, supa, () => { throw new Error('no'); }, sentry));
+  // the alert was attempted within budget (reconcile aborts early → budget remains); exactly one alert.
+  assertEquals(sentry.length, 1);
 });
 
 Deno.test('handler: reconcile RPC error → 500, ok:false, sentry, never claims', async () => {

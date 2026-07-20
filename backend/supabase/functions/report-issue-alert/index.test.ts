@@ -75,6 +75,7 @@ interface HarnessOpts {
   snapshotError?: { message: string } | null;
   onSourceRead?: () => void;
   onSentry?: () => void;
+  onRpc?: (name: string) => void;
   env?: Record<string, string | undefined>;
   now?: () => number;
   sentryThrows?: Error | null;
@@ -123,22 +124,18 @@ function harness(o: HarnessOpts = {}) {
     }),
     rpc: (name: string, args: unknown) => {
       calls.rpc.push({ name, args });
-      if (name === "claim_report_alert") {
-        // lease-based: returns a lease token (uuid) when claimable, NULL when deduped/in-flight.
-        return Promise.resolve({
-          data: o.claimed === false ? null : "lease-token-1",
-          error: o.claimError ?? null,
-        });
-      }
-      if (name === "mark_report_alert") {
-        return Promise.resolve({ data: o.markData ?? true, error: null });
-      }
-      if (name === "reconcile_report_alerts") return Promise.resolve({ data: 0, error: null });
-      if (name === "claim_report_alert_batch") return Promise.resolve({ data: o.batchRows ?? [], error: null });
-      if (name === "resolve_actor_provenance") {
-        return Promise.resolve({ data: [o.provenance ?? { data_origin: "automated_test", cohort_id: "ci", test_run_id: "run-1", test_suite: "suite-x" }], error: null });
-      }
-      return Promise.resolve({ data: null, error: null });
+      // awaitable + .abortSignal() builder; a per-name hook can throw to simulate a stalled/aborted op.
+      // deno-lint-ignore no-explicit-any
+      const b = (result: any) => ({
+        abortSignal: () => { if (o.onRpc) o.onRpc(name); return Promise.resolve(result); },
+        then: (f: (v: unknown) => unknown, r?: (e: unknown) => unknown) => { if (o.onRpc) o.onRpc(name); return Promise.resolve(result).then(f, r); },
+      });
+      if (name === "claim_report_alert") return b({ data: o.claimed === false ? null : "lease-token-1", error: o.claimError ?? null });
+      if (name === "mark_report_alert") return b({ data: o.markData ?? true, error: null });
+      if (name === "reconcile_report_alerts") return b({ data: 0, error: null });
+      if (name === "claim_report_alert_batch") return b({ data: o.batchRows ?? [], error: null });
+      if (name === "resolve_actor_provenance") return b({ data: [o.provenance ?? { data_origin: "automated_test", cohort_id: "ci", test_run_id: "run-1", test_suite: "suite-x" }], error: null });
+      return b({ data: null, error: null });
     },
   })) as any;
   const sendSentry = (_dsn: string, event: unknown) => {
@@ -369,10 +366,10 @@ Deno.test("handler DRAIN: mark returns false after send → lease_lost, hard_fai
 
 Deno.test("handler DRAIN: deadline exhaustion → unaccounted rows, hard_failure (not green)", async () => {
   const rows = [{ report_id: REPORT_ID, lease_token: "t" }, { report_id: CALLER, lease_token: "t2" }];
-  // Injected clock: first two calls (since, start) = 0, then a value past the deadline → the lane's
-  // pre-check trips immediately, nothing processed, all rows unaccounted.
+  // Injected clock: the first 4 now() calls (since, budget start, reconcile+claim budgets) = 0, then a
+  // value past the deadline → the lane's pre-check trips immediately, nothing processed, all unaccounted.
   let n = 0;
-  const h = harness({ batchRows: rows, report: storedRow({ user_id: CALLER }), now: () => (n++ < 2 ? 0 : 1e9) });
+  const h = harness({ batchRows: rows, report: storedRow({ user_id: CALLER }), now: () => (n++ < 4 ? 0 : 1e9) });
   const body = await (await handler(drainReq(), h.deps)).json();
   assertEquals(body.time_budget_exhausted, true);
   assert(body.unaccounted > 0);
@@ -413,6 +410,31 @@ Deno.test("handler DRAIN DEADLINE: no op begins after the deadline is exceeded m
   const body = await (await handler(drainReq(), h.deps)).json();
   assertEquals(reads, 1);                 // row 2 never read
   assertEquals(body.time_budget_exhausted, true);
+  assertEquals(body.result, "hard_failure");
+});
+
+const alertThrowOn = (name: string) => (n: string) => { if (n === name) throw new Error(`aborted:${name}`); };
+
+Deno.test("handler DRAIN: stalled reconcile (aborted) → 500 hard_failure, never claims", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], onRpc: alertThrowOn("reconcile_report_alerts") });
+  const res = await handler(drainReq(), h.deps);
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assert(!h.calls.rpc.some((c) => c.name === "claim_report_alert_batch"));
+});
+
+Deno.test("handler DRAIN: stalled claim (aborted) → 500 hard_failure", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], onRpc: alertThrowOn("claim_report_alert_batch") });
+  const res = await handler(drainReq(), h.deps);
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "claim_failed");
+});
+
+Deno.test("handler DRAIN: stalled mark (aborted) → infra_error, hard_failure, not sent", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], report: storedRow({ user_id: CALLER }), onRpc: alertThrowOn("mark_report_alert") });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(body.sent, 0);
+  assert(body.infra_errors >= 1);
   assertEquals(body.result, "hard_failure");
 });
 

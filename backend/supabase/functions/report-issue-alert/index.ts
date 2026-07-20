@@ -17,6 +17,7 @@
 
 import { corsGuard, corsHeaders } from "../_shared/cors.ts";
 import { captureSentryEvent } from "../_shared/sentry.ts";
+import { makeBudget, rpcBounded } from "../_shared/deadline.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 /** DETERMINISTIC Sentry event_id derived from the report id (a uuid → its 32 hex chars). Because it is
@@ -258,12 +259,13 @@ async function deliverClaimed(
   opts: { provenance: Provenance; sentryTimeoutMs: number; remainingFn: () => number },
 ): Promise<{ disposition: Disposition; failure_category: string | null }> {
   const payload = buildAlertPayload(report);
-  // mark → { ok: DB confirmed under our lease, errored: RPC error (infra) }.
+  // mark → { ok: DB confirmed under our lease, errored: RPC error/abort (infra) }. BOUNDED to the
+  // remaining deadline budget so the mark itself can never run past the deadline.
   const mark = async (status: "sent" | "failed", cat: string | null) => {
-    const { data, error } = await admin.rpc("mark_report_alert", {
+    const { data, error, aborted } = await rpcBounded((s) => admin.rpc("mark_report_alert", {
       p_report_id: payload.report_id, p_lease_token: leaseToken, p_status: status, p_failure_category: cat,
-    });
-    return { ok: !error && data === true, errored: !!error };
+    }).abortSignal(s), Math.max(1, opts.remainingFn()));
+    return { ok: !aborted && !error && data === true, errored: aborted || !!error };
   };
 
   if (!dsn) {
@@ -345,18 +347,19 @@ export async function handler(
     const windowSec = num("ALERT_RECONCILE_WINDOW_SECONDS", 86400);
     const nowFn = deps.now ?? (() => Date.now());
     const since = new Date(nowFn() - windowSec * 1000).toISOString();
-    const start = nowFn();
+    const budgetC = makeBudget(nowFn, deadlineMs, markReserveMs);
+    const remaining = budgetC.remaining;
+    const opBudget = () => budgetC.opBudget(eventTimeoutMs);
 
-    const { error: recErr } = await admin.rpc("reconcile_report_alerts", { p_since: since });
-    if (recErr) return json(500, { ok: false, result: "hard_failure", error: "reconcile_failed" }, headers);
-    const { data: rows, error: claimErr } = await admin.rpc("claim_report_alert_batch", { p_limit: batchSize, p_worker: "report-alert-drain" });
-    if (claimErr) return json(500, { ok: false, result: "hard_failure", error: "claim_failed" }, headers);
+    // reconcile + claim are on the SAME absolute deadline, bounded (aborted → hard_failure).
+    const rec = await rpcBounded((sg) => admin.rpc("reconcile_report_alerts", { p_since: since }).abortSignal(sg), opBudget());
+    if (rec.aborted || rec.error) return json(500, { ok: false, result: "hard_failure", error: "reconcile_failed" }, headers);
+    const cl = await rpcBounded((sg) => admin.rpc("claim_report_alert_batch", { p_limit: batchSize, p_worker: "report-alert-drain" }).abortSignal(sg), opBudget());
+    if (cl.aborted || cl.error) return json(500, { ok: false, result: "hard_failure", error: "claim_failed" }, headers);
     // Claimed rows include the AT-INSERT provenance SNAPSHOT (claim returns report_alert_deliveries.*).
-    const claimed = (rows ?? []) as Array<Record<string, unknown> & { report_id: string; lease_token: string }>;
+    const claimed = (cl.data ?? []) as Array<Record<string, unknown> & { report_id: string; lease_token: string }>;
 
     const s = { claimed: claimed.length, sent: 0, failed: 0, mark_deferred: 0, source_gone: 0, lease_lost: 0, infra_errors: 0, time_budget_exhausted: false };
-    const remaining = () => deadlineMs - (nowFn() - start);
-    const opBudget = () => Math.min(eventTimeoutMs, remaining() - markReserveMs); // reserve mark time
 
     const processOne = async (d: Record<string, unknown> & { report_id: string; lease_token: string }) => {
       // Before the SOURCE READ: reserve time for read + provider + mark.
@@ -371,9 +374,11 @@ export async function handler(
       } catch (e) { srcErr = e; } finally { clearTimeout(srcTimer); }
       if (srcErr) { s.infra_errors++; return; } // source-read failure/abort → hard; leave leased, retry later
       if (!report) {
-        // Missing source (should be prevented by FK cascade). Explicit safe disposition: bounded mark.
-        const { data, error } = await admin.rpc("mark_report_alert", { p_report_id: d.report_id, p_lease_token: d.lease_token, p_status: "failed", p_failure_category: "unknown" });
-        if (error) s.infra_errors++; else if (data === true) s.source_gone++; else s.lease_lost++;
+        // Missing source (should be prevented by FK cascade). Explicit safe disposition: BOUNDED mark.
+        const mb = budgetC.markBudget(eventTimeoutMs);
+        if (mb <= 0) { s.time_budget_exhausted = true; return; }
+        const { data, error, aborted } = await rpcBounded((sg) => admin.rpc("mark_report_alert", { p_report_id: d.report_id, p_lease_token: d.lease_token, p_status: "failed", p_failure_category: "unknown" }).abortSignal(sg), mb);
+        if (aborted || error) s.infra_errors++; else if (data === true) s.source_gone++; else s.lease_lost++;
         return;
       }
       // Before delivery: recompute the budget (reserving mark time). Provenance = the claimed row's snapshot.
@@ -471,7 +476,8 @@ export async function handler(
   const prov = await readSnapshotProvenance(admin, reportId, serverSha);
   if (prov === null) return json(200, { report_id: reportId, alerted: false, infra_error: true }, headers);
   const r = await deliverClaimed(admin, report as StoredReportRow, leaseToken as string, getEnv("SENTRY_DSN"), sendSentry, logOps,
-    { provenance: prov, sentryTimeoutMs: eventTimeoutMs, remainingFn: () => 1 });
+    // Single wake-hint has no drain deadline; give the mark a full, bounded budget (not the drain's remaining()).
+    { provenance: prov, sentryTimeoutMs: eventTimeoutMs, remainingFn: () => eventTimeoutMs });
   return json(200, {
     report_id: reportId,
     alerted: r.disposition === "sent",
