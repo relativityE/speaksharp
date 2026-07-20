@@ -3,10 +3,12 @@
 -- authoritative tables) to exercise the migrations against a REAL PostgreSQL engine.
 
 -- Supabase-style roles the migrations GRANT/REVOKE against. NOLOGIN; we reach them via SET ROLE.
+-- service_role has BYPASSRLS in real Supabase; mirror that so "service_role direct ops succeed" is
+-- testable (anon/authenticated stay RLS-subject + un-granted).
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon')          THEN CREATE ROLE anon NOLOGIN;          END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')  THEN CREATE ROLE service_role NOLOGIN;  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')  THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF;
 END $$;
 
 -- Minimal auth schema + users stub (registry FKs auth.users(id) ON DELETE CASCADE).

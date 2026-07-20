@@ -70,6 +70,9 @@ interface HarnessOpts {
   claimError?: { message: string } | null;
   markData?: boolean;
   batchRows?: Array<{ report_id: string; lease_token: string }>;
+  provenance?: Record<string, unknown>;
+  env?: Record<string, string | undefined>;
+  now?: () => number;
   sentryThrows?: Error | null;
   dsn?: string | undefined;
 }
@@ -117,6 +120,9 @@ function harness(o: HarnessOpts = {}) {
       }
       if (name === "reconcile_report_alerts") return Promise.resolve({ data: 0, error: null });
       if (name === "claim_report_alert_batch") return Promise.resolve({ data: o.batchRows ?? [], error: null });
+      if (name === "resolve_actor_provenance") {
+        return Promise.resolve({ data: [o.provenance ?? { data_origin: "automated_test", cohort_id: "ci", test_run_id: "run-1", test_suite: "suite-x" }], error: null });
+      }
       return Promise.resolve({ data: null, error: null });
     },
   })) as any;
@@ -125,17 +131,18 @@ function harness(o: HarnessOpts = {}) {
     if (o.sentryThrows) return Promise.reject(o.sentryThrows);
     return Promise.resolve({});
   };
-  const getEnv = (
-    k: string,
-  ) => (k === "SENTRY_DSN"
-    ? ("dsn" in o ? o.dsn : "https://k@o1.ingest.sentry.io/1")
-    : "x");
+  const getEnv = (k: string) => {
+    if (o.env && k in o.env) return o.env[k];
+    if (k === "SENTRY_DSN") return "dsn" in o ? o.dsn : "https://k@o1.ingest.sentry.io/1";
+    return "x";
+  };
   const deps = {
     getEnv,
     createUserClient,
     createAdminClient,
     sendSentry,
     logOps: (e: Record<string, string | null>) => calls.ops.push(e),
+    now: o.now,
   };
   return { calls, deps };
 }
@@ -179,8 +186,10 @@ Deno.test("buildAlertPayload validates/normalizes and drops unrecognized values"
   assert(p.route!.length <= 120); // bounded
 });
 
+const PROV_AT = { data_origin: "automated_test", cohort_id: "ci", test_run_id: "run-1", test_suite: "suite-x", environment: "production", server_verified_release_sha: null };
+
 Deno.test("buildSentryEvent contains ONLY allowlisted tags, no PII/user/request/extra", () => {
-  const ev = buildSentryEvent(buildAlertPayload(storedRow()), "evt1") as Record<
+  const ev = buildSentryEvent(buildAlertPayload(storedRow()), "evt1", PROV_AT) as Record<
     string,
     unknown
   >;
@@ -206,10 +215,19 @@ Deno.test("buildSentryEvent contains ONLY allowlisted tags, no PII/user/request/
     "route",
     "stt_mode",
     "session_id",
+    // server-assigned provenance markers.
+    "data_origin",
+    "cohort_id",
+    "test_run_id",
+    "test_suite",
+    "environment",
+    "server_verified_release_sha",
   ];
   for (const k of Object.keys(tags)) {
     assert(allowedTagKeys.includes(k), `unexpected tag ${k}`);
   }
+  assertEquals(tags.data_origin, "automated_test");
+  assertEquals(tags.environment, "production");
   // The whole serialized event must not carry any report content.
   const s = JSON.stringify(ev);
   for (
@@ -294,6 +312,58 @@ Deno.test("handler: secret-gated batch DRAIN reconciles + delivers claimed alert
   assertEquals(h.calls.sentry.length, 1);
 });
 
+function drainReq() {
+  return new Request("https://fn/report-issue-alert", {
+    method: "POST", headers: { Origin: APPROVED, "x-alert-worker-secret": "x" }, body: "{}",
+  });
+}
+
+Deno.test("handler DRAIN: source-read failure → infra, hard_failure (not green)", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], readError: { message: "db down" } });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(body.infra_errors, 1);
+  assertEquals(body.result, "hard_failure");
+  assertEquals(body.ok, false);
+  assertEquals(h.calls.sentry.length, 0); // never delivered on a source-read failure
+});
+
+Deno.test("handler DRAIN: missing source → explicit source_gone disposition (not a silent skip)", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], report: null });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(body.source_gone, 1);
+  assertEquals(body.result, "partial_retry");
+  // marked failed(unknown) under the lease — bounded, not a silent continue.
+  assert(h.calls.rpc.some((c) => c.name === "mark_report_alert"));
+});
+
+Deno.test("handler DRAIN: Sentry send failure → failed, accounted, partial_retry", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], report: storedRow({ user_id: CALLER }), sentryThrows: new Error("network ECONNRESET") });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(body.failed, 1);
+  assertEquals(body.result, "partial_retry");
+  assertEquals(body.claimed, body.sent + body.failed + body.mark_deferred + body.source_gone + body.lease_lost + body.infra_errors);
+});
+
+Deno.test("handler DRAIN: mark returns false after send → lease_lost, hard_failure", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], report: storedRow({ user_id: CALLER }), markData: false });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(body.mark_deferred, 1); // sent ok, mark false (lost lease) → deterministic id dedupes reclaim
+  assertEquals(body.ok, true);          // mark_deferred alone is not a hard failure
+});
+
+Deno.test("handler DRAIN: deadline exhaustion → unaccounted rows, hard_failure (not green)", async () => {
+  const rows = [{ report_id: REPORT_ID, lease_token: "t" }, { report_id: CALLER, lease_token: "t2" }];
+  // Injected clock: first two calls (since, start) = 0, then a value past the deadline → the lane's
+  // pre-check trips immediately, nothing processed, all rows unaccounted.
+  let n = 0;
+  const h = harness({ batchRows: rows, report: storedRow({ user_id: CALLER }), now: () => (n++ < 2 ? 0 : 1e9) });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(body.time_budget_exhausted, true);
+  assert(body.unaccounted > 0);
+  assertEquals(body.result, "hard_failure");
+  assertEquals(body.ok, false);
+});
+
 Deno.test("handler: batch DRAIN with wrong secret → 404, no work", async () => {
   const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }] });
   const bad = new Request("https://fn/report-issue-alert", {
@@ -362,11 +432,56 @@ Deno.test("handler: caller cannot alert another user's report → 403 before cla
   assertEquals(h.calls.sentry.length, 0);
 });
 
-Deno.test("handler: anonymous report (null user_id) is alertable by an authenticated caller", async () => {
+Deno.test("handler: NULL-user (anonymous) report → 403 for an authenticated caller (fail-closed)", async () => {
+  // Anonymous reports are delivered ONLY by the server outbox/reconciler — never triggerable by an
+  // arbitrary authenticated caller who knows the UUID.
   const h = harness({ report: storedRow({ user_id: null }) });
   const res = await handler(req({ reportId: REPORT_ID }), h.deps);
+  assertEquals(res.status, 403);
+  assertEquals(h.calls.rpc.length, 0);
+  assertEquals(h.calls.sentry.length, 0);
+});
+
+Deno.test("handler: own report (user_id === caller) → allowed (claim + alert)", async () => {
+  const h = harness({ report: storedRow({ user_id: CALLER }) });
+  const res = await handler(req({ reportId: REPORT_ID }), h.deps);
   assertEquals(res.status, 200);
-  assertEquals(h.calls.sentry.length, 1);
+  assertEquals((await res.json()).alerted, true);
+});
+
+Deno.test("handler: nonexistent report → 404 (no claim/alert)", async () => {
+  const h = harness({ report: null });
+  const res = await handler(req({ reportId: REPORT_ID }), h.deps);
+  assertEquals(res.status, 404);
+  assertEquals(h.calls.rpc.length, 0);
+  assertEquals(h.calls.sentry.length, 0);
+});
+
+Deno.test("handler: wake-hint alert carries server-resolved provenance tag (automated_test)", async () => {
+  const h = harness({ report: storedRow({ user_id: CALLER }), provenance: { data_origin: "automated_test", cohort_id: "ci", test_run_id: "r", test_suite: "s" } });
+  await handler(req({ reportId: REPORT_ID }), h.deps);
+  const ev = h.calls.sentry[0] as { tags: Record<string, string> };
+  assertEquals(ev.tags.data_origin, "automated_test");
+});
+
+Deno.test("handler: invited-tester report is marked beta_tester in Sentry", async () => {
+  const h = harness({ report: storedRow({ user_id: CALLER }), provenance: { data_origin: "beta_tester", cohort_id: "wave1", test_run_id: null, test_suite: null } });
+  await handler(req({ reportId: REPORT_ID }), h.deps);
+  const ev = h.calls.sentry[0] as { tags: Record<string, string> };
+  assertEquals(ev.tags.data_origin, "beta_tester");
+  assertEquals(ev.tags.cohort_id, "wave1");
+});
+
+Deno.test("handler: browser-supplied provenance is IGNORED (only server registry decides)", async () => {
+  // Even if a malicious body tried to set provenance, the function reads it only from resolve_actor_provenance.
+  const h = harness({ report: storedRow({ user_id: CALLER }), provenance: { data_origin: "production_user" } });
+  const badReq = new Request("https://fn/report-issue-alert", {
+    method: "POST", headers: { Origin: APPROVED, Authorization: "Bearer valid" },
+    body: JSON.stringify({ reportId: REPORT_ID, data_origin: "owner_manual_test", tags: { data_origin: "seed_fixture" } }),
+  });
+  await handler(badReq, h.deps);
+  const ev = h.calls.sentry[0] as { tags: Record<string, string> };
+  assertEquals(ev.tags.data_origin, "production_user"); // from the server resolver, NOT the body
 });
 
 Deno.test("handler: auth required — no header → 401; invalid token → 401", async () => {

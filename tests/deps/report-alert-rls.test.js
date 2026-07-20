@@ -11,6 +11,8 @@ const MIG = resolve(ROOT, 'backend/supabase/migrations');
 const read = (f) => readFileSync(resolve(MIG, f), 'utf8');
 
 const deliveries = read('20260720120000_report_alert_deliveries.sql');
+// The FINAL migrated state (lease-based outbox: leases, dead-letter, trigger enqueue, table grants).
+const outbox = read('20260720160000_report_alert_outbox.sql');
 // The user_issue_reports policies live across a few migrations; concatenate them.
 const reportPolicies = readdirSync(MIG)
   .filter((f) => f.includes('user_issue_reports'))
@@ -33,14 +35,42 @@ describe('P0.4 — report alert delivery state is service-role-only', () => {
     }
   });
 
-  it('claim/mark helpers are service-role-only (revoked from public/anon/authenticated)', () => {
-    expect(deliveries).toMatch(/REVOKE ALL ON FUNCTION public\.claim_report_alert\(uuid\) FROM PUBLIC, anon, authenticated/);
-    expect(deliveries).toMatch(/REVOKE ALL ON FUNCTION public\.mark_report_alert\(uuid, text, text\) FROM PUBLIC, anon, authenticated/);
+  it('the dedupe claim is keyed on a unique report_id (PRIMARY KEY)', () => {
+    expect(deliveries).toMatch(/report_id uuid PRIMARY KEY REFERENCES public\.user_issue_reports\(id\)/);
   });
 
-  it('the atomic dedupe claim is keyed on a unique report_id (PRIMARY KEY)', () => {
-    expect(deliveries).toMatch(/report_id uuid PRIMARY KEY REFERENCES public\.user_issue_reports\(id\)/);
-    expect(deliveries).toMatch(/ON CONFLICT \(report_id\) DO UPDATE/);
+  // ---- FINAL migrated state (20260720160000) ----
+  it('FINAL: explicit table privilege hardening (revoked from public/anon/authenticated; service_role only)', () => {
+    expect(outbox).toMatch(/REVOKE ALL ON TABLE public\.report_alert_deliveries FROM PUBLIC, anon, authenticated/);
+    expect(outbox).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.report_alert_deliveries TO service_role/);
+  });
+
+  it('FINAL: server-authoritative enqueue trigger + reconciler', () => {
+    expect(outbox).toMatch(/CREATE TRIGGER trg_report_alert_enqueue\s+AFTER INSERT ON public\.user_issue_reports/);
+    expect(outbox).toMatch(/FUNCTION public\.reconcile_report_alerts/);
+  });
+
+  it('FINAL: every lease-based alert RPC is service-role-only, locked search_path', () => {
+    for (const sig of [
+      'claim_report_alert(uuid, text)', 'claim_report_alert_batch(integer, text)',
+      'mark_report_alert(uuid, uuid, text, text)', 'replay_report_alert_deadletter(uuid)',
+      'reconcile_report_alerts(timestamptz)',
+    ]) {
+      const esc = sig.replace(/[()]/g, (m) => '\\' + m);
+      expect(outbox).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${esc} FROM PUBLIC, anon, authenticated`));
+      expect(outbox).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${esc} TO service_role`));
+    }
+    // every function in the final migration pins a trusted search_path.
+    for (const chunk of outbox.split(/CREATE OR REPLACE FUNCTION/).slice(1)) {
+      expect(chunk).toMatch(/SET search_path = pg_catalog, public/);
+    }
+  });
+
+  it('FINAL: lease + dead-letter columns present (crash-safe outbox)', () => {
+    for (const col of ['lease_token', 'lease_expires_at', 'claimed_by', 'max_attempts', 'next_attempt_at', 'terminal_failed_at']) {
+      expect(outbox).toMatch(new RegExp(`ADD COLUMN IF NOT EXISTS ${col}`));
+    }
+    expect(outbox).toMatch(/status IN \('pending', 'sending', 'sent', 'failed', 'dead_letter'\)/);
   });
 });
 

@@ -33,6 +33,12 @@ CREATE INDEX IF NOT EXISTS report_alert_deliveries_due_idx
 CREATE INDEX IF NOT EXISTS report_alert_deliveries_lease_idx
   ON public.report_alert_deliveries (lease_expires_at) WHERE status = 'sending';
 
+-- Explicit table privilege hardening (final migrated state; belt-and-suspenders over the RLS-no-policy
+-- lock). Untrusted roles get NOTHING; the service role gets the minimum direct DML the worker needs.
+-- (report_id is a uuid PK — no sequence is introduced, so no sequence grants are required.)
+REVOKE ALL ON TABLE public.report_alert_deliveries FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.report_alert_deliveries TO service_role;
+
 -- (2) DB-boundary enqueue: every stored report gets a pending alert row. EXCEPTION-guarded so a queue
 -- failure can never block report persistence.
 CREATE OR REPLACE FUNCTION public.trg_enqueue_report_alert()

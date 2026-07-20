@@ -486,6 +486,24 @@ async function main() {
     await db.exec('SET ROLE service_role');
     try { for (const callSql of Object.values(ALERT_RPCS)) await q(callSql); } finally { await db.exec('RESET ROLE'); }
   });
+  // Direct TABLE privileges (final migrated state): untrusted roles denied every DML; service_role ok.
+  for (const role of ['anon', 'authenticated']) {
+    await expectDenied(`I11 ${role} direct SELECT denied`, role, `SELECT * FROM public.report_alert_deliveries LIMIT 1`);
+    await expectDenied(`I11 ${role} direct INSERT denied`, role, `INSERT INTO public.report_alert_deliveries (report_id) VALUES (gen_random_uuid())`);
+    await expectDenied(`I11 ${role} direct UPDATE denied`, role, `UPDATE public.report_alert_deliveries SET status='sent'`);
+    await expectDenied(`I11 ${role} direct DELETE denied`, role, `DELETE FROM public.report_alert_deliveries`);
+  }
+  await check('I12 service_role direct SELECT/UPDATE/DELETE/INSERT all succeed (BYPASSRLS + grants)', async () => {
+    const rid = await mkReport();          // trigger enqueues its delivery row
+    const rid2 = await mkReport();
+    await db.exec('SET ROLE service_role');
+    try {
+      assert(Number((await one(`SELECT count(*)::int c FROM public.report_alert_deliveries WHERE report_id='${rid}'`)).c) >= 1, 'select');
+      await q(`UPDATE public.report_alert_deliveries SET claimed_by='svc-test' WHERE report_id='${rid}'`);
+      await q(`DELETE FROM public.report_alert_deliveries WHERE report_id='${rid2}'`);
+      await q(`INSERT INTO public.report_alert_deliveries (report_id, status) VALUES ('${rid2}','pending')`); // re-insert after delete
+    } finally { await db.exec('RESET ROLE'); }
+  });
 
   // ============================ J. protected operator report retrieval ============================
   group('J operator report retrieval');

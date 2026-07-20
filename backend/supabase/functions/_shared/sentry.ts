@@ -13,7 +13,7 @@ export function createSentryEventId() {
   return crypto.randomUUID().replaceAll("-", "")
 }
 
-export async function captureSentryEvent(dsn: string, event: SentryEvent) {
+export async function captureSentryEvent(dsn: string, event: SentryEvent, opts?: { signal?: AbortSignal }) {
   const parsed = parseSentryDsn(dsn)
   const envelope = [
     JSON.stringify({
@@ -31,6 +31,7 @@ export async function captureSentryEvent(dsn: string, event: SentryEvent) {
       "Content-Type": "application/x-sentry-envelope",
     },
     body: envelope,
+    signal: opts?.signal,
   })
 
   if (!response.ok) {
