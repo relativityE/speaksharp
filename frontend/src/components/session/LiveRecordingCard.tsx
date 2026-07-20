@@ -358,7 +358,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                                 </span>
                                             </DropdownMenuRadioItem>
                                         </TooltipTrigger>
-                                        <TooltipContent side="left" role="tooltip" data-testid="stt-desc-private">
+                                        <TooltipContent side="top" role="tooltip" data-testid="stt-desc-private">
                                             {privateOptionDesc}
                                         </TooltipContent>
                                     </Tooltip>
@@ -375,7 +375,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                                 </span>
                                             </DropdownMenuRadioItem>
                                         </TooltipTrigger>
-                                        <TooltipContent side="left" role="tooltip" data-testid="stt-desc-native">
+                                        <TooltipContent side="top" role="tooltip" data-testid="stt-desc-native">
                                             {nativeOptionDesc}
                                         </TooltipContent>
                                     </Tooltip>
@@ -394,7 +394,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                                 </span>
                                             </DropdownMenuRadioItem>
                                         </TooltipTrigger>
-                                        <TooltipContent side="left" role="tooltip" data-testid="stt-desc-cloud">
+                                        <TooltipContent side="top" role="tooltip" data-testid="stt-desc-cloud">
                                             {cloudOptionDesc}
                                         </TooltipContent>
                                     </Tooltip>
