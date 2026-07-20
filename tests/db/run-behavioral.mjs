@@ -521,6 +521,27 @@ async function main() {
     } finally { await db.exec('RESET ROLE'); }
   });
 
+  await check('I13 alert provenance is SNAPSHOTTED at insert and stable through registry expiry/change', async () => {
+    const u = 'c0000001-0000-0000-0000-000000000001';
+    await db.exec(`INSERT INTO auth.users (id,email) VALUES ('${u}','snap')`);
+    await q(`SELECT public.register_observability_actor('${u}','automated_test','ci','run-snap','suite-snap', interval '1 hour')`);
+    const rid = (await one(`INSERT INTO public.user_issue_reports (user_id) VALUES ('${u}') RETURNING id`)).id;
+    const s1 = await one(`SELECT data_origin,test_run_id,test_suite FROM public.report_alert_deliveries WHERE report_id='${rid}'`);
+    eq(s1.data_origin, 'automated_test', 'snapshot at insert'); eq(s1.test_run_id, 'run-snap', 'run snapshotted');
+    // registry EXPIRES then a DIFFERENT registration lands AFTER the report was created
+    await q(`SELECT public.expire_observability_actor('${u}')`);
+    await q(`SELECT public.register_observability_actor('${u}','production_user','x','run-DIFFERENT','s2', interval '1 hour')`);
+    // delayed claim + delivery — the snapshot must be UNCHANGED (original marker preserved)
+    const token = (await one(`SELECT public.claim_report_alert('${rid}','w') AS t`)).t;
+    assert(token, 'claimable'); await q(`SELECT public.mark_report_alert('${rid}','${token}','sent',NULL)`);
+    const s2 = await one(`SELECT data_origin,test_run_id FROM public.report_alert_deliveries WHERE report_id='${rid}'`);
+    eq(s2.data_origin, 'automated_test', 'snapshot UNCHANGED after registry expiry/change'); eq(s2.test_run_id, 'run-snap', 'run unchanged');
+  });
+  await check('I14 anonymous report snapshots legacy_unclassified', async () => {
+    const rid = (await one(`INSERT INTO public.user_issue_reports (user_id) VALUES (NULL) RETURNING id`)).id;
+    eq((await one(`SELECT data_origin FROM public.report_alert_deliveries WHERE report_id='${rid}'`)).data_origin, 'legacy_unclassified', 'anon → legacy');
+  });
+
   // ============================ J. protected operator report retrieval ============================
   group('J operator report retrieval');
   await check('J1 service_role retrieves the FULL report by id (authorized succeeds)', async () => {

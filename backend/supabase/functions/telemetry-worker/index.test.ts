@@ -95,6 +95,7 @@ function makeSupabase(opts: {
   sources?: Record<string, Record<string, unknown> | null>; statusById?: Record<string, string>;
   markData?: boolean; markErr?: unknown; discardData?: boolean;
   proofRows?: FakeRow[]; proofErr?: unknown;
+  srcErr?: unknown; onSourceRead?: () => void;
 }) {
   const calls = { rpc: [] as Array<{ name: string; args: Record<string, unknown> }> };
   const supa = {
@@ -109,17 +110,18 @@ function makeSupabase(opts: {
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
+      const maybeSingle = (val: string) => {
+        if (table === 'telemetry_outbox') return Promise.resolve({ data: { status: opts.statusById?.[val] ?? 'failed' }, error: null });
+        if (opts.onSourceRead) opts.onSourceRead(); // hook so a test can advance the clock during the read
+        const s = opts.sources?.[val];
+        return Promise.resolve({ data: s === undefined ? null : s, error: opts.srcErr ?? null });
+      };
       return {
         select() {
           return {
             eq(_col: string, val: string) {
-              return {
-                maybeSingle() {
-                  if (table === 'telemetry_outbox') return Promise.resolve({ data: { status: opts.statusById?.[val] ?? 'failed' }, error: null });
-                  const s = opts.sources?.[val];
-                  return Promise.resolve({ data: s === undefined ? null : s, error: null });
-                },
-              };
+              // supports both .eq().maybeSingle() and .eq().abortSignal().maybeSingle()
+              return { maybeSingle: () => maybeSingle(val), abortSignal: () => ({ maybeSingle: () => maybeSingle(val) }) };
             },
           };
         },
@@ -142,7 +144,7 @@ const BASE_ENV: Record<string, string> = {
 
 const post = (secret?: string) => new Request('https://edge/telemetry-worker', { method: 'POST', headers: secret ? { 'x-telemetry-worker-secret': secret } : {} });
 
-function depsFor(env: Record<string, string | undefined>, supa: unknown, fetchImpl: typeof fetch, sentryCalls: unknown[]): WorkerDeps {
+function depsFor(env: Record<string, string | undefined>, supa: unknown, fetchImpl: typeof fetch, sentryCalls: unknown[], nowFn?: () => number): WorkerDeps {
   return {
     getEnv: (k) => env[k],
     // deno-lint-ignore no-explicit-any
@@ -150,7 +152,7 @@ function depsFor(env: Record<string, string | undefined>, supa: unknown, fetchIm
     fetchImpl,
     // deno-lint-ignore no-explicit-any
     captureSentry: ((_dsn: string, ev: any) => { sentryCalls.push(ev); return Promise.resolve({ eventId: 'e', status: 200 }); }) as any,
-    now: () => 1_800_000_000_000,
+    now: nowFn ?? (() => 1_800_000_000_000),
   };
 }
 
@@ -328,6 +330,53 @@ Deno.test('handler PROOF mode: invalid event → 400', async () => {
   assertEquals(res.status, 400);
   assertEquals((await res.json()).result, 'not_runnable');
   assert(!supa.calls.rpc.some((c) => c.name === 'claim_telemetry_proof_row'));
+});
+
+// ---- hard-deadline accounting (shared absolute deadline; reserve mark time) ----
+const DEADLINE_ENV = { ...BASE_ENV, TELEMETRY_WORKER_DEADLINE_MS: '10000', TELEMETRY_MARK_RESERVE_MS: '2000', TELEMETRY_EVENT_TIMEOUT_MS: '5000', TELEMETRY_WORKER_CONCURRENCY: '1' };
+
+Deno.test('handler DEADLINE: source read consumes the budget → provider never starts, time_budget_exhausted', async () => {
+  const clock = { t: 0 };
+  const supa = makeSupabase({ rows: [sessionRow('o1', 'r1', 'l1')], sources: { r1: { user_id: 'u', engine: 'Private' } }, onSourceRead: () => { clock.t += 9500; } }); // eats past deadline-reserve
+  let fetched = false;
+  const fetchImpl = (() => { fetched = true; return Promise.resolve(new Response('{}', { status: 200 })); }) as unknown as typeof fetch;
+  const res = await handler(post('sekret'), depsFor(DEADLINE_ENV, supa, fetchImpl, [], () => clock.t));
+  const body = await res.json();
+  assertEquals(fetched, false);                 // provider never started
+  assertEquals(body.time_budget_exhausted, true);
+  assertEquals(body.result, 'hard_failure');
+  assertEquals(body.sent, 0);
+});
+
+Deno.test('handler DEADLINE: provider completes but no time to mark → not marked, time_budget_exhausted', async () => {
+  const clock = { t: 0 };
+  const supa = makeSupabase({ rows: [sessionRow('o1', 'r1', 'l1')], sources: { r1: { user_id: 'u', engine: 'Private' } } });
+  // fetch succeeds but consumes past the whole deadline so remaining()<=0 before the mark.
+  const fetchImpl = (() => { clock.t += 10001; return Promise.resolve(new Response('{}', { status: 200 })); }) as unknown as typeof fetch;
+  const res = await handler(post('sekret'), depsFor(DEADLINE_ENV, supa, fetchImpl, [], () => clock.t));
+  const body = await res.json();
+  assertEquals(body.sent, 0);                    // provider ok but mark skipped (no budget)
+  assertEquals(body.time_budget_exhausted, true);
+  assertEquals(body.result, 'hard_failure');
+  assert(!supa.calls.rpc.some((c) => c.name === 'mark_telemetry_result')); // never marked sent
+});
+
+Deno.test('handler DEADLINE: no operation begins after the deadline is exceeded mid-run', async () => {
+  const clock = { t: 0 };
+  let reads = 0, fetched = 0;
+  // Two rows, concurrency 1. Processing row 1 pushes the clock past the deadline; row 2 must never start.
+  const supa = makeSupabase({
+    rows: [sessionRow('o1', 'r1', 'l1'), sessionRow('o2', 'r2', 'l2')],
+    sources: { r1: { user_id: 'u', engine: 'Private' }, r2: { user_id: 'u', engine: 'Private' } },
+    onSourceRead: () => { reads++; clock.t += 10001; }, // row 1's read blows the whole budget
+  });
+  const fetchImpl = (() => { fetched++; return Promise.resolve(new Response('{}', { status: 200 })); }) as unknown as typeof fetch;
+  const res = await handler(post('sekret'), depsFor(DEADLINE_ENV, supa, fetchImpl, [], () => clock.t));
+  const body = await res.json();
+  assertEquals(reads, 1);   // row 2 never even read
+  assertEquals(fetched, 0); // provider never started for either
+  assertEquals(body.time_budget_exhausted, true);
+  assertEquals(body.result, 'hard_failure');
 });
 
 Deno.test('handler: reconcile RPC error → 500, ok:false, sentry, never claims', async () => {

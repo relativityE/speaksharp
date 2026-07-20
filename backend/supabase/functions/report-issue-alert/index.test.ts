@@ -71,6 +71,10 @@ interface HarnessOpts {
   markData?: boolean;
   batchRows?: Array<{ report_id: string; lease_token: string }>;
   provenance?: Record<string, unknown>;
+  snapshot?: Record<string, unknown> | null;
+  snapshotError?: { message: string } | null;
+  onSourceRead?: () => void;
+  onSentry?: () => void;
   env?: Record<string, string | undefined>;
   now?: () => number;
   sentryThrows?: Error | null;
@@ -94,15 +98,26 @@ function harness(o: HarnessOpts = {}) {
     },
   })) as any;
   // deno-lint-ignore no-explicit-any
+  const snapshotRow = () => (o.snapshot !== undefined ? o.snapshot : {
+    data_origin: o.provenance?.data_origin ?? "automated_test",
+    cohort_id: o.provenance?.cohort_id ?? "ci",
+    test_run_id: o.provenance?.test_run_id ?? "run-1",
+    test_suite: o.provenance?.test_suite ?? "suite-x",
+    environment: "production",
+  });
+  const maybeSingleFor = (table: string) => {
+    if (o.onSourceRead) o.onSourceRead();
+    return table === "report_alert_deliveries"
+      ? Promise.resolve({ data: snapshotRow(), error: o.snapshotError ?? null })
+      : Promise.resolve({ data: o.report === undefined ? storedRow() : o.report, error: o.readError ?? null });
+  };
   const createAdminClient = (() => ({
-    from: () => ({
+    from: (table: string) => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: () =>
-            Promise.resolve({
-              data: o.report === undefined ? storedRow() : o.report,
-              error: o.readError ?? null,
-            }),
+          // supports .eq().maybeSingle() and .eq().abortSignal().maybeSingle()
+          maybeSingle: () => maybeSingleFor(table),
+          abortSignal: () => ({ maybeSingle: () => maybeSingleFor(table) }),
         }),
       }),
     }),
@@ -128,6 +143,7 @@ function harness(o: HarnessOpts = {}) {
   })) as any;
   const sendSentry = (_dsn: string, event: unknown) => {
     calls.sentry.push(event);
+    if (o.onSentry) o.onSentry();
     if (o.sentryThrows) return Promise.reject(o.sentryThrows);
     return Promise.resolve({});
   };
@@ -364,6 +380,42 @@ Deno.test("handler DRAIN: deadline exhaustion → unaccounted rows, hard_failure
   assertEquals(body.ok, false);
 });
 
+const DRAIN_DEADLINE_ENV = { ALERT_WORKER_DEADLINE_MS: "10000", ALERT_MARK_RESERVE_MS: "2000", ALERT_EVENT_TIMEOUT_MS: "5000", ALERT_WORKER_CONCURRENCY: "1" };
+
+Deno.test("handler DRAIN DEADLINE: source read consumes budget → no Sentry, time_budget, hard_failure", async () => {
+  const clock = { t: 0 };
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], report: storedRow({ user_id: CALLER }),
+    env: DRAIN_DEADLINE_ENV, now: () => clock.t, onSourceRead: () => { clock.t += 9500; } });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(h.calls.sentry.length, 0);
+  assertEquals(body.time_budget_exhausted, true);
+  assertEquals(body.result, "hard_failure");
+  assertEquals(body.sent, 0);
+});
+
+Deno.test("handler DRAIN DEADLINE: Sentry completes but no time to mark → not marked (time_budget)", async () => {
+  const clock = { t: 0 };
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }], report: storedRow({ user_id: CALLER }),
+    env: DRAIN_DEADLINE_ENV, now: () => clock.t, onSentry: () => { clock.t += 10001; } });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(h.calls.sentry.length, 1);           // sent to Sentry
+  assertEquals(body.sent, 0);                        // but NOT marked sent (no budget)
+  assertEquals(body.time_budget_exhausted, true);
+  assert(!h.calls.rpc.some((c) => c.name === "mark_report_alert")); // never marked
+});
+
+Deno.test("handler DRAIN DEADLINE: no op begins after the deadline is exceeded mid-run", async () => {
+  const clock = { t: 0 };
+  let reads = 0;
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t1" }, { report_id: CALLER, lease_token: "t2" }],
+    report: storedRow({ user_id: CALLER }), env: DRAIN_DEADLINE_ENV, now: () => clock.t,
+    onSourceRead: () => { reads++; clock.t += 10001; } });
+  const body = await (await handler(drainReq(), h.deps)).json();
+  assertEquals(reads, 1);                 // row 2 never read
+  assertEquals(body.time_budget_exhausted, true);
+  assertEquals(body.result, "hard_failure");
+});
+
 Deno.test("handler: batch DRAIN with wrong secret → 404, no work", async () => {
   const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }] });
   const bad = new Request("https://fn/report-issue-alert", {
@@ -464,12 +516,22 @@ Deno.test("handler: wake-hint alert carries server-resolved provenance tag (auto
   assertEquals(ev.tags.data_origin, "automated_test");
 });
 
-Deno.test("handler: invited-tester report is marked beta_tester in Sentry", async () => {
-  const h = harness({ report: storedRow({ user_id: CALLER }), provenance: { data_origin: "beta_tester", cohort_id: "wave1", test_run_id: null, test_suite: null } });
+Deno.test("handler: invited-tester report is marked beta_tester in Sentry (from the AT-INSERT snapshot)", async () => {
+  // Provenance comes from the delivery-row SNAPSHOT, not a live resolve.
+  const h = harness({ report: storedRow({ user_id: CALLER }), snapshot: { data_origin: "beta_tester", cohort_id: "wave1", test_run_id: "r", test_suite: "s", environment: "production" } });
   await handler(req({ reportId: REPORT_ID }), h.deps);
   const ev = h.calls.sentry[0] as { tags: Record<string, string> };
   assertEquals(ev.tags.data_origin, "beta_tester");
   assertEquals(ev.tags.cohort_id, "wave1");
+});
+
+Deno.test("handler: snapshot-provenance READ FAILURE → infra_error, NO send (never silent legacy downgrade)", async () => {
+  const h = harness({ report: storedRow({ user_id: CALLER }), snapshotError: { message: "db blip" } });
+  const res = await handler(req({ reportId: REPORT_ID }), h.deps);
+  const body = await res.json();
+  assertEquals(body.infra_error, true);
+  assertEquals(body.alerted, false);
+  assertEquals(h.calls.sentry.length, 0); // must NOT send with a downgraded/guessed classification
 });
 
 Deno.test("handler: browser-supplied provenance is IGNORED (only server registry decides)", async () => {

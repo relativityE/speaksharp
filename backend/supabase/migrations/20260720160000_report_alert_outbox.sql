@@ -15,7 +15,14 @@ ALTER TABLE public.report_alert_deliveries
   ADD COLUMN IF NOT EXISTS claimed_by text,
   ADD COLUMN IF NOT EXISTS max_attempts integer NOT NULL DEFAULT 8,
   ADD COLUMN IF NOT EXISTS next_attempt_at timestamptz NOT NULL DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS terminal_failed_at timestamptz;
+  ADD COLUMN IF NOT EXISTS terminal_failed_at timestamptz,
+  -- SNAPSHOT provenance AT REPORT CREATION (never re-resolved at delivery). A later registry
+  -- expiry/change must not reclassify an already-enqueued alert; delayed/retried delivery reads these.
+  ADD COLUMN IF NOT EXISTS data_origin text NOT NULL DEFAULT 'legacy_unclassified',
+  ADD COLUMN IF NOT EXISTS cohort_id text,
+  ADD COLUMN IF NOT EXISTS test_run_id text,
+  ADD COLUMN IF NOT EXISTS test_suite text,
+  ADD COLUMN IF NOT EXISTS environment text NOT NULL DEFAULT 'production';
 
 -- Widen the status vocabulary to the full lifecycle.
 ALTER TABLE public.report_alert_deliveries DROP CONSTRAINT IF EXISTS report_alert_deliveries_status_safe;
@@ -44,10 +51,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.report_alert_deliveries TO 
 CREATE OR REPLACE FUNCTION public.trg_enqueue_report_alert()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE v_prov record;
 BEGIN
   BEGIN
-    INSERT INTO public.report_alert_deliveries (report_id, status, attempt_count, next_attempt_at)
-    VALUES (NEW.id, 'pending', 0, now())
+    -- Snapshot server-assigned provenance AT INSERT (anonymous/unregistered → legacy_unclassified).
+    SELECT * INTO v_prov FROM public.resolve_actor_provenance(NEW.user_id);
+    INSERT INTO public.report_alert_deliveries
+      (report_id, status, attempt_count, next_attempt_at, data_origin, cohort_id, test_run_id, test_suite, environment)
+    VALUES (NEW.id, 'pending', 0, now(),
+      COALESCE(v_prov.data_origin, 'legacy_unclassified'), v_prov.cohort_id, v_prov.test_run_id, v_prov.test_suite, 'production')
     ON CONFLICT (report_id) DO NOTHING;
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
@@ -64,9 +76,11 @@ RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_n integer;
 BEGIN
-  INSERT INTO public.report_alert_deliveries (report_id, status, attempt_count, next_attempt_at)
-  SELECT r.id, 'pending', 0, now()
+  INSERT INTO public.report_alert_deliveries
+    (report_id, status, attempt_count, next_attempt_at, data_origin, cohort_id, test_run_id, test_suite, environment)
+  SELECT r.id, 'pending', 0, now(), p.data_origin, p.cohort_id, p.test_run_id, p.test_suite, 'production'
   FROM public.user_issue_reports r
+  CROSS JOIN LATERAL public.resolve_actor_provenance(r.user_id) p
   WHERE (p_since IS NULL OR r.created_at >= p_since)
     AND NOT EXISTS (SELECT 1 FROM public.report_alert_deliveries d WHERE d.report_id = r.id)
   ON CONFLICT (report_id) DO NOTHING;

@@ -236,6 +236,8 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
   const windowSec = Math.max(60, Number(deps.getEnv('TELEMETRY_RECONCILE_WINDOW_SECONDS') ?? '3600') || 3600);
   const eventTimeoutMs = Math.max(1000, Number(deps.getEnv('TELEMETRY_EVENT_TIMEOUT_MS') ?? '10000') || 10000);
   const deadlineMs = Math.max(5000, Number(deps.getEnv('TELEMETRY_WORKER_DEADLINE_MS') ?? '90000') || 90000);
+  // Time reserved at the tail of the deadline so the final mark/result can always complete.
+  const markReserveMs = Math.max(500, Math.min(Number(deps.getEnv('TELEMETRY_MARK_RESERVE_MS') ?? '3000') || 3000, Math.floor(deadlineMs / 3)));
   const concurrency = Math.max(1, Math.min(Number(deps.getEnv('TELEMETRY_WORKER_CONCURRENCY') ?? '5') || 5, 16));
   // Worst-case must fit the shared deadline: ceil(batch/concurrency)*eventTimeout ≤ deadline. Default
   // batch is derived from the deadline so 50×10s>90s can never happen; an explicit override is clamped.
@@ -293,10 +295,23 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
 
   // (4/5) deliver + mark, one row at a time, under BOUNDED CONCURRENCY. Worst-case wall-clock is
   // ceil(batch/concurrency)*eventTimeout, kept ≤ deadline by the batch clamp above.
+  // Absolute-deadline budget: time left, and the op budget after RESERVING markReserveMs for the mark.
+  const remaining = () => deadlineMs - (deps.now() - start);
+  const opBudget = () => Math.min(eventTimeoutMs, remaining() - markReserveMs);
+
   const processRow = async (row: OutboxRow) => {
-    const { data: src, error: srcErr } = await supabase
-      .from(SOURCE_TABLE[row.event_type]).select(SOURCE_COLUMNS[row.event_type]).eq('id', row.record_id).maybeSingle();
-    if (srcErr) { summary.infra_errors++; return; } // transient DB error → leave leased, retry later
+    // Before the SOURCE READ: need time for read + provider + a reserved mark.
+    let budget = opBudget();
+    if (budget <= 0) { summary.time_budget_exhausted = true; return; } // don't start; row stays leased → reclaimed
+    const srcCtl = new AbortController();
+    const srcTimer = setTimeout(() => srcCtl.abort(), budget);
+    let src: unknown, srcErr: unknown;
+    try {
+      const r = await supabase.from(SOURCE_TABLE[row.event_type]).select(SOURCE_COLUMNS[row.event_type])
+        .eq('id', row.record_id).abortSignal(srcCtl.signal).maybeSingle();
+      src = r.data; srcErr = r.error;
+    } catch (e) { srcErr = e; } finally { clearTimeout(srcTimer); }
+    if (srcErr) { summary.infra_errors++; return; } // transient/aborted DB read → leave leased, retry later
     if (!src) { await discard(row); return; }        // source gone (deleted account/session) → tombstone
 
     const source = src as unknown as Record<string, unknown>;
@@ -308,9 +323,13 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
     const productProps = row.event_type === 'session_saved' ? buildSessionProps(source) : buildReportProps(source);
     const payload = buildCapturePayload({ row, distinctId, productProps, projectKey, serverVerifiedSha });
 
+    // Before the PROVIDER REQUEST: recompute budget (reserving mark time). A nonpositive budget must
+    // NEVER be replaced with a fresh 1000ms request — we stop instead.
+    budget = opBudget();
+    if (budget <= 0) { summary.time_budget_exhausted = true; return; }
     let status: number | null = null;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), eventTimeoutMs);
+    const timer = setTimeout(() => controller.abort(), budget);
     try {
       const res = await deps.fetchImpl(`${ingestHost}/capture/`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal,
@@ -319,6 +338,8 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
       await res.text().catch(() => ''); // drain; never read/log content
     } catch { status = null; } finally { clearTimeout(timer); }
 
+    // Before the MARK: if the provider consumed everything, do NOT mark (row reclaimed; $insert_id dedupes).
+    if (remaining() <= 0) { summary.time_budget_exhausted = true; return; }
     if (status !== null && status >= 200 && status < 300) await markSent(row);
     else await markFailed(row, classifyDeliveryFailure(status));
   };
