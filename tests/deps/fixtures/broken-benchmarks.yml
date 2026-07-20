@@ -1,0 +1,18 @@
+name: broken-benchmarks-fixture
+# Reproduces the OLD defect: register lived in the NON-producer job (benchmark-cloud), and the real
+# data producer (benchmark-private-browser) had no register. The validator must flag both.
+concurrency:
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
+jobs:
+  benchmark-cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: benchmarks
+  benchmark-private-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pnpm exec playwright test tests/live/benchmark-v4.live.spec.ts

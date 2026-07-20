@@ -351,6 +351,15 @@ async function main() {
     eq((await one(`SELECT status FROM public.telemetry_outbox WHERE record_id='${sLegacy.id}' AND event_type='session_saved'`)).status, 'pending', 'other records still untouched');
   });
 
+  await check('F10 registry row is CASCADE-deleted when the account is deleted (minted-account cleanup)', async () => {
+    const u = 'd0000001-0000-0000-0000-000000000001';
+    await db.exec(`INSERT INTO auth.users (id,email) VALUES ('${u}','minted')`);
+    await q(`SELECT public.register_observability_actor('${u}','automated_test','ci','run-m','suite-m', interval '1 hour')`);
+    eq((await one(`SELECT count(*)::int c FROM public.observability_actor_registry WHERE user_id='${u}'`)).c, 1, 'registered');
+    await q(`DELETE FROM auth.users WHERE id='${u}'`); // account deletion (what a minted-account spec does in cleanup)
+    eq((await one(`SELECT count(*)::int c FROM public.observability_actor_registry WHERE user_id='${u}'`)).c, 0, 'registry row cascaded away');
+  });
+
   // ============================ G. operator delivery status ============================
   group('G operator delivery status');
   await check('G1 EXACT per-account counts; zero cross-account leak (fresh isolated users)', async () => {

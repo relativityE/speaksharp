@@ -67,36 +67,31 @@ other's `test_run_id`. Mechanism: a GitHub `concurrency` group keyed to the shar
 those runs (added to `rc-gates.yml` as `provenance-shared-pro-account`; do NOT `cancel-in-progress`).
 Prefer a UNIQUE ephemeral account per run where possible (no contention at all).
 
-**Data-producing workflow inventory** (each registers `automated_test` before its first product write
-and expires after, via the composite action; those on the shared PRO_TEST account join the serialization
-group):
+**JOB-LEVEL producer inventory** (enforced by `tests/deps/provenance-workflow-wiring.test.js`, which is
+YAML/job-aware — not a file-level grep). Only jobs that actually create a session/report are listed;
+each registers the ACCOUNT(S) IT WRITES UNDER before the write and expires after. Jobs that only call a
+provider or administer accounts are NOT producers.
 
-| Workflow | Account | data_origin | test_suite |
-|---|---|---|---|
-| `rc-gates.yml` (gate-3 DAST) | shared PRO_TEST | automated_test | rc_gate_3_dast |
-| `pro-stt-artifact-matrix.yml` | shared PRO_TEST | automated_test | pro_stt_artifact_matrix |
-| `live-release-matrix.yml` | shared PRO_TEST | automated_test | live_release_matrix |
-| `v4-app-path-proof.yml` | shared PRO_TEST | automated_test | v4_app_path_proof |
-| `v4-auto-fallback-proof.yml` | shared PRO_TEST | automated_test | v4_auto_fallback_proof |
-| `v4-benchmark-gpu.yml` | shared PRO_TEST | automated_test | v4_benchmark_gpu |
-| `benchmarks.yml` | shared PRO_TEST | automated_test | benchmarks |
-| `setup-test-users.yml` | creates accounts | automated_test | setup_test_users |
+| Workflow · job | Account(s) written | Wiring pattern |
+|---|---|---|
+| `rc-gates.yml · gate-3-dast` | PRO + FREE + BASIC | single-job: register each before the DAST live gate, expire each `if: always()` |
+| `pro-stt-artifact-matrix.yml · pro-stt-artifact-matrix` | PRO | single-job |
+| `v4-app-path-proof.yml · v4-app-path-proof` | PRO | single-job |
+| `v4-auto-fallback-proof.yml · v4-auto-fallback-proof` | PRO | single-job |
+| `v4-benchmark-gpu.yml · benchmark` | PRO | single-job |
+| `benchmarks.yml · benchmark-private-browser` | PRO | single-job (register lives in the producer, NOT `benchmark-cloud`) |
+| `live-release-matrix.yml · live-custom-words` | BASIC | multi-job: `needs: [provenance-register]` |
+| `live-release-matrix.yml · {live-native-preflight, live-cloud-artifact, live-stt-switching-contract, live-private-cache}` | PRO | multi-job: `needs: [provenance-register]` |
 
-Reference wiring (add to each job that writes sessions/reports, before the first write):
-```yaml
-    - uses: ./.github/actions/register-provenance
-      with:
-        email: ${{ secrets.PRO_TEST_EMAIL }}
-        test_suite: <suite from the table>
-        supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
-        service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-    # ... the data-producing steps ...
-    - if: always()
-      uses: ./.github/actions/register-provenance
-      with: { mode: expire, email: ${{ secrets.PRO_TEST_EMAIL }}, test_suite: <suite>,
-              supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }},
-              service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }} }
-```
+- **Multi-job pattern** (live-release-matrix): a dedicated `provenance-register` job registers the fixed
+  accounts (PRO + BASIC) first; every fixed-account data job `needs` it; a `provenance-expire` job with
+  `if: always()` `needs` every data job and expires PRO + BASIC.
+- **NOT producers** (no provenance): `benchmarks.yml · benchmark-cloud` (AssemblyAI API only),
+  `setup-test-users.yml` (account administration), and all `live-release-matrix` billing/token-gate jobs.
+- **Minted-account jobs** (`live-first-time-tester-private-trial`, `live-private-sample-telemetry`):
+  create a FRESH account inside the spec that self-deletes; they register in-spec after creation and rely
+  on `auth.users ON DELETE CASCADE` (the registry FK) for cleanup — so they do NOT register a fixed
+  account (never PRO as a substitute) and do NOT `needs` the register job.
 
 **Historical classification correlation** (before any production reconciliation, one-time, service-role):
 register/correlate the KNOWN accounts so history is classifiable — Prod Owner testing →

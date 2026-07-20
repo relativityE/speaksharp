@@ -62,11 +62,6 @@ on:
           - basic
           - pro
 
-# Shared PRO_TEST account → serialize with the other data-producing workflows.
-concurrency:
-  group: provenance-shared-pro-account
-  cancel-in-progress: false
-
 jobs:
   test-user-admin:
     runs-on: ubuntu-latest
@@ -79,13 +74,6 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
 
-      - name: Register provenance (automated_test)
-        uses: ./.github/actions/register-provenance
-        with:
-          email: ${{ secrets.PRO_TEST_EMAIL }}
-          test_suite: setup_test_users
-          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
-          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Generate and set SOAK_TEST_PASSWORD
         if: ${{ github.event.inputs.action == 'setup' && github.event.inputs.password_action == 'generate_new_credentials' }}
@@ -154,12 +142,3 @@ jobs:
             echo "✅ Registry updated with current SOAK_TEST_PASSWORD" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Expire provenance
-        if: always()
-        uses: ./.github/actions/register-provenance
-        with:
-          mode: expire
-          email: ${{ secrets.PRO_TEST_EMAIL }}
-          test_suite: setup_test_users
-          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
-          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

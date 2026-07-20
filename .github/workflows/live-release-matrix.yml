@@ -39,7 +39,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Dedicated provenance jobs: register the fixed shared accounts (PRO + BASIC) BEFORE any data job
+  # runs, and expire them AFTER all dependent data jobs finish. Minted-account jobs register in-spec
+  # and rely on auth.users ON DELETE CASCADE (registry FK) for cleanup, so they do not depend on these.
+  provenance-register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-environment
+      - uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: live_release_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.BASIC_TEST_EMAIL }}
+          test_suite: live_release_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  provenance-expire:
+    needs: [provenance-register, live-custom-words, live-native-preflight, live-cloud-artifact, live-stt-switching-contract, live-private-cache]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-environment
+      - uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: live_release_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.BASIC_TEST_EMAIL }}
+          test_suite: live_release_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
   live-custom-words:
+    needs: [provenance-register]
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -52,14 +94,6 @@ jobs:
         with:
           install-playwright: 'true'
 
-      - name: Register provenance (automated_test)
-        uses: ./.github/actions/register-provenance
-        with:
-          email: ${{ secrets.PRO_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
-          test_suite: live_release_matrix
-          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
-          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
       - name: Run Live Custom Words Persistence
         env:
           VITE_USE_LIVE_DB: 'true'
@@ -69,15 +103,6 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Expire provenance
-        if: always()
-        uses: ./.github/actions/register-provenance
-        with:
-          mode: expire
-          email: ${{ secrets.PRO_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
-          test_suite: live_release_matrix
-          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
-          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Upload Custom Words Artifacts
         if: always()
@@ -91,6 +116,7 @@ jobs:
           retention-days: 14
 
   live-native-preflight:
+    needs: [provenance-register]
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'native-preflight' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -158,6 +184,7 @@ jobs:
           retention-days: 14
 
   live-cloud-artifact:
+    needs: [provenance-register]
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'cloud-artifact' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -196,6 +223,7 @@ jobs:
           retention-days: 14
 
   live-stt-switching-contract:
+    needs: [provenance-register]
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stt-switching-contract' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -237,6 +265,7 @@ jobs:
           retention-days: 14
 
   live-private-cache:
+    needs: [provenance-register]
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-cache' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25

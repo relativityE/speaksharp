@@ -1,0 +1,64 @@
+name: broken-live-release-fixture
+# Reproduces the OLD defects: a multi-job producer (live-custom-words) with NO `needs` on the register
+# job, AND an account MISMATCH (registers PRO but writes under BASIC). The validator must flag both.
+concurrency:
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
+jobs:
+  provenance-register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+      - uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.BASIC_TEST_EMAIL }}
+  provenance-expire:
+    needs: [provenance-register]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+      - uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.BASIC_TEST_EMAIL }}
+  live-custom-words:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+      - run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts
+  live-native-preflight:
+    needs: [provenance-register]
+    runs-on: ubuntu-latest
+    steps:
+      - run: noop
+  live-cloud-artifact:
+    needs: [provenance-register]
+    runs-on: ubuntu-latest
+    steps:
+      - run: noop
+  live-stt-switching-contract:
+    needs: [provenance-register]
+    runs-on: ubuntu-latest
+    steps:
+      - run: noop
+  live-private-cache:
+    needs: [provenance-register]
+    runs-on: ubuntu-latest
+    steps:
+      - run: noop
+  live-first-time-tester-private-trial:
+    runs-on: ubuntu-latest
+    steps:
+      - run: noop
+  live-private-sample-telemetry:
+    runs-on: ubuntu-latest
+    steps:
+      - run: noop

@@ -100,10 +100,25 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
-      - name: Register provenance (automated_test)
+      # gate-3 logs in as PRO + FREE + BASIC; register EACH account it writes under, before the write.
+      - name: Register provenance (PRO)
         uses: ./.github/actions/register-provenance
         with:
           email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: rc_gate_3_dast
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Register provenance (FREE)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          test_suite: rc_gate_3_dast
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Register provenance (BASIC)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.BASIC_TEST_EMAIL }}
           test_suite: rc_gate_3_dast
           supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
           service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -282,12 +297,30 @@ jobs:
           # Diagnostic/DAST traces are short-lived debug evidence — keep them 1 day.
           retention-days: 1
           if-no-files-found: ignore
-      - name: Expire provenance
+      - name: Expire provenance (PRO)
         if: always()
         uses: ./.github/actions/register-provenance
         with:
           mode: expire
           email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: rc_gate_3_dast
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Expire provenance (FREE)
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          test_suite: rc_gate_3_dast
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Expire provenance (BASIC)
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.BASIC_TEST_EMAIL }}
           test_suite: rc_gate_3_dast
           supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
           service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
