@@ -34,6 +34,8 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_enforce_report_session_ownership ON public.user_issue_reports;
 CREATE TRIGGER trg_enforce_report_session_ownership
-  BEFORE INSERT OR UPDATE OF session_id ON public.user_issue_reports
+  -- Revalidate on user_id changes too: a later user_id change must not leave a report pointing at
+  -- another account's session.
+  BEFORE INSERT OR UPDATE OF session_id, user_id ON public.user_issue_reports
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_report_session_ownership();

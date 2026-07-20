@@ -7,9 +7,17 @@ import { test, expect } from './helpers/deployedLiveTest';
  * (__SS_ANALYTICS_IDENTITY__, __SS_PRIVATE_SAMPLE_EVENTS__) to prove the PRODUCT invoked capture,
  * and separates CAPTURE endpoints (/e/, /i/v0/e/, /batch/) from CONFIG endpoints (/flags, /decide)
  * so a 200 on /flags is never mistaken for capture evidence. Produces an independent boundary table
- * for each of: account_identified (buffered), private_sample_selected (direct emitPrivateSample),
- * and one more buffered UI event. Then queries the PostHog Query API (Node side, protected key) by
- * event name + bounded window to see which landed. NO audio, NO saved session, NO report.
+ * per path. Then queries the PostHog Query API (Node side, protected key) by event name + bounded
+ * window to see which landed. NO audio, NO saved session, NO report.
+ *
+ * CLASSIFICATION (corrected per independent review): account_identified is a DIRECT / send_instantly
+ * capture — AnalyticsBuffer.identify() bypasses the queue and calls posthog.capture(..., {
+ * send_instantly: true }); it is NOT a buffered event. private_sample_selected is also direct via
+ * emitPrivateSample(). Classification C (product invoked capture → NO capture request emitted →
+ * absent from project 207400) is PROVEN for these DIRECT paths. The BUFFERED session_saved path
+ * (AnalyticsBuffer.push → scheduleFlush → send → capture) is NOT proven here and remains OPEN — it
+ * needs the dedicated buffer send-boundary probe. The "buffered UI event" observation below only
+ * evidences /flags|/decide activity and does NOT prove a buffered capture attempt.
  */
 
 const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;

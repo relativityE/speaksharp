@@ -14,7 +14,7 @@ const sql = readFileSync(
 describe('P0 — server-side report/session ownership enforcement', () => {
   it('defines a BEFORE INSERT OR UPDATE trigger on user_issue_reports', () => {
     expect(sql).toMatch(/CREATE TRIGGER trg_enforce_report_session_ownership/);
-    expect(sql).toMatch(/BEFORE INSERT OR UPDATE OF session_id ON public\.user_issue_reports/);
+    expect(sql).toMatch(/BEFORE INSERT OR UPDATE OF session_id, user_id ON public\.user_issue_reports/);
   });
 
   it('coerces session_id to NULL unless the session belongs to the SAME account', () => {
