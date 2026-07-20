@@ -5,8 +5,10 @@ name: Beta Data Inventory (sanitized)
 # ids, opaque row ids, metrics, booleans, transcript char-count/hash) — never prose/email/name and
 # never the service-role secret.
 #
-# Push trigger on the incident branch runs the one-time inventory; workflow_dispatch is the ongoing
-# operational monitoring entry point. Not a PR-required check.
+# HARDENED: workflow_dispatch ONLY (no push trigger — a branch push must never run arbitrary code
+# with SUPABASE_SERVICE_ROLE_KEY), gated behind a protected environment requiring owner approval, and
+# retention pinned to 1 day for any artifact. FOLLOW-UP (tracked): replace the service-role key with a
+# dedicated READ-ONLY database credential / restricted RPC so this tooling never holds write access.
 
 on:
   workflow_dispatch:
@@ -15,9 +17,6 @@ on:
         description: 'Inventory boundary (UTC ISO). Default = invitation window.'
         required: false
         default: '2026-07-18T17:43:56Z'
-  push:
-    branches:
-      - fix/beta-data-retrieval-observability
 
 permissions:
   contents: read
@@ -30,6 +29,8 @@ jobs:
   beta-data-inventory:
     name: beta-data-inventory
     runs-on: ubuntu-latest
+    # Protected environment → owner approval gate before the service-role secret is exposed.
+    environment: production-db
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -43,6 +44,7 @@ jobs:
       - name: Run sanitized inventory
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # TODO(read-only): swap for a read-only credential / restricted RPC (no write access).
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           INVENTORY_BOUNDARY: ${{ github.event.inputs.boundary || '2026-07-18T17:43:56Z' }}
         run: node scripts/beta-data-inventory.mjs
