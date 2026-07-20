@@ -152,8 +152,9 @@ describe('SessionPage Feedback Logic', () => {
         expect(screen.getByTestId('status-type')).toHaveTextContent('error');
     });
 
-    // STATE C — terminal success: reconciled status + Analytics action + toast all appear.
-    it('terminal success: reconciled status, Analytics action, and completion toast appear', async () => {
+    // STATE C — terminal success: ONE authoritative saved-state surface (the status bar) carrying a single
+    // Analytics action. No separate completion toast (it was removed).
+    it('terminal success: single saved-state surface with one Analytics action, no toast', async () => {
         vi.mocked(useSessionLifecycle).mockReturnValue({
             ...defaultMock,
             isListening: false,
@@ -167,8 +168,11 @@ describe('SessionPage Feedback Logic', () => {
         expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved · Your transcript is ready\./);
         expect(screen.getByTestId('status-type')).toHaveTextContent('ready');
         expect(screen.queryByTestId('post-save-review-actions')).toBeNull();
+        // Exactly ONE Analytics action — the /analytics link folded into the single status bar.
+        expect(screen.getAllByTestId('post-save-review-session-link')).toHaveLength(1);
         expect(screen.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
-        expect(screen.getByTestId('post-save-toast')).toBeInTheDocument(); // one-shot completion toast
+        // The separate "Next: Analytics" toast is gone — the status bar is the sole post-save surface.
+        expect(screen.queryByTestId('post-save-toast')).toBeNull();
     });
 
     // STATE A — metrics/persistence failure: the warning is preserved; NO success UI (P1).
