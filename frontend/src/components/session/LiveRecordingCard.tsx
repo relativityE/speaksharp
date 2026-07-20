@@ -115,6 +115,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const [menuOpen, setMenuOpen] = React.useState(false);
     const [activeMode, setActiveMode] = React.useState<RecordingMode | null>(null);
     const menuContentRef = React.useRef<HTMLDivElement>(null);
+    // The touch "About transcription modes" help and the mode dropdown are MUTUALLY EXCLUSIVE: at most
+    // one description/help surface exists at a time. Both are controlled here so opening one closes the
+    // other (and the flyout is already gated on menuOpen, so it hides whenever About opens).
+    const [aboutOpen, setAboutOpen] = React.useState(false);
 
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -319,6 +323,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     testId="stt-mode-help"
                                     panelClassName="w-72"
                                     triggerSizeClass="h-11 w-11"
+                                    open={aboutOpen}
+                                    onOpenChange={(o) => { setAboutOpen(o); if (o) { setMenuOpen(false); setActiveMode(null); } }}
                                 >
                                     {aboutModesHelp}
                                 </HelpPopover>
@@ -338,7 +344,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
                     </div>
-                    <DropdownMenu onOpenChange={(o) => { setMenuOpen(o); if (!o) setActiveMode(null); }}>
+                    <DropdownMenu open={menuOpen} onOpenChange={(o) => { setMenuOpen(o); if (o) setAboutOpen(false); if (!o) setActiveMode(null); }}>
                         <DropdownMenuTrigger asChild disabled={isListening}>
                             <Button
                                 variant="ghost"

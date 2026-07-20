@@ -252,4 +252,52 @@ test.describe('Private-first mode selector + single description surface (respons
       await page.screenshot({ path: `${SHOTS}/menu-opaque-${width}.png` });
     });
   }
+
+  // The touch "About transcription modes" help and the mode dropdown are mutually exclusive — at most one
+  // description/help surface at a time, no overlap/clipping, and the dropdown stays opaque.
+  for (const width of [320, 375, 390]) {
+    test(`About panel and dropdown are mutually exclusive at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 812 });
+      await programmaticLoginWithRoutes(page, { userType: 'pro' });
+      await navigateToRoute(page, '/session');
+      await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
+
+      const menu = page.getByRole('menu');
+      const about = page.getByTestId('stt-mode-help-content');
+
+      // Open the dropdown → menu present, About absent, and the menu is fully opaque.
+      await page.getByTestId(TEST_IDS.STT_MODE_SELECT).click();
+      await expect(menu).toBeVisible();
+      await expect(about).toHaveCount(0);
+      expect(await menu.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+
+      // Dismiss the dropdown (Escape), then open About → About present, menu absent (never both).
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+      await page.getByTestId('stt-mode-help').click();
+      await expect(about).toBeVisible();
+      await expect(menu).toHaveCount(0);
+      // aria wiring + no clipping (fully inside the viewport).
+      await expect(page.getByTestId('stt-mode-help')).toHaveAttribute('aria-expanded', 'true');
+      const box = await about.boundingBox();
+      expect(box).not.toBeNull();
+      if (box) {
+        expect(box.x).toBeGreaterThanOrEqual(-0.5);
+        expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5);
+      }
+      // Capture the About-open / dropdown-closed state (the review-relevant view: the single touch help
+      // surface with NO overlapping tooltip and NO dropdown behind it).
+      await page.screenshot({ path: `${SHOTS}/about-exclusive-${width}.png` });
+
+      // Opening the dropdown again CLOSES About (mutually exclusive).
+      await page.getByTestId(TEST_IDS.STT_MODE_SELECT).click();
+      await expect(menu).toBeVisible();
+      await expect(about).toHaveCount(0);
+
+      // No horizontal overflow at this width.
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+    });
+  }
 });

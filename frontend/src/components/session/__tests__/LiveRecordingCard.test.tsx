@@ -453,4 +453,40 @@ describe('LiveRecordingCard', () => {
         // is asserted elsewhere); no per-row info icons exist.
         expect(screen.getByTestId('stt-mode-help')).toBeInTheDocument();
     });
+
+    it('About panel and the mode dropdown are MUTUALLY EXCLUSIVE (never both open)', async () => {
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+        const help = screen.getByTestId('stt-mode-help');
+
+        // Open the dropdown → menu present, About closed.
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        expect(await screen.findByRole('menu')).toBeInTheDocument();
+        expect(screen.queryByTestId('stt-mode-help-content')).toBeNull();
+        expect(help).toHaveAttribute('aria-expanded', 'false');
+
+        // Open About → dropdown CLOSES (mutually exclusive), About present + a11y wired.
+        fireEvent.click(help);
+        expect(screen.getByTestId('stt-mode-help-content')).toBeInTheDocument();
+        expect(screen.queryByRole('menu')).toBeNull();
+        expect(help).toHaveAttribute('aria-expanded', 'true');
+        expect(help).toHaveAttribute('aria-controls', 'stt-mode-help-content');
+
+        // Re-open the dropdown → About CLOSES.
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        expect(await screen.findByRole('menu')).toBeInTheDocument();
+        expect(screen.queryByTestId('stt-mode-help-content')).toBeNull();
+        expect(help).toHaveAttribute('aria-expanded', 'false');
+
+        // At no observed point were both surfaces present together.
+    });
+
+    it('Escape closes the About panel (single dismissable help surface)', async () => {
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+        const help = screen.getByTestId('stt-mode-help');
+        fireEvent.click(help);
+        expect(screen.getByTestId('stt-mode-help-content')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(screen.queryByTestId('stt-mode-help-content')).toBeNull();
+        expect(help).toHaveAttribute('aria-expanded', 'false');
+    });
 });
