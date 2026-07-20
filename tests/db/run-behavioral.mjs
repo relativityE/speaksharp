@@ -95,6 +95,7 @@ async function main() {
   await db.exec(sql(resolve(MIG, '20260720150000_observability_provenance_registry.sql')));
   await db.exec(sql(resolve(MIG, '20260720150100_telemetry_outbox.sql')));
   await db.exec(sql(resolve(MIG, '20260720160000_report_alert_outbox.sql')));
+  await db.exec(sql(resolve(MIG, '20260720170000_operator_report_retrieval.sql')));
 
   await db.exec(`INSERT INTO auth.users (id,email) VALUES
     ('${U1}','u1'),('${U2}','u2'),('${UREG}','ureg'),('${UEXP}','uexp');`);
@@ -485,6 +486,19 @@ async function main() {
     await db.exec('SET ROLE service_role');
     try { for (const callSql of Object.values(ALERT_RPCS)) await q(callSql); } finally { await db.exec('RESET ROLE'); }
   });
+
+  // ============================ J. protected operator report retrieval ============================
+  group('J operator report retrieval');
+  await check('J1 service_role retrieves the FULL report by id (authorized succeeds)', async () => {
+    const rid = await mkReport();
+    await db.exec('SET ROLE service_role');
+    try {
+      const row = await one(`SELECT (public.operator_get_report('${rid}')).id AS id`);
+      eq(row.id, rid, 'operator retrieval returns the report');
+    } finally { await db.exec('RESET ROLE'); }
+  });
+  await expectDenied('J2 anon cannot EXECUTE operator_get_report (fails closed)', 'anon', `SELECT public.operator_get_report(gen_random_uuid())`);
+  await expectDenied('J3 authenticated cannot EXECUTE operator_get_report (fails closed)', 'authenticated', `SELECT public.operator_get_report(gen_random_uuid())`);
 
   // ---- report ----
   const pass = results.filter((r) => r.ok).length;

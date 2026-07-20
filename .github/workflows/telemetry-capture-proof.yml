@@ -1,0 +1,53 @@
+name: telemetry-capture-proof
+
+# Activation-time LIVE proof of the PostHog capture contract (POST /capture/ + Query API readback +
+# honest $insert_id dedupe report). Manual only. Uses the repo config convention (vars.* for non-secret
+# config, secrets.* for keys). Evidence is content-free (nonce/event-names/counts) and retained 1 day.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-observability
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preflight (report only MISSING names, never values)
+        env:
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+        run: |
+          set -eu
+          missing=""
+          for v in POSTHOG_PROJECT_API_KEY POSTHOG_INGEST_HOST POSTHOG_API_HOST POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID; do
+            eval "val=\${$v:-}"; [ -z "$val" ] && missing="$missing $v" || true
+          done
+          if [ -n "$missing" ]; then echo "::error::missing config:$missing"; exit 1; fi
+          echo "preflight ok"
+      - name: Run capture-contract proof
+        env:
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          TELEMETRY_WORKER_RELEASE_SHA: ${{ github.sha }}
+        run: node scripts/telemetry-capture-contract-proof.mjs | tee /tmp/capture-proof-evidence.txt
+      - name: Upload sanitized evidence (retention 1 day)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-capture-proof-evidence
+          path: /tmp/capture-proof-evidence.txt
+          retention-days: 1

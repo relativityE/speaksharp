@@ -5,19 +5,20 @@
  *
  * Proves the ACTUAL contract end-to-end (a mocked 200 is insufficient): it POSTs to the same PROVEN
  * ingest path the worker uses — POST {ingestHost}/capture/ — with the worker's exact payload shape,
- * then reads the event back through the PostHog Query API and asserts every field, and that a replay
- * with the SAME $insert_id does NOT create a second logical event.
+ * then reads the event back through the PostHog Query API querying SOLELY by the unique $insert_id.
  *
- * Marked automated_test provenance. Runs in the activation sequence (post-deploy); its stdout evidence
- * is uploaded by CI with retention-days: 1.
+ * Timestamp/window: uses a UNIQUE run nonce and a RECENT timestamp (a few minutes in the past — proves
+ * historical replay while staying inside any reasonable query window). The old proof combined a fixed
+ * 2026-07-18 timestamp with a last-day query and could never pass; this one queries by $insert_id.
  *
- * Env:
- *   POSTHOG_PROJECT_API_KEY   ingest key (phc_...)            [required]
- *   POSTHOG_PERSONAL_API_KEY  readback (Query API) key        [required]
- *   POSTHOG_PROJECT_ID        numeric project id              [required]
- *   POSTHOG_INGEST_HOST       e.g. https://us.i.posthog.com   [required]
- *   POSTHOG_API_HOST          e.g. https://us.posthog.com     [default https://us.posthog.com]
- *   TELEMETRY_WORKER_RELEASE_SHA  server-verified sha         [default github.sha or 'proof-local']
+ * Dedupe honesty: two RAW rows with the same $insert_id are duplicate delivery — count=2 is NOT
+ * dedupe. The proof asserts a SINGLE send yields exactly one stored event, then separately sends the
+ * SAME $insert_id again and reports PostHog's raw count HONESTLY. The primary send-once guarantee is
+ * the OUTBOX (a row marked 'sent' is never re-claimed — proven by the DB behavioral harness); PostHog
+ * $insert_id dedupe is only a secondary net, and this proof reports whether it actually holds.
+ *
+ * Marked automated_test provenance. Runs in the activation sequence (post-deploy) via a
+ * workflow_dispatch proof workflow; stdout evidence is uploaded with retention-days: 1.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -37,34 +38,20 @@ const nonce = `gha-${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_
 const EVENT = 'telemetry_worker_capture_proof'; // dedicated proof event — does not pollute product streams
 const distinctId = `automated_test-${nonce}`;
 const insertId = `capture_proof:${nonce}`;
-const historicalTs = '2026-07-18T17:43:56.000Z'; // a fixed PAST timestamp — proves historical replay
+const historicalTs = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // recent past → within window, proves historical
 
 const expected = {
-  event: EVENT,
-  distinct_id: distinctId,
-  $insert_id: insertId,
-  timestamp: historicalTs,
-  data_origin: 'automated_test',
-  cohort_id: 'internal_diagnostics',
-  test_run_id: nonce,
-  test_suite: 'telemetry_capture_contract',
-  server_verified_release_sha: serverVerifiedSha,
+  event: EVENT, distinct_id: distinctId, $insert_id: insertId, timestamp: historicalTs,
+  data_origin: 'automated_test', cohort_id: 'internal_diagnostics', test_run_id: nonce,
+  test_suite: 'telemetry_capture_contract', server_verified_release_sha: serverVerifiedSha,
 };
 
 const payload = {
-  api_key: projectKey,
-  event: EVENT,
-  distinct_id: distinctId,
-  timestamp: historicalTs,
+  api_key: projectKey, event: EVENT, distinct_id: distinctId, timestamp: historicalTs,
   properties: {
-    $insert_id: insertId,
-    server_replayed: true,
-    data_origin: 'automated_test',
-    cohort_id: 'internal_diagnostics',
-    test_run_id: nonce,
-    test_suite: 'telemetry_capture_contract',
-    environment: 'production',
-    server_verified_release_sha: serverVerifiedSha,
+    $insert_id: insertId, server_replayed: true, data_origin: 'automated_test',
+    cohort_id: 'internal_diagnostics', test_run_id: nonce, test_suite: 'telemetry_capture_contract',
+    environment: 'production', server_verified_release_sha: serverVerifiedSha,
   },
 };
 
@@ -79,8 +66,7 @@ async function capture(label) {
 
 async function hogql(sql) {
   const res = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${personalKey}`, 'Content-Type': 'application/json' },
+    method: 'POST', headers: { Authorization: `Bearer ${personalKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query: { kind: 'HogQLQuery', query: sql } }),
   });
   if (!res.ok) throw new Error(`query API HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -88,36 +74,24 @@ async function hogql(sql) {
 }
 
 async function poll(fn, { tries = 20, delayMs = 3000 } = {}) {
-  for (let i = 0; i < tries; i++) {
-    const r = await fn();
-    if (r) return r;
-    await new Promise((res) => setTimeout(res, delayMs));
-  }
+  for (let i = 0; i < tries; i++) { const r = await fn(); if (r) return r; await new Promise((res) => setTimeout(res, delayMs)); }
   throw new Error('readback timed out');
 }
 
+// RAW rows for this $insert_id (no GROUP — so count reflects real stored rows, not logical groups).
+const rawRowsSql = `SELECT event, distinct_id, properties.$insert_id, toString(timestamp),
+    properties.data_origin, properties.cohort_id, properties.test_run_id, properties.test_suite,
+    properties.server_verified_release_sha
+  FROM events WHERE properties.$insert_id = '${insertId}'`;
+
 async function main() {
-  // 1. capture, then 2. replay with the SAME $insert_id.
-  await capture('initial');
-  await capture('replay-same-insert-id');
-
-  // 3. readback: exactly ONE logical event with all asserted fields.
-  const rows = await poll(async () => {
-    const r = await hogql(
-      `SELECT event, distinct_id, properties.$insert_id, toString(timestamp), properties.data_origin,
-              properties.cohort_id, properties.test_run_id, properties.test_suite,
-              properties.server_verified_release_sha, count() AS n
-         FROM events
-        WHERE properties.$insert_id = '${insertId}' AND timestamp >= now() - INTERVAL 1 DAY
-        GROUP BY event, distinct_id, properties.$insert_id, toString(timestamp), properties.data_origin,
-                 properties.cohort_id, properties.test_run_id, properties.test_suite,
-                 properties.server_verified_release_sha`);
-    return r.length ? r : null;
-  });
-
   const failures = [];
-  if (rows.length !== 1) failures.push(`dedupe: expected 1 logical event, got ${rows.length} group(s)`);
-  const [event, did, iid, ts, origin, cohort, runId, suite, sha, n] = rows[0];
+
+  // 1. SINGLE send → exactly one stored event with correct fields (the real-world path).
+  await capture('single');
+  const rows1 = await poll(async () => { const r = await hogql(rawRowsSql); return r.length ? r : null; });
+  if (rows1.length !== 1) failures.push(`single send: expected exactly 1 stored event, got ${rows1.length}`);
+  const [event, did, iid, ts, origin, cohort, runId, suite, sha] = rows1[0];
   const check = (name, got, want) => { if (String(got) !== String(want)) failures.push(`${name}: expected ${want}, got ${got}`); };
   check('event', event, expected.event);
   check('distinct_id', did, expected.distinct_id);
@@ -127,15 +101,35 @@ async function main() {
   check('test_run_id', runId, expected.test_run_id);
   check('test_suite', suite, expected.test_suite);
   check('server_verified_release_sha', sha, expected.server_verified_release_sha);
-  // timestamp: PostHog stores UTC; assert it matches the historical instant (not ingest-time now()).
   if (new Date(ts).getTime() !== new Date(expected.timestamp).getTime()) failures.push(`timestamp: expected historical ${expected.timestamp}, got ${ts}`);
-  if (Number(n) !== 2 && Number(n) !== 1) failures.push(`raw ingest count unexpected: ${n}`); // PostHog may or may not have merged raw rows; the GROUP proves ONE logical event
 
-  console.log(`CAPTURE_PROOF readback event=${event} distinct_id=${did} insert_id=${iid} ts=${ts} origin=${origin} sha=${sha} logical_groups=${rows.length} raw_n=${n}`);
-  console.log(`CAPTURE_PROOF_EVIDENCE ${JSON.stringify({ nonce, expected, dedupe_logical_groups: rows.length, failures })}`);
+  // 2. NEGATIVE controls — wrong event / identity must NOT satisfy the query.
+  const wrongEvent = await hogql(`SELECT count() FROM events WHERE properties.$insert_id='${insertId}' AND event='not_${EVENT}'`);
+  if (Number(wrongEvent[0]?.[0] ?? 0) !== 0) failures.push('negative control: wrong event name matched');
+  const wrongId = await hogql(`SELECT count() FROM events WHERE properties.$insert_id='${insertId}' AND distinct_id='someone-else'`);
+  if (Number(wrongId[0]?.[0] ?? 0) !== 0) failures.push('negative control: wrong distinct_id matched');
+
+  // 3. REPLAY the SAME $insert_id, then report PostHog's raw count HONESTLY (count=2 is NOT dedupe).
+  await capture('replay-same-insert-id');
+  await new Promise((res) => setTimeout(res, 6000));
+  const raw = await hogql(`SELECT count() FROM events WHERE properties.$insert_id='${insertId}'`);
+  const rawCount = Number(raw[0]?.[0] ?? 0);
+  const posthogDedupes = rawCount === 1;
+
+  console.log(`CAPTURE_PROOF_EVIDENCE ${JSON.stringify({
+    nonce, expected, single_send_stored: rows1.length, replay_raw_count: rawCount,
+    posthog_insert_id_dedupes: posthogDedupes,
+    primary_guarantee: 'outbox_send_once (a sent row is never re-claimed; proven by the DB harness)',
+    failures,
+  })}`);
+  if (!posthogDedupes) {
+    // Honest: PostHog stored duplicates. NOT a proof failure — the outbox never actually re-sends a
+    // sent row, so real delivery is send-once regardless of PostHog's secondary dedupe.
+    console.log(`CAPTURE_PROOF NOTE: PostHog stored ${rawCount} rows for one $insert_id → PostHog dedupe is NOT reliable; the guarantee is outbox send-once.`);
+  }
 
   if (failures.length) { console.error(`CAPTURE_PROOF FAILED:\n - ${failures.join('\n - ')}`); process.exit(1); }
-  console.log('CAPTURE_PROOF PASSED: accepted + read back + all fields + single logical event under replay');
+  console.log('CAPTURE_PROOF PASSED: ingest accepted + single-send readback (exactly one) + all fields + negative controls; replay dedupe reported honestly.');
 }
 
 main().catch((e) => { console.error('CAPTURE_PROOF ERROR:', e.message); process.exit(2); });
