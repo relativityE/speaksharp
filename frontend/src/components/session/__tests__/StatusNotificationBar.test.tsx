@@ -281,6 +281,40 @@ describe('StatusNotificationBar', () => {
             expect(action.className).not.toMatch(/animate-pulse/);
             expect(action.className).not.toContain('bg-[hsl(var(--success)/0.1)]'); // emphasis cleared
         });
+
+        // Timer-race guard: a click DURING the pulse must cancel the pending pulse→persistent timer so the
+        // cue cannot resurrect itself ~6.5s later. Covers ordinary, cmd/ctrl (open-in-bg), and middle click.
+        describe('dismissing during the pulse never reactivates the cue (stale-timer guard)', () => {
+            const dismissers: Array<[string, (el: HTMLElement) => void]> = [
+                ['ordinary click', (el) => fireEvent.click(el)],
+                ['ctrl-click', (el) => fireEvent.click(el, { ctrlKey: true })],
+                ['cmd-click', (el) => fireEvent.click(el, { metaKey: true })],
+                ['middle-click', (el) => fireEvent(el, new MouseEvent('auxclick', { button: 1, bubbles: true, cancelable: true }))],
+            ];
+            for (const [name, dismiss] of dismissers) {
+                it(`${name} while pulsing → stays idle even after the 6.5s timer would have fired`, () => {
+                    vi.useFakeTimers();
+                    try {
+                        mockStore();
+                        renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
+                        const action = screen.getByTestId('post-save-review-session-link');
+                        // Mid-pulse (before 6.5s).
+                        act(() => { vi.advanceTimersByTime(1000); });
+                        expect(action).toHaveAttribute('data-cue-phase', 'pulsing');
+                        // Dismiss the cue.
+                        act(() => { dismiss(action); });
+                        expect(action).toHaveAttribute('data-cue-phase', 'idle');
+                        // Let the ORIGINAL 6.5s timer's moment (and well beyond) pass — it must NOT resurrect it.
+                        act(() => { vi.advanceTimersByTime(10000); });
+                        expect(action).toHaveAttribute('data-cue-phase', 'idle');
+                        expect(action).toHaveAttribute('data-cue-active', 'false');
+                        expect(action.className).not.toMatch(/animate-pulse/);
+                    } finally {
+                        vi.useRealTimers();
+                    }
+                });
+            }
+        });
     });
 
     // Deterministic WCAG AA proof for the 13px Analytics label. The label text is emerald-800 (light) /

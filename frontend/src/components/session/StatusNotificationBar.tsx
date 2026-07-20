@@ -161,16 +161,29 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const cueKey = analyticsAction?.cueKey;
     const prefersReducedMotion = usePrefersReducedMotion();
     const [cuePhase, setCuePhase] = React.useState<'idle' | 'pulsing' | 'persistent'>('idle');
+    // The pulse→persistent timer lives in a ref so clearCue() (on click) can cancel it. Without this a
+    // click DURING the pulse leaves the pending timeout alive, and ~6.5s later it would REACTIVATE the cue
+    // (→ persistent) even though the user already dismissed it.
+    const pulseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const clearPulseTimer = React.useCallback(() => {
+        if (pulseTimerRef.current !== null) { clearTimeout(pulseTimerRef.current); pulseTimerRef.current = null; }
+    }, []);
     React.useEffect(() => {
+        clearPulseTimer();
         if (cueKey === undefined || cueKey === null) { setCuePhase('idle'); return; }
         // Reduced motion: never pulse — show the persistent static green emphasis immediately.
         if (prefersReducedMotion) { setCuePhase('persistent'); return; }
         setCuePhase('pulsing');
-        const t = setTimeout(() => setCuePhase('persistent'), 6500);
-        return () => clearTimeout(t);
-    }, [cueKey, prefersReducedMotion]);
+        pulseTimerRef.current = setTimeout(() => {
+            pulseTimerRef.current = null;
+            // Guard: only promote a STILL-pulsing cue. If it was cleared (click) or replaced by a new
+            // session, do nothing — never resurrect a dismissed/stale cue.
+            setCuePhase((prev) => (prev === 'pulsing' ? 'persistent' : prev));
+        }, 6500);
+        return () => clearPulseTimer();
+    }, [cueKey, prefersReducedMotion, clearPulseTimer]);
     const cueActive = cuePhase !== 'idle'; // emphasized (pulsing OR persistent) until click/unmount
-    const clearCue = React.useCallback(() => setCuePhase('idle'), []);
+    const clearCue = React.useCallback(() => { clearPulseTimer(); setCuePhase('idle'); }, [clearPulseTimer]);
     const modelLoadingProgress = status.progress ?? null;
     const hasSecondary = modelLoadingProgress !== null;
 
@@ -301,6 +314,10 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         <Link
                             to="/analytics"
                             onClick={() => { clearCue(); analyticsAction.onSelect?.(); }}
+                            // Middle-click (open-in-new-tab) does not fire onClick; clear the cue here too so
+                            // no click variant leaves a live timer that could reactivate it. (Cmd/Ctrl-click
+                            // still fires onClick above.)
+                            onAuxClick={(e) => { if (e.button === 1) clearCue(); }}
                             data-testid="post-save-review-session-link"
                             data-cue-active={cueActive}
                             data-cue-phase={cuePhase}

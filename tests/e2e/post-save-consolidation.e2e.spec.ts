@@ -90,6 +90,27 @@ test.describe('Post-save consolidation', () => {
     const persistAnim = await analyticsCue.evaluate((el) => getComputedStyle(el).animationName);
     expect(persistAnim === 'none' || persistAnim === '' || persistAnim == null).toBeTruthy();
 
+    // WCAG AA on the RENDERED foreground/background pair: measure the actual computed text colour against
+    // the pill background composited over its opaque surface. Normal 13px text requires >=4.5:1.
+    const renderedContrast = await analyticsCue.evaluate((el) => {
+      const nums = (s: string): number[] => (s.match(/[\d.]+/g) || []).map(Number);
+      const lin = (c: number) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+      const lum = (rgb: number[]) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+      const fg = nums(getComputedStyle(el).color);
+      const bgParts = nums(getComputedStyle(el).backgroundColor);
+      const alpha = bgParts.length === 4 ? bgParts[3] : 1;
+      // Composite the semi-transparent pill bg over the nearest opaque ancestor background.
+      let surface = [255, 255, 255];
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        const pc = nums(getComputedStyle(p).backgroundColor);
+        if ((pc.length === 4 ? pc[3] : 1) === 1 && pc.length >= 3) { surface = [pc[0], pc[1], pc[2]]; break; }
+      }
+      const bg = [0, 1, 2].map((i) => alpha * bgParts[i] + (1 - alpha) * surface[i]);
+      const la = lum(fg), lb = lum(bg);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    });
+    expect(renderedContrast).toBeGreaterThanOrEqual(4.5);
+
     // Per-width proof (320/375/390/1280): exactly one saved surface + one Analytics action, no toast, pill reset.
     for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
