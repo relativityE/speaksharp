@@ -178,6 +178,7 @@ async function main() {
   const RPC_CALLS = {
     reconcile_telemetry_outbox: `SELECT public.reconcile_telemetry_outbox()`,
     claim_telemetry_batch: `SELECT public.claim_telemetry_batch(1,'w')`,
+    claim_telemetry_proof_row: `SELECT public.claim_telemetry_proof_row(gen_random_uuid(),'session_saved','w')`,
     mark_telemetry_result: `SELECT public.mark_telemetry_result(gen_random_uuid(),gen_random_uuid(),'sent',NULL)`,
     discard_telemetry_event: `SELECT public.discard_telemetry_event(gen_random_uuid(),gen_random_uuid())`,
     replay_telemetry_deadletter: `SELECT public.replay_telemetry_deadletter(gen_random_uuid())`,
@@ -333,6 +334,21 @@ async function main() {
     await q(`SELECT public.expire_observability_actor('${u}')`);
     const p = await one(`SELECT data_origin FROM public.resolve_actor_provenance('${u}')`);
     eq(p.data_origin, 'legacy_unclassified', 'expired registration → default');
+  });
+
+  await check('F9 proof claim leases ONLY an automated_test row; refuses others; cannot touch other records', async () => {
+    // registered automated_test actor (UREG) → its session row is automated_test.
+    const sAuto = await one(`INSERT INTO public.sessions (user_id,status) VALUES ('${UREG}','completed') RETURNING id`);
+    // an unregistered actor (U1) → legacy_unclassified row.
+    const sLegacy = await one(`INSERT INTO public.sessions (user_id,status) VALUES ('${U1}','completed') RETURNING id`);
+    // refuses the legacy row (returns nothing)
+    const legacyClaim = (await q(`SELECT * FROM public.claim_telemetry_proof_row('${sLegacy.id}','session_saved','p')`)).rows;
+    eq(legacyClaim.length, 0, 'proof claim must refuse a non-automated_test row');
+    eq((await one(`SELECT status FROM public.telemetry_outbox WHERE record_id='${sLegacy.id}' AND event_type='session_saved'`)).status, 'pending', 'legacy row untouched');
+    // claims the automated_test row and ONLY it
+    const autoClaim = (await q(`SELECT record_id FROM public.claim_telemetry_proof_row('${sAuto.id}','session_saved','p')`)).rows;
+    eq(autoClaim.length, 1, 'proof claim leases the automated_test row'); eq(autoClaim[0].record_id, sAuto.id, 'exactly the specified record');
+    eq((await one(`SELECT status FROM public.telemetry_outbox WHERE record_id='${sLegacy.id}' AND event_type='session_saved'`)).status, 'pending', 'other records still untouched');
   });
 
   // ============================ G. operator delivery status ============================

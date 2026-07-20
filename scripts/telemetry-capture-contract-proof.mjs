@@ -109,16 +109,27 @@ async function main() {
   const wrongId = await hogql(`SELECT count() FROM events WHERE properties.$insert_id='${insertId}' AND distinct_id='someone-else'`);
   if (Number(wrongId[0]?.[0] ?? 0) !== 0) failures.push('negative control: wrong distinct_id matched');
 
-  // 3. REPLAY the SAME $insert_id, then report PostHog's raw count HONESTLY (count=2 is NOT dedupe).
+  // 3. REPLAY the SAME $insert_id, then POLL to a conclusion: either two raw rows appear (proving NO
+  // dedupe) OR the documented maximum observation window expires with exactly one row. Six seconds is
+  // not enough to conclusively claim dedupe, so we poll to the window. PostHog dedupe is only OBSERVED
+  // secondary behavior — the authoritative guarantee is outbox send-once.
   await capture('replay-same-insert-id');
-  await new Promise((res) => setTimeout(res, 6000));
-  const raw = await hogql(`SELECT count() FROM events WHERE properties.$insert_id='${insertId}'`);
-  const rawCount = Number(raw[0]?.[0] ?? 0);
-  const posthogDedupes = rawCount === 1;
+  const MAX_OBSERVE_MS = Number(process.env.CAPTURE_PROOF_MAX_OBSERVE_MS ?? '120000');
+  const observeStart = Date.now();
+  let rawCount = 0;
+  for (;;) {
+    const raw = await hogql(`SELECT count() FROM events WHERE properties.$insert_id='${insertId}'`);
+    rawCount = Number(raw[0]?.[0] ?? 0);
+    if (rawCount >= 2) break;                                  // conclusive: NO dedupe
+    if (Date.now() - observeStart >= MAX_OBSERVE_MS) break;    // window elapsed with ≤1 row
+    await new Promise((res) => setTimeout(res, 5000));
+  }
+  const posthogDedupes = rawCount === 1; // after the full window, still exactly one → dedupe observed
 
   console.log(`CAPTURE_PROOF_EVIDENCE ${JSON.stringify({
     nonce, expected, single_send_stored: rows1.length, replay_raw_count: rawCount,
-    posthog_insert_id_dedupes: posthogDedupes,
+    observation_window_ms: MAX_OBSERVE_MS,
+    posthog_insert_id_dedupes_observed: posthogDedupes, // OBSERVED secondary behavior only
     primary_guarantee: 'outbox_send_once (a sent row is never re-claimed; proven by the DB harness)',
     failures,
   })}`);

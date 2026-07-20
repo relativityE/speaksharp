@@ -27,10 +27,27 @@ const flag = (name) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? ar
 
 const supabase = createClient(url, key, { auth: { persistSession: false } });
 
+// Resolve the account user_id from --user (uuid) or --email (looked up via the admin API). Workflows
+// know the test EMAIL (a var/secret), not the uuid, so --email is the usual path.
+async function resolveUserId() {
+  const direct = flag('user');
+  if (direct) return direct;
+  const email = flag('email');
+  if (!email) throw new Error('--user <uuid> or --email <addr> required');
+  // Page through admin users to find the email (service-role only).
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(`listUsers failed: ${error.message}`);
+    const found = (data?.users ?? []).find((u) => (u.email ?? '').toLowerCase() === email.toLowerCase());
+    if (found) return found.id;
+    if (!data || (data.users ?? []).length < 200) break;
+  }
+  throw new Error(`no account found for email (redacted)`);
+}
+
 async function main() {
   if (cmd === 'register') {
-    const user = flag('user');
-    if (!user) throw new Error('--user <uuid> required');
+    const user = await resolveUserId();
     const ttlHours = Number(flag('ttl-hours') ?? '6') || 6;
     const { error } = await supabase.rpc('register_observability_actor', {
       p_user_id: user,
@@ -43,8 +60,7 @@ async function main() {
     if (error) throw new Error(`register failed: ${error.message}`);
     console.log(`PROVENANCE registered actor origin=${flag('origin') ?? 'automated_test'} run=${flag('run') ?? '-'} ttl=${ttlHours}h`);
   } else if (cmd === 'expire') {
-    const user = flag('user');
-    if (!user) throw new Error('--user <uuid> required');
+    const user = await resolveUserId();
     const { error } = await supabase.rpc('expire_observability_actor', { p_user_id: user });
     if (error) throw new Error(`expire failed: ${error.message}`);
     console.log('PROVENANCE expired actor');

@@ -56,12 +56,55 @@ plus `REPORT_ALERT_WORKER_URL`.
   report for authorized triage. Prose must never be written to Actions logs/artifacts/PostHog/Sentry.
   The preserved report **a77b73de** is the first acceptance case after deployment.
 
-## Provenance CLI (automated workflows)
+## Provenance operational wiring (#4)
 
-`scripts/observability-provenance.mjs register|expire|candidates` (service-role). Every automated
-data-producing workflow must `register` its actor before writing and `expire` after (prefer a unique
-ephemeral account per run; serialize a shared account with a concurrency group). `candidates` prints the
-pre-reconciliation candidate + unclassified counts (run before any production reconciliation).
+Tooling: `scripts/observability-provenance.mjs register|expire|candidates` (service-role; `register`/
+`expire` accept `--email` and resolve the user_id via the admin API) and the reusable composite action
+`.github/actions/register-provenance` (register-before-write + `if: always()` expire).
+
+**Anti-race:** the registry PK is `user_id`, so concurrent runs sharing one account would overwrite each
+other's `test_run_id`. Mechanism: a GitHub `concurrency` group keyed to the shared account serializes
+those runs (added to `rc-gates.yml` as `provenance-shared-pro-account`; do NOT `cancel-in-progress`).
+Prefer a UNIQUE ephemeral account per run where possible (no contention at all).
+
+**Data-producing workflow inventory** (each registers `automated_test` before its first product write
+and expires after, via the composite action; those on the shared PRO_TEST account join the serialization
+group):
+
+| Workflow | Account | data_origin | test_suite |
+|---|---|---|---|
+| `rc-gates.yml` (gate-3 DAST) | shared PRO_TEST | automated_test | rc_gate_3_dast |
+| `pro-stt-artifact-matrix.yml` | shared PRO_TEST | automated_test | pro_stt_artifact_matrix |
+| `live-release-matrix.yml` | shared PRO_TEST | automated_test | live_release_matrix |
+| `v4-app-path-proof.yml` | shared PRO_TEST | automated_test | v4_app_path_proof |
+| `v4-auto-fallback-proof.yml` | shared PRO_TEST | automated_test | v4_auto_fallback_proof |
+| `v4-benchmark-gpu.yml` | shared PRO_TEST | automated_test | v4_benchmark_gpu |
+| `benchmarks.yml` | shared PRO_TEST | automated_test | benchmarks |
+| `setup-test-users.yml` | creates accounts | automated_test | setup_test_users |
+
+Reference wiring (add to each job that writes sessions/reports, before the first write):
+```yaml
+    - uses: ./.github/actions/register-provenance
+      with:
+        email: ${{ secrets.PRO_TEST_EMAIL }}
+        test_suite: <suite from the table>
+        supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+        service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    # ... the data-producing steps ...
+    - if: always()
+      uses: ./.github/actions/register-provenance
+      with: { mode: expire, email: ${{ secrets.PRO_TEST_EMAIL }}, test_suite: <suite>,
+              supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }},
+              service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }} }
+```
+
+**Historical classification correlation** (before any production reconciliation, one-time, service-role):
+register/correlate the KNOWN accounts so history is classifiable — Prod Owner testing →
+`owner_manual_test`; invited Wave-1 accounts → `beta_tester` (cohort `wave1`); automation accounts →
+`automated_test`; everything unresolved stays `legacy_unclassified` (never auto-promoted). Then run
+`observability-provenance.mjs candidates --since <invitation-boundary>` and return the sanitized counts
+by classification (candidate_count + unclassified_count per event type) BEFORE writing/delivering any
+backfill.
 
 ## #5 — Legacy event properties: recreatable vs not
 
@@ -155,27 +198,34 @@ alert). Full end-to-end proof with a live registered run is activation step 5–
 
 ## #14 — Activation sequence (owner/ops-run; NOT part of merging this PR)
 
-The worker is fail-closed; nothing below runs by merging. Do NOT merge or deploy until independent
-review clears the PR. Then, in order:
+The worker is fail-closed; nothing below runs by merging. `TELEMETRY_WORKER_ENABLED` stays unset, so
+normal draining is `not_runnable`; a synthetic proof uses PROOF-ONLY mode (secret + explicit record,
+`data_origin=automated_test` only) which never touches a real record. Do NOT merge/deploy until review
+clears the PR. Then, in order (overlap-safe — enabling is LAST):
 
-1. Exact-head CI/SCA green; full postgres + PGlite behavioral harness green (`telemetry-outbox-harness`).
-2. **Backfill dry-run only:** call `reconcile_telemetry_candidates('2026-07-18T17:43:56Z')` — review the
-   exact candidate + `unclassified_count` per event type. Do NOT deliver yet.
-3. Confirm GitHub + Supabase secret wiring (deploy workflow `operation=secrets`) without printing values.
-4. Deploy migrations + `telemetry-worker` (`operation=all`) with the cron STILL disabled.
-5. Seed ONE `automated_test` synthetic outbox row (registered account) and invoke the worker once
-   manually (`workflow_dispatch` on `telemetry-worker-cron`, or a direct authenticated call).
-6. Prove PostHog accepted + read back + deduped it (`scripts/telemetry-capture-contract-proof.mjs`);
-   upload evidence with `retention-days: 1`.
-7. Prove report receipt + protected owner retrieval + owner notification (report-issue-alert integration
-   — see #1005 work merged into this branch).
-8. Run the approved incident backfill: `reconcile_telemetry_outbox('2026-07-18T17:43:56Z')` (bounded to
-   the invitation boundary), then let the worker drain.
-9. Verify outbox counts by status (`operator_telemetry_delivery_status` for the owner's account;
-   pending/failed/sending/dead_letter/discarded totals).
-10. Enable the fail-closed cron (add the `schedule:` trigger in the activation commit).
-11. Run the full RC/CI/security/ops battery.
-12. Only then close the incident.
+- **A.** Deploy schema + functions with cron OFF and `TELEMETRY_WORKER_ENABLED` unset (normal draining
+  disabled). Confirm GitHub `vars`/`secrets` wiring (`operation=secrets`) without printing values.
+- **B.** Register a synthetic `automated_test` actor and create ONE synthetic source row (→ one
+  `automated_test` outbox row via the trigger).
+- **C.** Run PROOF-ONLY worker delivery for exactly that row: POST the worker with headers
+  `x-telemetry-proof-record: <record_id>` + `x-telemetry-proof-event: session_saved` (bypasses the
+  enable gate; `claim_telemetry_proof_row` refuses anything not `automated_test`, so it cannot consume a
+  real tester's pending record).
+- **D.** Verify PostHog readback + Sentry notification routing
+  (`scripts/telemetry-capture-contract-proof.mjs`; upload evidence `retention-days: 1`). Prove report
+  receipt + protected operator retrieval (`operator_get_report`) + owner notification (report-issue-alert)
+  — report **a77b73de** is the first acceptance case.
+- **E.** Deploy removal of client-authoritative `session_saved` + `report_issue_submitted` emission.
+- **F.** Enable normal worker draining (`TELEMETRY_WORKER_ENABLED=true`).
+- **G.** Review candidate classifications: `reconcile_telemetry_candidates('2026-07-18T17:43:56Z')` +
+  `observability-provenance.mjs candidates` — return sanitized counts by classification. Do NOT deliver
+  historical yet.
+- **H.** Reconcile + drain the EXPLICITLY APPROVED invitation window:
+  `reconcile_telemetry_outbox('2026-07-18T17:43:56Z')`.
+- **I.** Verify no missing or duplicate events; check outbox counts by status
+  (`operator_telemetry_delivery_status`: pending/failed/sending/dead_letter/discarded).
+- **J.** Add the `schedule:` triggers to `telemetry-worker-cron` + `report-alert-drain-cron` ONLY after
+  all checks pass; run the full RC/CI/security/ops battery; then close the incident.
 
 Older-than-boundary history is reconciled ONLY via an explicit, separately-approved one-time
 `reconcile_telemetry_outbox(<older-since>)` — never automatically, to avoid replaying pre-invitation

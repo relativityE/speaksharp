@@ -43,6 +43,15 @@ on:
 permissions:
   contents: read
 
+# Provenance anti-race: RC gates drive the shared PRO_TEST account. Serialize this workflow so two runs
+# cannot concurrently overwrite that account's registered test_run_id (registry PK = user_id). Never
+# cancel an in-flight RC run. (Data-producing register/expire wiring for this + the other test-account
+# workflows is tracked in the telemetry-worker RUNBOOK provenance inventory, applied via
+# .github/actions/register-provenance before activation.)
+concurrency:
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
+
 jobs:
   gate-1-product:
     name: Gate 1 - Product Truth

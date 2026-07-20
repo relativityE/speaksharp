@@ -94,6 +94,7 @@ function makeSupabase(opts: {
   rows: FakeRow[]; reconcile?: number; reconcileErr?: unknown; claimErr?: unknown;
   sources?: Record<string, Record<string, unknown> | null>; statusById?: Record<string, string>;
   markData?: boolean; markErr?: unknown; discardData?: boolean;
+  proofRows?: FakeRow[]; proofErr?: unknown;
 }) {
   const calls = { rpc: [] as Array<{ name: string; args: Record<string, unknown> }> };
   const supa = {
@@ -102,6 +103,7 @@ function makeSupabase(opts: {
       calls.rpc.push({ name, args });
       if (name === 'reconcile_telemetry_outbox') return Promise.resolve({ data: opts.reconcile ?? 0, error: opts.reconcileErr ?? null });
       if (name === 'claim_telemetry_batch') return Promise.resolve({ data: opts.rows, error: opts.claimErr ?? null });
+      if (name === 'claim_telemetry_proof_row') return Promise.resolve({ data: opts.proofRows ?? [], error: opts.proofErr ?? null });
       if (name === 'mark_telemetry_result') return Promise.resolve({ data: opts.markData ?? true, error: opts.markErr ?? null });
       if (name === 'discard_telemetry_event') return Promise.resolve({ data: opts.discardData ?? true, error: null });
       return Promise.resolve({ data: null, error: null });
@@ -286,6 +288,46 @@ Deno.test('handler: retryable failure only (mark ok, no dead-letter) → partial
   assertEquals(body.failed, 1);
   assertEquals(body.dead_lettered, 0);
   assertEquals(sentry.length, 1); // warning-level alert
+});
+
+function proofPost(record: string, event: string) {
+  return new Request('https://edge/telemetry-worker', {
+    method: 'POST',
+    headers: { 'x-telemetry-worker-secret': 'sekret', 'x-telemetry-proof-record': record, 'x-telemetry-proof-event': event },
+  });
+}
+
+Deno.test('handler PROOF mode: delivers exactly the one automated_test row, NO reconcile/batch, bypasses enable gate', async () => {
+  const proofRow = { ...sessionRow('op', 'rec-proof', 'lp'), data_origin: 'automated_test' };
+  const supa = makeSupabase({ rows: [], proofRows: [proofRow], sources: { 'rec-proof': { user_id: 'u', engine: 'Private' } } });
+  const fetchImpl = (() => Promise.resolve(new Response('{}', { status: 200 }))) as unknown as typeof fetch;
+  // ENABLED unset → normal mode would be not_runnable, but proof mode bypasses.
+  const env = { ...BASE_ENV, TELEMETRY_WORKER_ENABLED: undefined };
+  const res = await handler(proofPost('rec-proof', 'session_saved'), depsFor(env, supa, fetchImpl, []));
+  const body = await res.json();
+  assertEquals(body.proof_mode, true);
+  assertEquals(body.sent, 1);
+  assertEquals(body.result, 'success');
+  // proof mode NEVER reconciles or batch-claims — it can't touch other pending records.
+  assert(!supa.calls.rpc.some((c) => c.name === 'reconcile_telemetry_outbox'));
+  assert(!supa.calls.rpc.some((c) => c.name === 'claim_telemetry_batch'));
+  assert(supa.calls.rpc.some((c) => c.name === 'claim_telemetry_proof_row'));
+});
+
+Deno.test('handler PROOF mode: RPC returns nothing (non-automated_test/absent) → not_runnable, no delivery', async () => {
+  const supa = makeSupabase({ rows: [], proofRows: [] }); // RPC refuses → empty
+  const res = await handler(proofPost('rec-x', 'session_saved'), depsFor({ ...BASE_ENV, TELEMETRY_WORKER_ENABLED: undefined }, supa, () => { throw new Error('no fetch'); }, []));
+  const body = await res.json();
+  assertEquals(body.result, 'not_runnable');
+  assertEquals(body.error, 'no_claimable_automated_test_row');
+});
+
+Deno.test('handler PROOF mode: invalid event → 400', async () => {
+  const supa = makeSupabase({ rows: [] });
+  const res = await handler(proofPost('rec-x', 'not_an_event'), depsFor(BASE_ENV, supa, () => { throw new Error('no'); }, []));
+  assertEquals(res.status, 400);
+  assertEquals((await res.json()).result, 'not_runnable');
+  assert(!supa.calls.rpc.some((c) => c.name === 'claim_telemetry_proof_row'));
 });
 
 Deno.test('handler: reconcile RPC error → 500, ok:false, sentry, never claims', async () => {

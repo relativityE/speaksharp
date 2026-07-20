@@ -225,6 +225,25 @@ BEGIN
     RETURNING t.*;
 END; $$;
 
+-- PROOF-ONLY claim: leases EXACTLY ONE outbox row identified by (record_id, event_type), and ONLY if
+-- its server-assigned data_origin is 'automated_test'. It refuses any non-automated_test row (returns
+-- nothing) and cannot touch any other record. This lets a pre-cutover proof deliver a single synthetic
+-- row WITHOUT running normal reconciliation/draining that could claim a real tester's pending record.
+CREATE OR REPLACE FUNCTION public.claim_telemetry_proof_row(p_record_id uuid, p_event_type text, p_worker text DEFAULT 'proof')
+RETURNS SETOF public.telemetry_outbox
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE public.telemetry_outbox t
+    SET status='sending', attempt_count=t.attempt_count+1,
+        lease_token=gen_random_uuid(), lease_expires_at=now()+interval '5 minutes', claimed_by=p_worker
+    WHERE t.record_id=p_record_id AND t.event_type=p_event_type
+      AND t.data_origin='automated_test'   -- REFUSE beta_tester/owner_manual_test/production_user/legacy_unclassified
+      AND ((t.status IN ('pending','failed') AND t.next_retry_at<=now())
+           OR (t.status='sending' AND t.lease_expires_at IS NOT NULL AND t.lease_expires_at<now()))
+    RETURNING t.*;
+END; $$;
+
 -- Worker mark: a worker owns the row ONLY while its lease is unexpired. Validates inputs strictly and
 -- clears ALL lease fields (token, expiry, claimed_by) on every transition. On 'sent' it persists the
 -- worker's OWN deployment SHA as server_verified_release_sha (trusted, server-side) — this value is
@@ -320,6 +339,7 @@ REVOKE ALL ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestam
 REVOKE ALL ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reconcile_telemetry_candidates(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.claim_telemetry_batch(integer, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.claim_telemetry_proof_row(uuid, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.replay_telemetry_deadletter(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.discard_telemetry_event(uuid, uuid) FROM PUBLIC, anon, authenticated;
@@ -328,6 +348,7 @@ GRANT EXECUTE ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, times
 GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_candidates(timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.claim_telemetry_batch(integer, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_telemetry_proof_row(uuid, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.replay_telemetry_deadletter(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.discard_telemetry_event(uuid, uuid) TO service_role;

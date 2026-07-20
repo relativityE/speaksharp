@@ -1,0 +1,57 @@
+name: register-provenance
+description: >-
+  Register (or expire) server-assigned observability provenance for an automated data-producing run,
+  BEFORE it writes any session/report. Provenance is service-role-assigned — never client-chosen.
+
+inputs:
+  mode:
+    description: 'register | expire'
+    required: false
+    default: register
+  email:
+    description: 'Test account email (resolved to user_id via the admin API)'
+    required: true
+  data_origin:
+    description: 'automated_test | owner_manual_test | beta_tester | ...'
+    required: false
+    default: automated_test
+  cohort_id:
+    required: false
+    default: ci
+  test_run_id:
+    description: 'Unique per run — defaults to the GitHub run id'
+    required: false
+    default: ''
+  test_suite:
+    description: 'The producing workflow/suite name'
+    required: true
+  ttl_hours:
+    required: false
+    default: '6'
+  supabase_url:
+    required: true
+  service_role_key:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: ${{ inputs.mode }} provenance
+      shell: bash
+      env:
+        SUPABASE_URL: ${{ inputs.supabase_url }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ inputs.service_role_key }}
+      run: |
+        set -euo pipefail
+        run_id="${{ inputs.test_run_id }}"; [ -z "$run_id" ] && run_id="gha-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        if [ "${{ inputs.mode }}" = "expire" ]; then
+          node scripts/observability-provenance.mjs expire --email "${{ inputs.email }}"
+        else
+          node scripts/observability-provenance.mjs register \
+            --email "${{ inputs.email }}" \
+            --origin "${{ inputs.data_origin }}" \
+            --cohort "${{ inputs.cohort_id }}" \
+            --run "$run_id" \
+            --suite "${{ inputs.test_suite }}" \
+            --ttl-hours "${{ inputs.ttl_hours }}"
+        fi

@@ -10,10 +10,13 @@ name: telemetry-outbox-harness
 on:
   pull_request:
     paths:
-      - 'backend/supabase/migrations/2026072012*.sql'
-      - 'backend/supabase/migrations/2026072014*.sql'
-      - 'backend/supabase/migrations/2026072015*.sql'
+      - 'backend/supabase/migrations/20260720*.sql'
+      - 'backend/supabase/functions/telemetry-worker/**'
+      - 'backend/supabase/functions/report-issue-alert/**'
+      - 'backend/supabase/functions/_shared/**'
       - 'tests/db/**'
+      - 'tests/deps/telemetry-outbox.test.js'
+      - 'tests/deps/report-alert-rls.test.js'
       - '.github/workflows/telemetry-harness.yml'
   workflow_dispatch: {}
 

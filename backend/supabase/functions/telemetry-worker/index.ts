@@ -221,9 +221,17 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
   // POSTHOG_HOST must be HTTPS on an approved PostHog host.
   if (!isApprovedPosthogHost(ingestHost)) return json({ ok: false, result: 'not_runnable', error: 'config_invalid_posthog_host' }, 503);
 
-  // (1b) OVERLAP-SAFE gate: normal draining is disabled unless explicitly enabled at cutover. This
-  // prevents accidental draining of real records while client emitters are still authoritative.
-  if (deps.getEnv('TELEMETRY_WORKER_ENABLED') !== 'true') return json({ ok: false, result: 'not_runnable', error: 'worker_disabled' }, 200);
+  // PROOF-ONLY mode: an explicit synthetic record is delivered WITHOUT reconciliation or batch
+  // draining. It bypasses the enable gate (that is its purpose) but can only ever touch one specified
+  // automated_test row — see claim_telemetry_proof_row. Requires an event type + record id.
+  const proofRecord = req.headers.get('x-telemetry-proof-record');
+  const proofEvent = req.headers.get('x-telemetry-proof-event');
+  const proofMode = proofRecord !== null;
+
+  // (1b) OVERLAP-SAFE gate: NORMAL draining is disabled unless explicitly enabled at cutover. This
+  // prevents accidental draining of real records while client emitters are still authoritative. Proof
+  // mode is exempt (it targets one synthetic automated_test row only).
+  if (!proofMode && deps.getEnv('TELEMETRY_WORKER_ENABLED') !== 'true') return json({ ok: false, result: 'not_runnable', error: 'worker_disabled' }, 200);
 
   const windowSec = Math.max(60, Number(deps.getEnv('TELEMETRY_RECONCILE_WINDOW_SECONDS') ?? '3600') || 3600);
   const eventTimeoutMs = Math.max(1000, Number(deps.getEnv('TELEMETRY_EVENT_TIMEOUT_MS') ?? '10000') || 10000);
@@ -256,17 +264,6 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
       });
     } catch { /* alerting must never fail the drain */ }
   };
-
-  // (2) reconcile a BOUNDED rolling window (never full history).
-  const { data: reconciledData, error: reconcileErr } = await supabase.rpc('reconcile_telemetry_outbox', { p_since: reconcileSince });
-  if (reconcileErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: reconcile failed'); return json({ ...summary, error: 'reconcile_failed' }, 500); }
-  summary.reconciled = Number(reconciledData ?? 0);
-
-  // (3) claim a bounded batch.
-  const { data: rowsData, error: claimErr } = await supabase.rpc('claim_telemetry_batch', { p_limit: batchSize, p_worker: 'edge-telemetry-worker' });
-  if (claimErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: claim failed'); return json({ ...summary, error: 'claim_failed' }, 500); }
-  const rows = (rowsData ?? []) as OutboxRow[];
-  summary.claimed = rows.length;
 
   // mark helpers — every RPC error/false is accounted for; NO recursive re-mark on a lost lease.
   const markSent = async (row: OutboxRow) => {
@@ -325,6 +322,37 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
     if (status !== null && status >= 200 && status < 300) await markSent(row);
     else await markFailed(row, classifyDeliveryFailure(status));
   };
+
+  // ---- PROOF-ONLY branch: claim exactly the one specified automated_test row; NO reconcile, NO batch.
+  if (proofMode) {
+    if (proofEvent !== 'session_saved' && proofEvent !== 'report_issue_submitted') {
+      return json({ ok: false, result: 'not_runnable', error: 'proof_event_invalid' }, 400);
+    }
+    const { data: proofRows, error: proofErr } = await supabase.rpc('claim_telemetry_proof_row', {
+      p_record_id: proofRecord, p_event_type: proofEvent, p_worker: 'edge-telemetry-worker-proof',
+    });
+    if (proofErr) { summary.infra_errors++; return json({ ...summary, ok: false, result: 'hard_failure', error: 'proof_claim_failed' }, 500); }
+    const claimed = (proofRows ?? []) as OutboxRow[];
+    // Refuses a non-automated_test / non-existent / already-delivered row (the RPC returns nothing).
+    if (claimed.length === 0) return json({ ...summary, ok: false, result: 'not_runnable', error: 'no_claimable_automated_test_row' }, 200);
+    summary.claimed = claimed.length;
+    await processRow(claimed[0]);
+    const hard = summary.infra_errors > 0 || summary.dead_lettered > 0 || summary.lease_lost > 0;
+    summary.ok = !hard;
+    summary.result = hard ? 'hard_failure' : (summary.failed > 0 ? 'partial_retry' : 'success');
+    return json({ ...summary, proof_mode: true }, 200);
+  }
+
+  // (2) reconcile a BOUNDED rolling window (never full history).
+  const { data: reconciledData, error: reconcileErr } = await supabase.rpc('reconcile_telemetry_outbox', { p_since: reconcileSince });
+  if (reconcileErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: reconcile failed'); return json({ ...summary, error: 'reconcile_failed' }, 500); }
+  summary.reconciled = Number(reconciledData ?? 0);
+
+  // (3) claim a bounded batch.
+  const { data: rowsData, error: claimErr } = await supabase.rpc('claim_telemetry_batch', { p_limit: batchSize, p_worker: 'edge-telemetry-worker' });
+  if (claimErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: claim failed'); return json({ ...summary, error: 'claim_failed' }, 500); }
+  const rows = (rowsData ?? []) as OutboxRow[];
+  summary.claimed = rows.length;
 
   let next = 0;
   const runLane = async () => {
