@@ -1,0 +1,15 @@
+{
+  "name": "speaksharp-db-behavioral-harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ephemeral-PostgreSQL behavioral harness deps (pinned, committed, SCA-visible).",
+  "scripts": {
+    "harness": "node run-behavioral.mjs",
+    "race": "node skiplocked-race.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.4",
+    "pg": "8.22.0"
+  }
+}

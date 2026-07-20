@@ -3,11 +3,14 @@ name: telemetry-outbox-harness
 # Behavioral proof for the P0 incident telemetry-outbox foundation. The FULL A–H suite runs against
 # BOTH a real postgres:16 service (authoritative, multi-connection) AND PGlite (fast hermetic
 # secondary). The SKIP LOCKED concurrency race also runs on postgres:16. Content-free: synthetic
-# fixtures only. Dependencies are PINNED (no @latest) so CI is reproducible and SCA-visible.
+# fixtures only. Dependencies are COMMITTED + PINNED (tests/db/package.json + package-lock.json) and
+# installed with a FROZEN `npm ci` so versions are reviewed and SCA-visible — never a dynamic
+# @latest install.
 
 on:
   pull_request:
     paths:
+      - 'backend/supabase/migrations/2026072012*.sql'
       - 'backend/supabase/migrations/2026072014*.sql'
       - 'backend/supabase/migrations/2026072015*.sql'
       - 'tests/db/**'
@@ -17,12 +20,7 @@ on:
 permissions:
   contents: read
 
-env:
-  PGLITE_VERSION: '0.5.4'
-  PG_VERSION: '8.22.0'
-
 jobs:
-  # Fast hermetic secondary — same suite, PGlite (PostgreSQL/WASM).
   behavioral-pglite:
     runs-on: ubuntu-latest
     steps:
@@ -30,14 +28,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install PGlite (pinned)
+      - name: Install harness deps (frozen)
         working-directory: tests/db
-        run: npm init -y >/dev/null 2>&1 && npm install "@electric-sql/pglite@${PGLITE_VERSION}"
+        run: npm ci
       - name: Behavioral suite (A–H) on PGlite
         working-directory: tests/db
         run: node run-behavioral.mjs
 
-  # Authoritative — full suite AND the SKIP LOCKED race on a real multi-connection postgres:16.
   behavioral-postgres:
     runs-on: ubuntu-latest
     services:
@@ -58,9 +55,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install pg client (pinned)
+      - name: Install harness deps (frozen)
         working-directory: tests/db
-        run: npm init -y >/dev/null 2>&1 && npm install "pg@${PG_VERSION}"
+        run: npm ci
       # Race first, on a CLEAN database — it counts global pending rows, so it must run before the
       # behavioral suite leaves state behind.
       - name: SKIP LOCKED concurrency race (2 real connections)

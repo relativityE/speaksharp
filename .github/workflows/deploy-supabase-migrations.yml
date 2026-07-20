@@ -121,10 +121,12 @@ jobs:
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # telemetry-worker delivery + failure-alert config (GitHub → Supabase mapping).
-          POSTHOG_PROJECT_API_KEY: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
-          POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          # telemetry-worker delivery + failure-alert config. Use the repo convention: non-secret
+          # config lives in repository VARIABLES (vars.*); only true secrets use secrets.*. No
+          # duplicate secrets are introduced for values already configured as variables.
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
           TELEMETRY_WORKER_SECRET: ${{ secrets.TELEMETRY_WORKER_SECRET }}
         working-directory: backend/supabase
         run: |
