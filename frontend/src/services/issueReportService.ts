@@ -127,11 +127,12 @@ export const issueReportService = {
       release_sha: arm.release_sha ?? null,
     });
 
-    // P0.4: after the report is safely stored, trigger the trusted-backend owner alert. This is
-    // fire-and-forget — the report is already persisted, so submission success never depends on the
-    // alert, and alert latency never blocks the UI. Only the durable report id is passed (never any
-    // report content); the backend builds the sanitized alert from the stored row. Anonymous reports
-    // (no returnable id) simply skip the client trigger.
+    // P0.4: the owner alert is enqueued AUTHORITATIVELY at the DB persistence boundary (a trigger on
+    // user_issue_reports insert), and a server reconciler + drain guarantee delivery even if this call
+    // never fires. This client call is only a NON-AUTHORITATIVE WAKE HINT that expedites the first
+    // delivery attempt — fire-and-forget, never blocks the UI, passes only the durable report id (never
+    // report content). Anonymous reports (no returnable id) simply skip the hint; the server queue
+    // still delivers them.
     if (reportId) {
       void triggerOwnerAlert(supabase, reportId);
     }

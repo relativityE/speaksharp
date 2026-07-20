@@ -1,0 +1,44 @@
+name: report-alert-drain-cron
+
+# Periodic drainer for the server-authoritative owner-alert outbox. The browser wake-hint is only
+# best-effort; this drain (reconcile → claim_report_alert_batch → deliver under lease) is what
+# guarantees a crashed or never-fired hint cannot strand a report. FAIL-CLOSED: workflow_dispatch-only
+# (no schedule trigger until activation); missing URL/secret is a hard failure.
+
+on:
+  workflow_dispatch: {}
+  # schedule: ADDED IN THE ACTIVATION COMMIT ONLY.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: report-alert-drain-cron
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-observability
+    steps:
+      - name: Invoke alert drain (fail-closed)
+        env:
+          ALERT_URL: ${{ secrets.REPORT_ALERT_WORKER_URL }}
+          ALERT_SECRET: ${{ secrets.TELEMETRY_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALERT_URL:-}" ]; then echo "::error::REPORT_ALERT_WORKER_URL not configured"; exit 1; fi
+          if [ -z "${ALERT_SECRET:-}" ]; then echo "::error::TELEMETRY_WORKER_SECRET not configured"; exit 1; fi
+          http_body=$(curl -sS --fail-with-body --max-time 90 \
+            -X POST "$ALERT_URL" \
+            -H "x-alert-worker-secret: $ALERT_SECRET" \
+            -H 'content-type: application/json' --data '{}') || { echo "::error::alert drain request failed"; exit 1; }
+          echo "$http_body" | python3 -c '
+import sys, json
+ALLOW = ["ok","result","claimed","sent","failed","mark_deferred"]
+d = json.load(sys.stdin)
+print(json.dumps({k: d.get(k) for k in ALLOW if k in d}, sort_keys=True))
+if d.get("result") not in ("success", "partial_retry"):
+    sys.stderr.write("::error::alert drain result=%s\n" % d.get("result")); sys.exit(2)
+'

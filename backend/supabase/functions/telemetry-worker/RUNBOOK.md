@@ -15,12 +15,53 @@ Wired GitHub → Supabase by the deploy workflow (never pasted by the owner):
 | `POSTHOG_PROJECT_KEY` | `POSTHOG_PROJECT_API_KEY` | ingest key |
 | `POSTHOG_HOST` | `POSTHOG_INGEST_HOST` | ingest host (`/capture/`) |
 | `TELEMETRY_WORKER_RELEASE_SHA` | `github.sha` | server-verified SHA on sent rows |
-| `SENTRY_DSN` | `SENTRY_DSN` | failure-alert route |
+| `SENTRY_DSN` | `vars.SENTRY_DSN` | failure-alert route |
+| `POSTHOG_PROJECT_KEY` | `vars.POSTHOG_PROJECT_API_KEY` | ingest key (see below) |
+| `POSTHOG_HOST` | `vars.POSTHOG_INGEST_HOST` | ingest host (HTTPS on posthog.com) |
 
-`POSTHOG_PERSONAL_API_KEY` is **never** synced to Supabase/the worker — it is readback-only and stays
-in CI (used by the capture-contract proof). Tunables: `TELEMETRY_WORKER_BATCH` (default 50),
-`TELEMETRY_RECONCILE_WINDOW_SECONDS` (default 3600), `TELEMETRY_EVENT_TIMEOUT_MS` (10000),
-`TELEMETRY_WORKER_DEADLINE_MS` (90000).
+GitHub config convention: non-secret config is a repository **variable** (`vars.*`); only true secrets
+use `secrets.*`. `POSTHOG_PERSONAL_API_KEY` is **never** synced to Supabase/the worker — readback-only,
+stays in CI (used by the capture-contract proof).
+
+**Kill switch / overlap gate:** `TELEMETRY_WORKER_ENABLED` must be exactly `'true'` for the worker to
+drain; otherwise it returns `not_runnable` WITHOUT claiming. It stays unset until the cutover so normal
+draining cannot accidentally consume real records while client emitters are still authoritative.
+
+Tunables (all clamped): `TELEMETRY_WORKER_BATCH` (default 25, clamped to fit the deadline),
+`TELEMETRY_WORKER_CONCURRENCY` (5), `TELEMETRY_RECONCILE_WINDOW_SECONDS` (3600),
+`TELEMETRY_EVENT_TIMEOUT_MS` (10000), `TELEMETRY_WORKER_DEADLINE_MS` (90000). Worst-case wall-clock is
+`ceil(batch/concurrency)*eventTimeout`, kept ≤ deadline by a batch clamp (so 50×10s>90s can't happen).
+`POSTHOG_HOST` is validated as HTTPS on an approved `posthog.com` host.
+
+**Result semantics:** the worker returns `result ∈ {success, partial_retry, hard_failure,
+not_runnable}`. Green only when no hard condition (infra/dead-letter/lease-lost/time-budget) occurred;
+a retryable delivery failure alone is `partial_retry` (self-heals). The cron fails red on
+`hard_failure`/`not_runnable`.
+
+## Owner-alert delivery (server-authoritative)
+
+The owner alert for an issue report is **enqueued at the DB persistence boundary** (a trigger on
+`user_issue_reports` insert → a `report_alert_deliveries` row), not by the browser. `report-issue-alert`
+delivers under a lease with a **deterministic Sentry `event_id` = report_id hex** (so a retry after a
+lost DB mark cannot duplicate the owner alert). `reconcile_report_alerts()` repairs any report missing a
+row; the `report-alert-drain-cron` (secret-gated `x-alert-worker-secret`) reconciles + drains so a
+crashed/never-fired browser wake-hint can't strand a report. Alert secrets reuse `TELEMETRY_WORKER_SECRET`
+plus `REPORT_ALERT_WORKER_URL`.
+
+## Retrieval surfaces (do not conflate)
+
+- **Owner self-retrieval:** authenticated user reads THEIR OWN report via the `user_issue_reports` RLS
+  `SELECT` policy (`auth.uid() = user_id`); `issueReportService.submit` returns `{ id }` as the receipt.
+- **Operator retrieval:** `operator_get_report(report_id)` — service-role-only RPC returning the FULL
+  report for authorized triage. Prose must never be written to Actions logs/artifacts/PostHog/Sentry.
+  The preserved report **a77b73de** is the first acceptance case after deployment.
+
+## Provenance CLI (automated workflows)
+
+`scripts/observability-provenance.mjs register|expire|candidates` (service-role). Every automated
+data-producing workflow must `register` its actor before writing and `expire` after (prefer a unique
+ephemeral account per run; serialize a shared account with a concurrency group). `candidates` prints the
+pre-reconciliation candidate + unclassified counts (run before any production reconciliation).
 
 ## #5 — Legacy event properties: recreatable vs not
 
@@ -67,20 +108,25 @@ Today there is exactly ONE producer: the client (`session_saved` via AnalyticsBu
 emits nothing yet — **double-counting is impossible until the worker is enabled.**
 
 **Decision: the outbox becomes the SOLE authority for `session_saved` and `report_issue_submitted`.**
-The transition is ordered so there is NO gap and NO overlap double-count:
+Overlap-safe cutover order (do NOT enable normal outbox delivery while client emitters can still send
+the same critical events):
 
-1. Enable + prove the worker path live (activation steps below). It emits with a stable
-   `$insert_id = <event_type>:<record_id>`.
-2. In the SAME cutover, remove the client-side captures of these two events (delete the
-   `analyticsBuffer.push('session_saved', …)` call and the `emitPrivateSample(REPORT_ISSUE_SUBMITTED …)`
-   call). After cutover the server is the only producer.
+- **A.** Merge/deploy schema + worker with the cron OFF and `TELEMETRY_WORKER_ENABLED` unset (normal
+  draining disabled — the worker returns `not_runnable`, cannot claim real records).
+- **B.** Run the protected proof against a specifically identified `automated_test` record ONLY. The
+  proof path is `scripts/telemetry-capture-contract-proof.mjs`, which sends DIRECTLY to `/capture/` and
+  never claims from the outbox — so it is structurally unable to consume a real tester's pending record.
+- **C.** Deploy removal of the client-authoritative `session_saved` + `report_issue_submitted` delivery
+  (delete the `analyticsBuffer.push('session_saved', …)` call and the
+  `emitPrivateSample(REPORT_ISSUE_SUBMITTED …)` call). After this the server is the only producer.
+- **D.** Enable normal worker draining (`TELEMETRY_WORKER_ENABLED=true`) + the cron.
+- **E.** Reconcile the approved invitation window (`reconcile_telemetry_outbox('2026-07-18T17:43:56Z')`).
+- **F.** Verify no duplicates and no missing source rows.
 
-Client capture is NOT removed before the server path is proven (no gap). The worker only starts
-emitting when the cron is enabled (last activation step), and its reconcile window is bounded, so the
-overlap is the single cutover deploy. Until this PR's worker is activated, client capture continues
-unchanged. **Two independent producers with different insert IDs are never run simultaneously.**
-(If a future design keeps client capture, it MUST set the identical `<event_type>:<record_id>`
-`$insert_id` so PostHog dedupes across both — but the chosen path is server-sole-authority.)
+Because client capture is removed (C) BEFORE normal draining is enabled (D), the two producers never run
+simultaneously. Until activation, the worker is `not_runnable`, so there is exactly one producer and no
+double-count. (If a future design keeps client capture, it MUST set the identical
+`<event_type>:<record_id>` `$insert_id` so PostHog dedupes — but the chosen path is server-sole-authority.)
 
 ## #9 — Provenance operating model (automated workflows)
 
