@@ -1,3 +1,4 @@
+/* eslint-env node */
 // Authoritative, SANITIZED beta-data inventory (incident + ongoing operational monitoring).
 //
 // Reads the persisted product data (Supabase auth.users, public.sessions, public.user_issue_reports)
@@ -59,17 +60,29 @@ async function inventory() {
     .order('created_at', { ascending: true });
   if (sErr) throw new Error('sessions query failed: ' + sErr.message);
   const tKey = sessions.length ? firstTranscriptKey(sessions[0]) : null;
+  // Canonical transcription identity is `engine` (native→Browser, private→Private, cloud→Cloud) —
+  // NOT the legacy/null `sessions.mode` column.
+  const classifyEngine = (engine) => {
+    const e = String(engine ?? '').toLowerCase();
+    if (e === 'native') return 'Browser';
+    if (e === 'private') return 'Private';
+    if (e === 'cloud') return 'Cloud';
+    return 'Unclassified';
+  };
   const sessionRows = sessions.map((r) => {
     const transcript = tKey ? r[tKey] : null;
     return {
       session_id: r.id,
       account: alias(r.user_id),
       created_at: r.created_at,
-      mode: r.mode ?? null,
+      engine: r.engine ?? null,
+      engine_class: classifyEngine(r.engine),
+      engine_version: r.engine_version ?? null,
+      model_name: r.model_name ?? null,
+      device_type: r.device_type ?? null,
+      legacy_mode: r.mode ?? null,
       duration: r.duration ?? r.duration_seconds ?? null,
-      word_count: r.word_count ?? null,
       wpm: r.wpm ?? null,
-      filler_count: r.filler_count ?? null,
       clarity_score: r.clarity_score ?? null,
       transcript_nonempty: nonEmpty(transcript),
       transcript_chars: typeof transcript === 'string' ? transcript.length : 0,
@@ -77,6 +90,14 @@ async function inventory() {
       status: r.status ?? r.finalization_status ?? r.persistence_status ?? null,
     };
   });
+
+  // Seed heuristic (pre-provenance-marker): rows that share a transcript hash across >=3 sessions
+  // AND are short (<=100 chars) are batch-seeded QA fixtures, not real tester recordings.
+  const shaCounts = {};
+  for (const s of sessionRows) if (s.transcript_sha12) shaCounts[s.transcript_sha12] = (shaCounts[s.transcript_sha12] || 0) + 1;
+  for (const s of sessionRows) {
+    s.seed_like = !!(s.transcript_sha12 && shaCounts[s.transcript_sha12] >= 3 && s.transcript_chars <= 100);
+  }
 
   // ---- C. Issue reports ----
   const { data: reports, error: rErr } = await supabase
@@ -128,13 +149,21 @@ async function inventory() {
     reports_null_account: reportsNullAccount.length,
     reports_missing_session_id: reportsMissingSession.length,
   };
+  const real = sessionRows.filter((s) => !s.seed_like);
+  const distinctRealAccounts = new Set(real.map((s) => s.account).filter(Boolean));
   out.verdict = {
-    tester_accounts_found: testerAccounts.length,
-    browser_sessions_found: sessionRows.filter((s) => /native|browser/i.test(String(s.mode))).length,
-    private_sessions_found: sessionRows.filter((s) => /private/i.test(String(s.mode))).length,
-    cloud_sessions_found: sessionRows.filter((s) => /cloud/i.test(String(s.mode))).length,
-    other_mode_sessions: sessionRows.filter((s) => !/native|browser|private|cloud/i.test(String(s.mode))).length,
+    tester_accounts_active_since_boundary: testerAccounts.length,
+    distinct_accounts_with_real_sessions: distinctRealAccounts.size,
+    total_sessions: sessionRows.length,
+    seed_like_sessions: sessionRows.filter((s) => s.seed_like).length,
+    real_sessions: real.length,
+    // engine-based classification over REAL sessions only
+    browser_sessions: real.filter((s) => s.engine_class === 'Browser').length,
+    private_sessions: real.filter((s) => s.engine_class === 'Private').length,
+    cloud_sessions: real.filter((s) => s.engine_class === 'Cloud').length,
+    unclassified_engine_sessions: real.filter((s) => s.engine_class === 'Unclassified').length,
     issue_reports_found: reportRows.length,
+    caveat: 'Inventory covers rows that REACHED the database. Attempted saves that never persisted cannot be counted here without an independent attempt/outbox signal.',
   };
 
   console.log('BETA_DATA_INVENTORY_JSON_BEGIN');

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Bug } from 'lucide-react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
   type IssueReportSeverity,
 } from '@/services/issueReportService';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { deriveReportSessionId } from '@/lib/reportSessionLink';
 
 interface IssueReportDialogProps {
   /** The submitter's account id (Option B): attached for authenticated reports so support can
@@ -60,7 +61,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   runtimeState,
 }) => {
   const location = useLocation();
-  const params = useParams();
+  // Route-aware session id. IssueReportDialog is rendered from Navigation (OUTSIDE the matched
+  // <Routes> tree), so useParams() does NOT receive `/analytics/:sessionId` — that produced reports
+  // with a NULL session_id even when filed from a session detail page. Derive it from the current
+  // pathname with matchPath (validated as a UUID); anything else stores NULL.
+  const routeSessionId = deriveReportSessionId(location.pathname);
   const [open, setOpen] = React.useState(false);
   const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
@@ -104,7 +109,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       // follow up. The id is an opaque auth UUID — no email/name is stored in the row.
       await issueReportService.submit({
         userId: userId ?? null,
-        sessionId: params.sessionId ?? null,
+        sessionId: routeSessionId,
         category,
         severity,
         title,
