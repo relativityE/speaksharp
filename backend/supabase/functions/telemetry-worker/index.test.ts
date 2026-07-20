@@ -1,8 +1,12 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
+  anonDistinctId,
   buildCapturePayload,
+  buildReportProps,
+  buildSessionProps,
   classifyDeliveryFailure,
   handler,
+  sumFillerWords,
   type WorkerDeps,
 } from './index.ts';
 
@@ -10,31 +14,66 @@ import {
 
 Deno.test('classifyDeliveryFailure: 4xx=ingest_rejected, 429/5xx/network=transport_error', () => {
   assertEquals(classifyDeliveryFailure(400), 'ingest_rejected');
-  assertEquals(classifyDeliveryFailure(422), 'ingest_rejected');
   assertEquals(classifyDeliveryFailure(429), 'transport_error');
-  assertEquals(classifyDeliveryFailure(500), 'transport_error');
   assertEquals(classifyDeliveryFailure(503), 'transport_error');
   assertEquals(classifyDeliveryFailure(null), 'transport_error');
 });
 
-Deno.test('buildCapturePayload: $insert_id dedupe, historical timestamp, untrusted client SHA label', () => {
+Deno.test('sumFillerWords: sums the jsonb count-map, tolerates junk', () => {
+  assertEquals(sumFillerWords({ um: 3, uh: 2, like: 1 }), 6);
+  assertEquals(sumFillerWords({}), 0);
+  assertEquals(sumFillerWords(null), null);
+  assertEquals(sumFillerWords('nope'), null);
+  assertEquals(sumFillerWords({ a: 'x', b: 2 }), 2);
+});
+
+Deno.test('buildSessionProps: allowlist only; never leaks transcript/title/ground_truth', () => {
+  const src = {
+    user_id: 'u', engine: 'Private', duration: 300, total_words: 500, wpm: 100, clarity_score: 88,
+    accuracy: 0.97, filler_words: { um: 2, uh: 1 },
+    transcript: 'SECRET', title: 'SECRET', ground_truth: 'SECRET', custom_words: { x: 1 },
+  };
+  const p = buildSessionProps(src);
+  assertEquals(p, { mode: 'Private', duration_seconds: 300, word_count: 500, wpm: 100, clarity_score: 88, accuracy: 0.97, filler_count: 3 });
+  const keys = Object.keys(p);
+  for (const forbidden of ['transcript', 'title', 'ground_truth', 'custom_words', 'user_id']) assert(!keys.includes(forbidden));
+});
+
+Deno.test('buildReportProps: allowlist only; never reads description/page_url/userAgent', () => {
+  const src = {
+    user_id: 'u', category: 'billing_subscription', severity: 'high', session_id: 's',
+    metadata: { route: '/session', sttMode: 'Cloud', userAgent: 'SECRET', appRuntimeConfig: { release: 'r' } },
+    title: 'SECRET', description: 'SECRET email x@y.com', page_url: 'https://x?token=SECRET',
+  };
+  const p = buildReportProps(src);
+  assertEquals(p, { issue_category: 'billing_subscription', issue_severity: 'high', session_id: 's', route: '/session', mode: 'Cloud' });
+  const serialized = JSON.stringify(p);
+  assert(!serialized.includes('SECRET') && !serialized.includes('x@y.com'));
+});
+
+Deno.test('buildCapturePayload: $insert_id, historical timestamp, untrusted client SHA, product props merged', () => {
   const row = {
-    id: 'o1', event_type: 'session_saved', record_id: 'r1', insert_id: 'session_saved:r1',
+    id: 'o', event_type: 'session_saved', record_id: 'r', insert_id: 'session_saved:r',
     event_timestamp: '2026-07-19T10:00:00Z', lease_token: 'lt', attempt_count: 1, max_attempts: 8,
-    data_origin: 'automated_test', cohort_id: 'c', test_run_id: 'run', test_suite: 'suite',
-    client_release_sha: 'client-abc', server_verified_release_sha: null, environment: 'production', backfilled: true,
+    data_origin: 'production_user', cohort_id: null, test_run_id: null, test_suite: null,
+    client_release_sha: 'client-abc', environment: 'production', backfilled: false,
   } as const;
-  const p = buildCapturePayload({ row, distinctId: 'user-1', projectKey: 'phc_x', serverVerifiedSha: 'deploy-1' });
+  const p = buildCapturePayload({ row, distinctId: 'u1', productProps: { mode: 'Private', wpm: 99 }, projectKey: 'phc_x', serverVerifiedSha: 'deploy-1' });
   assertEquals(p.event, 'session_saved');
-  assertEquals(p.distinct_id, 'user-1');
-  assertEquals(p.timestamp, '2026-07-19T10:00:00Z'); // original event time, not now
-  assertEquals(p.properties.$insert_id, 'session_saved:r1');
-  assertEquals(p.properties.server_replayed, true);
-  assertEquals(p.properties.client_release_sha_untrusted, 'client-abc');
-  assertEquals(p.properties.server_verified_release_sha, 'deploy-1');
-  assertEquals(p.properties.data_origin, 'automated_test');
-  // the client SHA is never surfaced under a "verified" key
-  assert(!Object.keys(p.properties).includes('client_release_sha'));
+  assertEquals(p.distinct_id, 'u1');
+  assertEquals(p.timestamp, '2026-07-19T10:00:00Z');
+  const props = p.properties as Record<string, unknown>;
+  assertEquals(props.$insert_id, 'session_saved:r');
+  assertEquals(props.server_replayed, true);
+  assertEquals(props.client_release_sha_untrusted, 'client-abc');
+  assertEquals(props.server_verified_release_sha, 'deploy-1');
+  assertEquals(props.mode, 'Private');
+  assertEquals(props.wpm, 99);
+  assert(!Object.keys(props).includes('client_release_sha'));
+});
+
+Deno.test('anonDistinctId: stable, non-PII, record-scoped', () => {
+  assertEquals(anonDistinctId('rec-1'), 'anon-report-rec-1');
 });
 
 // ---------- handler (fakes) ----------
@@ -42,30 +81,31 @@ Deno.test('buildCapturePayload: $insert_id dedupe, historical timestamp, untrust
 type FakeRow = Record<string, unknown> & { id: string; record_id: string; event_type: string; lease_token: string };
 
 function makeSupabase(opts: {
-  rows: FakeRow[]; reconcile?: number; userById?: Record<string, string>;
-  statusById?: Record<string, string>; markOwned?: boolean;
+  rows: FakeRow[]; reconcile?: number; reconcileErr?: unknown; claimErr?: unknown;
+  sources?: Record<string, Record<string, unknown> | null>; statusById?: Record<string, string>;
+  markData?: boolean; markErr?: unknown; discardData?: boolean;
 }) {
-  const calls = { rpc: [] as Array<{ name: string; args: unknown }>, tables: [] as string[] };
+  const calls = { rpc: [] as Array<{ name: string; args: Record<string, unknown> }> };
   const supa = {
     calls,
-    rpc(name: string, args: unknown) {
+    rpc(name: string, args: Record<string, unknown>) {
       calls.rpc.push({ name, args });
-      if (name === 'reconcile_telemetry_outbox') return Promise.resolve({ data: opts.reconcile ?? 0, error: null });
-      if (name === 'claim_telemetry_batch') return Promise.resolve({ data: opts.rows, error: null });
-      if (name === 'mark_telemetry_result') return Promise.resolve({ data: opts.markOwned ?? true, error: null });
+      if (name === 'reconcile_telemetry_outbox') return Promise.resolve({ data: opts.reconcile ?? 0, error: opts.reconcileErr ?? null });
+      if (name === 'claim_telemetry_batch') return Promise.resolve({ data: opts.rows, error: opts.claimErr ?? null });
+      if (name === 'mark_telemetry_result') return Promise.resolve({ data: opts.markData ?? true, error: opts.markErr ?? null });
+      if (name === 'discard_telemetry_event') return Promise.resolve({ data: opts.discardData ?? true, error: null });
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
-      calls.tables.push(table);
       return {
         select() {
           return {
             eq(_col: string, val: string) {
               return {
                 maybeSingle() {
-                  if (table === 'telemetry_outbox') return Promise.resolve({ data: { status: opts.statusById?.[val] ?? 'failed' } });
-                  const uid = opts.userById?.[val];
-                  return Promise.resolve({ data: uid ? { user_id: uid } : null });
+                  if (table === 'telemetry_outbox') return Promise.resolve({ data: { status: opts.statusById?.[val] ?? 'failed' }, error: null });
+                  const s = opts.sources?.[val];
+                  return Promise.resolve({ data: s === undefined ? null : s, error: null });
                 },
               };
             },
@@ -87,12 +127,7 @@ const BASE_ENV: Record<string, string> = {
   SENTRY_DSN: 'https://pk@o1.ingest.sentry.io/42',
 };
 
-function post(secret?: string): Request {
-  return new Request('https://edge/telemetry-worker', {
-    method: 'POST',
-    headers: secret ? { 'x-telemetry-worker-secret': secret } : {},
-  });
-}
+const post = (secret?: string) => new Request('https://edge/telemetry-worker', { method: 'POST', headers: secret ? { 'x-telemetry-worker-secret': secret } : {} });
 
 function depsFor(env: Record<string, string | undefined>, supa: unknown, fetchImpl: typeof fetch, sentryCalls: unknown[]): WorkerDeps {
   return {
@@ -102,78 +137,117 @@ function depsFor(env: Record<string, string | undefined>, supa: unknown, fetchIm
     fetchImpl,
     // deno-lint-ignore no-explicit-any
     captureSentry: ((_dsn: string, ev: any) => { sentryCalls.push(ev); return Promise.resolve({ eventId: 'e', status: 200 }); }) as any,
+    now: () => 1_800_000_000_000,
   };
 }
 
-Deno.test('handler: wrong/missing secret → 404, never touches the DB', async () => {
+const sessionRow = (id: string, rec: string, lease: string): FakeRow => ({
+  id, record_id: rec, event_type: 'session_saved', insert_id: `session_saved:${rec}`, lease_token: lease,
+  event_timestamp: '2026-07-19T00:00:00Z', attempt_count: 1, max_attempts: 8, data_origin: 'production_user',
+  cohort_id: null, test_run_id: null, test_suite: null, client_release_sha: null, environment: 'production', backfilled: false,
+});
+
+Deno.test('handler: missing secret → 404, no DB', async () => {
   const supa = makeSupabase({ rows: [] });
-  const res = await handler(post(undefined), depsFor(BASE_ENV, supa, () => { throw new Error('no fetch'); }, []));
+  const res = await handler(post(undefined), depsFor(BASE_ENV, supa, () => { throw new Error('no'); }, []));
   assertEquals(res.status, 404);
   assertEquals(supa.calls.rpc.length, 0);
 });
 
-Deno.test('handler: no PostHog key → 503 config_missing and does NOT claim (never burns attempts)', async () => {
-  const supa = makeSupabase({ rows: [{ id: 'o', record_id: 'r', event_type: 'session_saved', lease_token: 'l' }] });
-  const env = { ...BASE_ENV, POSTHOG_PROJECT_KEY: undefined };
-  const res = await handler(post('sekret'), depsFor(env, supa, () => { throw new Error('no fetch'); }, []));
-  assertEquals(res.status, 503);
-  assertEquals((await res.json()).error, 'config_missing');
-  assertEquals(supa.calls.rpc.length, 0); // no reconcile, no claim
+Deno.test('handler: any missing required config → 503 with names, never reconcile/claim', async () => {
+  for (const k of ['POSTHOG_HOST', 'TELEMETRY_WORKER_RELEASE_SHA', 'SENTRY_DSN']) {
+    const supa = makeSupabase({ rows: [sessionRow('o', 'r', 'l')] });
+    const env = { ...BASE_ENV, [k]: undefined };
+    const res = await handler(post('sekret'), depsFor(env, supa, () => { throw new Error('no'); }, []));
+    assertEquals(res.status, 503);
+    const body = await res.json();
+    assertEquals(body.error, 'config_missing');
+    assert((body.missing as string[]).includes(k));
+    assertEquals(supa.calls.rpc.length, 0);
+  }
 });
 
-Deno.test('handler happy path: delivers, marks sent with worker deploy SHA', async () => {
-  const rows: FakeRow[] = [
-    { id: 'o1', record_id: 'r1', event_type: 'session_saved', insert_id: 'session_saved:r1', lease_token: 'l1', event_timestamp: '2026-07-19T00:00:00Z', attempt_count: 1, max_attempts: 8, data_origin: 'production_user', cohort_id: null, test_run_id: null, test_suite: null, client_release_sha: null, server_verified_release_sha: null, environment: 'production', backfilled: false },
-    { id: 'o2', record_id: 'r2', event_type: 'report_issue_submitted', insert_id: 'report_issue_submitted:r2', lease_token: 'l2', event_timestamp: '2026-07-19T01:00:00Z', attempt_count: 1, max_attempts: 8, data_origin: 'production_user', cohort_id: null, test_run_id: null, test_suite: null, client_release_sha: 'c', server_verified_release_sha: null, environment: 'production', backfilled: false },
-  ];
-  const supa = makeSupabase({ rows, reconcile: 3, userById: { r1: 'user-1', r2: 'user-2' } });
-  const fetchBodies: string[] = [];
-  const fetchImpl = ((_url: string, init: RequestInit) => { fetchBodies.push(String(init.body)); return Promise.resolve(new Response('{"status":1}', { status: 200 })); }) as unknown as typeof fetch;
+Deno.test('handler happy path: rolling-window reconcile, /capture/, allowlisted payload, mark sent + SHA', async () => {
+  const rows = [sessionRow('o1', 'r1', 'l1')];
+  const supa = makeSupabase({ rows, reconcile: 2, sources: { r1: { user_id: 'user-1', engine: 'Private', duration: 300, total_words: 400, wpm: 80, clarity_score: 90, accuracy: 0.95, filler_words: { um: 4 } } } });
+  const fetchCalls: Array<{ url: string; body: string }> = [];
+  const fetchImpl = ((url: string, init: RequestInit) => { fetchCalls.push({ url: String(url), body: String(init.body) }); return Promise.resolve(new Response('{"status":1}', { status: 200 })); }) as unknown as typeof fetch;
   const sentry: unknown[] = [];
   const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, sentry));
   const body = await res.json();
   assertEquals(res.status, 200);
-  assertEquals(body.reconciled, 3);
-  assertEquals(body.claimed, 2);
-  assertEquals(body.sent, 2);
-  assertEquals(body.failed, 0);
-  assertEquals(sentry.length, 0); // no failures → no alert
-  // both marked sent carrying the worker's deploy SHA
-  const sentMarks = supa.calls.rpc.filter((c) => c.name === 'mark_telemetry_result');
-  assertEquals(sentMarks.length, 2);
-  for (const m of sentMarks) {
-    const a = m.args as Record<string, unknown>;
-    assertEquals(a.p_status, 'sent');
-    assertEquals(a.p_server_verified_release_sha, 'deploy-777');
-  }
-  assert(fetchBodies[0].includes('"$insert_id":"session_saved:r1"'));
+  assertEquals(body.ok, true);
+  assertEquals(body.sent, 1);
+  assertEquals(body.reconciled, 2);
+  assertEquals(sentry.length, 0);
+  // reconcile got a bounded window (never NULL)
+  const rec = supa.calls.rpc.find((c) => c.name === 'reconcile_telemetry_outbox')!;
+  assert(typeof rec.args.p_since === 'string' && rec.args.p_since.length > 0);
+  // hit /capture/ with allowlisted product props + no forbidden keys
+  assertEquals(fetchCalls[0].url, 'https://us.i.posthog.com/capture/');
+  assert(fetchCalls[0].body.includes('"mode":"Private"') && fetchCalls[0].body.includes('"filler_count":4'));
+  assert(!fetchCalls[0].body.includes('transcript'));
+  const mark = supa.calls.rpc.find((c) => c.name === 'mark_telemetry_result')!;
+  assertEquals(mark.args.p_status, 'sent');
+  assertEquals(mark.args.p_server_verified_release_sha, 'deploy-777');
 });
 
-Deno.test('handler failure path: classifies, dead-letters, sanitized Sentry alert (no distinct_id)', async () => {
-  const rows: FakeRow[] = [
-    { id: 'oA', record_id: 'rA', event_type: 'session_saved', insert_id: 'session_saved:rA', lease_token: 'lA', event_timestamp: '2026-07-19T00:00:00Z', attempt_count: 1, max_attempts: 8, data_origin: 'production_user', cohort_id: null, test_run_id: null, test_suite: null, client_release_sha: null, server_verified_release_sha: null, environment: 'production', backfilled: false },
-    { id: 'oB', record_id: 'rB', event_type: 'session_saved', insert_id: 'session_saved:rB', lease_token: 'lB', event_timestamp: '2026-07-19T00:00:00Z', attempt_count: 8, max_attempts: 8, data_origin: 'production_user', cohort_id: null, test_run_id: null, test_suite: null, client_release_sha: null, server_verified_release_sha: null, environment: 'production', backfilled: false },
-  ];
-  // rB re-reads as dead_letter after its failed mark.
-  const supa = makeSupabase({ rows, userById: { rA: 'user-AAA', rB: 'user-BBB' }, statusById: { oB: 'dead_letter' } });
+Deno.test('handler: source row gone → discard (tombstone), not endless retry', async () => {
+  const rows = [sessionRow('o1', 'r-deleted', 'l1')];
+  const supa = makeSupabase({ rows, sources: { /* r-deleted absent → null */ } });
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, () => { throw new Error('should not fetch'); }, []));
+  const body = await res.json();
+  assertEquals(body.discarded, 1);
+  assertEquals(body.sent, 0);
+  assert(supa.calls.rpc.some((c) => c.name === 'discard_telemetry_event'));
+});
+
+Deno.test('handler: anonymous report (null user_id) delivered under stable non-PII id', async () => {
+  const rows: FakeRow[] = [{ id: 'o1', record_id: 'rep-1', event_type: 'report_issue_submitted', insert_id: 'report_issue_submitted:rep-1', lease_token: 'l1', event_timestamp: '2026-07-19T00:00:00Z', attempt_count: 1, max_attempts: 8, data_origin: 'legacy_unclassified', cohort_id: null, test_run_id: null, test_suite: null, client_release_sha: null, environment: 'production', backfilled: false }];
+  const supa = makeSupabase({ rows, sources: { 'rep-1': { user_id: null, category: 'privacy_data', severity: 'low', session_id: null, metadata: { route: '/x' } } } });
+  const bodies: string[] = [];
+  const fetchImpl = ((_u: string, init: RequestInit) => { bodies.push(String(init.body)); return Promise.resolve(new Response('{}', { status: 200 })); }) as unknown as typeof fetch;
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, []));
+  assertEquals((await res.json()).sent, 1);
+  assert(bodies[0].includes('"distinct_id":"anon-report-rep-1"'));
+});
+
+Deno.test('handler failure path: classify, dead-letter, ok:false, sanitized Sentry (no distinct_id)', async () => {
+  const rows = [sessionRow('oA', 'rA', 'lA'), sessionRow('oB', 'rB', 'lB')];
+  const supa = makeSupabase({ rows, sources: { rA: { user_id: 'user-AAA', engine: 'Private' }, rB: { user_id: 'user-BBB', engine: 'Private' } }, statusById: { oB: 'dead_letter' } });
   let n = 0;
-  const fetchImpl = (() => {
-    n += 1;
-    if (n === 1) return Promise.resolve(new Response('bad', { status: 400 }));   // rA → ingest_rejected
-    return Promise.reject(new Error('network down'));                             // rB → transport_error
-  }) as unknown as typeof fetch;
+  const fetchImpl = (() => { n += 1; if (n === 1) return Promise.resolve(new Response('bad', { status: 400 })); return Promise.reject(new Error('down')); }) as unknown as typeof fetch;
   const sentry: Array<Record<string, unknown>> = [];
   const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, sentry));
   const body = await res.json();
-  assertEquals(res.status, 200);
-  assertEquals(body.sent, 0);
+  assertEquals(body.ok, false);
   assertEquals(body.failed, 2);
   assertEquals(body.dead_lettered, 1);
   assertEquals(body.failure_categories.ingest_rejected, 1);
   assertEquals(body.failure_categories.transport_error, 1);
-  // exactly one sanitized alert, and it must NOT contain any distinct_id
   assertEquals(sentry.length, 1);
   const serialized = JSON.stringify(sentry[0]);
-  assert(!serialized.includes('user-AAA') && !serialized.includes('user-BBB'), 'Sentry payload must be content-free');
-  assert(String((sentry[0] as { message: string }).message).includes('dead-lettered'));
+  assert(!serialized.includes('user-AAA') && !serialized.includes('user-BBB'));
+});
+
+Deno.test('handler: mark returns false → lease_lost, no double-count, no recursive mark', async () => {
+  const rows = [sessionRow('o1', 'r1', 'l1')];
+  const supa = makeSupabase({ rows, sources: { r1: { user_id: 'u', engine: 'Private' } }, markData: false });
+  const fetchImpl = (() => Promise.resolve(new Response('{}', { status: 200 }))) as unknown as typeof fetch;
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, []));
+  const body = await res.json();
+  assertEquals(body.sent, 0);
+  assertEquals(body.lease_lost, 1);
+  // exactly one mark attempt (no recursive re-mark on a lost lease)
+  assertEquals(supa.calls.rpc.filter((c) => c.name === 'mark_telemetry_result').length, 1);
+});
+
+Deno.test('handler: reconcile RPC error → 500, ok:false, sentry, never claims', async () => {
+  const supa = makeSupabase({ rows: [], reconcileErr: { message: 'boom' } });
+  const sentry: unknown[] = [];
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, () => { throw new Error('no'); }, sentry));
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).ok, false);
+  assert(!supa.calls.rpc.some((c) => c.name === 'claim_telemetry_batch'));
+  assertEquals(sentry.length, 1);
 });

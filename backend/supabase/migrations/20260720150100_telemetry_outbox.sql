@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS public.telemetry_outbox (
   backfilled boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT telemetry_outbox_event_type_safe CHECK (event_type IN ('session_saved', 'report_issue_submitted')),
-  CONSTRAINT telemetry_outbox_status_safe CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'dead_letter')),
+  -- 'discarded' = terminal, non-retryable disposition for an event whose authoritative source row is
+  -- gone (deleted account/session) — a privacy-safe tombstone, NOT a delivery and NOT a failure.
+  CONSTRAINT telemetry_outbox_status_safe CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'dead_letter', 'discarded')),
   CONSTRAINT telemetry_outbox_failure_safe CHECK (
     last_failure_category IS NULL OR last_failure_category IN ('config_missing', 'ingest_rejected', 'transport_error', 'unknown')
   ),
@@ -47,10 +49,10 @@ CREATE TABLE IF NOT EXISTS public.telemetry_outbox (
   ),
   CONSTRAINT telemetry_outbox_attempts_nonneg CHECK (attempt_count >= 0),
   CONSTRAINT telemetry_outbox_max_attempts_range CHECK (max_attempts BETWEEN 1 AND 20),
-  -- terminal_failed_at present iff dead_letter.
+  -- terminal_failed_at present iff a terminal-with-timestamp state (dead_letter or discarded).
   CONSTRAINT telemetry_outbox_terminal_consistency CHECK (
-    (status = 'dead_letter' AND terminal_failed_at IS NOT NULL)
-    OR (status <> 'dead_letter' AND terminal_failed_at IS NULL)
+    (status IN ('dead_letter', 'discarded') AND terminal_failed_at IS NOT NULL)
+    OR (status NOT IN ('dead_letter', 'discarded') AND terminal_failed_at IS NULL)
   ),
   CONSTRAINT telemetry_outbox_dedupe UNIQUE (event_type, record_id)
 );
@@ -264,6 +266,22 @@ BEGIN
   RETURN v_updated > 0;
 END; $$;
 
+-- Worker discard: terminal, non-retryable disposition for an event whose authoritative SOURCE ROW is
+-- gone (deleted account/session) — we must NOT resurrect deleted-user telemetry, and must NOT retry
+-- forever to dead-letter. Requires the current unexpired lease. Clears all lease fields.
+CREATE OR REPLACE FUNCTION public.discard_telemetry_event(p_id uuid, p_lease_token uuid)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE v_updated integer;
+BEGIN
+  UPDATE public.telemetry_outbox
+    SET status='discarded', terminal_failed_at=now(), last_failure_category=NULL,
+        lease_token=NULL, lease_expires_at=NULL, claimed_by=NULL
+    WHERE id=p_id AND status='sending' AND lease_token=p_lease_token AND lease_expires_at > now();
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated > 0;
+END; $$;
+
 -- Operator replay of a dead_letter row (explicit, idempotent): back to pending; clears lease fields.
 CREATE OR REPLACE FUNCTION public.replay_telemetry_deadletter(p_id uuid)
 RETURNS boolean
@@ -304,6 +322,7 @@ REVOKE ALL ON FUNCTION public.reconcile_telemetry_candidates(timestamptz) FROM P
 REVOKE ALL ON FUNCTION public.claim_telemetry_batch(integer, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.replay_telemetry_deadletter(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.discard_telemetry_event(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.operator_telemetry_delivery_status(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) TO service_role;
@@ -311,4 +330,5 @@ GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_candidates(timestamptz) TO 
 GRANT EXECUTE ON FUNCTION public.claim_telemetry_batch(integer, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.replay_telemetry_deadletter(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.discard_telemetry_event(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.operator_telemetry_delivery_status(uuid) TO service_role;

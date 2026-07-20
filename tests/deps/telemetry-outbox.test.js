@@ -73,8 +73,8 @@ describe('P0 — telemetry outbox (corrected)', () => {
   it('retry invariants: attempt_count>=0, max_attempts 1..20, terminal_failed_at iff dead_letter', () => {
     expect(outbox).toMatch(/CONSTRAINT telemetry_outbox_attempts_nonneg CHECK \(attempt_count >= 0\)/);
     expect(outbox).toMatch(/CONSTRAINT telemetry_outbox_max_attempts_range CHECK \(max_attempts BETWEEN 1 AND 20\)/);
-    expect(outbox).toMatch(/status = 'dead_letter' AND terminal_failed_at IS NOT NULL/);
-    expect(outbox).toMatch(/status <> 'dead_letter' AND terminal_failed_at IS NULL/);
+    expect(outbox).toMatch(/status IN \('dead_letter', 'discarded'\) AND terminal_failed_at IS NOT NULL/);
+    expect(outbox).toMatch(/status NOT IN \('dead_letter', 'discarded'\) AND terminal_failed_at IS NULL/);
   });
 
   it('enqueue + reconcile populate ALL FOUR provenance fields via resolve_actor_provenance', () => {
@@ -132,7 +132,14 @@ describe('P0 — telemetry outbox (corrected)', () => {
     expect(outbox).toMatch(/'failed requires an allowed failure_category/);
     expect(outbox).toMatch(/v_attempts >= v_max/);
     expect(outbox).toMatch(/status='dead_letter'/);
-    expect(outbox).toMatch(/telemetry_outbox_status_safe CHECK \(status IN \('pending', 'sending', 'sent', 'failed', 'dead_letter'\)\)/);
+    expect(outbox).toMatch(/telemetry_outbox_status_safe CHECK \(status IN \('pending', 'sending', 'sent', 'failed', 'dead_letter', 'discarded'\)\)/);
+  });
+
+  it('has a terminal discard path for deleted/absent sources (tombstone, not endless retry)', () => {
+    expect(outbox).toMatch(/FUNCTION public\.discard_telemetry_event\(p_id uuid, p_lease_token uuid\)/);
+    expect(outbox).toMatch(/status='discarded', terminal_failed_at=now\(\)/);
+    // discard also requires the current unexpired lease
+    expect(outbox).toMatch(/WHERE id=p_id AND status='sending' AND lease_token=p_lease_token AND lease_expires_at > now\(\)/);
   });
 
   it('every state transition (sent/failed/dead_letter) clears ALL lease fields incl claimed_by', () => {
@@ -147,7 +154,7 @@ describe('P0 — telemetry outbox (corrected)', () => {
   });
 
   it('every worker RPC is service-role-only (revoked + granted)', () => {
-    for (const fn of ['enqueue_telemetry_event', 'reconcile_telemetry_outbox', 'reconcile_telemetry_candidates', 'claim_telemetry_batch', 'mark_telemetry_result', 'replay_telemetry_deadletter', 'operator_telemetry_delivery_status']) {
+    for (const fn of ['enqueue_telemetry_event', 'reconcile_telemetry_outbox', 'reconcile_telemetry_candidates', 'claim_telemetry_batch', 'mark_telemetry_result', 'replay_telemetry_deadletter', 'discard_telemetry_event', 'operator_telemetry_delivery_status']) {
       expect(outbox).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`));
       expect(outbox).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role`));
     }

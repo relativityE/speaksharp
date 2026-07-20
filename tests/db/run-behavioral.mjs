@@ -176,6 +176,7 @@ async function main() {
     reconcile_telemetry_outbox: `SELECT public.reconcile_telemetry_outbox()`,
     claim_telemetry_batch: `SELECT public.claim_telemetry_batch(1,'w')`,
     mark_telemetry_result: `SELECT public.mark_telemetry_result(gen_random_uuid(),gen_random_uuid(),'sent',NULL)`,
+    discard_telemetry_event: `SELECT public.discard_telemetry_event(gen_random_uuid(),gen_random_uuid())`,
     replay_telemetry_deadletter: `SELECT public.replay_telemetry_deadletter(gen_random_uuid())`,
     enqueue_telemetry_event: `SELECT public.enqueue_telemetry_event('session_saved',gen_random_uuid(),gen_random_uuid(),now(),NULL)`,
     operator_telemetry_delivery_status: `SELECT public.operator_telemetry_delivery_status(gen_random_uuid())`,
@@ -380,6 +381,20 @@ async function main() {
     `INSERT INTO public.telemetry_outbox (event_type,record_id,insert_id,event_timestamp,data_origin) VALUES ('session_saved',gen_random_uuid(),'x',now(),'production_user')`);
   await expectDenied('H6 authenticated cannot EXECUTE enqueue (no client-driven provenance path)', 'authenticated',
     `SELECT public.enqueue_telemetry_event('session_saved',gen_random_uuid(),gen_random_uuid(),now(),NULL)`);
+  await check('H7 discard is a terminal tombstone (unexpired lease required; clears lease; not retryable)', async () => {
+    const sid = await mkDue();
+    const r = await claimRow(sid, 'w1');
+    // stale/expired lease cannot discard
+    eq((await one(`SELECT public.discard_telemetry_event('${r.id}', gen_random_uuid()) AS ok`)).ok, false, 'wrong token cannot discard');
+    // current lease discards → terminal 'discarded' with terminal_failed_at, lease cleared
+    eq((await one(`SELECT public.discard_telemetry_event('${r.id}','${r.lease_token}') AS ok`)).ok, true, 'current lease discards');
+    const o = await one(`SELECT status,terminal_failed_at,lease_token,claimed_by FROM public.telemetry_outbox WHERE id='${r.id}'`);
+    eq(o.status, 'discarded', 'terminal discarded'); assert(o.terminal_failed_at, 'terminal_failed_at set');
+    eq(o.lease_token, null, 'lease cleared'); eq(o.claimed_by, null, 'claimed_by cleared');
+    // a discarded row is never re-claimed
+    const again = await claimRow(sid, 'w2');
+    assert(!again, 'discarded row must not be re-claimed');
+  });
 
   // ---- report ----
   const pass = results.filter((r) => r.ok).length;

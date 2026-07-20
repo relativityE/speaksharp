@@ -52,7 +52,7 @@ jobs:
           # Print ONLY the allowlisted counts schema (never arbitrary future response fields).
           echo "$http_body" | python3 -c '
 import sys, json
-ALLOW = ["ok","reconciled","reconcile_since","claimed","sent","failed","lease_lost","discarded","dead_lettered"]
+ALLOW = ["ok","reconciled","reconcile_since","claimed","sent","failed","discarded","lease_lost","dead_lettered","infra_errors","time_budget_exhausted"]
 d = json.load(sys.stdin)
 out = {k: d.get(k) for k in ALLOW if k in d}
 # failure_categories: emit category NAMES + counts only (both are non-sensitive).
