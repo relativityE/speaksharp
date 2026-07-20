@@ -45,6 +45,7 @@ jobs:
           supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy telemetry-worker --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
@@ -154,6 +155,7 @@ jobs:
           supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy telemetry-worker --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt

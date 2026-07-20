@@ -30,7 +30,7 @@ Do these in order. Each step is independently reversible until step 5.
 3. **Revoke RPC access** so no caller (even service_role) can claim/mark/replay during teardown:
    ```sql
    REVOKE EXECUTE ON FUNCTION public.claim_telemetry_batch(integer, text)      FROM service_role;
-   REVOKE EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text) FROM service_role;
+   REVOKE EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) FROM service_role;
    REVOKE EXECUTE ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean) FROM service_role;
    -- reconcile_telemetry_outbox / replay_telemetry_deadletter may be retained read-for-audit if desired.
    ```
@@ -49,8 +49,9 @@ Do these in order. Each step is independently reversible until step 5.
 5. **Only after a confirmed export**, remove structure. Functions and tables drop cleanly because the
    outbox has no inbound FKs and the registry cascades from `auth.users`:
    ```sql
+   DROP FUNCTION IF EXISTS public.telemetry_delivery_status(uuid);
    DROP FUNCTION IF EXISTS public.replay_telemetry_deadletter(uuid);
-   DROP FUNCTION IF EXISTS public.mark_telemetry_result(uuid, uuid, text, text);
+   DROP FUNCTION IF EXISTS public.mark_telemetry_result(uuid, uuid, text, text, text);
    DROP FUNCTION IF EXISTS public.claim_telemetry_batch(integer, text);
    DROP FUNCTION IF EXISTS public.reconcile_telemetry_outbox(timestamptz);
    DROP FUNCTION IF EXISTS public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean);

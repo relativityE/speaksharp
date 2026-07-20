@@ -200,9 +200,12 @@ BEGIN
 END; $$;
 
 -- Worker mark: a worker owns the row ONLY while its lease is unexpired. Validates inputs strictly and
--- clears ALL lease fields (token, expiry, claimed_by) on every transition.
+-- clears ALL lease fields (token, expiry, claimed_by) on every transition. On 'sent' it persists the
+-- worker's OWN deployment SHA as server_verified_release_sha (trusted, server-side) — this value is
+-- NEVER a client-supplied SHA; the trusted worker passes its deploy SHA through this DEFINER RPC.
 CREATE OR REPLACE FUNCTION public.mark_telemetry_result(
-  p_id uuid, p_lease_token uuid, p_status text, p_failure_category text
+  p_id uuid, p_lease_token uuid, p_status text, p_failure_category text,
+  p_server_verified_release_sha text DEFAULT NULL
 )
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -222,6 +225,7 @@ BEGIN
 
   IF p_status = 'sent' THEN
     UPDATE public.telemetry_outbox SET status='sent', last_failure_category=NULL,
+      server_verified_release_sha = COALESCE(p_server_verified_release_sha, server_verified_release_sha),
       lease_token=NULL, lease_expires_at=NULL, claimed_by=NULL WHERE id=p_id;
   ELSIF v_attempts >= v_max THEN
     UPDATE public.telemetry_outbox SET status='dead_letter', last_failure_category=p_failure_category,
@@ -250,14 +254,31 @@ BEGIN
   RETURN v_updated > 0;
 END; $$;
 
+-- Owner retrieval: sanitized per-account delivery status. The outbox is keyed by record_id (no
+-- user_id column, to stay PII-minimal), so this joins back to the authoritative tables to scope by
+-- account and returns COUNTS ONLY (event_type × status) — never content. Service-role only.
+CREATE OR REPLACE FUNCTION public.telemetry_delivery_status(p_user_id uuid)
+RETURNS TABLE (event_type text, status text, n bigint)
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public STABLE AS $$
+  SELECT o.event_type, o.status, count(*) AS n
+  FROM public.telemetry_outbox o
+  WHERE (o.event_type = 'session_saved'
+           AND EXISTS (SELECT 1 FROM public.sessions s WHERE s.id = o.record_id AND s.user_id = p_user_id))
+     OR (o.event_type = 'report_issue_submitted'
+           AND EXISTS (SELECT 1 FROM public.user_issue_reports r WHERE r.id = o.record_id AND r.user_id = p_user_id))
+  GROUP BY o.event_type, o.status;
+$$;
+
 -- Lock down every RPC to the service role (worker) only.
 REVOKE ALL ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.claim_telemetry_batch(integer, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.replay_telemetry_deadletter(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.telemetry_delivery_status(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.enqueue_telemetry_event(text, uuid, uuid, timestamptz, text, boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reconcile_telemetry_outbox(timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.claim_telemetry_batch(integer, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.mark_telemetry_result(uuid, uuid, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.replay_telemetry_deadletter(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.telemetry_delivery_status(uuid) TO service_role;

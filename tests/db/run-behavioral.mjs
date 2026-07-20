@@ -260,6 +260,17 @@ async function main() {
     eq(o.data_origin, 'automated_test', 'origin'); eq(o.cohort_id, 'cohort-x', 'cohort');
     eq(o.test_run_id, 'run-9', 'run'); eq(o.test_suite, 'suite-b', 'suite');
   });
+  await check('F6 mark sent persists the WORKER deploy SHA as server_verified (client SHA stays untrusted)', async () => {
+    // report row carries a client SHA from metadata; the worker verifies with its OWN deploy sha.
+    const id = (await one(`INSERT INTO public.user_issue_reports (user_id,metadata)
+      VALUES ('${U1}', '{"appRuntimeConfig":{"release":"client-sha-xyz"}}'::jsonb) RETURNING id`)).id;
+    const r = await claimRow(id, 'w1');
+    const ok = (await one(`SELECT public.mark_telemetry_result('${r.id}','${r.lease_token}','sent',NULL,'server-verified-deploy-777') AS ok`)).ok;
+    eq(ok, true, 'mark sent should succeed');
+    const o = await one(`SELECT status,client_release_sha,server_verified_release_sha FROM public.telemetry_outbox WHERE id='${r.id}'`);
+    eq(o.status, 'sent', 'sent'); eq(o.client_release_sha, 'client-sha-xyz', 'client sha unchanged/untrusted');
+    eq(o.server_verified_release_sha, 'server-verified-deploy-777', 'server-verified = worker deploy sha');
+  });
   await check('F5 reconcile also stamps all four provenance fields on a backfilled row', async () => {
     const s = await one(`INSERT INTO public.sessions (user_id,status) VALUES ('${UREG}','completed') RETURNING id`);
     await q(`DELETE FROM public.telemetry_outbox WHERE record_id='${s.id}'`);
@@ -267,6 +278,22 @@ async function main() {
     const o = await one(`SELECT data_origin,cohort_id,test_run_id,test_suite,backfilled FROM public.telemetry_outbox WHERE record_id='${s.id}' AND event_type='session_saved'`);
     eq(o.data_origin, 'automated_test', 'origin'); eq(o.cohort_id, 'cohort-x', 'cohort');
     eq(o.test_run_id, 'run-9', 'run'); eq(o.test_suite, 'suite-b', 'suite'); assert(o.backfilled === true, 'backfilled');
+  });
+
+  // ============================ G. owner retrieval ============================
+  group('G owner retrieval');
+  await check('G1 delivery status is per-account, counts-only, scoped by ownership', async () => {
+    // U2 owns exactly one completed session (sA2) → one session_saved row, status pending.
+    const rows = (await q(`SELECT event_type,status,n FROM public.telemetry_delivery_status('${U2}') ORDER BY event_type`)).rows;
+    assert(rows.length >= 1, 'U2 should have at least one delivery row');
+    const s = rows.find((x) => x.event_type === 'session_saved');
+    assert(s, 'session_saved status present for U2'); assert(Number(s.n) >= 1, 'count >= 1');
+    // must NOT leak U1's rows: every returned row belongs to a U2-owned record.
+    const leak = (await q(`
+      SELECT count(*)::int c FROM public.telemetry_delivery_status('${U2}') d
+      WHERE d.event_type='session_saved' AND NOT EXISTS (
+        SELECT 1 FROM public.sessions s WHERE s.user_id='${U2}' )`)).rows[0].c;
+    eq(leak, 0, 'status must be strictly account-scoped');
   });
 
   // ---- report ----

@@ -1,0 +1,52 @@
+name: telemetry-worker-cron
+
+# Durable schedule for the telemetry delivery worker. Every run the worker reconciles (repairs any
+# session/report missing an outbox row) then drains a batch to PostHog. Idempotent by $insert_id, so a
+# missed or doubled tick is harmless. Secrets are never embedded — the URL + shared secret come from
+# repo/environment secrets and are passed as a request header.
+#
+# Alternative (Supabase-native) scheduler: pg_cron + pg_net can POST to the same function URL on a
+# 1-minute cadence entirely inside the database. That avoids the 5-minute GitHub floor but requires
+# enabling the cron/pg_net extensions and storing the worker secret in Supabase Vault. This workflow is
+# the zero-extra-infrastructure default; switch to pg_cron if sub-5-minute latency becomes a
+# requirement. Either way the worker itself is the same idempotent endpoint.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum granularity)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telemetry-worker-cron
+  cancel-in-progress: false   # never interrupt an in-flight drain
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke telemetry worker
+        env:
+          WORKER_URL: ${{ secrets.TELEMETRY_WORKER_URL }}
+          WORKER_SECRET: ${{ secrets.TELEMETRY_WORKER_SECRET }}
+        run: |
+          if [ -z "$WORKER_URL" ] || [ -z "$WORKER_SECRET" ]; then
+            echo "TELEMETRY_WORKER_URL / TELEMETRY_WORKER_SECRET not configured — skipping (not yet wired)."
+            exit 0
+          fi
+          # -sS: quiet but show errors. Fail the job on a non-2xx so a broken drain is visible in CI.
+          # Response body is a content-free counts summary; printing it is safe.
+          http_code=$(curl -sS -o /tmp/telemetry-worker-response.json -w '%{http_code}' \
+            -X POST "$WORKER_URL" \
+            -H "x-telemetry-worker-secret: $WORKER_SECRET" \
+            -H 'content-type: application/json' \
+            --data '{}')
+          echo "worker HTTP $http_code"
+          cat /tmp/telemetry-worker-response.json || true
+          echo
+          case "$http_code" in
+            2*) echo "drain ok" ;;
+            *) echo "worker returned $http_code"; exit 1 ;;
+          esac

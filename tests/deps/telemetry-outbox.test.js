@@ -102,6 +102,9 @@ describe('P0 — telemetry outbox (corrected)', () => {
   it('splits client vs server-verified release SHA (never presents client SHA as verified)', () => {
     expect(outbox).toMatch(/client_release_sha text/);
     expect(outbox).toMatch(/server_verified_release_sha text/);
+    // mark persists the WORKER's deploy SHA (a DEFINER-RPC arg), never a client value.
+    expect(outbox).toMatch(/p_server_verified_release_sha text DEFAULT NULL/);
+    expect(outbox).toMatch(/server_verified_release_sha = COALESCE\(p_server_verified_release_sha, server_verified_release_sha\)/);
   });
 
   it('enqueue triggers are EXCEPTION-guarded AND an authoritative reconcile() repairs gaps', () => {
@@ -144,7 +147,7 @@ describe('P0 — telemetry outbox (corrected)', () => {
   });
 
   it('every worker RPC is service-role-only (revoked + granted)', () => {
-    for (const fn of ['enqueue_telemetry_event', 'reconcile_telemetry_outbox', 'claim_telemetry_batch', 'mark_telemetry_result', 'replay_telemetry_deadletter']) {
+    for (const fn of ['enqueue_telemetry_event', 'reconcile_telemetry_outbox', 'claim_telemetry_batch', 'mark_telemetry_result', 'replay_telemetry_deadletter', 'telemetry_delivery_status']) {
       expect(outbox).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`));
       expect(outbox).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role`));
     }
