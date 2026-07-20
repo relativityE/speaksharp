@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: live-pro-stt-artifact-matrix
+  group: provenance-shared-pro-account
   cancel-in-progress: false
 
 jobs:
@@ -33,6 +33,14 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+
+      - name: Register provenance (automated_test)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: pro_stt_artifact_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Run Serialized Pro STT Artifact Matrix
         env:
@@ -62,3 +70,13 @@ jobs:
             playwright-report/
             test-results/live/
           retention-days: 14
+
+      - name: Expire provenance
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: pro_stt_artifact_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

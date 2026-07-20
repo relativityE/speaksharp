@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: v4-app-path-proof-${{ github.ref }}
-  cancel-in-progress: true
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
 
 jobs:
   v4-app-path-proof:
@@ -53,6 +53,14 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+
+      - name: Register provenance (automated_test)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: v4_app_path_proof
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Assert required live proof env
         run: |
@@ -97,3 +105,13 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 14
+
+      - name: Expire provenance
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: v4_app_path_proof
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

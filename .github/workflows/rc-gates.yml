@@ -100,6 +100,13 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+      - name: Register provenance (automated_test)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: rc_gate_3_dast
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       - name: Run DAST Local Gate
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
         env:
@@ -275,6 +282,15 @@ jobs:
           # Diagnostic/DAST traces are short-lived debug evidence — keep them 1 day.
           retention-days: 1
           if-no-files-found: ignore
+      - name: Expire provenance
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: rc_gate_3_dast
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
   gate-4-sca:
     name: Gate 4 - SCA / Dependency Review

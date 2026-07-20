@@ -1,0 +1,44 @@
+name: telemetry-proof-worker-e2e
+
+# Activation-time END-TO-END proof that the PROOF-ONLY worker delivers its one claimed automated_test
+# outbox record (creates a synthetic session → invokes proof mode → PostHog readback by the WORKER's
+# exact $insert_id → asserts no other pending row changed). Manual only; expires the actor in cleanup;
+# sanitized evidence retained 1 day. Distinct from telemetry-capture-proof (transport-only).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-observability
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+      - name: Proof-only worker end-to-end
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TELEMETRY_WORKER_URL: ${{ secrets.TELEMETRY_WORKER_URL }}
+          TELEMETRY_WORKER_SECRET: ${{ secrets.TELEMETRY_WORKER_SECRET }}
+          TELEMETRY_WORKER_RELEASE_SHA: ${{ github.sha }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          PROOF_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+        run: node scripts/telemetry-proof-worker-e2e.mjs | tee /tmp/proof-worker-e2e.txt
+      - name: Upload sanitized evidence (retention 1 day)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-proof-worker-e2e-evidence
+          path: /tmp/proof-worker-e2e.txt
+          retention-days: 1

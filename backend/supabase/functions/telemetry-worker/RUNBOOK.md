@@ -203,29 +203,32 @@ normal draining is `not_runnable`; a synthetic proof uses PROOF-ONLY mode (secre
 `data_origin=automated_test` only) which never touches a real record. Do NOT merge/deploy until review
 clears the PR. Then, in order (overlap-safe — enabling is LAST):
 
-- **A.** Deploy schema + functions with cron OFF and `TELEMETRY_WORKER_ENABLED` unset (normal draining
-  disabled). Confirm GitHub `vars`/`secrets` wiring (`operation=secrets`) without printing values.
-- **B.** Register a synthetic `automated_test` actor and create ONE synthetic source row (→ one
-  `automated_test` outbox row via the trigger).
-- **C.** Run PROOF-ONLY worker delivery for exactly that row: POST the worker with headers
-  `x-telemetry-proof-record: <record_id>` + `x-telemetry-proof-event: session_saved` (bypasses the
-  enable gate; `claim_telemetry_proof_row` refuses anything not `automated_test`, so it cannot consume a
-  real tester's pending record).
-- **D.** Verify PostHog readback + Sentry notification routing
-  (`scripts/telemetry-capture-contract-proof.mjs`; upload evidence `retention-days: 1`). Prove report
-  receipt + protected operator retrieval (`operator_get_report`) + owner notification (report-issue-alert)
-  — report **a77b73de** is the first acceptance case.
-- **E.** Deploy removal of client-authoritative `session_saved` + `report_issue_submitted` emission.
-- **F.** Enable normal worker draining (`TELEMETRY_WORKER_ENABLED=true`).
-- **G.** Review candidate classifications: `reconcile_telemetry_candidates('2026-07-18T17:43:56Z')` +
-  `observability-provenance.mjs candidates` — return sanitized counts by classification. Do NOT deliver
-  historical yet.
-- **H.** Reconcile + drain the EXPLICITLY APPROVED invitation window:
+- **A.** Deploy migrations/functions with BOTH schedules OFF and normal draining disabled
+  (`TELEMETRY_WORKER_ENABLED` unset). Confirm GitHub `vars`/`secrets` wiring (`operation=secrets`)
+  without printing values.
+- **B.** Wire and verify workflow provenance (the 8 data-producing workflows register/expire via
+  `.github/actions/register-provenance`; enforced by `tests/deps/provenance-workflow-wiring.test.js`).
+- **C.** Register a synthetic `automated_test` actor and create ONE synthetic source row.
+- **D.** Run the END-TO-END PROOF-ONLY worker workflow (`telemetry-proof-worker.yml` →
+  `scripts/telemetry-proof-worker-e2e.mjs`): proof mode delivers exactly that row
+  (`x-telemetry-proof-record`/`-event`; `claim_telemetry_proof_row` refuses anything not
+  `automated_test`, so no real tester record is touched).
+- **E.** Verify the WORKER-specific PostHog readback (by `session_saved:<record_id>`) + Sentry
+  notification routing. Prove report receipt + protected operator retrieval (`operator_get_report`) +
+  owner notification — report **a77b73de** is the first acceptance case.
+- **F.** Deploy removal of client-authoritative `session_saved` + `report_issue_submitted` emission.
+- **G.** Run candidate classification counts (`reconcile_telemetry_candidates('2026-07-18T17:43:56Z')` +
+  `observability-provenance.mjs candidates`) and classify the known owner/tester/automation accounts
+  (owner→`owner_manual_test`, invited→`beta_tester`/`wave1`, automation→`automated_test`, rest stays
+  `legacy_unclassified`). Return the sanitized counts by classification. Do NOT deliver historical yet.
+- **H.** ONLY after classification approval, enable normal worker draining
+  (`TELEMETRY_WORKER_ENABLED=true`).
+- **I.** Reconcile + drain the EXPLICITLY APPROVED invitation window:
   `reconcile_telemetry_outbox('2026-07-18T17:43:56Z')`.
-- **I.** Verify no missing or duplicate events; check outbox counts by status
-  (`operator_telemetry_delivery_status`: pending/failed/sending/dead_letter/discarded).
-- **J.** Add the `schedule:` triggers to `telemetry-worker-cron` + `report-alert-drain-cron` ONLY after
-  all checks pass; run the full RC/CI/security/ops battery; then close the incident.
+- **J.** Verify no missing/duplicate events (`operator_telemetry_delivery_status`:
+  pending/failed/sending/dead_letter/discarded); THEN add the `schedule:` triggers to
+  `telemetry-worker-cron` + `report-alert-drain-cron`, run the full RC/CI/security/ops battery, and
+  close the incident.
 
 Older-than-boundary history is reconciled ONLY via an explicit, separately-approved one-time
 `reconcile_telemetry_outbox(<older-since>)` — never automatically, to avoid replaying pre-invitation

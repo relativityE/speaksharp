@@ -32,6 +32,12 @@ on:
 permissions:
   contents: read
 
+# Shared PRO_TEST account → serialize with the other data-producing workflows so concurrent runs cannot
+# overwrite each other's registered provenance.
+concurrency:
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
+
 jobs:
   live-custom-words:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
@@ -46,6 +52,14 @@ jobs:
         with:
           install-playwright: 'true'
 
+      - name: Register provenance (automated_test)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          test_suite: live_release_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: Run Live Custom Words Persistence
         env:
           VITE_USE_LIVE_DB: 'true'
@@ -54,6 +68,16 @@ jobs:
           BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Expire provenance
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          test_suite: live_release_matrix
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Upload Custom Words Artifacts
         if: always()

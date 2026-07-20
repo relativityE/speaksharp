@@ -34,6 +34,11 @@ on:
         type: string
         default: ''
 
+# Shared PRO_TEST account → serialize with the other data-producing workflows.
+concurrency:
+  group: provenance-shared-pro-account
+  cancel-in-progress: false
+
 jobs:
   benchmark-cloud:
     name: AssemblyAI Ceiling Benchmark
@@ -49,6 +54,14 @@ jobs:
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Register provenance (automated_test)
+        uses: ./.github/actions/register-provenance
+        with:
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: benchmarks
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Generate audio fixtures
         run: |
@@ -215,3 +228,13 @@ jobs:
             Native Web Speech is excluded from WER benchmarking by design.
           branch: 'chore/benchmark-browser'
           add-paths: tests/STT_BENCHMARKS.json
+
+      - name: Expire provenance
+        if: always()
+        uses: ./.github/actions/register-provenance
+        with:
+          mode: expire
+          email: ${{ secrets.PRO_TEST_EMAIL }}
+          test_suite: benchmarks
+          supabase_url: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          service_role_key: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
