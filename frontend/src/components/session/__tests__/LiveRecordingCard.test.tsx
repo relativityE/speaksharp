@@ -400,22 +400,57 @@ describe('LiveRecordingCard', () => {
         expect(browser.compareDocumentPosition(cloud) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it('reveals each STT mode description as a floating tooltip on keyboard focus', async () => {
+    it('drives exactly ONE controlled description surface from the active row (mutually exclusive)', async () => {
+        // Desktop: hover + fine pointer present, so the single flyout renders.
+        const original = window.matchMedia;
+        window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+            matches: /hover:\s*hover/.test(q), media: q, onchange: null,
+            addEventListener: vi.fn(), removeEventListener: vi.fn(),
+            addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+        })) as unknown as typeof window.matchMedia;
+        try {
+            render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+            fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+
+            // Focus Cloud → ONE flyout, showing Cloud, linked via aria-describedby.
+            const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+            fireEvent.focus(cloud);
+            let flyouts = screen.getAllByTestId('stt-mode-flyout');
+            expect(flyouts).toHaveLength(1);
+            expect(flyouts[0]).toHaveAttribute('data-mode', 'cloud');
+            expect(flyouts[0]).toHaveTextContent(/external transcription server/i);
+            expect(cloud).toHaveAttribute('aria-describedby', 'stt-mode-flyout-desc');
+
+            // Move to Browser → the SAME single surface switches; Cloud help is gone (not a second bubble).
+            const native = screen.getByTestId(TEST_IDS.STT_MODE_NATIVE);
+            fireEvent.focus(native);
+            flyouts = screen.getAllByTestId('stt-mode-flyout');
+            expect(flyouts).toHaveLength(1);
+            expect(flyouts[0]).toHaveAttribute('data-mode', 'native');
+            expect(flyouts[0]).toHaveTextContent(/browser.s speech service/i);
+            expect(flyouts[0]).not.toHaveTextContent(/external transcription server/i);
+
+            // Move to Private → still exactly one, now Private.
+            const priv = screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE);
+            fireEvent.focus(priv);
+            flyouts = screen.getAllByTestId('stt-mode-flyout');
+            expect(flyouts).toHaveLength(1);
+            expect(flyouts[0]).toHaveAttribute('data-mode', 'private');
+            expect(flyouts[0]).toHaveTextContent(/on your device/i);
+        } finally {
+            window.matchMedia = original;
+        }
+    });
+
+    it('renders NO desktop flyout without hover capability — touch relies on the About panel', async () => {
+        // Global setup mock reports matches:false for every query → no hover:hover, no fine pointer.
         render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
-
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
-
-        // Keyboard focus on each one-line row opens that row's floating Radix tooltip (portaled).
         const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
         fireEvent.focus(cloud);
-        expect(await screen.findByTestId('stt-desc-cloud')).toHaveTextContent(/external transcription server/i);
-
-        const native = screen.getByTestId(TEST_IDS.STT_MODE_NATIVE);
-        fireEvent.focus(native);
-        expect(await screen.findByTestId('stt-desc-native')).toHaveTextContent(/browser.s speech service/i);
-
-        const priv = screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE);
-        fireEvent.focus(priv);
-        expect(await screen.findByTestId('stt-desc-private')).toHaveTextContent(/on your device/i);
+        expect(screen.queryByTestId('stt-mode-flyout')).toBeNull();
+        // The single "About transcription modes" help trigger is the touch fallback (its panel content
+        // is asserted elsewhere); no per-row info icons exist.
+        expect(screen.getByTestId('stt-mode-help')).toBeInTheDocument();
     });
 });

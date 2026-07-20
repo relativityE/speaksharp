@@ -13,7 +13,7 @@ import {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 import { HelpPopover } from './HelpPopover';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ModeDescriptionFlyout, STT_FLYOUT_ID } from './ModeDescriptionFlyout';
 import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
 import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
@@ -69,9 +69,9 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 // (rAF + ref, no per-frame React state) is tracked as a separate enhancement.
 const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 
-// Compact ONE-LINE mode row. The per-mode description is NOT inlined here — it is rendered on
-// hover / keyboard focus through a collision-aware Radix Tooltip portal (see TooltipContent below),
-// which chooses an on-screen side and never clips or overlaps neighbouring surfaces.
+// Compact ONE-LINE mode row. The per-mode description is NOT inlined here — hovering or keyboard-
+// focusing a row drives the SINGLE controlled ModeDescriptionFlyout (one bubble, disjoint from the
+// menu). No per-row tooltip elements.
 const STT_MODE_ITEM_CLASS =
     'group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground';
 
@@ -108,6 +108,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
         onModeChange(next);
     };
+
+    // Single controlled description surface for the mode dropdown: one `activeMode` (the hovered/focused
+    // row) drives one ModeDescriptionFlyout. Mutually exclusive by construction — moving to another row
+    // just changes activeMode; leaving the menu or closing it clears it. NOT three separate bubbles.
+    const [menuOpen, setMenuOpen] = React.useState(false);
+    const [activeMode, setActiveMode] = React.useState<RecordingMode | null>(null);
+    const menuContentRef = React.useRef<HTMLDivElement>(null);
 
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -282,6 +289,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         </div>
     );
 
+    // Content for the single flyout, resolved from the active row (same per-mode copy as the About panel).
+    const activeFlyout = ((): { title: string; body: string } => {
+        switch (activeMode) {
+            case 'private': return { title: 'Private — Recommended', body: privateOptionDesc };
+            case 'native': return { title: 'Browser — Quick preview', body: nativeOptionDesc };
+            case 'cloud': return { title: 'Cloud — Pro', body: cloudOptionDesc };
+            default: return { title: '', body: '' };
+        }
+    })();
+
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
@@ -321,7 +338,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
                     </div>
-                    <DropdownMenu>
+                    <DropdownMenu onOpenChange={(o) => { setMenuOpen(o); if (!o) setActiveMode(null); }}>
                         <DropdownMenuTrigger asChild disabled={isListening}>
                             <Button
                                 variant="ghost"
@@ -336,72 +353,74 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 max-w-[calc(100vw-2rem)]">
-                            {/* Private-first hierarchy (P0.2): order Private (Recommended) → Browser
-                                (Quick preview) → Cloud (Pro). ONLY Private carries the Recommended tag.
-                                Rows stay one-line; hover/keyboard-focus reveals a floating, collision-aware
-                                Radix Tooltip (portaled, never clipped) with that row's description. */}
-                            <TooltipProvider delayDuration={120} skipDelayDuration={0}>
-                                <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <DropdownMenuRadioItem
-                                                value="private"
-                                                className={STT_MODE_ITEM_CLASS}
-                                                data-testid={TEST_IDS.STT_MODE_PRIVATE}
-                                                disabled={!canUsePrivate}
-                                            >
-                                                <span className="flex items-center gap-1.5">
-                                                    {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                                                    Private
-                                                    <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
-                                                </span>
-                                            </DropdownMenuRadioItem>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" role="tooltip" data-testid="stt-desc-private">
-                                            {privateOptionDesc}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <DropdownMenuRadioItem
-                                                value="native"
-                                                className={STT_MODE_ITEM_CLASS}
-                                                data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                            >
-                                                <span className="flex items-center gap-1.5">
-                                                    Browser
-                                                    <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
-                                                </span>
-                                            </DropdownMenuRadioItem>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" role="tooltip" data-testid="stt-desc-native">
-                                            {nativeOptionDesc}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <DropdownMenuRadioItem
-                                                value="cloud"
-                                                className={STT_MODE_ITEM_CLASS}
-                                                data-testid={TEST_IDS.STT_MODE_CLOUD}
-                                                disabled={!canUseCloudStt}
-                                            >
-                                                <span className="flex items-center gap-1.5">
-                                                    {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                                                    Cloud
-                                                    <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
-                                                </span>
-                                            </DropdownMenuRadioItem>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" role="tooltip" data-testid="stt-desc-cloud">
-                                            {cloudOptionDesc}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </DropdownMenuRadioGroup>
-                            </TooltipProvider>
+                        <DropdownMenuContent
+                            ref={menuContentRef}
+                            align="end"
+                            className="w-56 max-w-[calc(100vw-2rem)]"
+                            onPointerLeave={() => setActiveMode(null)}
+                        >
+                            {/* Private-first hierarchy (P0.2): Private (Recommended) → Browser (Quick preview)
+                                → Cloud (Pro). ONLY Private carries the Recommended tag. Rows are compact one-
+                                liners; hover / keyboard-focus sets a SINGLE activeMode that drives one
+                                ModeDescriptionFlyout (rendered below, disjoint from this menu) — mutually
+                                exclusive by construction, never per-row tooltip elements. */}
+                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
+                                <DropdownMenuRadioItem
+                                    value="private"
+                                    className={STT_MODE_ITEM_CLASS}
+                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
+                                    disabled={!canUsePrivate}
+                                    onPointerEnter={() => setActiveMode('private')}
+                                    onFocus={() => setActiveMode('private')}
+                                    aria-describedby={activeMode === 'private' ? STT_FLYOUT_ID : undefined}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Private
+                                        <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="native"
+                                    className={STT_MODE_ITEM_CLASS}
+                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                    onPointerEnter={() => setActiveMode('native')}
+                                    onFocus={() => setActiveMode('native')}
+                                    aria-describedby={activeMode === 'native' ? STT_FLYOUT_ID : undefined}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        Browser
+                                        <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="cloud"
+                                    className={STT_MODE_ITEM_CLASS}
+                                    data-testid={TEST_IDS.STT_MODE_CLOUD}
+                                    disabled={!canUseCloudStt}
+                                    onPointerEnter={() => setActiveMode('cloud')}
+                                    onFocus={() => setActiveMode('cloud')}
+                                    aria-describedby={activeMode === 'cloud' ? STT_FLYOUT_ID : undefined}
+                                >
+                                    <span className="flex items-center gap-1.5">
+                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        Cloud
+                                        <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
+                                    </span>
+                                </DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    {/* The ONE description surface. Disjoint from the menu, beside it, at most one at a time;
+                        suppressed (falls back to the About panel) when no non-overlapping side fits. */}
+                    <ModeDescriptionFlyout
+                        open={menuOpen && activeMode !== null}
+                        anchorRef={menuContentRef}
+                        mode={activeMode}
+                        title={activeFlyout.title}
+                        body={activeFlyout.body}
+                        avoidSelector='[data-testid="live-coaching-score-card"]'
+                    />
                 </div>
 
                 <div className="flex flex-col items-center justify-center gap-2 text-center">
