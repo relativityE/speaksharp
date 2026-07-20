@@ -1,28 +1,24 @@
 import { test, expect } from './helpers/deployedLiveTest';
 
 /**
- * CONTENT-FREE authenticated PostHog diagnostic (incident root cause).
+ * CONTENT-FREE authenticated PostHog diagnostic — REFINED (incident root cause).
  *
- * Signs into the DEPLOYED production app with the existing PRO_TEST_* diagnostic credentials, then
- * measures — WITHOUT recording audio, creating a session, or submitting a report — exactly which
- * stage of the PostHog client path succeeds or fails for a POST-AUTH capture:
- *   1. production page + PostHog SDK init state (pre- and post-auth)
- *   2. authentication success
- *   3. distinct id before/after auth (hashed only)
- *   4. capture() invoked
- *   5. ingest request emitted (host + status + blocked reason)
- *   6. opt-out/consent state
- *
- * It fires ONE content-free event tagged with a unique nonce + provenance so the event can be found
- * (by nonce) via the PostHog Query API afterward and associated with the authenticated identity.
- * NO tester account, NO recording, NO report prose. All logged evidence is booleans/status/hashes.
+ * No window.posthog (the app is module-scoped). Uses the app's own sanitized probes
+ * (__SS_ANALYTICS_IDENTITY__, __SS_PRIVATE_SAMPLE_EVENTS__) to prove the PRODUCT invoked capture,
+ * and separates CAPTURE endpoints (/e/, /i/v0/e/, /batch/) from CONFIG endpoints (/flags, /decide)
+ * so a 200 on /flags is never mistaken for capture evidence. Produces an independent boundary table
+ * for each of: account_identified (buffered), private_sample_selected (direct emitPrivateSample),
+ * and one more buffered UI event. Then queries the PostHog Query API (Node side, protected key) by
+ * event name + bounded window to see which landed. NO audio, NO saved session, NO report.
  */
 
 const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 const NONCE = `gha-${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
+const PH_KEY = process.env.POSTHOG_PERSONAL_API_KEY;
+const PH_PROJECT = process.env.POSTHOG_PROJECT_ID;
+const PH_API = (process.env.POSTHOG_API_HOST ?? 'https://us.posthog.com').replace(/\/$/, '');
 
-// Non-crypto short hash for identity transitions — never logs a raw distinct id.
 function h(s: string | null | undefined): string | null {
   if (!s) return null;
   let x = 0;
@@ -30,111 +26,145 @@ function h(s: string | null | undefined): string | null {
   return 'h' + x.toString(16);
 }
 
-test('content-free authenticated PostHog diagnostic (no recording, no report)', async ({ page }) => {
-  test.setTimeout(120_000);
-  if (!EMAIL || !PASSWORD) {
-    throw new Error('POSTHOG_DIAG_NOT_RUNNABLE: PRO_TEST_EMAIL/PRO_TEST_PASSWORD required');
-  }
+type Req = { kind: 'capture' | 'config' | 'other'; path: string; method: string; status: number | null; failure: string | null; at: number };
 
-  // Observe every PostHog ingest attempt (host + status), independent of app code.
-  const ingest: Array<{ host: string; status: number | null; failure: string | null }> = [];
-  page.on('request', (req) => {
-    if (/posthog\.com/i.test(req.url())) {
-      // record host only (never the body/query which could carry a token)
-      try { ingest.push({ host: new URL(req.url()).host, status: null, failure: null }); } catch { /* ignore */ }
-    }
-  });
-  page.on('requestfailed', (req) => {
-    if (/posthog\.com/i.test(req.url())) {
-      const last = ingest[ingest.length - 1];
-      const failure = req.failure()?.errorText ?? 'failed';
-      if (last && last.status === null) last.failure = failure;
-      else { try { ingest.push({ host: new URL(req.url()).host, status: null, failure }); } catch { /* ignore */ } }
-    }
-  });
-  page.on('response', (res) => {
-    if (/posthog\.com/i.test(res.url())) {
-      const last = ingest[ingest.length - 1];
-      if (last && last.status === null) last.status = res.status();
-      else { try { ingest.push({ host: new URL(res.url()).host, status: res.status(), failure: null }); } catch { /* ignore */ } }
-    }
-  });
+function classify(path: string): Req['kind'] {
+  if (/\/(e|batch)\/?$|\/i\/v0\/e/i.test(path)) return 'capture';
+  if (/\/(flags|decide)\/?/i.test(path)) return 'config';
+  return 'other';
+}
 
-  const readSdk = () => page.evaluate(() => {
-    const p = (window as unknown as { posthog?: { __loaded?: boolean; config?: { token?: string; api_host?: string }; has_opted_out_capturing?: () => boolean; get_distinct_id?: () => string; capture?: (e: string, props?: Record<string, unknown>) => void } }).posthog;
+async function queryPostHog(events: string[], sinceIso: string, distinctId: string | null) {
+  if (!PH_KEY || !PH_PROJECT) return { runnable: false };
+  const evList = events.map((e) => `'${e}'`).join(',');
+  const sql = `SELECT event, count() AS n, max(timestamp) AS last FROM events WHERE event IN (${evList}) AND timestamp >= '${sinceIso}' ${distinctId ? `AND distinct_id = '${distinctId}'` : ''} GROUP BY event`;
+  const res = await fetch(`${PH_API}/api/projects/${encodeURIComponent(PH_PROJECT)}/query/`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${PH_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: { kind: 'HogQLQuery', query: sql } }),
+  });
+  const ok = res.ok;
+  const body = ok ? await res.json().catch(() => null) : null;
+  // body.results = [[event, n, last], ...] — event names + counts only (no PII).
+  const found: Record<string, number> = {};
+  for (const row of (body?.results ?? [])) found[String(row[0])] = Number(row[1]);
+  return { runnable: true, status: res.status, found };
+}
+
+test('content-free authenticated PostHog diagnostic (refined; no recording, no report)', async ({ page }) => {
+  test.setTimeout(150_000);
+  if (!EMAIL || !PASSWORD) throw new Error('POSTHOG_DIAG_NOT_RUNNABLE: PRO_TEST_EMAIL/PRO_TEST_PASSWORD required');
+
+  const reqs: Req[] = [];
+  const record = (path: string, method: string, status: number | null, failure: string | null) => {
+    reqs.push({ kind: classify(path), path: path.replace(/\?.*$/, ''), method, status, failure, at: Date.now() });
+  };
+  page.on('request', (r) => { if (/posthog\.com/i.test(r.url())) { try { record(new URL(r.url()).pathname, r.method(), null, null); } catch { /* ignore */ } } });
+  page.on('requestfailed', (r) => { if (/posthog\.com/i.test(r.url())) { const last = reqs[reqs.length - 1]; if (last && last.status === null) last.failure = r.failure()?.errorText ?? 'failed'; } });
+  page.on('response', (r) => { if (/posthog\.com/i.test(r.url())) { const last = reqs.slice().reverse().find((x) => x.status === null && x.path === new URL(r.url()).pathname.replace(/\?.*$/, '')); if (last) last.status = r.status(); } });
+
+  const captureStats = (sinceAt: number) => {
+    const win = reqs.filter((x) => x.at >= sinceAt);
+    const cap = win.filter((x) => x.kind === 'capture');
+    const cfg = win.filter((x) => x.kind === 'config');
     return {
-      present: !!p,
-      loaded: !!(p && p.__loaded),
-      hasToken: !!(p && p.config && p.config.token),
-      apiHost: p && p.config ? p.config.api_host : null,
-      optedOut: p && typeof p.has_opted_out_capturing === 'function' ? p.has_opted_out_capturing() : null,
-      distinctId: p && typeof p.get_distinct_id === 'function' ? p.get_distinct_id() : null,
-      release: (window as unknown as { __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RUNTIME_CONFIG__?.release ?? null,
+      capture_requests: cap.length,
+      capture_statuses: cap.map((x) => x.status),
+      capture_failures: cap.map((x) => x.failure).filter(Boolean),
+      config_requests: cfg.length,
+      config_statuses: cfg.map((x) => x.status),
+    };
+  };
+
+  const readProbes = () => page.evaluate(() => {
+    const w = window as unknown as {
+      __SS_ANALYTICS_IDENTITY__?: { identifyCalls?: number; accountIdentifiedAttempts?: number; accountIdentifiedSendInstantly?: boolean; lastAccountIdentifiedError?: string | null };
+      __SS_PRIVATE_SAMPLE_EVENTS__?: Array<{ event: string }>;
+      __APP_RUNTIME_CONFIG__?: { release?: string };
+    };
+    // opt-out marker: report key names + a best-effort classification, never raw values.
+    const optKeys: string[] = [];
+    let optedOut: boolean | 'unknown' = 'unknown';
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (/opt_in_out|opt-out|posthog/i.test(k)) {
+          optKeys.push(k.replace(/phc_[A-Za-z0-9]+/,'phc_***'));
+          if (/opt_in_out/i.test(k)) { const v = localStorage.getItem(k); optedOut = v === '0'; }
+        }
+      }
+    } catch { /* ignore */ }
+    return {
+      identity: w.__SS_ANALYTICS_IDENTITY__ ?? null,
+      privateEvents: (w.__SS_PRIVATE_SAMPLE_EVENTS__ ?? []).map((e) => e.event),
+      release: w.__APP_RUNTIME_CONFIG__?.release ?? null,
+      optOutKeys: optKeys,
+      optedOut,
     };
   });
 
-  // ---- pre-auth ----
-  await page.goto('/');
-  await page.waitForLoadState('networkidle').catch(() => {});
-  const pre = await readSdk();
-
-  // ---- authenticate (PRO_TEST_*), content-free ----
+  // ---- B. sign in ----
   await page.goto('/auth/signin');
   await page.waitForSelector('[data-testid="auth-form"]', { timeout: 20_000 });
   await page.getByTestId('email-input').fill(EMAIL);
   await page.getByTestId('password-input').fill(PASSWORD);
-  const loginResp = page.waitForResponse(
-    (r) => r.url().includes('/auth/v1/token') && r.request().method() === 'POST',
-    { timeout: 30_000 },
-  );
+  const loginResp = page.waitForResponse((r) => r.url().includes('/auth/v1/token') && r.request().method() === 'POST', { timeout: 30_000 });
+  const tLogin = Date.now();
   await page.getByTestId('sign-in-submit').click();
-  const login = await loginResp;
-  const authenticated = login.ok();
+  const authenticated = (await loginResp).ok();
 
-  // Land on an authenticated route so the app's post-auth bootstrap (init + identify) runs.
+  // ---- C/D. land authenticated → identity probe + account_identified boundary ----
+  await page.goto('/session');
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 }).catch(() => {});
+  await page.waitForTimeout(3000);
+  const afterAuth = await readProbes();
+  const accountIdentifiedBoundary = { product_invoked: (afterAuth.identity?.accountIdentifiedAttempts ?? 0) >= 1, ...captureStats(tLogin) };
+
+  // ---- E/F/G. Select Private (no recording) → private_sample_selected (direct path) ----
+  const tPrivate = Date.now();
+  await page.getByTestId('stt-mode-select').click().catch(() => {});
+  await page.getByTestId('stt-mode-private').click().catch(() => {});
+  await page.waitForTimeout(3000);
+  const afterPrivate = await readProbes();
+  const privateSelectedBoundary = { product_invoked: afterPrivate.privateEvents.includes('private_sample_selected'), ...captureStats(tPrivate) };
+
+  // ---- H. one more buffered event via a UI nav (no recording) ----
+  const tBuf = Date.now();
   await page.goto('/analytics');
-  await page.waitForLoadState('networkidle').catch(() => {});
-  await page.waitForTimeout(2000);
-  const post = await readSdk();
+  await page.waitForTimeout(3000);
+  const bufferedBoundary = { ...captureStats(tBuf) };
 
-  // ---- fire ONE content-free diagnostic capture with the nonce + provenance ----
-  const ingestBefore = ingest.length;
-  const captured = await page.evaluate((args) => {
-    const p = (window as unknown as { posthog?: { __loaded?: boolean; config?: { token?: string; api_host?: string }; has_opted_out_capturing?: () => boolean; get_distinct_id?: () => string; capture?: (e: string, props?: Record<string, unknown>) => void } }).posthog;
-    if (!p || typeof p.capture !== 'function') return { invoked: false };
-    p.capture('diagnostic_probe', {
-      data_origin: 'automated_test',
-      cohort_id: 'internal_diagnostics',
-      test_run_id: args.nonce,
-      test_suite: 'posthog_authenticated_diagnostic',
-      environment: 'production',
-      release_sha: args.release,
-      content_free: true,
-    });
-    return { invoked: true };
-  }, { nonce: NONCE, release: post.release });
-
-  // Give the SDK a moment to flush the ingest request.
-  await page.waitForTimeout(4000).catch(() => {});
+  // ---- J. query PostHog (Node side, protected key) ----
+  const sinceIso = new Date(tLogin - 60_000).toISOString().replace('T', ' ').replace('Z', '');
+  const distinctRaw = await page.evaluate(() => {
+    const w = window as unknown as { __SS_ANALYTICS_IDENTITY__?: Record<string, unknown> };
+    return (w.__SS_ANALYTICS_IDENTITY__ as { distinctId?: string })?.distinctId ?? null;
+  }).catch(() => null);
+  const phQuery = await queryPostHog(
+    ['account_identified', 'private_sample_selected', 'session_live_coaching_card_viewed', 'conversion_cta_viewed'],
+    sinceIso, distinctRaw,
+  );
 
   const evidence = {
-    nonce: NONCE,
-    release_sha: post.release,
+    nonce: NONCE, release_sha: afterAuth.release, deployed_sha: afterAuth.release,
+    provenance: { data_origin: 'automated_test', cohort_id: 'internal_diagnostics', test_run_id: NONCE, test_suite: 'posthog_authenticated_diagnostic', environment: 'production', content_free: true },
     authenticated,
-    sdk_pre_auth: { present: pre.present, loaded: pre.loaded, hasToken: pre.hasToken },
-    sdk_post_auth: { present: post.present, loaded: post.loaded, hasToken: post.hasToken, apiHost: post.apiHost, optedOut: post.optedOut },
-    distinct_pre_hash: h(pre.distinctId),
-    distinct_post_hash: h(post.distinctId),
-    distinct_changed_on_auth: h(pre.distinctId) !== h(post.distinctId),
-    capture_invoked: captured.invoked,
-    ingest_attempts_total: ingest.length,
-    ingest_attempts_after_capture: ingest.length - ingestBefore,
-    ingest_last: ingest[ingest.length - 1] ?? null,
+    identity_probe: {
+      identifyCalls: afterAuth.identity?.identifyCalls ?? null,
+      accountIdentifiedAttempts: afterAuth.identity?.accountIdentifiedAttempts ?? null,
+      accountIdentifiedSendInstantly: afterAuth.identity?.accountIdentifiedSendInstantly ?? null,
+      lastAccountIdentifiedError: afterAuth.identity?.lastAccountIdentifiedError ?? null,
+    },
+    opt_out: { keys: afterPrivate.optOutKeys, opted_out: afterPrivate.optedOut },
+    distinct_hash: h(distinctRaw),
+    boundaries: {
+      account_identified: accountIdentifiedBoundary,
+      private_sample_selected: privateSelectedBoundary,
+      buffered_ui_event: bufferedBoundary,
+    },
+    posthog_query: phQuery,
   };
   console.log(`POSTHOG_DIAG_EVIDENCE ${JSON.stringify(evidence)}`);
 
-  // The suite's PURPOSE is to produce evidence; it should not hard-fail on the very defect it
-  // diagnoses. Only assert the run itself was valid (authenticated + evidence emitted).
   expect(authenticated, 'diagnostic account must authenticate').toBeTruthy();
-  expect(evidence.nonce).toContain('gha-');
 });

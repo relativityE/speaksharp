@@ -227,6 +227,10 @@ jobs:
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          # PostHog Query API (Node-side only in the diagnostic spec — NEVER passed to the browser page).
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           DIAGNOSTIC_DAST_SPEC: ${{ github.event.inputs.diagnostic_dast_spec }}
           DIAGNOSTIC_DAST_GREP: ${{ github.event.inputs.diagnostic_dast_grep }}
         run: |
