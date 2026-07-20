@@ -197,4 +197,59 @@ test.describe('Private-first mode selector + single description surface (respons
     await expect(page.getByTestId('stt-about-cloud')).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/about-panel-375.png` });
   });
+
+  // The STT menu must be FULLY OPAQUE at every frame of the open transition — the mic/timer/status pill
+  // must never show through. We slow the menu animation so a whole-surface fade (if present) is caught
+  // near opacity 0 rather than escaping the sample window.
+  for (const width of [320, 375, 390]) {
+    test(`STT menu is fully opaque at every frame of opening (${width}px)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 812 });
+      await programmaticLoginWithRoutes(page, { userType: 'pro' });
+      await navigateToRoute(page, '/session');
+      await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
+
+      // Stretch the menu's open animation to 3s so the sample window sits early in the transition.
+      await page.addStyleTag({ content: '[role="menu"]{ animation-duration: 3s !important; animation-delay: 0s !important; }' });
+
+      await page.getByTestId(TEST_IDS.STT_MODE_SELECT).click();
+      const menu = page.getByRole('menu');
+      await expect(menu).toBeVisible();
+
+      // Sample computed opacity across ~12 animation frames right after opening.
+      const probe = await menu.evaluate((el) => new Promise<{ reads: number[]; bg: string }>((resolve) => {
+        const reads: number[] = [];
+        let n = 0;
+        const tick = () => {
+          reads.push(parseFloat(getComputedStyle(el).opacity));
+          if (++n < 12) requestAnimationFrame(tick);
+          else resolve({ reads, bg: getComputedStyle(el).backgroundColor });
+        };
+        requestAnimationFrame(tick);
+      }));
+
+      // Opacity is 1 at EVERY sampled frame (no whole-surface fade).
+      expect(Math.min(...probe.reads)).toBe(1);
+
+      // Background color is fully opaque (alpha 1) — nothing behind can bleed through.
+      const rgba = probe.bg.match(/rgba?\(([^)]+)\)/);
+      expect(rgba).not.toBeNull();
+      const parts = rgba![1].split(',').map((s) => s.trim());
+      const alpha = parts.length === 4 ? parseFloat(parts[3]) : 1;
+      expect(alpha).toBe(1);
+
+      // Settled state is opaque too.
+      await page.waitForTimeout(300);
+      expect(await menu.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+
+      // Readable contrast: popover foreground token is dark-on-light (or light-on-dark), never see-through.
+      await expect(page.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toBeVisible();
+
+      // No horizontal overflow at this width.
+      const overflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+
+      await page.screenshot({ path: `${SHOTS}/menu-opaque-${width}.png` });
+    });
+  }
 });

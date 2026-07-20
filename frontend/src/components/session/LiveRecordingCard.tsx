@@ -356,6 +356,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         <DropdownMenuContent
                             ref={menuContentRef}
                             align="end"
+                            // opaque: the STT menu must stay fully opaque at EVERY frame of the open
+                            // transition — never let the mic/timer/status pill show through the fade.
+                            opaque
                             className="w-56 max-w-[calc(100vw-2rem)]"
                             onPointerLeave={() => setActiveMode(null)}
                         >
