@@ -34,11 +34,22 @@ jobs:
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
           PROOF_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-        run: node scripts/telemetry-proof-worker-e2e.mjs | tee /tmp/proof-worker-e2e.txt
+          PROOF_STATE_FILE: ${{ runner.temp }}/proof-worker-state.json
+        run: node scripts/telemetry-proof-worker-e2e.mjs | tee ${{ runner.temp }}/proof-worker-e2e.txt
+
+      # SEPARATE verified cleanup — always runs; a cleanup failure FAILS the workflow.
+      - name: Verified cleanup (expire actor + delete synthetic rows)
+        if: always()
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PROOF_STATE_FILE: ${{ runner.temp }}/proof-worker-state.json
+        run: node scripts/telemetry-proof-worker-cleanup.mjs | tee -a ${{ runner.temp }}/proof-worker-e2e.txt
+
       - name: Upload sanitized evidence (retention 1 day)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: telemetry-proof-worker-e2e-evidence
-          path: /tmp/proof-worker-e2e.txt
+          path: ${{ runner.temp }}/proof-worker-e2e.txt
           retention-days: 1
