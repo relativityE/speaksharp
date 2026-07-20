@@ -225,7 +225,7 @@ jobs:
           path: |
             test-results/post-save-consolidation
             test-results/mode-selector
-          retention-days: 30
+          retention-days: 1
           if-no-files-found: ignore
 
   lighthouse-advisory:

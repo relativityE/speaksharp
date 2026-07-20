@@ -309,10 +309,12 @@ export const SessionPage: React.FC = () => {
                                     isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
-                                    // Post-save, StatusNotificationBar owns the "Session saved" message. Reset the
-                                    // recording-card pill to its normal ready state so the saved-state (and its
-                                    // aria-live announcement) is not duplicated inside the card.
-                                    statusMessage={postSaveReady ? undefined : sttStatus.message}
+                                    // Post-save, StatusNotificationBar owns the "Session saved" message. Suppress the
+                                    // recording-card pill message as soon as showAnalyticsPrompt begins — NOT only once
+                                    // postSaveReady (finalizedAnalysis) arrives — so the lifecycle's intermediate
+                                    // "✓ Great practice! Session saved." never becomes a duplicate visual or aria-live
+                                    // announcement in the window before finalization completes.
+                                    statusMessage={showAnalyticsPrompt ? undefined : sttStatus.message}
                                     formattedTime={metrics.formattedTime}
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}

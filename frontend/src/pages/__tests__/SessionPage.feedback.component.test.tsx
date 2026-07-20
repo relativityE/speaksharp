@@ -81,8 +81,13 @@ vi.mock('@/components/session/StatusNotificationBar', () => ({
     ),
 }));
 
-// Mock other components to silence them
-vi.mock('@/components/session/LiveRecordingCard', () => ({ LiveRecordingCard: () => <div /> }));
+// Mock other components to silence them. LiveRecordingCard exposes the `statusMessage` prop it receives
+// so tests can prove SessionPage suppresses the recording-card pill message during post-save.
+vi.mock('@/components/session/LiveRecordingCard', () => ({
+    LiveRecordingCard: ({ statusMessage }: { statusMessage?: string }) => (
+        <div data-testid="lrc-status-message">{statusMessage}</div>
+    ),
+}));
 vi.mock('@/components/session/LiveTranscriptPanel', () => ({ LiveTranscriptPanel: () => <div /> }));
 vi.mock('@/components/session/FillerWordsCard', () => ({ FillerWordsCard: () => <div /> }));
 vi.mock('@/components/session/SpeakingTipsCard', () => ({ SpeakingTipsCard: () => <div /> }));
@@ -173,6 +178,30 @@ describe('SessionPage Feedback Logic', () => {
         expect(screen.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
         // The separate "Next: Analytics" toast is gone — the status bar is the sole post-save surface.
         expect(screen.queryByTestId('post-save-toast')).toBeNull();
+        // ...and the recording-card pill does not echo the saved message even in the terminal state.
+        expect(screen.getByTestId('lrc-status-message')).not.toHaveTextContent(/Session saved/i);
+    });
+
+    // TRANSITION — intermediate save window: showAnalyticsPrompt is TRUE but finalizedAnalysis has NOT
+    // arrived yet (postSaveReady === false). The lifecycle sets its "✓ Great practice! Session saved."
+    // message here; the recording-card pill must NEVER display/announce it — suppression begins as soon
+    // as showAnalyticsPrompt does, not only once postSaveReady is reached.
+    it('transition: recording-card pill never shows "Session saved" once showAnalyticsPrompt begins, before postSaveReady', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            isListening: false,
+            sttStatus: { type: 'ready', message: '✓ Great practice! Session saved.' },
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        // finalizedAnalysis stays null (beforeEach) → postSaveReady is FALSE: the intermediate window.
+        render(<SessionPage />);
+
+        // No Analytics action yet (gate not terminal) — but the pill is ALREADY suppressed.
+        expect(screen.queryByTestId('post-save-review-session-link')).toBeNull();
+        const pill = screen.getByTestId('lrc-status-message');
+        expect(pill).not.toHaveTextContent(/Session saved/i);
+        expect(pill).not.toHaveTextContent(/Great practice/i);
+        expect(pill).toBeEmptyDOMElement(); // statusMessage suppressed (undefined) — nothing to render or announce
     });
 
     // STATE A — metrics/persistence failure: the warning is preserved; NO success UI (P1).
