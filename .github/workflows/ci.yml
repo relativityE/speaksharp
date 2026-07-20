@@ -215,8 +215,9 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      # UX review screenshots (post-save consolidation + mode selector). Uploaded on whichever shard
-      # ran the producing spec; empty on the others. Reviewers: download "ux-review-screenshots-*".
+      # UX review screenshots (post-save consolidation + mode selector). ONE uploader, both paths.
+      # Uploaded on whichever shard ran the producing spec; empty on the others.
+      # Reviewers: download "ux-review-screenshots-*".
       - name: Upload UX Review Screenshots
         if: always()
         uses: actions/upload-artifact@v6
