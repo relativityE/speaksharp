@@ -82,7 +82,7 @@ test.describe('Post-save consolidation', () => {
     await expect(analyticsCue).toHaveAttribute('data-cue-phase', 'pulsing');
     await expect(analyticsCue).toHaveAttribute('data-cue-active', 'true');
     await expect(analyticsCue).toHaveClass(/font-bold/);
-    await expect(analyticsCue).toHaveClass(/text-\[hsl\(var\(--success/);
+    await expect(analyticsCue).toHaveClass(/text-emerald-800/);
     await page.waitForTimeout(7000);
     await expect(analyticsCue).toHaveAttribute('data-cue-phase', 'persistent');
     await expect(analyticsCue).toHaveAttribute('data-cue-active', 'true');

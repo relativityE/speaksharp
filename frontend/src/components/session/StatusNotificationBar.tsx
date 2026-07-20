@@ -304,7 +304,10 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                             data-testid="post-save-review-session-link"
                             data-cue-active={cueActive}
                             data-cue-phase={cuePhase}
-                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-bold text-[hsl(var(--success))] underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
+                            // Accessible success-green: emerald-800 (light) / emerald-300 (dark) both measure
+                            // >=4.5:1 against the pale-green pill background (the prior --success green was only
+                            // ~3.7:1 at 13px). Subtle green bg + ring retained; visual weight unchanged (font-bold).
+                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-bold text-emerald-800 dark:text-emerald-300 underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
                                 cuePhase === 'pulsing'
                                     ? 'bg-[hsl(var(--success)/0.1)] ring-1 ring-[hsl(var(--success)/0.4)] motion-safe:animate-pulse motion-reduce:animate-none'
                                     : cuePhase === 'persistent'
