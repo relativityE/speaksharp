@@ -49,6 +49,7 @@ jobs:
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy report-issue-alert --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
 
   deploy-production-db:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.operation != 'edge-functions' }}
@@ -158,6 +159,7 @@ jobs:
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy report-issue-alert --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           echo "✅ Edge Functions deployed successfully"
 
       - name: Save migration list to file
