@@ -1,0 +1,48 @@
+name: Beta Data Inventory (sanitized)
+
+# Authoritative operational inventory of persisted product data (Supabase sessions + issue reports),
+# independent of PostHog / client analytics. Emits ONLY sanitized aggregates (counts, hashed account
+# ids, opaque row ids, metrics, booleans, transcript char-count/hash) — never prose/email/name and
+# never the service-role secret.
+#
+# Push trigger on the incident branch runs the one-time inventory; workflow_dispatch is the ongoing
+# operational monitoring entry point. Not a PR-required check.
+
+on:
+  workflow_dispatch:
+    inputs:
+      boundary:
+        description: 'Inventory boundary (UTC ISO). Default = invitation window.'
+        required: false
+        default: '2026-07-18T17:43:56Z'
+  push:
+    branches:
+      - fix/beta-data-retrieval-observability
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-data-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  beta-data-inventory:
+    name: beta-data-inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run sanitized inventory
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          INVENTORY_BOUNDARY: ${{ github.event.inputs.boundary || '2026-07-18T17:43:56Z' }}
+        run: node scripts/beta-data-inventory.mjs
