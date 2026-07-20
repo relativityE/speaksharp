@@ -25,7 +25,7 @@ describe('P0 — provenance registry', () => {
   });
 
   it('resolvers are service-role-only (revoked from anon/authenticated, granted to service_role)', () => {
-    for (const fn of ['resolve_data_origin', 'resolve_actor_provenance']) {
+    for (const fn of ['resolve_data_origin', 'resolve_actor_provenance', 'register_observability_actor', 'expire_observability_actor']) {
       expect(registry).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]*\\) FROM PUBLIC, anon, authenticated`));
       expect(registry).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role`));
     }

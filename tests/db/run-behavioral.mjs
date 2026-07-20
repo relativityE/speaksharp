@@ -317,6 +317,21 @@ async function main() {
     eq(o.test_run_id, 'run-9', 'run'); eq(o.test_suite, 'suite-b', 'suite'); assert(o.backfilled === true, 'backfilled');
   });
 
+  await check('F7 register-before-write: registered provenance flows to a NEW session', async () => {
+    const u = 'b0000001-0000-0000-0000-000000000001';
+    await db.exec(`INSERT INTO auth.users (id,email) VALUES ('${u}','reg-before')`);
+    await q(`SELECT public.register_observability_actor('${u}','automated_test','ci','run-77','suite-x', interval '1 hour')`);
+    const s = await one(`INSERT INTO public.sessions (user_id,status) VALUES ('${u}','completed') RETURNING id`);
+    const o = await one(`SELECT data_origin,test_run_id,test_suite FROM public.telemetry_outbox WHERE record_id='${s.id}' AND event_type='session_saved'`);
+    eq(o.data_origin, 'automated_test', 'registered origin flows in'); eq(o.test_run_id, 'run-77', 'run id'); eq(o.test_suite, 'suite-x', 'suite');
+  });
+  await check('F8 expire_observability_actor reverts new data to legacy_unclassified', async () => {
+    const u = 'b0000001-0000-0000-0000-000000000001';
+    await q(`SELECT public.expire_observability_actor('${u}')`);
+    const p = await one(`SELECT data_origin FROM public.resolve_actor_provenance('${u}')`);
+    eq(p.data_origin, 'legacy_unclassified', 'expired registration → default');
+  });
+
   // ============================ G. operator delivery status ============================
   group('G operator delivery status');
   await check('G1 EXACT per-account counts; zero cross-account leak (fresh isolated users)', async () => {

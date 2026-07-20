@@ -75,7 +75,39 @@ AS $$
    AND (r.expires_at IS NULL OR r.expires_at > now());
 $$;
 
+-- Registration helper for automated workflows: a run REGISTERS its provenance (server-side, trusted)
+-- BEFORE it writes any session/report, and EXPIRES it after. Upsert by user_id with a TTL. IMPORTANT
+-- concurrency contract: the registry PK is user_id, so a single account can hold only ONE active
+-- test_run_id at a time — concurrent runs sharing one account WOULD overwrite each other. Callers MUST
+-- either use a UNIQUE ephemeral account per run (preferred) or SERIALIZE the data-producing workflows
+-- for a shared account (a workflow concurrency group). Service-role only (the browser can never call
+-- this — provenance is never client-assigned).
+CREATE OR REPLACE FUNCTION public.register_observability_actor(
+  p_user_id uuid, p_data_origin text, p_cohort_id text, p_test_run_id text, p_test_suite text,
+  p_ttl interval DEFAULT interval '6 hours'
+)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  INSERT INTO public.observability_actor_registry
+    (user_id, data_origin, cohort_id, test_run_id, test_suite, expires_at, created_by, updated_at)
+  VALUES (p_user_id, p_data_origin, p_cohort_id, p_test_run_id, p_test_suite, now() + p_ttl, 'register_observability_actor', now())
+  ON CONFLICT (user_id) DO UPDATE
+    SET data_origin = EXCLUDED.data_origin, cohort_id = EXCLUDED.cohort_id,
+        test_run_id = EXCLUDED.test_run_id, test_suite = EXCLUDED.test_suite,
+        expires_at = EXCLUDED.expires_at, updated_at = now();
+$$;
+
+CREATE OR REPLACE FUNCTION public.expire_observability_actor(p_user_id uuid)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  DELETE FROM public.observability_actor_registry WHERE user_id = p_user_id;
+$$;
+
 REVOKE ALL ON FUNCTION public.resolve_data_origin(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.resolve_actor_provenance(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.register_observability_actor(uuid, text, text, text, text, interval) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.expire_observability_actor(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.resolve_data_origin(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.resolve_actor_provenance(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.register_observability_actor(uuid, text, text, text, text, interval) TO service_role;
+GRANT EXECUTE ON FUNCTION public.expire_observability_actor(uuid) TO service_role;
