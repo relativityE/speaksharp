@@ -120,6 +120,11 @@ jobs:
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # telemetry-worker delivery + failure-alert config (GitHub → Supabase mapping).
+          POSTHOG_PROJECT_API_KEY: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          TELEMETRY_WORKER_SECRET: ${{ secrets.TELEMETRY_WORKER_SECRET }}
         working-directory: backend/supabase
         run: |
           # SOURCE-OF-TRUTH POLICY (2026-06-18, release-owner): live Stripe RUNTIME secrets are
@@ -146,6 +151,29 @@ jobs:
             echo "⚠️ GEMINI_API_KEY is not available in GitHub Secrets; get-ai-suggestions will return GEMINI_KEY_MISSING until configured"
           fi
           echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase (Stripe runtime secrets are Ops-managed in Supabase, NOT synced from GitHub)"
+
+          # ---- telemetry-worker Edge Function secrets (fail-closed: validate BEFORE setting) ----
+          # Map: GitHub POSTHOG_PROJECT_API_KEY→POSTHOG_PROJECT_KEY, POSTHOG_INGEST_HOST→POSTHOG_HOST,
+          # github.sha→TELEMETRY_WORKER_RELEASE_SHA, SENTRY_DSN→SENTRY_DSN, TELEMETRY_WORKER_SECRET→same.
+          # NEVER send POSTHOG_PERSONAL_API_KEY to Supabase/the worker (readback-only, stays in CI).
+          missing=""
+          [ -z "$POSTHOG_PROJECT_API_KEY" ] && missing="$missing POSTHOG_PROJECT_API_KEY"
+          [ -z "$POSTHOG_INGEST_HOST" ] && missing="$missing POSTHOG_INGEST_HOST"
+          [ -z "$SENTRY_DSN" ] && missing="$missing SENTRY_DSN"
+          [ -z "$TELEMETRY_WORKER_SECRET" ] && missing="$missing TELEMETRY_WORKER_SECRET"
+          if [ -n "$missing" ]; then
+            echo "❌ telemetry-worker required GitHub Secrets missing:$missing"
+            echo "   (the worker is fail-closed and will 503 until these are wired; refusing to set a partial config)"
+            exit 1
+          fi
+          supabase secrets set \
+            TELEMETRY_WORKER_SECRET="$TELEMETRY_WORKER_SECRET" \
+            POSTHOG_PROJECT_KEY="$POSTHOG_PROJECT_API_KEY" \
+            POSTHOG_HOST="$POSTHOG_INGEST_HOST" \
+            SENTRY_DSN="$SENTRY_DSN" \
+            TELEMETRY_WORKER_RELEASE_SHA="$GITHUB_SHA" \
+            --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ telemetry-worker secrets synchronized to Supabase (release sha=$GITHUB_SHA; personal PostHog key intentionally NOT synced)"
 
       - name: Deploy Edge Functions
         if: ${{ github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
