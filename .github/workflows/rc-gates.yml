@@ -263,7 +263,8 @@ jobs:
             test-results/
             playwright-report/
             blob-report/
-          retention-days: 14
+          # Diagnostic/DAST traces are short-lived debug evidence — keep them 1 day.
+          retention-days: 1
           if-no-files-found: ignore
 
   gate-4-sca:
