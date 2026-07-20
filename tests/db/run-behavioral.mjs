@@ -90,9 +90,11 @@ async function main() {
   db = await makeDb();
   // ---- load schema ----
   await db.exec(sql(resolve(HERE, 'harness/bootstrap.sql')));
+  await db.exec(sql(resolve(MIG, '20260720120000_report_alert_deliveries.sql')));
   await db.exec(sql(resolve(MIG, '20260720140000_report_session_ownership_guard.sql')));
   await db.exec(sql(resolve(MIG, '20260720150000_observability_provenance_registry.sql')));
   await db.exec(sql(resolve(MIG, '20260720150100_telemetry_outbox.sql')));
+  await db.exec(sql(resolve(MIG, '20260720160000_report_alert_outbox.sql')));
 
   await db.exec(`INSERT INTO auth.users (id,email) VALUES
     ('${U1}','u1'),('${U2}','u2'),('${UREG}','ureg'),('${UEXP}','uexp');`);
@@ -409,6 +411,79 @@ async function main() {
     // a discarded row is never re-claimed
     const again = await claimRow(sid, 'w2');
     assert(!again, 'discarded row must not be re-claimed');
+  });
+
+  // ============================ I. report-alert outbox (server-authoritative) ============================
+  group('I report-alert outbox');
+  const mkReport = async (u = U1) => (await one(`INSERT INTO public.user_issue_reports (user_id) VALUES ('${u}') RETURNING id`)).id;
+  await check('I1 DB trigger enqueues a pending alert row at report insert (server-authoritative)', async () => {
+    const rid = await mkReport();
+    const d = await one(`SELECT status,attempt_count FROM public.report_alert_deliveries WHERE report_id='${rid}'`);
+    assert(d, 'alert row enqueued by trigger'); eq(d.status, 'pending', 'pending'); eq(d.attempt_count, 0, 'attempt 0');
+  });
+  await check('I2 reconcile_report_alerts repairs a report missing an alert row', async () => {
+    const rid = await mkReport();
+    await q(`DELETE FROM public.report_alert_deliveries WHERE report_id='${rid}'`);
+    const n = (await one(`SELECT public.reconcile_report_alerts() AS n`)).n;
+    assert(Number(n) >= 1, 'reconcile repaired at least one');
+    assert((await one(`SELECT 1 FROM public.report_alert_deliveries WHERE report_id='${rid}'`)), 'row restored');
+  });
+  await check('I3 claim leases; mark sent; a sent row is never re-claimed (dedupe)', async () => {
+    const rid = await mkReport();
+    const token = (await one(`SELECT public.claim_report_alert('${rid}','w1') AS t`)).t;
+    assert(token, 'claim returns a lease token');
+    eq((await one(`SELECT public.mark_report_alert('${rid}','${token}','sent',NULL) AS ok`)).ok, true, 'mark sent');
+    eq((await one(`SELECT public.claim_report_alert('${rid}','w2') AS t`)).t, null, 'a sent alert is not re-claimable');
+  });
+  await check('I4 crash-safe: an EXPIRED sending lease is reclaimable', async () => {
+    const rid = await mkReport();
+    const a = (await one(`SELECT public.claim_report_alert('${rid}','w1') AS t`)).t;
+    await q(`UPDATE public.report_alert_deliveries SET lease_expires_at=now()-interval '1 min' WHERE report_id='${rid}'`);
+    const b = (await one(`SELECT public.claim_report_alert('${rid}','w2') AS t`)).t;
+    assert(b && a !== b, 'expired lease reclaimed with a fresh token');
+  });
+  await check('I5 stale lease token rejected by mark; current token succeeds', async () => {
+    const rid = await mkReport();
+    const a = (await one(`SELECT public.claim_report_alert('${rid}','w1') AS t`)).t;
+    await q(`UPDATE public.report_alert_deliveries SET lease_expires_at=now()-interval '1 min' WHERE report_id='${rid}'`);
+    const b = (await one(`SELECT public.claim_report_alert('${rid}','w2') AS t`)).t;
+    eq((await one(`SELECT public.mark_report_alert('${rid}','${a}','sent',NULL) AS ok`)).ok, false, 'stale token rejected');
+    eq((await one(`SELECT public.mark_report_alert('${rid}','${b}','sent',NULL) AS ok`)).ok, true, 'current token succeeds');
+  });
+  await check('I6 dead-letter at max_attempts + idempotent replay', async () => {
+    const rid = await mkReport();
+    await q(`UPDATE public.report_alert_deliveries SET max_attempts=1 WHERE report_id='${rid}'`);
+    const t = (await one(`SELECT public.claim_report_alert('${rid}','w1') AS t`)).t; // attempt→1
+    eq((await one(`SELECT public.mark_report_alert('${rid}','${t}','failed','transport_error') AS ok`)).ok, true, 'mark failed');
+    eq((await one(`SELECT status,terminal_failed_at FROM public.report_alert_deliveries WHERE report_id='${rid}'`)).status, 'dead_letter', 'dead_letter');
+    eq((await one(`SELECT public.replay_report_alert_deadletter('${rid}') AS ok`)).ok, true, 'first replay');
+    eq((await one(`SELECT public.replay_report_alert_deadletter('${rid}') AS ok`)).ok, false, 'repeated replay false');
+  });
+  await check('I7 mark input validation (sent+category and failed+bad-category raise)', async () => {
+    const rid = await mkReport();
+    const t = (await one(`SELECT public.claim_report_alert('${rid}','w1') AS t`)).t;
+    let r1 = false, r2 = false;
+    try { await q(`SELECT public.mark_report_alert('${rid}','${t}','sent','transport_error')`); } catch { r1 = true; }
+    try { await q(`SELECT public.mark_report_alert('${rid}','${t}','failed','not_a_category')`); } catch { r2 = true; }
+    assert(r1 && r2, 'invalid mark inputs must raise');
+  });
+  // permissions: every alert RPC + the table denied to both untrusted roles; service_role allowed.
+  await expectDenied('I8 anon cannot read report_alert_deliveries', 'anon', `SELECT * FROM public.report_alert_deliveries LIMIT 1`);
+  const ALERT_RPCS = {
+    reconcile_report_alerts: `SELECT public.reconcile_report_alerts()`,
+    claim_report_alert: `SELECT public.claim_report_alert(gen_random_uuid(),'w')`,
+    claim_report_alert_batch: `SELECT public.claim_report_alert_batch(1,'w')`,
+    mark_report_alert: `SELECT public.mark_report_alert(gen_random_uuid(),gen_random_uuid(),'sent',NULL)`,
+    replay_report_alert_deadletter: `SELECT public.replay_report_alert_deadletter(gen_random_uuid())`,
+  };
+  for (const role of ['anon', 'authenticated']) {
+    for (const [fn, callSql] of Object.entries(ALERT_RPCS)) {
+      await expectDenied(`I9 ${role} cannot EXECUTE ${fn}`, role, callSql);
+    }
+  }
+  await check('I10 service_role CAN EXECUTE every alert RPC', async () => {
+    await db.exec('SET ROLE service_role');
+    try { for (const callSql of Object.values(ALERT_RPCS)) await q(callSql); } finally { await db.exec('RESET ROLE'); }
   });
 
   // ---- report ----

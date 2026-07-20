@@ -16,8 +16,15 @@
 // safely stored, so submission success is independent of alert delivery.
 
 import { corsGuard, corsHeaders } from "../_shared/cors.ts";
-import { captureSentryEvent, createSentryEventId } from "../_shared/sentry.ts";
+import { captureSentryEvent } from "../_shared/sentry.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+
+/** DETERMINISTIC Sentry event_id derived from the report id (a uuid → its 32 hex chars). Because it is
+ * stable per report, a retry after "Sentry accepted but the DB mark failed" reuses the SAME event_id,
+ * so Sentry dedupes and the owner never receives a duplicate alert for one report. */
+export function deterministicEventId(reportId: string): string {
+  return reportId.replaceAll("-", "").toLowerCase();
+}
 
 // ---- The ONLY fields allowed to leave the trusted boundary in an alert. ----
 export interface AlertPayload {
@@ -177,6 +184,42 @@ function json(
   });
 }
 
+// The NARROW report SELECT (no prose/transcript/audio columns).
+const REPORT_SELECT = "id, severity, session_id, page_url, metadata, created_at, user_id";
+
+type SendSentry = (dsn: string, event: ReturnType<typeof buildSentryEvent>) => Promise<unknown>;
+type LogOps = (evidence: Record<string, string | null>) => void;
+
+/** Deliver ONE already-claimed alert under its lease. Deterministic event_id makes a re-send after a
+ * lost mark dedupe. Returns whether the DB mark actually succeeded. */
+async function deliverClaimed(
+  admin: SupabaseClient, report: StoredReportRow, leaseToken: string,
+  dsn: string | undefined, sendSentry: SendSentry, logOps: LogOps,
+): Promise<{ alerted: boolean; mark_deferred: boolean; failure_category: string | null }> {
+  const payload = buildAlertPayload(report);
+  const mark = async (status: "sent" | "failed", cat: string | null) => {
+    const { data, error } = await admin.rpc("mark_report_alert", {
+      p_report_id: payload.report_id, p_lease_token: leaseToken, p_status: status, p_failure_category: cat,
+    });
+    return !error && data === true;
+  };
+  if (!dsn) {
+    await mark("failed", "sentry_config_missing");
+    logOps({ report_id: payload.report_id, failure_category: "sentry_config_missing", timestamp: payload.timestamp, release_sha: payload.release_sha });
+    return { alerted: false, mark_deferred: false, failure_category: "sentry_config_missing" };
+  }
+  try {
+    await sendSentry(dsn, buildSentryEvent(payload, deterministicEventId(payload.report_id)));
+    const marked = await mark("sent", null);
+    return { alerted: marked, mark_deferred: !marked, failure_category: null };
+  } catch (err) {
+    const failure_category = classifyFailure(err);
+    await mark("failed", failure_category);
+    logOps({ report_id: payload.report_id, failure_category, timestamp: payload.timestamp, release_sha: payload.release_sha });
+    return { alerted: false, mark_deferred: false, failure_category };
+  }
+}
+
 export async function handler(
   req: Request,
   deps: HandlerDeps = {},
@@ -206,6 +249,33 @@ export async function handler(
       ));
   const sendSentry = deps.sendSentry ??
     ((dsn, event) => captureSentryEvent(dsn, event));
+
+  // ---- SECRET-GATED BATCH DRAIN (the periodic drainer; the browser wake-hint is only best-effort).
+  // reconcile → claim a batch → deliver each under its lease. This is what guarantees a crashed or
+  // never-fired wake-hint cannot strand a report: the cron drains due/expired-lease alert rows. ----
+  const providedDrainSecret = req.headers.get("x-alert-worker-secret");
+  if (providedDrainSecret !== null) {
+    const drainSecret = getEnv("ALERT_WORKER_SECRET") ?? getEnv("TELEMETRY_WORKER_SECRET");
+    if (!drainSecret || providedDrainSecret !== drainSecret) return json(404, { error: { code: "not_found" } }, headers);
+    const admin = createAdminClient();
+    const dsn = getEnv("SENTRY_DSN");
+    const windowSec = Number(getEnv("ALERT_RECONCILE_WINDOW_SECONDS") ?? "86400") || 86400;
+    const since = new Date(Date.now() - windowSec * 1000).toISOString();
+    const { error: recErr } = await admin.rpc("reconcile_report_alerts", { p_since: since });
+    if (recErr) return json(500, { ok: false, result: "hard_failure", error: "reconcile_failed" }, headers);
+    const { data: rows, error: claimErr } = await admin.rpc("claim_report_alert_batch", { p_limit: 50, p_worker: "report-alert-drain" });
+    if (claimErr) return json(500, { ok: false, result: "hard_failure", error: "claim_failed" }, headers);
+    const claimed = (rows ?? []) as Array<{ report_id: string; lease_token: string }>;
+    const summary = { ok: true, result: "success", claimed: claimed.length, sent: 0, failed: 0, mark_deferred: 0 };
+    for (const d of claimed) {
+      const { data: report } = await admin.from("user_issue_reports").select(REPORT_SELECT).eq("id", d.report_id).maybeSingle();
+      if (!report) continue; // FK cascade removes delivery rows for deleted reports; nothing to do
+      const r = await deliverClaimed(admin, report as StoredReportRow, d.lease_token, dsn, sendSentry, logOps);
+      if (r.alerted) summary.sent++; else if (r.mark_deferred) summary.mark_deferred++; else summary.failed++;
+    }
+    if (summary.failed > 0) { summary.result = "partial_retry"; }
+    return json(200, summary, headers);
+  }
 
   // Authenticate the caller (cryptographically, via getUser). CORS is not auth.
   const authHeader = req.headers.get("Authorization");
@@ -246,68 +316,28 @@ export async function handler(
     return json(403, { error: { code: "forbidden" } }, headers);
   }
 
-  // Durable, atomic dedupe claim. false = already sent / in-flight → no second alert.
-  const { data: claimed, error: claimError } = await admin.rpc(
+  // Lease-based claim. NULL = already sent / in-flight (unexpired lease) / dead-letter → no second
+  // alert. The row was enqueued authoritatively by the DB trigger; this call is only a wake hint.
+  const { data: leaseToken, error: claimError } = await admin.rpc(
     "claim_report_alert",
-    { p_report_id: reportId },
+    { p_report_id: reportId, p_worker: "report-issue-alert-wake-hint" },
   );
   if (claimError) {
     return json(500, { error: { code: "claim_failed" } }, headers);
   }
-  if (!claimed) {
+  if (!leaseToken) {
     return json(200, { report_id: reportId, deduped: true }, headers);
   }
 
-  const payload = buildAlertPayload(report as StoredReportRow);
-
-  const dsn = getEnv("SENTRY_DSN");
-  if (!dsn) {
-    await admin.rpc("mark_report_alert", {
-      p_report_id: reportId,
-      p_status: "failed",
-      p_failure_category: "sentry_config_missing",
-    });
-    logOps({
-      report_id: payload.report_id,
-      failure_category: "sentry_config_missing",
-      timestamp: payload.timestamp,
-      release_sha: payload.release_sha,
-    });
-    return json(200, {
-      report_id: reportId,
-      alerted: false,
-      failure_category: "sentry_config_missing",
-    }, headers);
-  }
-
-  try {
-    await sendSentry(dsn, buildSentryEvent(payload, createSentryEventId()));
-    await admin.rpc("mark_report_alert", {
-      p_report_id: reportId,
-      p_status: "sent",
-      p_failure_category: null,
-    });
-    return json(200, { report_id: reportId, alerted: true }, headers);
-  } catch (err) {
-    const failure_category = classifyFailure(err);
-    await admin.rpc("mark_report_alert", {
-      p_report_id: reportId,
-      p_status: "failed",
-      p_failure_category: failure_category,
-    });
-    // Sanitized ops evidence ONLY — never the exception message (may echo request/report content).
-    logOps({
-      report_id: payload.report_id,
-      failure_category,
-      timestamp: payload.timestamp,
-      release_sha: payload.release_sha,
-    });
-    return json(
-      200,
-      { report_id: reportId, alerted: false, failure_category },
-      headers,
-    );
-  }
+  // Deliver under our lease via the shared helper (deterministic event_id; never alerted:true unless
+  // the DB mark actually succeeded).
+  const r = await deliverClaimed(admin, report as StoredReportRow, leaseToken as string, getEnv("SENTRY_DSN"), sendSentry, logOps);
+  return json(200, {
+    report_id: reportId,
+    alerted: r.alerted,
+    ...(r.mark_deferred ? { mark_deferred: true } : {}),
+    ...(r.failure_category ? { failure_category: r.failure_category } : {}),
+  }, headers);
 }
 
 if (import.meta.main) {

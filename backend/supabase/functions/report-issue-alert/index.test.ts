@@ -68,6 +68,8 @@ interface HarnessOpts {
   readError?: { message: string } | null;
   claimed?: boolean;
   claimError?: { message: string } | null;
+  markData?: boolean;
+  batchRows?: Array<{ report_id: string; lease_token: string }>;
   sentryThrows?: Error | null;
   dsn?: string | undefined;
 }
@@ -104,11 +106,17 @@ function harness(o: HarnessOpts = {}) {
     rpc: (name: string, args: unknown) => {
       calls.rpc.push({ name, args });
       if (name === "claim_report_alert") {
+        // lease-based: returns a lease token (uuid) when claimable, NULL when deduped/in-flight.
         return Promise.resolve({
-          data: o.claimed ?? true,
+          data: o.claimed === false ? null : "lease-token-1",
           error: o.claimError ?? null,
         });
       }
+      if (name === "mark_report_alert") {
+        return Promise.resolve({ data: o.markData ?? true, error: null });
+      }
+      if (name === "reconcile_report_alerts") return Promise.resolve({ data: 0, error: null });
+      if (name === "claim_report_alert_batch") return Promise.resolve({ data: o.batchRows ?? [], error: null });
       return Promise.resolve({ data: null, error: null });
     },
   })) as any;
@@ -251,6 +259,49 @@ Deno.test("handler: happy path → claim, ONE sentry send, marked sent", async (
   ) {
     assert(!s.includes(leak));
   }
+});
+
+Deno.test("handler: sentry event_id is DETERMINISTIC from report_id (retry-safe dedupe)", async () => {
+  const h = harness();
+  await handler(req({ reportId: REPORT_ID }), h.deps);
+  const ev = h.calls.sentry[0] as { event_id: string };
+  assertEquals(ev.event_id, REPORT_ID.replaceAll("-", "").toLowerCase());
+});
+
+Deno.test("handler: Sentry accepted but mark LOST (lease) → alerted:false, mark_deferred, single send", async () => {
+  const h = harness({ markData: false });
+  const res = await handler(req({ reportId: REPORT_ID }), h.deps);
+  const body = await res.json();
+  assertEquals(body.alerted, false);       // never claim alerted:true when the DB mark failed
+  assertEquals(body.mark_deferred, true);
+  assertEquals(h.calls.sentry.length, 1);  // deterministic id → the reclaim's re-send dedupes
+});
+
+Deno.test("handler: secret-gated batch DRAIN reconciles + delivers claimed alerts (periodic drainer)", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "lease-token-1" }] });
+  const drainReq = new Request("https://fn/report-issue-alert", {
+    method: "POST",
+    headers: { Origin: APPROVED, "x-alert-worker-secret": "x" }, // harness getEnv returns "x"
+    body: JSON.stringify({}),
+  });
+  const res = await handler(drainReq, h.deps);
+  const body = await res.json();
+  assertEquals(res.status, 200);
+  assertEquals(body.claimed, 1);
+  assertEquals(body.sent, 1);
+  assert(h.calls.rpc.some((c) => c.name === "reconcile_report_alerts"));
+  assert(h.calls.rpc.some((c) => c.name === "claim_report_alert_batch"));
+  assertEquals(h.calls.sentry.length, 1);
+});
+
+Deno.test("handler: batch DRAIN with wrong secret → 404, no work", async () => {
+  const h = harness({ batchRows: [{ report_id: REPORT_ID, lease_token: "t" }] });
+  const bad = new Request("https://fn/report-issue-alert", {
+    method: "POST", headers: { Origin: APPROVED, "x-alert-worker-secret": "WRONG" }, body: "{}",
+  });
+  const res = await handler(bad, h.deps);
+  assertEquals(res.status, 404);
+  assertEquals(h.calls.rpc.length, 0);
 });
 
 Deno.test("handler: dedupe — claim returns false → NO second alert", async () => {
