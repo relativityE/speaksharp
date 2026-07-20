@@ -182,23 +182,40 @@ describe('StatusNotificationBar', () => {
             expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
         });
 
-        it('cue is bounded (~6.5s) then turns off on its own — never repeats indefinitely', () => {
+        it('is bold + success-green, pulses (~6.5s), then settles to a PERSISTENT static green emphasis — never indefinite', () => {
             vi.useFakeTimers();
             try {
                 mockStore();
                 renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
                 const action = screen.getByTestId('post-save-review-session-link');
+                // Base emphasis is now font-BOLD + success-GREEN (was font-semibold / text-primary).
+                // Success is applied via the --success CSS var as an arbitrary value because the ACTIVE
+                // tailwind.config.js does not register a `success` color token (so `text-success` is inert).
+                expect(action.className).toMatch(/font-bold/);
+                expect(action.className).toContain('text-[hsl(var(--success))]');
+                expect(action.className).not.toMatch(/font-semibold/);
+                expect(action.className).not.toContain('text-primary');
+                // Phase 1: bounded pulse.
+                expect(action).toHaveAttribute('data-cue-phase', 'pulsing');
                 expect(action).toHaveAttribute('data-cue-active', 'true');
                 expect(action.className).toMatch(/animate-pulse/);
+                // After ~6.5s: pulse ENDS, but a PERSISTENT static green emphasis remains (no animation).
                 act(() => { vi.advanceTimersByTime(6600); });
-                expect(action).toHaveAttribute('data-cue-active', 'false');
+                expect(action).toHaveAttribute('data-cue-phase', 'persistent');
+                expect(action).toHaveAttribute('data-cue-active', 'true'); // still emphasized/actionable
+                expect(action.className).not.toMatch(/animate-pulse/);
+                expect(action.className).toContain('bg-[hsl(var(--success)/0.1)]');
+                expect(action.className).toContain('ring-[hsl(var(--success)/0.4)]');
+                // It never repeats/animates again with more time.
+                act(() => { vi.advanceTimersByTime(30000); });
+                expect(action).toHaveAttribute('data-cue-phase', 'persistent');
                 expect(action.className).not.toMatch(/animate-pulse/);
             } finally {
                 vi.useRealTimers();
             }
         });
 
-        it('cue is SESSION-SCOPED: a new cueKey re-fires it without an unmount', () => {
+        it('cue is SESSION-SCOPED: a newly finalized session re-triggers the pulse via cueKey (no unmount)', () => {
             vi.useFakeTimers();
             try {
                 mockStore();
@@ -206,33 +223,38 @@ describe('StatusNotificationBar', () => {
                     <StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />,
                 );
                 const action = () => screen.getByTestId('post-save-review-session-link');
-                // First session fires, then settles.
                 act(() => { vi.advanceTimersByTime(6600); });
-                expect(action()).toHaveAttribute('data-cue-active', 'false');
-                // Second session finalized WITHOUT unmounting → cue re-fires on the new key.
+                expect(action()).toHaveAttribute('data-cue-phase', 'persistent');
+                // Second session finalized WITHOUT unmounting → cue RE-FIRES (pulses) on the new key.
                 rerender(
                     <MemoryRouter>
                         <StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-2' }} />
                     </MemoryRouter>,
                 );
-                expect(action()).toHaveAttribute('data-cue-active', 'true');
+                expect(action()).toHaveAttribute('data-cue-phase', 'pulsing');
+                expect(action().className).toMatch(/animate-pulse/);
             } finally {
                 vi.useRealTimers();
             }
         });
 
-        it('reduced-motion users get a static ring during the cue, not the pulse animation', () => {
-            vi.useFakeTimers();
+        it('reduced-motion: NEVER pulses — shows the persistent static green emphasis immediately', () => {
+            const original = window.matchMedia;
+            window.matchMedia = vi.fn().mockImplementation((q: string) => ({
+                matches: q.includes('reduce'), media: q, onchange: null,
+                addEventListener: vi.fn(), removeEventListener: vi.fn(),
+                addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+            })) as unknown as typeof window.matchMedia;
             try {
                 mockStore();
                 renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1' }} />);
                 const action = screen.getByTestId('post-save-review-session-link');
-                expect(action.className).toMatch(/motion-reduce:ring-2/);
-                expect(action.className).toMatch(/motion-reduce:animate-none/);
-                act(() => { vi.advanceTimersByTime(6600); });
-                expect(action.className).not.toMatch(/motion-reduce:ring-2/);
+                expect(action).toHaveAttribute('data-cue-phase', 'persistent'); // immediate — no pulsing phase
+                expect(action.className).not.toMatch(/animate-pulse/);
+                expect(action.className).toContain('bg-[hsl(var(--success)/0.1)]');
+                expect(action.className).toContain('ring-[hsl(var(--success)/0.4)]');
             } finally {
-                vi.useRealTimers();
+                window.matchMedia = original;
             }
         });
 
@@ -244,16 +266,19 @@ describe('StatusNotificationBar', () => {
             expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
         });
 
-        it('selecting the action stops the cue immediately and calls onSelect', () => {
+        it('clicking Analytics stops the cue immediately, clears the emphasis, and navigates to /analytics', () => {
             mockStore();
             const onSelect = vi.fn();
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1', onSelect }} />);
             const action = screen.getByTestId('post-save-review-session-link');
             expect(action).toHaveAttribute('data-cue-active', 'true');
+            expect(action).toHaveAttribute('href', '/analytics'); // navigates to the existing route
             fireEvent.click(action);
             expect(onSelect).toHaveBeenCalledTimes(1);
+            expect(action).toHaveAttribute('data-cue-phase', 'idle');
             expect(action).toHaveAttribute('data-cue-active', 'false');
             expect(action.className).not.toMatch(/animate-pulse/);
+            expect(action.className).not.toContain('bg-[hsl(var(--success)/0.1)]'); // emphasis cleared
         });
     });
 

@@ -113,12 +113,28 @@ test.describe('Post-save consolidation', () => {
     expect(pos).toBe('absolute');
     await assertToastStraddleGeometry(page);
 
-    // Bounded Analytics cue: active on settle, inactive after ~6.5s.
-    await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('data-cue-active', 'true');
+    // Analytics cue: bounded PULSE on settle, then a PERSISTENT static green emphasis (never reverts to plain).
+    const analyticsCue = page.getByTestId('post-save-review-session-link');
+    await expect(analyticsCue).toHaveAttribute('data-cue-phase', 'pulsing');
+    await expect(analyticsCue).toHaveAttribute('data-cue-active', 'true');
+    // Bold + success-green base emphasis.
+    await expect(analyticsCue).toHaveClass(/font-bold/);
+    await expect(analyticsCue).toHaveClass(/text-\[hsl\(var\(--success/);
     await page.waitForTimeout(7000);
-    await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('data-cue-active', 'false');
+    // Pulse ends → PERSISTENT static emphasis remains (still actionable, no animation).
+    await expect(analyticsCue).toHaveAttribute('data-cue-phase', 'persistent');
+    await expect(analyticsCue).toHaveAttribute('data-cue-active', 'true');
+    await expect(analyticsCue).toHaveClass(/bg-\[hsl\(var\(--success/);
+    const persistAnim = await analyticsCue.evaluate((el) => getComputedStyle(el).animationName);
+    expect(persistAnim === 'none' || persistAnim === '' || persistAnim == null).toBeTruthy();
 
     await shoot(page, 'native');
+    // Persistent-state close-up per width for review (settled green emphasis, no pulse).
+    for (const vp of VIEWPORTS) {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      await page.waitForTimeout(150);
+      await analyticsCue.screenshot({ path: `${SHOTS}/analytics-persistent-${vp.name}.png` });
+    }
   });
 
   test('Native: toast adds no layout movement, clears the sticky bar, and auto-dismisses', async ({ page }) => {
@@ -192,13 +208,16 @@ test.describe('Post-save consolidation', () => {
     expect(detailText).toContain(sessionText);
   });
 
-  test('Reduced motion: the Analytics cue uses a static ring, not the pulse animation', async ({ page }) => {
+  test('Reduced motion: the Analytics cue never pulses — it shows the persistent static green emphasis immediately', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
     const analytics = page.getByTestId('post-save-review-session-link');
+    // No pulsing phase at all — straight to persistent static emphasis.
+    await expect(analytics).toHaveAttribute('data-cue-phase', 'persistent');
     await expect(analytics).toHaveAttribute('data-cue-active', 'true');
+    await expect(analytics).toHaveClass(/bg-\[hsl\(var\(--success/);
     const anim = await analytics.evaluate((el) => getComputedStyle(el).animationName);
     expect(anim === 'none' || anim === '' || anim == null).toBeTruthy(); // pulse suppressed under reduced-motion
     await page.setViewportSize({ width: 375, height: 812 });
