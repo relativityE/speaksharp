@@ -52,16 +52,17 @@ jobs:
           # Print ONLY the allowlisted counts schema (never arbitrary future response fields).
           echo "$http_body" | python3 -c '
 import sys, json
-ALLOW = ["ok","reconciled","reconcile_since","claimed","sent","failed","discarded","lease_lost","dead_lettered","infra_errors","time_budget_exhausted"]
+ALLOW = ["ok","result","reconciled","reconcile_since","claimed","sent","failed","discarded","lease_lost","dead_lettered","infra_errors","time_budget_exhausted"]
 d = json.load(sys.stdin)
 out = {k: d.get(k) for k in ALLOW if k in d}
 # failure_categories: emit category NAMES + counts only (both are non-sensitive).
 if isinstance(d.get("failure_categories"), dict):
     out["failure_categories"] = {str(k): int(v) for k, v in d["failure_categories"].items()}
 print(json.dumps(out, sort_keys=True))
-dead = int(d.get("dead_lettered") or 0)
-if dead > 0:
-    sys.stderr.write("::error::%d event(s) dead-lettered\n" % dead)
+# Fail (red) on hard_failure / not_runnable; success + partial_retry (retryable, self-heals) are green.
+result = d.get("result")
+if result not in ("success", "partial_retry"):
+    sys.stderr.write("::error::worker result=%s\n" % result)
     sys.exit(2)
 if d.get("ok") is not True:
     sys.stderr.write("::error::worker did not report ok\n")

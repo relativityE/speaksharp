@@ -6,6 +6,7 @@ import {
   buildSessionProps,
   classifyDeliveryFailure,
   handler,
+  isApprovedPosthogHost,
   sumFillerWords,
   type WorkerDeps,
 } from './index.ts';
@@ -76,6 +77,15 @@ Deno.test('anonDistinctId: stable, non-PII, record-scoped', () => {
   assertEquals(anonDistinctId('rec-1'), 'anon-report-rec-1');
 });
 
+Deno.test('isApprovedPosthogHost: HTTPS on posthog.com only', () => {
+  assert(isApprovedPosthogHost('https://us.i.posthog.com'));
+  assert(isApprovedPosthogHost('https://eu.posthog.com'));
+  assert(!isApprovedPosthogHost('http://us.i.posthog.com'));      // not https
+  assert(!isApprovedPosthogHost('https://evil.com'));             // wrong host
+  assert(!isApprovedPosthogHost('https://posthog.com.evil.com')); // suffix trick
+  assert(!isApprovedPosthogHost('not-a-url'));
+});
+
 // ---------- handler (fakes) ----------
 
 type FakeRow = Record<string, unknown> & { id: string; record_id: string; event_type: string; lease_token: string };
@@ -119,6 +129,7 @@ function makeSupabase(opts: {
 
 const BASE_ENV: Record<string, string> = {
   TELEMETRY_WORKER_SECRET: 'sekret',
+  TELEMETRY_WORKER_ENABLED: 'true',
   SUPABASE_URL: 'https://x.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: 'svc',
   POSTHOG_PROJECT_KEY: 'phc_key',
@@ -167,6 +178,24 @@ Deno.test('handler: any missing required config → 503 with names, never reconc
   }
 });
 
+Deno.test('handler: invalid POSTHOG_HOST → 503 not_runnable, no DB', async () => {
+  const supa = makeSupabase({ rows: [] });
+  const res = await handler(post('sekret'), depsFor({ ...BASE_ENV, POSTHOG_HOST: 'http://evil.com' }, supa, () => { throw new Error('no'); }, []));
+  assertEquals(res.status, 503);
+  const body = await res.json();
+  assertEquals(body.result, 'not_runnable');
+  assertEquals(supa.calls.rpc.length, 0);
+});
+
+Deno.test('handler: disabled worker → not_runnable, never claims (overlap-safe)', async () => {
+  const supa = makeSupabase({ rows: [sessionRow('o', 'r', 'l')] });
+  const res = await handler(post('sekret'), depsFor({ ...BASE_ENV, TELEMETRY_WORKER_ENABLED: undefined }, supa, () => { throw new Error('no'); }, []));
+  const body = await res.json();
+  assertEquals(body.result, 'not_runnable');
+  assertEquals(body.ok, false);
+  assertEquals(supa.calls.rpc.length, 0);
+});
+
 Deno.test('handler happy path: rolling-window reconcile, /capture/, allowlisted payload, mark sent + SHA', async () => {
   const rows = [sessionRow('o1', 'r1', 'l1')];
   const supa = makeSupabase({ rows, reconcile: 2, sources: { r1: { user_id: 'user-1', engine: 'Private', duration: 300, total_words: 400, wpm: 80, clarity_score: 90, accuracy: 0.95, filler_words: { um: 4 } } } });
@@ -177,6 +206,7 @@ Deno.test('handler happy path: rolling-window reconcile, /capture/, allowlisted 
   const body = await res.json();
   assertEquals(res.status, 200);
   assertEquals(body.ok, true);
+  assertEquals(body.result, 'success');
   assertEquals(body.sent, 1);
   assertEquals(body.reconciled, 2);
   assertEquals(sentry.length, 0);
@@ -221,6 +251,7 @@ Deno.test('handler failure path: classify, dead-letter, ok:false, sanitized Sent
   const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, sentry));
   const body = await res.json();
   assertEquals(body.ok, false);
+  assertEquals(body.result, 'hard_failure'); // dead_lettered>0
   assertEquals(body.failed, 2);
   assertEquals(body.dead_lettered, 1);
   assertEquals(body.failure_categories.ingest_rejected, 1);
@@ -240,6 +271,21 @@ Deno.test('handler: mark returns false → lease_lost, no double-count, no recur
   assertEquals(body.lease_lost, 1);
   // exactly one mark attempt (no recursive re-mark on a lost lease)
   assertEquals(supa.calls.rpc.filter((c) => c.name === 'mark_telemetry_result').length, 1);
+});
+
+Deno.test('handler: retryable failure only (mark ok, no dead-letter) → partial_retry, ok:true', async () => {
+  const rows = [sessionRow('o1', 'r1', 'l1')];
+  // 500 → transport_error; mark succeeds (default markData true); status re-read = 'failed' (not dead_letter).
+  const supa = makeSupabase({ rows, sources: { r1: { user_id: 'u', engine: 'Private' } }, statusById: { o1: 'failed' } });
+  const fetchImpl = (() => Promise.resolve(new Response('busy', { status: 503 }))) as unknown as typeof fetch;
+  const sentry: unknown[] = [];
+  const res = await handler(post('sekret'), depsFor(BASE_ENV, supa, fetchImpl, sentry));
+  const body = await res.json();
+  assertEquals(body.result, 'partial_retry');
+  assertEquals(body.ok, true);
+  assertEquals(body.failed, 1);
+  assertEquals(body.dead_lettered, 0);
+  assertEquals(sentry.length, 1); // warning-level alert
 });
 
 Deno.test('handler: reconcile RPC error → 500, ok:false, sentry, never claims', async () => {

@@ -140,8 +140,20 @@ export function anonDistinctId(recordId: string): string {
   return `anon-report-${recordId}`;
 }
 
+/** Only HTTPS on an approved PostHog host is accepted for ingest — a misconfigured host must not
+ * silently swallow events or exfiltrate to an arbitrary URL. */
+export function isApprovedPosthogHost(host: string): boolean {
+  try {
+    const u = new URL(host);
+    return u.protocol === 'https:' && /(^|\.)posthog\.com$/.test(u.hostname);
+  } catch { return false; }
+}
+
+export type WorkerResult = 'success' | 'partial_retry' | 'hard_failure' | 'not_runnable';
+
 export type WorkerSummary = {
   ok: boolean;
+  result: WorkerResult;
   reconciled: number;
   reconcile_since: string;
   claimed: number;
@@ -195,9 +207,9 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
   const providedSecret = req.headers.get('x-telemetry-worker-secret');
   if (!configuredSecret || providedSecret !== configuredSecret) return json({ error: 'not_found' }, 404);
 
-  // (1) FAIL-CLOSED config validation — before any reconcile/claim.
+  // (1) FAIL-CLOSED config validation — before any reconcile/claim. not_runnable, never green.
   const missing = REQUIRED_ENV.filter((k) => !deps.getEnv(k));
-  if (missing.length > 0) return json({ ok: false, error: 'config_missing', missing }, 503);
+  if (missing.length > 0) return json({ ok: false, result: 'not_runnable', error: 'config_missing', missing }, 503);
 
   const supabaseUrl = deps.getEnv('SUPABASE_URL')!;
   const serviceKey = deps.getEnv('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -206,17 +218,29 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
   const serverVerifiedSha = deps.getEnv('TELEMETRY_WORKER_RELEASE_SHA')!;
   const sentryDsn = deps.getEnv('SENTRY_DSN')!;
 
-  const batchSize = Math.max(1, Math.min(Number(deps.getEnv('TELEMETRY_WORKER_BATCH') ?? '50') || 50, 200));
+  // POSTHOG_HOST must be HTTPS on an approved PostHog host.
+  if (!isApprovedPosthogHost(ingestHost)) return json({ ok: false, result: 'not_runnable', error: 'config_invalid_posthog_host' }, 503);
+
+  // (1b) OVERLAP-SAFE gate: normal draining is disabled unless explicitly enabled at cutover. This
+  // prevents accidental draining of real records while client emitters are still authoritative.
+  if (deps.getEnv('TELEMETRY_WORKER_ENABLED') !== 'true') return json({ ok: false, result: 'not_runnable', error: 'worker_disabled' }, 200);
+
   const windowSec = Math.max(60, Number(deps.getEnv('TELEMETRY_RECONCILE_WINDOW_SECONDS') ?? '3600') || 3600);
   const eventTimeoutMs = Math.max(1000, Number(deps.getEnv('TELEMETRY_EVENT_TIMEOUT_MS') ?? '10000') || 10000);
   const deadlineMs = Math.max(5000, Number(deps.getEnv('TELEMETRY_WORKER_DEADLINE_MS') ?? '90000') || 90000);
+  const concurrency = Math.max(1, Math.min(Number(deps.getEnv('TELEMETRY_WORKER_CONCURRENCY') ?? '5') || 5, 16));
+  // Worst-case must fit the shared deadline: ceil(batch/concurrency)*eventTimeout ≤ deadline. Default
+  // batch is derived from the deadline so 50×10s>90s can never happen; an explicit override is clamped.
+  const maxBatchForDeadline = Math.max(1, Math.floor(deadlineMs / eventTimeoutMs) * concurrency);
+  const requestedBatch = Math.max(1, Math.min(Number(deps.getEnv('TELEMETRY_WORKER_BATCH') ?? '25') || 25, 200));
+  const batchSize = Math.min(requestedBatch, maxBatchForDeadline);
 
   const supabase = deps.createSupabase(supabaseUrl, serviceKey);
   const start = deps.now();
   const reconcileSince = new Date(start - windowSec * 1000).toISOString();
 
   const summary: WorkerSummary = {
-    ok: true, reconciled: 0, reconcile_since: reconcileSince, claimed: 0, sent: 0, failed: 0,
+    ok: true, result: 'success', reconciled: 0, reconcile_since: reconcileSince, claimed: 0, sent: 0, failed: 0,
     discarded: 0, lease_lost: 0, dead_lettered: 0, infra_errors: 0, time_budget_exhausted: false,
     failure_categories: {},
   };
@@ -235,12 +259,12 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
 
   // (2) reconcile a BOUNDED rolling window (never full history).
   const { data: reconciledData, error: reconcileErr } = await supabase.rpc('reconcile_telemetry_outbox', { p_since: reconcileSince });
-  if (reconcileErr) { summary.ok = false; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: reconcile failed'); return json({ ...summary, error: 'reconcile_failed' }, 500); }
+  if (reconcileErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: reconcile failed'); return json({ ...summary, error: 'reconcile_failed' }, 500); }
   summary.reconciled = Number(reconciledData ?? 0);
 
   // (3) claim a bounded batch.
   const { data: rowsData, error: claimErr } = await supabase.rpc('claim_telemetry_batch', { p_limit: batchSize, p_worker: 'edge-telemetry-worker' });
-  if (claimErr) { summary.ok = false; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: claim failed'); return json({ ...summary, error: 'claim_failed' }, 500); }
+  if (claimErr) { summary.ok = false; summary.result = 'hard_failure'; summary.infra_errors++; await sentryAlert('error', 'telemetry-worker: claim failed'); return json({ ...summary, error: 'claim_failed' }, 500); }
   const rows = (rowsData ?? []) as OutboxRow[];
   summary.claimed = rows.length;
 
@@ -270,20 +294,19 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
     if (data === true) summary.discarded++; else summary.lease_lost++;
   };
 
-  // (4/5) deliver + mark.
-  for (const row of rows) {
-    if (deps.now() - start > deadlineMs) { summary.time_budget_exhausted = true; break; } // leave the rest leased → reclaimed next run
-
+  // (4/5) deliver + mark, one row at a time, under BOUNDED CONCURRENCY. Worst-case wall-clock is
+  // ceil(batch/concurrency)*eventTimeout, kept ≤ deadline by the batch clamp above.
+  const processRow = async (row: OutboxRow) => {
     const { data: src, error: srcErr } = await supabase
       .from(SOURCE_TABLE[row.event_type]).select(SOURCE_COLUMNS[row.event_type]).eq('id', row.record_id).maybeSingle();
-    if (srcErr) { summary.infra_errors++; continue; } // transient DB error → leave leased, retry later
-    if (!src) { await discard(row); continue; }        // source gone (deleted account/session) → tombstone
+    if (srcErr) { summary.infra_errors++; return; } // transient DB error → leave leased, retry later
+    if (!src) { await discard(row); return; }        // source gone (deleted account/session) → tombstone
 
     const source = src as unknown as Record<string, unknown>;
     const distinctId = row.event_type === 'session_saved'
       ? (source.user_id as string | null)               // sessions.user_id is NOT NULL when the row exists
       : ((source.user_id as string | null) ?? anonDistinctId(row.record_id)); // legitimate anonymous report
-    if (!distinctId) { await discard(row); continue; }  // defensive: no attributable identity
+    if (!distinctId) { await discard(row); return; }  // defensive: no attributable identity
 
     const productProps = row.event_type === 'session_saved' ? buildSessionProps(source) : buildReportProps(source);
     const payload = buildCapturePayload({ row, distinctId, productProps, projectKey, serverVerifiedSha });
@@ -301,13 +324,27 @@ export async function handler(req: Request, deps: WorkerDeps = defaultDeps): Pro
 
     if (status !== null && status >= 200 && status < 300) await markSent(row);
     else await markFailed(row, classifyDeliveryFailure(status));
-  }
+  };
 
-  // (6) alert + non-ok on failure/dead-letter/infra.
-  if (summary.dead_lettered > 0 || summary.infra_errors > 0) summary.ok = false;
-  if (summary.failed > 0 || summary.dead_lettered > 0 || summary.infra_errors > 0) {
-    await sentryAlert(summary.dead_lettered > 0 || summary.infra_errors > 0 ? 'error' : 'warning',
-      `telemetry-worker: ${summary.failed} failed, ${summary.dead_lettered} dead-lettered, ${summary.infra_errors} infra of ${summary.claimed} claimed`);
+  let next = 0;
+  const runLane = async () => {
+    for (;;) {
+      if (deps.now() - start > deadlineMs) { summary.time_budget_exhausted = true; return; } // rest stay leased → reclaimed next run
+      const i = next++;
+      if (i >= rows.length) return;
+      await processRow(rows[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, rows.length)) }, () => runLane()));
+
+  // (6) result semantics. GREEN only when none of the hard conditions occurred; retryable delivery
+  // failures alone are 'partial_retry' (self-heals on the next run).
+  const hardFailure = summary.infra_errors > 0 || summary.dead_lettered > 0 || summary.lease_lost > 0 || summary.time_budget_exhausted;
+  summary.ok = !hardFailure;
+  summary.result = hardFailure ? 'hard_failure' : (summary.failed > 0 ? 'partial_retry' : 'success');
+  if (summary.failed > 0 || hardFailure) {
+    await sentryAlert(hardFailure ? 'error' : 'warning',
+      `telemetry-worker[${summary.result}]: ${summary.failed} failed, ${summary.dead_lettered} dead-lettered, ${summary.lease_lost} lease-lost, ${summary.infra_errors} infra of ${summary.claimed} claimed`);
   }
 
   return json({ ...summary }, 200);
