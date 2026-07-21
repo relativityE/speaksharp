@@ -1,6 +1,6 @@
 # Environment Variable Inventory (Single Source of Truth)
 
-**Owner:** relativityE · **Last updated:** 2026-07-15 · maps to `main@84f720d2`
+**Owner:** relativityE · **Last updated:** 2026-07-20 · reconciled to private-first `main` (billing fail-closed, exact-origin CORS deployed, Private v4 disabled)
 
 This is the **canonical catalog** of every environment variable SpeakSharp uses, **where each
 one is stored**, who consumes it, and its scope. Use it to **add new vars, migrate/replicate
@@ -30,9 +30,9 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 
 > **⚠️ LOADING MODEL (critical):** `frontend/vite.config.mjs` sets `envDir = repo root`, and there is
 > **no root `.env.production`**. So at build/dev time Vite loads `.env*` from the **repo ROOT** (Home A)
-> plus actual `process.env` `VITE_*` (Home B on Vercel). The production fail-closed behavior comes from
-> the Stripe key simply being absent in `process.env` until Vercel injects it (Home B). (The old
-> `frontend/.env.production` was outside `envDir`, never build-loaded, and has been **removed** — do not re-add it.)
+> plus actual `process.env` `VITE_*` (Home B on Vercel).
+> **Production billing closure does NOT depend on the Stripe key being absent** — Vercel may inject a live publishable key, yet checkout stays closed unless `VITE_PAYMENTS_ENABLED=true` (frontend) AND `PAYMENTS_ENABLED=true` (Supabase); either switch unset/false keeps checkout closed.
+> (The old `frontend/.env.production` was outside `envDir`, never build-loaded, and has been **removed** — do not re-add it.)
 > `scripts/validate-env.mjs` reads root `.env` + root `.env.test`.
 
 > **Auto-provided:** Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -103,28 +103,29 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `SUPABASE_URL` | C (auto) | all edge fns | platform |
 | `SUPABASE_ANON_KEY` | C (auto) | edge fns | platform (rolls with JWT secret) |
 | `SUPABASE_SERVICE_ROLE_KEY` | C (auto) | create-user, admin paths | product-ops |
-| `PAYMENTS_ENABLED` | Supabase Edge secret | stripe-checkout | **Explicit backend payments kill-switch (P0.1). Default OFF.** `stripe-checkout` returns `403 payments_disabled` (before any Stripe call) unless this === `"true"` AND `STRIPE_SECRET_KEY` is `sk_live_`. Mirrors frontend `VITE_PAYMENTS_ENABLED`; **both** frontend and backend must be deliberately enabled to sell Pro. |
-| `STRIPE_SECRET_KEY` | C (+D sync) | stripe-checkout, stripe-webhook | product-ops |
-| `STRIPE_WEBHOOK_SECRET` | C (+D sync) | stripe-webhook | product-ops |
-| `STRIPE_PRO_PRICE_ID` | C (+D sync) | checkout | product-ops |
-| `STRIPE_BASIC_PRICE_ID` | C (+D sync) | checkout (future/placeholder) | product-ops |
-| `ASSEMBLYAI_API_KEY` | C (+D sync) | assemblyai-token (Cloud STT) | product-ops |
+| `PAYMENTS_ENABLED` | Supabase Edge secret | stripe-checkout | **Explicit backend payments kill-switch (P0.1). Default OFF.** `stripe-checkout` returns `403 payments_disabled` (before any Stripe call) unless this === `"true"` AND `STRIPE_SECRET_KEY` is `sk_live_`. Mirrors frontend `VITE_PAYMENTS_ENABLED`; **both** frontend and backend must be deliberately enabled to sell Pro. **Checkout is closed by the switch being OFF — NOT by the Stripe key being absent:** live Stripe keys may be present in Supabase while both `VITE_PAYMENTS_ENABLED` and `PAYMENTS_ENABLED` stay OFF, keeping checkout closed. |
+| `STRIPE_SECRET_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | stripe-checkout, stripe-webhook | product-ops |
+| `STRIPE_WEBHOOK_SECRET` | C — **Ops-managed in Supabase; NOT synced from GitHub** | stripe-webhook | product-ops |
+| `STRIPE_PRO_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout | product-ops |
+| `STRIPE_BASIC_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout (future/placeholder) | product-ops |
+| `ASSEMBLYAI_API_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | assemblyai-token (Cloud STT) | product-ops |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions (NOT format-transcript — that was removed) | product-ops |
-| `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (origin allowlist) | product-ops |
+| `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (`getAllowedOrigins`/`parseConfiguredOrigins`) | product-ops. **APPENDS extra exact origins only.** `cors.ts` ships a frozen `BUILTIN_ALLOWED_ORIGINS` exact allowlist (`https://speaksharp-public.vercel.app`, `https://speaksharp.ai`, `https://www.speaksharp.ai`, plus `http://localhost:5173/5174` + `http://127.0.0.1:5173/5174`); `ALLOWED_ORIGIN` adds comma-separated **exact** origins (e.g. explicit preview hosts). Every entry is parsed to canonical `URL.origin` — no wildcard/suffix/substring; malformed entries are logged and ignored. Fail-closed: a disallowed origin gets a 403 with NO `Access-Control-Allow-Origin`. |
 | `AGENT_SECRET` | C (+D sync) | agent/internal auth | product-ops |
 | `OBSERVABILITY_SMOKE_SECRET` | C | observability-smoke | product-ops |
 | `SENTRY_DSN` (backend) | C | edge-fn error ingest | product-ops |
 | `LOG_LEVEL` (backend) | C | edge-fn log level | product-ops |
 
+> **GitHub→Supabase secret sync (`deploy-supabase-migrations.yml`, `operation=secrets`) sets ONLY `AGENT_SECRET`, `ALLOWED_ORIGIN`, and `GEMINI_API_KEY`.** All other Home-C runtime secrets — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID`, `ASSEMBLYAI_API_KEY`, `SITE_URL` — are **Ops-managed directly in Supabase and are NOT synced from GitHub** (the sync intentionally excludes them so a CI/test value can never overwrite the live production runtime). `ALLOWED_ORIGIN` reflects #1010's deployed, live-DAST-proven exact-origin allowlist (legacy `speaksharp.vercel.app` removed).
+
 ---
 
 ## 3. GitHub Actions env (Home D) — Secrets vs Variables
 
-**40** names are referenced as `secrets.*` across `.github/workflows`; **nothing uses `vars.*` yet.**
-Many are **non-secret config over-classified as Secrets** — they should be GitHub Actions
+Names are referenced as `secrets.*` across `.github/workflows`; a **small number of GitHub `vars.*` are also referenced** (e.g. `vars.SUPABASE_PROJECT_ID`, `vars.SUPABASE_URL`, `vars.EDGE_FN_URL`) — reconcile any count against the current workflows rather than assuming "none." Many `secrets.*` are **non-secret config over-classified as Secrets** — they should be GitHub Actions
 **Variables** (plaintext, still env-injected) so the true-secret surface is small + auditable.
 
-> **✅ Live-verified 2026-06-08 (`gh`, read-only, no values):** **36 repo Secrets, 0 Variables, no
+> **HISTORICAL SNAPSHOT — 2026-06-08 (`gh`, read-only, no values); re-verify before trusting counts.** The "0 Variables" count is stale: workflows now reference GitHub `vars.*` (e.g. `vars.SUPABASE_PROJECT_ID`), so at least some Variables are defined. At the time: **36 repo Secrets, 0 Variables, no
 > env-scoped secrets** (Preview/Production/production-db envs empty). Reconciliation vs workflow refs:
 > `SUPABASE_DB_PASSWORD` is set but was uncatalogued → added to 3a. 5 workflow-referenced names are
 > NOT set in GitHub (`VERCEL_ORG_ID`, `VERCEL_TEAM_ID`, `VITE_STRIPE_PUBLISHABLE_KEY` [Vercel-side],
@@ -218,7 +219,7 @@ The **real production** values for the §1 `VITE_*` live here (Production scope)
 
 ## Feature-flag & runtime vars — code-verified sync (2026-07-15)
 
-Verified by reading the source at `main@84f720d2`. Names/homes only; no values.
+Verified by reading the source on the current `main` baseline (names/homes only; no values). This is a point-in-time code-verified snapshot — re-verify against `main` when env usage changes rather than trusting a pinned SHA.
 
 | Variable | Home | Where read (code) | Default / effect |
 |---|---|---|---|
@@ -227,11 +228,19 @@ Verified by reading the source at `main@84f720d2`. Names/homes only; no values.
 | `VITE_DEV_PREMIUM_ACCESS` | (test-only) | Stubbed `'false'` in `frontend/tests/setup.ts:314`; **no read in `frontend/src`** | Dead/historical — no shipping code consumes it. Pro entitlement is server-driven: `hasPaidProEntitlement()` requires `subscription_status==='pro'` **and** a real `stripe_subscription_id` (`frontend/src/constants/subscriptionTiers.ts:49`); no env dev/owner bypass exists. |
 | `VITE_SENTRY_DSN` | A/B (`VITE_*`) | `frontend/src/main.tsx:104,116` | Frontend Sentry DSN; skipped if absent or contains `example.invalid`. Sentry **environment** = `import.meta.env.MODE` (Vite build mode), `main.tsx:121` — not a dedicated var. Gating flags: `VITE_ENABLE_SENTRY_TRACING`, `VITE_ENABLE_SENTRY_REPLAY`, `VITE_ENABLE_SENTRY_CONSOLE_CAPTURE`. |
 | `SENTRY_DSN` (backend) | C (Supabase) / D (CI `vars`) | `backend/supabase/functions/observability-smoke/index.ts:27`; workflows also use `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` | Edge/observability Sentry sender (`_shared/sentry.ts`). |
-| `SITE_URL` | C (Supabase Edge secret) | `stripe-checkout/index.ts:99,103,212`, `stripe-billing-portal/index.ts:75,130` (via `getEnv`) | Base URL for Stripe checkout/portal redirect URLs. Prod-required (errors if missing); local-dev fallback `http://localhost:${DEV_PORT}`. No `VITE_SITE_URL`/`PUBLIC_SITE_URL` variant exists. |
-| Stripe gating | C / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge); `VITE_STRIPE_PUBLISHABLE_KEY` (client); `VITE_ENABLE_FREE_PLAN_SUPPORT` (`config.ts:54`) | Live vs test gating is by key class + `rc-gates.yml` `paid_launch` input + `billing-freeze-check.yml` (`BILLING_FREEZE_EMAILS`). Beta-50 billing freeze active. |
+| `SITE_URL` | C — **Ops-managed in Supabase; NOT synced from GitHub** | `stripe-checkout/index.ts:99,103,212`, `stripe-billing-portal/index.ts:75,130` (via `getEnv`) | Base URL for Stripe checkout/portal redirect URLs. Prod-required (errors if missing); local-dev fallback `http://localhost:${DEV_PORT}`. No `VITE_SITE_URL`/`PUBLIC_SITE_URL` variant exists. |
+| Stripe gating | C (Ops-managed) / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge, Ops-managed); `VITE_STRIPE_PUBLISHABLE_KEY` (client); `VITE_ENABLE_FREE_PLAN_SUPPORT` (`config.ts:54`) | Checkout opens ONLY when BOTH payment switches are ON (`VITE_PAYMENTS_ENABLED=true` **and** `PAYMENTS_ENABLED=true` — either OFF keeps checkout closed) **and** the live Stripe keys/webhook/prices are correctly aligned (verified by `rc-gates.yml` `paid_launch` + `billing-freeze-check.yml`, `BILLING_FREEZE_EMAILS`). Key class alone does not open checkout. Beta billing freeze active. |
 | #979 grant check | (workflow inputs) | `.github/workflows/db-grant-check.yml` — inputs `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`; default target `public.get_user_id_by_email(text)` | Read-only `has_function_privilege()` audit of EXECUTE grants; enforced by migration `20260714000000_harden_get_user_id_by_email_grant.sql`. |
+
+## Draft #1006 — NOT deployed (do not treat as shipped vars)
+
+The #1006 telemetry outbox / provenance proposal is **DRAFT** and **NOT deployed**. Any variables it
+introduces (e.g. `POSTHOG_DISTINCT_ID_HMAC_KEY`, `TELEMETRY_WORKER_ENABLED`) are **not** current,
+**not** consumed by shipping code, and **must not** be added to §1–§4 above as live/required vars until
+#1006 actually merges and deploys. Listed here only so a future reader does not mistake the proposal
+for current configuration.
 
 ## Open decisions affecting this inventory
 - **ENV-PROD:** whether to migrate the Home-A committed `VITE_*` (public) into Home B (Vercel), to match the Stripe-key pattern. This table is the migration checklist if so.
-- **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` re-assessment addendum.
+- **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` (P2 dependency/bloat maintenance epic).
 - **VITE_DEV_PREMIUM_ACCESS cleanup:** remove the dead test-only stub or wire an intentional owner-QA path; today it is stubbed but unused in `src`.

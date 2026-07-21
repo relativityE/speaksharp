@@ -18,9 +18,13 @@ This document defines the structural invariants and authoritative sources of tru
 | :--- | :--- | :--- |
 | **Billing Limits** | Postgres Migration Schema + RPC Logic | Frontend Constants / Roadmap |
 | **Transcript State** | `useSessionStore` and same-session client memory | Component Local State |
-| **Session History** | DB `sessions` table transcript/analysis snapshot: transcript text, duration, counts, custom words, filler words, pause metrics, AI suggestions, engine/mode fields | Ephemeral UI-only metrics |
+| **Session History (saved sessions)** | Supabase DB `sessions` table transcript/analysis snapshot: transcript text, duration, counts, custom words, filler words, pause metrics, AI suggestions, engine/mode fields | Ephemeral UI-only metrics |
+| **Issue / Feedback Reports** | Supabase DB `user_issue_reports` table (insert via `frontend/src/services/issueReportService.ts`) | PostHog capture / Sentry event id |
 | **Quota Enforcement** | Edge Function + `check_usage_limit` RPC | Frontend Pre-checks |
 | **Session Lifecycle** | `TranscriptionFSM` State | Browser Mount/Unmount Events |
+| **Telemetry / Observability** | — (observability only, never a persistence source of truth) | PostHog client capture (best-effort), Sentry events |
+
+**Persistence vs observability.** Supabase is the authoritative persistence layer for saved sessions and issue/feedback reports. PostHog is best-effort client-side observability capture — its events are NOT proof that a session or report persisted. Sentry carries failures and sanitized alerts (e.g. `sentryLastEventId` attached to an issue report), NOT full feedback storage. A successful client capture MUST NOT be read as a durable-write guarantee.
 
 ---
 
@@ -34,9 +38,10 @@ This document defines the structural invariants and authoritative sources of tru
 > **Transcription cannot enter RECORDING before engine initialization succeeds.**
 - The finite state machine MUST gate the recording pulse behind a verified `READY` engine handshake.
 
-### 2a. Finalized-Producer Invariant (#982)
+### 2a. Finalized-Producer Invariant
 > **The "finalized" signal is published exactly once, only at the terminal join, and is session-guarded.**
-- Post-save UI (single `StatusNotificationBar`, completion toast, filler disclosure) MUST consume the finalized snapshot published only after the terminal join completes (persist → reconcile → formatter terminal). It MUST NOT react to a mid-finalization or stale buffer, and a signal from a superseded session MUST be discarded.
+- The finalized producer feeds exactly ONE authoritative post-save status surface: `StatusNotificationBar` (`frontend/src/components/session/StatusNotificationBar.tsx`). There is NO completion toast and NO "Next: Analytics" overlay — `PostSaveToast` is deleted from the codebase. That single bar owns the "Session saved" message, the persistent accessible Analytics action, the quiet secondary Private CTA, and the filler disclosure; the recording-card pill resets to its ready state so there is no duplicate saved-state signal (`frontend/src/pages/SessionPage.tsx`).
+- The post-save surface MUST consume the finalized snapshot published only after the terminal join completes (persist → reconcile → formatter terminal). It MUST NOT react to a mid-finalization or stale buffer, and a signal from a superseded session MUST be discarded.
 
 ### 3. Billing Invariant
 > **Quota enforcement must fail closed.**
@@ -96,3 +101,9 @@ Future Vercel protected admin page renders a simplified view from the JSON
 - `ops-health.md` is the interim operator summary for GitHub workflow summaries and artifacts.
 - A future protected Vercel admin page should render the simple human dashboard from the JSON, not run vendor checks from the browser.
 - Vendor secrets MUST remain server-side in GitHub Actions, Supabase, or a future server-side admin endpoint; they MUST NOT be exposed to frontend code.
+
+### Durable telemetry/alert outbox + provenance registry — DRAFT (NOT SHIPPED)
+
+> **Status: DRAFT design only (PR #1006). NOT SHIPPED, NOT activated. Do not describe as current behavior.**
+
+A proposed durable telemetry/alert **outbox**, a server-assigned **provenance** registry, owner-alerting, and a protected retrieval path are captured as a draft design. None of it is deployed or active. Until it ships and is proven, the persistence/observability invariants above stand unchanged: Supabase remains the only authoritative persistence layer for saved sessions and issue reports, and PostHog/Sentry remain best-effort observability — not a durable-delivery guarantee. Do not cite the outbox/provenance registry as if it were live.

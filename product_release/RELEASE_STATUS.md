@@ -1,124 +1,62 @@
 # Release Status
 
-**Last updated:** 2026-07-17 · Owner: Prod Owner (relativityE).
-**Scope:** Single source of truth (SSOT) for current release posture. If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational and RC-gate docs; current ship status lives here only.
+**Owner:** Prod Owner (relativityE).
+**Scope:** Single source of truth (SSOT) for current release/deployment posture. If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational and RC-gate docs; current ship status lives here only.
 
-> **Controlled small-batch release candidate `v0.9.0-rc4` is cut and authorized by the Prod Owner** (annotated tag at `df909805`, peels to `df909805947d4ecc245692cff491515a1b6c6345`). Scope is the **first controlled batch of 3–5 testers only** — no paid checkout, no broad release, no v4 activation. Any expansion beyond this batch, and any paid launch, requires a separate explicit Prod Owner decision.
-
-## Current main & production posture
+## Current baseline & production posture
 
 | Item | Value |
 |---|---|
-| **`v0.9.0-rc4` release SHA (code / runtime)** | `df909805947d4ecc245692cff491515a1b6c6345` — **frozen**; the deployed product release point (sanitized lineage — see [Attribution history sanitation](#attribution-history-sanitation--sha-crosswalk)). This is the release/code SHA, **not** necessarily the current `main` HEAD. |
-| Current `main` HEAD | `df909805` at the rc4 cut. **Advances by documentation-only** when PR #991 (this SSOT reconciliation) merges; the rc4 release SHA, the deployed product, and every gate result stay at `df909805` regardless. |
-| Release tag | **`v0.9.0-rc4`** (annotated, tag-object `f0687ec0aeed2f3e3a77360f964345d228ee2091`) → **continues to peel to `df909805`** (unchanged by the #991 docs merge). |
-| Deployment | Auto-deploy on push to `main`. Exact-head gates on `df909805` all green: **CI - Test Audit** ✅ (run 29599262192) · **RC Gates** ✅ all 5 incl. full live DAST (run 29599349765) · **OSV SCA — Gate 4** ✅ (run 29599261257) · **Production Canary** ✅ (run 29599261419) · **Ops Health** ✅ (run 29599351078) · **Billing Freeze** ✅ (run 29599352794) · **DB grant check** ✅ (run 29599354335) · **Vercel Production** SHA-equal (`VITE_VERCEL_GIT_COMMIT_SHA = df909805`) · **checkout = 0** · **v4 = 0** (PostHog 7d, live control `session_saved > 0`). |
-| Branch protection | `enforce_admins=true`, `allow_force_pushes=false`, `allow_deletions=false`, **11 required GitHub Actions contexts (including `sca-osv`)**, 0 rulesets. |
-| Payments | Prod runtime `stripeKeyClass="test"`; live checkout not open. Paid launch is a separate Ops key-swap cutover, not a pending Dev/QA test. |
+| **Current product code baseline (`main`)** | `65e58a62` — the #1010 CORS configuration fix on top of the private-first UX milestone `e9040464` (#1007/#1008). |
+| **Production deployment** | Vercel serves `main`. **SHA-equality verified:** the deployed bundle embeds `__BUILD_ID__ = 65e58a62…` (= current `main`), injected at build from `VERCEL_GIT_COMMIT_SHA` ([frontend/vite.config.mjs](../frontend/vite.config.mjs)). |
+| **Historical frozen tag** | `v0.9.0-rc4` (annotated) peels to `df909805…`. This is a **historical, frozen** release point — **NOT** the current `main`/product baseline. |
+| Deployment | Auto-deploy on push to `main`. Post-merge gates on `65e58a62` all green: **CI - Test Audit** ✅ · **RC Gates** ✅ all 5 incl. Gate 5 UX Smoke and **live Gate 3 CORS DAST** ✅ · **OSV SCA — Gate 4** ✅ · **Production Canary** ✅ · **Ops Health** ✅ · **Billing Freeze** ✅ · **DB grant** ✅. |
+| #1010 (CORS) | **Configuration-only** — removed the legacy `https://speaksharp.vercel.app` origin from the deploy `ALLOWED_ORIGIN` sync + a regression test. Merged, secrets-deployed, and **live-DAST-proven** on `65e58a62`: legacy origin → `403`/no-ACAO, approved origin → `204`/exact ACAO. |
+| Payments | **Closed.** Billing is independently fail-closed in frontend AND backend — **either switch OFF keeps checkout closed**; the billing-freeze check proves CLOSED. Opening paid enrollment requires ALL of: `VITE_PAYMENTS_ENABLED=true`, `PAYMENTS_ENABLED=true`, correctly aligned live Stripe keys, and webhook/price/entitlement verification. A separate future sequence, not a pending test. |
+| CORS | **Exact-origin CORS deployed and live-DAST proven** (rc-gates Gate 3; origin allowlist in [backend/supabase/functions/_shared/cors.ts](../backend/supabase/functions/_shared/cors.ts)). |
+| Private v4 | **OFF.** Its model-pipeline smoke is repaired, but v4 activation remains disabled. |
 
-> **Docs-only `main` advance (PR #991):** merging PR #991 advances `main` to a new commit whose delta from `df909805` is **documentation-only** — no product, runtime, gate, or deployment-behavior change. Any Vercel rebuild it triggers ships the identical rc4 runtime. `v0.9.0-rc4` remains the annotated tag at `df909805`; production continues to serve the rc4 code SHA.
+## Current merged product posture (through #1007 / #1008)
+- **Private-first UX shipped:** Private = Recommended/main; Browser = "Quick preview"; Cloud = Pro (unavailable to Free testers in the no-billing beta; existing paid-Pro accounts retain access). One controlled desktop description flyout; one touch "About transcription modes" panel; the mode dropdown is opaque.
+- **Post-save consolidated:** one authoritative `StatusNotificationBar` with a single persistent, accessible (WCAG-AA) green Analytics action; the recording-card pill resets (no duplicate "Session saved"). **The completion toast / "Next: Analytics" overlay is deleted.**
+- Billing closed, exact-origin CORS hardened, v4 off (as above).
 
-## Shipped since the last SSOT update
+## Beta posture
+- **Controlled, invite-only, no-billing beta underway.** No Cloud for Free testers; v4 off. (No hard-coded tester count here — reconcile any count to the authoritative invitation roster before publishing it.)
+- **The investigated Browser and Private sessions and issue report were preserved; those records do not need to be repeated.** **Attempts that never reached Supabase cannot yet be counted** and remain part of #1006.
 
-### #982 — post-save reconciliation (MERGED, on `main` at `0a8246ae`)
-`feat(session): post-save reconciliation — one status bar, completion toast, finalized-filler contract`. Shipped user-visible state:
-- **One consolidated status bar** (`StatusNotificationBar`) replacing the prior `post-save-review-actions` block — consolidated left copy, **Private CTA as a secondary action (retained)**, Analytics link rightmost; gated on the terminal finalized state; mobile 2-row layout.
-- **Completion toast** — "Next: Analytics", rendered as an **absolute element straddling the card boundary** (not an in-flow block between cards, and no fixed/blur overlay), shown once per finalized session, ≥5s, `aria-live="polite"`, collapse-on-dismiss.
-- **Finalized-filler contract** — filler disclosure reads the live finalized snapshot; the completion/finalized signal is published only at the terminal join (persist → reconcile → formatter terminal), guarded by session.
-- **Final transcript** wired into the consolidated surface; `post-save-review-actions` removed atomically.
-
-### #979 — RPC grant lockdown (MERGED, on `main` at `fc994387`)
-`fix(security): revoke public EXECUTE on get_user_id_by_email + read-only grant-check tool (Wave-1 P1)`.
-- **Migration** `backend/supabase/migrations/20260714000000_harden_get_user_id_by_email_grant.sql`: `REVOKE EXECUTE ON public.get_user_id_by_email(text) FROM PUBLIC, anon, authenticated` and `GRANT EXECUTE ... TO service_role`.
-- **Proof tool** `.github/workflows/db-grant-check.yml` — read-only `has_function_privilege()` audit (SELECT-only) reporting EXECUTE grants for PUBLIC/anon/authenticated/service_role; default target `public.get_user_id_by_email(text)`. Inputs: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`.
-
-### #983 — attribution policy (MERGED, on `main` at `84f720d2`)
-`chore(claude): disable Claude attribution (owner-only commit policy)`. Owner-only commit attribution going forward: `relativityE <relativityE@users.noreply.github.com>`; no Claude/Anthropic co-author trailers, generated-by footers, or session links in commits, PRs, or docs. Enforced by `.claude/settings.json` (`attribution: {commit:"", pr:"", sessionUrl:false}`). Legitimate technical references to Claude (product/model/API) are retained.
+## Current open work
+- **#1006 (DRAFT, not activated)** — reliable data-retrieval / observability / durable delivery (outbox + provenance + owner-alert + protected retrieval). This is the current open incident/remediation. **Not shipped, not deployed, not activated**; migrations/workers/crons/reconciliation each require separate Prod Owner authorization. Details: `BACKLOG.md` P0.4, `ACTIVE_COORDINATION.md`.
 
 ## Private STT finalization — accepted RC limitation
-
-A full **five-minute single Private (v2 / whisper-base.en) recording finalizes in ≈90 seconds** of post-stop processing. This is the **accepted RC limitation** for controlled beta, surfaced to the user as honest visible "Finalizing…" progress and to testers as a "~90s finalization" expectation (tester copy #977, on `main` at `c4788f80`).
-
-- The earlier **`<30s` post-stop finalization requirement is obsolete and withdrawn** (superseded 2026-07-14). Do not treat `<30s` (or the internal 90s safety-switch cap) as a gate.
-- The internal 90-second per-recording safety switch is a flag-only guard at both saved-path sites (`PrivateWhisper` + `TranscriptionService`) with zero saved-text mutation; it is not user-facing beta behavior.
-- Faster finalization (streaming / segmentation / multithread) remains a post-limitation improvement lane, not an RC blocker.
+A full **five-minute single Private (v2 / whisper-base.en) recording finalizes in ≈90 seconds** of post-stop processing — the accepted limitation for the controlled beta, surfaced to the user as honest "Finalizing…" progress. The earlier `<30s` requirement is obsolete/withdrawn. Faster finalization (streaming / segmentation / multithread) is a post-limitation improvement lane, not a blocker.
 
 ## STT availability by tier
 
 | Engine | Availability | Notes |
 |---|---|---|
-| Native (Browser / Web Speech) | All tiers incl. free trial (default) | Chrome desktop recommended; punctuation restore on by default (`VITE_NATIVE_PUNCTUATION_RESTORE`). Weakest path; nudge Private after a Browser session. |
-| Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU is OFF for the release path (`VITE_PRIVATE_STT_V4_DISABLED` hard-kill available; primary control is PostHog flags, default off). |
-| **Cloud (AssemblyAI)** | **Paid Pro only** | **Available to paid Pro entitlement (real `stripe_subscription_id`). NOT available in the no-billing trial.** Current strongest STT path. |
-
-## Merged since the last SSOT update (all on `main`)
-
-| PR | Title | Status |
-|---|---|---|
-| [#981](https://github.com/relativityE/speaksharp/pull/981) | Wave-1 Pro-availability expectation-setting (`PricingPage` copy + tester/BACKLOG notes clarifying Cloud is paid-Pro) | **MERGED** |
-| [#986](https://github.com/relativityE/speaksharp/pull/986) | `docs(release)`: synchronize product_release with sanitized main | **MERGED** |
-| [#988](https://github.com/relativityE/speaksharp/pull/988) | `ci(sca)`: permanent OSV-based Gate 4 (replaces the retired pnpm-audit endpoint) | **MERGED** |
-| [#989](https://github.com/relativityE/speaksharp/pull/989) | `test(live)`: pin Node-compatible `pdfjs-dist` for the live PDF-parse assertion | **MERGED** |
-| [#990](https://github.com/relativityE/speaksharp/pull/990) | `fix(ops-health)`: bounded, deadline-enforced GitHub API resilience + correct failure classification | **MERGED** |
-
-## Attribution history sanitation — SHA crosswalk
-
-On 2026-07-15 the Git history was sanitized to remove Claude/Anthropic attribution (one-for-one, message-only; trees/authorship/dates/parents/topology and the `fibonacci@fibonnaci.local` identity byte-preserved). Every commit after the boundary `e8a4839e` received a new SHA.
-
-| Ref | Old (pre-sanitation) | New (sanitized) |
-|---|---|---|
-| `main` | `b27f83284c3b` | `84f720d22422` (tree unchanged `94f62bc3`) |
-| `#981` | `1cb11397e7b7` | `64b8f63a8379` (net-diff patch-id unchanged) |
-| `v0.9.0-rc0` | `b50f57f5b111` | `a42ee05df7f7` |
-| `v0.9.0-rc1` | `55f9f6ed0ea1` | `6409567ab0d4` |
-| `v0.9.0-rc2` | `db633bf0c7cf` | `b235a43d1781` |
-| `v0.9.0-rc3` | `771607ab86d4` | `383f5bb6e363` |
-
-- **RC tags `v0.9.0-rc0…rc3` and `v0.8.5-rc1…rc5` were force-updated to the sanitized commits** (annotated leased on tag-object SHA; trees/taggers preserved). The 13 pre-boundary tags are unchanged.
-- **Historical PostHog `release_sha` values retain the OLD SHAs** — they are immutable telemetry and are NOT rewritten. Correlate a historical `release_sha` to current history via this crosswalk and the full 969-row commit map (`product_release/attribution-sanitation-crosswalk.md`, PR #985).
-- The complete mapping (9 version + 12 archive tags, 211 signature-loss disclosure, tool/backup provenance) lives in `product_release/attribution-sanitation-crosswalk.md`.
+| Browser (Web Speech) | All tiers (default preview) | "Quick preview"; weakest path; nudge Private after a Browser session. |
+| Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU OFF (`VITE_PRIVATE_STT_V4_DISABLED` hard-kill; primary control is PostHog flags, default off). |
+| **Cloud (AssemblyAI)** | **Paid Pro only** | Requires real paid Pro entitlement (`stripe_subscription_id`). **Not available to Free testers during the no-billing beta; existing accounts with a valid paid-Pro entitlement retain access.** Strongest STT path. |
 
 ## Release-track posture
 
-| Track | Status | Why |
-|---|---|---|
-| Controlled private beta / early-access (non-payment) | **GO — first controlled batch (3–5 testers), `v0.9.0-rc4`** | Exact-head prod gates green on `df909805`; #982 finalization UX shipped; Private ~90s finalization accepted. Prod Owner authorized the first controlled small batch only; any expansion is a separate decision, and any confirmed P0/P1 stops expansion. |
-| Paid public launch (live checkout) | NO-GO until Ops key-swap cutover | Billing journey proven in Stripe test mode. Going live = set `sk_live`/`pk_live`/live `whsec`/live price IDs, register the live webhook, verify `stripeKeyClass==="live"`. |
-| Broad public launch | NO-GO | Broader than controlled tester scope; separately gated. |
-
-## Open items / unresolved decisions
-
-- **Send controlled-beta invites?** GO for the **first controlled batch (3–5 testers)** on `v0.9.0-rc4`; expansion beyond that batch is held pending 24h monitoring and Prod Owner decision.
-- **SCA gate — resolved (#988 merged).** Gate 4 is now the permanent **OSV-based** scanner (`sca-osv`, a required status context); the retired pnpm-audit HTTP-410 endpoint is no longer used. GHSA-5xrq (`vitest@3.2.4`) remains the single ignored advisory. See `SCA_EXCEPTIONS.md`.
-- **Vitest 3→4 upgrade** to retire the GHSA-5xrq suppression (see `SCA_EXCEPTIONS.md`).
-- **Faster Private finalization** (below ~90s) — improvement lane, not a blocker.
-
-## Tester Scope
-
-Send testers the plain-language `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; operators run the validation per `INTERNAL_TEST_PROTOCOL.md`. The tester path is:
-
-1. Fresh account starts with free Browser transcription.
-2. Private sample model download/setup if prompted.
-3. Private sample recording, transcript, stop/save, history/detail, analytics.
-4. Custom word added through UI and spoken during recording.
-5. PDF export from saved session.
-6. Optional Browser transcription in Chrome with browser-dependent wording.
-
-## Evidence Freshness Contract
-
-Each release gate is green only when the definition of green is backed by a named artifact that a reviewer can inspect without relying on operator memory. The active artifact is always the latest complete passing run. If a newer run fails any required criterion, the parent gate returns to red until a later complete run passes every criterion. Every artifact update must record `Last updated by: [initials] [date] [artifact path]`.
-
-## Named STT Gate Artifacts
-
-| Gate | Required Current Artifact |
+| Track | Status |
 |---|---|
-| G6 Fresh Trial Private STT Transcript/Save/History Path | `/private/tmp/speaksharp-private-human-[timestamp].json`; must include `SESSION_LIFECYCLE_WARMUP`, model setup/download state, chunk RMS/duration rows, first partial timestamp/text, console events, save result, and history/detail proof. |
-| Native Browser Chrome human-mic proof | `/private/tmp/speaksharp-native-[timestamp].json`; must include event order from `onspeechstart -> first onresult`, selected transcript on stop, save/history/detail proof, analytics proof, and no unintended 4-word sequence appearing more than once. |
-| Cloud Pro proof | `/private/tmp/cloud-artifact-[timestamp].log`; must show AssemblyAI token HTTP 200, transcript/save/history/detail proof, AI suggestions, PDF export, and Pro entitlement context. |
-| Custom word analytics proof | Browser/session artifact showing words such as `like = 1` or `basically = 1` after adding the custom word through the UI, then saving and opening detail/analytics. |
-| PDF export proof | Saved-session PDF artifact whose transcript, duration, WPM, filler/custom word counts, and session metadata match the saved detail view within ±15%. |
-| Session Status UX | Screenshot/video or browser trace showing one clear status/progress surface (`StatusNotificationBar`), Private setup/download/ready states, and no duplicate or internal FSM/debug status obstructing the user flow. |
+| Controlled paid Early Access (enrollment currently disabled for this cohort) | **Underway** — invite-only; paid enrollment is currently disabled for the active tester cohort (both payment switches OFF), no Cloud for Free, v4 off. Paid Early Access is a supported capability (see PRD "Paid Early Access Capability"); re-enabling enrollment for a future cohort requires the full activation contract + Prod Owner authorization. Any confirmed P0/P1 pauses expansion. |
+| Paid public launch (live checkout) | **NO-GO** — requires ALL of `VITE_PAYMENTS_ENABLED=true` + `PAYMENTS_ENABLED=true` + correctly aligned live Stripe keys + webhook/price/entitlement verification. Either payment switch OFF keeps checkout closed. |
+| Broad public launch | **NO-GO** — separately gated. |
+
+## Open items / decisions
+- **#1006 remediation** — current incident work; corrections + independent review before any activation (see `BACKLOG.md` P0.4).
+- **SCA** — Gate 4 is the permanent OSV scanner (`sca-osv`, required context). GHSA-5xrq (`vitest@3.2.4`) is the single ignored advisory; a Vitest 3→4 upgrade retires the suppression (`SCA_EXCEPTIONS.md`).
+- **Faster Private finalization** (<~90s) — improvement lane, not a blocker.
+
+## Historical evidence (pointers, not current status)
+- **Attribution history sanitation** (2026-07-15): historical SHA crosswalk + provenance in [attribution-sanitation-crosswalk.md](attribution-sanitation-crosswalk.md). Historical PostHog `release_sha` values retain OLD SHAs (immutable telemetry) — correlate via the crosswalk.
+
+## Evidence contract + named STT gate artifacts
+The stable **Evidence Freshness Contract** (latest complete passing run; a newer failing run returns the parent gate to red; `Last updated by: [initials] [date] [artifact path]`) and the **Named STT Gate Artifacts** (Private sample recording / `SESSION_LIFECYCLE_WARMUP` / `speaksharp-private-human-[timestamp].json`; `onspeechstart -> first onresult` / `speaksharp-native-[timestamp].json`; AssemblyAI token HTTP 200 / `cloud-artifact-[timestamp].log`; custom-word `like = 1` / `basically = 1`; PDF within ±15%; Session Status UX) now live in **[RC_GATES.md](RC_GATES.md)**. This file keeps only current run/status posture.
 
 ## Update rule
-
-Only this file receives changing release status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence. Every artifact update records `Last updated by: [initials] [date] [artifact path]`.
+Only this file receives changing release/deployment status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence.

@@ -19,3 +19,8 @@ Archive subfolders:
 - `release-status/`: older go/no-go packets and release matrices.
 - `stt/`: Native/Private/Cloud STT evidence packets and reviewer reports.
 - `workflows/`: older workflow audits and overhaul trackers.
+
+Archived in the 2026-07 SSOT reconciliation (product baseline `e9040464`, post-#1007/#1008):
+- `stt/GATE_B_IDENTITY_FAILURE_ANALYSIS.md` — PostHog STT A/B identity failure, ✅ RESOLVED 2026-06-12 (root cause: PostHog bot-filtering of the automation browser, not an app defect).
+- `audits/FREE_BASIC_PRO_AUDIT.md` — point-in-time Free/Basic/Pro audit (2026-05-27); Basic tier remains future-reserved.
+- `audits/V4_UX_RELEASE_DISPOSITIONS.md` — closed reviewer dispositions for v4 UX items #75 / BL-3 (closed without code).

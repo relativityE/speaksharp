@@ -53,8 +53,9 @@ describe('soft release tester guide (tester-facing)', () => {
 describe('internal test protocol (operator/dev/test)', () => {
     const protocol = readReleaseDoc('INTERNAL_TEST_PROTOCOL.md');
 
-    it('keeps Cloud STT framed as paid, out of the free sample path', () => {
-        expect(protocol).toMatch(/Cloud STT is a paid Early Access feature/i);
+    it('keeps Cloud STT framed as paid Pro, out of the free sample path', () => {
+        expect(protocol).toMatch(/Cloud STT is a paid Pro feature/i);
+        expect(protocol).toMatch(/outside the Free (beta )?path|not part of the beta/i);
     });
 
     it('matches the current database-backed Private sample (not old trial grants)', () => {
@@ -82,7 +83,9 @@ describe('internal test protocol (operator/dev/test)', () => {
 });
 
 describe('release candidate gate evidence contract', () => {
-    const readiness = readReleaseDoc('RELEASE_STATUS.md');
+    // The stable evidence contract + named STT artifacts live in RC_GATES.md (RELEASE_STATUS.md keeps
+    // only current run/status posture and links here).
+    const readiness = readReleaseDoc('RC_GATES.md');
 
     it('requires latest complete passing artifacts, not stale passing evidence', () => {
         expect(readiness).toMatch(/latest complete passing run/i);
@@ -104,5 +107,32 @@ describe('release candidate gate evidence contract', () => {
         expect(readiness).toMatch(/basically = 1/i);
         expect(readiness).toMatch(/within ±15%/i);
         expect(readiness).toMatch(/Session Status UX/i);
+    });
+});
+
+describe('durable paid Early Access product contract (stable invariants)', () => {
+    // Protects the stable payment invariants without enforcing the current (temporary) no-billing
+    // cohort state corpus-wide. Current toggle state lives in RELEASE_STATUS.md, not the PRD contract.
+    const prd = readReleaseDoc('PRD.operational.md');
+    const status = readReleaseDoc('RELEASE_STATUS.md');
+
+    it('PRD states SpeakSharp supports paid Early Access as a capability (not a free-forever policy)', () => {
+        expect(prd).toMatch(/supports paid Early Access/i);
+    });
+
+    it('invariant: paid enrollment requires BOTH payment switches, and key class alone does not open checkout', () => {
+        expect(prd).toMatch(/VITE_PAYMENTS_ENABLED/);
+        expect(prd).toMatch(/(^|[^_A-Z])PAYMENTS_ENABLED/);
+        expect(prd).toMatch(/key class validates configuration but does not by itself open checkout/i);
+    });
+
+    it('invariant: existing paid-Pro entitlement remains valid when new enrollment is disabled', () => {
+        expect(prd).toMatch(/existing accounts with a valid paid-Pro entitlement retain access/i);
+    });
+
+    it('invariant: paid activation and broad public launch are separately authorized', () => {
+        expect(prd).toMatch(/separately-authorized step, not the same as broad public launch/i);
+        expect(status).toMatch(/Paid public launch/i);
+        expect(status).toMatch(/Broad public launch/i);
     });
 });

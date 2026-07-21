@@ -24,27 +24,15 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 
 ## 2. Remaining P0
 
-### P0.2 — Private-first mode hierarchy
-- **Evidence/gap:** The selector presents Browser and Private with near-equal weight; copy frames Private mainly as a privacy option / Browser comparison. No single "Recommended" treatment; "Browser provider" label persists.
-- **Outcome:** Testers understand Private is the main beta experience and Browser is a zero-setup preview; Cloud shows as the Pro path but is unavailable to Free.
-- **Acceptance:** order Private (Recommended) → Browser (Quick preview) → Cloud (Pro); only Private shows Recommended; "Browser provider" → "Quick preview"; one Browser→Private transition after a Browser save; no duplicate Private CTA; onboarding/selector/help/status-bar/invite/docs aligned; Browser STT logic unchanged; no Native punctuation heuristics; a11y + desktop/mobile screenshots.
-- **Priority:** P0.
-
-### P0.4 — Timely, privacy-safe tester feedback alert
-- **Evidence/gap:** Report Issue persists to the protected store but only surfaces via a daily digest — too slow for a rolling beta.
-- **Outcome:** On report submission the owner gets a sanitized real-time alert via the existing private Sentry/ops path; full content stays in the protected store; a bad alert never blocks persistence.
-- **Acceptance:** alert payload allowlist = {report ID, severity, release SHA, route/page, STT mode, session ID when available, timestamp} and NOTHING else (no prose/transcript/audio/email/name/tokens/PII); dedupe by report ID; alert failure does not block persistence and is observable; P0/P1 reports elevated severity; owner can retrieve full report by ID; focused tests for persistence-on-success, persistence-on-alert-failure, payload allowlist, no-leakage, dedupe, context, severity mapping.
+### P0.4 — Reliable data-retrieval, observability & owner notification (incident remediation)
+- **Evidence/gap:** During the controlled beta, Browser + Private sessions and the tester issue report were **preserved in Supabase** (no product-data loss). The defect is on the *retrieval / observability / delivery* side: report→session linkage stored NULL (reports render outside `<Routes>`), there is no durable server-side event delivery, no server-assigned provenance to distinguish tester vs automated/seed data, and owner notification was a slow daily digest. Client PostHog capture is best-effort and is NOT proof a session/report persisted.
+- **Outcome:** Authoritative, privacy-safe retrieval + observability: reports link to their session; a durable server-side outbox delivers critical events (idempotent, deduped) independent of the browser; every event carries server-assigned provenance; the owner gets a sanitized real-time alert and can retrieve full report content by ID; queues are monitored and self-heal.
+- **Acceptance:** report→session linkage fixed + server-guarded; durable server-side delivery **outbox** (leases, retry/backoff, dead-letter, replay) NOT dependent on client PostHog; server-assigned provenance (`data_origin`/`cohort_id`/`test_run_id`/`test_suite`/`server_verified_release_sha`/`environment`) that is **concurrent-run-safe + time-bounded**; privacy-safe **pseudonymous** PostHog identity (HMAC of the user id, never the raw Supabase auth id; fails closed on missing key); authenticated owner-only report retrieval; queue-depth / oldest-pending-age / expired-lease / retry / dead-letter monitoring for telemetry **and** alert queues; bounded existing-record reconciliation; sanitized allowlist alert payloads (no prose/transcript/audio/email/name/tokens/PII); executable/tested rollback + worker-disable. **This is DRAFT #1006 — NOT shipped, NOT deployed, NOT activated** (merge ≠ activation; deploying migrations enables the enqueue triggers; workers stay disabled until separate Prod Owner authorization).
 - **Priority:** P0.
 
 ---
 
 ## 3. Remaining P1
-
-### P1.1 — Private-first UX polish
-- **Gap:** the P0.2 hierarchy needs layout/copy/a11y polish across widths.
-- **Outcome:** clean, accessible mode selection at 320/375/390/desktop with no overlap of transcript/sticky-actions/notices.
-- **Acceptance:** mobile/desktop layout, copy density, Recommended badge, reduced-motion, accessible names, focus order, contrast, setup/ready/recording/finalizing/exhausted states, status-bar/toast interaction validated at the four widths.
-- **Priority:** P1.
 
 ### P1.2 — Private-first funnel measurement
 - **Gap:** no content-free funnel telemetry to answer where testers stop and whether Private delay is setup vs finalization.
@@ -58,10 +46,10 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **Acceptance:** single selector covering {Free Browser, Free unused sample, Free exhausted sample, Pro Private, Pro Cloud, billing-disabled beta, logout/login+reset, stale async callbacks}; tests prove the full matrix + stale-callback protection.
 - **Priority:** P1.
 
-### P1.4 — Regression, copy & documentation reconciliation
-- **Gap:** three-mode behavior + docs/copy need a consolidated pass after P0/P1.
-- **Outcome:** proven three-mode matrix and reconciled docs.
-- **Acceptance:** full matrix (Browser preview; Private sample→setup→capture→finalize→persist/detail/PDF equality; Cloud existing-Pro-only no-fallback; Free no-Cloud/no-checkout; existing-Pro Cloud works; Report Issue persists + sanitized alert); reconcile BACKLOG.md, RELEASE_STATUS.md, PRODUCT_FEATURES.operational.md, SOFT_RELEASE_TESTER_INSTRUCTIONS.md, UI copy/tests, telemetry docs.
+### P1.4 — Post-#1006 three-mode / reporting regression gate
+- **Gap:** once #1006's server delivery + provenance land, the three-mode + reporting matrix needs one consolidated regression gate. (SSOT documentation reconciliation was done separately in the `docs/reconcile-product-release-to-private-first-main` PR and is NOT part of this row.)
+- **Outcome:** a proven three-mode + reporting regression matrix that stays green after #1006 activation.
+- **Acceptance:** full matrix (Browser preview; Private sample→setup→capture→finalize→persist/detail/PDF equality; Cloud existing-Pro-only no-fallback; Free no-Cloud/no-checkout; existing-Pro Cloud works; Report Issue persists + server-delivered sanitized alert + report→session linkage). Documentation reconciliation is explicitly OUT of this row's acceptance.
 - **Priority:** P1.
 
 ---
