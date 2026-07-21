@@ -90,4 +90,44 @@ describe('issueReportService', () => {
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: null }));
     expect(select).not.toHaveBeenCalled();
   });
+
+  it('persists the session_id and completes independently of telemetry/analytics', async () => {
+    // No PostHog/analytics is mocked in this suite; the insert (persistence) must still be called
+    // with the session id and submit must complete — report persistence does not depend on telemetry.
+    const SESSION = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    await issueReportService.submit({
+      userId: 'user-1',
+      sessionId: SESSION,
+      category: 'analytics_sessions',
+      severity: 'medium',
+      title: 'Detail number looks wrong',
+      description: 'The session detail page shows an unexpected WPM value.',
+      pageUrl: `http://localhost:5174/analytics/${SESSION}`,
+      metadata: { route: `/analytics/${SESSION}` },
+      includeTranscript: false,
+      includeAudio: false,
+    });
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: SESSION }));
+  });
+
+  it('surfaces a persistence failure rather than masking it (persistence is authoritative)', async () => {
+    // If the DB insert reports an error, submit must reject — persistence success is never inferred
+    // from telemetry/alert delivery.
+    insert.mockReturnValueOnce(Promise.resolve({ error: { message: 'db unavailable' } }));
+    await expect(
+      issueReportService.submit({
+        userId: 'user-1',
+        sessionId: null,
+        category: 'something_else',
+        severity: 'low',
+        title: 'Some issue',
+        description: 'Persistence failure should surface to the caller.',
+        pageUrl: 'http://localhost:5174/session',
+        metadata: { route: '/session' },
+        includeTranscript: false,
+        includeAudio: false,
+      }),
+    ).rejects.toBeTruthy();
+  });
 });
