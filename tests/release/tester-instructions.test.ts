@@ -109,3 +109,30 @@ describe('release candidate gate evidence contract', () => {
         expect(readiness).toMatch(/Session Status UX/i);
     });
 });
+
+describe('durable paid Early Access product contract (stable invariants)', () => {
+    // Protects the stable payment invariants without enforcing the current (temporary) no-billing
+    // cohort state corpus-wide. Current toggle state lives in RELEASE_STATUS.md, not the PRD contract.
+    const prd = readReleaseDoc('PRD.operational.md');
+    const status = readReleaseDoc('RELEASE_STATUS.md');
+
+    it('PRD states SpeakSharp supports paid Early Access as a capability (not a free-forever policy)', () => {
+        expect(prd).toMatch(/supports paid Early Access/i);
+    });
+
+    it('invariant: paid enrollment requires BOTH payment switches, and key class alone does not open checkout', () => {
+        expect(prd).toMatch(/VITE_PAYMENTS_ENABLED/);
+        expect(prd).toMatch(/(^|[^_A-Z])PAYMENTS_ENABLED/);
+        expect(prd).toMatch(/key class validates configuration but does not by itself open checkout/i);
+    });
+
+    it('invariant: existing paid-Pro entitlement remains valid when new enrollment is disabled', () => {
+        expect(prd).toMatch(/existing accounts with a valid paid-Pro entitlement retain access/i);
+    });
+
+    it('invariant: paid activation and broad public launch are separately authorized', () => {
+        expect(prd).toMatch(/separately-authorized step, not the same as broad public launch/i);
+        expect(status).toMatch(/Paid public launch/i);
+        expect(status).toMatch(/Broad public launch/i);
+    });
+});

@@ -43,7 +43,7 @@ A full **five-minute single Private (v2 / whisper-base.en) recording finalizes i
 
 | Track | Status |
 |---|---|
-| Controlled private beta / early-access (non-payment) | **Underway** — invite-only, no billing, no Cloud for Free, v4 off. Any confirmed P0/P1 pauses expansion. |
+| Controlled paid Early Access (enrollment currently disabled for this cohort) | **Underway** — invite-only; paid enrollment is currently disabled for the active tester cohort (both payment switches OFF), no Cloud for Free, v4 off. Paid Early Access is a supported capability (see PRD "Paid Early Access Capability"); re-enabling enrollment for a future cohort requires the full activation contract + Prod Owner authorization. Any confirmed P0/P1 pauses expansion. |
 | Paid public launch (live checkout) | **NO-GO** — requires ALL of `VITE_PAYMENTS_ENABLED=true` + `PAYMENTS_ENABLED=true` + correctly aligned live Stripe keys + webhook/price/entitlement verification. Either payment switch OFF keeps checkout closed. |
 | Broad public launch | **NO-GO** — separately gated. |
 
