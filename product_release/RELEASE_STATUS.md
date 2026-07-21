@@ -16,13 +16,13 @@
 | Private v4 | **OFF.** Its model-pipeline smoke is repaired, but v4 activation remains disabled. |
 
 ## Current merged product posture (through #1007 / #1008)
-- **Private-first UX shipped:** Private = Recommended/main; Browser = "Quick preview"; Cloud = Pro (unavailable in the no-billing beta). One controlled desktop description flyout; one touch "About transcription modes" panel; the mode dropdown is opaque.
+- **Private-first UX shipped:** Private = Recommended/main; Browser = "Quick preview"; Cloud = Pro (unavailable to Free testers in the no-billing beta; existing paid-Pro accounts retain access). One controlled desktop description flyout; one touch "About transcription modes" panel; the mode dropdown is opaque.
 - **Post-save consolidated:** one authoritative `StatusNotificationBar` with a single persistent, accessible (WCAG-AA) green Analytics action; the recording-card pill resets (no duplicate "Session saved"). **The completion toast / "Next: Analytics" overlay is deleted.**
 - Billing closed, exact-origin CORS hardened, v4 off (as above).
 
 ## Beta posture
 - **Controlled, invite-only, no-billing beta underway.** No Cloud for Free testers; v4 off. (No hard-coded tester count here — reconcile any count to the authoritative invitation roster before publishing it.)
-- **Tester data was preserved; no tester retest is required.** Browser + Private sessions and the issue report are intact in Supabase.
+- **The investigated Browser and Private sessions and issue report were preserved; those records do not need to be repeated.** **Attempts that never reached Supabase cannot yet be counted** and remain part of #1006.
 
 ## Current open work
 - **#1006 (DRAFT, not activated)** — reliable data-retrieval / observability / durable delivery (outbox + provenance + owner-alert + protected retrieval). This is the current open incident/remediation. **Not shipped, not deployed, not activated**; migrations/workers/crons/reconciliation each require separate Prod Owner authorization. Details: `BACKLOG.md` P0.4, `ACTIVE_COORDINATION.md`.

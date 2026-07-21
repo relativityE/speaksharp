@@ -218,7 +218,7 @@ The **real production** values for the §1 `VITE_*` live here (Production scope)
 
 ## Feature-flag & runtime vars — code-verified sync (2026-07-15)
 
-Verified by reading the source at `main@84f720d2`. Names/homes only; no values.
+Verified by reading the source on the current `main` baseline (names/homes only; no values). This is a point-in-time code-verified snapshot — re-verify against `main` when env usage changes rather than trusting a pinned SHA.
 
 | Variable | Home | Where read (code) | Default / effect |
 |---|---|---|---|
@@ -241,5 +241,5 @@ for current configuration.
 
 ## Open decisions affecting this inventory
 - **ENV-PROD:** whether to migrate the Home-A committed `VITE_*` (public) into Home B (Vercel), to match the Stripe-key pattern. This table is the migration checklist if so.
-- **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` re-assessment addendum.
+- **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` (P2 dependency/bloat maintenance epic).
 - **VITE_DEV_PREMIUM_ACCESS cleanup:** remove the dead test-only stub or wire an intentional owner-QA path; today it is stubbed but unused in `src`.

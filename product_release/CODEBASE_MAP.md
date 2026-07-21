@@ -5,7 +5,7 @@ A breadcrumb for new developers. It answers: where a product promise lives in co
 > Baseline when written: `main` `e9040464`. The durable outbox / provenance / owner-alert / retrieval architecture is **DRAFT #1006 — NOT shipped, NOT deployed, NOT activated**; it is called out below where relevant.
 
 ## 1. Product direction
-- **Private = Recommended** and the main beta experience. **Browser = "Quick preview"** (not equivalent to Private). **Cloud = Pro**, unavailable during the no-billing beta.
+- **Private = Recommended** and the main beta experience. **Browser = "Quick preview"** (not equivalent to Private). **Cloud = Pro**, unavailable to Free testers during the no-billing beta (existing paid-Pro accounts retain access).
 - Product roadmap direction: **Rehearsal Sandbox → HUD → Live Companion** (see `product_release/BACKLOG.md` P2.1–P3.1; not built yet).
 
 ## 2. Session / UI (mode hierarchy + post-save)

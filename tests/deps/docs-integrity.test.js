@@ -94,6 +94,39 @@ describe('product_release documentation integrity', () => {
     expect(offenders, `#1006-shipped claims:\n${offenders.join('\n')}`).toEqual([]);
   });
 
+  it('SOFT_RELEASE_TESTER_INSTRUCTIONS.md is not branded with the historical v0.9.0-rc4 / first-batch labels', () => {
+    const text = read(resolve(PR_DIR, 'SOFT_RELEASE_TESTER_INSTRUCTIONS.md'));
+    const offenders = text.split('\n')
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => /\brc4\b|v0\.9\.0-rc4|first(-| )controlled batch|controlled first batch/i.test(l))
+      .map(({ l, i }) => `${i + 1}: ${l.trim()}`);
+    expect(offenders, `rc4/first-batch branding in tester instructions:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('no active doc asserts Cloud is unavailable without the Free / existing-paid-Pro distinction', () => {
+    const offenders = [];
+    // A line that asserts Cloud is unavailable in the beta...
+    const claim = /cloud\b[^.]*\b(unavailable|not available|not part of the (invited|no-billing)? ?beta|no cloud for)/i;
+    // ...must also carry the exception marker (existing paid-Pro retains access) OR name Free explicitly.
+    const exception = /\b(existing|retain|already[- ]?(a )?pro|paid[- ]?pro|free tester|to free)\b/i;
+    for (const doc of activeDocs) {
+      read(doc).split('\n').forEach((line, i) => {
+        if (claim.test(line) && !exception.test(line)) offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders, `unconditional Cloud-unavailable claims:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('no active doc references the deleted "BACKLOG re-assessment addendum"', () => {
+    const offenders = [];
+    for (const doc of activeDocs) {
+      read(doc).split('\n').forEach((line, i) => {
+        if (/re-?assessment addendum/i.test(line)) offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders, `stale addendum references:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
   it('the active docs set is non-trivial (guard against an empty scan)', () => {
     const realFiles = activeDocs.filter((p) => statSync(p).isFile());
     expect(realFiles.length).toBeGreaterThan(10);

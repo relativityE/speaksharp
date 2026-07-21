@@ -40,7 +40,7 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 ## Entitlement / scope rules
 
 - **Free-path tester scope** must prove: standard (Browser) transcription, the one Private
-  sample, and that Cloud is unavailable without paid entitlement. Use a known Free account with
+  sample, and that Cloud is unavailable to Free testers (only existing paid-Pro accounts retain access). Use a known Free account with
   the sample in both unused and used states when testing both sides.
 - **Pro/admin/dev Cloud scope** (only if explicitly included): must prove Cloud recording,
   transcript, save/history/detail, analytics, and PDF export. Do **not** ask automatic-trial
