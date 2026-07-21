@@ -41,7 +41,6 @@ export interface BriefFieldError {
     | 'too_long'
     | 'too_few_talking_points'
     | 'too_many_talking_points'
-    | 'blank_talking_point'
     | 'duration_out_of_range'
     | 'duration_not_a_number';
   /** Human-readable default message (UI may override for i18n/labelling). */
@@ -84,13 +83,13 @@ export function validateRehearsalBrief(input: Partial<RehearsalBrief> | null | u
     errors.push({ field: 'desiredDecision', code: 'too_long', message: `Decision/ask must be ${DECISION_MAX} characters or fewer.` });
   }
 
+  // Declared blank-talking-point behavior: blank/whitespace-only entries are trimmed out and NOT
+  // counted; the effective count is the non-empty points. If dropping blanks leaves fewer than the
+  // minimum, the too-few-talking-points error fires below. (No separate "blank" error code — blanks
+  // are simply not points.)
   const rawPoints = Array.isArray(i.talkingPoints) ? i.talkingPoints : [];
   const trimmedPoints = rawPoints.map((p) => (typeof p === 'string' ? p.trim() : ''));
   const nonEmptyPoints = trimmedPoints.filter((p) => p.length > 0);
-  if (rawPoints.some((p, idx) => typeof p === 'string' && p.trim().length === 0 && idx < rawPoints.length)) {
-    // Only flag blanks that sit between/among provided points; purely-empty trailing inputs are
-    // simply not counted. We flag when a blank reduces the effective count below the minimum.
-  }
   if (nonEmptyPoints.length < TALKING_POINTS_MIN) {
     errors.push({
       field: 'talkingPoints',

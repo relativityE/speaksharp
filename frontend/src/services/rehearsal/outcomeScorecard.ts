@@ -48,8 +48,12 @@ const STOPWORDS = new Set([
   'will', 'would', 'can', 'could', 'should', 'about', 'into', 'over', 'than', 'too', 'very', 'just',
 ]);
 
-const COVERED_RATIO = 0.7; // >= 70% of a point's keywords in one segment => Covered.
-const PARTIAL_RATIO = 0.34; // >= ~1/3 => Partial.
+// INTERNAL, non-authoritative thresholds for the deterministic keyword-overlap evidence heuristic.
+// These are NOT a validated user score and are NOT surfaced to testers as authoritative scoring — the
+// heuristic only proposes where transcript evidence exists; semantic validation is a separate, gated
+// future step. `matchRatio` is likewise an internal transparency value, not a user-facing grade.
+const COVERED_RATIO = 0.7; // >= 70% of a point's keywords co-occur in one segment => Covered (evidence-strong).
+const PARTIAL_RATIO = 0.34; // >= ~1/3 => Partial (some evidence).
 
 /** Extract significant, de-duplicated lowercase keywords from a talking point. */
 export function extractKeywords(point: string): string[] {
