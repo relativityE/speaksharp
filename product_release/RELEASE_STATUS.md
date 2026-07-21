@@ -7,11 +7,12 @@
 
 | Item | Value |
 |---|---|
-| **Current product code baseline (`main`)** | `e9040464` — Private-first selector + opaque menu + single post-save surface (merged via #1007/#1008). |
-| **Production deployment** | Vercel serves `main`. **SHA-equality verified:** the deployed bundles embed `__BUILD_ID__ = e90404642676…` (= `main`), injected at build from `VERCEL_GIT_COMMIT_SHA` ([frontend/vite.config.mjs](../frontend/vite.config.mjs)). |
+| **Current product code baseline (`main`)** | `65e58a62` — the #1010 CORS configuration fix on top of the private-first UX milestone `e9040464` (#1007/#1008). |
+| **Production deployment** | Vercel serves `main`. **SHA-equality verified:** the deployed bundle embeds `__BUILD_ID__ = 65e58a62…` (= current `main`), injected at build from `VERCEL_GIT_COMMIT_SHA` ([frontend/vite.config.mjs](../frontend/vite.config.mjs)). |
 | **Historical frozen tag** | `v0.9.0-rc4` (annotated) peels to `df909805…`. This is a **historical, frozen** release point — **NOT** the current `main`/product baseline. |
-| Deployment | Auto-deploy on push to `main`. Post-merge gates on `e9040464` all green: **CI - Test Audit** ✅ · **RC Gates** ✅ all 5 incl. Gate 5 UX Smoke and Gate 3 live DAST/CORS · **OSV SCA — Gate 4** ✅ · **Production Canary** ✅ · **Ops Health** ✅. |
-| Payments | **Closed.** Billing is independently fail-closed in frontend AND backend; the billing-freeze check proves CLOSED. Paid launch is a separate Ops key-swap cutover, not a pending test. |
+| Deployment | Auto-deploy on push to `main`. Post-merge gates on `65e58a62` all green: **CI - Test Audit** ✅ · **RC Gates** ✅ all 5 incl. Gate 5 UX Smoke and **live Gate 3 CORS DAST** ✅ · **OSV SCA — Gate 4** ✅ · **Production Canary** ✅ · **Ops Health** ✅ · **Billing Freeze** ✅ · **DB grant** ✅. |
+| #1010 (CORS) | **Configuration-only** — removed the legacy `https://speaksharp.vercel.app` origin from the deploy `ALLOWED_ORIGIN` sync + a regression test. Merged, secrets-deployed, and **live-DAST-proven** on `65e58a62`: legacy origin → `403`/no-ACAO, approved origin → `204`/exact ACAO. |
+| Payments | **Closed.** Billing is independently fail-closed in frontend AND backend — **either switch OFF keeps checkout closed**; the billing-freeze check proves CLOSED. Opening paid enrollment requires ALL of: `VITE_PAYMENTS_ENABLED=true`, `PAYMENTS_ENABLED=true`, correctly aligned live Stripe keys, and webhook/price/entitlement verification. A separate future sequence, not a pending test. |
 | CORS | **Exact-origin CORS deployed and live-DAST proven** (rc-gates Gate 3; origin allowlist in [backend/supabase/functions/_shared/cors.ts](../backend/supabase/functions/_shared/cors.ts)). |
 | Private v4 | **OFF.** Its model-pipeline smoke is repaired, but v4 activation remains disabled. |
 
@@ -36,14 +37,14 @@ A full **five-minute single Private (v2 / whisper-base.en) recording finalizes i
 |---|---|---|
 | Browser (Web Speech) | All tiers (default preview) | "Quick preview"; weakest path; nudge Private after a Browser session. |
 | Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU OFF (`VITE_PRIVATE_STT_V4_DISABLED` hard-kill; primary control is PostHog flags, default off). |
-| **Cloud (AssemblyAI)** | **Paid Pro only** | Requires real paid Pro entitlement (`stripe_subscription_id`). **NOT available in the no-billing beta.** Strongest STT path. |
+| **Cloud (AssemblyAI)** | **Paid Pro only** | Requires real paid Pro entitlement (`stripe_subscription_id`). **Not available to Free testers during the no-billing beta; existing accounts with a valid paid-Pro entitlement retain access.** Strongest STT path. |
 
 ## Release-track posture
 
 | Track | Status |
 |---|---|
 | Controlled private beta / early-access (non-payment) | **Underway** — invite-only, no billing, no Cloud for Free, v4 off. Any confirmed P0/P1 pauses expansion. |
-| Paid public launch (live checkout) | **NO-GO** — separate Ops key-swap cutover (live keys + webhook + `stripeKeyClass==="live"`). |
+| Paid public launch (live checkout) | **NO-GO** — requires ALL of `VITE_PAYMENTS_ENABLED=true` + `PAYMENTS_ENABLED=true` + correctly aligned live Stripe keys + webhook/price/entitlement verification. Either payment switch OFF keeps checkout closed. |
 | Broad public launch | **NO-GO** — separately gated. |
 
 ## Open items / decisions

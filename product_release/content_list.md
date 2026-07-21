@@ -1,7 +1,7 @@
 # Product Release — Document Index
 
 > Directory index, **not** release status. Current ship/deployment posture, blockers, and run IDs live only in [RELEASE_STATUS.md](./RELEASE_STATUS.md). Precedence on conflict: [PRECEDENCE.md](./PRECEDENCE.md).
-> Product baseline at last reconcile: `main` `e9040464` (post-#1007/#1008). Not every file here is equally authoritative — the sections below control precedence.
+> Product baseline at last reconcile: `main` `65e58a62` (the #1010 CORS config fix on top of the `e9040464` #1007/#1008 UX milestone). Not every file here is equally authoritative — the sections below control precedence.
 
 ## Current SSOT / status
 - [RELEASE_STATUS.md](./RELEASE_STATUS.md) — current go/no-go, deployment posture, latest run IDs.

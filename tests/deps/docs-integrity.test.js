@@ -19,6 +19,18 @@ const rel = (p) => p.slice(ROOT.length + 1);
 // A line "current-asserts" a term unless it also carries a negation/removal marker.
 const NEG = /\b(no|not|never|without|deleted|removed|no longer|superseded|gone|neither|zero|isn't|is not|does not|do not)\b/i;
 
+// A line that asserts Cloud is unavailable in the beta.
+const CLOUD_CLAIM = /cloud\b[^.]*\b(unavailable|not available|not part of the (invited|no-billing)? ?beta|no cloud for)/i;
+// The claim is acceptable ONLY when it is EITHER explicitly limited to Free testers/users, OR it
+// explicitly says existing/already-entitled paid-Pro accounts retain/keep access. Merely mentioning
+// "paid-Pro" (e.g. "paid-Pro only") does NOT satisfy the exception.
+const cloudExceptionOk = (line) => {
+  const freeLimited = /\bfree (testers?|users?|accounts?)\b/i.test(line);
+  const retainClause = /\b(existing|already)\b[^.]*\b(retain|keep)s?\b/i.test(line)
+    || (/\b(retain|keep)s? access\b/i.test(line) && /\b(existing|paid[- ]?pro)\b/i.test(line));
+  return freeLimited || retainClause;
+};
+
 describe('product_release documentation integrity', () => {
   it('every relative Markdown link in active docs resolves to a real repo path', () => {
     const broken = [];
@@ -105,16 +117,22 @@ describe('product_release documentation integrity', () => {
 
   it('no active doc asserts Cloud is unavailable without the Free / existing-paid-Pro distinction', () => {
     const offenders = [];
-    // A line that asserts Cloud is unavailable in the beta...
-    const claim = /cloud\b[^.]*\b(unavailable|not available|not part of the (invited|no-billing)? ?beta|no cloud for)/i;
-    // ...must also carry the exception marker (existing paid-Pro retains access) OR name Free explicitly.
-    const exception = /\b(existing|retain|already[- ]?(a )?pro|paid[- ]?pro|free tester|to free)\b/i;
     for (const doc of activeDocs) {
       read(doc).split('\n').forEach((line, i) => {
-        if (claim.test(line) && !exception.test(line)) offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
+        if (CLOUD_CLAIM.test(line) && !cloudExceptionOk(line)) offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
       });
     }
     expect(offenders, `unconditional Cloud-unavailable claims:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('Cloud-exception classifier: paid-Pro-only is rejected; Free-limited + existing-retain is accepted', () => {
+    const flags = (line) => CLOUD_CLAIM.test(line) && !cloudExceptionOk(line);
+    // Must FAIL the guard (unconditional / paid-Pro-only is not enough):
+    expect(flags('Cloud is unavailable during the beta; paid-Pro only')).toBe(true);
+    expect(flags('Cloud is unavailable during the no-billing beta.')).toBe(true);
+    // Must PASS the guard (Free-limited and/or existing paid-Pro retains access):
+    expect(flags('Cloud is unavailable to Free testers; existing paid-Pro retains access')).toBe(false);
+    expect(flags('Cloud is not available to Free users during the no-billing beta')).toBe(false);
   });
 
   it('no active doc references the deleted "BACKLOG re-assessment addendum"', () => {

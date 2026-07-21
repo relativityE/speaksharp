@@ -5,7 +5,7 @@
 The current active-coordination board — the working subset of `BACKLOG.md`. It is **not** a second backlog and **not** a historical ping log: the exhaustive backlog stays in `BACKLOG.md`; current ship/deployment posture stays in `RELEASE_STATUS.md`. No secrets, PII, transcripts, or audio — reference PRs and file paths only.
 
 ## Current baseline
-- **Product code baseline:** `main` `e9040464` (Private-first selector + opaque menu + single post-save surface merged via #1007/#1008). The frozen `v0.9.0-rc4` tag (`df909805`) is historical and is **not** the current baseline.
+- **Product code baseline:** `main` `65e58a62` (the #1010 CORS config fix on top of the private-first UX milestone `e9040464`, #1007/#1008). The frozen `v0.9.0-rc4` tag (`df909805`) is historical and is **not** the current baseline.
 
 ## Current work
 - **Open draft:** **#1006** — reliable data-retrieval / observability / durable delivery (outbox + provenance + owner-alert + protected retrieval). **DRAFT, not activated.**

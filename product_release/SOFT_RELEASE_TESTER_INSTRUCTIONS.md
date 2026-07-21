@@ -1,6 +1,6 @@
 # SpeakSharp — Beta Tester Guide
 
-**Last updated:** controlled invite-only beta
+**Last updated:** 2026-07-20 · controlled invite-only beta
 
 This is the guide you send to testers. It is written for someone who has never seen the
 code. Keep it free of technical detail.
@@ -22,7 +22,7 @@ not need a card.
 
 ---
 
-## Beta invitation copy (fill `[Name]`; email is send-ready, link included)
+## Beta invitation copy (email is send-ready, link included)
 
 **Email (official — controlled invite-only beta):**
 
