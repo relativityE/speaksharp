@@ -13,6 +13,7 @@ import {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 import { HelpPopover } from './HelpPopover';
+import { ModeDescriptionFlyout, STT_FLYOUT_ID } from './ModeDescriptionFlyout';
 import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
 import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
@@ -68,20 +69,11 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 // (rAF + ref, no per-frame React state) is tracked as a separate enhancement.
 const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 
-// The per-mode description, revealed on hover / keyboard focus (Radix sets data-highlighted on
-// the active item). It renders INLINE, stacked under the row label and contained within the
-// dropdown's own width — never a flyout. A right-side flyout overflowed the viewport at narrow
-// widths (the menu is align="end") and overlapped the Live Coaching panel on desktop; keeping the
-// text inside the Radix-positioned menu (which auto-collides to stay on-screen) makes it fully
-// contained at every width with no horizontal overflow. `whitespace-normal break-words` wraps the
-// text; `w-full` keeps it inside the menu box. The item itself switches to a column layout so the
-// one-line label and this description stack cleanly.
-const STT_TOOLTIP_CLASS =
-    'mt-1 hidden w-full whitespace-normal break-words rounded-md bg-background/70 px-2 py-1 text-[11px] font-normal normal-case leading-snug text-muted-foreground group-data-[highlighted]:block';
-
-// Applied to each mode row so the label sits on its own line with the inline description beneath it.
+// Compact ONE-LINE mode row. The per-mode description is NOT inlined here — hovering or keyboard-
+// focusing a row drives the SINGLE controlled ModeDescriptionFlyout (one bubble, disjoint from the
+// menu). No per-row tooltip elements.
 const STT_MODE_ITEM_CLASS =
-    'group relative flex-col items-start gap-1 py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground';
+    'group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground';
 
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
@@ -116,6 +108,17 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
         onModeChange(next);
     };
+
+    // Single controlled description surface for the mode dropdown: one `activeMode` (the hovered/focused
+    // row) drives one ModeDescriptionFlyout. Mutually exclusive by construction — moving to another row
+    // just changes activeMode; leaving the menu or closing it clears it. NOT three separate bubbles.
+    const [menuOpen, setMenuOpen] = React.useState(false);
+    const [activeMode, setActiveMode] = React.useState<RecordingMode | null>(null);
+    const menuContentRef = React.useRef<HTMLDivElement>(null);
+    // The touch "About transcription modes" help and the mode dropdown are MUTUALLY EXCLUSIVE: at most
+    // one description/help surface exists at a time. Both are controlled here so opening one closes the
+    // other (and the flyout is already gated on menuOpen, so it hides whenever About opens).
+    const [aboutOpen, setAboutOpen] = React.useState(false);
 
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -228,7 +231,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
-    const hasPrivateSampleAccess = canUsePrivate && !isPaidProUser;
     // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
     const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
     const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
@@ -251,43 +253,55 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         ? 'Private runs on your device after a one-time setup. Audio stays local.'
         : privateModeDescription;
 
-    // Short, scannable STT cue shown by default; the explanatory detail lives behind
-    // the accessible help affordance (hover/focus/click/tap), never as a large paragraph.
+    // Short, scannable STT cue shown by default; the explanatory detail lives behind the accessible
+    // help affordance (hover/focus/click/tap), never as a large paragraph.
     const modelSizeMB = PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB;
     let sttCue: string;
-    let sttHelp: React.ReactNode;
     if (mode === 'cloud') {
         sttCue = 'External server';
-        sttHelp = <p>Audio is sent to an external transcription server. Cloud is available for Pro users.</p>;
     } else if (mode === 'private') {
-        if (isPrivateDownloadRequired) {
-            sttCue = 'Private on-device';
-            sttHelp = (
-                <div className="space-y-1.5">
-                    <p>Private runs on your device after a one-time setup.</p>
-                    <p className="text-foreground/60" data-testid="private-model-size-note">
-                        {`One-time download of the on-device speech model (about ${modelSizeMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
-                    </p>
-                </div>
-            );
-        } else {
-            sttCue = 'Ready on this device';
-            sttHelp = <p>The main beta experience — runs on your device; your audio is transcribed locally and never uploaded.</p>;
-        }
+        sttCue = isPrivateDownloadRequired ? 'Private on-device' : 'Ready on this device';
     } else {
-        // native / Browser — a quick preview of the coaching flow, not the main experience.
         sttCue = 'Quick preview';
-        sttHelp = (
-            <div className="space-y-1.5">
-                <p>A quick preview of the coaching flow. Uses your browser&apos;s speech service; the transcript may miss some punctuation and filler words.</p>
-                {hasPrivateSampleAccess && (
-                    <p className="text-foreground/60">
-                        {`Private is the recommended main experience — try one Private sample session (up to ${privateCapLabel} per recording during beta), transcribed on your device.`}
+    }
+
+    // "About transcription modes" — a single, touch-friendly help surface that lists ALL THREE mode
+    // descriptions together, so someone can read about (e.g.) Cloud WITHOUT selecting it first. Same
+    // per-mode copy the desktop row tooltips use. This is informational only; the dropdown remains the
+    // sole mode-selection control. Rendered through the existing HelpPopover affordance (no new icon):
+    // opens on hover / keyboard-focus / click / tap, closes on Escape / outside click.
+    const aboutModesHelp = (
+        <div className="space-y-2.5" data-testid="stt-modes-about">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-foreground/50">About transcription modes</p>
+            <div>
+                <p className="font-semibold text-foreground">Private — Recommended</p>
+                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-private">{privateOptionDesc}</p>
+                {isPrivateDownloadRequired && (
+                    <p className="mt-0.5 text-[11px] font-normal text-foreground/55" data-testid="private-model-size-note">
+                        {`One-time download of the on-device speech model (about ${modelSizeMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
                     </p>
                 )}
             </div>
-        );
-    }
+            <div>
+                <p className="font-semibold text-foreground">Browser — Quick preview</p>
+                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-native">{nativeOptionDesc}</p>
+            </div>
+            <div>
+                <p className="font-semibold text-foreground">Cloud — Pro</p>
+                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-cloud">{cloudOptionDesc}</p>
+            </div>
+        </div>
+    );
+
+    // Content for the single flyout, resolved from the active row (same per-mode copy as the About panel).
+    const activeFlyout = ((): { title: string; body: string } => {
+        switch (activeMode) {
+            case 'private': return { title: 'Private — Recommended', body: privateOptionDesc };
+            case 'native': return { title: 'Browser — Quick preview', body: nativeOptionDesc };
+            case 'cloud': return { title: 'Cloud — Pro', body: cloudOptionDesc };
+            default: return { title: '', body: '' };
+        }
+    })();
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
@@ -305,11 +319,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     {sttCue}
                                 </span>
                                 <HelpPopover
-                                    label={`About ${getModeLabel(mode)} transcription`}
+                                    label="About transcription modes"
                                     testId="stt-mode-help"
-                                    panelClassName="w-64"
+                                    panelClassName="w-72"
+                                    triggerSizeClass="h-11 w-11"
+                                    open={aboutOpen}
+                                    onOpenChange={(o) => { setAboutOpen(o); if (o) { setMenuOpen(false); setActiveMode(null); } }}
                                 >
-                                    {sttHelp}
+                                    {aboutModesHelp}
                                 </HelpPopover>
                             </div>
 
@@ -327,7 +344,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
                     </div>
-                    <DropdownMenu>
+                    <DropdownMenu open={menuOpen} onOpenChange={(o) => { setMenuOpen(o); if (o) setAboutOpen(false); if (!o) setActiveMode(null); }}>
                         <DropdownMenuTrigger asChild disabled={isListening}>
                             <Button
                                 variant="ghost"
@@ -342,39 +359,47 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-2rem)]">
-                            {/* Private-first hierarchy (P0.2): order Private (Recommended) → Browser
-                                (Quick preview) → Cloud (Pro). ONLY Private carries the Recommended tag.
-                                Rows stay one-line; hover/keyboard-focus reveals a small neutral tooltip. */}
+                        <DropdownMenuContent
+                            ref={menuContentRef}
+                            align="end"
+                            // opaque: the STT menu must stay fully opaque at EVERY frame of the open
+                            // transition — never let the mic/timer/status pill show through the fade.
+                            opaque
+                            className="w-56 max-w-[calc(100vw-2rem)]"
+                            onPointerLeave={() => setActiveMode(null)}
+                        >
+                            {/* Private-first hierarchy (P0.2): Private (Recommended) → Browser (Quick preview)
+                                → Cloud (Pro). ONLY Private carries the Recommended tag. Rows are compact one-
+                                liners; hover / keyboard-focus sets a SINGLE activeMode that drives one
+                                ModeDescriptionFlyout (rendered below, disjoint from this menu) — mutually
+                                exclusive by construction, never per-row tooltip elements. */}
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem
                                     value="private"
                                     className={STT_MODE_ITEM_CLASS}
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!canUsePrivate}
-                                    aria-describedby="stt-desc-private"
+                                    onPointerEnter={() => setActiveMode('private')}
+                                    onFocus={() => setActiveMode('private')}
+                                    aria-describedby={activeMode === 'private' ? STT_FLYOUT_ID : undefined}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Private
                                         <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
                                     </span>
-                                    <span id="stt-desc-private" role="tooltip" data-testid="stt-desc-private" className={STT_TOOLTIP_CLASS}>
-                                        {privateOptionDesc}
-                                    </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="native"
                                     className={STT_MODE_ITEM_CLASS}
                                     data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                    aria-describedby="stt-desc-native"
+                                    onPointerEnter={() => setActiveMode('native')}
+                                    onFocus={() => setActiveMode('native')}
+                                    aria-describedby={activeMode === 'native' ? STT_FLYOUT_ID : undefined}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         Browser
                                         <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
-                                    </span>
-                                    <span id="stt-desc-native" role="tooltip" data-testid="stt-desc-native" className={STT_TOOLTIP_CLASS}>
-                                        {nativeOptionDesc}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -382,20 +407,29 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     className={STT_MODE_ITEM_CLASS}
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
-                                    aria-describedby="stt-desc-cloud"
+                                    onPointerEnter={() => setActiveMode('cloud')}
+                                    onFocus={() => setActiveMode('cloud')}
+                                    aria-describedby={activeMode === 'cloud' ? STT_FLYOUT_ID : undefined}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Cloud
                                         <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
                                     </span>
-                                    <span id="stt-desc-cloud" role="tooltip" data-testid="stt-desc-cloud" className={STT_TOOLTIP_CLASS}>
-                                        {cloudOptionDesc}
-                                    </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    {/* The ONE description surface. Disjoint from the menu, beside it, at most one at a time;
+                        suppressed (falls back to the About panel) when no non-overlapping side fits. */}
+                    <ModeDescriptionFlyout
+                        open={menuOpen && activeMode !== null}
+                        anchorRef={menuContentRef}
+                        mode={activeMode}
+                        title={activeFlyout.title}
+                        body={activeFlyout.body}
+                        avoidSelector='[data-testid="live-coaching-score-card"]'
+                    />
                 </div>
 
                 <div className="flex flex-col items-center justify-center gap-2 text-center">

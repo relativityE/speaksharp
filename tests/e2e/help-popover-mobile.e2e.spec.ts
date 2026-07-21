@@ -35,12 +35,14 @@ test.describe('Help popover mobile readability', () => {
     await page.screenshot({ path: '/tmp/ss-mobile-score-help.png' });
     await page.keyboard.press('Escape');
 
-    // Desktop: #952 dropdown hover tooltip still reveals on hover (unchanged).
+    // Desktop: the single controlled dropdown description flyout still reveals on hover (unchanged).
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByTestId(TEST_IDS.STT_MODE_SELECT).click();
     await page.getByTestId(TEST_IDS.STT_MODE_CLOUD).hover();
-    await expect(page.getByTestId('stt-desc-cloud')).toBeVisible();
-    await expect(page.getByTestId('stt-desc-cloud')).toContainText(/external transcription server/i);
+    const fly = page.getByTestId('stt-mode-flyout');
+    await expect(fly).toBeVisible();
+    await expect(fly).toHaveAttribute('data-mode', 'cloud');
+    await expect(fly).toContainText(/external transcription server/i);
     await page.screenshot({ path: '/tmp/ss-desktop-dropdown-after-clamp.png' });
   });
 });
