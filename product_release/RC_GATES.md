@@ -54,6 +54,8 @@ Real-mic engine-liveness + metadata are NOT sufficient: they passed 3/3 while th
 
 For a **v4-targeted** session also confirm `engine_version=private_v4`, runtime/backend/assignment metadata, and no visible/saved phrase loop.
 
+**Private v4 status for this release: ACTIVATION OFF.** Default Private is `private_v2:whisper-base.en`; the PostHog `private_stt_v4_*` flags default off and `VITE_PRIVATE_STT_V4_DISABLED='true'` is the build-time hard kill. The automated **`.github/workflows/private-model-smoke.yml`** ("Private v4 model-pipeline smoke") is a **dependency + deterministic-inference REGRESSION GUARD for the DORMANT v4 stack** (`@huggingface/transformers`) — it fetches the pinned base_q4 model, runs deterministic inference, and asserts token overlap. It is **repaired and green**, but it is **NOT a release proof**, NOT coverage of production Private v2 (`@xenova/transformers`), and does NOT prove browser/WebGPU/mic UX. It is non-blocking (manual dispatch + weekly schedule only) and does not activate v4.
+
 ### Ship Signal Rule
 
 RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, benchmarks, backend stress, and browser endurance results are advisory unless explicitly named as a blocking gate item. A high quality score cannot override a red or stale RC gate item.
@@ -87,7 +89,7 @@ Glossary:
 
 | RC Gate | Name | Blocks Tester Release? | Maintained Regression Evidence |
 |---|---|---:|---|
-| Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Expired Trial Live Smoke`, `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
+| Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Live Release Matrix` (entitlement/sample suites), `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
 | Gate 2 | SAST / code review | Yes if P0 found | `pnpm rc:gate:2:sast`, `pnpm quality`, `pnpm test:edge`, entitlement/token/quota unit tests, env/test-mode tests, frontend secret scan, production E2E/test-branch hardening check |
 | Gate 3 | DAST / running app review | Yes if P0 found | `pnpm rc:gate:3:dast`, live Playwright tests against production URLs and Supabase Edge Functions |
 | Gate 4 | SCA / dependency review | Yes only for critical exploitable risk | `pnpm audit --audit-level critical` plus GitHub Actions/runtime warning review |
@@ -197,6 +199,7 @@ Required maintained live workflows:
 | Legacy trial downgrade trap | Entitlement/sample smoke | Legacy trial timestamps do not grant Pro; effective tier is `free`, stored status is `free`, mode is Browser unless sample/paid entitlement is present |
 | Invalid auth | `tests/live/cloud-token-gates.live.spec.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns 401 and no token issued |
 | Cloud token denied for Free/sample/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Free and Private-sample users return 403, over-quota returns 429, no token issued |
+| Exact-origin CORS (deployed, fail-closed) | `tests/live/cors-exact-origin.live.spec.ts` (in `pnpm rc:dast:live`) | Against the DEPLOYED edge functions: the approved origin is echoed exactly; hostile lookalikes/wrong-protocol/unapproved-port/localhost-lookalike get 403 with NO `Access-Control-Allow-Origin`. **Non-skipping / fail-closed** — no capability probe, no config-based skip; missing `SUPABASE_URL` throws (never silently passes). No checkout/charge/token/v4 activation occurs. |
 | Private sample reuse | sample entitlement live/unit proof | A second unpaid Private session is denied after the one sample is claimed/completed |
 | Cloud Pro artifact path | `Pro STT Artifact Matrix` with `mode=cloud` | Transcript -> save -> history/detail -> AI -> PDF text |
 | Stripe checkout/webhook readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`, `tests/live/stripe-webhook-readiness.live.spec.ts` | Test-mode checkout/webhook path completes without production-charge assumptions |
@@ -240,6 +243,8 @@ Required maintained checks:
 | Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof. If Edge has no passing proof, UI/tester copy must say Chrome recommended instead of implying Edge parity. |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
 | Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |
+| Private-first mode selector (responsive/opaque/single-surface) | `tests/e2e/mode-selector-private-first.e2e.spec.ts` | Selector order Private (Recommended) → Browser (Quick preview) → Cloud (Pro) across 320/375/390/1280px; the mode description is ONE controlled flyout (never 3 overlapping bubbles), geometrically disjoint from menu/Live Coaching and in-viewport; the open menu is fully opaque at every animation frame; the touch "About" help and the dropdown are mutually exclusive (never both open); no horizontal overflow. |
+| Post-save one-surface + persistent Analytics cue | `tests/e2e/post-save-consolidation.e2e.spec.ts` | Settled post-save Session page has ONE saved-state surface (single status bar "Session saved · …"), exactly one Analytics action (→ `/analytics`) with a bounded pulse → PERSISTENT green cue (reduced-motion: straight to persistent), a quiet Private CTA only for eligible Native, and NO separate "Next: Analytics" toast / no duplicated pill message; validated 320/375/390/1280px; AA contrast on the rendered cue. |
 
 Manual Native/Safari/browser wording check:
 
@@ -249,6 +254,8 @@ Manual Native/Safari/browser wording check:
 - **Fail:** unsupported or weak browsers silently fail, or the user only sees internal diagnostics without a clear next action.
 
 Automated UX smoke is green when `pnpm rc:gate:5:ux` passes. Subjective copy polish can continue as P2, but it should not reopen release-critical code unless the smoke finds an unusable onboarding/core-flow issue.
+
+**UX review screenshots are NOT product/STT evidence.** The mode-selector and post-save specs write PNGs (`test-results/mode-selector/*`, `test-results/post-save-consolidation/*`) that `.github/workflows/ci.yml` uploads as `ux-review-screenshots-shard-*` with **`retention-days: 1`** (mirrored by `review-evidence.yml`). These are short-lived visual aids for PR/layout review only — they are ephemeral and must never be cited as STT accuracy, transcript-fidelity, or product-truth evidence. The pass/fail signal is the spec assertions themselves, not the images.
 
 ## Observability API Readback Requirements
 

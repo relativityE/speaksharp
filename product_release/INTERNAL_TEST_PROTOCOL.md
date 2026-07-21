@@ -1,6 +1,6 @@
 # Internal Test Protocol — Soft Release (operators / dev / test agents)
 
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-20
 **Audience:** operators, dev, and test agents only. **Not for testers.**
 The tester-facing guide is **`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`** — keep all technical
 detail (flags, model variants, telemetry, evidence, acceptance criteria) out of that file.
@@ -31,8 +31,9 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - Confirm Vercel production does **not** set `VITE_TEST_MODE` or other E2E/test flags before sending invites.
 - Confirm sample fields appear on new profiles: `private_sample_limit_seconds`,
   `private_sample_seconds_used`, and that no legacy timestamp grants paid access.
-- Keep the tester path standard-mode-first with one intentional Private sample. Cloud STT is a
-  paid Early Access feature and is **not** part of free-account sample testing.
+- Keep the tester path **Private-first**: Private is the **Recommended** main experience being
+  evaluated (on-device model, one intentional sample); Browser is a brief **Quick preview**. Cloud
+  STT is a paid Pro feature and is **not** part of the beta test (no billing; `stripeKeyClass="test"`).
 
 ---
 
@@ -74,6 +75,43 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
   confirm `engine_version=private_v4` and no visible/saved phrase loop.
 
 ---
+
+## Session UI truth (what the deployed session screen actually shows)
+
+- **Mode selector is Private-first.** The pre-record mode list is ordered Private (**Recommended**)
+  → Browser (**Quick preview**) → Cloud (**Pro**); only Private carries the "Recommended" tag and
+  only Browser carries the "Quick preview" tag (`LiveRecordingCard.tsx`, tags
+  `stt-mode-tag-recommended` / `stt-mode-tag-quick-preview`). Cloud is presented as Pro and is out
+  of scope for the beta.
+- **Mode help is ONE surface.** Desktop (hover + fine pointer) may show a single disjoint
+  description flyout next to the open dropdown; when no non-overlapping placement fits, the flyout
+  is suppressed and the single **"About transcription modes"** help panel is the fallback. **Touch
+  devices get the About panel — exactly one description surface, never stacked bubbles**
+  (`ModeDescriptionFlyout.tsx`; `STT_FLYOUT_ID`). The About panel and the mode dropdown are mutually
+  exclusive (only one open at a time).
+- **Post-save is ONE consolidated status bar, one Analytics action.** After a saved session the
+  single `StatusNotificationBar` carries the reconciliation copy (left), an optional quiet Private
+  CTA (Native + eligible only), and **one** Analytics action (rightmost). The separate
+  post-save-review-actions surface was removed and folded in, so a deployed state never contains two
+  Analytics actions (`SessionPage.tsx`, `postSaveReady`).
+- **No completion toast / "Next: Analytics" overlay.** There is no separate celebratory toast or
+  overlay after save; the consolidated status bar owns the "Session saved / review in Analytics"
+  message. Do not describe or test for a post-save toast.
+
+## Data provenance / observability truth
+
+- **Supabase is authoritative** for saved sessions and for submitted issue reports. Verify
+  persistence and issue-report capture against Supabase, not analytics.
+- **PostHog is observability only.** A **missing PostHog event does NOT imply data loss or a
+  persistence failure** — confirm the Supabase row before concluding a session did not save.
+- **Sentry** carries failures and sanitized alerts only; no transcript/audio/raw model output.
+- **Report Issue is the feedback channel**, but it does **not** (yet) generate a real-time owner
+  notification — that path is DRAFT (#1006) and **not deployed**. Do not tell testers or assume
+  operationally that submitting an issue pings the owner in real time.
+- **Provenance terminology — keep sources separate.** Distinguish **automated / seed / owner /
+  tester** accounts and sessions explicitly. **Do NOT call active accounts "testers"** without
+  correlating them to an authoritative invitation roster; use "active accounts" or "non-seed
+  candidate sessions" until roster correlation is done.
 
 ## Browser-support wording
 

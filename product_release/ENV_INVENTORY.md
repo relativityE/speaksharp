@@ -1,6 +1,6 @@
 # Environment Variable Inventory (Single Source of Truth)
 
-**Owner:** relativityE · **Last updated:** 2026-07-15 · maps to `main@84f720d2`
+**Owner:** relativityE · **Last updated:** 2026-07-20 · reconciled to private-first `main` (billing fail-closed, exact-origin CORS deployed, Private v4 disabled)
 
 This is the **canonical catalog** of every environment variable SpeakSharp uses, **where each
 one is stored**, who consumes it, and its scope. Use it to **add new vars, migrate/replicate
@@ -110,7 +110,7 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `STRIPE_BASIC_PRICE_ID` | C (+D sync) | checkout (future/placeholder) | product-ops |
 | `ASSEMBLYAI_API_KEY` | C (+D sync) | assemblyai-token (Cloud STT) | product-ops |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions (NOT format-transcript — that was removed) | product-ops |
-| `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (origin allowlist) | product-ops |
+| `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (`getAllowedOrigins`/`parseConfiguredOrigins`) | product-ops. **APPENDS extra exact origins only.** `cors.ts` ships a frozen `BUILTIN_ALLOWED_ORIGINS` exact allowlist (`https://speaksharp-public.vercel.app`, `https://speaksharp.ai`, `https://www.speaksharp.ai`, plus `http://localhost:5173/5174` + `http://127.0.0.1:5173/5174`); `ALLOWED_ORIGIN` adds comma-separated **exact** origins (e.g. explicit preview hosts). Every entry is parsed to canonical `URL.origin` — no wildcard/suffix/substring; malformed entries are logged and ignored. Fail-closed: a disallowed origin gets a 403 with NO `Access-Control-Allow-Origin`. |
 | `AGENT_SECRET` | C (+D sync) | agent/internal auth | product-ops |
 | `OBSERVABILITY_SMOKE_SECRET` | C | observability-smoke | product-ops |
 | `SENTRY_DSN` (backend) | C | edge-fn error ingest | product-ops |
@@ -230,6 +230,14 @@ Verified by reading the source at `main@84f720d2`. Names/homes only; no values.
 | `SITE_URL` | C (Supabase Edge secret) | `stripe-checkout/index.ts:99,103,212`, `stripe-billing-portal/index.ts:75,130` (via `getEnv`) | Base URL for Stripe checkout/portal redirect URLs. Prod-required (errors if missing); local-dev fallback `http://localhost:${DEV_PORT}`. No `VITE_SITE_URL`/`PUBLIC_SITE_URL` variant exists. |
 | Stripe gating | C / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge); `VITE_STRIPE_PUBLISHABLE_KEY` (client); `VITE_ENABLE_FREE_PLAN_SUPPORT` (`config.ts:54`) | Live vs test gating is by key class + `rc-gates.yml` `paid_launch` input + `billing-freeze-check.yml` (`BILLING_FREEZE_EMAILS`). Beta-50 billing freeze active. |
 | #979 grant check | (workflow inputs) | `.github/workflows/db-grant-check.yml` — inputs `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`; default target `public.get_user_id_by_email(text)` | Read-only `has_function_privilege()` audit of EXECUTE grants; enforced by migration `20260714000000_harden_get_user_id_by_email_grant.sql`. |
+
+## Draft #1006 — NOT deployed (do not treat as shipped vars)
+
+The #1006 telemetry outbox / provenance proposal is **DRAFT** and **NOT deployed**. Any variables it
+introduces (e.g. `POSTHOG_DISTINCT_ID_HMAC_KEY`, `TELEMETRY_WORKER_ENABLED`) are **not** current,
+**not** consumed by shipping code, and **must not** be added to §1–§4 above as live/required vars until
+#1006 actually merges and deploys. Listed here only so a future reader does not mistake the proposal
+for current configuration.
 
 ## Open decisions affecting this inventory
 - **ENV-PROD:** whether to migrate the Home-A committed `VITE_*` (public) into Home B (Vercel), to match the Stripe-key pattern. This table is the migration checklist if so.

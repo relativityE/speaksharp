@@ -1,7 +1,7 @@
 **Owner:** relativityE
-**Last Reviewed:** 2026-07-15
+**Last Reviewed:** 2026-07-20
 **Version:** v0.9.0-rc-series (sanitized lineage; see `RELEASE_STATUS.md` crosswalk)
-**Last Updated:** 2026-07-15
+**Last Updated:** 2026-07-20 (reconciled to private-first main: dual fail-closed billing, exact-origin CORS deployed)
 
 # Runtime Configuration Verification (Launch Checklist)
 
@@ -30,7 +30,12 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 
 > **P0.1 dual-enablement rule (fail-closed beta).** Correct live keys are necessary but NOT sufficient. Paid enrollment requires **two explicit kill-switches deliberately turned on, in addition to live keys**: the frontend flag `VITE_PAYMENTS_ENABLED=true` (Vercel) AND the backend flag `PAYMENTS_ENABLED=true` (Supabase Edge). Either flag off ⇒ checkout closed. The beta ships with both **off**, so a stray `pk_live_` key alone can never open checkout. Both the frontend (`arePaymentsEnabled()`) and the backend (`stripe-checkout` → `403 payments_disabled` before any Stripe call) enforce this independently.
 
-**Paid-launch enablement sequence (run in order; each is a hard gate):**
+**Beta fail-closed billing state (CURRENT — verify these are TRUE before/while inviting testers):**
+- [ ] **Frontend switch OFF**: `VITE_PAYMENTS_ENABLED` is unset or not `"true"` in Vercel Production, so `arePaymentsEnabled()` is false and every Upgrade/checkout surface is hidden — independently of the publishable key class.
+- [ ] **Backend switch OFF**: `PAYMENTS_ENABLED` is unset or not `"true"` in Supabase Edge secrets. The two switches are **independent**: either one off ⇒ checkout closed.
+- [ ] **Endpoint proves CLOSED**: an anonymous POST to the deployed `stripe-checkout` returns **403 `payments_disabled`** — the guard runs *before* any auth/Stripe call (`backend/supabase/functions/stripe-checkout/index.ts`; `ErrorCodes.PAYMENTS_DISABLED` → 403). This is exercised read-only by `.github/workflows/billing-freeze-check.yml` (Beta-50 billing freeze), which also fails if any live subscription/open invoice/open checkout session exists for the audited accounts. A live `pk_live_`/`sk_live_` present in prod does NOT open checkout while the switches are off.
+
+**Paid-launch enablement sequence (SEPARATE future flow — run in order; each is a hard gate; do NOT run during the fail-closed beta):**
 - [ ] **Frontend flag ON**: `VITE_PAYMENTS_ENABLED=true` set in Vercel Production env.
 - [ ] **Backend flag ON**: `PAYMENTS_ENABLED=true` set directly in Supabase Edge secrets.
 - [ ] **Correct live keys**: `pk_live_…` (Vercel) + `sk_live_…` (Supabase) — same live mode (four-corner alignment below).
@@ -53,7 +58,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 ## 2. Backend Infrastructure (Supabase)
 - [ ] **Project URL**: `VITE_SUPABASE_URL` points to the production instance.
 - [ ] **Service Role**: `SUPABASE_SERVICE_ROLE_KEY` is correctly set in Edge Function secrets.
-- [ ] **CORS Origins**: `ALLOWED_ORIGIN` is set in Supabase Edge Function secrets to the exact allowed origins, comma-separated if needed. Current expected soft-release values are `https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5174`.
+- [ ] **CORS Origins (exact-origin, fail-closed — P0.3)**: The product origins are the **built-in** exact allowlist in `backend/supabase/functions/_shared/cors.ts` (`BUILTIN_ALLOWED_ORIGINS`): `https://speaksharp-public.vercel.app`, `https://speaksharp.ai`, `https://www.speaksharp.ai`, plus local dev `http://localhost:5173/5174` and `http://127.0.0.1:5173/5174`. `ALLOWED_ORIGIN` (Supabase Edge secret) is **only** for **additional exact** origins (e.g. an explicit preview host), comma-separated. Every entry (built-in and env) is normalized to a canonical `URL.origin` — there is **no** wildcard/suffix/substring match; malformed entries are logged and ignored. Verify the deployed edge functions echo an approved origin exactly and reject hostile lookalikes/wrong-protocol/unapproved-port with a **403 and NO `Access-Control-Allow-Origin`** (proven live by `tests/live/cors-exact-origin.live.spec.ts` in Gate 3, non-skipping). Note: `https://speaksharp.vercel.app` is **not** an approved origin — only `speaksharp-public.vercel.app` is.
 - [ ] **Auth Redirects**: Production domain added to Supabase Auth Allow List.
 - [ ] **Storage Buckets**: Verify any production storage buckets still used by the app have correct RLS policies. Audio files are not expected to be stored for launch; finalized session records do persist transcript/analysis text needed for coaching comparison, PDF regeneration, AI suggestions, and WER-ready validation.
 
@@ -96,7 +101,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Developer premium access**: `VITE_DEV_PREMIUM_ACCESS` is NOT relied on in production — it is unused in `src`; entitlement is server-driven (`stripe_subscription_id` required). No env Pro bypass in the prod build.
 - [ ] **Sentry environment**: `VITE_SENTRY_DSN` set to the prod DSN; Sentry `environment` resolves to the prod build `MODE` (`production`).
 - [ ] **SITE_URL**: Supabase Edge secret `SITE_URL` set to the production origin (Stripe checkout/portal redirects); no localhost fallback in prod.
-- [ ] **Stripe gating**: `stripeKeyClass` matches intended mode (`test` for controlled beta / `live` only after the paid cutover). Beta-50 billing freeze respected.
+- [ ] **Stripe gating (fail-closed, not key-class-gated)**: The beta stays closed because **both** `VITE_PAYMENTS_ENABLED` and `PAYMENTS_ENABLED` are OFF — NOT because a test key is deployed. The deployed app may legitimately carry `pk_live_`/`sk_live_`; `stripeKeyClass` reported by the runtime is informational and does not, by itself, open or close checkout. Do not assert "test key = beta"; assert the dual switches are off and the endpoint returns `403 payments_disabled` (see §1). Beta-50 billing freeze respected.
 
 ---
 
