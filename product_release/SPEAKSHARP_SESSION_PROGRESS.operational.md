@@ -1,17 +1,287 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-28
+**Last Reviewed:** 2026-07-21
 **Version:** v0.6.19-rc0
-**Status:** Draft A/B model for Session page evaluation
+**Status:** Single canonical Session Progress contract. Part A (approved Personal Progress direction) governs; Part B (legacy 0–10 implementation) is retained as the ships-today record on a staged retirement path (definition round; no code).
 
-# SpeakSharp Score Model
+# SpeakSharp Session Progress — Personal Baselines, Target Progress, and Outcome Recovery
 
-This document defines the research-informed scoring model behind the SpeakSharp Score. The score is proprietary, but it is not arbitrary: it maps SpeakSharp measurements to established public-speaking evaluation categories.
+> **This is the single canonical contract for SpeakSharp session progress.** It has two parts.
+> **Part A — Approved Session Progress product direction** is authoritative and governs product
+> direction. **Part B — Current legacy 0–10 implementation and staged retirement map** is retained
+> **only** as the accurate record of the code that ships today (`frontend/src/utils/speakingScore.ts`),
+> and remains live until its consumers are safely migrated (see the score-consumer inventory and
+> Inchstone 11 in `BACKLOG.md`). There is **no second active source of truth**: where Part B calls the
+> 0–10 score an "accepted current path" or a "gamification foundation," Part A supersedes that framing.
 
-The product rule is simple:
+This document originally defined the research-informed scoring model behind the 0–10 SpeakSharp Score. The score is proprietary, but it is not arbitrary: it maps SpeakSharp measurements to established public-speaking evaluation categories. That model is preserved below as the legacy record.
+
+The product rule is unchanged:
 
 > Metrics are inputs. Coaching is the product.
 
-Every score shown to a user must produce a small number of useful actions, not a wall of numbers.
+Every result shown to a user must produce a small number of useful actions, not a wall of numbers.
+
+---
+
+# Part A — Approved Session Progress product direction
+
+> The approved long-term direction: transparent **personal progress** against the user's own baseline
+> and own targets (the Personal Progress model). This part is authoritative.
+
+## A.0 Why the score is being retired
+
+The 0–10 SpeakSharp Score grades the person against an unexplained universal standard: four
+sub-scores are collapsed into one opaque number, mapped to an ability ladder ("Getting Started" →
+"Polished Presenter"). A user cannot see *what changed compared with their own last attempt*, *which
+target moved*, or *why* the number is what it is. SpeakSharp's direction is the opposite:
+
+> SpeakSharp helps a user understand progress against **their own** previous comparable practice and
+> **their own** selected targets. It must not grade the person against an unexplained universal
+> standard.
+
+Retirement is **staged**, not a delete: every current consumer of the score (live card, PDF,
+telemetry, recommendations, tests, copy) is migrated first; the code is removed only after the last
+consumer is gone. See `BACKLOG.md` for the inventory and the ordered inchstones.
+
+Two conversions are explicitly **forbidden**:
+
+- Do **not** convert the existing 0–10 score directly into a 0–100 percentage.
+- Do **not** introduce a new opaque combined "Personal Progress Score" that averages unrelated
+  focus areas into one headline number.
+
+## A.1 Baseline: the first session is a starting point, not a grade
+
+The first eligible session for a given focus area is the user's **personal baseline**. It is placed
+at **0% progress from that baseline** — it is explicitly **not** 0% speaking ability, and it is
+**not** placed on a universal 0–100 speaking-ability scale.
+
+- Reaching a particular selected target represents **100% completion of that target** — not perfect
+  speaking.
+- Each focus area is calculated **separately**. Unrelated focus areas are **not** initially averaged
+  into one headline percentage.
+- The user-facing state for a first eligible session is **"Personal baseline established."**
+
+## A.2 Target source (priority order)
+
+1. A **user-selected, editable** target.
+2. A **SpeakSharp-recommended** target that is **clearly labeled as a recommendation** and editable.
+3. **No target percentage** when no defensible target exists — show raw direction only.
+
+SpeakSharp may suggest targets, but a suggested target must be identified as a recommendation, never
+as a universal standard.
+
+## A.3 Progress calculation (two separate views — never conflated)
+
+Two distinct numbers are computed for an eligible target. They are defined and displayed separately;
+one is measured against a **fixed** point, the other against the **previous** session.
+
+### (1) Cumulative target progress — against the FIXED personal baseline
+
+The first eligible session under a particular **target version** establishes the **fixed baseline** =
+**0% progress from baseline**. That baseline **remains fixed** — it is **not** reset to the previous
+session — until the user changes the target materially or comparability is broken (§A.6). Reaching the
+target = **100% of that target's original gap closed**. So the percentage scale does **not** move
+after every session.
+
+```text
+baseline_gap        = distance(fixed_baseline,  target)    # FIXED across the target version
+current_gap         = distance(current_session, target)
+cumulative_progress = ((baseline_gap - current_gap) / baseline_gap) * 100
+```
+
+### (2) Previous-session movement — change since the last comparable session
+
+Do **not** reset the baseline to the previous session. Compare the current `cumulative_progress` with
+the **previous comparable session's** `cumulative_progress` and report the difference in **percentage
+points**, alongside the **raw metric change**.
+
+```text
+session_movement_pp = cumulative_progress(current) - cumulative_progress(previous_comparable)
+raw_change          = current_measurement - previous_measurement   # in metric units
+```
+
+`cumulative_progress` answers "how much of your **original** gap have you closed"; `session_movement_pp`
+answers "did this session move you further than the last one." Neither is an ability score.
+
+### Metric eligibility for a target-progress percentage
+
+A metric qualifies for a `cumulative_progress` percentage **only** when it has all of: a **defensible
+per-metric distance function**; a **defined raw measurement with a known confidence boundary**; and a
+**visible, defensible target** that is user-selected or a clearly-labeled editable recommendation.
+**Not every candidate metric qualifies — do not assume a distance function exists.**
+
+| Target shape | distance() | Eligibility today |
+| :--- | :--- | :--- |
+| **Lower-is-better threshold** (e.g. fillers/min ≤ T) | `max(0, measured − T)` | **Eligible:** filler rate. |
+| **Target range** (e.g. pace in [lo, hi]) | `0` inside; else distance to the nearest boundary | **Eligible:** speaking pace (WPM). |
+| **Higher-is-better threshold** (distance *shape* only) | `max(0, T − measured)` | **No metric is claimed eligible under this shape yet** (see clarity note). |
+
+**Clarity is NOT eligible for a target-progress percentage** until its measurement validity and target
+meaning are separately proven. The current clarity signal is a proprietary 0–100 grade whose data
+source, confidence boundary, and "higher is universally better" claim are **not** established.
+Preserve `clarity_score`/`accuracy` as existing **inputs** where required, but for clarity show **raw
+direction** or **"not eligible for target progress"** — never a clarity gap-closed percentage.
+
+### Edge-case behavior (required)
+
+| Situation | Behavior |
+| :--- | :--- |
+| **Already at target at baseline** (`baseline_gap == 0`) | Show **"Target maintained."** Never divide by zero. |
+| **Target reached this session** | Cap completion at **100%** and show **"Target reached."** |
+| **Regression** (moved away from target) | Allow a **negative** direction internally, but display the **raw measurement** and constructive language — never a shaming grade. |
+| **Changed target** | **Version** the target and establish a **new baseline** for the new target; do not compare across two different targets as if continuous. |
+| **Invalid comparison** (no defensible target, or non-comparable sessions) | Display **no percentage**; show raw direction and/or the exclusion reason. |
+
+## A.4 What every percentage must expose
+
+A `cumulative_progress` percentage may be shown **only** alongside all of:
+
+- the **fixed baseline** value (and whether the baseline is user-selected or a labeled recommendation);
+- current value;
+- the target;
+- the **named** fixed-baseline session and its **date**;
+- the raw change vs the previous comparable session (e.g. "6/min → 5/min");
+- when a previous comparable session exists, the **percentage-point movement** since it;
+- the calculation itself.
+
+A bare "12% closer to your delivery targets" with none of the above is **not** allowed.
+
+## A.5 Worked examples (canonical)
+
+**1 — Fixed baseline vs previous-session movement (fillers) [REQUIRED reference example]:**
+- Fixed baseline: **8**/min · Target: **≤ 2**/min · Previous comparable session: **6**/min · Current
+  session: **5**/min.
+- `baseline_gap = max(0, 8−2) = 6` (fixed).
+- Previous: `current_gap = max(0, 6−2) = 4` → previous `cumulative_progress = ((6−4)/6)×100 = 33%`.
+- Current: `current_gap = max(0, 5−2) = 3` → current `cumulative_progress = ((6−3)/6)×100 = 50%`.
+- `session_movement_pp = 50 − 33 = **+17 percentage points**`. Raw current-vs-previous change:
+  **1 fewer filler/minute**.
+- User-facing: *"Filler target: 50% of your original gap closed, up 17 percentage points from your
+  previous comparable session."*
+- Note the baseline stayed **8/min**; it was **not** reset to 6/min, so the 0–100% scale did not move.
+
+**2 — Target range (pace), cumulative vs fixed baseline:**
+- Fixed baseline: **180** WPM · Current: **165** WPM · Target range: **130–150** WPM.
+- `baseline_gap = 180−150 = 30`; `current_gap = 165−150 = 15`. `cumulative_progress =
+  ((30−15)/30)×100 = 50%` of the original gap closed.
+
+**3 — First baseline:**
+- One eligible session, no prior comparable session. No percentage. Show **"Personal baseline
+  established."** and the raw measurements.
+
+**4 — Already at target (at baseline):**
+- Fixed baseline: **1.5** fillers/min · Target: **≤ 2**/min. `baseline_gap = 0`. Show **"Target
+  maintained,"** not 0% and not a divide-by-zero.
+
+**5 — Regression:**
+- Fixed baseline: **6** fillers/min · Current: **7** fillers/min · Target: **≤ 2**/min. `current_gap
+  (5) > baseline_gap (4)` → negative direction internally. Display the raw change ("6/min → 7/min")
+  with constructive language; do not render a shaming grade.
+
+**6 — Changed target (new baseline, versioned):**
+- User moves the filler target from **≤ 4**/min to **≤ 2**/min. Version the target; the next eligible
+  session becomes the **new fixed baseline** for the ≤ 2 target version. Prior progress against ≤ 4 is
+  retained under the old target version, not silently rescaled.
+
+**7 — Incompatible sessions (no comparison):**
+- Previous comparable session used a different engine/mode (e.g. Browser vs Private) with no proven
+  normalization. **Exclude** it, show **no percentage**, and state the exclusion reason.
+
+**8 — Insufficient evidence:**
+- Transcript confidence or speech quantity below the reliability threshold. Show **"Not enough
+  comparable evidence."** and no percentage.
+
+**9 — Clarity (ineligible for target-progress percentage):**
+- Clarity raw signal **62 → 71** across two comparable sessions. Show the **raw direction** only
+  ("clarity 62 → 71") or **"not eligible for target progress"** — **no** clarity gap-closed
+  percentage — until clarity measurement validity and target meaning are separately proven (§A.3).
+
+**10 — Agenda coverage percentage-point change (Outcome Progress, see A.7):**
+- Coverage went from **3/5 (60%)** to **4/5 (80%)** = **+20 percentage points**. This is a coverage
+  change, **not** a 33% speaking improvement, and it is **not** mixed into delivery progress.
+
+## A.6 Comparable-session contract
+
+A session may be compared with another **only** when all hold:
+
+- the **same user**;
+- **compatible practice purpose** or selected focus;
+- **compatible transcription engine and mode** (Browser and Private measurements are **not**
+  equivalent without proven normalization);
+- **adequate transcript confidence**;
+- **adequate speech duration and quantity**;
+- **reliable metric attribution**.
+
+Three **separate** calculations, never conflated (§A.3):
+
+- **Immediate comparison** — current vs the **immediately previous comparable** session; reported as
+  **percentage-point movement** plus the **raw metric change**.
+- **Cumulative target progress** — current vs the **fixed personal baseline** (the baseline does not
+  move to the previous session).
+- **Longer trend** — median or trend across the **last 3–5** comparable sessions.
+
+When purpose, engine, target, or data quality changes materially: **exclude** the session, **explain
+why**, or **establish a new fixed baseline** (a new target version). The baseline is otherwise held
+fixed so the percentage scale is stable across sessions.
+
+**Historical migration.** Do **not** derive new progress from the old 0–10 score. Use stored **raw
+measurements** only where their meaning and attribution are reliable; otherwise establish a **new
+future baseline**. (The 0–10 score is never persisted today — every surface recomputes it — so there
+is no stored score to migrate; only raw inputs such as clarity/fillers/WPM exist.)
+
+## A.7 Outcome Progress (agenda coverage — Executive Rehearsal only)
+
+Outcome Progress applies **only** when an agenda or brief exists (the structured Executive Rehearsal
+experience). It is reported **separately** from delivery progress and is **never** folded into a
+delivery `cumulative_progress` percentage. General practice needs **no** agenda, so Outcome Progress
+does not apply there.
+
+Show: agenda points **covered**, **partly addressed**, **not addressed**, and **recovered after
+guidance**, each with **attributable transcript evidence**.
+
+Coverage change is expressed in **percentage points** (3/5 → 4/5 = 60% → 80% = **+20 pp**), never as
+a speaking-improvement percentage.
+
+## A.8 Summary language (initial)
+
+Prefer plain, per-focus statements over a single headline number:
+
+- "Improved in 2 of 3 selected focus areas."
+- "Maintained your pace target."
+- "Filler rate decreased from 5.1 to 4.3 per minute."
+- "Not enough comparable evidence."
+- "Personal baseline established."
+
+Required display shape for a target with progress (cumulative vs fixed baseline + session movement):
+
+```text
+Filler target: 50% of your original gap closed, up 17 pp from your previous comparable session
+8/min baseline → 6/min previous → 5/min now → goal: 2/min or fewer
+```
+
+## A.9 Completion is not performance
+
+Finishing a session is **session state**, not evidence of improvement. Never claim that completing a
+speech means the user got better. "Recovered after guidance" must never be inferred without
+attributable post-guidance evidence, and recovery is broader than filler reduction (it may concern
+pace, pause rhythm, unclear wording, missing context, an omitted agenda point, an unstated ask, or
+another supported focus).
+
+---
+
+# Part B — Current legacy 0–10 implementation and staged retirement map
+
+> **Status of the 0–10 SpeakSharp Score (read first):**
+> - It describes **current implementation that remains live** in the app until its consumers are
+>   safely migrated (see the score-consumer inventory and Inchstone 11 in `BACKLOG.md`).
+> - It is **not the approved long-term product direction** — Part A is.
+> - It **must not** be converted directly into a 0–100 percentage (nor folded into a new combined
+>   score).
+>
+> The sections below are the accurate record of `frontend/src/utils/speakingScore.ts` and its
+> consumers, retained for the migration. Do not extend the 0–10 score; migrate its consumers per
+> `BACKLOG.md`. This appendix stays until the final score-consumer retirement inchstone completes and
+> is production-proven, after which it is archived or removed.
 
 ## Reviewer Context
 

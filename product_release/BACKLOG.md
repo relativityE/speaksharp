@@ -18,7 +18,15 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 4. **The current beta is no-billing.** Free testers must not be able to initiate checkout or gain Cloud access.
 5. Do **not** spend cycles improving Browser punctuation or making Browser match Private (Browser punctuation is P3 at most).
 6. **Executive Presentation Rehearsal** is the next major product expansion after this hardening cycle.
-7. **Zoom/Meet/Teams live-meeting integration** comes only after the rehearsal product proves value.
+7. **Zoom/Meet/Teams live-meeting integration** (Live Meeting Companion) is **removed from active
+   sequencing** — future direction only, re-scoped separately after the rehearsal product proves value.
+8. **Transparent personal progress replaces the opaque universal score.** The user-facing 0–10
+   SpeakSharp Score is being **retired** via a staged consumer migration and replaced by
+   progress against the user's **own** baseline and **own** selected targets. Do **not** rescale
+   the score to 0–100 or into a new combined headline number. General practice needs **no** agenda;
+   agendas are optional and belong only to Executive Rehearsal. Contract:
+   `PRODUCT_FEATURES.operational.md` + `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A; inchstones in
+   §4 below.
 
 ---
 
@@ -64,6 +72,9 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **P2 — MFA / auth hardening security epic** (account-recovery + MFA; not in initial release).
 - **P2 — Private performance epic** (reduce Private setup + ~90s finalization wait; segmented/streaming/multithread/v4 paths).
 - **P2 — Dependency / bloat maintenance epic** (Browserslist refresh, ORT WASM duplication, large-chunk code-splitting).
+- **P3 — Release-status baseline reconciliation:** reconcile `RELEASE_STATUS.md` to verified `main`
+  and production state through a separate release-closeout PR. Resolve values live at execution time;
+  do not duplicate or pin them in `BACKLOG.md`.
 
 **Activation-gated inchstones (record only; each needs a separate explicit Prod Owner authorization):**
 - **P2 — Billing activation (paid Pro enrollment) — descoped; production is confirmed fail-closed.**
@@ -77,11 +88,108 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
   - **Acceptance:** (1) Prod Owner authorizes removing the hard-kill (Vercel `VITE_PRIVATE_STT_V4_DISABLED` off) + redeploy; (2) exposure limited to a named allowlist (or small %) via `private_stt_v4_enabled`, with v2-base default + fallback for everyone else and distil off (base-q4 only); (3) WebGPU-unsupported devices fall back to v2 with no silent fallback; (4) A/B analysis MUST distinguish the **assigned** engine, the **attempted** engine, and the engine that **actually produced the saved transcript**; `sessions.engine_version` is **NOT** authoritative for the actual-producing engine until final-engine attribution after decode fallback is repaired and regression-tested — until then, treat setup-success, finalization latency, and error/fallback rate as the trustworthy signals; (5) the accuracy/clarity comparison is held until the `um`/`uh` normalization confound and the early-cap bug are resolved, so the metric is not biased; (6) first non-owner-tester validation captured. Private v4 remains off until (1) is authorized.
   - **Priority:** P2 (activation-gated; not this cycle).
 
-**Feature priorities (record only — do NOT implement on the hardening branch). These build on the Executive Rehearsal domain foundation (PR #1012 — enabling code only, not a shipped feature); each is a separate PR/review with one observable outcome, and rehearsal free-text (talking points/decision/audience) never enters telemetry:**
-- **P2.1 — Executive Presentation Rehearsal Sandbox:** user supplies audience, objective, desired decision/ask, and 3–7 required talking points via an accessible pre-session Brief UI (labeled/validated inputs, min/max explained, keyboard + screen-reader); reuse current recording/transcript/live metrics/analytics/AI suggestions without displacing Private-recommended; post-session Outcome Scorecard = talking-point coverage, executive framing, recommendation, business impact, risk/mitigation, explicit next step, rendered separately from the (unchanged) SpeakSharp Score; persist the brief/scorecard as nullable `sessions` columns under the existing `auth.uid()=user_id` RLS (migration prepared with RLS/grant tests, separately reviewed, NOT auto-applied). No Zoom/Meet integration.
-- **P2.2 — Rehearsal visual cue checklist:** compact not-covered/covered/clarify states during rehearsal alongside WPM/filler/pause; no verbose live paragraphs; do not alter SpeakSharp Score with unvalidated AI output.
-- **P2.3 — Real-time semantic AI rehearsal cues:** feature-flagged Pro experiment; evaluate only finalized clauses / pause-bounded chunks (not every token); rate-limit cues; ≤1 short actionable cue at a time; clearly disclose cloud-AI transcript egress; keep deterministic delivery coaching if AI fails.
-- **P3.1 — Live Meeting Companion:** only after Rehearsal Coach shows repeated value; reuse rehearsal brief/coaching model; cues less frequent/verbose than rehearsal; treat Meet/Zoom/Teams capture, permissions, privacy, distraction as separate risks; start with a browser-agnostic overlay prototype, not native vendor integrations.
+### Personal Progress & Executive Rehearsal feature train (record only — do NOT implement on the hardening branch)
+
+**Direction.** Transition from the opaque universal 0–10 SpeakSharp Score to **transparent personal
+progress** (progress vs the user's own baseline and own selected targets), plus the Executive
+Rehearsal experience, delivered as small independently-reviewable inchstones. Canonical product
+contract: `PRODUCT_FEATURES.operational.md` ("Personal Progress & Executive Rehearsal Product
+Contract"); calculation contract: `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A. Each inchstone is
+a separate branch/PR from fresh `main`, one observable outcome, regression-tested, independently
+reviewable, closed before the next dependent PR begins, disabled while its user journey is
+incomplete, and requires explicit Prod Owner merge authorization (and separate deployment/activation
+authorization where applicable). Rehearsal free-text (talking points/decision/audience) never enters
+telemetry. Builds on the Executive Rehearsal domain foundation (PR #1012 — enabling code only, not a
+shipped feature; `frontend/src/services/rehearsal/`).
+
+**Phase gating (a merge/deploy/activation boundary sits between each phase):**
+- **Phase 1 — Product contract & backlog (this cycle):** definition only; docs/backlog. Returned for
+  Prod Owner review. No sandbox or implementation until Phase 1 is approved.
+- **Phase 2 — Localhost UX sandbox (after Phase 1 approval):** new branch `feat/executive-rehearsal-progress-sandbox`
+  from then-current `main`; localhost-only, representative fixtures, flag default OFF; **no** production
+  data, migrations, RLS, production AI calls, billing, Private v4, or external side effects. Fixture
+  states: first-baseline; improved comparable session; regression; target-maintained; incompatible
+  (no comparison); partly-covered agenda; recovered agenda point; insufficient transcript confidence.
+  Iterate until the experience is approved; **do not** merge the sandbox wholesale — preserve approved
+  decisions and close it as a design reference.
+- **Implementation inchstones (after sandbox approval):** each from fresh `main`, per the rules above.
+  **Do not** inherit sandbox code wholesale.
+
+**SpeakSharp Score consumer inventory (migration scope for Inchstone 11).** The 0–10 score is
+**never persisted** — every surface recomputes it from `frontend/src/utils/speakingScore.ts`, so there
+is **no DB column to drop**; migration touches render/emit call sites and copy only.
+
+| Bucket | Consumers |
+| :--- | :--- |
+| Producer | `frontend/src/utils/speakingScore.ts` (`calculateSpeakingScore`, `getTranscriptQualityCaveat`, weights/thresholds/version constants). |
+| Live in-session UI | `frontend/src/components/session/LiveCoachingScoreCard.tsx`; `frontend/src/pages/SessionPage.tsx` (renders the card); `frontend/src/components/session/HelpPopover.tsx` (score explainer copy). |
+| Post-session UI | `frontend/src/components/AnalyticsDashboard.tsx` (quality caveat + "SpeakSharp Score" copy). |
+| Recommendations | `frontend/src/utils/coachingNarrative.ts` (mirrors score penalties/actions; no import edge — keep in sync). |
+| Telemetry / experiment | `frontend/src/services/sessionCoachingExperiment.ts`; `frontend/src/services/telemetry/processors/ScoreProcessor.ts`; `shadowMetricsEngine.ts`; `contracts.ts`; `metricsSnapshot.ts`; `metricsParity.ts`; `fillerDivergence.ts` (shadow/flag-gated; a second live invocation of the engine). |
+| Reports / PDF | `frontend/src/lib/pdfGenerator.ts` ("SpeakSharp Score" row + coaching suggestion). |
+| Persistence | **None for the 0–10 score.** DB stores only inputs (`sessions.clarity_score`, `sessions.accuracy`, `user_goals.clarity_goal`) — do **not** retire these. |
+| Tests | `speakingScore.test.ts`, `LiveCoachingScoreCard.test.tsx`, `AnalyticsDashboard.component.test.tsx`, `SessionPage.rendering.component.test.tsx`, `useSessionMetrics.test.ts`, `shadowProducers.test.ts`, `derivedMetrics.test.ts`, `tests/e2e/help-popover-mobile.e2e.spec.ts`. |
+| Copy / docs | `product_release/SPEAKSHARP_SESSION_PROGRESS.operational.md`, `PRODUCT_FEATURES.operational.md`, `STT_BASELINE_CONTRACTS.operational.md`; **`USER_GUIDE.md`** (repo root — its separate 0–100% "Clarity Score" headline is a distinct universal grade to reconcile during migration). |
+
+Exclude from migration: `frontend/src/services/rehearsal/outcomeScorecard.ts` (separate Outcome
+Scorecard; does not touch the SpeakSharp Score) and the `clarity_score`/`accuracy` inputs above.
+
+**Role-based ownership (applies to every inchstone below).** Implementation owner: **Product
+Engineering / Dev** (executes). Product acceptance: **Prod Owner**. Security/data approval (before any
+migration or production activation): **Prod Owner**. Deployment/activation decision: **Prod Owner**.
+No individual names are assigned here.
+
+**Ordered inchstones (each: implementation = Product Engineering / Dev; approval gates = Prod Owner; one closure boundary):**
+- **Inchstone 1 — Directional comparison domain (no UI):** baseline eligibility, target definitions,
+  per-metric distance calcs, progress calcs, comparable-session rules, confidence/exclusion reasons,
+  edge-case tests. **Closes when** the domain + tests land with no user-interface change.
+- **Inchstone 2 — Post-session Personal Progress:** baseline-established state; per-target raw +
+  gap-closed results; named comparison session; "improved in X of Y focus areas"; one next focus; no
+  combined universal percentage. **Closes when** the post-session surface renders per the contract.
+- **Inchstone 3 — Quiet live guidance:** replace the prominent live 0–10 score; preserve useful
+  confidence/recommendation behavior; no continuously-changing replacement score; no interruption or
+  automatic cueing. **Closes when** the live 0–10 card is gone and the quiet surface ships.
+- **Inchstone 4 — Analytics integration:** reuse existing session-comparison infra; previous-comparable
+  view; rolling 3–5-session trend; target history/version awareness; clear exclusion explanations;
+  general practice works without an agenda. **Closes when** Analytics shows personal progress.
+- **Inchstone 5 — Executive Rehearsal passive agenda:** optional brief/agenda entry; recommended
+  initial range per the contract; passive gray/yellow/green coverage; evidence-backed post-session
+  outcome review; **no** AI remedy and **no** persistence yet unless separately authorized. **Closes
+  when** passive agenda tracking + outcome review ship behind a default-OFF flag.
+- **Inchstone 6 — Real transcript integration:** connect agenda evaluation to actual Session
+  transcripts; require evidence for covered/partial/missing; prove no fabricated attribution; no
+  automatic intervention. **Closes when** agenda states derive from real transcript evidence.
+- **Inchstone 7 — User-requested remedy:** user selects one gap / asks for help; one concise remedy;
+  no stacked suggestions; clear privacy/data-handling boundary. **Closes when** the request→one-remedy
+  path ships.
+- **Inchstone 8 — Evidence-backed recovery:** observe the user's supplement/retry; attribute to the
+  prior remedy only when evidence supports it; mark "recovered" only with proof; false-positive
+  regression tests. **Closes when** recovery is proven, not inferred.
+- **Inchstone 9 — Persistence & history:** persist briefs, attempts, targets, target versions,
+  coverage, remedies, recovery; **separate migration/RLS PR**; prove ownership isolation + retention.
+  **Requires explicit Prod Owner migration authorization.** **Closes when** the schema + RLS land with
+  ownership tests.
+- **Inchstone 10 — Sparse pause-aware experiment:** only after passive + user-requested remedies are
+  usability-proven; one cue during a genuine pause; default OFF; kill switch; cognitive-load
+  evaluation; annoyance/abandonment exit criteria. **Requires separate activation authorization.**
+  **Closes when** the guarded experiment is shippable behind the OFF flag.
+- **Inchstone 11 — Legacy score-consumer retirement:** migrate remaining reports, telemetry,
+  recommendations, PDFs, tests, and copy (see inventory above); remove the 0–10 presentation; delete
+  dead score code only after all consumers migrate; prove no broken analytics/report/session
+  experience. **Closes when** the last consumer is migrated and the code is removed.
+- **Inchstone 12 — Controlled release:** exact-head CI/SCA; focused production smoke; authenticated
+  synthetic-account validation; accessibility + responsive evidence; telemetry proving no elevated
+  abandonment/errors. **Separate merge, deployment, tester-exposure, and activation decisions.**
+  **Closes when** the release evidence is complete and each decision is separately authorized.
+
+**Future direction (not sequenced):**
+- **Live Meeting Companion** — **removed from active implementation sequencing**; future direction
+  only. Would reuse the rehearsal brief/coaching model in a real meeting under a tighter distraction
+  budget, re-scoped separately and only after Rehearsal proves value. Treat Meet/Zoom/Teams capture,
+  permissions, privacy, and distraction as separate risks. **Non-goals:** avatars; body-language /
+  video analysis.
+
+**Unrelated, still valid:**
 - **P3 — Browser punctuation/filler improvement** (explicitly deprioritized; do not pursue this cycle).
 
 ---
