@@ -145,6 +145,35 @@ describe('product_release documentation integrity', () => {
     expect(offenders, `stale addendum references:\n${offenders.join('\n')}`).toEqual([]);
   });
 
+  it('no active doc claims billing fail-closed depends on the Stripe key being absent or key-class alone', () => {
+    const offenders = [];
+    // The stale/wrong model ties CLOSURE (fail-closed / checkout closed) to key ABSENCE or key CLASS.
+    // Both a closure concept AND a key-absence/class concept must appear on the line (so plain key-class
+    // *classification* like `classifyStripeKey(...)` or a launch key-class proof is not a false positive).
+    const closure = /\b(fail[- ]?closed|closure|checkout (is|remains|stays)[^.]*closed|(billing|payments?)[^.]*closed)\b/i;
+    const keyDependence = /\bkey (being |is )?(absent|missing)\b|\b(absent|missing)\b[^.]*\bkey\b|\bkey[- ]?class\b/i;
+    // A line that explicitly negates the bad model is fine — either the negation precedes the
+    // key/absence concept ("does NOT depend on the key being absent", "independent of key presence"),
+    // or it follows a key-class subject ("key class alone does NOT open checkout").
+    const negatesBadModel = (line) =>
+      /\b(not|no|regardless of|independent of|does not|doesn't)\b[^.]*\b(absent|absence|missing|present|presence|depend|key[- ]?class)\b/i.test(line)
+      || /\bkey[- ]?class\b[^.]*\b(alone\b[^.]*)?(does not|do not|doesn't|is not|isn't|never|not\b)/i.test(line);
+    for (const doc of activeDocs) {
+      read(doc).split('\n').forEach((line, i) => {
+        if (!/stripe|payment|checkout|billing/i.test(line)) return;
+        if (closure.test(line) && keyDependence.test(line) && !negatesBadModel(line)) {
+          offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(offenders, `stale billing-loading-model (key-absent / key-class) claims:\n${offenders.join('\n')}`).toEqual([]);
+
+    // ...and the canonical inventory must document BOTH payment switches (the real closure control).
+    const env = read(resolve(PR_DIR, 'ENV_INVENTORY.md'));
+    expect(env.includes('VITE_PAYMENTS_ENABLED'), 'ENV_INVENTORY must document VITE_PAYMENTS_ENABLED').toBe(true);
+    expect(/(^|[^_A-Z])PAYMENTS_ENABLED\b/m.test(env), 'ENV_INVENTORY must document PAYMENTS_ENABLED').toBe(true);
+  });
+
   it('the active docs set is non-trivial (guard against an empty scan)', () => {
     const realFiles = activeDocs.filter((p) => statSync(p).isFile());
     expect(realFiles.length).toBeGreaterThan(10);

@@ -30,9 +30,9 @@ Related docs (each references THIS file; do not duplicate the catalog there):
 
 > **⚠️ LOADING MODEL (critical):** `frontend/vite.config.mjs` sets `envDir = repo root`, and there is
 > **no root `.env.production`**. So at build/dev time Vite loads `.env*` from the **repo ROOT** (Home A)
-> plus actual `process.env` `VITE_*` (Home B on Vercel). The production fail-closed behavior comes from
-> the Stripe key simply being absent in `process.env` until Vercel injects it (Home B). (The old
-> `frontend/.env.production` was outside `envDir`, never build-loaded, and has been **removed** — do not re-add it.)
+> plus actual `process.env` `VITE_*` (Home B on Vercel).
+> **Production billing closure does NOT depend on the Stripe key being absent** — Vercel may inject a live publishable key, yet checkout stays closed unless `VITE_PAYMENTS_ENABLED=true` (frontend) AND `PAYMENTS_ENABLED=true` (Supabase); either switch unset/false keeps checkout closed.
+> (The old `frontend/.env.production` was outside `envDir`, never build-loaded, and has been **removed** — do not re-add it.)
 > `scripts/validate-env.mjs` reads root `.env` + root `.env.test`.
 
 > **Auto-provided:** Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
