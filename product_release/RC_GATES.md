@@ -299,12 +299,8 @@ LIVE_OBSERVABILITY_API_EVIDENCE {
 }
 ```
 
-Latest recorded green workflow evidence:
-
-```text
-Observability API Smoke run 25764783852: passed
-Release Candidate Gates run 25769178359 on e73408c0: all five gates passed
-```
+Current run IDs and pass/fail status for this gate live only in `RELEASE_STATUS.md` (the status SSOT).
+This document defines the stable gate; it does not record changing run IDs.
 
 ## Evidence Freshness Contract
 

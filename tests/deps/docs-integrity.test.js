@@ -38,6 +38,70 @@ const negatesBadModel = (line) =>
   /\b(not|no|regardless of|independent of|does not|doesn't)\b[^.]*\b(absent|absence|missing|present|presence|depend|key[- ]?class)\b/i.test(line)
   || /\bkey[- ]?class\b[^.]*\b(alone\b[^.]*)?(does not|do not|doesn't|is not|isn't|never|not\b)/i.test(line);
 
+// ---- Block/paragraph-normalized billing + v4 posture guard --------------------------------------
+// The earlier guard scanned one physical line at a time, so a stale claim spread across wrapped lines
+// (or phrased as "the kill switch IS the key class" with no closure word on that line) escaped. This
+// version normalizes each doc into scan UNITS: a paragraph is collapsed to a single line (catching
+// claims split across wrapped lines), while each Markdown table row stays its own unit (so a legit
+// row can't mask a stale sibling row in the same table).
+const scanUnits = (text) => {
+  const out = [];
+  for (const para of text.split(/\n\s*\n/)) {
+    if (/^\s*\|/m.test(para)) {
+      for (const row of para.split('\n')) { const r = row.replace(/\s+/g, ' ').trim(); if (r) out.push(r); }
+    } else {
+      const p = para.replace(/\s+/g, ' ').trim(); if (p) out.push(p);
+    }
+  }
+  return out;
+};
+
+// A unit is legitimized (never flagged) when it names the ACTUAL closure control — the two payment
+// switches — or explicitly negates the key-class/key-swap model (a negation TIED to the key concept,
+// not any stray "no"/"not" in the sentence). Key-class VALIDATION and webhook / entitlement
+// requirements are legitimate and must survive; only "key class opens/closes checkout" is stale.
+const SWITCH_CTX = /VITE_PAYMENTS_ENABLED|(^|[^A-Z_])PAYMENTS_ENABLED\b|\bboth (payment )?switches\b|\bpayment switch(es)?\b|\beither (payment )?switch\b/i;
+const negatesKeyModel = (u) =>
+  /\bkey[- ]?(class|swap)\b[^.]{0,40}\b(alone\b[^.]{0,20})?(does not|do not|doesn't|is not|isn't|are not|never|not\b)/i.test(u)
+  || /\b(not|does not|doesn't|independent of|regardless of|by itself|alone)\b[^.]{0,40}\b(opens?|closes?|gate|the gate|key[- ]?class|key[- ]?swap)\b/i.test(u)
+  || /\bnot\b[^.]{0,20}\bby (the )?key[- ]?class\b/i.test(u)
+  || /only validates|validates (the )?configuration but|not (merely|just|solely) a key/i.test(u);
+
+const KEYCLASS = /\bkey[- ]?class\b|classifyStripeKey|arePaymentsEnabledFor|stripeKeyClass|\bpublishable[- ]?key class\b/i;
+const KEYSTATE = /\b(test|missing|unknown|absent)\b[^.]{0,40}\bkeys?\b|\bkeys?\b[^.]{0,40}\b(test|missing|unknown|absent)\b/i;
+// The classifyStripeKey enum used as bare values ("test/missing/unknown", "live/test/missing") — a
+// key-class-value signal even when the literal word "key" is absent on the line.
+const KEYENUM = /\b(live|test|missing|unknown)\b[^A-Za-z0-9]+\b(test|missing|unknown|live)\b[^A-Za-z0-9]+\b(missing|unknown|live)\b|\b(test|missing|unknown)\b[^A-Za-z0-9]+\b(missing|unknown)\b/i;
+const KEYSWAP = /\bkey[- ]?swap\b|\bconfig cutover\b|swap to [^.]*\b(sk_live|pk_live|live keys?)\b/i;
+const KEYSWAP_CTX = /\b(launch|go[- ]?live|going live|live|paid|checkout|enrollment|cutover|ops)\b/i;
+// NOTE: bare "fail-closed" is intentionally NOT a closure signal — config/webhook/canary fail-closed
+// is legitimate (the instruction says to preserve it). Closure is signaled by "kill switch" or by
+// checkout/payments explicitly closed/hidden/disabled.
+const CLOSURE_GATE = /\bkill switch\b|\b(hide|hides|disable|disables|hidden|disabled|closed|not open)\b[^.]{0,40}\b((paid )?checkout|payments?|public checkout surfaces?)\b|\b((paid )?checkout|payments?)\b[^.]{0,40}\b(hidden|disabled|closed|not open)\b/i;
+const OPEN_PAID = /\b(open (paid )?checkout|opens? checkout|enables? (paid )?(checkout|payments?)|payments? enabled|paid (launch|enrollment|checkout)|go[- ]?live|going live|unlock pro)\b/i;
+
+// True when a scan unit asserts a stale billing/v4 model. Used by both the real-doc scan and the
+// FAIL/PASS fixture tests below.
+const staleBillingOrV4 = (unit) => {
+  const keySide = KEYCLASS.test(unit) || KEYSTATE.test(unit) || KEYENUM.test(unit) || KEYSWAP.test(unit);
+  const legit = SWITCH_CTX.test(unit) || negatesKeyModel(unit);
+  const badClosureByKey = keySide && CLOSURE_GATE.test(unit) && !legit;                 // key class/state closes checkout
+  const badOpenByKey = keySide && OPEN_PAID.test(unit) && !legit;                        // key swap/class alone opens paid
+  const badKeySwap = KEYSWAP.test(unit) && KEYSWAP_CTX.test(unit) && !legit;             // "live key swap" as the go-live mechanism
+
+  const v4 = /\bv4\b/i.test(unit);
+  const v4NotOff = v4 && /\bv4\b[^.]{0,40}\bnot\s+["']?off\b/i.test(unit);
+  const v4Active = v4
+    && /\bv4\b[^.]{0,60}\b(is|remains|currently|stays|now|turned|switched)\b[^.]{0,40}\b(active|enabled|promoted|on|live)\b/i.test(unit)
+    // future/phased/conditional rollout language is legitimate and must not read as "currently active".
+    && !/\b(off|disabled|0%|future|separately authorized|held|gated|hard-?kill|promotion|phase|rollout|allowlist|deliberate|permanent|stays? primary|primary until|until the data|would|will|when|once|after|plan|not (currently )?(active|ready|enabled|promoted|on))\b/i.test(unit);
+
+  return badClosureByKey || badOpenByKey || badKeySwap || v4NotOff || v4Active;
+};
+
+const scanDocForStale = (doc) =>
+  scanUnits(read(doc)).filter(staleBillingOrV4).map((u) => `${rel(doc)}: ${u.slice(0, 160)}`);
+
 describe('product_release documentation integrity', () => {
   it('every relative Markdown link in active docs resolves to a real repo path', () => {
     const broken = [];
@@ -175,37 +239,60 @@ describe('product_release documentation integrity', () => {
     expect(/(^|[^_A-Z])PAYMENTS_ENABLED\b/m.test(env), 'ENV_INVENTORY must document PAYMENTS_ENABLED').toBe(true);
   });
 
-  it('no active doc contradicts the current billing-switch / v4-OFF posture', () => {
-    const offenders = [];
-    for (const doc of activeDocs) {
-      read(doc).split('\n').forEach((line, i) => {
-        // (a) billing closure attributed to stripeKeyClass / a test key (rather than the switches).
-        const billingByKeyClass =
-          /\bstripe.?key.?class\b|stripeKeyClass\s*=\s*["']?test/i.test(line)
-          // checkout/payment specifically CLOSED (not e.g. a webhook "fails closed").
-          && (/\b(paid )?checkout\b[^.]*\b(closed|not open|hidden|disabled|off)\b/i.test(line)
-              || /\bpayments?\b[^.]*\b(closed|hidden|disabled|off)\b/i.test(line)
-              || /\b(closed|not open|hidden|disabled)\b[^.]*\b((paid )?checkout|payments?)\b/i.test(line))
-          && !negatesBadModel(line)
-          // not the frontend publishable-key / config-page behavior or a webhook fail-closed (different gates).
-          && !/(publishable|pk_(live|test)|ConfigurationNeededPage|committed (empty|blank)|webhook)/i.test(line);
-        // (b) paid launch described as ONLY a key swap (no mention of the two switches).
-        const paidLaunchKeySwap =
-          /\b(paid (launch|checkout|enrollment)|go[- ]?live|open (paid )?checkout|live checkout)\b/i.test(line)
-          && /\bkey[- ]?swap\b/i.test(line)
-          && !/(VITE_PAYMENTS_ENABLED|PAYMENTS_ENABLED|both (payment )?switches|not (merely|just) a key)/i.test(line);
-        // (c) Private v4 described as active / "not off" while the posture is v4-OFF.
-        const v4Contradiction =
-          /\bv4\b/i.test(line)
-          && (/\bv4\b[^.]*\bnot\s+["']?off["']?/i.test(line)
-              || (/\bv4\b[^.]*\b(is|remains|currently)\b[^.]*\b(active|enabled|promoted|ready immediately|turned on|switched on)\b/i.test(line)
-                  && !/\b(off|disabled|0%|future|separately authorized|held|gated|not (currently )?(active|ready|enabled|promoted))\b/i.test(line)));
-        if (billingByKeyClass || paidLaunchKeySwap || v4Contradiction) {
-          offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
-        }
-      });
-    }
+  it('no active doc contradicts the billing-switch / v4-OFF posture (block-normalized scan)', () => {
+    const offenders = activeDocs.flatMap(scanDocForStale);
     expect(offenders, `posture-contradiction claims:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  // The guard must actually reject the stale statements — proven with FAIL fixtures — while leaving
+  // legitimate switch/validation statements alone (PASS fixtures). These are the block-level contract.
+  it('billing/v4 guard REJECTS the canonical stale statements (FAIL fixtures)', () => {
+    const mustFail = [
+      // key-class model
+      'The kill switch is the publishable-key class plus webhook-signature-verified entitlement.',
+      'Payments are gated solely by the key class: a live key enables checkout while a test or missing key disables checkout.',
+      'arePaymentsEnabledFor(key) = classifyStripeKey(key) === "live" is the complete payment gate; test/missing/unknown hide checkout.',
+      'Checkout is closed because the Stripe key is missing or set to a test key.',
+      'Release rule: a production deploy must run live; test/missing/unknown keys hide/disable all public checkout surfaces.',
+      // key-swap-only paid launch
+      'Going live is an Ops config cutover: a live key swap to sk_live/pk_live is all that is required.',
+      'Paid launch is only a key swap.',
+      // v4
+      'Private v4 is currently active and enabled for testers.',
+      "Private v4 is not 'off' — it shares the telemetry spine.",
+    ];
+    const survivors = mustFail.filter((s) => !staleBillingOrV4(s));
+    expect(survivors, `these stale statements were NOT rejected:\n${survivors.join('\n')}`).toEqual([]);
+  });
+
+  it('billing/v4 guard ALLOWS legitimate switch/validation statements (PASS fixtures)', () => {
+    const mustPass = [
+      'Either payment switch — VITE_PAYMENTS_ENABLED or PAYMENTS_ENABLED — unset keeps checkout closed.',
+      'Opening paid enrollment requires both payment switches ON plus aligned live keys, webhook, prices, and entitlement verification.',
+      'The Stripe key class validates configuration but does not by itself open or close checkout.',
+      'A key swap alone does not open paid enrollment; both switches must also be ON.',
+      'The webhook signature is verified before any entitlement mutation, so Pro is never client-claimed.',
+      'Private v4 is OFF; any future activation requires separate written authorization.',
+      'A missing live config is fail-closed to the ConfigurationNeededPage, independent of the payment switches.',
+    ];
+    const wrongly = mustPass.filter((s) => staleBillingOrV4(s));
+    expect(wrongly, `these legitimate statements were wrongly rejected:\n${wrongly.join('\n')}`).toEqual([]);
+  });
+
+  // Regression proof: the guard would have flagged the exact stale text that shipped in the runbook /
+  // roadmap before this fix (block-normalized, so multi-line phrasings are covered).
+  it('billing/v4 guard flags the exact pre-fix runbook & roadmap statements', () => {
+    const priorStale = [
+      // PAID_OPS_HARDENING_RUNBOOK.md (pre-fix)
+      'The kill switch is the publishable-key class plus webhook-signature-verified entitlement:',
+      'Release rule: a production deploy MUST run `live`; `test`/`missing`/`unknown` hide/disable all public checkout surfaces',
+      "Checkout kill switch behaves | `arePaymentsEnabledFor==='live'`; test/missing/unknown hide checkout",
+      // ROADMAP.operational.md (pre-fix)
+      'Going live is an Ops config cutover (swap to `sk_live`/`pk_live`/live `whsec`/live price IDs + register the live webhook + verify `stripeKeyClass==="live"`)',
+      '**P2 (ops launch-day)**: live key swap, no money-test',
+    ];
+    const missed = priorStale.filter((s) => !staleBillingOrV4(s));
+    expect(missed, `guard failed to flag known-stale statements:\n${missed.join('\n')}`).toEqual([]);
   });
 
   it('the active docs set is non-trivial (guard against an empty scan)', () => {

@@ -17,7 +17,7 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 | #772 post-stop empty-after-sample | Dev → Test | Keep saved transcript visible after sample auto-save | Done — PR #778 merged `d06700b5` (narrow store-reset guard: post-sample saved transcript remains visible on `/session` after the forced native/browser mode switch, until the next recording). Test reruns live proof. |
 | #765/#772 proof | Test | Rerun live proof after the #778 fix | Done — PASS. Live proof `27474247308` on `main@243fae42`; `selectedForSave == postStopTranscriptText`, `visibleFinalMatchesSave=true`, `finalTranscriptPreserved=true`, saved/detail preserved |
 | SLO/SLC | Test | Refresh evidence on current SHA | In progress on `main@243fae42`: latency-only flake on `27474441503`, rerun `27474811615` recovered backend latency but browser-endurance setup failed (`max_concurrent_sessions_reached`); Test classifying fixture vs real |
-| Stripe paths/journey | Test (proof) → Ops (cutover) | Prove billing journey + flip live at launch | Journey PROVEN with TEST keys (PASS); live launch = config cutover (swap test→live keys), not a money-test |
+| Stripe paths/journey | Test (proof) → Ops (activation) | Prove billing journey + flip live at launch | Journey PROVEN with TEST keys (PASS); live launch = full activation contract (both payment switches ON + aligned live keys/webhook/prices + verification + written owner approval), not merely a key swap and not a money-test |
 | Backlog ledger | Dev | Convert deferred items into explicit non-blocking entries (this doc) | Done — this doc |
 | Group D branches | Test/release-owner | Classify keep / delete / backlog | Closed — owner decision: keep dormant posture, no branch currently active to main |
 
@@ -74,13 +74,13 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 - **CI:** SLO/SLC workflow (last green run `27441628586` on `b0227ed8`) — re-dispatch on the current release SHA.
 - **Targets present in rig:** auth_p95, usage_edge_p95, session_rpc_p95 (< 2000 ms release floor), stress_failure_rate (0%).
 
-## D. #3 Stripe — journey PROVEN with TEST-mode keys; going live = config cutover (NOT a money-test)
+## D. #3 Stripe — journey PROVEN with TEST-mode keys; going live = full activation contract (both payment switches ON + aligned live config + written owner approval), not merely a key swap (NOT a money-test)
 
-> **Correction (release-owner):** Stripe **live** keys are not — and cannot be — "tested" (no real-money transactions are run as a proof). The checkout → webhook → billing-portal **paths and full journey are proven with Stripe TEST-mode keys**, and they **PASS**. That test-mode journey is the accepted proof. Going to live paid launch is a **deployment/config cutover** (swap test keys for live keys + register the live webhook), performed by Ops at launch on the business go-decision — not a Dev/CI/QA money proof. Dev does not enter live keys.
+> **Correction (release-owner):** Stripe **live** keys are not — and cannot be — "tested" (no real-money transactions are run as a proof). The checkout → webhook → billing-portal **paths and full journey are proven with Stripe TEST-mode keys**, and they **PASS**. That test-mode journey is the accepted proof. Going to live paid launch requires the full activation contract — enabling **both** payment switches (`VITE_PAYMENTS_ENABLED` **and** `PAYMENTS_ENABLED`), aligning live keys/webhook/prices, and verifying webhook/price/entitlement, under written owner authorization — **not merely a key swap**. Either payment switch OFF keeps checkout closed. Ops performs this at launch on the business go-decision — not a Dev/CI/QA money proof. Dev does not enter live keys.
 
 - **Accepted proof (test mode) — PASS:** `27441691671` test-mode spine, `27441691174` price audit (checkout/webhook/portal journey exercised with `sk_test_…`). No real-money proof exists or is required.
 - **Functions:** `stripe-checkout`, `stripe-billing-portal`, `stripe-webhook` (`backend/supabase/functions/`).
-- **Go-live config cutover (Ops, at launch):** swap deploy-env vars from test → live:
+- **Go-live activation (Ops, at launch — enable BOTH payment switches `VITE_PAYMENTS_ENABLED` / `PAYMENTS_ENABLED` + align live config + written owner approval; not merely a key swap):** set the aligned live deploy-env vars from test → live:
   - `STRIPE_SECRET_KEY` = `sk_live_…`
   - `STRIPE_WEBHOOK_SECRET` = live `whsec_…` (from the live webhook endpoint)
   - `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID` = LIVE price IDs
