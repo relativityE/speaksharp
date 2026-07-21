@@ -53,8 +53,9 @@ describe('soft release tester guide (tester-facing)', () => {
 describe('internal test protocol (operator/dev/test)', () => {
     const protocol = readReleaseDoc('INTERNAL_TEST_PROTOCOL.md');
 
-    it('keeps Cloud STT framed as paid, out of the free sample path', () => {
-        expect(protocol).toMatch(/Cloud STT is a paid Early Access feature/i);
+    it('keeps Cloud STT framed as paid Pro, out of the free sample path', () => {
+        expect(protocol).toMatch(/Cloud STT is a paid Pro feature/i);
+        expect(protocol).toMatch(/outside the Free (beta )?path|not part of the beta/i);
     });
 
     it('matches the current database-backed Private sample (not old trial grants)', () => {
@@ -82,7 +83,9 @@ describe('internal test protocol (operator/dev/test)', () => {
 });
 
 describe('release candidate gate evidence contract', () => {
-    const readiness = readReleaseDoc('RELEASE_STATUS.md');
+    // The stable evidence contract + named STT artifacts live in RC_GATES.md (RELEASE_STATUS.md keeps
+    // only current run/status posture and links here).
+    const readiness = readReleaseDoc('RC_GATES.md');
 
     it('requires latest complete passing artifacts, not stale passing evidence', () => {
         expect(readiness).toMatch(/latest complete passing run/i);

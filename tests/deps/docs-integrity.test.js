@@ -31,6 +31,13 @@ const cloudExceptionOk = (line) => {
   return freeLimited || retainClause;
 };
 
+// A line explicitly negating the "closure via key absence/class" model — either the negation precedes
+// the key/absence concept ("does NOT depend on the key being absent"), or it follows a key-class
+// subject ("key class alone does NOT open checkout").
+const negatesBadModel = (line) =>
+  /\b(not|no|regardless of|independent of|does not|doesn't)\b[^.]*\b(absent|absence|missing|present|presence|depend|key[- ]?class)\b/i.test(line)
+  || /\bkey[- ]?class\b[^.]*\b(alone\b[^.]*)?(does not|do not|doesn't|is not|isn't|never|not\b)/i.test(line);
+
 describe('product_release documentation integrity', () => {
   it('every relative Markdown link in active docs resolves to a real repo path', () => {
     const broken = [];
@@ -152,12 +159,6 @@ describe('product_release documentation integrity', () => {
     // *classification* like `classifyStripeKey(...)` or a launch key-class proof is not a false positive).
     const closure = /\b(fail[- ]?closed|closure|checkout (is|remains|stays)[^.]*closed|(billing|payments?)[^.]*closed)\b/i;
     const keyDependence = /\bkey (being |is )?(absent|missing)\b|\b(absent|missing)\b[^.]*\bkey\b|\bkey[- ]?class\b/i;
-    // A line that explicitly negates the bad model is fine — either the negation precedes the
-    // key/absence concept ("does NOT depend on the key being absent", "independent of key presence"),
-    // or it follows a key-class subject ("key class alone does NOT open checkout").
-    const negatesBadModel = (line) =>
-      /\b(not|no|regardless of|independent of|does not|doesn't)\b[^.]*\b(absent|absence|missing|present|presence|depend|key[- ]?class)\b/i.test(line)
-      || /\bkey[- ]?class\b[^.]*\b(alone\b[^.]*)?(does not|do not|doesn't|is not|isn't|never|not\b)/i.test(line);
     for (const doc of activeDocs) {
       read(doc).split('\n').forEach((line, i) => {
         if (!/stripe|payment|checkout|billing/i.test(line)) return;
@@ -172,6 +173,39 @@ describe('product_release documentation integrity', () => {
     const env = read(resolve(PR_DIR, 'ENV_INVENTORY.md'));
     expect(env.includes('VITE_PAYMENTS_ENABLED'), 'ENV_INVENTORY must document VITE_PAYMENTS_ENABLED').toBe(true);
     expect(/(^|[^_A-Z])PAYMENTS_ENABLED\b/m.test(env), 'ENV_INVENTORY must document PAYMENTS_ENABLED').toBe(true);
+  });
+
+  it('no active doc contradicts the current billing-switch / v4-OFF posture', () => {
+    const offenders = [];
+    for (const doc of activeDocs) {
+      read(doc).split('\n').forEach((line, i) => {
+        // (a) billing closure attributed to stripeKeyClass / a test key (rather than the switches).
+        const billingByKeyClass =
+          /\bstripe.?key.?class\b|stripeKeyClass\s*=\s*["']?test/i.test(line)
+          // checkout/payment specifically CLOSED (not e.g. a webhook "fails closed").
+          && (/\b(paid )?checkout\b[^.]*\b(closed|not open|hidden|disabled|off)\b/i.test(line)
+              || /\bpayments?\b[^.]*\b(closed|hidden|disabled|off)\b/i.test(line)
+              || /\b(closed|not open|hidden|disabled)\b[^.]*\b((paid )?checkout|payments?)\b/i.test(line))
+          && !negatesBadModel(line)
+          // not the frontend publishable-key / config-page behavior or a webhook fail-closed (different gates).
+          && !/(publishable|pk_(live|test)|ConfigurationNeededPage|committed (empty|blank)|webhook)/i.test(line);
+        // (b) paid launch described as ONLY a key swap (no mention of the two switches).
+        const paidLaunchKeySwap =
+          /\b(paid (launch|checkout|enrollment)|go[- ]?live|open (paid )?checkout|live checkout)\b/i.test(line)
+          && /\bkey[- ]?swap\b/i.test(line)
+          && !/(VITE_PAYMENTS_ENABLED|PAYMENTS_ENABLED|both (payment )?switches|not (merely|just) a key)/i.test(line);
+        // (c) Private v4 described as active / "not off" while the posture is v4-OFF.
+        const v4Contradiction =
+          /\bv4\b/i.test(line)
+          && (/\bv4\b[^.]*\bnot\s+["']?off["']?/i.test(line)
+              || (/\bv4\b[^.]*\b(is|remains|currently)\b[^.]*\b(active|enabled|promoted|ready immediately|turned on|switched on)\b/i.test(line)
+                  && !/\b(off|disabled|0%|future|separately authorized|held|gated|not (currently )?(active|ready|enabled|promoted))\b/i.test(line)));
+        if (billingByKeyClass || paidLaunchKeySwap || v4Contradiction) {
+          offenders.push(`${rel(doc)}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(offenders, `posture-contradiction claims:\n${offenders.join('\n')}`).toEqual([]);
   });
 
   it('the active docs set is non-trivial (guard against an empty scan)', () => {

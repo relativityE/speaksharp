@@ -12,10 +12,11 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 
 ## Release posture
 
-- **Controlled private beta / early-access — non-payment.** Payments are hidden
-  (`stripeKeyClass="test"`). Not broad public launch; not paid public.
-- Live paid checkout is a separate **Ops config cutover** (live Stripe key swap), not a code
-  blocker for this beta. See `RELEASE_CLOSEOUT_LEDGER.md` §D and `ROADMAP.operational.md`.
+- **Controlled private beta / early-access — non-payment.** Checkout is closed by the payment
+  switches, **NOT** by the Stripe key class: it stays closed unless BOTH `VITE_PAYMENTS_ENABLED=true`
+  and `PAYMENTS_ENABLED=true` (either OFF keeps it closed). Not broad public launch; not paid public.
+- **Opening paid checkout requires ALL of:** both switches ON, correctly aligned live Stripe
+  keys/webhook/prices, and entitlement verification — **not merely a key swap.**
 - **Final pre-invite check:** re-run `gate=all` on the exact signoff SHA and confirm green
   (Final-SHA freshness — every merge to `main` resets the signoff clock). Record the run in
   `RELEASE_STATUS.md`.
@@ -33,7 +34,7 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
   `private_sample_seconds_used`, and that no legacy timestamp grants paid access.
 - Keep the tester path **Private-first**: Private is the **Recommended** main experience being
   evaluated (on-device model, one intentional sample); Browser is a brief **Quick preview**. Cloud
-  STT is a paid Pro feature and is **not** part of the beta test (no billing; `stripeKeyClass="test"`).
+  STT is a paid Pro feature, **outside the Free beta path** (no new billing during the beta) — existing accounts with a valid paid-Pro entitlement retain access.
 
 ---
 
@@ -135,18 +136,16 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 
 ## Private v4 rollout posture (internal — never in the tester guide)
 
-**v2 is the primary Private engine — the proven default users get.** **v4 is a first-class,
-gated candidate** that — *with enough real-world data* — could be reviewed for primary. v4 is
-**not "off" and not a second-class experiment**: it is built into the *same* telemetry spine,
-saved-session metadata, Report Issue context, and live e2e coverage as v2. But **v2 holds primary
-until v4 demonstrably earns promotion**; gating v4 is not a demotion of v4, and promoting v4 is
-not yet on the table without the data.
+**v2 is the primary Private engine — the proven default users get.** **v4 is OFF for the release
+path** — all v4 flags default OFF (`VITE_PRIVATE_STT_V4_DISABLED` hard-kill available;
+`frontend/src/services/transcription/privateV4Flags.ts`). v4's code shares the *same* telemetry
+spine, saved-session metadata, Report Issue context, and e2e coverage as v2, but it is **not
+currently active or promoted**. v2 holds primary; any move toward v4 primary needs real-world data.
 
-The free 5-minute Private sample is the v2/v4 measurement window. **v2 is the default for broad
-beta traffic; broad/random v4 rollout is held (currently 0%) pending real-user evidence** — but
-**targeted v4 exposure is ready immediately after launch** (allowlist / small cohort) so we begin
-collecting real-world v4 data deliberately, narrowly, and reversibly. The goal is to give v4 a
-fair, evidence-based path toward primary — while v2 stays primary until that evidence exists.
+The free 5-minute Private sample is the v2/v4 measurement window. **v2 is the default for all beta
+traffic; v4 rollout is OFF (0%).** Any targeted v4 exposure (allowlist / small cohort) is a
+**future, separately authorized rollout — not currently ready or active** — to collect real-world
+v4 data deliberately, narrowly, and reversibly once approved. v2 stays primary until that evidence exists.
 
 **Assignment + attribution.** Every `private_sample_*` event carries `engine_variant`
 (`private_v2`/`private_v4`) and `assignment_source` (`default | posthog_flag | allowlist |

@@ -55,19 +55,8 @@ A full **five-minute single Private (v2 / whisper-base.en) recording finalizes i
 ## Historical evidence (pointers, not current status)
 - **Attribution history sanitation** (2026-07-15): historical SHA crosswalk + provenance in [attribution-sanitation-crosswalk.md](attribution-sanitation-crosswalk.md). Historical PostHog `release_sha` values retain OLD SHAs (immutable telemetry) — correlate via the crosswalk.
 
-## Evidence Freshness Contract
-A release gate is green only when its definition of green is backed by a named artifact a reviewer can inspect without operator memory. The active artifact is always the latest complete passing run; a newer failing run returns the parent gate to red until a later complete run passes every criterion.
-
-## Named STT Gate Artifacts
-
-| Gate | Required Current Artifact |
-|---|---|
-| Fresh Trial Private STT Transcript/Save/History Path | Private human artifact incl. warmup, model setup/download state, chunk RMS/duration, first partial timestamp/text, save result, history/detail proof. |
-| Browser (Web Speech) Chrome human-mic proof | Artifact incl. `onspeechstart → first onresult` order, selected transcript on stop, save/history/detail + analytics proof, no unintended repeated 4-word sequence. |
-| Cloud Pro proof | Artifact showing AssemblyAI token HTTP 200, transcript/save/history/detail, AI suggestions, PDF export, Pro entitlement context. |
-| Custom word analytics proof | Artifact showing a custom word counted (e.g. `like = 1`) after adding it via UI, saving, and opening detail/analytics. |
-| PDF export proof | Saved-session PDF whose transcript/duration/WPM/filler+custom counts/metadata match the detail view within ±15%. |
-| Session Status UX | Trace/screenshot showing one clear status surface (`StatusNotificationBar`), Private setup/download/ready states, no duplicate/debug status. |
+## Evidence contract + named STT gate artifacts
+The stable **Evidence Freshness Contract** (latest complete passing run; a newer failing run returns the parent gate to red; `Last updated by: [initials] [date] [artifact path]`) and the **Named STT Gate Artifacts** (Private sample recording / `SESSION_LIFECYCLE_WARMUP` / `speaksharp-private-human-[timestamp].json`; `onspeechstart -> first onresult` / `speaksharp-native-[timestamp].json`; AssemblyAI token HTTP 200 / `cloud-artifact-[timestamp].log`; custom-word `like = 1` / `basically = 1`; PDF within ±15%; Session Status UX) now live in **[RC_GATES.md](RC_GATES.md)**. This file keeps only current run/status posture.
 
 ## Update rule
 Only this file receives changing release/deployment status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence.

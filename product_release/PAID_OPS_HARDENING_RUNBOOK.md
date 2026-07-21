@@ -5,8 +5,9 @@ cutover that do **not** require live Stripe keys or real payment. Live-money pro
 Product/Ops + Test gate.
 
 > **Policy reconciliation (2026-07-15):** the current release is a **controlled, no-billing beta** —
-> paid checkout is intentionally NOT open. Production runtime is `stripeKeyClass="test"`, the checkout
-> CTA does not render (`arePaymentsEnabled()` is false), and the Beta-50 billing freeze is active (no
+> paid checkout is intentionally NOT open — **closed by the payment switches (`VITE_PAYMENTS_ENABLED` /
+> `PAYMENTS_ENABLED` both OFF), NOT by the key class.** Production runtime is `stripeKeyClass="test"`, the
+> checkout CTA does not render (`arePaymentsEnabled()` is false), and the Beta-50 billing freeze is active (no
 > live Stripe charges/subscriptions/refunds; comped-DB entitlement only for Pro QA). **This runbook is
 > the procedure for a LATER paid cutover, not an active step.** Enabling paid is a separate, written
 > owner-approved Ops action (deploy `pk_live_`/`sk_live_`/live `whsec_`/live price IDs, register the
