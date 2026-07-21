@@ -17,7 +17,7 @@
 - [PRODUCT_FEATURES.operational.md](./PRODUCT_FEATURES.operational.md) — capability inventory + product-claim boundaries.
 - [ARCHITECTURE.operational.md](./ARCHITECTURE.operational.md) — structural invariants + authoritative sources of truth.
 - [STT_BASELINE_CONTRACTS.operational.md](./STT_BASELINE_CONTRACTS.operational.md) — vendor/reference STT behavior + proof tests.
-- [SPEAKSHARP_SESSION_SCORE.operational.md](./SPEAKSHARP_SESSION_SCORE.operational.md) — the proprietary 0.0–10.0 score model.
+- [SPEAKSHARP_SESSION_PROGRESS.operational.md](./SPEAKSHARP_SESSION_PROGRESS.operational.md) — the canonical Session Progress contract (Part A: approved Personal Progress direction; Part B: legacy 0.0–10.0 score implementation on a staged retirement path).
 - [SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md) — SLO/SLC/SLA terms and targets.
 - [SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md) / [QUALITY_METRICS.md](./QUALITY_METRICS.md) — quality-evidence interpretation + digest.
 

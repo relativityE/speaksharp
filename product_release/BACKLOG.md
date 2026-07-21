@@ -25,7 +25,7 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
    progress against the user's **own** baseline and **own** selected targets. Do **not** rescale
    the score to 0–100 or into a new combined headline number. General practice needs **no** agenda;
    agendas are optional and belong only to Executive Rehearsal. Contract:
-   `PRODUCT_FEATURES.operational.md` + `SPEAKSHARP_SESSION_SCORE.operational.md` Part A; inchstones in
+   `PRODUCT_FEATURES.operational.md` + `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A; inchstones in
    §4 below.
 
 ---
@@ -96,7 +96,7 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 progress** (progress vs the user's own baseline and own selected targets), plus the Executive
 Rehearsal experience, delivered as small independently-reviewable inchstones. Canonical product
 contract: `PRODUCT_FEATURES.operational.md` ("Personal Progress & Executive Rehearsal Product
-Contract"); calculation contract: `SPEAKSHARP_SESSION_SCORE.operational.md` Part A. Each inchstone is
+Contract"); calculation contract: `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A. Each inchstone is
 a separate branch/PR from fresh `main`, one observable outcome, regression-tested, independently
 reviewable, closed before the next dependent PR begins, disabled while its user journey is
 incomplete, and requires explicit Prod Owner merge authorization (and separate deployment/activation
@@ -131,7 +131,7 @@ is **no DB column to drop**; migration touches render/emit call sites and copy o
 | Reports / PDF | `frontend/src/lib/pdfGenerator.ts` ("SpeakSharp Score" row + coaching suggestion). |
 | Persistence | **None for the 0–10 score.** DB stores only inputs (`sessions.clarity_score`, `sessions.accuracy`, `user_goals.clarity_goal`) — do **not** retire these. |
 | Tests | `speakingScore.test.ts`, `LiveCoachingScoreCard.test.tsx`, `AnalyticsDashboard.component.test.tsx`, `SessionPage.rendering.component.test.tsx`, `useSessionMetrics.test.ts`, `shadowProducers.test.ts`, `derivedMetrics.test.ts`, `tests/e2e/help-popover-mobile.e2e.spec.ts`. |
-| Copy / docs | `product_release/SPEAKSHARP_SESSION_SCORE.operational.md`, `PRODUCT_FEATURES.operational.md`, `STT_BASELINE_CONTRACTS.operational.md`; **`USER_GUIDE.md`** (repo root — its separate 0–100% "Clarity Score" headline is a distinct universal grade to reconcile during migration). |
+| Copy / docs | `product_release/SPEAKSHARP_SESSION_PROGRESS.operational.md`, `PRODUCT_FEATURES.operational.md`, `STT_BASELINE_CONTRACTS.operational.md`; **`USER_GUIDE.md`** (repo root — its separate 0–100% "Clarity Score" headline is a distinct universal grade to reconcile during migration). |
 
 Exclude from migration: `frontend/src/services/rehearsal/outcomeScorecard.ts` (separate Outcome
 Scorecard; does not touch the SpeakSharp Score) and the `clarity_score`/`accuracy` inputs above.

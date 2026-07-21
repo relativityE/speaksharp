@@ -57,7 +57,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 - **Personal Progress & Executive Rehearsal feature train** — the transition from the 0–10 SpeakSharp
   Score to transparent personal progress, plus Executive Rehearsal, is a **separate post-hardening
   train** delivered as small inchstones (contract: `PRODUCT_FEATURES.operational.md` +
-  `SPEAKSHARP_SESSION_SCORE.operational.md` Part A; inchstones: `BACKLOG.md` §4). It is **not** in
+  `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A; inchstones: `BACKLOG.md` §4). It is **not** in
   this launch window and introduces **no** billing, Private v4, migration, deployment, or
   tester-exposure change. Live Meeting Companion is future direction only (not sequenced).
 - Architecture Elegance & Refactoring.

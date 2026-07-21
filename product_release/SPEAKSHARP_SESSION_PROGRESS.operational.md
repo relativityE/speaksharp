@@ -1,18 +1,17 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-07-21
 **Version:** v0.6.19-rc0
-**Status:** Successor **Personal Progress** model canonical; legacy 0–10 SpeakSharp Score being retired via staged consumer migration (definition round; no code)
+**Status:** Single canonical Session Progress contract. Part A (approved Personal Progress direction) governs; Part B (legacy 0–10 implementation) is retained as the ships-today record on a staged retirement path (definition round; no code).
 
-# SpeakSharp Session Progress Model
+# SpeakSharp Session Progress — Personal Baselines, Target Progress, and Outcome Recovery
 
-> **Precedence.** This document has two parts. Part A (**Personal Progress Model**) is the
-> canonical successor contract and governs product direction. Part B (**Legacy SpeakSharp Score
-> Model**, everything from "Reviewer Context" onward) is retained **only** as the accurate record
-> of the code that ships today (`frontend/src/utils/speakingScore.ts`). The legacy 0–10 score is
-> **being retired** through a staged consumer migration; its documented behavior stays here,
-> unchanged, until the migration removes the last consumer (see the score-consumer inventory and
-> Inchstone 11 in `BACKLOG.md`). Where Part B calls the 0–10 score an "accepted current path" or a
-> "gamification foundation," Part A supersedes that framing.
+> **This is the single canonical contract for SpeakSharp session progress.** It has two parts.
+> **Part A — Approved Session Progress product direction** is authoritative and governs product
+> direction. **Part B — Current legacy 0–10 implementation and staged retirement map** is retained
+> **only** as the accurate record of the code that ships today (`frontend/src/utils/speakingScore.ts`),
+> and remains live until its consumers are safely migrated (see the score-consumer inventory and
+> Inchstone 11 in `BACKLOG.md`). There is **no second active source of truth**: where Part B calls the
+> 0–10 score an "accepted current path" or a "gamification foundation," Part A supersedes that framing.
 
 This document originally defined the research-informed scoring model behind the 0–10 SpeakSharp Score. The score is proprietary, but it is not arbitrary: it maps SpeakSharp measurements to established public-speaking evaluation categories. That model is preserved below as the legacy record.
 
@@ -24,7 +23,10 @@ Every result shown to a user must produce a small number of useful actions, not 
 
 ---
 
-# Part A — Personal Progress Model (canonical successor)
+# Part A — Approved Session Progress product direction
+
+> The approved long-term direction: transparent **personal progress** against the user's own baseline
+> and own targets (the Personal Progress model). This part is authoritative.
 
 ## A.0 Why the score is being retired
 
@@ -267,12 +269,19 @@ another supported focus).
 
 ---
 
-# Part B — Legacy SpeakSharp Score Model (implementation record; being retired)
+# Part B — Current legacy 0–10 implementation and staged retirement map
 
-> The sections below document the **0–10 SpeakSharp Score that ships today**. They are the accurate
-> record of `frontend/src/utils/speakingScore.ts` and its consumers, retained for the migration.
-> They no longer describe the intended long-term experience — Part A does. Do not extend the 0–10
-> score; migrate its consumers per `BACKLOG.md`.
+> **Status of the 0–10 SpeakSharp Score (read first):**
+> - It describes **current implementation that remains live** in the app until its consumers are
+>   safely migrated (see the score-consumer inventory and Inchstone 11 in `BACKLOG.md`).
+> - It is **not the approved long-term product direction** — Part A is.
+> - It **must not** be converted directly into a 0–100 percentage (nor folded into a new combined
+>   score).
+>
+> The sections below are the accurate record of `frontend/src/utils/speakingScore.ts` and its
+> consumers, retained for the migration. Do not extend the 0–10 score; migrate its consumers per
+> `BACKLOG.md`. This appendix stays until the final score-consumer retirement inchstone completes and
+> is production-proven, after which it is archived or removed.
 
 ## Reviewer Context
 
