@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bug } from 'lucide-react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { deriveSessionIdFromPath } from '@/lib/sessionRoute';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -60,7 +61,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   runtimeState,
 }) => {
   const location = useLocation();
-  const params = useParams();
+  // This dialog renders in global navigation, OUTSIDE the /analytics/:sessionId route element, so
+  // useParams() would not see the sessionId. Derive it from the pathname (UUID-validated) instead so
+  // reports opened from a session-specific Analytics page carry the correct session id, and reports
+  // from any other route carry null (never fabricated).
+  const sessionId = deriveSessionIdFromPath(location.pathname);
   const [open, setOpen] = React.useState(false);
   const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
@@ -104,7 +109,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       // follow up. The id is an opaque auth UUID — no email/name is stored in the row.
       await issueReportService.submit({
         userId: userId ?? null,
-        sessionId: params.sessionId ?? null,
+        sessionId,
         category,
         severity,
         title,
