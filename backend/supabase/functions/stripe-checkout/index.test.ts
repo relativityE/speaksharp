@@ -13,7 +13,7 @@ function request(plan?: string) {
 }
 
 // Baseline env for the ENABLED path: payments explicitly on + a LIVE secret key. Both are required by
-// the fail-closed beta guard before any checkout logic runs.
+// the fail-closed payments guard before any checkout logic runs.
 const env = (key: string) => {
   const values: Record<string, string> = {
     PAYMENTS_ENABLED: "true",
@@ -203,7 +203,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const json = await res.json();
     assertEquals(res.status, 403);
     assertEquals(json.error.code, "payments_disabled");
-    assertEquals(json.error.message, "Pro enrollment is not open during this beta.");
+    assertEquals(json.error.message, "Pro enrollment is not currently open.");
     assertEquals(stripe.called(), false);
   });
 

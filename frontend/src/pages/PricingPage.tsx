@@ -70,8 +70,11 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    // Do not emit a conversion "viewed" signal from a card whose checkout CTA is unavailable
+    // (paid enrollment not currently open) — that state presents no actionable upgrade path.
+    if (tier.action === 'checkout' && !arePaymentsEnabled()) return;
     trackConversionCtaViewed({ source, plan: tier.plan });
-  }, [source, tier.plan]);
+  }, [source, tier.plan, tier.action]);
 
   const handleUpgrade = async () => {
     if (isSubmitting) return;
@@ -147,17 +150,17 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
             {isSubmitting && tier.action === 'checkout' ? 'Starting checkout...' : tier.cta}
           </Button>
         ) : (
-          // Non-payment Wave-1 beta: the paid Pro checkout channel is not open. Keep the Pro plan
-          // visible for transparency, but replace the (otherwise missing) checkout CTA with a
-          // visible, NON-clickable informational state so the card does not read as broken. This
-          // element emits NO checkout/conversion events and does not describe Pro as purchasable.
+          // Paid enrollment is not currently open, so the paid Pro checkout channel is unavailable.
+          // Keep the Pro plan visible for transparency, but replace the (otherwise missing) checkout
+          // CTA with a visible, NON-clickable informational state so the card does not read as broken.
+          // This element emits NO checkout/conversion events and does not describe Pro as purchasable.
           <div
-            data-testid="pricing-pro-beta-unavailable"
+            data-testid="pricing-pro-enrollment-unavailable"
             className="w-full rounded-md border border-border bg-muted/40 px-4 py-3 text-center"
           >
-            <p className="text-sm font-semibold text-foreground">Pro enrollment isn&apos;t open during this beta.</p>
+            <p className="text-sm font-semibold text-foreground">Pro enrollment is not currently open.</p>
             <p className="mt-1 text-xs text-foreground/70">
-              Beta testers can use the free Browser plan and one included Private sample. No card is required.
+              You can keep practicing with Browser and your included Private sample. No card is required.
             </p>
           </div>
         )}

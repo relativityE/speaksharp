@@ -5,6 +5,7 @@ import { PricingPage } from '../PricingPage';
 import * as supabaseClient from '@/lib/supabaseClient';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import { trackConversionCtaViewed } from '@/services/conversionFunnel';
 
 // Mock modules
 vi.mock('@/lib/supabaseClient');
@@ -13,10 +14,19 @@ vi.mock('@/config/appRuntimeConfig', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/config/appRuntimeConfig')>()),
     arePaymentsEnabled: vi.fn(() => true),
 }));
+// Track conversion-funnel emissions so the disabled state can assert NO Pro-card conversion event.
+// Keep the real buildCheckoutBody/getUpgradeUrl; only spy on the three emit functions.
+vi.mock('@/services/conversionFunnel', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/services/conversionFunnel')>()),
+    trackConversionCtaViewed: vi.fn(),
+    trackConversionCtaClicked: vi.fn(),
+    trackCheckoutStarted: vi.fn(),
+}));
 
 const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
 const mockArePaymentsEnabled = vi.mocked(arePaymentsEnabled);
+const mockTrackConversionCtaViewed = vi.mocked(trackConversionCtaViewed);
 
 describe('PricingPage', () => {
     const mockInvoke = vi.fn();
@@ -122,12 +132,12 @@ describe('PricingPage', () => {
         });
     });
 
-    describe('Payments disabled (Wave-1 non-payment beta)', () => {
+    describe('Payments disabled (enrollment not currently open)', () => {
         beforeEach(() => {
             mockArePaymentsEnabled.mockReturnValue(false);
         });
 
-        it('shows a visible beta-unavailable notice instead of a checkout CTA, and keeps the Pro plan visible', () => {
+        it('shows a visible enrollment-unavailable notice instead of a checkout CTA, and keeps the Pro plan visible', () => {
             renderPricingPage();
 
             // Pro plan still visible for transparency.
@@ -135,10 +145,10 @@ describe('PricingPage', () => {
             expect(screen.getByText('$9.99')).toBeInTheDocument();
 
             // Informational, non-clickable state replaces the missing checkout CTA.
-            const notice = screen.getByTestId('pricing-pro-beta-unavailable');
+            const notice = screen.getByTestId('pricing-pro-enrollment-unavailable');
             expect(notice).toBeInTheDocument();
-            expect(screen.getByText(/Pro enrollment isn't open during this beta/i)).toBeInTheDocument();
-            expect(screen.getByText(/free Browser plan and one included Private sample\. No card is required/i)).toBeInTheDocument();
+            expect(screen.getByText(/Pro enrollment is not currently open/i)).toBeInTheDocument();
+            expect(screen.getByText(/keep practicing with Browser and your included Private sample\. No card is required/i)).toBeInTheDocument();
 
             // No clickable Pro checkout action; the Free CTA remains.
             expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();
@@ -146,14 +156,27 @@ describe('PricingPage', () => {
             expect(screen.getByText('Start Free')).toBeInTheDocument();
         });
 
-        it('does not invoke stripe-checkout from the beta-unavailable state', async () => {
+        it('does not invoke stripe-checkout from the enrollment-unavailable state', async () => {
             const user = userEvent.setup();
             renderPricingPage();
 
             // The notice is not a button; there is nothing to click that starts checkout.
-            const notice = screen.getByTestId('pricing-pro-beta-unavailable');
+            const notice = screen.getByTestId('pricing-pro-enrollment-unavailable');
             await user.click(notice);
             expect(mockInvoke).not.toHaveBeenCalled();
+        });
+
+        it('emits NO Pro-card conversion event from the enrollment-unavailable state', () => {
+            renderPricingPage();
+
+            // The disabled Pro card must not emit a conversion "viewed" signal (no actionable upgrade
+            // path). The Free card's signup CTA is unaffected, so only the Pro source is asserted absent.
+            expect(mockTrackConversionCtaViewed).not.toHaveBeenCalledWith(
+                expect.objectContaining({ source: 'pricing_pro_card' }),
+            );
+            expect(mockTrackConversionCtaViewed).not.toHaveBeenCalledWith(
+                expect.objectContaining({ plan: 'pro' }),
+            );
         });
     });
 

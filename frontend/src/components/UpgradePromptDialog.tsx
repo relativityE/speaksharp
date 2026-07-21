@@ -23,7 +23,9 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (open) {
+    // Only emit the conversion "viewed" signal when the prompt is actually actionable. When payments
+    // are disabled the prompt is suppressed (null return below), so it presents no upgrade path.
+    if (open && arePaymentsEnabled()) {
       trackConversionCtaViewed({ source: 'post_session_prompt', plan: 'pro' });
     }
   }, [open]);
