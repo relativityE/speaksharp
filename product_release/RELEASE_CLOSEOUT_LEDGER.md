@@ -89,7 +89,7 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 - **Webhook security (already correct, mode-agnostic):** signature-verified via `constructEventAsync`/`constructEvent` (`stripe-webhook/index.ts:171-175`, secret L188); fails closed (non-2xx → Stripe retries).
 - **Return URLs (already correct):** `success_url`/`cancel_url` server-derived from `SITE_URL` (`stripe-checkout/index.ts:258-259`); portal `return_url` from `SITE_URL`. No client-supplied URLs → open-redirect safe.
 - **Customer-id persistence (already correct):** `process_stripe_webhook_event(p_stripe_customer_id)` (migration `20260608190000`) — exercised in the test-mode journey.
-- **Not blocked on a proof.** The journey is proven (test mode). The only remaining item is the business decision to flip live keys at cutover.
+- **Not blocked on a proof.** The journey is proven (test mode). The only remaining item is the business decision and written authorization to execute the complete activation contract: both payment switches ON, aligned live configuration, and webhook/price/entitlement verification.
 
 ## E. DB hygiene closeout — production `auth.users` 1,445 → 35 (2026-06-26)
 

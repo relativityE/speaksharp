@@ -1,8 +1,9 @@
 # Paid Soft-Launch Ops Hardening Runbook (no live keys required)
 
 Owner: relativityE. Purpose: document and verify the operational guardrails for a **future** paid
-cutover that do **not** require live Stripe keys or real payment. Live-money proof remains a separate
-Product/Ops + Test gate.
+cutover that do **not** require live Stripe keys or real payment. The test-mode
+checkout→webhook→entitlement→portal journey is the **accepted functional proof**; a real-money
+transaction is **not** a required Dev/CI/QA or launch proof.
 
 > **Policy reconciliation (2026-07-15):** the current release is a **controlled, no-billing beta** —
 > paid checkout is intentionally NOT open — **closed by the payment switches (`VITE_PAYMENTS_ENABLED` /
@@ -13,8 +14,11 @@ Product/Ops + Test gate.
 > owner-approved Ops action (deploy `pk_live_`/`sk_live_`/live `whsec_`/live price IDs, register the
 > live webhook, verify `stripeKeyClass==="live"`).
 
-> Hard rules: a **synthetic / signed test webhook is code-path evidence only — NOT
-> live-money proof.** No paid GO without a real live-money charge proven by Test.
+> Hard rules: a **synthetic / signed test webhook is code-path evidence only** — it is not a live
+> transaction, and it does not need to be one. The **test-mode checkout→webhook→entitlement→portal
+> journey is the accepted functional proof**; **no live-money charge is a required Dev/CI/QA or launch
+> proof.** Paid activation is gated on both payment switches ON + aligned live config + webhook/price/
+> entitlement verification + written Prod Owner authorization — not on running a charge.
 
 ## How the paid path is gated (architecture)
 
@@ -58,7 +62,7 @@ stays closed regardless of key class.
 | 4 | No raw Stripe errors in UI | Nav checkout-fail → customer-safe toast (trust-leak #6 ✅). **Verify** PricingPage/AnalyticsPage catch blocks surface customer-safe copy, not raw Stripe/provider strings | code audit (Pricing/Analytics = follow-up verify) |
 | 5 | No Pro unlock without Supabase entitlement | webhook signature-verified before entitlement mutation; client gates Pro on confirmed entitlement | `stripe-webhook/index.ts` |
 | 6 | Billing portal / cancel / refund path clear | `PricingPage` `BillingManagementPanel` → `stripe-billing-portal`; refund copy "reviewed case by case"; Report Issue (Billing) path | trust closeout |
-| 7 | Synthetic webhook is NOT live-money proof | labeled as code-path evidence only | this runbook hard rule |
+| 7 | Synthetic webhook = code-path evidence, not a live transaction | test-mode journey is the accepted functional proof; a live charge is NOT a required gate | this runbook hard rule |
 
 ## Live env variable checklist (Product/Ops supplies; Dev never handles secrets)
 
@@ -78,21 +82,27 @@ flips in Supabase. Checkout only opens once **both** `VITE_PAYMENTS_ENABLED=true
 `PAYMENTS_ENABLED=true` are set alongside that aligned live config; injecting live keys alone is not
 sufficient. App unlocks Pro ONLY after the verified webhook flips entitlement.
 
-## Live-config / live-money proof procedure (Test, after Product/Ops supplies keys)
+## Required live-activation verification + optional post-activation live smoke (Test/Ops, after separately authorized activation)
 
 ```text
-LIVE-CONFIG:  set BOTH payment switches ON (VITE_PAYMENTS_ENABLED / PAYMENTS_ENABLED) AND inject
+REQUIRED ACTIVATION VERIFICATION (the functional bar):
+              set BOTH payment switches ON (VITE_PAYMENTS_ENABLED / PAYMENTS_ENABLED) AND inject
               aligned live config -> validate key class 'live', price.livemode true, webhook
-              endpoint reachable + signature verifies. (Live keys without both switches = still closed.)
-LIVE-MONEY:   a human completes ONE real checkout -> Stripe live event -> webhook ->
-              Supabase entitlement -> app unlocks Pro. Refund the test charge.
+              endpoint reachable + signature verifies, entitlement path confirmed.
+              (Live keys without both switches = still closed.)
+OPTIONAL LIVE SMOKE (post-activation, separately authorized — NOT a launch gate):
+              only after activation is authorized and complete, Ops MAY run one controlled real
+              checkout -> Stripe live event -> webhook -> entitlement -> refund. This is optional
+              ops diligence, not a required proof. Dev does not run it.
 BLOCKED:      either switch OFF keeps checkout closed regardless of key class; separately, missing
               live config is fail-closed (classifier 'missing' -> ConfigurationNeededPage).
 ```
 
-## What is NOT proven here
+## Scope note — not proven here, and not a required proof
 
-- Real live-money charge + live webhook + live entitlement (needs live keys + a human payment).
+- A real live-money charge + live webhook + live entitlement is **not** run here and is **not required**
+  as Dev/CI/QA or launch proof (the test-mode journey is the accepted functional proof; a controlled
+  live smoke is optional post-activation ops diligence, only after separately authorized activation).
 - Pricing/Analytics checkout-failure copy audit (queued follow-up; Nav already customer-safe).
 
 ## Guardrails honored

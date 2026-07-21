@@ -102,6 +102,23 @@ const staleBillingOrV4 = (unit) => {
 const scanDocForStale = (doc) =>
   scanUnits(read(doc)).filter(staleBillingOrV4).map((u) => `${rel(doc)}: ${u.slice(0, 160)}`);
 
+// ---- Cross-document live-money-proof policy guard -----------------------------------------------
+// One policy across active billing docs: the test-mode journey is the accepted functional proof; a
+// real-money transaction is NOT a required Dev/CI/QA or launch proof; a controlled live smoke is
+// optional, post-activation, separately-authorized ops diligence. This guard flags a unit that
+// presents live-money / a real charge / cs_live / "flip live keys" as a REQUIRED proof, gate, or
+// public-launch blocker — unless the unit marks it not-required / optional / accepted-in-test-mode.
+const LIVEMONEY = /\b(live[- ]?money|real[- ]?money|real (payment|charge|checkout)|cs_live|live payment|money[- ]?proof|money[- ]?test|same proof with live (stripe )?keys|flip live keys)\b/i;
+const REQUIRE_AS_PROOF = /\b(required|requires?|must|mandatory|no (paid )?go without|remain(s)? (a |the )?(public[- ]?launch )?blockers?|public-launch blockers?|only remaining item|the only remaining|is the (launch )?proof|as (the )?(launch |required )?proof)\b/i;
+const okLiveMoneyPolicy = (u) =>
+  /\b(not required|isn't required|is not required|no longer required|optional|ops diligence|diligence|post-?activation|after (separate|separately) authoriz|accepted (functional )?proof|not a (required )?(gate|proof|blocker|money-?proof)|no real-?money proof|never a (required )?proof)\b/i.test(u)
+  || /\bno\b[^.]{0,60}\b(require|required)\b/i.test(u)
+  || /\bnot\b[^.]{0,30}\b(require|required|a required)\b/i.test(u);
+const staleLiveMoneyPolicy = (unit) =>
+  LIVEMONEY.test(unit) && REQUIRE_AS_PROOF.test(unit) && !okLiveMoneyPolicy(unit);
+const scanDocForLiveMoney = (doc) =>
+  scanUnits(read(doc)).filter(staleLiveMoneyPolicy).map((u) => `${rel(doc)}: ${u.slice(0, 160)}`);
+
 describe('product_release documentation integrity', () => {
   it('every relative Markdown link in active docs resolves to a real repo path', () => {
     const broken = [];
@@ -293,6 +310,34 @@ describe('product_release documentation integrity', () => {
     ];
     const missed = priorStale.filter((s) => !staleBillingOrV4(s));
     expect(missed, `guard failed to flag known-stale statements:\n${missed.join('\n')}`).toEqual([]);
+  });
+
+  it('no active doc presents a live-money charge as a required proof/gate/launch-blocker', () => {
+    const offenders = activeDocs.flatMap(scanDocForLiveMoney);
+    expect(offenders, `live-money-as-required-proof claims:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('live-money policy guard REJECTS "live charge is required proof" statements (FAIL fixtures)', () => {
+    const mustFail = [
+      'No paid GO without a real live-money charge proven by Test.',
+      'Broad public launch requires the same proof with live Stripe keys.',
+      'A required cs_live checkout is the launch proof.',
+      'The only remaining item is the decision to flip live keys.',
+    ];
+    const survivors = mustFail.filter((s) => !staleLiveMoneyPolicy(s));
+    expect(survivors, `these mandatory-live-money statements were NOT rejected:\n${survivors.join('\n')}`).toEqual([]);
+  });
+
+  it('live-money policy guard ALLOWS the one consistent policy (PASS fixtures)', () => {
+    const mustPass = [
+      'The test-mode checkout→webhook→entitlement journey is the accepted functional proof.',
+      'No real-money transaction is required as Dev/CI/QA or launch proof.',
+      'Both payment switches plus aligned live configuration and verification are required for activation.',
+      'A controlled live smoke is optional Ops diligence after separate authorization.',
+      'Either payment switch OFF keeps checkout closed.',
+    ];
+    const wrongly = mustPass.filter((s) => staleLiveMoneyPolicy(s));
+    expect(wrongly, `these consistent-policy statements were wrongly rejected:\n${wrongly.join('\n')}`).toEqual([]);
   });
 
   it('the active docs set is non-trivial (guard against an empty scan)', () => {

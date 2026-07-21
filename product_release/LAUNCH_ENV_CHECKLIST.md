@@ -16,7 +16,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 
 ## 1. Billing & Payments (Stripe)
 
-> **Four-corner live alignment — ALL must be the SAME live mode before any live-money proof (release-owner, 2026-06-18).** Storage home determines how each value reaches production:
+> **Four-corner live alignment — ALL must be the SAME live mode for authorized paid activation (release-owner, 2026-06-18).** Storage home determines how each value reaches production:
 >
 > | Corner | Variable (live value) | Storage home (owner) | How it reaches prod |
 > |---|---|---|---|
@@ -26,7 +26,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 > | Backend Pro price | `STRIPE_PRO_PRICE_ID` = live `price_…` | **Supabase** Edge secrets | set directly in Supabase (**not** GitHub-synced — the auto-sync was removed 2026-06-18) |
 > | Backend site URL | `SITE_URL` = production URL | **Supabase** Edge secrets | set directly in Supabase |
 >
-> **Source-of-truth policy (release-owner, 2026-06-18):** Supabase Edge Function secrets are the **authoritative** home for ALL live Stripe runtime config (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID`, `SITE_URL`). `deploy-supabase-migrations.yml` **no longer syncs the Stripe price IDs** (removed to eliminate the foot-gun where a CI/test value could silently overwrite the live runtime price). **Never** place `sk_live`/`whsec` live values in GitHub — GitHub's Stripe secrets feed **test-mode CI** only and must never become the implicit production authority. **Sequence:** (1) set Vercel `VITE_STRIPE_PUBLISHABLE_KEY=pk_live`; (2) set/verify Supabase `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/`STRIPE_PRO_PRICE_ID`/`SITE_URL` live, directly in Supabase; (3) re-run the Dev redacted config-readiness check; (4) **only then** Test/Ops run the single live-money proof.
+> **Source-of-truth policy (release-owner, 2026-06-18):** Supabase Edge Function secrets are the **authoritative** home for ALL live Stripe runtime config (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID`, `SITE_URL`). `deploy-supabase-migrations.yml` **no longer syncs the Stripe price IDs** (removed to eliminate the foot-gun where a CI/test value could silently overwrite the live runtime price). **Never** place `sk_live`/`whsec` live values in GitHub — GitHub's Stripe secrets feed **test-mode CI** only and must never become the implicit production authority. **Sequence:** (1) set Vercel `VITE_STRIPE_PUBLISHABLE_KEY=pk_live`; (2) set/verify Supabase `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`/`STRIPE_PRO_PRICE_ID`/`SITE_URL` live, directly in Supabase; (3) re-run the Dev redacted config-readiness check; (4) **only then**, after authorized activation, Test/Ops verify live activation config (both switches ON + aligned live config + webhook/price/entitlement verification). A live charge is an optional post-activation smoke, **not** a required proof.
 
 > **P0.1 dual-enablement rule (fail-closed beta).** Correct live keys are necessary but NOT sufficient. Paid enrollment requires **two explicit kill-switches deliberately turned on, in addition to live keys**: the frontend flag `VITE_PAYMENTS_ENABLED=true` (Vercel) AND the backend flag `PAYMENTS_ENABLED=true` (Supabase Edge). Either flag off ⇒ checkout closed. The beta ships with both **off**, so a stray `pk_live_` key alone can never open checkout. Both the frontend (`arePaymentsEnabled()`) and the backend (`stripe-checkout` → `403 payments_disabled` before any Stripe call) enforce this independently.
 
@@ -39,7 +39,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Frontend flag ON**: `VITE_PAYMENTS_ENABLED=true` set in Vercel Production env.
 - [ ] **Backend flag ON**: `PAYMENTS_ENABLED=true` set directly in Supabase Edge secrets.
 - [ ] **Correct live keys**: `pk_live_…` (Vercel) + `sk_live_…` (Supabase) — same live mode (four-corner alignment below).
-- [ ] **Test checkout**: one real live-money proof completes end-to-end (checkout session → success URL).
+- [ ] **Live activation verification**: after authorized activation, both payment switches ON + aligned live config + webhook/price/entitlement verified end-to-end. (A real live-money charge is optional post-activation ops diligence, **not** a required proof.)
 - [ ] **Webhook confirmation**: `checkout.session.completed` reaches the live `stripe-webhook` and grants entitlement.
 - [ ] **Entitlement confirmation**: the test account shows a real `stripe_subscription_id` and gains Pro/Cloud (`hasCloudSttEntitlement`).
 - [ ] **Rollback to disabled proven**: setting either `VITE_PAYMENTS_ENABLED` or `PAYMENTS_ENABLED` back to false/unset (or removing the live keys) restores the fail-closed state — no Upgrade control, `403 payments_disabled` from the endpoint — verified before relying on the switch.
