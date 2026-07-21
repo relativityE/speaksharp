@@ -23,7 +23,6 @@ import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
-import { PostSaveToast } from '@/components/session/PostSaveToast';
 
 /**
  * ARCHITECTURE:
@@ -310,7 +309,12 @@ export const SessionPage: React.FC = () => {
                                     isPaidProUser={usageLimit?.is_pro === true}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
-                                    statusMessage={sttStatus.message}
+                                    // Post-save, StatusNotificationBar owns the "Session saved" message. Suppress the
+                                    // recording-card pill message as soon as showAnalyticsPrompt begins — NOT only once
+                                    // postSaveReady (finalizedAnalysis) arrives — so the lifecycle's intermediate
+                                    // "✓ Great practice! Session saved." never becomes a duplicate visual or aria-live
+                                    // announcement in the window before finalization completes.
+                                    statusMessage={showAnalyticsPrompt ? undefined : sttStatus.message}
                                     formattedTime={metrics.formattedTime}
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}
@@ -322,13 +326,10 @@ export const SessionPage: React.FC = () => {
                                 />
                             </LocalErrorBoundary>
 
-                            {/* Transcript wrapper is the positioning context: the one-shot post-save toast is
-                                absolutely anchored to STRADDLE the card boundary (centered near the gap), so it
-                                adds no vertical space and never moves either card. Right-aligned and biased up
-                                so its bottom stays in the transcript card's top padding — above the left
-                                "Live Transcript" heading and clear of the transcript text / sticky bar. */}
+                            {/* StatusNotificationBar (above) is the SINGLE post-save surface. The separate
+                                "Next: Analytics" toast was removed so there is exactly one saved-state signal
+                                and one aria-live announcement. */}
                             <div className="relative">
-                              <PostSaveToast sessionKey={postSaveReady ? finalizedAnalysis?.sessionId ?? null : null} />
                               <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel
                                     transcript={transcriptContent}

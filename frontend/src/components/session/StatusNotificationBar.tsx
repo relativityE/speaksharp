@@ -6,6 +6,24 @@ import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 
+// prefers-reduced-motion, reactive + SSR/jsdom-safe. Used to SKIP the pulse entirely for reduced-motion
+// users (they get the persistent static emphasis immediately).
+function usePrefersReducedMotion(): boolean {
+    const query = '(prefers-reduced-motion: reduce)';
+    const get = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia(query).matches : false;
+    const [reduced, setReduced] = React.useState<boolean>(get);
+    React.useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+        const mq = window.matchMedia(query);
+        const onChange = () => setReduced(mq.matches);
+        onChange();
+        mq.addEventListener?.('change', onChange);
+        return () => mq.removeEventListener?.('change', onChange);
+    }, []);
+    return reduced;
+}
+
 interface StatusNotificationBarProps {
     status: SttStatus;
     className?: string;
@@ -132,18 +150,40 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
 
-    // Bounded, SESSION-SCOPED post-save cue on the Analytics action: ~6.5s, then off. Stops immediately
-    // on select. Keyed on the finalized session id (cueKey) so each newly finalized session fires it
-    // once — including a second session finalized without unmounting. motion-safe users see the pulse;
-    // reduced-motion users get a static ring for the same interval.
+    // Bounded, SESSION-SCOPED post-save cue on the Analytics action. Keyed on the finalized session id
+    // (cueKey) so each newly finalized session fires it once — including a second session finalized
+    // without unmounting. Phases:
+    //   'pulsing'    — motion users only, ~6.5s bounded pulse (never indefinite).
+    //   'persistent' — after the pulse (or IMMEDIATELY for reduced-motion): a static, non-animated,
+    //                  visibly-actionable green emphasis that STAYS until the user clicks or the page
+    //                  unmounts (leaving the session). This is what keeps Analytics discoverable.
+    //   'idle'       — no cue (before a finalized session, or after the user has clicked Analytics).
     const cueKey = analyticsAction?.cueKey;
-    const [cueActive, setCueActive] = React.useState(false);
+    const prefersReducedMotion = usePrefersReducedMotion();
+    const [cuePhase, setCuePhase] = React.useState<'idle' | 'pulsing' | 'persistent'>('idle');
+    // The pulse→persistent timer lives in a ref so clearCue() (on click) can cancel it. Without this a
+    // click DURING the pulse leaves the pending timeout alive, and ~6.5s later it would REACTIVATE the cue
+    // (→ persistent) even though the user already dismissed it.
+    const pulseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const clearPulseTimer = React.useCallback(() => {
+        if (pulseTimerRef.current !== null) { clearTimeout(pulseTimerRef.current); pulseTimerRef.current = null; }
+    }, []);
     React.useEffect(() => {
-        if (cueKey === undefined || cueKey === null) { setCueActive(false); return; }
-        setCueActive(true);
-        const t = setTimeout(() => setCueActive(false), 6500);
-        return () => clearTimeout(t);
-    }, [cueKey]);
+        clearPulseTimer();
+        if (cueKey === undefined || cueKey === null) { setCuePhase('idle'); return; }
+        // Reduced motion: never pulse — show the persistent static green emphasis immediately.
+        if (prefersReducedMotion) { setCuePhase('persistent'); return; }
+        setCuePhase('pulsing');
+        pulseTimerRef.current = setTimeout(() => {
+            pulseTimerRef.current = null;
+            // Guard: only promote a STILL-pulsing cue. If it was cleared (click) or replaced by a new
+            // session, do nothing — never resurrect a dismissed/stale cue.
+            setCuePhase((prev) => (prev === 'pulsing' ? 'persistent' : prev));
+        }, 6500);
+        return () => clearPulseTimer();
+    }, [cueKey, prefersReducedMotion, clearPulseTimer]);
+    const cueActive = cuePhase !== 'idle'; // emphasized (pulsing OR persistent) until click/unmount
+    const clearCue = React.useCallback(() => { clearPulseTimer(); setCuePhase('idle'); }, [clearPulseTimer]);
     const modelLoadingProgress = status.progress ?? null;
     const hasSecondary = modelLoadingProgress !== null;
 
@@ -265,17 +305,31 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         </button>
                     )}
 
-                    {/* Existing /analytics destination; bounded reduced-motion-safe cue; no new button. */}
+                    {/* Existing /analytics destination; bounded then PERSISTENT success-green cue; no new button.
+                        - pulsing (motion only): bounded ~6.5s pulse over the green emphasis.
+                        - persistent: static, non-animated success-green emphasis (subtle bg + ring) that
+                          stays actionable until the user clicks Analytics or leaves the session page.
+                        - reduced-motion: skips the pulse and shows the persistent static emphasis at once. */}
                     {analyticsAction && (
                         <Link
                             to="/analytics"
-                            onClick={() => { setCueActive(false); analyticsAction.onSelect?.(); }}
+                            onClick={() => { clearCue(); analyticsAction.onSelect?.(); }}
+                            // Middle-click (open-in-new-tab) does not fire onClick; clear the cue here too so
+                            // no click variant leaves a live timer that could reactivate it. (Cmd/Ctrl-click
+                            // still fires onClick above.)
+                            onAuxClick={(e) => { if (e.button === 1) clearCue(); }}
                             data-testid="post-save-review-session-link"
                             data-cue-active={cueActive}
-                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-semibold text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
-                                cueActive
-                                    ? 'motion-safe:animate-pulse motion-reduce:animate-none motion-reduce:ring-2 motion-reduce:ring-primary/60 motion-reduce:bg-primary/5'
-                                    : ''
+                            data-cue-phase={cuePhase}
+                            // Accessible success-green: emerald-800 (light) / emerald-300 (dark) both measure
+                            // >=4.5:1 against the pale-green pill background (the prior --success green was only
+                            // ~3.7:1 at 13px). Subtle green bg + ring retained; visual weight unchanged (font-bold).
+                            className={`ml-auto inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-bold text-emerald-800 dark:text-emerald-300 underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:ml-0 ${
+                                cuePhase === 'pulsing'
+                                    ? 'bg-[hsl(var(--success)/0.1)] ring-1 ring-[hsl(var(--success)/0.4)] motion-safe:animate-pulse motion-reduce:animate-none'
+                                    : cuePhase === 'persistent'
+                                        ? 'bg-[hsl(var(--success)/0.1)] ring-1 ring-[hsl(var(--success)/0.4)]'
+                                        : ''
                             }`}
                         >
                             Analytics

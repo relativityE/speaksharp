@@ -215,6 +215,19 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+      # UX review screenshots (post-save consolidation + mode selector). Uploaded on whichever shard
+      # ran the producing spec; empty on the others. Reviewers: download "ux-review-screenshots-*".
+      - name: Upload UX Review Screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ux-review-screenshots-shard-${{ matrix.shard }}
+          path: |
+            test-results/post-save-consolidation
+            test-results/mode-selector
+          retention-days: 1
+          if-no-files-found: ignore
+
   lighthouse-advisory:
     name: lighthouse-advisory
     needs: build
