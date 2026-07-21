@@ -136,7 +136,7 @@ jobs:
           fi
           supabase secrets set \
             AGENT_SECRET="$AGENT_SECRET" \
-            ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5174" \
+            ALLOWED_ORIGIN="https://speaksharp-public.vercel.app,http://localhost:5174" \
             --project-ref "$SUPABASE_PROJECT_ID"
           if [ -n "$GEMINI_API_KEY" ]; then
             supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$SUPABASE_PROJECT_ID"
