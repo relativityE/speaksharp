@@ -72,11 +72,9 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 - **P2 — MFA / auth hardening security epic** (account-recovery + MFA; not in initial release).
 - **P2 — Private performance epic** (reduce Private setup + ~90s finalization wait; segmented/streaming/multithread/v4 paths).
 - **P2 — Dependency / bloat maintenance epic** (Browserslist refresh, ORT WASM duplication, large-chunk code-splitting).
-- **P3 — `RELEASE_STATUS.md` baseline reconciliation (non-blocking, separate cycle).** `RELEASE_STATUS.md`
-  states the `main` baseline as `65e58a62` (#1010), but `origin/main` has since advanced to `506e574d`
-  (#1012/#1013/#1014/#1015 landed after); production is SHA-equal to the current `main` (`506e574d`).
-  Docs-only correction in a **separate** PR — not part of the personal-progress/rehearsal contract PR,
-  and not a new documentation cycle.
+- **P3 — Release-status baseline reconciliation:** reconcile `RELEASE_STATUS.md` to verified `main`
+  and production state through a separate release-closeout PR. Resolve values live at execution time;
+  do not duplicate or pin them in `BACKLOG.md`.
 
 **Activation-gated inchstones (record only; each needs a separate explicit Prod Owner authorization):**
 - **P2 — Billing activation (paid Pro enrollment) — descoped; production is confirmed fail-closed.**

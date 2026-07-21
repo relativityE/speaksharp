@@ -128,6 +128,11 @@ coaching; automatic live intervention in stage one; a combined opaque replacemen
 rescale of the old score; enterprise/team/pricing/billing/PDF-expansion scope on this train; Private
 v4 activation on this train; Live Meeting Companion in the active build sequence.
 
+### Privacy boundary
+
+Private transcription can keep audio local; semantic AI over transcripts or rehearsal content may
+require explicit cloud processing unless a local semantic model is separately implemented.
+
 Status meanings:
 
 | Status | Meaning |
@@ -166,13 +171,13 @@ This table keeps product claims honest before product release. A feature can app
 | **SpeakSharp Score** | Ships today as a deterministic 0–10 engine plus the default Session live-coaching card. **Being retired** via staged consumer migration — superseded by the Personal Progress model (see the canonical contract above and `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A). | `frontend/src/utils/speakingScore.ts`, `frontend/src/components/session/LiveCoachingScoreCard.tsx`, `product_release/SPEAKSHARP_SESSION_PROGRESS.operational.md` | Current implementation, on a retirement path; not the long-term experience. | Migrate every consumer (see inventory in `BACKLOG.md`), then remove the 0–10 code. Do **not** rescale it to 0–100 or into a combined score. |
 | **Real-Time Live Coaching Feedback** | Ships today as the default Session-page feedback rail built on the 0–10 score card. **Current implementation, scheduled for retirement:** the prominent live 0–10 score is replaced by **quiet live guidance** (Inchstone 3), preserving useful confidence/recommendation behavior. | `frontend/src/pages/SessionPage.tsx`, `frontend/src/components/session/LiveCoachingScoreCard.tsx` | Current implementation on a retirement path; not the long-term live experience. | Replace the prominent live score with passive/quiet guidance; no continuously-changing replacement score (see `BACKLOG.md` §4). |
 | **Semantic & Content Analysis** | Implemented in the AI suggestions prompt path, but not yet proven through scored examples. | `backend/supabase/functions/get-ai-suggestions/index.ts` | Implemented / proving. | Collect example outputs and reviewer scoring to prove usefulness beyond pace/fillers. |
-| **Analytics & History** | Implemented in Analytics/session history surfaces. | `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/hooks/useAnalytics.ts`, `frontend/src/hooks/usePracticeHistory.ts` | Current. | Future score trend must reuse saved score payload, not recompute with drift. |
-| **Branded PDF Reports** | Implemented through PDF export. | `frontend/src/lib/pdfGenerator.ts`, Analytics PDF actions | Current branded report artifact. | Future score/report claims must use the same saved score payload as Session/Analytics. |
-| **Goals / Streaks** | Implemented as goal/streak foundation. | `frontend/src/hooks/useGoals.ts`, `frontend/src/hooks/useStreak.ts`, `frontend/src/hooks/useSessionLifecycle.ts` | Current habit foundation. | Tie goals/streaks more directly to score movement and next-practice targets. |
+| **Analytics & History** | Implemented in Analytics/session history surfaces. | `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/hooks/useAnalytics.ts`, `frontend/src/hooks/usePracticeHistory.ts` | Current. | Personal Progress reuses the existing session-comparison infra over **raw attributable measurements** vs a **fixed personal baseline** and **target versions** (previous-comparable + rolling 3–5-session trend) — not a saved 0–10 score payload (the 0–10 score is not persisted). |
+| **Branded PDF Reports** | Implemented through PDF export. | `frontend/src/lib/pdfGenerator.ts`, Analytics PDF actions | Current branded report artifact. | Future report content surfaces Personal Progress (raw measurements, fixed baseline, target progress, named comparison session), not a saved 0–10 score payload. |
+| **Goals / Streaks** | Implemented as goal/streak foundation. | `frontend/src/hooks/useGoals.ts`, `frontend/src/hooks/useStreak.ts`, `frontend/src/hooks/useSessionLifecycle.ts` | Current habit foundation. | Connect goals/streaks to **Personal Progress** (fixed-baseline target progress + one next focus), not 0–10 score movement. |
 | **Score-Based Gamification** | Ships today through the 0–10 SpeakSharp Score, confidence state, next target, and live coaching actions. **On the score's retirement path** — the motivating loop is re-based on transparent personal progress (own baseline / own targets), not the opaque score. | `frontend/src/utils/speakingScore.ts`, `frontend/src/components/session/LiveCoachingScoreCard.tsx`, `frontend/src/pages/SessionPage.tsx` | Current implementation, superseded by the Personal Progress model. | Migrate consumers (see `BACKLOG.md` §4); do **not** deepen 0–10-score gamification. |
 | **Guided Habit Pathways** | Not implemented as a packaged guided-drill journey. | No guided drill route/component exists yet. | Planned post-soft release. | Design and build 2-5 minute drills, progression loops, streak reinforcement, and recurring next-practice prompts. |
 | **Executive Rehearsal** | User-facing feature **not** implemented; **domain-foundation enabling code merged** (PR #1012, not a shipped feature). | `frontend/src/services/rehearsal/`; no rehearsal/brief/HUD route or user-facing component exists yet. | Planned; next major expansion after the current hardening cycle. | Optional agenda/brief; **passive** agenda tracking (not-addressed / partly / covered / recovered-after-guidance) with attributable evidence; delivery progress and agenda coverage kept **separate**. Correction is **user-requested first**; any automatic pause-aware cue is a later, separately-activated experiment. Sandbox → passive tracking → user-requested remedy → evidence-backed recovery. See the canonical contract above and the inchstones in `BACKLOG.md`. |
-| **Live Meeting Companion** | Not implemented. **Removed from active implementation sequencing** — future direction only. | No `/companion` route/component exists; explicitly out of the active build sequence. | Future direction only (not sequenced). | Future direction: reuse the rehearsal brief/coaching model during a real meeting under a tighter distraction budget. Sequenced **only** after Rehearsal proves value and is separately re-scoped; **not** part of this feature train. See "Premium Coaching Ladder". |
+| **Live Meeting Companion** | Not implemented. **Removed from active implementation sequencing** — future direction only. | No `/companion` route/component exists; explicitly out of the active build sequence. | Future direction only (not sequenced). | Future direction: reuse the rehearsal brief/coaching model during a real meeting under a tighter distraction budget. Sequenced **only** after Rehearsal proves value and is separately re-scoped; **not** part of this feature train. |
 | **Referral Proof Loop** | Partially supported by branded PDF/report artifacts, but not a full product loop. | `frontend/src/lib/pdfGenerator.ts`; no shareable progress-summary flow exists yet. | Planned post-soft release. | Add shareable "what improved" summaries and validate whether artifacts make others curious enough to join. |
 | **Analytics Tool Groups** | Implemented / proving in Analytics through three curated improvement goals plus secondary Custom measurement. | `frontend/src/components/AnalyticsDashboard.tsx`, `frontend/src/components/__tests__/AnalyticsDashboard.component.test.tsx` | Current / reviewer validation needed. | Confirm the focus labels, definitions, and selected tools help first-time users understand what to inspect next instead of feeling like arbitrary metric bundles. |
 | **Daily Usage Visibility** | Planned access/reliability surface. | Usage RPCs exist; no dedicated daily progress surface is committed as a product claim. | Planned post-soft release. | Add a lightweight daily usage status/progress indicator so Pro users understand remaining practice time before they hit a cap. |
@@ -195,7 +200,7 @@ This table keeps product claims honest before product release. A feature can app
 | **Free-To-Pro Conversion** | Current funnel | Free baseline experience should be useful and honest while nudging toward Pro only in relevant, non-intrusive surfaces. |
 | **Free-To-Pro Upgrade Support** | Infrastructure / limited | Free-to-Pro guidance can appear outside private practice surfaces when explicitly enabled. Practice surfaces must stay focused on the user's speaking work. |
 | **Score-Based Gamification** | Current implementation, scheduled for retirement | Ships today via the 0–10 SpeakSharp Score, confidence state, next target, and live coaching actions. Being re-based on **transparent personal progress** (own baseline / own targets), not the opaque score; do not deepen 0–10-score gamification (see `BACKLOG.md` §4). |
-| **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through score movement, streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
+| **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through **Personal Progress** (fixed-baseline target progress), streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
 | **Executive Rehearsal** | Planned post-soft release | High-stakes presentation practice before the real event. Initial live behavior is **passive** agenda tracking (not-addressed / partly / covered / recovered-after-guidance) plus an evidence-backed post-session outcome review; correction is **user-requested first**; any automatic pause-aware cue is a later, separately-activated experiment. Delivery progress and agenda coverage stay **separate**. Not part of the current soft-release product claim. See the canonical contract above. |
 | **Live Meeting Companion** | Future direction only (not sequenced) | **Removed from active implementation sequencing.** Future direction: reuse the rehearsal brief/coaching model in a real meeting under a tighter distraction budget, re-scoped separately after Rehearsal proves value. Not part of the current soft-release product claim. |
 | **Analytics Tool Groups** | Current / proving | Analytics-page focus groups now frame the dashboard around three user goals: Speak Clearly, Sound Confident, and Track Progress. Custom measurement remains available as a secondary advanced path for users who intentionally want specific metrics. |
@@ -212,7 +217,7 @@ These are accepted product directions used to vet the current offering and futur
 | **Real-Time Live Coaching Feedback** | Current implementation, scheduled for retirement | 0–10 live score card ships today; being replaced by quiet live guidance (Inchstone 3) | Session page is the right first surface, but the prominent live score is removed; keep it compact, confidence-gated, non-judgmental, and passive. |
 | **Semantic & Content Analysis** | Current / near-term proving | Implemented, quality still being proven | Highest retention-leverage coaching feature. Needs example outputs, reviewer scoring, and prompt/output tests before strong marketing language. |
 | **Score-Based Gamification** | Current implementation, scheduled for retirement | Ships today; being re-based on personal progress, not the 0–10 score | Uses the 0–10 SpeakSharp Score today; the motivating loop moves to transparent personal progress (own baseline/targets). Do not deepen 0–10-score gamification. |
-| **Guided Habit Pathways** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Packaged guided drills, progression loops, streak reinforcement, and recurring next-practice targets. Builds on the score/live-coach foundation. |
+| **Guided Habit Pathways** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Packaged guided drills, progression loops, streak reinforcement, and recurring next-practice targets. Builds on the Personal Progress + passive-coaching foundation. |
 | **Executive Rehearsal** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Passive-first, delivered as ordered inchstones (see `BACKLOG.md` §4): localhost sandbox → passive agenda tracking → evidence-backed outcome review → user-requested remedy → evidence-backed recovery → (later, default-OFF) sparse pause-aware experiment. No automatic live intervention in stage one; delivery progress and agenda coverage stay separate. Builds on the Rehearsal domain foundation (PR #1012). |
 | **Live Meeting Companion** | Future direction only — not sequenced | Deferred (future direction) | **Removed from active implementation sequencing.** Would reuse the rehearsal brief/coaching model in a real meeting under a tighter distraction budget; re-scoped separately only after Rehearsal proves value. Higher privacy/integration/distraction risk. |
 | **Referral Proof Loop** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Shared PDFs, progress summaries, and “what improved” moments should make friends curious and give users a story to tell. |
@@ -244,12 +249,12 @@ These are accepted product directions used to vet the current offering and futur
 | Post-Session Coaching | **Semantic & Content Analysis** | Implemented / proving | AI suggestions analyze argument structure, logic clarity, vocabulary, transitions, audience impact, and persuasive usefulness. | Needs collected example outputs and reviewer scoring before strong marketing claims. |
 | Post-Session Coaching | **AI Suggestions** | Current / proving | Post-session AI feedback path for deeper coaching. | AI may help wording and content analysis, but must not calculate the SpeakSharp Score. |
 | Post-Session Coaching | **Session History** | Current | Users can review past sessions and saved transcripts/metrics. | Persistence is required for returning-user comparison and PDF regeneration. |
-| Post-Session Coaching | **Analytics Dashboard** | Current | Shows progress trends, session list, engine metadata, and report actions. | Future score trend must consume the same saved score payload as Session/PDF. |
+| Post-Session Coaching | **Analytics Dashboard** | Current | Shows progress trends, session list, engine metadata, and report actions. | Personal Progress trend consumes **raw attributable measurements** vs a fixed personal baseline / target versions (previous-comparable + rolling 3–5-session trend), not a saved 0–10 score payload (the 0–10 score is not persisted). |
 | Post-Session Coaching | **Analytics Tool Groups** | Current / proving | Curated Analytics groups that map raw tools into three coaching narratives: Speak Clearly, Sound Confident, and Track Progress. | Preserve Custom as a secondary advanced measurement path with standalone explanations so users can inspect one signal without turning the primary experience into a metrics control panel. Reviewer should confirm whether the focus chooser copy is sufficient or needs more explicit tooltip/help text. |
 | Post-Session Coaching | **PDF Export** | Current | Generates branded PDF reports from current transcript/report state and persisted session data. | All PDFs retain SpeakSharp branding/watermarking. |
-| Habit & Progress | **Goals / Streaks** | Current foundation | Tracks practice goals and streak-like progress signals. | Existing habit foundation; should increasingly connect to score movement and next-practice targets. |
+| Habit & Progress | **Goals / Streaks** | Current foundation | Tracks practice goals and streak-like progress signals. | Existing habit foundation; connect to **Personal Progress** (fixed-baseline target progress + one next focus), not 0–10 score movement. |
 | Habit & Progress | **Score-Based Gamification** | Current implementation, scheduled for retirement | Ships today via the 0–10 SpeakSharp Score; the motivating loop is being re-based on transparent personal progress (own baseline/targets). | Migrate consumers (`BACKLOG.md` §4); do not deepen 0–10-score gamification. |
-| Habit & Progress | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute drills such as concise update, filler-to-pause replacement, opening/closing clarity, and main-point-first practice. | Planned post-soft release once score/coaching loop is calibrated; not implemented as a complete guided journey today. |
+| Habit & Progress | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute drills such as concise update, filler-to-pause replacement, opening/closing clarity, and main-point-first practice. | Planned post-soft release once the **Personal Progress + passive-coaching** loop is proven; not implemented as a complete guided journey today. |
 | Access & Reliability | **Usage Limits / Quotas** | Current | Enforces daily/monthly practice limits by tier. | Must fail closed if quota service is unavailable. |
 | Access & Reliability | **Daily Usage Visibility** | Planned post-soft release | User-facing progress/status for remaining daily practice time. | Should reduce surprise at limits without making the app feel quota-first. |
 | Conversion & Trust | **Upgrade / Conversion Funnel** | Current | Free-to-Pro upgrade path through pricing, analytics, and relevant feature gates. | Basic paid checkout remains deferred/future-only. |
@@ -260,118 +265,6 @@ These are accepted product directions used to vet the current offering and futur
 | Premium Coaching Ladder | **Live Meeting Companion** | Future direction only | **Removed from active implementation sequencing.** Future direction: reuse the rehearsal brief/coaching model in a real meeting under a tighter distraction budget. | Not sequenced; re-scoped separately only after Rehearsal proves value. |
 | Access & Reliability | **Accessibility / Screen Reader Support** | Current | Live transcript uses accessibility-aware UI patterns. | Keep aligned with UX smoke and page-level accessibility checks. |
 | Access & Reliability | **Design System / Visual Surfaces** | Current | Shared visual tokens and standardized card/surface styling. | Theme contrast and Session/Analytics surfaces have been hardened during soft-release prep. |
-
-## Premium Coaching Ladder — HISTORICAL / SUPERSEDED architecture note
-
-> **This entire section is a HISTORICAL architecture note. It is SUPERSEDED and does NOT describe
-> current direction.** The current, authoritative direction is the "Personal Progress & Executive
-> Rehearsal Product Contract" at the top of this file. This note is retained only for background on
-> how the two premium contexts relate. Do **not** read anything below as an active plan.
->
-> It is superseded on two points specifically: (1) **Live behavior is passive-first** — any wording
-> below about "richer live cues" or "real-time AI presentation improvement during rehearsal" is
-> **obsolete**; the initial live experience is **passive** agenda tracking, correction is
-> **user-requested first**, and any automatic pause-aware cue is a later, separately-activated
-> experiment (kill switch + cognitive-load/annoyance exit criteria). (2) **Live Meeting Companion is
-> removed from the active build sequence** and is future direction only — the ordered build sequence
-> below is obsolete; the authoritative sequence is in `BACKLOG.md` §4.
-
-### The one-sentence model
-
-**Same coaching intelligence, different context and distraction budget.** Both premium features include
-real-time/live feedback. The distinction is **not** "Rehearsal = after only" and "Companion = live." The
-distinction is *where* the coaching runs and *how much* on-screen guidance the user can absorb without
-being derailed.
-
-### Product ladder
-
-1. **SpeakSharp Practice** — the current product. General speaking practice. Live coaching for delivery
-   mechanics and semantic improvement.
-2. **Executive Presentation Rehearsal Coach** (Premium feature 1) — high-stakes presentation practice
-   *before* the real event. Includes: real-time AI presentation-improvement suggestions during a practice
-   presentation; talking-point coverage during rehearsal; executive-polish feedback; a post-rehearsal
-   scorecard; and a next-rehearsal improvement plan.
-3. **Live Meeting Companion** (Premium feature 2) — the same coaching intelligence applied *during* the
-   actual Zoom / Google Meet / Teams meeting. Higher privacy, integration, and distraction risk, so it
-   must use stricter, lower-frequency, lower-text cues.
-
-### Canonical wording (use verbatim)
-
-> Executive Presentation Rehearsal Coach provides live AI guidance during practice presentations and a
-> post-rehearsal scorecard. The later Live Meeting Companion reuses the same brief and coaching model in
-> actual meetings, with stricter cue limits because the user is performing live.
-
-> Rehearsal Coach and Live Meeting Companion are not separate products. Rehearsal Coach trains the
-> presentation against a brief. Live Companion applies the same brief and coaching model during the real
-> meeting.
-
-### Build sequence (re-scoped by the canonical contract)
-
-The **active** build sequence for Executive Rehearsal is passive-first and does **not** include Live
-Companion. The authoritative, ordered inchstones live in `BACKLOG.md`; in summary:
-
-1. **Localhost UX sandbox** — a full-interaction local proving environment (representative fixtures,
-   no production data/migrations/AI/billing/v4) to settle usability **before** any application-code
-   change to `main`.
-2. **Passive agenda tracking** — optional brief/agenda, subtle not-addressed / partly / covered
-   states during rehearsal; delivery coaching is not displaced; no continuously changing score.
-3. **Evidence-backed post-session outcome review** — coverage, misses, clarifications, and
-   recovered-after-guidance, each tied to attributable transcript evidence.
-4. **User-requested remedy** — the user asks for help on one gap; one concise remedy; no stacked
-   suggestions.
-5. **Evidence-backed recovery** — mark "recovered" only with attributable evidence (false-positive
-   regression tests required).
-6. **Sparse pause-aware experiment (later, default OFF)** — at most one cue during a genuine pause,
-   with a kill switch and cognitive-load / annoyance-abandonment exit criteria; never during active
-   speech.
-
-**Live Meeting Companion** is **future direction only** — not in this sequence. It would be
-re-scoped separately, and only after Rehearsal proves value.
-
-### Real-time feedback taxonomy
-
-Four categories of live feedback, shared across the ladder but gated by context:
-
-| Category | Scope | Examples |
-| :--- | :--- | :--- |
-| **1. Delivery mechanics** | Practice, Rehearsal, and Live | slow down; pause; wrap up; too many fillers; voice too low; rambling; answer too long; unclear phrasing |
-| **2. Content coverage** | Core to Rehearsal Coach, later Live Companion | key point covered; key point missing; key point partially covered; recommendation missing; ask missing; over-explained background; underdeveloped risk; slide/topic skipped |
-| **3. Executive polish** | Core differentiator for Feature 1 | connect this point to business strategy; state the decision needed; clarify the business impact; sound less defensive; move from tactical detail to executive framing; sharpen the recommendation; make the risk/mitigation explicit |
-| **4. Interaction guidance** | More relevant to Live Companion, but rehearsable first | ask a question; invite alignment; address objection; move to decision; close with next step; stop over-answering |
-
-### Rehearsal HUD vs Live Meeting Companion (distraction budget)
-
-The same coaching intelligence renders differently because the risk of derailing the user differs.
-
-**Rehearsal HUD** — a practice presentation, so feedback can be more explicit. Allowed: short AI text
-prompts; section-level guidance; "try this next" suggestions; a live talking-point checklist;
-pause-and-review moments; richer post-run explanation.
-
-- "State the recommendation now."
-- "Connect retention risk to compensation strategy."
-- "You covered business strategy, but not the ask."
-- "Too much background; move to decision."
-- "Mention how this affects the board's decision."
-
-**Live Meeting Companion** — the real meeting, so feedback must be constrained. Allowed: ambient cues;
-sparse text; status dots; short labels; low-frequency prompts; **no paragraph guidance while speaking**.
-
-- "Wrap up." · "Make the ask." · "Key point missing." · "Too long." · "Pause." · "Move to recommendation."
-
-**Do not make Live Companion a verbose real-time AI coach — it can derail the user.**
-
-### Privacy framing
-
-- Private transcription can keep audio local to the browser.
-- Semantic AI feedback over transcript, talking points, slides, and audience context **may require cloud
-  AI** unless local LLM analysis is separately built.
-- Do **not** imply all presentation materials stay local unless that is actually implemented.
-
-### Relationship summary
-
-Rehearsal Coach trains a presentation against a brief and can afford rich live cues; Live Companion carries
-the *same* brief and coaching model into the real meeting under a tight distraction budget. Read them as one
-system with two contexts, not two disconnected features.
 
 ## Product Positioning
 
