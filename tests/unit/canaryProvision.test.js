@@ -5,7 +5,10 @@ import { classifyError, withRetry, signInWithBoundedRetry, verifyTier, enforceCe
 const CANARY = 'canary@speaksharp.app';
 const config = { email: CANARY, password: 'pw' };
 const invalidJwt = { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' };
-const badCreds = { status: 400, message: 'Invalid login credentials' };
+const badCreds = { status: 400, message: 'Invalid login credentials' };          // recognized → recoverable
+const unknown400 = { status: 400, message: 'Some unexpected validation problem' }; // unknown 4xx → fail closed
+const weirdErr = { status: 418, message: "I'm a teapot" };                         // unexpected non-retryable
+const malformed = {};                                                              // no status, no message
 const noSleep = { sleep: () => Promise.resolve() };
 
 // ---- mock builders ----
@@ -32,9 +35,16 @@ describe('classifyError', () => {
       expect(classifyError(e)).toMatchObject({ category: 'auth_config', retryable: false });
     }
   });
-  it('retryable for 429/5xx/network; other for 400 invalid-credentials', () => {
+  it('retryable for 429/5xx/network', () => {
     expect(classifyError({ status: 503 })).toMatchObject({ category: 'retryable' });
-    expect(classifyError(badCreds)).toMatchObject({ category: 'other', retryable: false });
+  });
+  it('recoverable_credentials ONLY for recognized invalid-login (message or code), never a bare 400', () => {
+    expect(classifyError(badCreds)).toMatchObject({ category: 'recoverable_credentials', retryable: false });
+    expect(classifyError({ status: 400, code: 'invalid_credentials' })).toMatchObject({ category: 'recoverable_credentials' });
+    // Unknown 4xx / unexpected non-retryable / malformed → 'other' (fail closed), NOT recoverable.
+    expect(classifyError(unknown400)).toMatchObject({ category: 'other', retryable: false });
+    expect(classifyError(weirdErr)).toMatchObject({ category: 'other', retryable: false });
+    expect(classifyError(malformed)).toMatchObject({ category: 'other', retryable: false });
   });
 });
 
@@ -103,6 +113,17 @@ describe('provisionCanary — health only, fail-closed', () => {
     expect(res.status).toBe('recovered');
     expect(admin.auth.admin.updateUserById).toHaveBeenCalled();
     expect(admin.auth.admin.createUser).not.toHaveBeenCalled(); // update-only, no create
+  });
+  it.each([
+    ['unknown 400', unknown400],
+    ['unexpected non-retryable (418)', weirdErr],
+    ['malformed/empty error', malformed],
+  ])('FAIL CLOSED: %s sign-in failure → failed(unclassified), NO createUser/updateUserById', async (_label, err) => {
+    const admin = makeAdmin();
+    const res = await provisionCanary({ anon: makeAnon({ signIn: [{ ok: false, error: err }] }), admin, config });
+    expect(res).toMatchObject({ status: 'failed', scope: 'unclassified' });
+    expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+    expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
   });
   it('RECOVERY (missing account): not found → createUser → recovered', async () => {
     const admin = makeAdmin({ listUsers: [{ users: [] }], createUser: { error: null } });

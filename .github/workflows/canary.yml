@@ -27,8 +27,8 @@ jobs:
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          # Sign-in-first: the healthy path uses the public anon flow (same key users authenticate with)
-          # so a stale/rotated service-role key can't fail the canary when the account is healthy.
+          # Sign-in-first: the healthy path uses the public anon flow (the same path testers authenticate
+          # through), which removes an unnecessary admin dependency from the healthy canary.
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Service-role is the RECOVERY-only path (deterministic invalid-credentials → account lookup /
           # create-or-sync). An auth/config rejection here is reported as a scoped, actionable config

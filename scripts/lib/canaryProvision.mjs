@@ -21,9 +21,14 @@
 
 const CANARY_EMAIL_RE = /^canary(-.+)?@speaksharp\.app$/i;
 
-/** Classify a Supabase error into an actionable, content-free category. */
+/**
+ * Classify a Supabase error into an actionable, content-free category.
+ * Categories: 'auth_config' (stop, config problem), 'retryable' (transient), 'recoverable_credentials'
+ * (the ONLY category that may authorize canary recovery), 'other' (unknown/unclassified → fail closed).
+ */
 export function classifyError(error) {
   const status = typeof error?.status === 'number' ? error.status : null;
+  const code = (error?.code || error?.error_code || '').toString().toLowerCase();
   const msg = (error?.message || '').toLowerCase();
   const isAuthConfig =
     status === 401 || status === 403 ||
@@ -34,7 +39,17 @@ export function classifyError(error) {
   const isRetryable =
     status === 429 || (typeof status === 'number' && status >= 500) ||
     msg.includes('fetch failed') || msg.includes('network') || msg.includes('timeout') || msg.includes('econnreset');
-  return { status, category: isRetryable ? 'retryable' : 'other', retryable: isRetryable };
+  if (isRetryable) return { status, category: 'retryable', retryable: true };
+  // EXPLICITLY recognized "the canary's own credentials/account are invalid or unavailable". This is the
+  // ONLY category permitted to trigger (canary-only, existence-first) recovery. Matched by Supabase error
+  // code first, then a small allowlist of stable auth messages — never a bare status like 400.
+  const isRecoverableCreds =
+    code === 'invalid_credentials' || code === 'email_not_confirmed' || code === 'user_not_found' ||
+    msg.includes('invalid login credentials') || msg.includes('email not confirmed') ||
+    msg.includes('user not found') || msg.includes('user is unavailable') || msg.includes('account not found');
+  if (isRecoverableCreds) return { status, category: 'recoverable_credentials', retryable: false };
+  // Everything else — unknown 4xx, malformed/empty errors, unexpected non-retryable — FAILS CLOSED.
+  return { status, category: 'other', retryable: false };
 }
 
 /** Retry a {data,error}-returning op ONLY on retryable errors (never 401/403/invalid-JWT/deterministic). */
@@ -143,8 +158,12 @@ export async function provisionCanary({ anon, admin, config }) {
     if (sc.category === 'auth_config') return { status: 'config_error', scope: 'anon_auth', status_code: sc.status, message: 'Anon sign-in rejected on auth/config (verify anon key / canary creds). No account mutation attempted.' };
     // Transient exhausted after bounded retry → fail WITHOUT mutation.
     if (sc.category === 'retryable') return { status: 'failed', scope: 'transient', status_code: sc.status, message: 'Anon sign-in failed after bounded retry (transient). No account mutation attempted.' };
-    // Deterministic invalid-credentials / account-unavailable → recovery (admin).
-    if (!admin) return { status: 'config_error', scope: 'no_admin_for_recovery', message: 'Sign-in failed (invalid credentials) and no service-role client available for recovery.' };
+    // FAIL CLOSED: only an EXPLICITLY recognized invalid-credentials/account-unavailable response may
+    // authorize recovery. Any unknown 4xx, malformed/empty error, or unclassified non-retryable failure
+    // ('other') stops here with NO createUser/updateUserById.
+    if (sc.category !== 'recoverable_credentials') return { status: 'failed', scope: 'unclassified', status_code: sc.status, message: 'Anon sign-in failed with an unrecognized non-retryable error; NOT eligible for recovery (fail-closed). No account mutation attempted.' };
+    // Recognized invalid-credentials / account-unavailable → existence-first, canary-only recovery (admin).
+    if (!admin) return { status: 'config_error', scope: 'no_admin_for_recovery', message: 'Sign-in failed (recognized invalid credentials) and no service-role client available for recovery.' };
     const rec = await recoverCanaryAccount(admin, { email, password });
     if (rec.status !== 'ok') return rec;
     signIn = await signInWithBoundedRetry(anon, { email, password });
