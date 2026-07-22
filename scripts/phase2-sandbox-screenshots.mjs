@@ -32,21 +32,19 @@ async function walk(page, tag, shots, external) {
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
   const t = (ms) => page.waitForTimeout(ms);
 
-  // ---- Two-column practice chooser (SpeakSharp Session | Executive Rehearsal) ----
-  await shot('01-landing-two-column'); // both choices, no row open
-  await m.getByRole('button', { name: /^choose your session mode$/i }).click(); await t(150); // a SpeakSharp Session row
-  await shot('02-session-selected');
-  await m.getByRole('button', { name: /^prepare$/i }).click(); await t(150); // Exec row — Session collapses (cross-column single-open)
-  await shot('03-exec-selected');
-  await m.getByRole('button', { name: /^review and recover$/i }).click(); await t(150); // Prepare/Rehearse become checkmark rollups
-  await shot('04-completed-rollups');
+  // ---- Two practice modes (Quick Practice | Guided Rehearsal) ----
+  await shot('01-landing-two-modes'); // both modes with four markers each, nothing selected
+  await m.getByRole('button', { name: /quick practice/i }).click(); await t(150); // select Quick Practice
+  await shot('02-quick-selected');
+  await m.getByRole('button', { name: /guided rehearsal/i }).click(); await t(150); // select Guided (Quick collapses — single-open)
+  await shot('03-guided-selected');
 
-  // ---- SpeakSharp Session handoff (represents the existing /session route) ----
-  await m.getByRole('button', { name: /start a session/i }).click(); await t(150);
-  await shot('05-session-handoff');
+  // ---- Quick Practice handoff (represents the existing /session route) ----
+  await m.getByRole('button', { name: /start speaking/i }).click(); await t(150);
+  await shot('04-quick-handoff');
   await m.getByRole('button', { name: /back to practice choices/i }).click(); await t(150);
 
-  // ---- Executive Rehearsal sample journey ----
+  // ---- Guided Rehearsal sample journey ----
   await m.getByRole('button', { name: /try a sample/i }).click(); await t(150);
   await shot('06-sample-ready');
   await m.getByRole('button', { name: /begin speaking/i }).click(); await t(5400);
@@ -80,14 +78,12 @@ async function themeWalk(page, theme, view, shots) {
   const t = (ms) => page.waitForTimeout(ms);
 
   await shot('01-default');
-  await m.getByRole('button', { name: /^choose your session mode$/i }).click(); await t(150); // Session card selected + row open
-  await shot('02-session-selected');
-  await m.getByRole('button', { name: /^prepare$/i }).click(); await t(150); // Rehearsal selected; Session collapses (mutual exclusion)
-  await shot('03-rehearsal-selected');
-  await m.getByRole('button', { name: /^review and recover$/i }).click(); await t(150); // deeper row; rows 1–2 become rollups
-  await shot('04-expanded-row');
-  await m.getByRole('button', { name: /start a session/i }).focus(); await t(120); // visible focus ring
-  await shot('05-focus-state');
+  await m.getByRole('button', { name: /quick practice/i }).click(); await t(150); // Quick Practice selected + steps shown
+  await shot('02-quick-selected');
+  await m.getByRole('button', { name: /guided rehearsal/i }).click(); await t(150); // Guided selected; Quick collapses (single-open)
+  await shot('03-guided-selected');
+  await m.getByRole('button', { name: /start speaking/i }).focus(); await t(120); // visible focus ring
+  await shot('04-focus-state');
 }
 
 /** Side-by-side comparison board of all three themes (?compare=1), desktop or mobile render. */

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { ProgressRehearsalSandbox } from '../ProgressRehearsalSandbox';
 import { SESSION_ROUTE } from '../journey/HandoffScreen';
 
-describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | Executive Rehearsal)', () => {
+describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Practice | Guided Rehearsal)', () => {
   beforeEach(() => {
     (window as unknown as { __SS_SANDBOX_TRACE__?: unknown[] }).__SS_SANDBOX_TRACE__ = [];
   });
@@ -17,58 +17,63 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
   const main = () => screen.getByRole('main');
   const btn = (name: RegExp) => within(main()).getByRole('button', { name });
 
-  it('truthful identity: "Choose how you want to practice" with exactly two choices', () => {
+  it('reads as one product with two modes: headline, decision prompt, Quick Practice + Guided Rehearsal', () => {
     render(<ProgressRehearsalSandbox />);
-    expect(within(main()).getByRole('heading', { name: /choose how you want to practice/i })).toBeInTheDocument();
-    expect(within(main()).getByRole('heading', { name: /^SpeakSharp Session$/i })).toBeInTheDocument();
-    expect(within(main()).getByRole('heading', { name: /^Executive Rehearsal$/i })).toBeInTheDocument();
-    // No "Quick Practice" primary mode anywhere.
-    expect(within(main()).queryByText(/quick practice/i)).not.toBeInTheDocument();
+    expect(within(main()).getByRole('heading', { name: /practice how you speak/i })).toBeInTheDocument();
+    expect(within(main()).getByText(/do you want to speak freely, or practice toward specific outcomes/i)).toBeInTheDocument();
+    expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
+    expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
+    // "Executive Rehearsal" is NOT the umbrella label at the mode-selection level.
+    expect(within(main()).queryByText(/executive rehearsal/i)).not.toBeInTheDocument();
     expect(within(main()).queryAllByText(/%/)).toHaveLength(0);
     // "STT" is never shown to users.
     expect(within(main()).queryByText(/\bSTT\b/)).not.toBeInTheDocument();
   });
 
-  it('first column is SpeakSharp Session (a doorway to the existing session), second is Executive Rehearsal', () => {
+  it('each mode has one unmistakable primary action', () => {
     render(<ProgressRehearsalSandbox />);
-    expect(btn(/start a session/i)).toBeInTheDocument(); // column 1 primary
-    expect(btn(/try a sample/i)).toBeInTheDocument(); // column 2 primary
-    expect(btn(/create rehearsal/i)).toBeInTheDocument(); // column 2 secondary
+    expect(btn(/start speaking/i)).toBeInTheDocument(); // Quick Practice primary → existing session
+    expect(btn(/set up a rehearsal/i)).toBeInTheDocument(); // Guided Rehearsal primary
+    expect(btn(/try a sample/i)).toBeInTheDocument(); // Guided Rehearsal secondary (sample)
   });
 
-  it('"Start a session" hands off to the existing /session route (represented, not navigated)', () => {
+  it('the two modes can be told apart WITHOUT opening either card (four visible markers each)', () => {
     render(<ProgressRehearsalSandbox />);
-    fireEvent.click(btn(/start a session/i));
+    expect(within(main()).getByText(/no agenda or setup required/i)).toBeInTheDocument();
+    expect(within(main()).getByText(/transcript and focused delivery feedback/i)).toBeInTheDocument();
+    expect(within(main()).getByText(/passive coverage tracking/i)).toBeInTheDocument();
+    expect(within(main()).getByText(/best for presentations, pitches, interviews/i)).toBeInTheDocument();
+    // Nothing is "Selected" until the user chooses a card.
+    expect(within(main()).queryByText(/^Selected$/i)).not.toBeInTheDocument();
+  });
+
+  it('"Start speaking" (Quick Practice) hands off to the existing /session route (represented, not navigated)', () => {
+    render(<ProgressRehearsalSandbox />);
+    fireEvent.click(btn(/start speaking/i));
     expect(within(main()).getByRole('heading', { name: /opening your speaksharp session/i })).toBeInTheDocument();
     expect(within(main()).getByText(new RegExp(SESSION_ROUTE))).toBeInTheDocument();
     expect(SESSION_ROUTE).toBe('/session');
-    // The sandbox represents the handoff and does not open production.
     expect(within(main()).getByText(/does not open the production app/i)).toBeInTheDocument();
   });
 
-  it('Review My Progress is a subordinate link, NOT a third choice', () => {
+  it('View past progress is a subordinate link, NOT a third choice', () => {
     render(<ProgressRehearsalSandbox />);
     expect(within(main()).queryByRole('heading', { name: /review my progress/i })).not.toBeInTheDocument();
     expect(btn(/view past progress/i)).toBeInTheDocument();
   });
 
-  it('numbered rows are mutually exclusive within and ACROSS the two columns', () => {
+  it('selecting a mode reveals its steps, marks it Selected, and is mutually exclusive across cards', () => {
     render(<ProgressRehearsalSandbox />);
-    fireEvent.click(btn(/^prepare$/i)); // Executive Rehearsal row
-    expect(btn(/^prepare$/i)).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText(/define the presentation or conversation/i)).toBeInTheDocument();
-    fireEvent.click(btn(/^choose your session mode$/i)); // SpeakSharp Session row
-    expect(btn(/^choose your session mode$/i)).toHaveAttribute('aria-expanded', 'true');
-    expect(btn(/^prepare$/i)).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText(/define the presentation or conversation/i)).not.toBeInTheDocument();
-  });
-
-  it('completed rows collapse to a checkmark rollup and reopen with state preserved', () => {
-    render(<ProgressRehearsalSandbox />);
-    fireEvent.click(btn(/^review and recover$/i)); // opens exec row 3 → rows 1,2 become rollups
-    expect(screen.getByText(/3 agenda points prepared/i)).toBeInTheDocument();
-    fireEvent.click(btn(/^prepare$/i));
-    expect(screen.getByText(/define the presentation or conversation/i)).toBeInTheDocument();
+    const quick = btn(/quick practice/i); // whole-header selection toggle
+    const guided = btn(/guided rehearsal/i);
+    fireEvent.click(guided);
+    expect(guided).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(/define what you.re rehearsing/i)).toBeInTheDocument();
+    fireEvent.click(quick);
+    expect(quick).toHaveAttribute('aria-pressed', 'true');
+    expect(guided).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText(/define what you.re rehearsing/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/pick how you want to capture/i)).toBeInTheDocument();
   });
 
   it('the default product frame has NO QA controls or sidebar', () => {
@@ -78,7 +83,7 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
     expect(document.querySelector('aside')).toBeNull();
   });
 
-  it('"Try a sample" launches the Executive Rehearsal journey (Ready → passive cockpit)', () => {
+  it('"Try a sample" launches the Guided Rehearsal journey (Ready → passive cockpit)', () => {
     render(<ProgressRehearsalSandbox />);
     fireEvent.click(btn(/try a sample/i));
     expect(within(main()).getByText(/ready when you are/i)).toBeInTheDocument();
@@ -98,7 +103,7 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
     expect(within(main()).getByText(/speak naturally/i)).toBeInTheDocument();
   });
 
-  it('help → remedy → recovery → processing → recovered summary → returning-user keeps BOTH choices', () => {
+  it('help → remedy → recovery → processing → recovered summary → returning-user keeps BOTH modes', () => {
     vi.useFakeTimers();
     try {
       render(<ProgressRehearsalSandbox />);
@@ -117,8 +122,8 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
       expect(screen.getByRole('heading', { name: /recovered the approval request after asking for help/i })).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: /rehearse again/i }));
-      expect(within(main()).getByRole('heading', { name: /SpeakSharp Session/i })).toBeInTheDocument();
-      expect(within(main()).getByRole('heading', { name: /Executive Rehearsal/i })).toBeInTheDocument();
+      expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
+      expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
       expect(within(main()).getByText(/welcome back/i)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -129,16 +134,16 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
   it('applies the selected Theme A on the app root by default (themes the whole journey)', () => {
     render(<ProgressRehearsalSandbox />);
     expect(document.querySelector('[data-ss-theme="a"]')).toBeInTheDocument();
-    // The frozen two-column IA is identical regardless of theme.
-    expect(within(main()).getByRole('heading', { name: /^SpeakSharp Session$/i })).toBeInTheDocument();
-    expect(within(main()).getByRole('heading', { name: /^Executive Rehearsal$/i })).toBeInTheDocument();
+    // The frozen two-mode IA is identical regardless of theme.
+    expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
+    expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
   });
 
   it('?theme=b and ?theme=c still render the retained candidate themes (compare-board evidence)', () => {
     setQuery('?theme=b');
     const { unmount } = render(<ProgressRehearsalSandbox />);
     expect(document.querySelector('[data-ss-theme="b"]')).toBeInTheDocument();
-    expect(within(main()).getByRole('button', { name: /start a session/i })).toBeInTheDocument();
+    expect(within(main()).getByRole('button', { name: /start speaking/i })).toBeInTheDocument();
     unmount();
     setQuery('?theme=c');
     render(<ProgressRehearsalSandbox />);

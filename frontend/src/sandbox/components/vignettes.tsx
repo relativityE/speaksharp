@@ -49,39 +49,58 @@ export function ExecutiveRehearsalVignette() {
  * meaning. No stock art, avatars, mascots, or confetti — abstract waveform / agenda compositions only.
  */
 
-/** SpeakSharp Session — a broad, flowing speech waveform (speaking in the live experience). */
-export function SessionPanelArt({ emphasis = false }: { emphasis?: boolean }) {
-  // Deterministic bar heights (no RNG) — a natural-looking cadence across the panel width.
-  const heights = [14, 26, 20, 38, 30, 46, 34, 52, 40, 30, 44, 24, 36, 22, 30, 18, 26, 16, 22, 12];
-  const warmAt = new Set([5, 12]); // a couple of warm-accent peaks for energy
+/**
+ * Quick Practice — INTENT: speak freely → get a transcript + feedback. A flowing waveform on the left
+ * resolves into transcript lines with a delivery-feedback check on the right (waveform → transcript).
+ */
+export function QuickPracticeArt({ emphasis = false }: { emphasis?: boolean }) {
+  const heights = [14, 26, 20, 38, 30, 46, 34, 52, 40, 30, 44, 24]; // waveform (left ~55%)
+  const warmAt = new Set([5, 9]);
+  const lines = [128, 96, 112]; // transcript line widths (right)
   return (
     <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      <line x1="16" y1="60" x2="304" y2="60" stroke="var(--ss-card)" strokeOpacity="0.22" strokeWidth="1.5" />
+      <line x1="16" y1="60" x2="150" y2="60" stroke="var(--ss-card)" strokeOpacity="0.22" strokeWidth="1.5" />
       {heights.map((h, i) => {
-        const x = 18 + i * 14.4;
+        const x = 18 + i * 11.4;
         const fill = warmAt.has(i) ? 'var(--ss-card-warm)' : 'var(--ss-card)';
-        const op = warmAt.has(i) ? 1 : 0.46 + (i % 4) * 0.17 + (emphasis ? 0.12 : 0);
-        return <rect key={i} x={x} y={60 - h / 2} width={6} height={h} rx={3} fill={fill} opacity={Math.min(op, 1)} />;
+        const op = warmAt.has(i) ? 1 : 0.5 + (i % 4) * 0.16 + (emphasis ? 0.12 : 0);
+        return <rect key={i} x={x} y={60 - h / 2} width={5.5} height={h} rx={2.75} fill={fill} opacity={Math.min(op, 1)} />;
       })}
+      {/* arrow: waveform → transcript */}
+      <path d="M162 60 h16 m0 0 l-5 -4 m5 4 l-5 4" fill="none" stroke="var(--ss-card)" strokeOpacity="0.5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      {lines.map((w, i) => (
+        <rect key={i} x={190} y={38 + i * 16} width={w} height={8} rx={4} fill="var(--ss-card)" opacity={i === 0 ? 0.5 : 0.28} />
+      ))}
+      {/* delivery-feedback check */}
+      <circle cx={196} cy={92} r={9} fill="var(--ss-card)" opacity={emphasis ? 1 : 0.9} />
+      <path d="M191.5 92 l3 3 l6 -6.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-/** Executive Rehearsal — an agenda rail with coverage states (covered / partial / recovered / open). */
-export function ExecPanelArt({ emphasis = false }: { emphasis?: boolean }) {
+/**
+ * Guided Rehearsal — INTENT: prepare points → SpeakSharp tracks whether you cover them. Agenda points
+ * on the left resolve into coverage outcomes on the right (covered / partly / recovered / open).
+ */
+export function GuidedRehearsalArt({ emphasis = false }: { emphasis?: boolean }) {
   const rows = [
-    { c: 'var(--ss-success)', w: 150 }, // covered
-    { c: 'var(--ss-partial)', w: 116 }, // partly addressed
-    { c: 'var(--ss-card)', w: 132 }, // recovered (card accent)
-    { c: 'var(--ss-neutral)', w: 92 }, // not yet addressed
+    { c: 'var(--ss-success)', w: 150, glyph: 'check' }, // covered
+    { c: 'var(--ss-partial)', w: 116, glyph: 'half' }, // partly addressed
+    { c: 'var(--ss-card)', w: 132, glyph: 'star' }, // recovered (card accent)
+    { c: 'var(--ss-neutral)', w: 92, glyph: 'open' }, // not yet addressed
   ];
   return (
     <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
       {rows.map((r, i) => {
         const y = 20 + i * 24;
+        const solid = r.glyph !== 'open';
         return (
           <g key={i}>
-            <circle cx={24} cy={y} r={6} fill={r.c} opacity={emphasis ? 1 : 0.95} />
+            {solid
+              ? <circle cx={24} cy={y} r={6} fill={r.c} opacity={emphasis ? 1 : 0.95} />
+              : <circle cx={24} cy={y} r={5.5} fill="none" stroke={r.c} strokeWidth="1.6" opacity={0.9} />}
+            {r.glyph === 'check' ? <path d={`M20.5 ${y} l2.4 2.4 l4.6 -5`} fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /> : null}
+            {r.glyph === 'star' ? <path d={`M24 ${y - 3.2} l1 2.2 l2.4 .3 l-1.7 1.7 l.4 2.4 l-2.1 -1.1 l-2.1 1.1 l.4 -2.4 l-1.7 -1.7 l2.4 -.3 z`} fill="#fff" opacity="0.95" /> : null}
             <rect x={40} y={y - 4} width={r.w} height={8} rx={4} fill={r.c} opacity={0.34} />
             <rect x={40 + r.w + 8} y={y - 4} width={40} height={8} rx={4} fill="var(--ss-card)" opacity={0.15} />
           </g>

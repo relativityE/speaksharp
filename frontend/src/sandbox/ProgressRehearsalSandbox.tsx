@@ -49,15 +49,15 @@ export function ProgressRehearsalSandbox() {
   const [phase, setPhase] = React.useState<Phase>('landing');
   const [finish, setFinish] = React.useState<FinishData | null>(null);
   const [hasRehearsed, setHasRehearsed] = React.useState(false);
-  const [lastMode, setLastMode] = React.useState<'session' | 'exec' | undefined>(undefined);
+  const [lastMode, setLastMode] = React.useState<'quick' | 'guided' | undefined>(undefined);
 
   React.useEffect(() => { trace('sandbox_loaded', {}); }, []);
 
   const toLanding = () => { setFinish(null); setPhase('landing'); };
   const landingActions = {
-    startRehearsal: () => { setLastMode('exec'); setPhase('rehearse'); },
-    createRehearsal: () => { setLastMode('exec'); setPhase('prepare'); },
-    startSession: () => { setLastMode('session'); setPhase('handoff'); }, // doorway to existing /session
+    startRehearsal: () => { setLastMode('guided'); setPhase('rehearse'); },
+    createRehearsal: () => { setLastMode('guided'); setPhase('prepare'); },
+    startSession: () => { setLastMode('quick'); setPhase('handoff'); }, // Quick Practice → existing /session
     reviewProgress: () => { setFinish({ kind: 'general', which: 'improved' }); setPhase('finish'); },
   };
 

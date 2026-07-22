@@ -25,7 +25,7 @@ export function HandoffScreen({ onBack }: { onBack: () => void }) {
           <div className="mx-auto mb-4 w-16"><QuickPracticeVignette /></div>
           <h2 className="text-2xl font-semibold text-[color:var(--ss-text)]">Opening your SpeakSharp session</h2>
           <p className="mt-3 text-[15px] text-[color:var(--ss-text-secondary)]">
-            This continues in the SpeakSharp session experience you already know — your standard speaking session, unchanged.
+            Quick Practice continues in the SpeakSharp session experience you already know — your standard speaking session, unchanged.
           </p>
           <div className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[color:var(--ss-primary-soft)] px-4 py-2.5 text-sm font-semibold text-[color:var(--ss-primary-soft-text)]">
             Continue <ArrowRight size={16} aria-hidden /> your SpeakSharp session
