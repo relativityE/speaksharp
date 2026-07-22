@@ -1,45 +1,23 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
-import { classifyError, withRetry, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
+import { classifyError, withRetry, signInWithBoundedRetry, verifyTier, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
 
 const CANARY = 'canary@speaksharp.app';
-const config = { email: CANARY, password: 'pw', ceilingMax: 1, ceilingEnforce: true };
+const config = { email: CANARY, password: 'pw' };
 const invalidJwt = { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' };
+const badCreds = { status: 400, message: 'Invalid login credentials' };
+const noSleep = { sleep: () => Promise.resolve() };
 
-describe('classifyError', () => {
-  it('auth_config (NON-retryable) for invalid-JWT / 401 / 403 — the observed canary failure', () => {
-    expect(classifyError(invalidJwt)).toMatchObject({ category: 'auth_config', retryable: false });
-    expect(classifyError({ status: 401 })).toMatchObject({ category: 'auth_config', retryable: false });
-    expect(classifyError({ status: 403 })).toMatchObject({ category: 'auth_config', retryable: false });
-  });
-  it('retryable for 429 / 5xx / network; other otherwise', () => {
-    expect(classifyError({ status: 429 })).toMatchObject({ category: 'retryable', retryable: true });
-    expect(classifyError({ status: 503 })).toMatchObject({ category: 'retryable', retryable: true });
-    expect(classifyError({ message: 'fetch failed' })).toMatchObject({ category: 'retryable', retryable: true });
-    expect(classifyError({ status: 400, message: 'Invalid login credentials' })).toMatchObject({ category: 'other', retryable: false });
-  });
-});
-
-describe('withRetry', () => {
-  it('retries retryable (5xx) then succeeds; never retries invalid-JWT', async () => {
-    let n = 0;
-    const ok = await withRetry(() => { n += 1; return Promise.resolve(n < 2 ? { error: { status: 503 } } : { data: 'ok', error: null }); }, { sleep: () => Promise.resolve() });
-    expect(ok.data).toBe('ok'); expect(n).toBe(2);
-    let m = 0;
-    const bad = await withRetry(() => { m += 1; return Promise.resolve({ error: invalidJwt }); }, { sleep: () => Promise.resolve() });
-    expect(bad.error).toBeTruthy(); expect(m).toBe(1); // not retried
-  });
-});
-
-const profileChain = (tier = 'free') => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { subscription_status: tier } }) }) }) });
-function makeAnon({ signIn = [{ ok: true }], tier = 'free' } = {}) {
+// ---- mock builders ----
+const profile = (opts) => ({ select: () => ({ eq: () => ({ maybeSingle: async () => opts }) }) });
+function makeAnon({ signIn = [{ ok: true }], profileResult = { data: { subscription_status: 'free' } } } = {}) {
   const seq = [...signIn];
   return {
     auth: { signInWithPassword: vi.fn(async () => { const s = seq.length > 1 ? seq.shift() : seq[0]; return s.ok ? { data: { user: { id: s.userId || 'u1' } }, error: null } : { data: null, error: s.error }; }) },
-    from: () => profileChain(tier),
+    from: () => profile(profileResult),
   };
 }
-function makeAdmin({ listUsers = [{ users: [{ email: CANARY }] }], createUser = { error: null }, updateUser = { error: null } } = {}) {
+function makeAdmin({ listUsers = [{ users: [{ email: CANARY, id: 'u1' }] }], createUser = { error: null }, updateUser = { error: null } } = {}) {
   const lu = [...listUsers];
   return { auth: { admin: {
     listUsers: vi.fn(async () => { const l = lu.length > 1 ? lu.shift() : lu[0]; return l.error ? { data: null, error: l.error } : { data: { users: l.users || [] }, error: null }; }),
@@ -48,54 +26,98 @@ function makeAdmin({ listUsers = [{ users: [{ email: CANARY }] }], createUser = 
   } } };
 }
 
-describe('provisionCanary — sign-in-first with restored protections', () => {
-  it('HEALTHY: existing account signs in → NO admin MUTATION (no createUser/updateUser); ceiling OK', async () => {
+describe('classifyError', () => {
+  it('auth_config (non-retryable) for invalid-JWT / 401 / 403 / invalid-api-key', () => {
+    for (const e of [invalidJwt, { status: 401 }, { status: 403 }, { message: 'Invalid API key' }]) {
+      expect(classifyError(e)).toMatchObject({ category: 'auth_config', retryable: false });
+    }
+  });
+  it('retryable for 429/5xx/network; other for 400 invalid-credentials', () => {
+    expect(classifyError({ status: 503 })).toMatchObject({ category: 'retryable' });
+    expect(classifyError(badCreds)).toMatchObject({ category: 'other', retryable: false });
+  });
+});
+
+describe('withRetry / signInWithBoundedRetry', () => {
+  it('retries transient then succeeds; never retries invalid-JWT', async () => {
+    let n = 0;
+    const ok = await withRetry(() => { n += 1; return Promise.resolve(n < 2 ? { error: { status: 503 } } : { data: 'x', error: null }); }, noSleep);
+    expect(ok.data).toBe('x'); expect(n).toBe(2);
+  });
+  it('sign-in stops immediately on auth_config (no retry) and on deterministic; retries transient', async () => {
+    const authAnon = makeAnon({ signIn: [{ ok: false, error: { status: 401 } }] });
+    expect((await signInWithBoundedRetry(authAnon, config, noSleep)).classification.category).toBe('auth_config');
+    expect(authAnon.auth.signInWithPassword).toHaveBeenCalledTimes(1);
+    const tAnon = makeAnon({ signIn: [{ ok: false, error: { status: 503 } }] });
+    await signInWithBoundedRetry(tAnon, config, { attempts: 3, sleep: () => Promise.resolve() });
+    expect(tAnon.auth.signInWithPassword).toHaveBeenCalledTimes(3); // retried
+  });
+});
+
+describe('verifyTier — FAIL-CLOSED', () => {
+  it('free → ok; pro/null/missing/error → NOT ok', async () => {
+    expect((await verifyTier(makeAnon({ profileResult: { data: { subscription_status: 'free' } } }), 'u1')).ok).toBe(true);
+    expect((await verifyTier(makeAnon({ profileResult: { data: { subscription_status: 'pro' } } }), 'u1')).ok).toBe(false);
+    expect((await verifyTier(makeAnon({ profileResult: { data: null } }), 'u1')).ok).toBe(false);
+    expect((await verifyTier(makeAnon({ profileResult: { data: { subscription_status: null } } }), 'u1')).ok).toBe(false);
+    expect((await verifyTier(makeAnon({ profileResult: { data: null, error: { message: 'boom' } } }), 'u1')).ok).toBe(false);
+  });
+});
+
+describe('enforceCeiling', () => {
+  it('ok / warn / exceeded / skipped', async () => {
+    expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true })).status).toBe('ok');
+    const two = [{ users: [{ email: CANARY }, { email: 'canary-x@speaksharp.app' }] }];
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: false })).status).toBe('warn');
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true })).status).toBe('exceeded');
+    expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true })).status).toBe('skipped');
+  });
+});
+
+describe('provisionCanary — health only, fail-closed', () => {
+  it('HEALTHY: signs in + free tier → no admin mutation', async () => {
     const admin = makeAdmin();
     const res = await provisionCanary({ anon: makeAnon(), admin, config });
     expect(res.status).toBe('healthy');
     expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
     expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
-    expect(res.ceiling).toBe('ok');
   });
-
-  it('HEALTHY even when the ceiling admin.listUsers is intermittently rejected (best-effort → skipped)', async () => {
-    const admin = makeAdmin({ listUsers: [{ error: invalidJwt }] });
-    const res = await provisionCanary({ anon: makeAnon(), admin, config });
-    expect(res.status).toBe('healthy'); // a flaky admin call must NOT fail a healthy canary
-    expect(res.ceiling).toBe('skipped');
+  it('AUTH/CONFIG sign-in failure → config_error, and NO account mutation', async () => {
+    const admin = makeAdmin();
+    const res = await provisionCanary({ anon: makeAnon({ signIn: [{ ok: false, error: invalidJwt }] }), admin, config });
+    expect(res).toMatchObject({ status: 'config_error', scope: 'anon_auth' });
+    expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+    expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
   });
-
-  it('CEILING enforced: >max canary-like accounts with CANARY_ENFORCE=fail → ceiling_exceeded', async () => {
-    const admin = makeAdmin({ listUsers: [{ users: [{ email: CANARY }, { email: 'canary-stray@speaksharp.app' }] }] });
-    const res = await provisionCanary({ anon: makeAnon(), admin, config });
-    expect(res).toMatchObject({ status: 'ceiling_exceeded', count: 2 });
+  it('TRANSIENT exhausted sign-in → failed, and NO account mutation', async () => {
+    const admin = makeAdmin();
+    const res = await provisionCanary({ anon: makeAnon({ signIn: [{ ok: false, error: { status: 503 } }] }), admin, config });
+    expect(res).toMatchObject({ status: 'failed', scope: 'transient' });
+    expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+    expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
   });
-
-  it('RECOVERY (stale password): sign-in fails → account exists → password SYNCED via updateUserById → recovered', async () => {
-    const admin = makeAdmin({ createUser: { error: { message: 'A user with this email has already been registered' } }, listUsers: [{ users: [{ email: CANARY, id: 'u9' }] }] });
-    const anon = makeAnon({ signIn: [{ ok: false, error: { status: 400, message: 'Invalid login credentials' } }, { ok: true, userId: 'u9' }] });
+  it('RECOVERY (existence-first, stale password): existing account → updateUserById → recovered', async () => {
+    const admin = makeAdmin({ listUsers: [{ users: [{ email: CANARY, id: 'u9' }] }] });
+    const anon = makeAnon({ signIn: [{ ok: false, error: badCreds }, { ok: true, userId: 'u9' }] });
     const res = await provisionCanary({ anon, admin, config });
     expect(res.status).toBe('recovered');
-    expect(admin.auth.admin.updateUserById).toHaveBeenCalled(); // password sync restored (thread #59)
+    expect(admin.auth.admin.updateUserById).toHaveBeenCalled();
+    expect(admin.auth.admin.createUser).not.toHaveBeenCalled(); // update-only, no create
   });
-
-  it('RECOVERY (missing account): sign-in fails → createUser succeeds → re-sign-in → recovered', async () => {
-    const admin = makeAdmin({ createUser: { error: null } });
-    const anon = makeAnon({ signIn: [{ ok: false, error: { status: 400, message: 'Invalid login credentials' } }, { ok: true }] });
+  it('RECOVERY (missing account): not found → createUser → recovered', async () => {
+    const admin = makeAdmin({ listUsers: [{ users: [] }], createUser: { error: null } });
+    const anon = makeAnon({ signIn: [{ ok: false, error: badCreds }, { ok: true }] });
     const res = await provisionCanary({ anon, admin, config });
     expect(res.status).toBe('recovered');
+    expect(admin.auth.admin.createUser).toHaveBeenCalled();
   });
-
-  it('CONFIG ERROR: recovery admin createUser rejected on invalid-JWT → actionable, not retried', async () => {
-    const admin = makeAdmin({ createUser: { error: invalidJwt } });
-    const anon = makeAnon({ signIn: [{ ok: false, error: { status: 500 } }] });
-    const res = await provisionCanary({ anon, admin, config });
-    expect(res).toMatchObject({ status: 'config_error', scope: 'service_role_key' });
+  it('TIER ERROR: healthy sign-in but Pro tier → tier_error (not healthy)', async () => {
+    const res = await provisionCanary({ anon: makeAnon({ profileResult: { data: { subscription_status: 'pro' } } }), admin: makeAdmin(), config });
+    expect(res).toMatchObject({ status: 'tier_error', tier: 'pro' });
   });
-
   it('never surfaces the credential VALUE in the returned result', async () => {
     const secret = 'S3cr3t-canary-value';
-    const res = await provisionCanary({ anon: makeAnon(), admin: makeAdmin(), config: { ...config, password: secret } });
+    const res = await provisionCanary({ anon: makeAnon({ signIn: [{ ok: false, error: invalidJwt }] }), admin: makeAdmin(), config: { email: CANARY, password: secret } });
     expect(JSON.stringify(res)).not.toContain(secret);
   });
 });

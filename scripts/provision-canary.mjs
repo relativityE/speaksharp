@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Canary user provisioning — SIGN-IN-FIRST entry point.
+ * Canary user provisioning — SIGN-IN-FIRST health entry (account ceiling is a SEPARATE hygiene step).
  *
- * The healthy path signs in as the stable canary account via the PUBLIC ANON flow and verifies its own
- * profile — touching NO admin/service-role API. That means a rotated/stale service-role key can no
- * longer fail the canary when the account is healthy (the app's anon key is the one users authenticate
- * with, and it is current). Service-role is used ONLY to recover a genuinely-missing account, and an
- * invalid-JWT / 401 / 403 there is reported as an immediate, actionable "rotate the key" config failure.
+ * Evidence-based note (not overstated): a same-key/project read-only control (Test User Admin `query`)
+ * PASSED admin.listUsers while the canary FAILED — so the credential/Auth-admin path was NOT globally
+ * invalid. The exact transient mechanism of the canary's invalid-JWT is UNPROVEN. Sign-in-first removes
+ * unnecessary admin dependency from the healthy path; no credential is rotated or replaced.
  *
- * Orchestration/classification live in scripts/lib/canaryProvision.mjs (unit-tested). This file only
- * wires env → clients → result → exit code. No credentials/tokens/user records are ever logged.
+ * Orchestration/classification live in scripts/lib/canaryProvision.mjs (unit-tested). Health only here:
+ * anon sign-in (bounded retry on transient) + fail-closed Free-tier check + admin recovery (existence-
+ * first). No account ceiling here — see scripts/canary-ceiling.mjs. No secrets/tokens/user records logged.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -31,35 +31,25 @@ const anon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOpts);
 const admin = SUPABASE_SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, clientOpts) : null;
 
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🐤 Canary provisioning (sign-in-first)');
+console.log('🐤 Canary provisioning (sign-in-first health)');
 console.log(`Target: ${CANARY_EMAIL}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-const ceilingMax = Number(process.env.CANARY_MAX || '1');
-const ceilingEnforce = (process.env.CANARY_ENFORCE || 'warn').toLowerCase() === 'fail';
+const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD } });
 
-const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD, ceilingMax, ceilingEnforce } });
-
-const ceilingNote = result.ceiling ? ` (ceiling: ${result.ceiling}${typeof result.ceilingCount === 'number' ? ` ${result.ceilingCount}/${ceilingMax}` : ''})` : '';
-
-if (result.status === 'healthy') {
-  console.log(`  [OK] Signed in (uid ${result.userId}); tier=${result.tier ?? 'unknown'}.${ceilingNote}`);
-  console.log('✅ Canary account healthy — no admin provisioning needed.');
+if (result.status === 'healthy' || result.status === 'recovered') {
+  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; tier=${result.tier}.`);
+  console.log('✅ Canary account healthy.');
   process.exit(0);
 }
-if (result.status === 'recovered') {
-  console.log(`  [OK] Account recovered and re-verified (uid ${result.userId}); tier=${result.tier ?? 'unknown'}.${ceilingNote}`);
-  console.log('✅ Canary account recovered.');
-  process.exit(0);
-}
-if (result.status === 'ceiling_exceeded') {
-  console.error(`  ❌ Canary account ceiling exceeded: ${result.count} > ${result.max} (CANARY_ENFORCE=fail). Delete stray canary-* accounts.`);
+if (result.status === 'tier_error') {
+  console.error(`  ❌ Free-tier verification failed: ${result.message}. The canary must resolve to exactly the Free state.`);
   process.exit(1);
 }
 if (result.status === 'config_error' && result.scope === 'service_role_key') {
-  console.error('  ❌ Service-role admin call was rejected on auth (invalid-JWT / 401 / 403) — NOT retried.');
-  console.error('     The healthy sign-in path avoids admin; this only affects the recovery path. If a same-key control');
-  console.error('     (Test User Admin `query`) also fails at the same time, verify SUPABASE_SERVICE_ROLE_KEY; otherwise it is intermittent.');
+  console.error('  ❌ A recovery-path service-role admin call was rejected on auth (invalid-JWT / 401 / 403) — NOT retried.');
+  console.error('     The healthy path avoids admin; this only affects recovery. Run the same-key control (Test User Admin `query`)');
+  console.error('     concurrently: if it also fails, investigate project/secret scope; otherwise the failure was intermittent.');
   process.exit(1);
 }
 if (result.status === 'config_error') {

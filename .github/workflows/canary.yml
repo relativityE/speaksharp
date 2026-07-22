@@ -55,6 +55,18 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm test:deploy:prod
 
+      # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of
+      # its result (if: always()), so a hygiene problem never masks the product result — and with
+      # CANARY_ENFORCE=fail an unverifiable ceiling fails the job (never silently "green").
+      - name: Canary Account Ceiling (hygiene)
+        if: always()
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CANARY_MAX: '1'
+          CANARY_ENFORCE: fail
+        run: node scripts/canary-ceiling.mjs
+
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v6
