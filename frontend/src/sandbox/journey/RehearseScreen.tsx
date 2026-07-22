@@ -28,7 +28,18 @@ const REMEDIES: Record<number, string> = {
   3: 'Give the board the dates — design in October, rollout in November.',
 };
 
-export function RehearseScreen({ onFinish, onBack }: { onFinish: (r: RehearsalResult) => void; onBack: () => void }) {
+export function RehearseScreen({
+  onFinish,
+  onBack,
+  mode = 'rehearsal',
+  onFinishQuick,
+}: {
+  onFinish: (r: RehearsalResult) => void;
+  onBack: () => void;
+  mode?: 'rehearsal' | 'quick';
+  onFinishQuick?: () => void;
+}) {
+  const quick = mode === 'quick';
   const points = SAMPLE_BRIEF.talkingPoints;
   const [status, setStatus] = React.useState<RecordStatus>('ready');
   const [elapsedMs, setElapsedMs] = React.useState(0);
@@ -71,6 +82,7 @@ export function RehearseScreen({ onFinish, onBack }: { onFinish: (r: RehearsalRe
   };
 
   const finish = () => {
+    if (quick) { trace('rehearsal_finished', { mode: 'general' }); onFinishQuick?.(); return; }
     const cov = mapTalkingPointCoverage(points, activeSegments);
     const result: RehearsalResult = {
       points: points.map((p, i) => ({
@@ -111,12 +123,19 @@ export function RehearseScreen({ onFinish, onBack }: { onFinish: (r: RehearsalRe
           </div>
         </div>
 
-        <p className="mb-1 text-sm text-slate-400">Rehearsing for {SAMPLE_BRIEF.audience.toLowerCase()}</p>
+        <p className="mb-1 text-sm text-slate-400">{quick ? 'Quick practice' : `Rehearsing for ${SAMPLE_BRIEF.audience.toLowerCase()}`}</p>
         <h2 className="mb-8 text-xl font-semibold text-white">
-          {status === 'ready' ? 'Ready when you are — press Begin and speak.' : status === 'paused' ? 'Paused — resume when you’re ready.' : 'Speak naturally — your agenda tracks itself.'}
+          {status === 'ready'
+            ? 'Ready when you are — press Begin and speak.'
+            : status === 'paused'
+              ? 'Paused — resume when you’re ready.'
+              : quick
+                ? 'Speak freely — no agenda to track.'
+                : 'Speak naturally — your agenda tracks itself.'}
         </h2>
 
-        {/* The agenda rail — the quiet focal point */}
+        {/* The agenda rail — the quiet focal point (hidden in quick practice) */}
+        {!quick ? (
         <ol aria-label="Agenda" className="space-y-3">
           {points.map((p, i) => {
             const state = stateOf(i);
@@ -156,10 +175,15 @@ export function RehearseScreen({ onFinish, onBack }: { onFinish: (r: RehearsalRe
             );
           })}
         </ol>
+        ) : (
+          <p className="rounded-2xl bg-slate-800/60 p-4 text-[15px] text-slate-300 ring-1 ring-slate-700/60">
+            No agenda to follow — just speak. SpeakSharp will summarize your delivery afterward.
+          </p>
+        )}
 
         <div className="mt-8 flex items-center justify-between">
           <button onClick={onBack} className="text-sm font-medium text-slate-400 hover:text-slate-200">← Back</button>
-          <PrimaryButton onClick={finish} disabled={status === 'ready'}>Finish rehearsal</PrimaryButton>
+          <PrimaryButton onClick={finish} disabled={status === 'ready'}>{quick ? 'Finish session' : 'Finish rehearsal'}</PrimaryButton>
         </div>
       </div>
     </div>

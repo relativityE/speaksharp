@@ -23,60 +23,47 @@ async function reset(page) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
 }
 
-/** Walk the full journey, taking a screenshot at each product state. `tag` prefixes filenames. */
+/** Walk the launcher + journey, taking a screenshot at each product state. `tag` prefixes filenames. */
 async function walk(page, tag, shots, external) {
   await reset(page);
+  const m = page.locator('#main-content'); // scope accordion lookups (the QA panel is outside <main>)
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
+  const t = (ms) => page.waitForTimeout(ms);
 
-  // 1. Prepare
-  await shot('01-prepare');
+  // ---- Activity launcher (accordions) ----
+  await shot('01-landing-arrival'); // Executive Rehearsal open, Prepare step open
+  await m.getByRole('button', { name: /executive rehearsal:/i }).click(); await t(120); // collapse
+  await shot('02-all-collapsed');
+  await m.getByRole('button', { name: /quick practice:/i }).click(); await t(120);
+  await shot('03-quick-expanded');
+  await m.getByRole('button', { name: /review my progress:/i }).click(); await t(120);
+  await shot('04-review-expanded');
+  await m.getByRole('button', { name: /executive rehearsal:/i }).click(); await t(120);
+  await shot('05-exec-prepare-step');
+  await m.getByRole('button', { name: /^rehearse naturally$/i }).click(); await t(120);
+  await shot('06-exec-rehearse-step');
+  await m.getByRole('button', { name: /^review and recover$/i }).click(); await t(120);
+  await shot('07-exec-review-step-rollups'); // Prepare/Rehearse shown as completed rollups
+  await m.getByRole('button', { name: /^prepare$/i }).click(); await t(120); // reopen Prepare
 
-  // 2. Ready state (after Start, before speaking)
-  await page.getByRole('button', { name: /start rehearsal/i }).click();
-  await page.waitForTimeout(150);
-  await shot('02-ready');
-
-  // 3. Listening — passive agenda (item 1 covered, item 2 partly) — also the "partly addressed" state
-  await page.getByRole('button', { name: /begin speaking/i }).click();
-  await page.waitForTimeout(5400);
-  await shot('03-listening-passive-agenda');
-
-  // 4. Paused
-  await page.getByRole('button', { name: /^pause$/i }).click();
-  await page.waitForTimeout(150);
-  await shot('04-paused');
-  await page.getByRole('button', { name: /resume/i }).click();
-  await page.waitForTimeout(150);
-
-  // 5. Help requested → one remedy shown (approval-request item specifically)
-  await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click();
-  await page.waitForTimeout(150);
-  await shot('05-help-requested-remedy');
-
-  // 6. Recovered after guidance (in-session)
-  await page.getByRole('button', { name: /i addressed it just now/i }).click();
-  await page.waitForTimeout(150);
-  await shot('06-recovered-after-guidance');
-
-  // 7. Processing (Finalizing…) — captured before it auto-advances (~1.6s)
-  await page.getByRole('button', { name: /finish rehearsal/i }).click();
-  await page.waitForTimeout(250);
-  await shot('07-processing');
-
-  // 8. Complete — outcome summary
-  await page.waitForTimeout(1800);
-  await shot('08-complete-summary');
-
-  // 9. General practice — improved (raw movement leads)
-  await page.getByRole('button', { name: /rehearse again/i }).click();
-  await page.getByRole('button', { name: /skip agenda — general practice/i }).click();
-  await page.waitForTimeout(150);
-  await shot('09-general-improved');
-
-  // 10. General practice — first-session baseline (not a grade)
-  await page.getByRole('button', { name: /first-session \(baseline\) example/i }).click();
-  await page.waitForTimeout(150);
-  await shot('10-general-baseline');
+  // ---- Sample journey ----
+  await m.getByRole('button', { name: /^start rehearsal$/i }).click(); await t(150);
+  await shot('08-sample-ready');
+  await m.getByRole('button', { name: /begin speaking/i }).click(); await t(5400);
+  await shot('09-listening-passive-agenda');
+  await m.getByRole('button', { name: /^pause$/i }).click(); await t(150);
+  await shot('10-paused');
+  await m.getByRole('button', { name: /resume/i }).click(); await t(150);
+  await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click(); await t(150);
+  await shot('11-help-requested-remedy');
+  await m.getByRole('button', { name: /i addressed it just now/i }).click(); await t(150);
+  await shot('12-recovered-after-guidance');
+  await m.getByRole('button', { name: /finish rehearsal/i }).click(); await t(250);
+  await shot('13-processing');
+  await t(1800);
+  await shot('14-complete-summary');
+  await m.getByRole('button', { name: /rehearse again/i }).click(); await t(150);
+  await shot('15-returning-user');
 }
 
 async function main() {

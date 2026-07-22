@@ -98,38 +98,37 @@ async function walkJourney(page, tag, report) {
   // captures, which breaks click actionability mid-walk. The uploaded artifact screenshots come from
   // the headless workflow; here the screenshots are a secondary record and the network/error proof is
   // the point.
+  const m = page.locator('#main-content'); // scope accordion lookups (QA panel is outside <main>)
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
   const click = async (loc) => { await loc.scrollIntoViewIfNeeded(); await loc.click({ timeout: 15000 }); };
-  await shot('01-prepare');
-  await click(page.getByRole('button', { name: /start rehearsal/i }));
-  await page.waitForTimeout(150);
-  await shot('02-ready');
-  await click(page.getByRole('button', { name: /begin speaking/i }));
+  // Launcher
+  await shot('01-landing');
+  await click(m.getByRole('button', { name: /quick practice:/i }));
+  await shot('02-quick-expanded');
+  await click(m.getByRole('button', { name: /review my progress:/i }));
+  await shot('03-review-expanded');
+  await click(m.getByRole('button', { name: /executive rehearsal:/i }));
+  await shot('04-exec-expanded');
+  // Sample journey
+  await click(m.getByRole('button', { name: /^start rehearsal$/i }));
+  await shot('05-ready');
+  await click(m.getByRole('button', { name: /begin speaking/i }));
   await page.waitForTimeout(5400);
-  await shot('03-listening-passive-agenda');
-  await click(page.getByRole('button', { name: /^pause$/i }));
-  await page.waitForTimeout(150);
-  await shot('04-paused');
-  await click(page.getByRole('button', { name: /resume/i }));
-  await page.waitForTimeout(150);
+  await shot('06-listening-passive-agenda');
+  await click(m.getByRole('button', { name: /^pause$/i }));
+  await shot('07-paused');
+  await click(m.getByRole('button', { name: /resume/i }));
   await click(page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }));
-  await page.waitForTimeout(150);
-  await shot('05-help-requested-remedy');
-  await click(page.getByRole('button', { name: /i addressed it just now/i }));
-  await page.waitForTimeout(150);
-  await shot('06-recovered-after-guidance');
-  await click(page.getByRole('button', { name: /finish rehearsal/i }));
+  await shot('08-help-requested-remedy');
+  await click(m.getByRole('button', { name: /i addressed it just now/i }));
+  await shot('09-recovered-after-guidance');
+  await click(m.getByRole('button', { name: /finish rehearsal/i }));
   await page.waitForTimeout(250);
-  await shot('07-processing');
+  await shot('10-processing');
   await page.waitForTimeout(1800);
-  await shot('08-complete-summary');
-  await click(page.getByRole('button', { name: /rehearse again/i }));
-  await click(page.getByRole('button', { name: /skip agenda — general practice/i }));
-  await page.waitForTimeout(150);
-  await shot('09-general-improved');
-  await click(page.getByRole('button', { name: /first-session \(baseline\) example/i }));
-  await page.waitForTimeout(150);
-  await shot('10-general-baseline');
+  await shot('11-complete-summary');
+  await click(m.getByRole('button', { name: /rehearse again/i }));
+  await shot('12-returning-user');
 }
 
 async function main() {
