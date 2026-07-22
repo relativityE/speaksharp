@@ -8,7 +8,17 @@
  */
 
 export type SandboxEventName =
+  // Journey (default product experience)
   | 'sandbox_loaded'
+  | 'rehearsal_started'
+  | 'help_requested'
+  | 'remedy_shown'
+  | 'point_recovered'
+  | 'rehearsal_finished'
+  | 'details_opened'
+  | 'rehearse_again'
+  | 'review_states_opened'
+  // Legacy QA-panel interactions
   | 'practice_mode_selected'
   | 'fixture_selected'
   | 'target_details_opened'

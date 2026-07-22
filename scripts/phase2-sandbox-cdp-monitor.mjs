@@ -91,18 +91,31 @@ function classifyRequest(u) {
   }
 }
 
-const FIXTURES = [
-  { key: 'baseline-established', name: /Baseline established/i },
-  { key: 'improved', name: /Improved vs previous comparable/i },
-  { key: 'regression', name: /Regression/i },
-  { key: 'target-maintained', name: /Target maintained/i },
-  { key: 'incompatible', name: /Incompatible session/i },
-  { key: 'partial-agenda', name: /partly covered agenda/i },
-  { key: 'recovered-agenda', name: /recovered after guidance/i },
-  { key: 'insufficient-confidence', name: /Insufficient transcript confidence/i },
-];
-
-const MOBILE_STATES = ['improved', 'partial-agenda', 'recovered-agenda'];
+// Walk the product journey (Prepare → Rehearse → Help → Recover → Summary → general practice),
+// capturing a screenshot at each state and proving zero external traffic throughout.
+async function walkJourney(page, tag, report) {
+  const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
+  await shot('01-prepare');
+  await page.getByRole('button', { name: /start rehearsal/i }).click();
+  await page.waitForTimeout(5200);
+  await shot('02-in-session-passive-agenda');
+  await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click();
+  await page.waitForTimeout(150);
+  await shot('03-help-requested-remedy');
+  await page.getByRole('button', { name: /i addressed it just now/i }).click();
+  await page.waitForTimeout(150);
+  await shot('04-recovered-after-guidance');
+  await page.getByRole('button', { name: /finish rehearsal/i }).click();
+  await page.waitForTimeout(200);
+  await shot('05-post-session-outcome');
+  await page.getByRole('button', { name: /rehearse again/i }).click();
+  await page.getByRole('button', { name: /skip agenda — general practice/i }).click();
+  await page.waitForTimeout(150);
+  await shot('06-general-improved');
+  await page.getByRole('button', { name: /first-session \(baseline\) example/i }).click();
+  await page.waitForTimeout(150);
+  await shot('07-general-baseline');
+}
 
 async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
@@ -143,42 +156,12 @@ async function main() {
   await client.send('Performance.enable');
   client.on('Network.requestWillBeSent', (e) => classifyRequest(e.request.url));
 
-  // Reload to capture boot under instrumentation.
+  // Reload to capture boot under instrumentation, then walk the product journey desktop + mobile.
   await page.reload({ waitUntil: 'networkidle' });
   await page.setViewportSize({ width: 1280, height: 900 });
-
-  // Ensure all 8 states are visible.
-  await page.getByRole('tab', { name: /All states/i }).click().catch(() => {});
-
-  // Walk all 8 fixture states (desktop).
-  for (const f of FIXTURES) {
-    await page.getByRole('button', { name: f.name }).first().click();
-    await page.waitForTimeout(150);
-    // Rehearsal recovery: exercise the user-requested remedy so the recovered state is captured.
-    if (f.key === 'recovered-agenda') {
-      const btn = page.getByRole('button', { name: /request help with this point/i });
-      if (await btn.count()) { await btn.first().click(); await page.waitForTimeout(150); }
-    }
-    const shot = `${OUT_DIR}/desktop-${f.key}.png`;
-    await page.screenshot({ path: shot, fullPage: true });
-    report.fixturesInspected.push(f.key);
-    report.screenshots.push(shot);
-  }
-
-  // Mobile screenshots for representative states.
+  await walkJourney(page, 'desktop', report);
   await page.setViewportSize({ width: 375, height: 812 });
-  for (const key of MOBILE_STATES) {
-    const f = FIXTURES.find((x) => x.key === key);
-    await page.getByRole('button', { name: f.name }).first().click();
-    await page.waitForTimeout(120);
-    if (key === 'recovered-agenda') {
-      const btn = page.getByRole('button', { name: /request help with this point/i });
-      if (await btn.count()) { await btn.first().click(); await page.waitForTimeout(120); }
-    }
-    const shot = `${OUT_DIR}/mobile-${key}.png`;
-    await page.screenshot({ path: shot, fullPage: true });
-    report.screenshots.push(shot);
-  }
+  await walkJourney(page, 'mobile', report);
 
   // Render metrics (content-free).
   try {
