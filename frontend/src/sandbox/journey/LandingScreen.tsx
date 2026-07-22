@@ -17,11 +17,11 @@ import { QuickPracticeVignette, ExecutiveRehearsalVignette } from '../components
 export interface LandingActions {
   startRehearsal: () => void;
   createRehearsal: () => void;
-  startQuick: () => void;
+  startSession: () => void; // doorway to the existing SpeakSharp session (/session)
   reviewProgress: () => void;
 }
 
-type Col = 'quick' | 'exec';
+type Col = 'session' | 'exec';
 interface RowDef { title: string; rollup: string; subtasks: string[] }
 interface ColumnDef {
   key: Col;
@@ -95,13 +95,13 @@ export function LandingScreen({ actions, returning = false, lastMode }: { action
 
   const columns: ColumnDef[] = [
     {
-      key: 'quick', title: 'Quick Practice', benefit: 'Speak freely without preparing an agenda.', Vignette: QuickPracticeVignette,
+      key: 'session', title: 'SpeakSharp Session', benefit: 'Start speaking with the current SpeakSharp experience.', Vignette: QuickPracticeVignette,
       rows: [
-        { title: 'Start speaking', rollup: 'Ready to record', subtasks: ['Just begin — no agenda to set up.'] },
-        { title: 'Finish the session', rollup: 'Session captured', subtasks: ['Stop when you’re done; SpeakSharp finalizes on your device.'] },
-        { title: 'Review one improvement', rollup: 'One focus to try next', subtasks: ['See a single, plain-language thing to work on next time.'] },
+        { title: 'Choose your session mode', rollup: 'Your usual setup', subtasks: ['Pick how you want to capture — the modes you already use.'] },
+        { title: 'Start speaking', rollup: 'Ready to record', subtasks: ['Speak as you normally would; SpeakSharp transcribes as you go.'] },
+        { title: 'Review your feedback', rollup: 'Your usual feedback', subtasks: ['See your delivery feedback in the experience you know.'] },
       ],
-      actions: <PrimaryButton className="px-4 py-2.5 text-sm" onClick={actions.startQuick}><Play size={15} aria-hidden /> Start quick practice</PrimaryButton>,
+      actions: <PrimaryButton className="px-4 py-2.5 text-sm" onClick={actions.startSession}><Play size={15} aria-hidden /> Start a session</PrimaryButton>,
     },
     {
       key: 'exec', title: 'Executive Rehearsal', benefit: 'Practice against the outcomes you intend to cover.', Vignette: ExecutiveRehearsalVignette,
@@ -123,11 +123,11 @@ export function LandingScreen({ actions, returning = false, lastMode }: { action
     <div className="min-h-[calc(100vh-3.5rem)] px-5 py-10 sm:px-8">
       <div className="mx-auto max-w-4xl">
         <p className="text-sm font-medium text-[color:var(--ss-primary)]">SpeakSharp Practice</p>
-        <h2 className="mt-1 text-2xl font-semibold text-[color:var(--ss-text)] sm:text-3xl">How would you like to practice?</h2>
+        <h2 className="mt-1 text-2xl font-semibold text-[color:var(--ss-text)] sm:text-3xl">Choose how you want to practice</h2>
         <p className="mt-3 max-w-2xl text-[15px] text-[color:var(--ss-text-secondary)]">
           {returning
-            ? 'Welcome back — pick up where you left off, or try the other way to practice.'
-            : 'Choose a quick speaking session or rehearse against the outcomes you need to cover. SpeakSharp guides the session quietly and keeps the analysis in the background.'}
+            ? 'Welcome back — start a standard SpeakSharp session, or pick up your Executive Rehearsal.'
+            : 'Start a standard SpeakSharp session and continue with the experience you know, or prepare an Executive Rehearsal that quietly tracks the outcomes you intend to cover.'}
         </p>
 
         {/* Exactly two equal practice choices — side by side (desktop), stacked (mobile) */}

@@ -30,35 +30,40 @@ async function walk(page, tag, shots, external) {
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
   const t = (ms) => page.waitForTimeout(ms);
 
-  // ---- Two-column practice chooser ----
+  // ---- Two-column practice chooser (SpeakSharp Session | Executive Rehearsal) ----
   await shot('01-landing-two-column'); // both choices, no row open
-  await m.getByRole('button', { name: /^start speaking$/i }).click(); await t(150); // a Quick Practice row
-  await shot('02-quick-selected');
-  await m.getByRole('button', { name: /^prepare$/i }).click(); await t(150); // Exec row — Quick collapses (cross-column single-open)
+  await m.getByRole('button', { name: /^choose your session mode$/i }).click(); await t(150); // a SpeakSharp Session row
+  await shot('02-session-selected');
+  await m.getByRole('button', { name: /^prepare$/i }).click(); await t(150); // Exec row — Session collapses (cross-column single-open)
   await shot('03-exec-selected');
   await m.getByRole('button', { name: /^review and recover$/i }).click(); await t(150); // Prepare/Rehearse become checkmark rollups
   await shot('04-completed-rollups');
 
-  // ---- Sample journey ----
+  // ---- SpeakSharp Session handoff (represents the existing /session route) ----
+  await m.getByRole('button', { name: /start a session/i }).click(); await t(150);
+  await shot('05-session-handoff');
+  await m.getByRole('button', { name: /back to practice choices/i }).click(); await t(150);
+
+  // ---- Executive Rehearsal sample journey ----
   await m.getByRole('button', { name: /try a sample/i }).click(); await t(150);
-  await shot('05-sample-ready');
+  await shot('06-sample-ready');
   await m.getByRole('button', { name: /begin speaking/i }).click(); await t(5400);
-  await shot('06-listening-passive-agenda');
+  await shot('07-listening-passive-agenda');
   await m.getByRole('button', { name: /^pause$/i }).click(); await t(150);
-  await shot('07-paused');
+  await shot('08-paused');
   await m.getByRole('button', { name: /resume/i }).click(); await t(150);
   await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click(); await t(150);
-  await shot('08-help-requested-remedy');
+  await shot('09-help-requested-remedy');
   await m.getByRole('button', { name: /i addressed it just now/i }).click(); await t(150);
-  await shot('09-recovered-after-guidance');
+  await shot('10-recovered-after-guidance');
   await m.getByRole('button', { name: /finish rehearsal/i }).click(); await t(250);
-  await shot('10-processing');
+  await shot('11-processing');
   await t(1800);
-  await shot('11-complete-summary');
+  await shot('12-complete-summary');
   await m.getByRole('button', { name: /rehearse again/i }).click(); await t(150);
-  await shot('12-returning-user-two-column');
+  await shot('13-returning-user-two-column');
   await m.getByRole('button', { name: /view past progress/i }).click(); await t(150);
-  await shot('13-view-past-progress');
+  await shot('14-view-past-progress');
 }
 
 /** QA/design reference — only via ?qa=1 (kept out of the product frame). */
@@ -67,9 +72,9 @@ async function qaWalk(page, tag, shots) {
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
   await page.getByText(/review all states \(qa\)/i).click(); await page.waitForTimeout(150);
   await page.getByRole('button', { name: /3 · Regression/i }).click(); await page.waitForTimeout(200);
-  await shot('14-qa-setback-postsession');
+  await shot('15-qa-setback-postsession');
   await page.getByText(/design tokens & palette/i).click(); await page.waitForTimeout(200);
-  await shot('15-qa-palette-sheet');
+  await shot('16-qa-palette-sheet');
 }
 
 async function main() {

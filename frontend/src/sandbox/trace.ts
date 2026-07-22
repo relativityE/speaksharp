@@ -10,6 +10,7 @@
 export type SandboxEventName =
   // Journey (default product experience)
   | 'sandbox_loaded'
+  | 'session_handoff'
   | 'rehearsal_started'
   | 'help_requested'
   | 'remedy_shown'

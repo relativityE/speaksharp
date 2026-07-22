@@ -104,7 +104,7 @@ async function walkJourney(page, tag, report) {
   // Two-column chooser
   await shot('01-landing-two-column');
   await click(m.getByRole('button', { name: /^start speaking$/i }));
-  await shot('02-quick-selected');
+  await shot('02-session-selected');
   await click(m.getByRole('button', { name: /^prepare$/i }));
   await shot('03-exec-selected');
   // Sample journey
