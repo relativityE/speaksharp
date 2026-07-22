@@ -27,6 +27,12 @@ jobs:
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Sign-in-first: the healthy path uses the public anon flow (the same path testers authenticate
+          # through), which removes an unnecessary admin dependency from the healthy canary.
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Service-role is the RECOVERY-only path (deterministic invalid-credentials → account lookup /
+          # create-or-sync). An auth/config rejection here is reported as a scoped, actionable config
+          # failure that affects recovery only; the healthy path never depends on it. No key is rotated.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
           # Stable email so provision-canary.mjs reuses ONE account every run (its idempotent
@@ -49,6 +55,18 @@ jobs:
           CANARY_EMAIL: canary@speaksharp.app
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm test:deploy:prod
+
+      # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of
+      # its result (if: always()), so a hygiene problem never masks the product result — and with
+      # CANARY_ENFORCE=fail an unverifiable ceiling fails the job (never silently "green").
+      - name: Canary Account Ceiling (hygiene)
+        if: always()
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CANARY_MAX: '1'
+          CANARY_ENFORCE: fail
+        run: node scripts/canary-ceiling.mjs
 
       - name: Upload Test Results
         if: always()
