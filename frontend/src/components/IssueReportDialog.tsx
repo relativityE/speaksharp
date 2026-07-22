@@ -20,7 +20,8 @@ import {
   type IssueReportCategory,
   type IssueReportSeverity,
 } from '@/services/issueReportService';
-import { resolvePageContext, issueAreasFor, type PageContext } from '@/services/pageContext';
+import { resolvePageContext, issueAreasForContext, type PageContext } from '@/services/pageContext';
+import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface IssueReportDialogProps {
@@ -62,14 +63,17 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   runtimeState,
 }) => {
   const location = useLocation();
+  // Active /practice surface (Quick/Guided/home) from the shared provider — null off /practice. Snapshotted
+  // into pageContext at open time so the report is attributed to the surface the user was actually on.
+  const { surface } = usePracticeSurface();
   const [open, setOpen] = React.useState(false);
   // Page identity + owned session id are SNAPSHOTTED when the dialog opens (see openContext), so a
   // route/journey transition while the dialog is open never changes the report's origin. This dialog
   // renders in global navigation, OUTSIDE the /analytics/:sessionId route element, so useParams() would
   // not see the sessionId — it is derived from the pathname (UUID-validated) at open time instead.
-  const [pageContext, setPageContext] = React.useState<PageContext>(() => resolvePageContext(location.pathname));
+  const [pageContext, setPageContext] = React.useState<PageContext>(() => resolvePageContext(location.pathname, surface));
   const [snapshotSessionId, setSnapshotSessionId] = React.useState<string | null>(() => deriveSessionIdFromPath(location.pathname));
-  const [issueArea, setIssueArea] = React.useState<string>(() => issueAreasFor(resolvePageContext(location.pathname).pageKey)[0]?.value ?? 'other');
+  const [issueArea, setIssueArea] = React.useState<string>(() => issueAreasForContext(resolvePageContext(location.pathname, surface))[0]?.value ?? 'other');
   const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
   const [title, setTitle] = React.useState('');
@@ -84,15 +88,16 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
 
-  const issueAreaOptions = issueAreasFor(pageContext.pageKey);
+  const issueAreaOptions = issueAreasForContext(pageContext);
 
-  // Snapshot the page context at dialog-OPEN time (not submit), then defer to Radix's open state.
+  // Snapshot the page context (incl. the active /practice surface) at dialog-OPEN time (not submit), then
+  // defer to Radix's open state.
   const handleOpenChange = (next: boolean) => {
     if (next) {
-      const ctx = resolvePageContext(location.pathname);
+      const ctx = resolvePageContext(location.pathname, surface);
       setPageContext(ctx);
       setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
-      setIssueArea(issueAreasFor(ctx.pageKey)[0]?.value ?? 'other');
+      setIssueArea(issueAreasForContext(ctx)[0]?.value ?? 'other');
     }
     setOpen(next);
   };

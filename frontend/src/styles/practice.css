@@ -1,0 +1,62 @@
+/*
+ * Practice-entry visual system — the approved warm "Vibrant Confidence / Private Practice" design,
+ * scoped under `.practice-root` so its tokens NEVER affect the rest of the production app (which uses
+ * the shadcn HSL design system in index.css). Ported from the accepted #1017 design reference; no
+ * sandbox infrastructure, fixtures, theme-switching, QA, or comparison machinery comes with it.
+ */
+
+.practice-root {
+  --ss-canvas: #F6F8FF;
+  --ss-surface: #FFFFFF;
+  --ss-text: #16213E;
+  --ss-text-secondary: #526078;
+  --ss-border: #DCE2F2;
+  --ss-neutral: #64748B;
+  --ss-neutral-soft: #EEF2F7;
+  --ss-neutral-text: #334155;
+  --ss-success: #087A55;
+  --ss-success-soft: #DDF8EC;
+  --ss-success-text: #065F46;
+  --ss-partial: #B96508;
+  --ss-partial-soft: #FFF3D6;
+  --ss-partial-text: #7A4500;
+  --ss-setback: #B42318;
+  --ss-focus: #1677FF;
+  --ss-primary: #5B4CF0;
+  --ss-primary-hover: #4738CD;
+  --ss-primary-soft: #ECEAFE;
+  --ss-primary-soft-text: #4738CD;
+
+  /* Warm SpeakSharp entrance — ivory/tan canvas + amber/gold hero uniting both modes. */
+  --ss-landing-canvas: #FBF7EF;
+  --ss-hero-gradient: linear-gradient(135deg, #FFF3DC 0%, #FFE7C2 46%, #FDEEDA 100%);
+  --ss-amber: #E8890C;
+  --ss-coral: #FF7657;
+  --ss-sun: #F4B63D;
+
+  /* Quick Practice = teal identity; Guided Rehearsal = violet identity. */
+  --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3; --ss-session-panel: linear-gradient(145deg, #DFF9F5 0%, #F5FFFF 100%);
+  --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE; --ss-exec-panel: linear-gradient(145deg, #EAE7FF 0%, #FFF0EA 100%);
+}
+
+.practice-root .ss-landing-canvas { background: var(--ss-landing-canvas); }
+.practice-root .ss-theme-hero { background: var(--ss-hero-gradient); }
+.practice-root .ss-overview-hero { background: linear-gradient(135deg, #FCF4E7 0%, var(--ss-card-soft) 92%); }
+.practice-root .ss-card-panel { background: var(--ss-card-panel); }
+
+.practice-root .ss-accent-btn { background: var(--ss-card-btn); color: #fff; }
+.practice-root .ss-accent-btn:hover { filter: brightness(0.92); }
+.practice-root .ss-accent-outline { border: 1px solid var(--ss-card); color: var(--ss-card-btn); background: var(--ss-surface); }
+.practice-root .ss-accent-outline:hover { background: var(--ss-card-soft); }
+
+.practice-root .ss-ring:focus-visible { outline: 2px solid var(--ss-focus); outline-offset: 2px; }
+
+@keyframes ss-practice-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.practice-root .ss-fade-up { animation: ss-practice-fade-up 0.3s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .practice-root .ss-fade-up { animation: none; }
+}

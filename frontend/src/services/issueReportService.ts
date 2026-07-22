@@ -2,7 +2,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
-import { issueAreasFor, type PageContext } from '@/services/pageContext';
+import { issueAreasForContext, type PageContext } from '@/services/pageContext';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -26,6 +26,8 @@ export interface IssueReportMetadata {
   productMode?: string;
   journeyStep?: string;
   canonicalRoute?: string;
+  /** Which of the three closed /practice surfaces the report came from (null off /practice). */
+  practiceSurface?: string | null;
   issueArea?: string | null;
   /** Build/release id (git SHA in production) so a report pins to a build, when available. */
   releaseId?: string | null;
@@ -80,10 +82,11 @@ export const buildIssueReportMetadata = (input: {
     ? (window as unknown as { Sentry?: { lastEventId?: () => string | null } }).Sentry
     : undefined;
   const { context } = input;
-  // Allowlist rule: issueArea is stored ONLY if it is a valid area slug for THIS page. Any invalid,
-  // stale (valid for another page), injected, or empty value is coerced to null — the UI select is not
+  // Allowlist rule: issueArea is stored ONLY if it is a valid slug for THIS resolved context — which on
+  // /practice is the ACTIVE SURFACE's allowlist (Quick vs Guided vs home), not the whole page. Any
+  // invalid, stale, cross-surface, injected, or empty value is coerced to null — the UI select is not
   // trusted as the sole gate.
-  const validAreas = issueAreasFor(context.pageKey).map((a) => a.value);
+  const validAreas = issueAreasForContext(context).map((a) => a.value);
   const issueArea = input.issueArea && validAreas.includes(input.issueArea) ? input.issueArea : null;
 
   return {
@@ -94,6 +97,7 @@ export const buildIssueReportMetadata = (input: {
     productMode: context.productMode,
     journeyStep: context.journeyStep,
     canonicalRoute: context.canonicalRoute,
+    practiceSurface: context.practiceSurface ?? null,
     issueArea,
     releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,

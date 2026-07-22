@@ -11,16 +11,34 @@
  * separately in the report's `session_id` column (validated + ownership-guarded by the DB), NOT here.
  */
 
-export type ProductMode = 'marketing' | 'session' | 'progress' | 'account' | 'other';
+export type ProductMode = 'marketing' | 'practice' | 'session' | 'progress' | 'account' | 'other';
 
 export type PageKey =
   | 'home'
+  | 'practice'
   | 'session'
   | 'analytics'
   | 'analytics_session'
   | 'auth'
   | 'pricing'
   | 'other';
+
+/**
+ * Closed practice-surface contract. `/practice` is ONE route hosting three UI states; Report Issue must
+ * distinguish them WITHOUT a route change and WITHOUT trusting arbitrary strings. Only these three tokens
+ * are ever accepted; anything else fails closed to `practice_home`.
+ */
+export type PracticeSurface = 'practice_home' | 'quick_practice_overview' | 'guided_rehearsal_preview';
+
+const PRACTICE_SURFACES: Record<PracticeSurface, { pageLabel: string; journeyStep: string }> = {
+  practice_home: { pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser' },
+  quick_practice_overview: { pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview' },
+  guided_rehearsal_preview: { pageLabel: 'Guided Rehearsal preview', journeyStep: 'guided_preview' },
+};
+
+export function isPracticeSurface(x: unknown): x is PracticeSurface {
+  return typeof x === 'string' && Object.prototype.hasOwnProperty.call(PRACTICE_SURFACES, x);
+}
 
 export interface PageContext {
   pageKey: PageKey;
@@ -29,6 +47,8 @@ export interface PageContext {
   journeyStep: string;
   /** Route TEMPLATE (ids collapsed to `:sessionId`/`:id`); never a concrete id, query, or hash. */
   canonicalRoute: string;
+  /** Set ONLY on `/practice` — which of the three closed surfaces was active when the report opened. */
+  practiceSurface?: PracticeSurface;
 }
 
 export interface IssueAreaOption { value: string; label: string }
@@ -57,6 +77,7 @@ const OTHER_CONTEXT: PageContext = { pageKey: 'other', pageLabel: 'Other page', 
 // form produced by toCanonicalRoute (so /analytics/<uuid> matches '/analytics/:id').
 const ROUTE_REGISTRY: Record<string, PageContext> = {
   '/': { pageKey: 'home', pageLabel: 'SpeakSharp landing', productMode: 'marketing', journeyStep: 'landing', canonicalRoute: '/' },
+  '/practice': { pageKey: 'practice', pageLabel: 'SpeakSharp Practice', productMode: 'practice', journeyStep: 'chooser', canonicalRoute: '/practice' },
   '/session': { pageKey: 'session', pageLabel: 'Session · Speaking', productMode: 'session', journeyStep: 'speaking', canonicalRoute: '/session' },
   '/analytics': { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/analytics' },
   '/analytics/:id': { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/analytics/:sessionId' },
@@ -70,13 +91,29 @@ const ROUTE_REGISTRY: Record<string, PageContext> = {
  * Resolve the current pathname to its allowlisted page context. FAIL-CLOSED: only exactly-registered
  * routes get their template; every other route resolves to OTHER_CONTEXT with a constant `/other`
  * route, so no arbitrary path content (emails, tokens, names, encoded data) can enter stored context.
+ *
+ * On `/practice`, the optional `surface` selects the active UI state's label + journeyStep while keeping
+ * canonicalRoute/page_url == `/practice`. An invalid/absent/stale surface fails closed to `practice_home`.
  */
-export function resolvePageContext(pathname: string | null | undefined): PageContext {
-  return ROUTE_REGISTRY[toCanonicalRoute(pathname)] ?? OTHER_CONTEXT;
+export function resolvePageContext(pathname: string | null | undefined, surface?: unknown): PageContext {
+  const canonical = toCanonicalRoute(pathname);
+  if (canonical === '/practice') {
+    const s: PracticeSurface = isPracticeSurface(surface) ? surface : 'practice_home';
+    const meta = PRACTICE_SURFACES[s];
+    return { pageKey: 'practice', pageLabel: meta.pageLabel, productMode: 'practice', journeyStep: meta.journeyStep, canonicalRoute: '/practice', practiceSurface: s };
+  }
+  return ROUTE_REGISTRY[canonical] ?? OTHER_CONTEXT;
 }
 
 // Page-specific "What part had a problem?" options. Every set ends with `other` so nothing is forced.
 const AREAS: Record<PageKey, IssueAreaOption[]> = {
+  // Base /practice set == the practice_home surface (used when no specific surface is active).
+  practice: [
+    { value: 'understanding_choices', label: 'Understanding the choices' },
+    { value: 'navigation', label: 'Navigation' },
+    { value: 'visual_layout', label: 'Visual / layout' },
+    { value: 'other', label: 'Other' },
+  ],
   home: [
     { value: 'understanding_choices', label: 'Understanding the choices' },
     { value: 'navigation', label: 'Navigation' },
@@ -124,12 +161,46 @@ const AREAS: Record<PageKey, IssueAreaOption[]> = {
   ],
 };
 
+// Surface-specific issue areas for the three /practice states. Each ends with `other`.
+const PRACTICE_SURFACE_AREAS: Record<PracticeSurface, IssueAreaOption[]> = {
+  practice_home: [
+    { value: 'understanding_choices', label: 'Understanding the choices' },
+    { value: 'navigation', label: 'Navigation' },
+    { value: 'visual_layout', label: 'Visual / layout' },
+    { value: 'other', label: 'Other' },
+  ],
+  quick_practice_overview: [
+    { value: 'walkthrough', label: 'Walkthrough' },
+    { value: 'start_speaking', label: 'Start speaking' },
+    { value: 'navigation', label: 'Navigation' },
+    { value: 'visual_layout', label: 'Visual / layout' },
+    { value: 'other', label: 'Other' },
+  ],
+  guided_rehearsal_preview: [
+    { value: 'walkthrough', label: 'Walkthrough' },
+    { value: 'correction_loop', label: 'Correction loop' },
+    { value: 'feature_clarity', label: 'Feature clarity' },
+    { value: 'visual_layout', label: 'Visual / layout' },
+    { value: 'other', label: 'Other' },
+  ],
+};
+
 /** The allowlisted issue-area options for a page. Unknown keys fall back to the generic set. */
 export function issueAreasFor(pageKey: PageKey): IssueAreaOption[] {
   return AREAS[pageKey] ?? AREAS.other;
 }
 
-/** Every allowlisted issue-area slug across all pages (for validation/allowlist tests). */
+/**
+ * The allowlisted issue-area options for a resolved context. On `/practice` the options are
+ * SURFACE-specific (Quick vs Guided vs home); everywhere else they are the page's set. This is the single
+ * source of truth both the dialog (display) and the service (validation) use.
+ */
+export function issueAreasForContext(context: PageContext): IssueAreaOption[] {
+  if (context.practiceSurface) return PRACTICE_SURFACE_AREAS[context.practiceSurface];
+  return issueAreasFor(context.pageKey);
+}
+
+/** Every allowlisted issue-area slug across all pages/surfaces (for validation/allowlist tests). */
 export const ALL_ISSUE_AREAS: readonly string[] = Array.from(
-  new Set(Object.values(AREAS).flat().map((a) => a.value)),
+  new Set([...Object.values(AREAS), ...Object.values(PRACTICE_SURFACE_AREAS)].flat().map((a) => a.value)),
 );

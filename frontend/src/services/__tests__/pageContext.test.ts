@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolvePageContext, toCanonicalRoute, issueAreasFor, ALL_ISSUE_AREAS } from '@/services/pageContext';
+import { resolvePageContext, toCanonicalRoute, issueAreasFor, issueAreasForContext, ALL_ISSUE_AREAS } from '@/services/pageContext';
 
 const UUID = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
 
@@ -26,6 +26,12 @@ describe('pageContext — canonical route sanitization', () => {
 });
 
 describe('pageContext — resolvePageContext', () => {
+  it('resolves the /practice entry route to the practice_home surface by default', () => {
+    expect(resolvePageContext('/practice')).toMatchObject({ pageKey: 'practice', pageLabel: 'SpeakSharp Practice', productMode: 'practice', journeyStep: 'chooser', canonicalRoute: '/practice', practiceSurface: 'practice_home' });
+    const areas = issueAreasFor('practice').map((a) => a.value);
+    expect(areas).toEqual(['understanding_choices', 'navigation', 'visual_layout', 'other']);
+  });
+
   it('resolves current production routes to allowlisted page identities', () => {
     expect(resolvePageContext('/')).toMatchObject({ pageKey: 'home', productMode: 'marketing', canonicalRoute: '/' });
     expect(resolvePageContext('/session')).toMatchObject({ pageKey: 'session', productMode: 'session', canonicalRoute: '/session' });
@@ -62,6 +68,41 @@ describe('pageContext — resolvePageContext', () => {
     const ctx = resolvePageContext('/auth/user@example.com');
     expect(ctx.canonicalRoute).toBe('/other');
     expect(JSON.stringify(ctx)).not.toContain('user@example.com');
+  });
+});
+
+describe('pageContext — /practice surfaces (closed contract)', () => {
+  it('distinguishes the three surfaces by label + journeyStep, all keeping /practice as the route', () => {
+    const home = resolvePageContext('/practice', 'practice_home');
+    const quick = resolvePageContext('/practice', 'quick_practice_overview');
+    const guided = resolvePageContext('/practice', 'guided_rehearsal_preview');
+    expect(home).toMatchObject({ pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser', practiceSurface: 'practice_home' });
+    expect(quick).toMatchObject({ pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview', practiceSurface: 'quick_practice_overview' });
+    expect(guided).toMatchObject({ pageLabel: 'Guided Rehearsal preview', journeyStep: 'guided_preview', practiceSurface: 'guided_rehearsal_preview' });
+    for (const c of [home, quick, guided]) { expect(c.pageKey).toBe('practice'); expect(c.canonicalRoute).toBe('/practice'); }
+  });
+
+  it('FAILS CLOSED to practice_home for an invalid / absent / non-string surface', () => {
+    expect(resolvePageContext('/practice', 'bogus_surface').practiceSurface).toBe('practice_home');
+    expect(resolvePageContext('/practice', undefined).practiceSurface).toBe('practice_home');
+    expect(resolvePageContext('/practice', 42 as unknown).practiceSurface).toBe('practice_home');
+    expect(resolvePageContext('/practice', 'quick_practice_overview; DROP TABLE').practiceSurface).toBe('practice_home');
+  });
+
+  it('ignores a surface off /practice (never attaches practiceSurface elsewhere)', () => {
+    const s = resolvePageContext('/session', 'quick_practice_overview');
+    expect(s).toMatchObject({ pageKey: 'session', canonicalRoute: '/session' });
+    expect(s.practiceSurface).toBeUndefined();
+  });
+
+  it('issueAreasForContext returns SURFACE-specific areas on /practice, page areas elsewhere', () => {
+    expect(issueAreasForContext(resolvePageContext('/practice', 'practice_home')).map((a) => a.value))
+      .toEqual(['understanding_choices', 'navigation', 'visual_layout', 'other']);
+    expect(issueAreasForContext(resolvePageContext('/practice', 'quick_practice_overview')).map((a) => a.value))
+      .toEqual(['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other']);
+    expect(issueAreasForContext(resolvePageContext('/practice', 'guided_rehearsal_preview')).map((a) => a.value))
+      .toEqual(['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other']);
+    expect(issueAreasForContext(resolvePageContext('/session')).map((a) => a.value)).toContain('transcription');
   });
 });
 
