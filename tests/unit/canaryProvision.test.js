@@ -1,71 +1,101 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
-import { classifyError, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
+import { classifyError, withRetry, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
+
+const CANARY = 'canary@speaksharp.app';
+const config = { email: CANARY, password: 'pw', ceilingMax: 1, ceilingEnforce: true };
+const invalidJwt = { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' };
 
 describe('classifyError', () => {
   it('auth_config (NON-retryable) for invalid-JWT / 401 / 403 — the observed canary failure', () => {
-    expect(classifyError({ message: 'invalid JWT: ... unrecognized JWT kid <nil> for algorithm ES256' }))
-      .toMatchObject({ category: 'auth_config', retryable: false });
-    expect(classifyError({ status: 401, message: 'x' })).toMatchObject({ category: 'auth_config', retryable: false });
+    expect(classifyError(invalidJwt)).toMatchObject({ category: 'auth_config', retryable: false });
+    expect(classifyError({ status: 401 })).toMatchObject({ category: 'auth_config', retryable: false });
     expect(classifyError({ status: 403 })).toMatchObject({ category: 'auth_config', retryable: false });
   });
-  it('retryable for 429 / 5xx / network', () => {
+  it('retryable for 429 / 5xx / network; other otherwise', () => {
     expect(classifyError({ status: 429 })).toMatchObject({ category: 'retryable', retryable: true });
     expect(classifyError({ status: 503 })).toMatchObject({ category: 'retryable', retryable: true });
     expect(classifyError({ message: 'fetch failed' })).toMatchObject({ category: 'retryable', retryable: true });
-  });
-  it('other (not retried) for a 400 invalid-credentials', () => {
     expect(classifyError({ status: 400, message: 'Invalid login credentials' })).toMatchObject({ category: 'other', retryable: false });
   });
 });
 
-const anonMock = ({ signInError = null, userId = 'u1', tier = 'free' } = {}) => ({
-  auth: { signInWithPassword: vi.fn(async () => (signInError ? { data: null, error: signInError } : { data: { user: { id: userId } }, error: null })) },
-  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { subscription_status: tier } }) }) }) }),
+describe('withRetry', () => {
+  it('retries retryable (5xx) then succeeds; never retries invalid-JWT', async () => {
+    let n = 0;
+    const ok = await withRetry(() => { n += 1; return Promise.resolve(n < 2 ? { error: { status: 503 } } : { data: 'ok', error: null }); }, { sleep: () => Promise.resolve() });
+    expect(ok.data).toBe('ok'); expect(n).toBe(2);
+    let m = 0;
+    const bad = await withRetry(() => { m += 1; return Promise.resolve({ error: invalidJwt }); }, { sleep: () => Promise.resolve() });
+    expect(bad.error).toBeTruthy(); expect(m).toBe(1); // not retried
+  });
 });
-const adminMock = ({ createError = null } = {}) => ({ auth: { admin: { createUser: vi.fn(async () => ({ error: createError })) } } });
 
-describe('provisionCanary — sign-in-first', () => {
-  const config = { email: 'canary@speaksharp.app', password: 'pw' };
+const profileChain = (tier = 'free') => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { subscription_status: tier } }) }) }) });
+function makeAnon({ signIn = [{ ok: true }], tier = 'free' } = {}) {
+  const seq = [...signIn];
+  return {
+    auth: { signInWithPassword: vi.fn(async () => { const s = seq.length > 1 ? seq.shift() : seq[0]; return s.ok ? { data: { user: { id: s.userId || 'u1' } }, error: null } : { data: null, error: s.error }; }) },
+    from: () => profileChain(tier),
+  };
+}
+function makeAdmin({ listUsers = [{ users: [{ email: CANARY }] }], createUser = { error: null }, updateUser = { error: null } } = {}) {
+  const lu = [...listUsers];
+  return { auth: { admin: {
+    listUsers: vi.fn(async () => { const l = lu.length > 1 ? lu.shift() : lu[0]; return l.error ? { data: null, error: l.error } : { data: { users: l.users || [] }, error: null }; }),
+    createUser: vi.fn(async () => createUser),
+    updateUserById: vi.fn(async () => updateUser),
+  } } };
+}
 
-  it('HEALTHY: an existing account signs in → NO admin API is touched (avoids a stale service-role key)', async () => {
-    const admin = adminMock();
-    const res = await provisionCanary({ anon: anonMock(), admin, config });
+describe('provisionCanary — sign-in-first with restored protections', () => {
+  it('HEALTHY: existing account signs in → NO admin MUTATION (no createUser/updateUser); ceiling OK', async () => {
+    const admin = makeAdmin();
+    const res = await provisionCanary({ anon: makeAnon(), admin, config });
     expect(res.status).toBe('healthy');
     expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+    expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
+    expect(res.ceiling).toBe('ok');
   });
 
-  it('CONFIG ERROR (service_role): non-auth sign-in fail → admin createUser invalid-JWT → "rotate the key"', async () => {
-    const admin = adminMock({ createError: { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' } });
-    const res = await provisionCanary({ anon: anonMock({ signInError: { message: 'fetch failed' } }), admin, config });
-    expect(res).toMatchObject({ status: 'config_error', scope: 'service_role_key' });
+  it('HEALTHY even when the ceiling admin.listUsers is intermittently rejected (best-effort → skipped)', async () => {
+    const admin = makeAdmin({ listUsers: [{ error: invalidJwt }] });
+    const res = await provisionCanary({ anon: makeAnon(), admin, config });
+    expect(res.status).toBe('healthy'); // a flaky admin call must NOT fail a healthy canary
+    expect(res.ceiling).toBe('skipped');
   });
 
-  it('CONFIG ERROR (canary creds): a 401 on the anon sign-in fails immediately and does NOT touch admin', async () => {
-    const admin = adminMock();
-    const res = await provisionCanary({ anon: anonMock({ signInError: { status: 401 } }), admin, config });
-    expect(res).toMatchObject({ status: 'config_error', scope: 'canary_credentials' });
-    expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+  it('CEILING enforced: >max canary-like accounts with CANARY_ENFORCE=fail → ceiling_exceeded', async () => {
+    const admin = makeAdmin({ listUsers: [{ users: [{ email: CANARY }, { email: 'canary-stray@speaksharp.app' }] }] });
+    const res = await provisionCanary({ anon: makeAnon(), admin, config });
+    expect(res).toMatchObject({ status: 'ceiling_exceeded', count: 2 });
   });
 
-  it('RECOVERED: genuinely-missing account (400) → createUser ok → re-sign-in ok', async () => {
-    let calls = 0;
-    const anon = {
-      auth: { signInWithPassword: vi.fn(async () => { calls += 1; return calls === 1 ? { data: null, error: { status: 400, message: 'Invalid login credentials' } } : { data: { user: { id: 'u2' } }, error: null }; }) },
-      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { subscription_status: 'free' } }) }) }) }),
-    };
-    const res = await provisionCanary({ anon, admin: adminMock(), config });
+  it('RECOVERY (stale password): sign-in fails → account exists → password SYNCED via updateUserById → recovered', async () => {
+    const admin = makeAdmin({ createUser: { error: { message: 'A user with this email has already been registered' } }, listUsers: [{ users: [{ email: CANARY, id: 'u9' }] }] });
+    const anon = makeAnon({ signIn: [{ ok: false, error: { status: 400, message: 'Invalid login credentials' } }, { ok: true, userId: 'u9' }] });
+    const res = await provisionCanary({ anon, admin, config });
+    expect(res.status).toBe('recovered');
+    expect(admin.auth.admin.updateUserById).toHaveBeenCalled(); // password sync restored (thread #59)
+  });
+
+  it('RECOVERY (missing account): sign-in fails → createUser succeeds → re-sign-in → recovered', async () => {
+    const admin = makeAdmin({ createUser: { error: null } });
+    const anon = makeAnon({ signIn: [{ ok: false, error: { status: 400, message: 'Invalid login credentials' } }, { ok: true }] });
+    const res = await provisionCanary({ anon, admin, config });
     expect(res.status).toBe('recovered');
   });
 
-  it('FAILED: a non-auth sign-in error with no service-role client available for recovery', async () => {
-    const res = await provisionCanary({ anon: anonMock({ signInError: { status: 500 } }), admin: null, config });
-    expect(res.status).toBe('failed');
+  it('CONFIG ERROR: recovery admin createUser rejected on invalid-JWT → actionable, not retried', async () => {
+    const admin = makeAdmin({ createUser: { error: invalidJwt } });
+    const anon = makeAnon({ signIn: [{ ok: false, error: { status: 500 } }] });
+    const res = await provisionCanary({ anon, admin, config });
+    expect(res).toMatchObject({ status: 'config_error', scope: 'service_role_key' });
   });
 
-  it('never surfaces the credential VALUE in the returned result (env-var NAMES for actionability are fine)', async () => {
-    const secretPassword = 'S3cr3t-canary-value';
-    const res = await provisionCanary({ anon: anonMock({ signInError: { status: 401 } }), admin: adminMock(), config: { email: config.email, password: secretPassword } });
-    expect(JSON.stringify(res)).not.toContain(secretPassword);
+  it('never surfaces the credential VALUE in the returned result', async () => {
+    const secret = 'S3cr3t-canary-value';
+    const res = await provisionCanary({ anon: makeAnon(), admin: makeAdmin(), config: { ...config, password: secret } });
+    expect(JSON.stringify(res)).not.toContain(secret);
   });
 });

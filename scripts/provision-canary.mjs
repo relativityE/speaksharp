@@ -35,26 +35,35 @@ console.log('🐤 Canary provisioning (sign-in-first)');
 console.log(`Target: ${CANARY_EMAIL}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD } });
+const ceilingMax = Number(process.env.CANARY_MAX || '1');
+const ceilingEnforce = (process.env.CANARY_ENFORCE || 'warn').toLowerCase() === 'fail';
+
+const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD, ceilingMax, ceilingEnforce } });
+
+const ceilingNote = result.ceiling ? ` (ceiling: ${result.ceiling}${typeof result.ceilingCount === 'number' ? ` ${result.ceilingCount}/${ceilingMax}` : ''})` : '';
 
 if (result.status === 'healthy') {
-  console.log(`  [OK] Signed in (uid ${result.userId}); tier=${result.tier ?? 'unknown'}.`);
+  console.log(`  [OK] Signed in (uid ${result.userId}); tier=${result.tier ?? 'unknown'}.${ceilingNote}`);
   console.log('✅ Canary account healthy — no admin provisioning needed.');
   process.exit(0);
 }
 if (result.status === 'recovered') {
-  console.log(`  [OK] Account recovered and re-verified (uid ${result.userId}).`);
+  console.log(`  [OK] Account recovered and re-verified (uid ${result.userId}); tier=${result.tier ?? 'unknown'}.${ceilingNote}`);
   console.log('✅ Canary account recovered.');
   process.exit(0);
 }
-if (result.status === 'config_error' && result.scope === 'service_role_key') {
-  console.error('  ❌ CONFIGURATION FAILURE (not retryable): the SUPABASE_SERVICE_ROLE_KEY is invalid/stale for this project (JWT rejected).');
-  console.error('     ACTION: rotate the GitHub secret `SUPABASE_SERVICE_ROLE_KEY` to the current service-role key from the Supabase dashboard.');
+if (result.status === 'ceiling_exceeded') {
+  console.error(`  ❌ Canary account ceiling exceeded: ${result.count} > ${result.max} (CANARY_ENFORCE=fail). Delete stray canary-* accounts.`);
   process.exit(1);
 }
-if (result.status === 'config_error' && result.scope === 'canary_credentials') {
-  console.error('  ❌ CONFIGURATION FAILURE (not retryable): canary sign-in was rejected on auth.');
-  console.error('     ACTION: verify the CANARY_EMAIL / CANARY_PASSWORD secrets.');
+if (result.status === 'config_error' && result.scope === 'service_role_key') {
+  console.error('  ❌ Service-role admin call was rejected on auth (invalid-JWT / 401 / 403) — NOT retried.');
+  console.error('     The healthy sign-in path avoids admin; this only affects the recovery path. If a same-key control');
+  console.error('     (Test User Admin `query`) also fails at the same time, verify SUPABASE_SERVICE_ROLE_KEY; otherwise it is intermittent.');
+  process.exit(1);
+}
+if (result.status === 'config_error') {
+  console.error(`  ❌ Configuration failure (${result.scope ?? 'unknown'}): ${result.message ?? ''}`);
   process.exit(1);
 }
 console.error(`  ❌ Canary provisioning failed: ${result.message ?? 'unknown'}${result.status_code ? ` [${result.status_code}]` : ''}`);
