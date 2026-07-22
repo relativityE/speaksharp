@@ -1,6 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { issueReportService } from '@/services/issueReportService';
+import { buildIssueReportMetadata, issueReportService } from '@/services/issueReportService';
+import { resolvePageContext } from '@/services/pageContext';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+
+const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+
+describe('buildIssueReportMetadata — page context + sanitization', () => {
+  it('stores the sanitized canonical route TEMPLATE, never a concrete id/query/hash', () => {
+    const context = resolvePageContext(`/analytics/${UUID_META}`);
+    const meta = buildIssueReportMetadata({ context, issueArea: 'evidence', plan: 'pro', sttMode: 'private', runtimeState: 'idle' });
+    expect(meta.route).toBe('/analytics/:sessionId');
+    expect(meta.canonicalRoute).toBe('/analytics/:sessionId');
+    // No id anywhere in the metadata blob.
+    expect(JSON.stringify(meta)).not.toContain(UUID_META);
+  });
+
+  it('carries the allowlisted page-context fields and the chosen issue area', () => {
+    const context = resolvePageContext('/session');
+    const meta = buildIssueReportMetadata({ context, issueArea: 'transcription' });
+    expect(meta).toMatchObject({
+      pageKey: 'session',
+      pageLabel: 'Session · Speaking',
+      productMode: 'session',
+      journeyStep: 'speaking',
+      canonicalRoute: '/session',
+      issueArea: 'transcription',
+    });
+  });
+
+  it('defaults issueArea to null when none is supplied', () => {
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/') });
+    expect(meta.issueArea).toBeNull();
+  });
+
+  it('validates issueArea against THIS page allowlist at the service boundary (UI is not trusted alone)', () => {
+    const session = resolvePageContext('/session');
+    // Valid for this page → kept.
+    expect(buildIssueReportMetadata({ context: session, issueArea: 'transcription' }).issueArea).toBe('transcription');
+    // Valid for ANOTHER page (analytics), invalid for /session → coerced to null.
+    expect(buildIssueReportMetadata({ context: session, issueArea: 'comparison' }).issueArea).toBeNull();
+    // Arbitrary free text / injected value → null.
+    expect(buildIssueReportMetadata({ context: session, issueArea: '<script>alert(1)</script>' }).issueArea).toBeNull();
+    // Empty string → null.
+    expect(buildIssueReportMetadata({ context: session, issueArea: '' }).issueArea).toBeNull();
+  });
+});
 
 vi.mock('@/lib/supabaseClient', () => ({
   getSupabaseClient: vi.fn(),
