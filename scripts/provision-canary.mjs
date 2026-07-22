@@ -30,6 +30,25 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false }
 });
 
+/**
+ * Bounded-retry wrapper for the Supabase admin listUsers API. The admin endpoint occasionally returns
+ * a transient error (network/5xx/rate); a single failure previously hard-exited the whole canary at
+ * setup. Retry with linear backoff and, critically, SURFACE the real error message on each attempt so a
+ * persistent failure is diagnosable instead of the opaque "Failed to list users during search".
+ */
+async function listUsersWithRetry(page, perPage, { attempts = 4, label = 'listUsers' } = {}) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+        if (!error) return { data, error: null };
+        lastError = error;
+        const detail = error.message || (error.status ? `HTTP ${error.status}` : 'unknown error');
+        console.warn(`  ⚠️  ${label} page ${page} failed (attempt ${attempt}/${attempts}): ${detail}`);
+        if (attempt < attempts) await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
+    return { data: null, error: lastError };
+}
+
 async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🐤 Canary Infrastructure Provisioner');
@@ -56,13 +75,11 @@ async function main() {
 
             while (true) {
                 console.log(`  Scanning page ${pageNum}...`);
-                const { data: userData, error: getError } = await supabase.auth.admin.listUsers({
-                    page: pageNum,
-                    perPage: 100
-                });
+                const { data: userData, error: getError } = await listUsersWithRetry(pageNum, 100, { label: 'search' });
 
                 if (getError) {
-                    console.error('  ❌ Failed to list users during search.');
+                    const detail = getError.message || (getError.status ? `HTTP ${getError.status}` : 'unknown error');
+                    console.error(`  ❌ Failed to list users during search after retries: ${detail}`);
                     process.exit(1);
                 }
 
@@ -142,8 +159,8 @@ async function main() {
     const canaryEmails = [];
     let checked = true;
     for (let page = 1; ; page++) {
-        const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
-        if (error) { console.warn(`  ⚠️  ceiling check skipped (listUsers failed: ${error.message})`); checked = false; break; }
+        const { data, error } = await listUsersWithRetry(page, 200, { label: 'ceiling' });
+        if (error) { console.warn(`  ⚠️  ceiling check skipped (listUsers failed: ${error.message || 'unknown'})`); checked = false; break; }
         const batch = data?.users || [];
         for (const u of batch) if (u.email && canaryRe.test(u.email)) canaryEmails.push(u.email.toLowerCase());
         if (batch.length < 200) break;
