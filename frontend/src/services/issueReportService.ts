@@ -2,6 +2,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
+import type { PageContext } from '@/services/pageContext';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -17,7 +18,17 @@ export type IssueReportCategory =
 export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export interface IssueReportMetadata {
+  /** Sanitized route TEMPLATE (== canonicalRoute); never a full URL, query string, or hash. */
   route: string;
+  // ── Allowlisted page context (page-aware reporting) — content-free, snapshotted at dialog-open ──
+  pageKey?: string;
+  pageLabel?: string;
+  productMode?: string;
+  journeyStep?: string;
+  canonicalRoute?: string;
+  issueArea?: string | null;
+  /** Build/release id (git SHA in production) so a report pins to a build, when available. */
+  releaseId?: string | null;
   releaseProofEligible?: boolean;
   appRuntimeConfig?: unknown;
   userAgent?: string;
@@ -57,7 +68,9 @@ const sanitizeOptionalText = (value: string | null | undefined): string | null =
 };
 
 export const buildIssueReportMetadata = (input: {
-  route: string;
+  /** Allowlisted page context captured at dialog-open time. Its canonicalRoute becomes `route`. */
+  context: PageContext;
+  issueArea?: string | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
@@ -66,9 +79,18 @@ export const buildIssueReportMetadata = (input: {
   const sentry = typeof window !== 'undefined'
     ? (window as unknown as { Sentry?: { lastEventId?: () => string | null } }).Sentry
     : undefined;
+  const { context } = input;
 
   return {
-    route: input.route,
+    // The stored route is the sanitized template — no full URL, query string, or hash.
+    route: context.canonicalRoute,
+    pageKey: context.pageKey,
+    pageLabel: context.pageLabel,
+    productMode: context.productMode,
+    journeyStep: context.journeyStep,
+    canonicalRoute: context.canonicalRoute,
+    issueArea: input.issueArea ?? null,
+    releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,
     runtimeState: input.runtimeState ?? null,

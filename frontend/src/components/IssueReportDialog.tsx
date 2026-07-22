@@ -20,6 +20,7 @@ import {
   type IssueReportCategory,
   type IssueReportSeverity,
 } from '@/services/issueReportService';
+import { resolvePageContext, issueAreasFor, type PageContext } from '@/services/pageContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface IssueReportDialogProps {
@@ -61,12 +62,14 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   runtimeState,
 }) => {
   const location = useLocation();
-  // This dialog renders in global navigation, OUTSIDE the /analytics/:sessionId route element, so
-  // useParams() would not see the sessionId. Derive it from the pathname (UUID-validated) instead so
-  // reports opened from a session-specific Analytics page carry the correct session id, and reports
-  // from any other route carry null (never fabricated).
-  const sessionId = deriveSessionIdFromPath(location.pathname);
   const [open, setOpen] = React.useState(false);
+  // Page identity + owned session id are SNAPSHOTTED when the dialog opens (see openContext), so a
+  // route/journey transition while the dialog is open never changes the report's origin. This dialog
+  // renders in global navigation, OUTSIDE the /analytics/:sessionId route element, so useParams() would
+  // not see the sessionId — it is derived from the pathname (UUID-validated) at open time instead.
+  const [pageContext, setPageContext] = React.useState<PageContext>(() => resolvePageContext(location.pathname));
+  const [snapshotSessionId, setSnapshotSessionId] = React.useState<string | null>(() => deriveSessionIdFromPath(location.pathname));
+  const [issueArea, setIssueArea] = React.useState<string>(() => issueAreasFor(resolvePageContext(location.pathname).pageKey)[0]?.value ?? 'other');
   const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
   const [title, setTitle] = React.useState('');
@@ -80,6 +83,19 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
+
+  const issueAreaOptions = issueAreasFor(pageContext.pageKey);
+
+  // Snapshot the page context at dialog-OPEN time (not submit), then defer to Radix's open state.
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      const ctx = resolvePageContext(location.pathname);
+      setPageContext(ctx);
+      setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
+      setIssueArea(issueAreasFor(ctx.pageKey)[0]?.value ?? 'other');
+    }
+    setOpen(next);
+  };
 
   const reset = () => {
     setCategory('recording_transcription');
@@ -96,9 +112,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
     if (!canSubmit) return;
     setIsSubmitting(true);
     try {
-      const pageUrl = typeof window !== 'undefined' ? window.location.href : location.pathname;
+      // Store the sanitized route TEMPLATE — never the full URL, query string, or hash.
+      const pageUrl = pageContext.canonicalRoute;
       const metadata = buildIssueReportMetadata({
-        route: `${location.pathname}${location.search}`,
+        context: pageContext,
+        issueArea,
         plan,
         sttMode,
         runtimeState,
@@ -109,7 +127,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       // follow up. The id is an opaque auth UUID — no email/name is stored in the row.
       await issueReportService.submit({
         userId: userId ?? null,
-        sessionId,
+        sessionId: snapshotSessionId,
         category,
         severity,
         title,
@@ -132,7 +150,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           type="button"
@@ -155,6 +173,26 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         </DialogHeader>
 
         <div className="space-y-4">
+          <div
+            className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+            data-testid="issue-report-page-context"
+          >
+            <span className="text-muted-foreground">Reporting from:</span>
+            <span className="font-medium text-foreground">{pageContext.pageLabel}</span>
+          </div>
+
+          <label className="space-y-1 text-sm font-medium">
+            What part had a problem?
+            <select
+              className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
+              value={issueArea}
+              onChange={(event) => setIssueArea(event.target.value)}
+              data-testid="issue-report-area"
+            >
+              {issueAreaOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm font-medium">
               Category

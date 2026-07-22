@@ -89,6 +89,13 @@ describe('report→session ownership guard (real PostgreSQL via PGlite)', () => 
     expect(row.id).toBeTruthy();
   });
 
+  it('persists a non-session report (session_id explicitly NULL) unchanged', async () => {
+    // Reports opened from a non-session page (e.g. the landing) carry no session id and must persist.
+    const row = await insertReport({ userId: USER_A, sessionId: null });
+    expect(row.session_id).toBeNull();
+    expect(row.id).toBeTruthy();
+  });
+
   it('revalidates ownership on UPDATE of session_id (cannot re-point at a foreign session)', async () => {
     const row = await insertReport({ userId: USER_A, sessionId: sessionA });
     const updated = await db.query(
