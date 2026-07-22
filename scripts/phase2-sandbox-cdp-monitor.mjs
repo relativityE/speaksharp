@@ -101,17 +101,15 @@ async function walkJourney(page, tag, report) {
   const m = page.locator('#main-content'); // scope accordion lookups (QA panel is outside <main>)
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
   const click = async (loc) => { await loc.scrollIntoViewIfNeeded(); await loc.click({ timeout: 15000 }); };
-  // Launcher
-  await shot('01-landing');
-  await click(m.getByRole('button', { name: /quick practice:/i }));
-  await shot('02-quick-expanded');
-  await click(m.getByRole('button', { name: /review my progress:/i }));
-  await shot('03-review-expanded');
-  await click(m.getByRole('button', { name: /executive rehearsal:/i }));
-  await shot('04-exec-expanded');
+  // Two-column chooser
+  await shot('01-landing-two-column');
+  await click(m.getByRole('button', { name: /^start speaking$/i }));
+  await shot('02-quick-selected');
+  await click(m.getByRole('button', { name: /^prepare$/i }));
+  await shot('03-exec-selected');
   // Sample journey
-  await click(m.getByRole('button', { name: /^start rehearsal$/i }));
-  await shot('05-ready');
+  await click(m.getByRole('button', { name: /try a sample/i }));
+  await shot('04-ready');
   await click(m.getByRole('button', { name: /begin speaking/i }));
   await page.waitForTimeout(5400);
   await shot('06-listening-passive-agenda');

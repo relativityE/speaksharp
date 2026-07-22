@@ -25,20 +25,26 @@ import { trace } from './trace';
 type Phase = 'landing' | 'prepare' | 'rehearse' | 'processing' | 'finish';
 type FinishData = { kind: 'rehearsal'; result: RehearsalResult } | { kind: 'general'; which: 'baseline' | 'improved' };
 
+// QA/reviewer controls are kept OUT of the product frame — available only via ?qa=1.
+const qaEnabled = () => {
+  try { return new URLSearchParams(window.location.search).get('qa') === '1'; } catch { return false; }
+};
+
 export function ProgressRehearsalSandbox() {
   const [phase, setPhase] = React.useState<Phase>('landing');
   const [finish, setFinish] = React.useState<FinishData | null>(null);
   const [rehearseMode, setRehearseMode] = React.useState<'rehearsal' | 'quick'>('rehearsal');
   const [hasRehearsed, setHasRehearsed] = React.useState(false);
+  const [lastMode, setLastMode] = React.useState<'quick' | 'exec' | undefined>(undefined);
 
   React.useEffect(() => { trace('sandbox_loaded', {}); }, []);
 
   const toLanding = () => { setFinish(null); setPhase('landing'); };
   const landingActions = {
-    startRehearsal: () => { setRehearseMode('rehearsal'); setPhase('rehearse'); },
-    createRehearsal: () => setPhase('prepare'),
-    startQuick: () => { setRehearseMode('quick'); setPhase('rehearse'); },
-    reviewProgress: () => { setHasRehearsed(true); setFinish({ kind: 'general', which: 'improved' }); setPhase('finish'); },
+    startRehearsal: () => { setRehearseMode('rehearsal'); setLastMode('exec'); setPhase('rehearse'); },
+    createRehearsal: () => { setLastMode('exec'); setPhase('prepare'); },
+    startQuick: () => { setRehearseMode('quick'); setLastMode('quick'); setPhase('rehearse'); },
+    reviewProgress: () => { setFinish({ kind: 'general', which: 'improved' }); setPhase('finish'); },
   };
 
   const onRehearsalFinish = (result: RehearsalResult) => { setHasRehearsed(true); setFinish({ kind: 'rehearsal', result }); setPhase('processing'); };
@@ -52,7 +58,7 @@ export function ProgressRehearsalSandbox() {
       <header className="ss-hero-solid">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
           <FlaskConical style={{ color: 'var(--ss-aqua)' }} size={20} aria-hidden />
-          <span className="mr-auto font-semibold text-white">SpeakSharp · Executive Rehearsal</span>
+          <span className="mr-auto font-semibold text-white">SpeakSharp Practice</span>
           {phase !== 'landing' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
           <span className="rounded-full border border-amber-500/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-300">Sandbox</span>
         </div>
@@ -60,7 +66,7 @@ export function ProgressRehearsalSandbox() {
 
       <main id="main-content">
         {phase === 'landing' ? (
-          <LandingScreen actions={landingActions} returning={hasRehearsed} />
+          <LandingScreen actions={landingActions} returning={hasRehearsed} lastMode={lastMode} />
         ) : phase === 'prepare' ? (
           <PrepareScreen onStart={landingActions.startRehearsal} onStartGeneral={landingActions.startQuick} />
         ) : phase === 'rehearse' ? (
@@ -74,14 +80,17 @@ export function ProgressRehearsalSandbox() {
         ) : null}
       </main>
 
-      {/* Secondary: QA states + palette, collapsed and clearly separated (below the product experience) */}
-      <div className="mx-auto max-w-5xl space-y-4 px-5 pb-10">
-        <ReviewPanel />
-        <details className="rounded-2xl bg-white ring-1 ring-[color:var(--ss-border)]">
-          <summary className="ss-ring cursor-pointer list-none px-5 py-3 text-sm font-semibold text-[color:var(--ss-text)]">Design tokens &amp; palette (QA)</summary>
-          <div className="px-4 pb-4"><PaletteSheet /></div>
-        </details>
-      </div>
+      {/* Review/QA tooling is NOT part of the product frame — only via ?qa=1 (separate review mode). */}
+      {qaEnabled() ? (
+        <div className="mx-auto max-w-5xl space-y-4 px-5 pb-10">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--ss-neutral)]">Sandbox review mode (?qa=1) — not product UI</p>
+          <ReviewPanel />
+          <details className="rounded-2xl bg-white ring-1 ring-[color:var(--ss-border)]">
+            <summary className="ss-ring cursor-pointer list-none px-5 py-3 text-sm font-semibold text-[color:var(--ss-text)]">Design tokens &amp; palette (QA)</summary>
+            <div className="px-4 pb-4"><PaletteSheet /></div>
+          </details>
+        </div>
+      ) : null}
     </div>
   );
 }
