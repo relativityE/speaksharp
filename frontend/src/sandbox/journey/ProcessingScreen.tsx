@@ -13,15 +13,15 @@ export function ProcessingScreen({ onDone }: { onDone: () => void }) {
   }, [onDone]);
 
   return (
-    <div className="grid min-h-[calc(100vh-3.5rem)] place-items-center bg-slate-900 px-5">
+    <div className="grid min-h-[calc(100vh-3.5rem)] place-items-center px-5">
       <div className="ss-fade-up flex flex-col items-center gap-5 text-center">
         <RecordingIndicator status="processing" />
         <div>
-          <h2 className="text-xl font-semibold text-white">Finalizing your rehearsal…</h2>
-          <p className="mt-1 text-sm text-slate-400">Reviewing what you covered — this stays on your device.</p>
+          <h2 className="text-2xl font-semibold text-[color:var(--ss-text)]">Finalizing your rehearsal…</h2>
+          <p className="mt-1 text-sm text-[color:var(--ss-text-secondary)]">Reviewing what you covered — this stays on your device.</p>
         </div>
-        <div className="h-1.5 w-48 overflow-hidden rounded-full bg-slate-800" role="progressbar" aria-label="Finalizing">
-          <div className="h-full w-1/3 animate-[ss-fade-up_1.2s_ease-in-out_infinite] rounded-full bg-indigo-500 motion-reduce:w-full" />
+        <div className="h-1.5 w-48 overflow-hidden rounded-full bg-[color:var(--ss-border)]" role="progressbar" aria-label="Finalizing">
+          <div className="ss-breathe h-full w-1/2 rounded-full motion-reduce:w-full" style={{ background: 'linear-gradient(90deg, var(--ss-primary), var(--ss-listening))' }} />
         </div>
       </div>
     </div>

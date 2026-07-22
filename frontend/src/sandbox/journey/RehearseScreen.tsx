@@ -107,7 +107,7 @@ export function RehearseScreen({
   const speaking = status === 'listening' || status === 'paused';
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-slate-900 px-5 py-8 sm:px-8">
+    <div className="min-h-[calc(100vh-3.5rem)] px-5 py-10 sm:px-8">
       <div className="mx-auto max-w-2xl">
         {/* Recording state + controls */}
         <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
@@ -116,15 +116,15 @@ export function RehearseScreen({
             {status === 'ready' ? (
               <PrimaryButton className="px-4 py-2 text-sm" onClick={begin}><Mic size={16} aria-hidden /> Begin speaking</PrimaryButton>
             ) : status === 'listening' ? (
-              <SecondaryButton className="border-slate-500 bg-slate-700 text-white hover:bg-slate-600" onClick={() => setStatus('paused')}><Pause size={15} aria-hidden /> Pause</SecondaryButton>
+              <SecondaryButton onClick={() => setStatus('paused')}><Pause size={15} aria-hidden /> Pause</SecondaryButton>
             ) : (
               <PrimaryButton className="px-4 py-2 text-sm" onClick={() => setStatus('listening')}><Play size={15} aria-hidden /> Resume</PrimaryButton>
             )}
           </div>
         </div>
 
-        <p className="mb-1 text-sm text-slate-400">{quick ? 'Quick practice' : `Rehearsing for ${SAMPLE_BRIEF.audience.toLowerCase()}`}</p>
-        <h2 className="mb-8 text-xl font-semibold text-white">
+        <p className="mb-1 text-sm text-[color:var(--ss-neutral)]">{quick ? 'Quick practice' : `Rehearsing for ${SAMPLE_BRIEF.audience.toLowerCase()}`}</p>
+        <h2 className="mb-8 text-2xl font-semibold text-[color:var(--ss-text)]">
           {status === 'ready'
             ? 'Ready when you are — press Begin and speak.'
             : status === 'paused'
@@ -142,32 +142,32 @@ export function RehearseScreen({
             const incomplete = state === 'not_addressed' || state === 'partial';
             const helping = helpFor === i;
             return (
-              <li key={i} className="rounded-2xl bg-slate-800/60 p-4 ring-1 ring-slate-700/60">
+              <li key={i} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[color:var(--ss-border)]">
                 <div className="flex items-start justify-between gap-3">
                   <span className="flex items-start gap-3">
                     <AgendaDot state={state} className="mt-0.5" />
-                    <span className="text-[15px] text-slate-100">{p}</span>
+                    <span className="text-[15px] text-[color:var(--ss-text)]">{p}</span>
                   </span>
-                  <span className="shrink-0 text-xs font-medium text-slate-400">
+                  <span className="shrink-0 text-xs font-medium text-[color:var(--ss-neutral)]">
                     {state === 'covered' ? 'Covered' : state === 'partial' ? 'Partly' : state === 'recovered' ? 'Recovered' : '—'}
                   </span>
                 </div>
 
                 {speaking && incomplete && !helping ? (
-                  <GhostButton className="mt-2 text-indigo-300 hover:bg-slate-700/60" onClick={() => requestHelp(i)}>
+                  <GhostButton className="mt-2" onClick={() => requestHelp(i)}>
                     <HelpCircle size={14} aria-hidden /> Help me with this point
                   </GhostButton>
                 ) : null}
 
                 {helping ? (
-                  <div className="ss-fade-up mt-3 rounded-xl bg-slate-900/70 p-3 ring-1 ring-slate-700">
-                    <p className="text-sm text-slate-200"><span className="font-semibold text-indigo-300">One suggestion:</span> {REMEDIES[i]}</p>
+                  <div className="ss-fade-up mt-3 rounded-xl bg-[color:var(--ss-primary-soft)] p-3 ring-1 ring-[color:var(--ss-border)]">
+                    <p className="text-sm text-[color:var(--ss-text)]"><span className="font-semibold text-[color:var(--ss-primary-soft-text)]">One suggestion:</span> {REMEDIES[i]}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <PrimaryButton className="px-4 py-2 text-sm" onClick={() => markAddressed(i)}>I addressed it just now</PrimaryButton>
-                      <SecondaryButton className="border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700" onClick={() => setHelpFor(null)}>Keep going</SecondaryButton>
+                      <SecondaryButton onClick={() => setHelpFor(null)}>Keep going</SecondaryButton>
                     </div>
                     {i !== SAMPLE_REMEDY.pointIndex ? (
-                      <p className="mt-2 text-xs text-slate-400">It only turns green with actual transcript evidence — say it explicitly and it will update.</p>
+                      <p className="mt-2 text-xs text-[color:var(--ss-text-secondary)]">It only turns green with actual transcript evidence — say it explicitly and it will update.</p>
                     ) : null}
                   </div>
                 ) : null}
@@ -176,13 +176,13 @@ export function RehearseScreen({
           })}
         </ol>
         ) : (
-          <p className="rounded-2xl bg-slate-800/60 p-4 text-[15px] text-slate-300 ring-1 ring-slate-700/60">
+          <p className="rounded-2xl bg-white p-4 text-[15px] text-[color:var(--ss-text-secondary)] shadow-sm ring-1 ring-[color:var(--ss-border)]">
             No agenda to follow — just speak. SpeakSharp will summarize your delivery afterward.
           </p>
         )}
 
         <div className="mt-8 flex items-center justify-between">
-          <button onClick={onBack} className="text-sm font-medium text-slate-400 hover:text-slate-200">← Back</button>
+          <button onClick={onBack} className="ss-ring rounded px-1 text-sm font-medium text-[color:var(--ss-neutral)] hover:text-[color:var(--ss-text)]">← Back</button>
           <PrimaryButton onClick={finish} disabled={status === 'ready'}>{quick ? 'Finish session' : 'Finish rehearsal'}</PrimaryButton>
         </div>
       </div>

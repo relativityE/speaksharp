@@ -19,6 +19,7 @@ import { RehearseScreen, type RehearsalResult } from './journey/RehearseScreen';
 import { ProcessingScreen } from './journey/ProcessingScreen';
 import { FinishScreen } from './journey/FinishScreen';
 import { ReviewPanel } from './components/ReviewPanel';
+import { PaletteSheet } from './components/PaletteSheet';
 import { trace } from './trace';
 
 type Phase = 'landing' | 'prepare' | 'rehearse' | 'processing' | 'finish';
@@ -46,11 +47,11 @@ export function ProgressRehearsalSandbox() {
     setFinish((f) => (f && f.kind === 'general' ? { kind: 'general', which: f.which === 'improved' ? 'baseline' : 'improved' } : f));
 
   return (
-    <div className={`min-h-screen ${T.frame} font-sans antialiased`}>
-      {/* App bar */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+    <div className={`min-h-screen ${T.canvas} font-sans antialiased`}>
+      {/* App bar (navy) */}
+      <header className="ss-hero-solid">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
-          <FlaskConical className="text-indigo-400" size={20} aria-hidden />
+          <FlaskConical style={{ color: 'var(--ss-aqua)' }} size={20} aria-hidden />
           <span className="mr-auto font-semibold text-white">SpeakSharp · Executive Rehearsal</span>
           {phase !== 'landing' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
           <span className="rounded-full border border-amber-500/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-300">Sandbox</span>
@@ -73,9 +74,13 @@ export function ProgressRehearsalSandbox() {
         ) : null}
       </main>
 
-      {/* Secondary: QA states, collapsed and clearly separated (below the product experience) */}
-      <div className="px-5 pb-10">
+      {/* Secondary: QA states + palette, collapsed and clearly separated (below the product experience) */}
+      <div className="mx-auto max-w-5xl space-y-4 px-5 pb-10">
         <ReviewPanel />
+        <details className="rounded-2xl bg-white ring-1 ring-[color:var(--ss-border)]">
+          <summary className="ss-ring cursor-pointer list-none px-5 py-3 text-sm font-semibold text-[color:var(--ss-text)]">Design tokens &amp; palette (QA)</summary>
+          <div className="px-4 pb-4"><PaletteSheet /></div>
+        </details>
       </div>
     </div>
   );

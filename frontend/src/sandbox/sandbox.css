@@ -1,14 +1,73 @@
-/* Phase 2 SANDBOX-local styles: listening equalizer + subtle transitions. Reduced-motion honored. */
+/**
+ * Phase 2 SANDBOX-local theme — "Confident Momentum".
+ *
+ * Semantic tokens ONLY affect the sandbox (this stylesheet is imported only by sandbox-main.tsx).
+ * Deep navy for confidence, warm ivory for approachability, cobalt for action, teal for
+ * listening/recovery, amber for partial attention, emerald for covered, red for post-session setback.
+ * ~60% ivory/white, ~25% navy/ink, ~10% cobalt/teal, ~5% semantic status.
+ */
 
+:root {
+  --ss-hero: #0B1530;
+  --ss-hero-secondary: #1E3473;
+  --ss-canvas: #F8F7F3;
+  --ss-surface: #FFFFFF;
+  --ss-primary: #3155D9;
+  --ss-primary-hover: #243FA8;
+  --ss-listening: #0D9488;
+  --ss-aqua: #2DD4BF;
+  --ss-text: #0F172A;
+  --ss-text-secondary: #475569;
+  --ss-border: #D7DEE8;
+  --ss-neutral: #64748B;
+  --ss-success: #087A55;
+  --ss-partial: #B96508;
+  --ss-setback: #B42318;
+  --ss-focus: #38BDF8;
+
+  --ss-primary-soft: #EEF2FF;
+  --ss-listening-soft: #E5FBF7;
+  --ss-success-soft: #DDF8EC;
+  --ss-partial-soft: #FFF3D6;
+  --ss-neutral-soft: #EEF2F7;
+  --ss-setback-soft: #FFF0EE;
+
+  --ss-primary-soft-text: #243FA8;
+  --ss-listening-text: #08665F;
+  --ss-success-text: #065F46;
+  --ss-partial-text: #7A4500;
+  --ss-neutral-text: #334155;
+  --ss-setback-text: #9B1C1C;
+}
+
+/* Surfaces */
+.ss-canvas { background: var(--ss-canvas); }
+.ss-surface { background: var(--ss-surface); }
+.ss-hero-bg { background: linear-gradient(135deg, #0B1530 0%, #1E3473 65%, #0D6F77 100%); }
+.ss-hero-solid { background: var(--ss-hero); }
+
+/* Focus ring — a clear sky-blue outline visible on ivory, white, navy, cobalt, and tinted surfaces */
+.ss-ring:focus-visible {
+  outline: 2px solid var(--ss-focus);
+  outline-offset: 2px;
+}
+
+/* Listening equalizer */
 @keyframes ss-eq {
   0%, 100% { transform: scaleY(0.28); }
   50% { transform: scaleY(1); }
 }
-
 .ss-eq-bar {
   transform-origin: bottom;
   animation: ss-eq 0.9s ease-in-out infinite;
 }
+
+/* Gentle teal breathing ring for the Listening state */
+@keyframes ss-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.35); }
+}
+.ss-breathe { animation: ss-breathe 2.2s ease-in-out infinite; }
 
 @keyframes ss-fade-up {
   from { opacity: 0; transform: translateY(6px); }
@@ -18,5 +77,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ss-eq-bar { animation: none; transform: scaleY(0.6); }
+  .ss-breathe { animation: none; opacity: 0.7; }
   .ss-fade-up { animation: none; }
 }

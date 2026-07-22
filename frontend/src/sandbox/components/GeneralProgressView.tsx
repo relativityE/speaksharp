@@ -110,7 +110,7 @@ function MetricRow({
         </div>
       ) : cur.regressed ? (
         <div className="mt-2">
-          <StatePill tone="warn" icon={<TrendingDown size={14} />}>Moved away from target</StatePill>
+          <StatePill tone="bad" icon={<TrendingDown size={14} />}>Moved away from target</StatePill>
           <p className="mt-2 text-sm tabular-nums">
             {metric.previous !== undefined ? `${fmt(metric.previous)} → ` : ''}{fmt(metric.current)} · goal {describeTarget(target, metric.unit)}.
             You moved away from this target this session — worth a focused next attempt.

@@ -1,42 +1,42 @@
 /**
- * Phase 2 SANDBOX premium theme — a calm, premium "executive rehearsal cockpit".
+ * Phase 2 SANDBOX theme fragments — "Confident Momentum" (tokens live in sandbox.css).
  *
- * Deep navy/midnight framing, a warm-white primary surface, a restrained indigo action accent, and
- * teal/emerald (covered / progress / recovery), amber (partly addressed), slate (not yet addressed).
- * Red is reserved for post-session review only. Built on Tailwind's built-in palettes + a couple of
- * arbitrary warm-white values; committed to a single polished light-surface look (no theme toggle).
- *
- * These are className fragments used across the journey so the visual language stays consistent.
+ * ~60% warm ivory/white, ~25% navy/ink, ~10% cobalt/teal, ~5% semantic status. Cobalt + teal are the
+ * shared action/brand language; amber/emerald/slate/red carry state meaning only. State meaning is
+ * always color + icon + text. `.ss-ring` gives an all-surface focus outline.
  */
 
 export const T = {
   // Framing
-  frame: 'bg-slate-900', // deep navy / midnight — outer frame, app bar, rehearsal cockpit
-  frameText: 'text-slate-100',
-  frameSubtle: 'text-slate-400',
+  hero: 'ss-hero-bg', // navy gradient — welcome/header region only
+  heroSolid: 'ss-hero-solid',
+  heroText: 'text-white',
+  heroSubtle: 'text-slate-300',
+  canvas: 'ss-canvas', // warm ivory page canvas
+  surface: 'bg-white',
 
-  // Primary content surface (warm white, not utility gray)
-  surface: 'bg-[#faf8f4]',
-  ink: 'text-slate-900',
-  body: 'text-slate-700',
-  subtle: 'text-slate-500',
-  faint: 'text-slate-400',
+  // Text
+  ink: 'text-[color:var(--ss-text)]',
+  body: 'text-[color:var(--ss-text-secondary)]',
+  subtle: 'text-[color:var(--ss-neutral)]',
+  border: 'border-[color:var(--ss-border)]',
 
-  // Actions — restrained indigo / electric blue
+  // Actions — cobalt primary, restrained secondary/ghost
   primaryBtn:
-    'inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:opacity-50',
+    'ss-ring inline-flex items-center justify-center gap-2 rounded-xl bg-[color:var(--ss-primary)] px-5 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-[color:var(--ss-primary-hover)] disabled:opacity-50',
   secondaryBtn:
-    'inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400',
+    'ss-ring inline-flex items-center justify-center gap-2 rounded-xl border border-[color:var(--ss-border)] bg-white px-4 py-2.5 text-sm font-semibold text-[color:var(--ss-text-secondary)] transition-colors hover:bg-[color:var(--ss-canvas)]',
   ghostBtn:
-    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400',
+    'ss-ring inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-[color:var(--ss-primary)] transition-colors hover:bg-[color:var(--ss-primary-soft)]',
 
-  // Agenda coverage states (icon + text + color; never color alone)
-  covered: { dot: 'text-emerald-600', chip: 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' },
-  partial: { dot: 'text-amber-500', chip: 'bg-amber-50 text-amber-900 ring-1 ring-amber-200' },
-  notAddressed: { dot: 'text-slate-400', chip: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200' },
-  recovered: { dot: 'text-teal-600', chip: 'bg-teal-50 text-teal-800 ring-1 ring-teal-200' },
+  // Agenda / progress states (soft bg + dark text; dot color for the glyph)
+  covered: { dot: 'text-[color:var(--ss-success)]', chip: 'bg-[color:var(--ss-success-soft)] text-[color:var(--ss-success-text)]' },
+  partial: { dot: 'text-[color:var(--ss-partial)]', chip: 'bg-[color:var(--ss-partial-soft)] text-[color:var(--ss-partial-text)]' },
+  notAddressed: { dot: 'text-[color:var(--ss-neutral)]', chip: 'bg-[color:var(--ss-neutral-soft)] text-[color:var(--ss-neutral-text)]' },
+  recovered: { dot: 'text-[color:var(--ss-listening)]', chip: 'bg-[color:var(--ss-listening-soft)] text-[color:var(--ss-listening-text)]' },
+  setback: { dot: 'text-[color:var(--ss-setback)]', chip: 'bg-[color:var(--ss-setback-soft)] text-[color:var(--ss-setback-text)]' },
 
-  progressBar: 'bg-emerald-500',
+  progressBar: 'bg-[color:var(--ss-success)]',
 } as const;
 
 export type AgendaVisualState = 'not_addressed' | 'partial' | 'covered' | 'recovered';

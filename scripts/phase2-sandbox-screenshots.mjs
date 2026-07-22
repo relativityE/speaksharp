@@ -64,6 +64,13 @@ async function walk(page, tag, shots, external) {
   await shot('14-complete-summary');
   await m.getByRole('button', { name: /rehearse again/i }).click(); await t(150);
   await shot('15-returning-user');
+
+  // ---- Design reference (QA panels, outside <main>) ----
+  await page.getByText(/review all states \(qa\)/i).click(); await t(150);
+  await page.getByRole('button', { name: /3 · Regression/i }).click(); await t(200);
+  await shot('16-setback-postsession');
+  await page.getByText(/design tokens & palette/i).click(); await t(200);
+  await shot('17-palette-sheet');
 }
 
 async function main() {

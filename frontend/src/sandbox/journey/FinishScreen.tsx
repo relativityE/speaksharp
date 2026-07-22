@@ -32,7 +32,7 @@ function DeliveryDetails({ sample }: { sample: DeliverySample }) {
   return (
     <ul className="space-y-2 tabular-nums">
       {sample.metrics.map((m) => {
-        if (!m.eligible) return <li key={m.key}>{m.label}: {m.fixedBaseline}{m.unit} → {m.current}{m.unit} <span className="text-slate-500">(raw direction only — {m.ineligibleReason})</span></li>;
+        if (!m.eligible) return <li key={m.key}>{m.label}: {m.fixedBaseline}{m.unit} → {m.current}{m.unit} <span className="text-[color:var(--ss-neutral)]">(raw direction only — {m.ineligibleReason})</span></li>;
         const cur = cumulativeProgress(m.fixedBaseline, m.current, m.target as TargetShape);
         return (
           <li key={m.key}>
@@ -51,10 +51,10 @@ function GeneralFinish({ sample, onAgain, onToggleKind }: { sample: DeliverySamp
   if (sample.firstSession) {
     return (
       <Panel>
-        <p className="text-sm font-medium text-indigo-600">General practice</p>
+        <p className="text-sm font-medium text-[color:var(--ss-primary)]">General practice</p>
         <h2 className={`mt-1 text-2xl font-semibold ${T.ink}`}>Personal baseline set.</h2>
         <p className={`mt-3 text-[15px] ${T.body}`}>This session is your starting point — not a grade. Practice again and you'll see how you're moving relative to your own baseline.</p>
-        <ul className="mt-4 space-y-1 text-[15px] text-slate-700 tabular-nums">
+        <ul className="mt-4 space-y-1 text-[15px] text-[color:var(--ss-text-secondary)] tabular-nums">
           {sample.metrics.map((m) => <li key={m.key}>{m.label}: {m.current}{m.unit}</li>)}
         </ul>
         <Disclosure summary="How SpeakSharp determined this" onOpen={() => trace('details_opened', { mode: 'general' })}>
@@ -69,13 +69,13 @@ function GeneralFinish({ sample, onAgain, onToggleKind }: { sample: DeliverySamp
   }
   return (
     <Panel>
-      <p className="text-sm font-medium text-indigo-600">General practice</p>
+      <p className="text-sm font-medium text-[color:var(--ss-primary)]">General practice</p>
       <h2 className={`mt-1 text-2xl font-semibold ${T.ink}`}>You improved on your last comparable session.</h2>
-      <ul className="mt-4 space-y-2 text-[17px] font-medium text-slate-800">
-        {eligible.map((m) => <li key={m.key} className="flex items-start gap-2"><span aria-hidden className="mt-1 text-emerald-500">✓</span>You {rawMovement(m)}.</li>)}
+      <ul className="mt-4 space-y-2 text-[17px] font-medium text-[color:var(--ss-text)]">
+        {eligible.map((m) => <li key={m.key} className="flex items-start gap-2"><span aria-hidden className="mt-1 text-[color:var(--ss-success)]">✓</span>You {rawMovement(m)}.</li>)}
       </ul>
       <p className={`mt-3 text-sm ${T.subtle}`}>
-        Halfway from your baseline to your filler target; pace is now inside your range. <span className="text-slate-400">(progress percentages are in the details)</span>
+        Halfway from your baseline to your filler target; pace is now inside your range. <span className="text-[color:var(--ss-neutral)]">(progress percentages are in the details)</span>
       </p>
       <Disclosure summary="How SpeakSharp determined this" onOpen={() => trace('details_opened', { mode: 'general' })}>
         <DeliveryDetails sample={sample} />
@@ -99,7 +99,7 @@ export function FinishScreen({
   onAgain: () => void;
   onToggleKind?: () => void;
 }) {
-  const wrap = (child: React.ReactNode) => <div className={`min-h-[calc(100vh-4rem)] ${T.frame} px-5 py-10 sm:px-8`}><div className="mx-auto max-w-2xl">{child}</div></div>;
+  const wrap = (child: React.ReactNode) => <div className={`min-h-[calc(100vh-3.5rem)] px-5 py-10 sm:px-8`}><div className="mx-auto max-w-2xl">{child}</div></div>;
 
   if (generalKind) return wrap(<GeneralFinish sample={generalKind === 'baseline' ? GENERAL_BASELINE : GENERAL_IMPROVED} onAgain={onAgain} onToggleKind={onToggleKind} />);
   if (!rehearsal) return wrap(<Panel>No result.</Panel>);
@@ -111,11 +111,11 @@ export function FinishScreen({
 
   return wrap(
     <Panel>
-      <p className="text-sm font-medium text-indigo-600">Rehearsal summary</p>
+      <p className="text-sm font-medium text-[color:var(--ss-primary)]">Rehearsal summary</p>
 
       {recoveredPoint ? (
         <div className="mt-2 flex items-start gap-2">
-          <Sparkles className="mt-1 shrink-0 text-teal-600" size={22} aria-hidden />
+          <Sparkles className="mt-1 shrink-0 text-[color:var(--ss-listening)]" size={22} aria-hidden />
           <h2 className={`text-2xl font-semibold ${T.ink}`}>You recovered the approval request after asking for help.</h2>
         </div>
       ) : (
@@ -129,26 +129,26 @@ export function FinishScreen({
 
       <ul aria-label="Agenda outcome" className="mt-5 space-y-2">
         {rehearsal.points.map((p, i) => (
-          <li key={i} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5">
-            <span className="text-[15px] text-slate-800">{p.point}</span>
+          <li key={i} className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--ss-border)] bg-white px-3.5 py-2.5">
+            <span className="text-[15px] text-[color:var(--ss-text)]">{p.point}</span>
             <StatusChip state={p.state} />
           </li>
         ))}
       </ul>
 
-      <div className="mt-5 rounded-2xl bg-indigo-50 px-4 py-3">
-        <p className="text-sm font-semibold text-indigo-900">Next run</p>
-        <p className="text-[15px] text-indigo-800">Make the {nextFocus.replace(/^Outline the /, '').toLowerCase()} explicit.</p>
+      <div className="mt-5 rounded-2xl bg-[color:var(--ss-primary-soft)] px-4 py-3">
+        <p className="text-sm font-semibold text-[color:var(--ss-primary-soft-text)]">Next run</p>
+        <p className="text-[15px] text-[color:var(--ss-primary-soft-text)]">Make the {nextFocus.replace(/^Outline the /, '').toLowerCase()} explicit.</p>
       </div>
 
       <Disclosure summary="How SpeakSharp determined this" onOpen={() => trace('details_opened', { mode: 'rehearsal' })}>
-        <p className="mb-2 font-medium text-slate-700">Agenda coverage — from your transcript (kept separate from delivery):</p>
+        <p className="mb-2 font-medium text-[color:var(--ss-text-secondary)]">Agenda coverage — from your transcript (kept separate from delivery):</p>
         <ul className="mb-3 space-y-1">
           {rehearsal.points.map((p, i) => (
             <li key={i}>{p.point}: <strong>{p.state.replace('_', ' ')}</strong>{p.evidence ? ` — "${p.evidence.quote}" (@ ${p.evidence.timestampSec}s)` : ''}</li>
           ))}
         </ul>
-        <p className="mb-2 font-medium text-slate-700">Delivery movement this session (supporting evidence, not a grade):</p>
+        <p className="mb-2 font-medium text-[color:var(--ss-text-secondary)]">Delivery movement this session (supporting evidence, not a grade):</p>
         <DeliveryDetails sample={GENERAL_IMPROVED} />
       </Disclosure>
 

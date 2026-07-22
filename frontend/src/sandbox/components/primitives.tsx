@@ -49,11 +49,11 @@ export function ProgressBar({ pct, ariaLabel }: { pct: number | null; ariaLabel:
 export type Tone = 'neutral' | 'info' | 'good' | 'warn' | 'bad';
 
 const toneClasses: Record<Tone, string> = {
-  neutral: 'bg-muted text-muted-foreground border-border',
-  info: 'bg-sky-100 text-sky-900 border-sky-300 dark:bg-sky-950 dark:text-sky-100 dark:border-sky-800',
-  good: 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-800',
-  warn: 'bg-amber-100 text-amber-950 border-amber-300 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-800',
-  bad: 'bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-950 dark:text-rose-100 dark:border-rose-800',
+  neutral: 'bg-[color:var(--ss-neutral-soft)] text-[color:var(--ss-neutral-text)] border-[color:var(--ss-border)]',
+  info: 'bg-[color:var(--ss-primary-soft)] text-[color:var(--ss-primary-soft-text)] border-[color:var(--ss-border)]',
+  good: 'bg-[color:var(--ss-success-soft)] text-[color:var(--ss-success-text)] border-[color:var(--ss-border)]',
+  warn: 'bg-[color:var(--ss-partial-soft)] text-[color:var(--ss-partial-text)] border-[color:var(--ss-border)]',
+  bad: 'bg-[color:var(--ss-setback-soft)] text-[color:var(--ss-setback-text)] border-[color:var(--ss-border)]',
 };
 
 /**
