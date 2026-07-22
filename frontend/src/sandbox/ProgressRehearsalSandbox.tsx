@@ -70,23 +70,29 @@ export function ProgressRehearsalSandbox() {
 
   const isLanding = phase === 'landing';
 
+  // Theme A ("Vibrant Confidence") is the selected sandbox direction and the default for the WHOLE
+  // journey — data-ss-theme on the app root flows the theme through every downstream screen, so no old
+  // navy/ivory palette remains. readTheme() still honours ?theme=b|c (used only by the compare board's
+  // per-theme iframes); with no query it resolves to 'a'.
+  const theme = readTheme();
+
   return (
-    <div className={`min-h-screen ${isLanding ? '' : T.canvas} font-sans antialiased`}>
-      {/* App bar (navy) — NOT on the landing, which carries its own integrated light hero header */}
+    <div data-ss-theme={theme} className={`min-h-screen ${isLanding ? '' : T.canvas} font-sans antialiased`}>
+      {/* App bar — light Theme A surface (NOT on the landing, which carries its own integrated hero) */}
       {!isLanding ? (
-        <header className="ss-hero-solid">
+        <header className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-surface)]">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
-            <FlaskConical style={{ color: 'var(--ss-aqua)' }} size={20} aria-hidden />
-            <span className="mr-auto font-semibold text-white">SpeakSharp Practice</span>
+            <FlaskConical style={{ color: 'var(--ss-primary)' }} size={20} aria-hidden />
+            <span className="mr-auto font-semibold text-[color:var(--ss-text)]">SpeakSharp</span>
             {phase !== 'handoff' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
-            <span className="rounded-full border border-amber-500/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-300">Sandbox</span>
+            <span className="rounded-full border border-[color:var(--ss-border)] bg-[color:var(--ss-canvas)] px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-[color:var(--ss-neutral)]">Sandbox</span>
           </div>
         </header>
       ) : null}
 
       <main id="main-content">
         {phase === 'landing' ? (
-          <LandingScreen actions={landingActions} returning={hasRehearsed} lastMode={lastMode} theme={readTheme()} />
+          <LandingScreen actions={landingActions} returning={hasRehearsed} lastMode={lastMode} theme={theme} />
         ) : phase === 'handoff' ? (
           <HandoffScreen onBack={toLanding} />
         ) : phase === 'prepare' ? (

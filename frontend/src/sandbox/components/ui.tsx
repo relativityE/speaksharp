@@ -107,7 +107,7 @@ export function Disclosure({ summary, children, onOpen }: { summary: string; chi
   );
 }
 
-/** Journey step indicator (Prepare → Rehearse → Summary), shown on the navy header. */
+/** Journey step indicator (Prepare → Rehearse → Summary), shown on the light Theme A header. */
 export function JourneySteps({ current }: { current: 'prepare' | 'rehearse' | 'finish' }) {
   const steps: { key: typeof current; label: string }[] = [
     { key: 'prepare', label: 'Prepare' },
@@ -119,8 +119,8 @@ export function JourneySteps({ current }: { current: 'prepare' | 'rehearse' | 'f
     <ol className="flex items-center gap-2 text-xs font-medium">
       {steps.map((s, i) => (
         <li key={s.key} className="flex items-center gap-2">
-          <span className={`inline-flex h-6 items-center rounded-full px-2.5 ${i <= idx ? 'text-white' : 'text-slate-300'}`} style={{ background: i <= idx ? 'var(--ss-primary)' : 'rgba(255,255,255,0.08)' }}>{s.label}</span>
-          {i < steps.length - 1 ? <span aria-hidden style={{ color: i < idx ? 'var(--ss-aqua)' : 'rgba(255,255,255,0.3)' }}>→</span> : null}
+          <span className="inline-flex h-6 items-center rounded-full px-2.5" style={{ background: i <= idx ? 'var(--ss-primary)' : 'var(--ss-neutral-soft)', color: i <= idx ? '#fff' : 'var(--ss-neutral-text)' }}>{s.label}</span>
+          {i < steps.length - 1 ? <span aria-hidden style={{ color: i < idx ? 'var(--ss-primary)' : 'var(--ss-border)' }}>→</span> : null}
         </li>
       ))}
     </ol>

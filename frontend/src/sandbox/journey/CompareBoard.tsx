@@ -31,9 +31,9 @@ export function CompareBoard() {
   return (
     <div className="min-h-screen bg-slate-100 font-sans antialiased">
       <header className="border-b border-slate-200 bg-white px-6 py-4">
-        <h1 className="text-lg font-semibold text-slate-900">Landing theme comparison — localhost review</h1>
+        <h1 className="text-lg font-semibold text-slate-900">Landing theme comparison — decision evidence</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Three candidate themes on the same frozen two-column layout and content ({mode} render). This is a review surface (?compare=1) — <span className="font-semibold">no theme is selected here</span>; awaiting Prod Owner selection.
+          The three candidates reviewed on the same frozen two-column layout and content ({mode} render). <span className="font-semibold">Theme A — Vibrant Confidence was selected</span> and is now the sandbox default; B and C are retained here only as the A/B/C decision record (?compare=1).
         </p>
       </header>
 

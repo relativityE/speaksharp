@@ -115,7 +115,7 @@ function Card({ c, open, setOpen, emphasize }: { c: ColumnDef; open: OpenRow | n
       style={CARD_VARS[c.key]}
       className={`group flex flex-col overflow-hidden rounded-3xl bg-[color:var(--ss-surface)] transition-all duration-200 ${
         selected
-          ? 'shadow-xl shadow-slate-900/[0.10] ring-2 ring-[color:var(--ss-card)] -translate-y-0.5'
+          ? 'shadow-xl shadow-slate-900/[0.13] ring-2 ring-[color:var(--ss-card)] -translate-y-1'
           : 'shadow-lg shadow-slate-900/[0.06] ring-1 ring-[color:var(--ss-border)] hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-900/[0.08]'
       }`}
     >
@@ -161,7 +161,7 @@ export function LandingScreen({ actions, returning = false, lastMode, theme = 'a
 
   const columns: ColumnDef[] = [
     {
-      key: 'session', title: 'SpeakSharp Session', benefit: 'Start speaking with the current SpeakSharp experience.', Art: SessionPanelArt,
+      key: 'session', title: 'SpeakSharp Session', benefit: 'Speak freely, capture your words, and review feedback without preparing an agenda.', Art: SessionPanelArt,
       rows: [
         { title: 'Choose your session mode', rollup: 'Your usual setup', subtasks: ['Pick how you want to capture — the modes you already use.'] },
         { title: 'Start speaking', rollup: 'Ready to record', subtasks: ['Speak as you normally would; SpeakSharp transcribes as you go.'] },
@@ -192,14 +192,14 @@ export function LandingScreen({ actions, returning = false, lastMode, theme = 'a
         <div className="mx-auto max-w-5xl px-5 pb-16 pt-5 sm:px-8">
           <div className="flex items-center gap-2.5">
             <FlaskConical size={20} aria-hidden style={{ color: 'var(--ss-exec-accent)' }} />
-            <span className="mr-auto font-semibold text-[color:var(--ss-text)]">SpeakSharp Practice</span>
+            <span className="mr-auto font-semibold text-[color:var(--ss-text)]">SpeakSharp</span>
             <span className="rounded-full border border-[color:var(--ss-border)] bg-white/70 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-[color:var(--ss-neutral)]">Sandbox</span>
           </div>
           <h2 className="mt-8 max-w-2xl text-3xl font-semibold tracking-tight text-[color:var(--ss-text)] sm:text-4xl">Choose how you want to practice</h2>
           <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[color:var(--ss-text-secondary)]">
             {returning
               ? 'Welcome back — start a standard SpeakSharp session, or pick up your Executive Rehearsal.'
-              : 'Start a standard SpeakSharp session and continue with the experience you know, or prepare an Executive Rehearsal that quietly tracks the outcomes you intend to cover.'}
+              : 'Start a standard SpeakSharp session for transcription and feedback, or prepare an Executive Rehearsal that quietly tracks the outcomes you intend to cover.'}
           </p>
         </div>
       </div>

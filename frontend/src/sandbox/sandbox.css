@@ -41,14 +41,16 @@
 }
 
 /*
- * ── LANDING THEME-COMPARISON GATE (localhost review only) ─────────────────────────────────────────
- * Three candidate landing themes, selectable via ?theme=a|b|c (default a) or shown side-by-side via
- * ?compare=1. These blocks override the semantic tokens ONLY within the element carrying
- * data-ss-theme (the landing subtree) — downstream sandbox screens keep the :root palette above, so
- * NO theme is propagated beyond the landing until a Prod Owner selection is made. Each theme sets a
- * light hero gradient + two DISTINCT per-activity accents (SpeakSharp Session vs Executive Rehearsal),
- * each with an AA-dark button shade (--*-btn), a soft tint (--*-soft), and a card visual-panel
- * gradient (--*-panel). Button shades are chosen so white label text meets WCAG AA (≥4.5:1).
+ * ── SANDBOX THEME — "Vibrant Confidence" (Theme A, SELECTED direction) ────────────────────────────
+ * Theme A is the Prod Owner-selected sandbox direction. data-ss-theme='a' is set on the app root, so
+ * these tokens theme the WHOLE journey (landing + every downstream screen) — the old :root
+ * "Confident Momentum" values above now act only as fallbacks for tokens a theme doesn't override
+ * (listening teal, aqua, soft tints). Themes B and C are RETAINED for the ?compare=1 review board and
+ * the A/B/C decision evidence; they are reachable only via ?theme=b|c (used by the board's iframes).
+ * Each theme sets a light hero gradient + two DISTINCT per-activity accents (SpeakSharp Session vs
+ * Executive Rehearsal), each with an AA-dark button shade (--*-btn), soft tint (--*-soft), and card
+ * visual-panel gradient (--*-panel). Button/label shades meet WCAG AA (≥4.5:1). This is localhost
+ * sandbox styling only — it is NOT applied to production and shares nothing with app tokens/CSS.
  */
 [data-ss-theme] {
   --ss-warm: var(--ss-coral);
@@ -72,7 +74,7 @@
   --ss-sun: #F4B63D;
   --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3; --ss-session-panel: linear-gradient(145deg, #DFF9F5 0%, #F5FFFF 100%);
   --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE; --ss-exec-panel: linear-gradient(145deg, #EAE7FF 0%, #FFF0EA 100%);
-  --ss-primary: #5B4CF0; --ss-primary-hover: #4738CD; --ss-primary-soft: #ECEAFE;
+  --ss-primary: #5B4CF0; --ss-primary-hover: #4738CD; --ss-primary-soft: #ECEAFE; --ss-primary-soft-text: #4738CD;
 }
 
 /* Theme B — Ocean Energy */
@@ -92,7 +94,7 @@
   --ss-sun: #FFB547;
   --ss-session-accent: #009C98; --ss-session-btn: #006B68; --ss-session-soft: #DFF4F3; --ss-session-panel: linear-gradient(145deg, #DBF6F4 0%, #F2FEFF 100%);
   --ss-exec-accent: #2764E7; --ss-exec-btn: #1E50C0; --ss-exec-soft: #E3ECFC; --ss-exec-panel: linear-gradient(145deg, #E4EEFF 0%, #EAF7FF 100%);
-  --ss-primary: #2764E7; --ss-primary-hover: #1E50C0; --ss-primary-soft: #E3ECFC;
+  --ss-primary: #2764E7; --ss-primary-hover: #1E50C0; --ss-primary-soft: #E3ECFC; --ss-primary-soft-text: #1E50C0;
 }
 
 /* Theme C — Warm Premium */
@@ -112,7 +114,7 @@
   --ss-sun: #D89414;
   --ss-session-accent: #16806A; --ss-session-btn: #126E5B; --ss-session-soft: #E2F1EC; --ss-session-panel: linear-gradient(145deg, #E6F5EF 0%, #FBFFFD 100%);
   --ss-exec-accent: #65479B; --ss-exec-btn: #51367F; --ss-exec-soft: #EDE7F5; --ss-exec-panel: linear-gradient(145deg, #F1EAFB 0%, #FFF1E4 100%);
-  --ss-primary: #65479B; --ss-primary-hover: #51367F; --ss-primary-soft: #EDE7F5;
+  --ss-primary: #65479B; --ss-primary-hover: #51367F; --ss-primary-soft: #EDE7F5; --ss-primary-soft-text: #51367F;
 }
 
 /* Landing hero band — light, per-theme gradient, integrates the brand header + preamble */

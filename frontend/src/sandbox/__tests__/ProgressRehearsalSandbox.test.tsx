@@ -125,8 +125,8 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
     }
   });
 
-  // ── Landing theme-comparison gate (localhost review; no theme selected/propagated) ──────────────
-  it('landing defaults to candidate theme A (a preview default, not a selection)', () => {
+  // ── Theme A ("Vibrant Confidence") is the selected sandbox direction, applied app-wide ───────────
+  it('applies the selected Theme A on the app root by default (themes the whole journey)', () => {
     render(<ProgressRehearsalSandbox />);
     expect(document.querySelector('[data-ss-theme="a"]')).toBeInTheDocument();
     // The frozen two-column IA is identical regardless of theme.
@@ -134,7 +134,7 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
     expect(within(main()).getByRole('heading', { name: /^Executive Rehearsal$/i })).toBeInTheDocument();
   });
 
-  it('?theme=b and ?theme=c render the other candidate themes on the same landing', () => {
+  it('?theme=b and ?theme=c still render the retained candidate themes (compare-board evidence)', () => {
     setQuery('?theme=b');
     const { unmount } = render(<ProgressRehearsalSandbox />);
     expect(document.querySelector('[data-ss-theme="b"]')).toBeInTheDocument();
@@ -145,13 +145,13 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
     expect(document.querySelector('[data-ss-theme="c"]')).toBeInTheDocument();
   });
 
-  it('?compare=1 shows all three candidate themes side-by-side and selects none', () => {
+  it('?compare=1 retains all three themes as decision evidence (Theme A selected)', () => {
     setQuery('?compare=1');
     render(<ProgressRehearsalSandbox />);
     expect(within(main()).getByTitle(/Theme A/i)).toBeInTheDocument();
     expect(within(main()).getByTitle(/Theme B/i)).toBeInTheDocument();
     expect(within(main()).getByTitle(/Theme C/i)).toBeInTheDocument();
-    expect(screen.getByText(/no theme is selected here/i)).toBeInTheDocument();
+    expect(screen.getByText(/theme a — vibrant confidence was selected/i)).toBeInTheDocument();
   });
 
   it('"View past progress" shows raw movement; percentage stays behind details', () => {
