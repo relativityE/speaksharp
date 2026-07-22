@@ -1,0 +1,66 @@
+# Phase 2 sandbox review screenshots — ephemeral artifact only.
+#
+# Regenerates the localhost UX-sandbox screenshots in CI (8 desktop states + 3 mobile) and uploads
+# them as a GitHub Actions artifact with 1-DAY retention. Scoped to the sandbox branch / its PR so it
+# never runs for other branches. This is a review aid, not a gate: it neither deploys nor merges
+# anything, and the sandbox entry is dev-only (absent from production builds).
+name: Sandbox Screenshots
+
+on:
+  push:
+    branches: [feat/executive-rehearsal-progress-sandbox]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    # Only for the sandbox branch (push) or a PR whose head IS the sandbox branch.
+    if: >-
+      github.ref == 'refs/heads/feat/executive-rehearsal-progress-sandbox' ||
+      github.head_ref == 'feat/executive-rehearsal-progress-sandbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install chromium --with-deps
+
+      - name: Start sandbox dev server (dev mode serves /sandbox.html)
+        working-directory: frontend
+        run: |
+          pnpm exec vite --host 127.0.0.1 --port 5174 --mode development --logLevel error &
+          echo "VITE_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for the sandbox to be served
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:5174/sandbox.html >/dev/null 2>&1; then echo "sandbox up"; exit 0; fi
+            sleep 2
+          done
+          echo "sandbox did not come up" >&2; exit 1
+
+      - name: Capture screenshots (8 desktop + 3 mobile)
+        run: node scripts/phase2-sandbox-screenshots.mjs
+        env:
+          OUT_DIR: sandbox-screenshots
+
+      - name: Upload screenshots artifact (1-day retention)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: sandbox-screenshots
+          path: sandbox-screenshots/
+          retention-days: 1
+          if-no-files-found: error

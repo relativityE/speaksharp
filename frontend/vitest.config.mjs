@@ -76,6 +76,9 @@ export default defineConfig({
         'frontend/src/types/**',
         'frontend/src/**/index.ts',
         '**/*.config.{ts,mjs,js}',
+        // Dev-only Phase 2 UX sandbox (standalone Vite entry, never in a production build) — excluded
+        // from the production coverage gate. Its own tests still run for correctness.
+        'frontend/src/sandbox/**',
       ],
       // Floor raised 60 -> 75 to lock in current actual coverage (~76.5% lines/stmts, 77.8%
       // functions, 80.2% branches) so regressions are caught. Branches held at 75 (not 80) for
