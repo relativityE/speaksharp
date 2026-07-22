@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
+import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
+import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
   trackQuickPracticeStarted, trackGuidedRehearsalPreviewViewed,
@@ -184,6 +186,7 @@ function ModeCard({ vars, art, title, promise, description, marker, ctaLabel, ct
 
 export default function PracticePage() {
   const navigate = useNavigate();
+  const { setSurface } = usePracticeSurface();
   const [view, setView] = React.useState<'landing' | 'quick-overview'>('landing');
   const [guidedExpanded, setGuidedExpanded] = React.useState(false);
   const returning = React.useRef(false);
@@ -195,6 +198,18 @@ export default function PracticePage() {
     } catch { /* ignore storage errors */ }
     trackPracticeEntryViewed(returning.current);
   }, []);
+
+  // Publish the active surface to the global Report Issue dialog (typed token only). Quick overview wins
+  // over the Guided preview; otherwise the chooser is `practice_home`.
+  React.useEffect(() => {
+    const surface: PracticeSurface = view === 'quick-overview'
+      ? 'quick_practice_overview'
+      : guidedExpanded ? 'guided_rehearsal_preview' : 'practice_home';
+    setSurface(surface);
+  }, [view, guidedExpanded, setSurface]);
+
+  // Reset the override when leaving /practice so a report elsewhere never inherits a stale surface.
+  React.useEffect(() => () => setSurface(null), [setSurface]);
 
   const openQuick = () => { trackPracticeModeSelected('quick', 'landing_card'); trackPracticeOverviewExpanded('quick'); setView('quick-overview'); };
   const toggleGuided = () => {

@@ -45,7 +45,7 @@ export default tseslint.config(
         {
           allowConstantExport: true,
           // Allow common patterns: context exports, hooks, variant exports (CVA)
-          allowExportNames: ['AuthContext', 'useAuthProvider', 'alertVariants', 'toastVariants'],
+          allowExportNames: ['AuthContext', 'useAuthProvider', 'usePracticeSurface', 'alertVariants', 'toastVariants'],
         },
       ],
     },

@@ -32,6 +32,13 @@ const EXPECTED = {
   owned: { label: 'Session Analytics', areas: ['comparison', 'evidence', 'navigation', 'other'] },
   other: { label: 'Other page', areas: ['navigation', 'visual_layout', 'other'] },
 } as const;
+
+// The three closed /practice surfaces (one route, distinguished by the active UI state).
+const PRACTICE_EXPECTED = {
+  practice_home: { surface: 'practice_home', label: 'SpeakSharp Practice', journeyStep: 'chooser', areas: ['understanding_choices', 'navigation', 'visual_layout', 'other'] },
+  quick_practice_overview: { surface: 'quick_practice_overview', label: 'Quick Practice overview', journeyStep: 'quick_overview', areas: ['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other'] },
+  guided_rehearsal_preview: { surface: 'guided_rehearsal_preview', label: 'Guided Rehearsal preview', journeyStep: 'guided_preview', areas: ['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other'] },
+} as const;
 const SESSION_AREAS = EXPECTED.session.areas;
 
 test.use({ screenshot: 'off', video: 'off', trace: 'off' });
@@ -182,6 +189,53 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     for (const r of rows) {
       const area = r.metadata.issueArea;
       expect(area === null || typeof area === 'string').toBe(true);
+    }
+  });
+
+  // POST-ACTIVATION proof: the three /practice surfaces are distinguishable server-side while all keeping
+  // canonicalRoute /practice. Reserved for after the rollout flag is activated for this account — it skips
+  // cleanly (never fails the gate) if /practice is not reachable yet.
+  test('distinguishes practice_home / quick_practice_overview / guided_rehearsal_preview server-side', async ({ page }) => {
+    await signIn(page);
+    await navigateToRoute(page, '/practice');
+    const onPractice = await page.getByTestId('practice-root').isVisible().catch(() => false);
+    test.skip(!onPractice, 'Practice-entry flag is OFF for this account here — post-activation proof.');
+
+    // chooser
+    await submitReport(page, `${MARK} practice-home`, PRACTICE_EXPECTED.practice_home);
+    // quick overview
+    await page.getByTestId('practice-card-quick').click();
+    await submitReport(page, `${MARK} quick`, PRACTICE_EXPECTED.quick_practice_overview);
+    // back to chooser, then guided preview
+    await page.getByTestId('practice-back-top').click();
+    await page.getByTestId('practice-card-guided').click();
+    await submitReport(page, `${MARK} guided`, PRACTICE_EXPECTED.guided_rehearsal_preview);
+
+    await expect.poll(async () => {
+      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK} practice-%`);
+      return data?.length ?? 0;
+    }, { timeout: 20000 }).toBeGreaterThanOrEqual(1);
+
+    const { data } = await admin
+      .from('user_issue_reports').select('title, session_id, page_url, metadata')
+      .eq('user_id', basicUserId).ilike('title', `${MARK}%`);
+    const rows = (data ?? []) as StoredReport[];
+    const bySuffix = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
+
+    for (const [suffix, exp] of [['practice-home', PRACTICE_EXPECTED.practice_home], ['quick', PRACTICE_EXPECTED.quick_practice_overview], ['guided', PRACTICE_EXPECTED.guided_rehearsal_preview]] as const) {
+      const row = bySuffix(suffix);
+      expect(row, `stored report ${suffix}`).toBeTruthy();
+      // One canonical route for all three surfaces; the surface is the distinguisher.
+      expect(row.page_url).toBe('/practice');
+      expect(row.metadata.canonicalRoute).toBe('/practice');
+      expect(row.metadata.pageKey).toBe('practice');
+      expect(row.metadata.practiceSurface).toBe(exp.surface);
+      expect(row.metadata.journeyStep).toBe(exp.journeyStep);
+      // issueArea (if any) is a valid slug for THIS surface — never cross-surface.
+      const area = row.metadata.issueArea;
+      expect(area === null || (exp.areas as readonly string[]).includes(area as string)).toBe(true);
+      // No session id or raw navigation content leaked into a /practice report.
+      expect(row.session_id).toBeNull();
     }
   });
 });

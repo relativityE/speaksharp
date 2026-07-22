@@ -5,6 +5,7 @@ import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PracticeEntryGate, PostAuthContinue } from './components/practice/practiceRouting';
+import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
@@ -331,6 +332,9 @@ const App: React.FC = () => {
         offset={toastOffset}
       />
       <ProfileGuard>
+       {/* Provider spans BOTH Navigation (Report Issue button) and the routed page, so the global dialog
+           can read the active /practice surface the page sets. */}
+       <PracticeSurfaceProvider>
         <RouteReadinessManager />
         <Navigation />
         <main
@@ -400,6 +404,7 @@ const App: React.FC = () => {
             </Suspense>
           </ErrorBoundary>
         </main>
+       </PracticeSurfaceProvider>
       </ProfileGuard>
     </div>
   );

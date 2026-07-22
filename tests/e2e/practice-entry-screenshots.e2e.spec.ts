@@ -64,6 +64,27 @@ async function clickBackToChooser(page: Page, testid: string) {
   await expect(page.getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toHaveCount(0);
 }
 
+// Expected surface-specific issue-area option values (mirrors services/pageContext).
+const AREAS = {
+  practice_home: ['understanding_choices', 'navigation', 'visual_layout', 'other'],
+  quick_practice_overview: ['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other'],
+  guided_rehearsal_preview: ['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other'],
+  session: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'],
+};
+
+// Open the GLOBAL Report Issue dialog, assert the visible page label + surface-specific issue areas, then
+// close it WITHOUT submitting (Escape) — normal interactions only.
+async function assertReport(page: Page, expectedLabel: string | RegExp, expectedAreas: readonly string[]) {
+  await page.getByTestId('nav-report-issue-button').click();
+  await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('issue-report-page-context')).toContainText(expectedLabel);
+  const areas = await page.getByTestId('issue-report-area').locator('option')
+    .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
+  expect(areas).toEqual([...expectedAreas]);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('issue-report-title')).toHaveCount(0);
+}
+
 test.describe('Practice entry — real Back navigation, visual + CDP evidence', () => {
   test('Quick → Back → chooser → Guided in one uninterrupted journey (both Back controls), clean page', async ({ page }) => {
     const consoleErrors: string[] = [];
@@ -88,14 +109,20 @@ test.describe('Practice entry — real Back navigation, visual + CDP evidence', 
     await enterPractice(page);
     await page.screenshot({ path: `${DIR}/01-chooser-desktop.png`, fullPage: true });
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
+    // Report Issue on the chooser → practice_home.
+    await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
     // 1) TOP Back journey: Quick → top Back → chooser → Guided (no reload, stays on /practice).
     await openQuickOverview(page);
     await page.screenshot({ path: `${DIR}/02-quick-overview-desktop.png`, fullPage: true });
+    // Report Issue on the Quick overview → quick_practice_overview (distinct label + areas).
+    await assertReport(page, 'Quick Practice overview', AREAS.quick_practice_overview);
     await clickBackToChooser(page, 'practice-back-top');
     await page.getByTestId('practice-card-guided').click();
     await expect(page.getByText(/preview · coming soon/i)).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/practice');
+    // Report Issue on the Guided preview → guided_rehearsal_preview (distinct label + areas).
+    await assertReport(page, 'Guided Rehearsal preview', AREAS.guided_rehearsal_preview);
     await page.screenshot({ path: `${DIR}/03-guided-expanded-desktop.png`, fullPage: true });
 
     // 2) BOTTOM Back journey: re-enter overview, scroll the bottom Back into view, click it, return.
@@ -122,8 +149,17 @@ test.describe('Practice entry — real Back navigation, visual + CDP evidence', 
     await goToApp(page, '/auth/continue'); // helper preserves MSW init; PostAuthContinue redirects to /practice
     await expectOnChooser(page); // targeted → /practice chooser, via /auth/continue → PostAuthRedirect
 
-    // CDP + navigation assertions: clean, self-contained, and never left /practice for /session.
-    expect(sessionNavs, `unexpected /session navigations: ${sessionNavs.join(' | ')}`).toEqual([]);
+    // Up to here NOTHING should have navigated to /session — Back/Guided/continuation all stay on /practice.
+    expect(sessionNavs, `unexpected /session navigations before Start speaking: ${sessionNavs.join(' | ')}`).toEqual([]);
+
+    // === START SPEAKING → /session === the INTENTIONAL handoff. Its Report Issue must use the existing,
+    // unchanged Session · Speaking context (surface reset on leaving /practice).
+    await openQuickOverview(page);
+    await page.getByTestId('practice-quick-start').click();
+    await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
+    await assertReport(page, 'Session · Speaking', AREAS.session);
+
+    // CDP assertions: clean, self-contained page throughout.
     expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
     expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
     expect(trackingRequests, `unexpected tracking requests: ${trackingRequests.join(' | ')}`).toEqual([]);

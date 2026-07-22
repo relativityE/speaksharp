@@ -44,6 +44,24 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
     // Empty string → null.
     expect(buildIssueReportMetadata({ context: session, issueArea: '' }).issueArea).toBeNull();
   });
+
+  it('validates issueArea against the ACTIVE /practice surface, rejecting cross-surface areas', () => {
+    const quick = resolvePageContext('/practice', 'quick_practice_overview');
+    const guided = resolvePageContext('/practice', 'guided_rehearsal_preview');
+    // Valid for the active surface → kept.
+    expect(buildIssueReportMetadata({ context: quick, issueArea: 'start_speaking' }).issueArea).toBe('start_speaking');
+    expect(buildIssueReportMetadata({ context: guided, issueArea: 'correction_loop' }).issueArea).toBe('correction_loop');
+    // Valid for a DIFFERENT surface → coerced to null (no cross-surface leakage).
+    expect(buildIssueReportMetadata({ context: quick, issueArea: 'correction_loop' }).issueArea).toBeNull();
+    expect(buildIssueReportMetadata({ context: guided, issueArea: 'start_speaking' }).issueArea).toBeNull();
+  });
+
+  it('persists the active practiceSurface (and only a valid one) in metadata', () => {
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/practice', 'quick_practice_overview') }))
+      .toMatchObject({ practiceSurface: 'quick_practice_overview', pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
+    // Off /practice: no surface attached.
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/session') }).practiceSurface).toBeNull();
+  });
 });
 
 vi.mock('@/lib/supabaseClient', () => ({
