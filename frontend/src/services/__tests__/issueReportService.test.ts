@@ -32,6 +32,18 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
     const meta = buildIssueReportMetadata({ context: resolvePageContext('/') });
     expect(meta.issueArea).toBeNull();
   });
+
+  it('validates issueArea against THIS page allowlist at the service boundary (UI is not trusted alone)', () => {
+    const session = resolvePageContext('/session');
+    // Valid for this page → kept.
+    expect(buildIssueReportMetadata({ context: session, issueArea: 'transcription' }).issueArea).toBe('transcription');
+    // Valid for ANOTHER page (analytics), invalid for /session → coerced to null.
+    expect(buildIssueReportMetadata({ context: session, issueArea: 'comparison' }).issueArea).toBeNull();
+    // Arbitrary free text / injected value → null.
+    expect(buildIssueReportMetadata({ context: session, issueArea: '<script>alert(1)</script>' }).issueArea).toBeNull();
+    // Empty string → null.
+    expect(buildIssueReportMetadata({ context: session, issueArea: '' }).issueArea).toBeNull();
+  });
 });
 
 vi.mock('@/lib/supabaseClient', () => ({

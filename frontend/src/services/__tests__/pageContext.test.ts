@@ -40,11 +40,28 @@ describe('pageContext — resolvePageContext', () => {
     expect(JSON.stringify(ctx)).not.toContain(UUID);
   });
 
-  it('falls back to a safe "other" identity for unknown routes without leaking ids', () => {
-    const ctx = resolvePageContext(`/mystery/${UUID}/thing?q=1`);
-    expect(ctx.pageKey).toBe('other');
-    expect(ctx.canonicalRoute).toBe('/mystery/:id/thing');
-    expect(ctx.canonicalRoute).not.toContain(UUID);
+  it('FAILS CLOSED on any unknown route — constant /other, never arbitrary path content', () => {
+    // Sensitive path content (email, token, name, encoded data) must NEVER survive into context.
+    const fixtures: Array<[string, string]> = [
+      ['/invite/user@example.com', 'user@example.com'],
+      ['/reset/nonhex-secret-token', 'nonhex-secret-token'],
+      ['/mystery/customer-name/document', 'customer-name'],
+      ['/team/Jane%20Doe/settings', 'Jane'],
+      [`/mystery/${UUID}/thing?q=secret`, UUID],
+    ];
+    for (const [path, secret] of fixtures) {
+      const ctx = resolvePageContext(path);
+      expect(ctx).toMatchObject({ pageKey: 'other', pageLabel: 'Other page', productMode: 'other', journeyStep: 'unknown', canonicalRoute: '/other' });
+      expect(JSON.stringify(ctx)).not.toContain(secret);
+    }
+  });
+
+  it('only exactly-registered routes get a template (a foreign /auth path fails closed)', () => {
+    expect(resolvePageContext('/auth/signin').canonicalRoute).toBe('/auth/signin');
+    // A non-registered /auth/* path must NOT preserve its segment.
+    const ctx = resolvePageContext('/auth/user@example.com');
+    expect(ctx.canonicalRoute).toBe('/other');
+    expect(JSON.stringify(ctx)).not.toContain('user@example.com');
   });
 });
 

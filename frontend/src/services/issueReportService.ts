@@ -2,7 +2,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
-import type { PageContext } from '@/services/pageContext';
+import { issueAreasFor, type PageContext } from '@/services/pageContext';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -80,6 +80,11 @@ export const buildIssueReportMetadata = (input: {
     ? (window as unknown as { Sentry?: { lastEventId?: () => string | null } }).Sentry
     : undefined;
   const { context } = input;
+  // Allowlist rule: issueArea is stored ONLY if it is a valid area slug for THIS page. Any invalid,
+  // stale (valid for another page), injected, or empty value is coerced to null — the UI select is not
+  // trusted as the sole gate.
+  const validAreas = issueAreasFor(context.pageKey).map((a) => a.value);
+  const issueArea = input.issueArea && validAreas.includes(input.issueArea) ? input.issueArea : null;
 
   return {
     // The stored route is the sanitized template — no full URL, query string, or hash.
@@ -89,7 +94,7 @@ export const buildIssueReportMetadata = (input: {
     productMode: context.productMode,
     journeyStep: context.journeyStep,
     canonicalRoute: context.canonicalRoute,
-    issueArea: input.issueArea ?? null,
+    issueArea,
     releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,

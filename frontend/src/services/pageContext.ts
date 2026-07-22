@@ -48,16 +48,31 @@ export function toCanonicalRoute(pathname: string | null | undefined): string {
   return joined === '' ? '/' : joined;
 }
 
-/** Resolve the current pathname to its allowlisted page context. Unknown routes → a safe `other`. */
+// Fail-closed fallback for any route not explicitly registered. Its canonicalRoute is a CONSTANT
+// (`/other`) — an unknown path's segments (which could contain an email, token, or name) are NEVER
+// carried into stored context.
+const OTHER_CONTEXT: PageContext = { pageKey: 'other', pageLabel: 'Other page', productMode: 'other', journeyStep: 'unknown', canonicalRoute: '/other' };
+
+// Explicit allowlist of known routes → their canonical (id-free) templates. Keys are the normalized
+// form produced by toCanonicalRoute (so /analytics/<uuid> matches '/analytics/:id').
+const ROUTE_REGISTRY: Record<string, PageContext> = {
+  '/': { pageKey: 'home', pageLabel: 'SpeakSharp landing', productMode: 'marketing', journeyStep: 'landing', canonicalRoute: '/' },
+  '/session': { pageKey: 'session', pageLabel: 'Session · Speaking', productMode: 'session', journeyStep: 'speaking', canonicalRoute: '/session' },
+  '/analytics': { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/analytics' },
+  '/analytics/:id': { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/analytics/:sessionId' },
+  '/pricing': { pageKey: 'pricing', pageLabel: 'Pricing', productMode: 'marketing', journeyStep: 'pricing', canonicalRoute: '/pricing' },
+  '/auth/signin': { pageKey: 'auth', pageLabel: 'Account / sign-in', productMode: 'account', journeyStep: 'auth', canonicalRoute: '/auth/signin' },
+  '/auth/signup': { pageKey: 'auth', pageLabel: 'Account / sign-up', productMode: 'account', journeyStep: 'auth', canonicalRoute: '/auth/signup' },
+  '/auth/reset': { pageKey: 'auth', pageLabel: 'Account / reset', productMode: 'account', journeyStep: 'auth', canonicalRoute: '/auth/reset' },
+};
+
+/**
+ * Resolve the current pathname to its allowlisted page context. FAIL-CLOSED: only exactly-registered
+ * routes get their template; every other route resolves to OTHER_CONTEXT with a constant `/other`
+ * route, so no arbitrary path content (emails, tokens, names, encoded data) can enter stored context.
+ */
 export function resolvePageContext(pathname: string | null | undefined): PageContext {
-  const route = toCanonicalRoute(pathname);
-  if (route === '/') return { pageKey: 'home', pageLabel: 'SpeakSharp landing', productMode: 'marketing', journeyStep: 'landing', canonicalRoute: '/' };
-  if (route === '/session') return { pageKey: 'session', pageLabel: 'Session · Speaking', productMode: 'session', journeyStep: 'speaking', canonicalRoute: '/session' };
-  if (route === '/analytics') return { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/analytics' };
-  if (route === '/analytics/:id') return { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/analytics/:sessionId' };
-  if (route === '/pricing') return { pageKey: 'pricing', pageLabel: 'Pricing', productMode: 'marketing', journeyStep: 'pricing', canonicalRoute: '/pricing' };
-  if (route.startsWith('/auth')) return { pageKey: 'auth', pageLabel: 'Account / sign-in', productMode: 'account', journeyStep: 'auth', canonicalRoute: route };
-  return { pageKey: 'other', pageLabel: 'Other page', productMode: 'other', journeyStep: 'unknown', canonicalRoute: route };
+  return ROUTE_REGISTRY[toCanonicalRoute(pathname)] ?? OTHER_CONTEXT;
 }
 
 // Page-specific "What part had a problem?" options. Every set ends with `other` so nothing is forced.
