@@ -50,6 +50,41 @@ export function ExecutiveRehearsalVignette() {
  */
 
 /**
+ * Overall-landing shared graphic — one warm SpeakSharp voice BRANCHING into the two ways to practice:
+ * an amber speech waveform splits into a teal transcript/feedback path (Quick Practice) and a violet
+ * agenda/coverage-recovery path (Guided Rehearsal). Warm origin unites; teal + violet identify.
+ */
+export function LandingHeroArt() {
+  return (
+    <svg viewBox="0 0 320 200" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
+      {[26, 44, 34, 58, 40, 30].map((h, i) => (
+        <rect key={i} x={14 + i * 11} y={100 - h / 2} width={6} height={h} rx={3} fill="var(--ss-amber)" opacity={0.45 + (i % 3) * 0.2} />
+      ))}
+      <circle cx={92} cy={100} r={7} fill="var(--ss-amber)" />
+      {/* Branch up → Quick Practice: transcript + delivery-feedback (teal) */}
+      <path d="M99 100 C 140 100, 150 54, 196 54" fill="none" stroke="var(--ss-session-accent)" strokeWidth="2.5" strokeOpacity="0.5" strokeLinecap="round" />
+      {[150, 120, 138].map((w, i) => (
+        <rect key={`q${i}`} x={206} y={40 + i * 14} width={w * 0.5} height={7} rx={3.5} fill="var(--ss-session-accent)" opacity={i === 0 ? 0.55 : 0.3} />
+      ))}
+      <circle cx={212} cy={40} r={8} fill="var(--ss-session-accent)" />
+      <path d="M207.5 40 l3 3 l6 -6.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Branch down → Guided Rehearsal: agenda points → covered/recovered (violet) */}
+      <path d="M99 100 C 140 100, 150 148, 196 148" fill="none" stroke="var(--ss-exec-accent)" strokeWidth="2.5" strokeOpacity="0.5" strokeLinecap="round" />
+      {[
+        { c: 'var(--ss-success)', y: 132 },
+        { c: 'var(--ss-exec-accent)', y: 150 },
+        { c: 'var(--ss-partial)', y: 168 },
+      ].map((r, i) => (
+        <g key={`g${i}`}>
+          <circle cx={212} cy={r.y} r={6} fill={r.c} />
+          <rect x={226} y={r.y - 3.5} width={70 - i * 12} height={7} rx={3.5} fill={r.c} opacity={0.32} />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/**
  * Quick Practice — INTENT: speak freely → get a transcript + feedback. A flowing waveform on the left
  * resolves into transcript lines with a delivery-feedback check on the right (waveform → transcript).
  */

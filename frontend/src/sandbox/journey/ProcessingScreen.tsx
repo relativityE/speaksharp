@@ -1,6 +1,6 @@
 /**
  * Phase 2 SANDBOX — Processing ("Finalizing…") state, shown briefly between finishing a rehearsal and
- * the outcome summary. Stands in for on-device finalization; it exposes no numbers, just calm progress.
+ * the outcome summary. Stands in for finalization; it exposes no numbers, just calm progress.
  */
 
 import React from 'react';
@@ -18,7 +18,7 @@ export function ProcessingScreen({ onDone }: { onDone: () => void }) {
         <RecordingIndicator status="processing" />
         <div>
           <h2 className="text-2xl font-semibold text-[color:var(--ss-text)]">Finalizing your rehearsal…</h2>
-          <p className="mt-1 text-sm text-[color:var(--ss-text-secondary)]">Reviewing what you covered — this stays on your device.</p>
+          <p className="mt-1 text-sm text-[color:var(--ss-text-secondary)]">Reviewing what you covered — this only takes a moment.</p>
         </div>
         <div className="h-1.5 w-48 overflow-hidden rounded-full bg-[color:var(--ss-border)]" role="progressbar" aria-label="Finalizing">
           <div className="ss-breathe h-full w-1/2 rounded-full motion-reduce:w-full" style={{ background: 'linear-gradient(90deg, var(--ss-primary), var(--ss-listening))' }} />

@@ -14,7 +14,7 @@
 
 import React from 'react';
 import { ArrowRight, Check, Play } from 'lucide-react';
-import { QuickPracticeArt, GuidedRehearsalArt } from '../components/vignettes';
+import { QuickPracticeArt, GuidedRehearsalArt, LandingHeroArt } from '../components/vignettes';
 
 export type LandingTheme = 'a' | 'b' | 'c';
 type Col = 'quick' | 'guided';
@@ -79,18 +79,25 @@ export function LandingScreen({ actions, returning = false, lastMode, theme = 'a
   const lastLabel = lastMode === 'guided' ? 'Guided Rehearsal' : 'Quick Practice';
 
   return (
-    <div data-ss-theme={theme} className="min-h-screen bg-[color:var(--ss-canvas)]">
-      {/* Overall product hero — brand, umbrella tagline, private-preparation framing, explanation, prompt */}
+    <div data-ss-theme={theme} className="ss-landing-canvas min-h-screen">
+      {/* Overall product hero — warm amber/gold band uniting both modes: brand, umbrella tagline,
+          private-preparation framing, explanation, decision prompt, and the shared branching graphic. */}
       <div className="ss-theme-hero">
         <div className="mx-auto max-w-5xl px-5 pb-12 pt-5 sm:px-8">
           <div className="flex items-center gap-2.5">
             <span className="mr-auto text-sm font-bold uppercase tracking-wide text-[color:var(--ss-text)]">SpeakSharp</span>
             <span className="rounded-full border border-[color:var(--ss-border)] bg-white/70 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-[color:var(--ss-neutral)]">Sandbox</span>
           </div>
-          <h1 className="mt-6 text-3xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-4xl">Private Practice. Public Impact!</h1>
-          <p className="mt-2 max-w-2xl text-[15px] font-medium text-[color:var(--ss-text)]">Rehearse before the moment matters. You decide when your work is ready to be shared.</p>
-          <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[color:var(--ss-text-secondary)]">SpeakSharp helps you practice important speaking moments, review focused feedback, and see how you improve over time.</p>
-          <p className="mt-4 text-sm font-semibold text-[color:var(--ss-text)]">Do you want to speak freely, or practice toward specific outcomes?</p>
+          <div className="mt-6 grid items-center gap-6 md:grid-cols-[1fr_18rem]">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-4xl">Private Practice. Public Impact!</h1>
+              <span aria-hidden className="mt-2 block h-1 w-16 rounded-full" style={{ background: 'var(--ss-amber)' }} />
+              <p className="mt-3 max-w-2xl text-[15px] font-medium text-[color:var(--ss-text)]">Rehearse before the moment matters. You decide when your work is ready to be shared.</p>
+              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[color:var(--ss-text-secondary)]">SpeakSharp helps you practice important speaking moments, review focused feedback, and see how you improve over time.</p>
+              <p className="mt-4 text-sm font-semibold text-[color:var(--ss-text)]">Do you want to speak freely, or practice toward specific outcomes?</p>
+            </div>
+            <div className="hidden h-44 w-72 md:block"><LandingHeroArt /></div>
+          </div>
         </div>
       </div>
 

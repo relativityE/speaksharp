@@ -8,7 +8,7 @@
  * selection, one step open at a time (keyboard-operable). The big hero belongs ONLY here — once the
  * user starts working, the app collapses to the compact product header (no decorative hero in the
  * active workspace). The tagline never substitutes for disclosure: each mode states, separately and
- * truthfully, that transcription runs on-device OR via a secure cloud service, chosen in the session.
+ * neutrally, that the available transcription options and how speech is processed are shown per session.
  */
 
 import React from 'react';
@@ -52,7 +52,7 @@ const CONFIG: Record<OverviewMode, ModeConfig> = {
     Art: QuickPracticeArt,
     vars: QUICK_VARS,
     steps: [
-      { title: 'Choose your transcription mode', result: 'On your device, or a secure cloud service.', detail: 'Pick how your speech is transcribed. SpeakSharp shows which mode is active — it is never hidden.', Icon: Settings2 },
+      { title: 'Choose your transcription mode', result: 'Shown before each session — you choose.', detail: 'Pick how your speech is transcribed. SpeakSharp shows which mode is active before you start — it is never hidden.', Icon: Settings2 },
       { title: 'Start speaking', result: 'No agenda — just speak.', detail: 'Begin immediately. SpeakSharp transcribes as you go; there is nothing to set up first.', Icon: Mic },
       { title: 'Review your transcript and delivery evidence', result: 'See exactly what you said.', detail: 'Read the transcript alongside focused delivery signals such as pace and filler words.', Icon: FileText },
       { title: 'Compare with your own prior practice', result: 'Progress vs your own baseline.', detail: 'See how this session moves relative to your earlier practice — measured against you, never a public grade.', Icon: LineChart },
@@ -109,8 +109,8 @@ export function OverviewScreen({ mode, onPrimary, onSample, onBack }: { mode: Ov
 
   return (
     <div style={cfg.vars} className="min-h-[calc(100vh-3.5rem)]">
-      {/* Top-third specialized hero — the big hero belongs ONLY to this overview page */}
-      <section className="ss-theme-hero">
+      {/* Top-third specialized hero — warm foundation transitioning into this product's accent */}
+      <section className="ss-overview-hero">
         <div className="mx-auto max-w-5xl px-5 pb-10 pt-4 sm:px-8">
           <button onClick={onBack} className="ss-ring inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]">
             <ArrowLeft size={15} aria-hidden /> Back to practice choices
@@ -135,7 +135,7 @@ export function OverviewScreen({ mode, onPrimary, onSample, onBack }: { mode: Ov
           {/* Data-processing disclosure — the tagline frames PRIVATE PREPARATION, not on-device-for-all */}
           <p className="mt-6 inline-flex items-start gap-2 text-xs text-[color:var(--ss-neutral)]">
             <Shield size={14} aria-hidden className="mt-0.5 shrink-0" />
-            <span>How your speech is transcribed — on your device or via a secure cloud service — is shown and chosen in each session. “Private” here means private preparation: you decide when your work is ready to share.</span>
+            <span>Your available transcription options and how speech is processed are shown before each session. “Private” here means private preparation — you decide when your work is ready to share.</span>
           </p>
         </div>
       </section>

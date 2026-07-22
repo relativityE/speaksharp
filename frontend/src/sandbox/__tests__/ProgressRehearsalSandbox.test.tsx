@@ -46,8 +46,8 @@ describe('ProgressRehearsalSandbox — three-level journey (landing → overview
     expect(within(main()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
     expect(within(main()).getAllByRole('button', { name: /start speaking/i }).length).toBeGreaterThan(0);
     expect(within(main()).getByText(/choose your transcription mode/i)).toBeInTheDocument(); // journey step 1
-    // Truthful data-processing disclosure — the tagline does not imply on-device for every mode.
-    expect(within(main()).getByText(/on your device or via a secure cloud service/i)).toBeInTheDocument();
+    // Truthful data-processing disclosure — neutral wording, no unsupported on-device/cloud claim.
+    expect(within(main()).getByText(/available transcription options and how speech is processed are shown before each session/i)).toBeInTheDocument();
   });
 
   it('Guided Rehearsal card opens its overview with its own hero, 7-step journey, and correction loop', () => {

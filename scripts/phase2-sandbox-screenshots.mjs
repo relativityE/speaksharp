@@ -135,6 +135,13 @@ async function main() {
   await page.setViewportSize({ width: 1180, height: 1600 });
   await captureCompare(page, 'mobile', shots);
 
+  // Reduced-motion: the warm landing + a working screen must render calmly with animations disabled.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  { const p = `${OUT_DIR}/desktop-reduced-motion-landing.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
   const uniqueExternal = [...new Set(external)];
   writeFileSync(`${OUT_DIR}/manifest.json`, JSON.stringify({ screenshots: shots, externalOrigins: uniqueExternal }, null, 2));
   await browser.close();

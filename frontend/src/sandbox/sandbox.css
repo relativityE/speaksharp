@@ -69,7 +69,11 @@
   --ss-partial: #B96508;
   --ss-setback: #B42318;
   --ss-focus: #1677FF;
-  --ss-hero-gradient: linear-gradient(135deg, #EEF0FF 0%, #E7FAF6 52%, #FFF2E8 100%);
+  /* Warm SpeakSharp entrance — ivory/tan canvas + amber/gold hero uniting both practice modes,
+     before each branches into its teal / violet identity. Deep navy text stays for contrast. */
+  --ss-landing-canvas: #FBF7EF;
+  --ss-hero-gradient: linear-gradient(135deg, #FFF3DC 0%, #FFE7C2 46%, #FDEEDA 100%);
+  --ss-amber: #E8890C;
   --ss-coral: #FF7657;
   --ss-sun: #F4B63D;
   --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3; --ss-session-panel: linear-gradient(145deg, #DFF9F5 0%, #F5FFFF 100%);
@@ -119,6 +123,13 @@
 
 /* Landing hero band — light, per-theme gradient, integrates the brand header + preamble */
 .ss-theme-hero { background: var(--ss-hero-gradient); }
+
+/* Warm landing canvas — falls back to the neutral theme canvas when a theme has no warm override */
+.ss-landing-canvas { background: var(--ss-landing-canvas, var(--ss-canvas)); }
+
+/* Overview hero — a warm foundation that transitions INTO the selected product's accent (teal/violet),
+   keeping a subtle warm brand connection while the product's own colour becomes dominant. */
+.ss-overview-hero { background: linear-gradient(135deg, #FCF4E7 0%, var(--ss-card-soft) 92%); }
 
 /* Card visual panel — a substantial illustrated region at the top of each activity card */
 .ss-card-panel { background: var(--ss-card-panel); }
