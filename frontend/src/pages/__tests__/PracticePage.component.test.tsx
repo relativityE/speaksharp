@@ -61,6 +61,29 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(navigateSpy).toHaveBeenCalledWith('/session');
   });
 
+  it('Quick Overview → top Back returns to the chooser WITHOUT navigating to /session', () => {
+    render(<PracticePage />);
+    fireEvent.click(screen.getByTestId('practice-card-quick'));
+    expect(within(root()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
+    // The scoped top Back control returns to the chooser — no navigation happens.
+    fireEvent.click(screen.getByTestId('practice-back-top'));
+    expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+    expect(within(root()).queryByRole('heading', { name: /speak freely\. see how you.re progressing/i })).not.toBeInTheDocument();
+    expect(navigateSpy).not.toHaveBeenCalled();
+    // And from the returned chooser, Guided still opens inline (no reload / no navigation).
+    fireEvent.click(screen.getByTestId('practice-card-guided'));
+    expect(within(root()).getByText(/preview · coming soon/i)).toBeInTheDocument();
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('Quick Overview → bottom Back also returns to the chooser without navigating', () => {
+    render(<PracticePage />);
+    fireEvent.click(screen.getByTestId('practice-card-quick'));
+    fireEvent.click(screen.getByTestId('practice-back-bottom'));
+    expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
   it('Guided Rehearsal stays on the page: expands an inline PREVIEW and never navigates', () => {
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-guided'));

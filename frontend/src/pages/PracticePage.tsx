@@ -91,8 +91,11 @@ function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () =>
   return (
     <div style={QUICK_VARS}>
       <section className="ss-overview-hero">
-        <div className="mx-auto max-w-5xl px-5 pb-10 pt-4 sm:px-8">
-          <button onClick={onBack} className="ss-ring inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]"><ArrowLeft size={15} aria-hidden /> Back to practice choices</button>
+        {/* pt-24 clears the fixed global <nav> (h-16 / z-40): its interactive top control (the Back button)
+            must sit BELOW the nav, or the nav intercepts the click. scroll-mt-24 keeps it clear of the nav
+            when scrolled to. */}
+        <div className="mx-auto max-w-5xl px-5 pb-10 pt-24 sm:px-8">
+          <button onClick={onBack} data-testid="practice-back-top" className="ss-ring scroll-mt-24 inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]"><ArrowLeft size={15} aria-hidden /> Back to practice choices</button>
           <div className="mt-4 grid items-center gap-6 md:grid-cols-2">
             <div>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--ss-card-soft)] px-3 py-1 text-xs font-bold uppercase tracking-wide text-[color:var(--ss-card-btn)]">No agenda required.</span>
@@ -115,7 +118,7 @@ function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () =>
         </ol>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <button onClick={onStart} className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Start speaking</button>
-          <button onClick={onBack} className="ss-ring inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]">Back to practice choices</button>
+          <button onClick={onBack} data-testid="practice-back-bottom" className="ss-ring scroll-mt-24 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]">Back to practice choices</button>
         </div>
       </div>
     </div>
@@ -214,7 +217,8 @@ export default function PracticePage() {
         ) : (
           <>
             <div className="ss-theme-hero">
-              <div className="mx-auto max-w-5xl px-5 pb-12 pt-6 sm:px-8">
+              {/* pt-24 keeps the chooser's content clear of the fixed global <nav> (h-16 / z-40). */}
+              <div className="mx-auto max-w-5xl px-5 pb-12 pt-24 sm:px-8">
                 <div className="mt-1 grid items-center gap-6 md:grid-cols-[1fr_18rem]">
                   <div>
                     <h1 className="text-3xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-4xl">Private Practice. Public Impact!</h1>

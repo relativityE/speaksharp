@@ -37,10 +37,10 @@ export default function SignInPage() {
     const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
     // The post-auth destination is resolved ASYNCHRONOUSLY once the authenticated identity + its flags
     // are loaded (see PostAuthRedirect / resolveAuthedDefaultPath) — never from the pre-identification
-    // anonymous flag state. For the magic-link redirect target (clicked later, when the user is already
-    // authenticated) we honor a safe deep-link, else point at /practice and let the PracticeEntryGate
-    // apply the same rollout gate (flag OFF → /session), so no anonymous flag read happens here.
-    const magicLinkPath = safeDeepLink(fromLocation) ?? '/practice';
+    // anonymous flag state. The magic-link target is baked into an email requested while ANONYMOUS, so it
+    // must NOT encode a flag decision: honor a safe deep-link, else the unchanged /session (the rollout's
+    // /practice entry is delivered via password PostAuthRedirect + the direct /practice route gate).
+    const magicLinkPath = safeDeepLink(fromLocation) ?? '/session';
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
