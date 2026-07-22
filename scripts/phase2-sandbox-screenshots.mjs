@@ -25,26 +25,32 @@ async function reset(page) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
 }
 
-/** Walk the two-column chooser + journey (product frame, no QA). `tag` prefixes filenames. */
+/** Walk the three-level journey (landing → overview → working; product frame, no QA). */
 async function walk(page, tag, shots, external) {
   await reset(page);
   const m = page.locator('#main-content');
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
   const t = (ms) => page.waitForTimeout(ms);
 
-  // ---- Two practice modes (Quick Practice | Guided Rehearsal) ----
-  await shot('01-landing-two-modes'); // both modes with four markers each, nothing selected
-  await m.getByRole('button', { name: /quick practice/i }).click(); await t(150); // select Quick Practice
-  await shot('02-quick-selected');
-  await m.getByRole('button', { name: /guided rehearsal/i }).click(); await t(150); // select Guided (Quick collapses — single-open)
-  await shot('03-guided-selected');
+  // ---- Level 1: overall SpeakSharp landing (tagline + two mode choices) ----
+  await shot('01-landing');
 
-  // ---- Quick Practice handoff (represents the existing /session route) ----
-  await m.getByRole('button', { name: /start speaking/i }).click(); await t(150);
+  // ---- Level 2: Quick Practice overview (specialized hero + numbered journey) ----
+  await m.getByRole('button', { name: /quick practice/i }).click(); await t(200);
+  await shot('02-quick-overview');
+  await m.getByRole('button', { name: /choose your transcription mode/i }).click(); await t(150); // disclose a journey step
+  await shot('03-quick-overview-step-open');
+
+  // ---- Level 3: Quick Practice handoff (represents the existing /session route) ----
+  await m.getByRole('button', { name: /start speaking/i }).first().click(); await t(150);
   await shot('04-quick-handoff');
-  await m.getByRole('button', { name: /back to practice choices/i }).click(); await t(150);
+  await m.getByRole('button', { name: /back to practice choices/i }).first().click(); await t(150);
 
-  // ---- Guided Rehearsal sample journey ----
+  // ---- Level 2: Guided Rehearsal overview (7-step journey + correction loop) ----
+  await m.getByRole('button', { name: /guided rehearsal/i }).click(); await t(200);
+  await shot('05-guided-overview');
+
+  // ---- Level 3: Guided Rehearsal sample journey ----
   await m.getByRole('button', { name: /try a sample/i }).click(); await t(150);
   await shot('06-sample-ready');
   await m.getByRole('button', { name: /begin speaking/i }).click(); await t(5400);
@@ -61,15 +67,15 @@ async function walk(page, tag, shots, external) {
   await t(1800);
   await shot('12-complete-summary');
   await m.getByRole('button', { name: /rehearse again/i }).click(); await t(150);
-  await shot('13-returning-user-two-column');
+  await shot('13-returning-landing-start-now');
   await m.getByRole('button', { name: /view past progress/i }).click(); await t(150);
   await shot('14-view-past-progress');
 }
 
 /**
- * Landing THEME-COMPARISON gate — capture each candidate theme (a|b|c) on the frozen two-column
- * layout: default, Session-selected, Rehearsal-selected, a deeper expanded row, and a focus state.
- * `view` is 'desktop' | 'mobile' (the caller sets the viewport). No theme is selected — this is review.
+ * Landing THEME retained-evidence walk — capture each candidate theme (a|b|c) on the frozen landing:
+ * default, a card focus state, and the Quick Practice overview. `view` is 'desktop' | 'mobile'.
+ * Theme A is the selected direction; B/C are retained only as the A/B/C decision record.
  */
 async function themeWalk(page, theme, view, shots) {
   await page.goto(`${BASE}?theme=${theme}`, { waitUntil: 'networkidle' });
@@ -77,13 +83,11 @@ async function themeWalk(page, theme, view, shots) {
   const shot = async (name) => { const p = `${OUT_DIR}/theme-${theme}-${view}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
   const t = (ms) => page.waitForTimeout(ms);
 
-  await shot('01-default');
-  await m.getByRole('button', { name: /quick practice/i }).click(); await t(150); // Quick Practice selected + steps shown
-  await shot('02-quick-selected');
-  await m.getByRole('button', { name: /guided rehearsal/i }).click(); await t(150); // Guided selected; Quick collapses (single-open)
-  await shot('03-guided-selected');
-  await m.getByRole('button', { name: /start speaking/i }).focus(); await t(120); // visible focus ring
-  await shot('04-focus-state');
+  await shot('01-landing');
+  await m.getByRole('button', { name: /quick practice/i }).focus(); await t(120); // visible focus ring
+  await shot('02-focus-state');
+  await m.getByRole('button', { name: /quick practice/i }).click(); await t(200); // → Quick Practice overview
+  await shot('03-quick-overview');
 }
 
 /** Side-by-side comparison board of all three themes (?compare=1), desktop or mobile render. */

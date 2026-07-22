@@ -101,14 +101,11 @@ async function walkJourney(page, tag, report) {
   const m = page.locator('#main-content'); // scope accordion lookups (QA panel is outside <main>)
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
   const click = async (loc) => { await loc.scrollIntoViewIfNeeded(); await loc.click({ timeout: 15000 }); };
-  // Two practice modes (Quick Practice | Guided Rehearsal)
-  await shot('01-landing-two-modes');
-  await click(m.getByRole('button', { name: /quick practice/i })); // select Quick Practice (reveals steps)
-  await shot('02-quick-selected');
-  await click(m.getByRole('button', { name: /guided rehearsal/i })); // select Guided (Quick collapses)
-  await shot('03-guided-selected');
-  // Guided Rehearsal sample journey
-  await click(m.getByRole('button', { name: /try a sample/i }));
+  // Level 1 landing → level 2 Guided overview → level 3 sample journey
+  await shot('01-landing');
+  await click(m.getByRole('button', { name: /guided rehearsal/i })); // → Guided Rehearsal overview
+  await shot('02-guided-overview');
+  await click(m.getByRole('button', { name: /try a sample/i })); // → passive rehearsal cockpit
   await shot('04-ready');
   await click(m.getByRole('button', { name: /begin speaking/i }));
   await page.waitForTimeout(5400);
@@ -173,7 +170,7 @@ async function main() {
   // (it corrupts interaction on a headed CDP Chrome). The uploaded artifact screenshots (desktop +
   // mobile) come from the headless workflow; this monitor's job is the network/console/error proof.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: /try a sample/i }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: /guided rehearsal/i }).waitFor({ timeout: 15000 });
   await walkJourney(page, 'cdp', report);
 
   // Render metrics (content-free).

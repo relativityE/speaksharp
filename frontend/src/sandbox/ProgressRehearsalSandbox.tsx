@@ -14,6 +14,7 @@ import { FlaskConical } from 'lucide-react';
 import { T } from './theme';
 import { JourneySteps } from './components/ui';
 import { LandingScreen, type LandingTheme } from './journey/LandingScreen';
+import { OverviewScreen, type OverviewMode } from './journey/OverviewScreen';
 import { CompareBoard } from './journey/CompareBoard';
 import { PrepareScreen } from './journey/PrepareScreen';
 import { RehearseScreen, type RehearsalResult } from './journey/RehearseScreen';
@@ -24,7 +25,7 @@ import { ReviewPanel } from './components/ReviewPanel';
 import { PaletteSheet } from './components/PaletteSheet';
 import { trace } from './trace';
 
-type Phase = 'landing' | 'handoff' | 'prepare' | 'rehearse' | 'processing' | 'finish';
+type Phase = 'landing' | 'overview' | 'handoff' | 'prepare' | 'rehearse' | 'processing' | 'finish';
 type FinishData = { kind: 'rehearsal'; result: RehearsalResult } | { kind: 'general'; which: 'baseline' | 'improved' };
 
 // QA/reviewer controls are kept OUT of the product frame — available only via ?qa=1.
@@ -50,14 +51,22 @@ export function ProgressRehearsalSandbox() {
   const [finish, setFinish] = React.useState<FinishData | null>(null);
   const [hasRehearsed, setHasRehearsed] = React.useState(false);
   const [lastMode, setLastMode] = React.useState<'quick' | 'guided' | undefined>(undefined);
+  const [overviewMode, setOverviewMode] = React.useState<OverviewMode>('quick');
 
   React.useEffect(() => { trace('sandbox_loaded', {}); }, []);
 
   const toLanding = () => { setFinish(null); setPhase('landing'); };
+  // Working-experience entries (reached from a mode's overview page, or a returning user's "Start now").
+  const startSession = () => { setLastMode('quick'); setPhase('handoff'); }; // Quick Practice → existing /session
+  const createRehearsal = () => { setLastMode('guided'); setPhase('prepare'); };
+  const startRehearsal = () => { setLastMode('guided'); setPhase('rehearse'); };
+
+  // Level 1 (landing) → level 2 (per-mode overview) → level 3 (working). Landing cards open overviews;
+  // returning users skip straight to their last mode's working experience via "Start now".
   const landingActions = {
-    startRehearsal: () => { setLastMode('guided'); setPhase('rehearse'); },
-    createRehearsal: () => { setLastMode('guided'); setPhase('prepare'); },
-    startSession: () => { setLastMode('quick'); setPhase('handoff'); }, // Quick Practice → existing /session
+    openQuick: () => { setLastMode('quick'); setOverviewMode('quick'); setPhase('overview'); },
+    openGuided: () => { setLastMode('guided'); setOverviewMode('guided'); setPhase('overview'); },
+    startNow: () => { if (lastMode === 'guided') startRehearsal(); else startSession(); },
     reviewProgress: () => { setFinish({ kind: 'general', which: 'improved' }); setPhase('finish'); },
   };
 
@@ -84,7 +93,7 @@ export function ProgressRehearsalSandbox() {
           <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
             <FlaskConical style={{ color: 'var(--ss-primary)' }} size={20} aria-hidden />
             <span className="mr-auto font-semibold text-[color:var(--ss-text)]">SpeakSharp</span>
-            {phase !== 'handoff' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
+            {phase === 'prepare' || phase === 'rehearse' || phase === 'processing' || phase === 'finish' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
             <span className="rounded-full border border-[color:var(--ss-border)] bg-[color:var(--ss-canvas)] px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-[color:var(--ss-neutral)]">Sandbox</span>
           </div>
         </header>
@@ -93,10 +102,17 @@ export function ProgressRehearsalSandbox() {
       <main id="main-content">
         {phase === 'landing' ? (
           <LandingScreen actions={landingActions} returning={hasRehearsed} lastMode={lastMode} theme={theme} />
+        ) : phase === 'overview' ? (
+          <OverviewScreen
+            mode={overviewMode}
+            onPrimary={overviewMode === 'quick' ? startSession : createRehearsal}
+            onSample={overviewMode === 'guided' ? startRehearsal : undefined}
+            onBack={toLanding}
+          />
         ) : phase === 'handoff' ? (
           <HandoffScreen onBack={toLanding} />
         ) : phase === 'prepare' ? (
-          <PrepareScreen onStart={landingActions.startRehearsal} onStartGeneral={landingActions.startSession} />
+          <PrepareScreen onStart={startRehearsal} onStartGeneral={startSession} />
         ) : phase === 'rehearse' ? (
           <RehearseScreen onFinish={onRehearsalFinish} onBack={toLanding} />
         ) : phase === 'processing' ? (

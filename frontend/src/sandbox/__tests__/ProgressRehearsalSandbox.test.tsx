@@ -3,53 +3,79 @@ import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { ProgressRehearsalSandbox } from '../ProgressRehearsalSandbox';
 import { SESSION_ROUTE } from '../journey/HandoffScreen';
 
-describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Practice | Guided Rehearsal)', () => {
+describe('ProgressRehearsalSandbox — three-level journey (landing → overview → working)', () => {
   beforeEach(() => {
     (window as unknown as { __SS_SANDBOX_TRACE__?: unknown[] }).__SS_SANDBOX_TRACE__ = [];
   });
   afterEach(() => {
-    // Reset any ?theme= / ?compare= query used by a test so it cannot leak into the next one.
-    // (tests/setup.ts replaces window.location with a writable plain object, so set search directly.)
+    // tests/setup.ts replaces window.location with a writable plain object — set search directly.
     (window.location as unknown as { search: string }).search = '';
   });
   const setQuery = (q: string) => { (window.location as unknown as { search: string }).search = q; };
 
   const main = () => screen.getByRole('main');
   const btn = (name: RegExp) => within(main()).getByRole('button', { name });
+  // Navigate landing → mode overview (the whole entry card is a button).
+  const openQuick = () => fireEvent.click(btn(/quick practice/i));
+  const openGuided = () => fireEvent.click(btn(/guided rehearsal/i));
+  // Guided overview → the sample rehearsal journey.
+  const gotoRehearse = () => { openGuided(); fireEvent.click(btn(/try a sample/i)); fireEvent.click(screen.getByRole('button', { name: /begin speaking/i })); };
 
-  it('reads as one product with two modes: headline, decision prompt, Quick Practice + Guided Rehearsal', () => {
+  it('overall landing (level 1): brand tagline is the umbrella promise, plus the decision prompt + two modes', () => {
     render(<ProgressRehearsalSandbox />);
-    expect(within(main()).getByRole('heading', { name: /practice how you speak/i })).toBeInTheDocument();
+    expect(within(main()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+    expect(within(main()).getByText(/you decide when your work is ready to be shared/i)).toBeInTheDocument();
     expect(within(main()).getByText(/do you want to speak freely, or practice toward specific outcomes/i)).toBeInTheDocument();
     expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
     expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
-    // "Executive Rehearsal" is NOT the umbrella label at the mode-selection level.
+    // "Executive Rehearsal" is not the umbrella label; no scores/percentages/STT jargon on the landing.
     expect(within(main()).queryByText(/executive rehearsal/i)).not.toBeInTheDocument();
     expect(within(main()).queryAllByText(/%/)).toHaveLength(0);
-    // "STT" is never shown to users.
     expect(within(main()).queryByText(/\bSTT\b/)).not.toBeInTheDocument();
   });
 
-  it('each mode has one unmistakable primary action', () => {
+  it('the two modes are distinguishable on the landing without opening anything', () => {
     render(<ProgressRehearsalSandbox />);
-    expect(btn(/start speaking/i)).toBeInTheDocument(); // Quick Practice primary → existing session
-    expect(btn(/set up a rehearsal/i)).toBeInTheDocument(); // Guided Rehearsal primary
-    expect(btn(/try a sample/i)).toBeInTheDocument(); // Guided Rehearsal secondary (sample)
+    expect(within(main()).getByText(/no agenda required/i)).toBeInTheDocument();
+    expect(within(main()).getByText(/agenda and outcome guided/i)).toBeInTheDocument();
   });
 
-  it('the two modes can be told apart WITHOUT opening either card (four visible markers each)', () => {
+  it('Quick Practice card opens its overview (level 2): specialized hero + numbered journey + disclosure', () => {
     render(<ProgressRehearsalSandbox />);
-    expect(within(main()).getByText(/no agenda or setup required/i)).toBeInTheDocument();
-    expect(within(main()).getByText(/transcript and focused delivery feedback/i)).toBeInTheDocument();
-    expect(within(main()).getByText(/passive coverage tracking/i)).toBeInTheDocument();
-    expect(within(main()).getByText(/best for presentations, pitches, interviews/i)).toBeInTheDocument();
-    // Nothing is "Selected" until the user chooses a card.
-    expect(within(main()).queryByText(/^Selected$/i)).not.toBeInTheDocument();
+    openQuick();
+    expect(within(main()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
+    expect(within(main()).getAllByRole('button', { name: /start speaking/i }).length).toBeGreaterThan(0);
+    expect(within(main()).getByText(/choose your transcription mode/i)).toBeInTheDocument(); // journey step 1
+    // Truthful data-processing disclosure — the tagline does not imply on-device for every mode.
+    expect(within(main()).getByText(/on your device or via a secure cloud service/i)).toBeInTheDocument();
   });
 
-  it('"Start speaking" (Quick Practice) hands off to the existing /session route (represented, not navigated)', () => {
+  it('Guided Rehearsal card opens its overview with its own hero, 7-step journey, and correction loop', () => {
     render(<ProgressRehearsalSandbox />);
-    fireEvent.click(btn(/start speaking/i));
+    openGuided();
+    expect(within(main()).getByRole('heading', { name: /prepare what matters\. rehearse until it lands/i })).toBeInTheDocument();
+    expect(within(main()).getAllByRole('button', { name: /set up a rehearsal/i }).length).toBeGreaterThan(0);
+    expect(within(main()).getByText(/describe the occasion and audience/i)).toBeInTheDocument(); // step 1
+    expect(within(main()).getByText(/rehearse again and prove improvement/i)).toBeInTheDocument(); // step 7
+    expect(within(main()).getByText(/the correction loop/i)).toBeInTheDocument();
+  });
+
+  it('overview journey discloses one step at a time (mutually exclusive, keyboard-operable buttons)', () => {
+    render(<ProgressRehearsalSandbox />);
+    openGuided();
+    const s1 = btn(/describe the occasion and audience/i);
+    const s2 = btn(/add the points or outcomes you must cover/i);
+    fireEvent.click(s1);
+    expect(s1).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(s2);
+    expect(s2).toHaveAttribute('aria-expanded', 'true');
+    expect(s1).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('"Start speaking" (Quick overview) hands off to the existing /session route (represented, not navigated)', () => {
+    render(<ProgressRehearsalSandbox />);
+    openQuick();
+    fireEvent.click(within(main()).getAllByRole('button', { name: /start speaking/i })[0]);
     expect(within(main()).getByRole('heading', { name: /opening your speaksharp session/i })).toBeInTheDocument();
     expect(within(main()).getByText(new RegExp(SESSION_ROUTE))).toBeInTheDocument();
     expect(SESSION_ROUTE).toBe('/session');
@@ -62,20 +88,6 @@ describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Pr
     expect(btn(/view past progress/i)).toBeInTheDocument();
   });
 
-  it('selecting a mode reveals its steps, marks it Selected, and is mutually exclusive across cards', () => {
-    render(<ProgressRehearsalSandbox />);
-    const quick = btn(/quick practice/i); // whole-header selection toggle
-    const guided = btn(/guided rehearsal/i);
-    fireEvent.click(guided);
-    expect(guided).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText(/define what you.re rehearsing/i)).toBeInTheDocument();
-    fireEvent.click(quick);
-    expect(quick).toHaveAttribute('aria-pressed', 'true');
-    expect(guided).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.queryByText(/define what you.re rehearsing/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/pick how you want to capture/i)).toBeInTheDocument();
-  });
-
   it('the default product frame has NO QA controls or sidebar', () => {
     render(<ProgressRehearsalSandbox />);
     expect(screen.queryByText(/review all states/i)).not.toBeInTheDocument();
@@ -83,8 +95,9 @@ describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Pr
     expect(document.querySelector('aside')).toBeNull();
   });
 
-  it('"Try a sample" launches the Guided Rehearsal journey (Ready → passive cockpit)', () => {
+  it('"Try a sample" (Guided overview) launches the passive rehearsal cockpit', () => {
     render(<ProgressRehearsalSandbox />);
+    openGuided();
     fireEvent.click(btn(/try a sample/i));
     expect(within(main()).getByText(/ready when you are/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /begin speaking/i }));
@@ -95,20 +108,18 @@ describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Pr
 
   it('supports Pause and Resume', () => {
     render(<ProgressRehearsalSandbox />);
-    fireEvent.click(btn(/try a sample/i));
-    fireEvent.click(screen.getByRole('button', { name: /begin speaking/i }));
+    gotoRehearse();
     fireEvent.click(screen.getByRole('button', { name: /pause/i }));
     expect(within(main()).getAllByText(/paused/i).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: /resume/i }));
     expect(within(main()).getByText(/speak naturally/i)).toBeInTheDocument();
   });
 
-  it('help → remedy → recovery → processing → recovered summary → returning-user keeps BOTH modes', () => {
+  it('help → remedy → recovery → processing → recovered summary → returning user gets a direct Start now', () => {
     vi.useFakeTimers();
     try {
       render(<ProgressRehearsalSandbox />);
-      fireEvent.click(btn(/try a sample/i));
-      fireEvent.click(screen.getByRole('button', { name: /begin speaking/i }));
+      gotoRehearse();
 
       const approvalItem = screen.getByText(/request approval for two additional/i).closest('li') as HTMLElement;
       fireEvent.click(within(approvalItem).getByRole('button', { name: /help me with this point/i }));
@@ -122,9 +133,9 @@ describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Pr
       expect(screen.getByRole('heading', { name: /recovered the approval request after asking for help/i })).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: /rehearse again/i }));
-      expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
-      expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
+      expect(within(main()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
       expect(within(main()).getByText(/welcome back/i)).toBeInTheDocument();
+      expect(btn(/start now/i)).toBeInTheDocument(); // returning users skip the walkthrough
     } finally {
       vi.useRealTimers();
     }
@@ -134,7 +145,6 @@ describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Pr
   it('applies the selected Theme A on the app root by default (themes the whole journey)', () => {
     render(<ProgressRehearsalSandbox />);
     expect(document.querySelector('[data-ss-theme="a"]')).toBeInTheDocument();
-    // The frozen two-mode IA is identical regardless of theme.
     expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
     expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
   });
@@ -143,7 +153,7 @@ describe('ProgressRehearsalSandbox — one product, two practice modes (Quick Pr
     setQuery('?theme=b');
     const { unmount } = render(<ProgressRehearsalSandbox />);
     expect(document.querySelector('[data-ss-theme="b"]')).toBeInTheDocument();
-    expect(within(main()).getByRole('button', { name: /start speaking/i })).toBeInTheDocument();
+    expect(within(main()).getByRole('button', { name: /quick practice/i })).toBeInTheDocument();
     unmount();
     setQuery('?theme=c');
     render(<ProgressRehearsalSandbox />);
