@@ -1,8 +1,8 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Link, Navigate, useLocation } from 'react-router-dom';
-import { resolvePostAuthPath } from '@/services/practiceEntryFlags';
+import { Link, useLocation } from 'react-router-dom';
+import { PostAuthRedirect } from '@/components/practice/practiceRouting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,9 +36,9 @@ export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
   const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
-  // Post-auth: a valid protected deep-link wins; otherwise default to /practice (rollout flag ON) or
-  // the unchanged /session (flag OFF = rollback). Unsafe/external `from` values are rejected.
-  const postAuthPath = resolvePostAuthPath(fromLocation);
+  // The post-auth destination is resolved ASYNCHRONOUSLY by <PostAuthRedirect> once the authenticated
+  // identity + its flags are loaded — never from the pre-identification anonymous flag state. A safe
+  // deep-link wins immediately; else targeted → /practice, everyone else → the unchanged /session.
 
   // Determine initial view from URL path
   const getInitialView = (): AuthView => {
@@ -174,7 +174,7 @@ export default function AuthPage() {
   }
 
   if (session && !isSubmitting) {
-    return <Navigate to={postAuthPath} replace />;
+    return <PostAuthRedirect from={fromLocation} />;
   }
 
 

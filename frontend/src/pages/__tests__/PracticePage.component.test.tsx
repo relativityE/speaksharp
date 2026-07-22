@@ -15,25 +15,46 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackGuidedRehearsalPreviewViewed: vi.fn(),
 }));
 
-const main = () => screen.getByRole('main');
+// PracticePage no longer renders its own <main> — App.tsx owns the single #main-content landmark, so in
+// isolation we scope queries to the page's content container instead of a main landmark.
+const root = () => screen.getByTestId('practice-root');
 
 describe('PracticePage — orientation entry (Quick → /session; Guided stays inline)', () => {
   beforeEach(() => navigateSpy.mockReset());
 
+  it('does NOT render a <main> landmark or #main-content (App owns the sole one)', () => {
+    const { container } = render(<PracticePage />);
+    expect(screen.queryByRole('main')).not.toBeInTheDocument();
+    expect(container.querySelector('#main-content')).toBeNull();
+  });
+
   it('lands on the chooser: tagline, decision prompt, and both modes', () => {
     render(<PracticePage />);
-    expect(within(main()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
-    expect(within(main()).getByText(/do you want to speak freely, or practice toward specific outcomes/i)).toBeInTheDocument();
-    expect(within(main()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
-    expect(within(main()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+    expect(within(root()).getByText(/do you want to speak freely, or practice toward specific outcomes/i)).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
+  });
+
+  it('each mode card is a semantic <article> with a real keyboard-operable CTA button', () => {
+    render(<PracticePage />);
+    const cards = within(root()).getAllByRole('article');
+    expect(cards.length).toBe(2);
+    // The CTA is a real <button> (keyboard-operable), not a card-as-button wrapping headings.
+    const quickCta = screen.getByTestId('practice-card-quick');
+    expect(quickCta.tagName).toBe('BUTTON');
+    expect(quickCta).toHaveAccessibleName(/explore quick practice/i);
+    // Headings live in the article, never inside the button.
+    expect(within(cards[0]).getByRole('heading', { name: /quick practice/i })).toBeInTheDocument();
+    expect(quickCta.querySelector('h1,h2,h3,h4')).toBeNull();
   });
 
   it('Quick Practice → overview (5-step) → "Start speaking" navigates to the unchanged /session', () => {
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-quick'));
     // Overview appears with the specialized hero + journey.
-    expect(within(main()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
-    expect(within(main()).getByText(/choose your transcription mode/i)).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
+    expect(within(root()).getByText(/choose your transcription mode/i)).toBeInTheDocument();
     // Primary action hands off to /session — and nothing else.
     fireEvent.click(screen.getByTestId('practice-quick-start'));
     expect(navigateSpy).toHaveBeenCalledTimes(1);
@@ -44,14 +65,14 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-guided'));
     // Stays put — an inline preview appears, clearly labelled as not-yet-available.
-    expect(within(main()).getByRole('heading', { name: /prepare what matters\. rehearse until it lands/i })).toBeInTheDocument();
-    expect(within(main()).getByText(/preview · coming soon/i)).toBeInTheDocument();
-    expect(within(main()).getByText(/the correction loop/i)).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /prepare what matters\. rehearse until it lands/i })).toBeInTheDocument();
+    expect(within(root()).getByText(/preview · coming soon/i)).toBeInTheDocument();
+    expect(within(root()).getByText(/the correction loop/i)).toBeInTheDocument();
     // No fake "Set up a rehearsal" action, and no navigation.
-    expect(within(main()).queryByRole('button', { name: /set up a rehearsal/i })).not.toBeInTheDocument();
+    expect(within(root()).queryByRole('button', { name: /set up a rehearsal/i })).not.toBeInTheDocument();
     expect(navigateSpy).not.toHaveBeenCalled();
     // Collapses again on toggle.
     fireEvent.click(screen.getByTestId('practice-card-guided'));
-    expect(within(main()).queryByText(/preview · coming soon/i)).not.toBeInTheDocument();
+    expect(within(root()).queryByText(/preview · coming soon/i)).not.toBeInTheDocument();
   });
 });

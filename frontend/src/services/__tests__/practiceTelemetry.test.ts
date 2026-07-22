@@ -3,6 +3,7 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
   trackQuickPracticeStarted, trackGuidedRehearsalPreviewViewed,
+  type PracticeEntrySource,
 } from '@/services/practiceTelemetry';
 
 vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: vi.fn() } }));
@@ -38,5 +39,35 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     // `mode` is only ever the enum; no payload contains email-shaped or free-form content.
     allProps.map((p) => p.mode).filter(Boolean).forEach((m) => expect(['quick', 'guided']).toContain(m));
     allProps.forEach((p) => expect(JSON.stringify(p)).not.toMatch(/@/));
+  });
+
+  it('DROPS an out-of-enum entry_source instead of emitting arbitrary text', () => {
+    // A future/hostile caller supplies a non-enum source; it must be normalized away (null), never sent.
+    trackPracticeModeSelected('quick', 'evil_free_text' as PracticeEntrySource);
+    trackQuickPracticeStarted('http://leak.example/path' as PracticeEntrySource);
+    const props = push.mock.calls.map(([, p]) => (p ?? {}) as Record<string, unknown>);
+    props.forEach((p) => expect(p.entry_source).toBeNull());
+    // The arbitrary strings never appear anywhere in the payloads.
+    props.forEach((p) => {
+      expect(JSON.stringify(p)).not.toContain('evil_free_text');
+      expect(JSON.stringify(p)).not.toContain('leak.example');
+    });
+  });
+
+  it('keeps valid enum sources', () => {
+    trackPracticeModeSelected('guided', 'landing_card');
+    trackQuickPracticeStarted('quick_overview');
+    expect(push.mock.calls[0][1]).toMatchObject({ entry_source: 'landing_card' });
+    expect(push.mock.calls[1][1]).toMatchObject({ entry_source: 'quick_overview' });
+  });
+
+  // RESTORED failure-path test (one-shot mock — a persistent throwing mockImplementation interferes with
+  // Vitest's module/mock lifecycle; mockImplementationOnce throws for exactly this invocation).
+  it('fails open when AnalyticsBuffer rejects an event', () => {
+    push.mockImplementationOnce(() => {
+      throw new Error('analytics unavailable');
+    });
+    expect(() => trackQuickPracticeStarted('quick_overview')).not.toThrow();
+    expect(push).toHaveBeenCalledTimes(1);
   });
 });

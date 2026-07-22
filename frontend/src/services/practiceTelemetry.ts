@@ -12,6 +12,18 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 export type PracticeMode = 'quick' | 'guided';
 
+/**
+ * CLOSED entry-source enum. The telemetry service boundary must not accept arbitrary `source` strings —
+ * a future caller could otherwise smuggle free-form/user content into the payload. Unknown values are
+ * DROPPED (never emitted), so only these exact tokens can ever reach analytics.
+ */
+export type PracticeEntrySource = 'landing_card' | 'quick_overview';
+const ENTRY_SOURCES: readonly PracticeEntrySource[] = ['landing_card', 'quick_overview'];
+const normalizeSource = (source: unknown): PracticeEntrySource | null =>
+  typeof source === 'string' && (ENTRY_SOURCES as readonly string[]).includes(source)
+    ? (source as PracticeEntrySource)
+    : null;
+
 const releaseId = (): string | null => {
   try { return (typeof window !== 'undefined' && window.__APP_RUNTIME_CONFIG__?.release) || null; } catch { return null; }
 };
@@ -28,17 +40,17 @@ const emit = (event: string, props: Record<string, string | boolean | null>): vo
 export const trackPracticeEntryViewed = (returningUser: boolean): void =>
   emit('practice_entry_viewed', { returning_user: returningUser });
 
-/** A mode was chosen (Quick or Guided card). `source` describes where the choice was made. */
-export const trackPracticeModeSelected = (mode: PracticeMode, source: string): void =>
-  emit('practice_mode_selected', { mode, entry_source: source });
+/** A mode was chosen (Quick or Guided card). `source` is a closed enum; unknown values are dropped. */
+export const trackPracticeModeSelected = (mode: PracticeMode, source: PracticeEntrySource): void =>
+  emit('practice_mode_selected', { mode, entry_source: normalizeSource(source) });
 
 /** A mode's inline overview/preview was expanded. */
 export const trackPracticeOverviewExpanded = (mode: PracticeMode): void =>
   emit('practice_overview_expanded', { mode });
 
 /** Quick Practice's primary action fired — the user is handing off to the existing /session. */
-export const trackQuickPracticeStarted = (source: string): void =>
-  emit('quick_practice_started', { mode: 'quick', entry_source: source });
+export const trackQuickPracticeStarted = (source: PracticeEntrySource): void =>
+  emit('quick_practice_started', { mode: 'quick', entry_source: normalizeSource(source) });
 
 /** The Guided Rehearsal preview was viewed (it stays on /practice; no functional rehearsal). */
 export const trackGuidedRehearsalPreviewViewed = (): void =>

@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { PracticeEntryGate } from './components/practice/practiceRouting';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
@@ -364,7 +365,9 @@ const App: React.FC = () => {
                   <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
                   <Route path="/practice" element={
                     <ProtectedRoute>
-                      <PageTransition><PracticePage /></PageTransition>
+                      <PracticeEntryGate>
+                        <PageTransition><PracticePage /></PageTransition>
+                      </PracticeEntryGate>
                     </ProtectedRoute>
                   } />
                   <Route path="/session" element={

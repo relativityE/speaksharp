@@ -1,8 +1,9 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { resolvePostAuthPath } from '@/services/practiceEntryFlags';
+import { useLocation } from 'react-router-dom';
+import { safeDeepLink } from '@/services/practiceEntryFlags';
+import { PostAuthRedirect } from '@/components/practice/practiceRouting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,12 +33,14 @@ const isEmailFormatValid = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]
 // Sign In page – supports both password and magic link
 export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
-    const navigate = useNavigate();
     const location = useLocation();
     const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
-    // Post-auth: a valid protected deep-link wins; otherwise default to /practice (rollout flag ON) or
-    // the unchanged /session (flag OFF = rollback). Unsafe/external `from` values are rejected.
-    const postAuthPath = resolvePostAuthPath(fromLocation);
+    // The post-auth destination is resolved ASYNCHRONOUSLY once the authenticated identity + its flags
+    // are loaded (see PostAuthRedirect / resolveAuthedDefaultPath) — never from the pre-identification
+    // anonymous flag state. For the magic-link redirect target (clicked later, when the user is already
+    // authenticated) we honor a safe deep-link, else point at /practice and let the PracticeEntryGate
+    // apply the same rollout gate (flag OFF → /session), so no anonymous flag read happens here.
+    const magicLinkPath = safeDeepLink(fromLocation) ?? '/practice';
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -90,9 +93,9 @@ export default function SignInPage() {
             const { error: authError, data } = await supabase.auth.signInWithPassword({ email, password });
             if (authError) throw authError;
             if (data.session) {
+                // Set the session; the authenticated redirect is handled by <PostAuthRedirect> on the
+                // next render, which waits for the authed identity + flags before choosing the default.
                 setSession(data.session);
-                // Redirect to session page after successful login
-                navigate(postAuthPath);
             }
         } catch (err: unknown) {
             logger.error({ err }, '[SignInPage] handleSubmit failed');
@@ -130,7 +133,7 @@ export default function SignInPage() {
                 email: normalizedEmail,
                 options: {
                     shouldCreateUser: false,
-                    emailRedirectTo: `${window.location.origin}${postAuthPath}`,
+                    emailRedirectTo: `${window.location.origin}${magicLinkPath}`,
                 },
             });
         } catch (err: unknown) {
@@ -148,7 +151,7 @@ export default function SignInPage() {
             </div>
         );
     }
-    if (session) return <Navigate to={postAuthPath} replace />;
+    if (session) return <PostAuthRedirect from={fromLocation} />;
 
     return (
         <div className="min-h-screen bg-background px-4 pb-16 pt-28">

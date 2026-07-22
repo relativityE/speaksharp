@@ -17,13 +17,22 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // Runs the same BASIC_TEST_EMAIL account as the attribution live spec; free tier is sufficient.
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BASIC_EMAIL = (process.env.BASIC_TEST_EMAIL ?? process.env.E2E_BASIC_EMAIL ?? '').trim();
 const BASIC_PASSWORD = (process.env.BASIC_TEST_PASSWORD ?? process.env.E2E_BASIC_PASSWORD ?? '').trim();
 const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const MARK = `rpc-smoke-${RUN_ID}`; // unique current-run marker embedded in each report title
 
-const SESSION_AREAS = ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'];
+// Expected VISIBLE page label + page-specific issue-area options per page (mirrors services/pageContext).
+// The live spec asserts these render, not merely that a banner exists.
+const EXPECTED = {
+  session: { label: 'Session · Speaking', areas: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'] },
+  analytics: { label: 'Past Progress', areas: ['session_list', 'comparison', 'evidence', 'navigation', 'other'] },
+  owned: { label: 'Session Analytics', areas: ['comparison', 'evidence', 'navigation', 'other'] },
+  other: { label: 'Other page', areas: ['navigation', 'visual_layout', 'other'] },
+} as const;
+const SESSION_AREAS = EXPECTED.session.areas;
 
 test.use({ screenshot: 'off', video: 'off', trace: 'off' });
 
@@ -43,22 +52,26 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
   test.beforeAll(async () => {
     test.skip(process.env.VITE_USE_LIVE_DB !== 'true', 'Live DB run only.');
     test.skip(
-      !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !BASIC_EMAIL || !BASIC_PASSWORD,
-      'Requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASIC_TEST_EMAIL, BASIC_TEST_PASSWORD.',
+      !SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !BASIC_EMAIL || !BASIC_PASSWORD,
+      'Requires SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, BASIC_TEST_EMAIL, BASIC_TEST_PASSWORD.',
     );
+
+    // Resolve the BASIC user id through the NORMAL authenticated path (anon sign-in) — NOT admin.listUsers
+    // (that Auth-admin enumeration is the exact operation the canary incident showed to be fragile, and a
+    // per-account lookup does not need to scan every user). The id comes straight from the returned session.
+    const anon = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: signInData, error: signInErr } = await anon.auth.signInWithPassword({ email: BASIC_EMAIL, password: BASIC_PASSWORD });
+    expect(signInErr, 'BASIC sign-in must succeed via the normal auth path').toBeFalsy();
+    basicUserId = signInData.user?.id ?? '';
+    expect(basicUserId, 'BASIC authenticated session yields a user id').toBeTruthy();
+    await anon.auth.signOut();
+
+    // Service-role is used ONLY for narrowly-scoped, owner-filtered fixture setup + cleanup below.
     admin = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-
-    let found: { id: string; email?: string } | undefined;
-    for (let pageNum = 1; pageNum <= 25 && !found; pageNum++) {
-      const { data, error } = await admin.auth.admin.listUsers({ page: pageNum, perPage: 200 });
-      expect(error, 'listUsers must not error').toBeFalsy();
-      found = data.users.find((u) => (u.email ?? '').toLowerCase() === BASIC_EMAIL.toLowerCase());
-      if (data.users.length < 200) break;
-    }
-    expect(found, 'BASIC_TEST_EMAIL auth user must exist').toBeTruthy();
-    basicUserId = found!.id;
 
     const { data: sess } = await admin.from('sessions').select('id').eq('user_id', basicUserId).limit(1);
     if (sess && sess.length > 0) {
@@ -92,13 +105,18 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 20000 });
   }
 
-  // Open Report Issue on the current page and submit a marked, content-free report.
-  async function submitReport(page: Page, title: string) {
+  // Open Report Issue on the current page and submit a marked, content-free report. Also verifies the
+  // VISIBLE page label and the page-specific issue-area options (not merely that the banner exists).
+  async function submitReport(page: Page, title: string, expected: { label: string; areas: readonly string[] }) {
     await page.getByTestId('nav-report-issue-button').click();
     const titleInput = page.getByTestId('issue-report-title');
     await expect(titleInput).toBeVisible({ timeout: 10000 });
-    // The page-aware "Reporting from" banner must be present (page context was resolved at open).
-    await expect(page.getByTestId('issue-report-page-context')).toBeVisible();
+    // The page-aware "Reporting from" banner shows the EXPECTED visible label for this page.
+    await expect(page.getByTestId('issue-report-page-context')).toContainText(expected.label);
+    // The issue-area dropdown offers exactly this page's allowlisted areas (values + order).
+    const areaValues = await page.getByTestId('issue-report-area').locator('option')
+      .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
+    expect(areaValues).toEqual([...expected.areas]);
     await titleInput.fill(title);
     await page.getByTestId('issue-report-description').fill(`${title} — content-free page-context smoke`);
     await page.getByTestId('issue-report-submit').click();
@@ -109,17 +127,17 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     await signIn(page);
 
     await navigateToRoute(page, ROUTES.SESSION);
-    await submitReport(page, `${MARK} session`);
+    await submitReport(page, `${MARK} session`, EXPECTED.session);
 
     await navigateToRoute(page, ROUTES.ANALYTICS);
-    await submitReport(page, `${MARK} analytics`);
+    await submitReport(page, `${MARK} analytics`, EXPECTED.analytics);
 
     await navigateToRoute(page, ROUTES.analyticsWithSession(ownedSessionId));
-    await submitReport(page, `${MARK} owned`);
+    await submitReport(page, `${MARK} owned`, EXPECTED.owned);
 
     // Deliberately unknown/unregistered authenticated route → must fail closed to /other.
     await goToPublicRoute(page, '/terms');
-    await submitReport(page, `${MARK} other`);
+    await submitReport(page, `${MARK} other`, EXPECTED.other);
 
     // All four persisted.
     await expect.poll(async () => {
