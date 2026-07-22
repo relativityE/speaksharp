@@ -40,6 +40,56 @@ export function ExecutiveRehearsalVignette() {
   );
 }
 
+/*
+ * ── Substantial card visual panels (landing theme-comparison gate) ────────────────────────────────
+ * Full-width illustrated regions (not 64px utility icons). They read the per-card accent from CSS
+ * custom properties (--ss-card / --ss-card-warm) set on the card, so they recolor per theme AND
+ * distinguish the two choices. Purely presentational (aria-hidden); the card title/benefit carry
+ * meaning. No stock art, avatars, mascots, or confetti — abstract waveform / agenda compositions only.
+ */
+
+/** SpeakSharp Session — a broad, flowing speech waveform (speaking in the live experience). */
+export function SessionPanelArt({ emphasis = false }: { emphasis?: boolean }) {
+  // Deterministic bar heights (no RNG) — a natural-looking cadence across the panel width.
+  const heights = [14, 26, 20, 38, 30, 46, 34, 52, 40, 30, 44, 24, 36, 22, 30, 18, 26, 16, 22, 12];
+  const warmAt = new Set([5, 12]); // a couple of warm-accent peaks for energy
+  return (
+    <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
+      <line x1="16" y1="60" x2="304" y2="60" stroke="var(--ss-card)" strokeOpacity="0.18" strokeWidth="1.5" />
+      {heights.map((h, i) => {
+        const x = 18 + i * 14.4;
+        const fill = warmAt.has(i) ? 'var(--ss-card-warm)' : 'var(--ss-card)';
+        const op = warmAt.has(i) ? 0.95 : 0.35 + (i % 4) * 0.16 + (emphasis ? 0.12 : 0);
+        return <rect key={i} x={x} y={60 - h / 2} width={6} height={h} rx={3} fill={fill} opacity={Math.min(op, 1)} />;
+      })}
+    </svg>
+  );
+}
+
+/** Executive Rehearsal — an agenda rail with coverage states (covered / partial / recovered / open). */
+export function ExecPanelArt({ emphasis = false }: { emphasis?: boolean }) {
+  const rows = [
+    { c: 'var(--ss-success)', w: 150 }, // covered
+    { c: 'var(--ss-partial)', w: 116 }, // partly addressed
+    { c: 'var(--ss-card)', w: 132 }, // recovered (card accent)
+    { c: 'var(--ss-neutral)', w: 92 }, // not yet addressed
+  ];
+  return (
+    <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
+      {rows.map((r, i) => {
+        const y = 20 + i * 24;
+        return (
+          <g key={i}>
+            <circle cx={24} cy={y} r={6} fill={r.c} opacity={emphasis ? 1 : 0.9} />
+            <rect x={40} y={y - 4} width={r.w} height={8} rx={4} fill={r.c} opacity={0.28} />
+            <rect x={40 + r.w + 8} y={y - 4} width={40} height={8} rx={4} fill="var(--ss-card)" opacity={0.12} />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 /** Review My Progress — an upward trend sparkline. */
 export function ReviewProgressVignette() {
   return (

@@ -38,12 +38,55 @@ const PAIRS = [
 ];
 
 let fail = 0;
-console.log('WCAG AA contrast report — Confident Momentum\n');
-for (const [name, fg, bg, min, kind] of PAIRS) {
+const check = (name, fg, bg, min, kind) => {
   const r = ratio(fg, bg);
   const ok = r >= min;
   if (!ok) fail += 1;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${r.toFixed(2)}:1  (min ${min})  ${kind.padEnd(4)}  ${name}  [${fg} on ${bg}]`);
+};
+
+console.log('WCAG AA contrast report — Confident Momentum (downstream sandbox screens)\n');
+for (const [name, fg, bg, min, kind] of PAIRS) check(name, fg, bg, min, kind);
+
+/*
+ * ── Landing theme-comparison gate (A/B/C) ────────────────────────────────────────────────────────
+ * Every candidate landing theme must pass AA on its real text/label pairs: body/heading ink on canvas,
+ * white surface, and each hero-gradient stop; white button labels on the AA-dark per-activity button
+ * shades; and the outline/badge accent text on white and on its own soft tint. Decorative accents
+ * (illustration fills, dividers, panel gradients) carry no text and are not gated here.
+ */
+const THEMES = {
+  'Theme A — Vibrant Confidence': {
+    canvas: '#F6F8FF', surface: '#FFFFFF', ink: '#16213E', sec: '#526078',
+    hero: ['#EEF0FF', '#E7FAF6', '#FFF2E8'],
+    sessionBtn: '#08746F', sessionSoft: '#E3F6F3', execBtn: '#4738CD', execSoft: '#ECEAFE',
+  },
+  'Theme B — Ocean Energy': {
+    canvas: '#F3FAFF', surface: '#FFFFFF', ink: '#10213F', sec: '#4A6078',
+    hero: ['#E7F2FF', '#DFFAF7', '#FFF4DA'],
+    sessionBtn: '#006B68', sessionSoft: '#DFF4F3', execBtn: '#1E50C0', execSoft: '#E3ECFC',
+  },
+  'Theme C — Warm Premium': {
+    canvas: '#FFF9F3', surface: '#FFFFFF', ink: '#251D38', sec: '#625872',
+    hero: ['#F3EBFF', '#E9FAF3', '#FFF0DE'],
+    sessionBtn: '#126E5B', sessionSoft: '#E2F1EC', execBtn: '#51367F', execSoft: '#EDE7F5',
+  },
+};
+for (const [theme, t] of Object.entries(THEMES)) {
+  console.log(`\nWCAG AA contrast — ${theme} (landing)\n`);
+  check('heading ink on canvas', t.ink, t.canvas, 4.5, 'text');
+  check('body ink on canvas', t.sec, t.canvas, 4.5, 'text');
+  check('heading ink on white', t.ink, t.surface, 4.5, 'text');
+  check('body on white', t.sec, t.surface, 4.5, 'text');
+  t.hero.forEach((stop, i) => check(`hero heading ink on stop ${i + 1}`, t.ink, stop, 4.5, 'text'));
+  t.hero.forEach((stop, i) => check(`hero body on stop ${i + 1}`, t.sec, stop, 4.5, 'text'));
+  check('white label on Session button', '#FFFFFF', t.sessionBtn, 4.5, 'text');
+  check('white label on Rehearsal button', '#FFFFFF', t.execBtn, 4.5, 'text');
+  check('Session accent text on white (outline)', t.sessionBtn, t.surface, 4.5, 'text');
+  check('Rehearsal accent text on white (outline)', t.execBtn, t.surface, 4.5, 'text');
+  check('Session badge text on soft', t.sessionBtn, t.sessionSoft, 4.5, 'text');
+  check('Rehearsal badge text on soft', t.execBtn, t.execSoft, 4.5, 'text');
 }
+
 console.log(`\n${fail === 0 ? 'ALL PASS' : `${fail} FAIL`}`);
 process.exit(fail === 0 ? 0 : 1);

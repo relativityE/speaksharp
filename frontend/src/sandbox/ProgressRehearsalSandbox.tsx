@@ -13,7 +13,8 @@ import React from 'react';
 import { FlaskConical } from 'lucide-react';
 import { T } from './theme';
 import { JourneySteps } from './components/ui';
-import { LandingScreen } from './journey/LandingScreen';
+import { LandingScreen, type LandingTheme } from './journey/LandingScreen';
+import { CompareBoard } from './journey/CompareBoard';
 import { PrepareScreen } from './journey/PrepareScreen';
 import { RehearseScreen, type RehearsalResult } from './journey/RehearseScreen';
 import { ProcessingScreen } from './journey/ProcessingScreen';
@@ -29,6 +30,19 @@ type FinishData = { kind: 'rehearsal'; result: RehearsalResult } | { kind: 'gene
 // QA/reviewer controls are kept OUT of the product frame — available only via ?qa=1.
 const qaEnabled = () => {
   try { return new URLSearchParams(window.location.search).get('qa') === '1'; } catch { return false; }
+};
+
+// Landing theme-comparison gate (localhost review). ?compare=1 shows all three side-by-side; ?theme=
+// selects which candidate landing theme this instance renders (default 'a', the recommended theme —
+// a default preview only, NOT a selection). No theme is propagated to downstream screens.
+const compareEnabled = () => {
+  try { return new URLSearchParams(window.location.search).get('compare') === '1'; } catch { return false; }
+};
+const readTheme = (): LandingTheme => {
+  try {
+    const t = new URLSearchParams(window.location.search).get('theme');
+    return t === 'b' || t === 'c' ? t : 'a';
+  } catch { return 'a'; }
 };
 
 export function ProgressRehearsalSandbox() {
@@ -51,21 +65,28 @@ export function ProgressRehearsalSandbox() {
   const toggleGeneralKind = () =>
     setFinish((f) => (f && f.kind === 'general' ? { kind: 'general', which: f.which === 'improved' ? 'baseline' : 'improved' } : f));
 
+  // Theme-comparison board (localhost review) — full-page, no product app bar, no theme selected.
+  if (compareEnabled()) return <CompareBoard />;
+
+  const isLanding = phase === 'landing';
+
   return (
-    <div className={`min-h-screen ${T.canvas} font-sans antialiased`}>
-      {/* App bar (navy) */}
-      <header className="ss-hero-solid">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
-          <FlaskConical style={{ color: 'var(--ss-aqua)' }} size={20} aria-hidden />
-          <span className="mr-auto font-semibold text-white">SpeakSharp Practice</span>
-          {phase !== 'landing' && phase !== 'handoff' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
-          <span className="rounded-full border border-amber-500/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-300">Sandbox</span>
-        </div>
-      </header>
+    <div className={`min-h-screen ${isLanding ? '' : T.canvas} font-sans antialiased`}>
+      {/* App bar (navy) — NOT on the landing, which carries its own integrated light hero header */}
+      {!isLanding ? (
+        <header className="ss-hero-solid">
+          <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
+            <FlaskConical style={{ color: 'var(--ss-aqua)' }} size={20} aria-hidden />
+            <span className="mr-auto font-semibold text-white">SpeakSharp Practice</span>
+            {phase !== 'handoff' ? <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase === 'prepare' ? 'prepare' : phase === 'rehearse' ? 'rehearse' : 'finish'} /></div> : null}
+            <span className="rounded-full border border-amber-500/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-300">Sandbox</span>
+          </div>
+        </header>
+      ) : null}
 
       <main id="main-content">
         {phase === 'landing' ? (
-          <LandingScreen actions={landingActions} returning={hasRehearsed} lastMode={lastMode} />
+          <LandingScreen actions={landingActions} returning={hasRehearsed} lastMode={lastMode} theme={readTheme()} />
         ) : phase === 'handoff' ? (
           <HandoffScreen onBack={toLanding} />
         ) : phase === 'prepare' ? (

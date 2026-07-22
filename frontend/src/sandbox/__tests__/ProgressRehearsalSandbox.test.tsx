@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { ProgressRehearsalSandbox } from '../ProgressRehearsalSandbox';
 import { SESSION_ROUTE } from '../journey/HandoffScreen';
@@ -7,6 +7,12 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
   beforeEach(() => {
     (window as unknown as { __SS_SANDBOX_TRACE__?: unknown[] }).__SS_SANDBOX_TRACE__ = [];
   });
+  afterEach(() => {
+    // Reset any ?theme= / ?compare= query used by a test so it cannot leak into the next one.
+    // (tests/setup.ts replaces window.location with a writable plain object, so set search directly.)
+    (window.location as unknown as { search: string }).search = '';
+  });
+  const setQuery = (q: string) => { (window.location as unknown as { search: string }).search = q; };
 
   const main = () => screen.getByRole('main');
   const btn = (name: RegExp) => within(main()).getByRole('button', { name });
@@ -117,6 +123,35 @@ describe('ProgressRehearsalSandbox — two-column chooser (SpeakSharp Session | 
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ── Landing theme-comparison gate (localhost review; no theme selected/propagated) ──────────────
+  it('landing defaults to candidate theme A (a preview default, not a selection)', () => {
+    render(<ProgressRehearsalSandbox />);
+    expect(document.querySelector('[data-ss-theme="a"]')).toBeInTheDocument();
+    // The frozen two-column IA is identical regardless of theme.
+    expect(within(main()).getByRole('heading', { name: /^SpeakSharp Session$/i })).toBeInTheDocument();
+    expect(within(main()).getByRole('heading', { name: /^Executive Rehearsal$/i })).toBeInTheDocument();
+  });
+
+  it('?theme=b and ?theme=c render the other candidate themes on the same landing', () => {
+    setQuery('?theme=b');
+    const { unmount } = render(<ProgressRehearsalSandbox />);
+    expect(document.querySelector('[data-ss-theme="b"]')).toBeInTheDocument();
+    expect(within(main()).getByRole('button', { name: /start a session/i })).toBeInTheDocument();
+    unmount();
+    setQuery('?theme=c');
+    render(<ProgressRehearsalSandbox />);
+    expect(document.querySelector('[data-ss-theme="c"]')).toBeInTheDocument();
+  });
+
+  it('?compare=1 shows all three candidate themes side-by-side and selects none', () => {
+    setQuery('?compare=1');
+    render(<ProgressRehearsalSandbox />);
+    expect(within(main()).getByTitle(/Theme A/i)).toBeInTheDocument();
+    expect(within(main()).getByTitle(/Theme B/i)).toBeInTheDocument();
+    expect(within(main()).getByTitle(/Theme C/i)).toBeInTheDocument();
+    expect(screen.getByText(/no theme is selected here/i)).toBeInTheDocument();
   });
 
   it('"View past progress" shows raw movement; percentage stays behind details', () => {

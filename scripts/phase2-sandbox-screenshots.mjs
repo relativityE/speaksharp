@@ -3,9 +3,11 @@
  *
  * Assumes a Vite DEV server is serving http://127.0.0.1:5174/sandbox.html (dev-only entry). Walks the
  * product JOURNEY — Prepare → Rehearse → Help → Recover → Summary, plus general-practice improved and
- * baseline — capturing product-frame desktop + mobile screenshots. Also records any NON-localhost
- * request as a defense-in-depth isolation check (screenshots always written; exits non-zero only if an
- * external request is seen, and the workflow still uploads via `if: always()`).
+ * baseline — capturing product-frame desktop + mobile screenshots. Then, for the landing
+ * THEME-COMPARISON gate, captures each candidate theme (a|b|c) per state and both side-by-side
+ * comparison boards (?compare=1). Also records any NON-localhost request as a defense-in-depth
+ * isolation check (screenshots always written; exits non-zero only if an external request is seen, and
+ * the workflow still uploads via `if: always()`).
  */
 
 import { chromium } from 'playwright';
@@ -66,6 +68,38 @@ async function walk(page, tag, shots, external) {
   await shot('14-view-past-progress');
 }
 
+/**
+ * Landing THEME-COMPARISON gate — capture each candidate theme (a|b|c) on the frozen two-column
+ * layout: default, Session-selected, Rehearsal-selected, a deeper expanded row, and a focus state.
+ * `view` is 'desktop' | 'mobile' (the caller sets the viewport). No theme is selected — this is review.
+ */
+async function themeWalk(page, theme, view, shots) {
+  await page.goto(`${BASE}?theme=${theme}`, { waitUntil: 'networkidle' });
+  const m = page.locator('#main-content');
+  const shot = async (name) => { const p = `${OUT_DIR}/theme-${theme}-${view}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); shots.push(p); };
+  const t = (ms) => page.waitForTimeout(ms);
+
+  await shot('01-default');
+  await m.getByRole('button', { name: /^choose your session mode$/i }).click(); await t(150); // Session card selected + row open
+  await shot('02-session-selected');
+  await m.getByRole('button', { name: /^prepare$/i }).click(); await t(150); // Rehearsal selected; Session collapses (mutual exclusion)
+  await shot('03-rehearsal-selected');
+  await m.getByRole('button', { name: /^review and recover$/i }).click(); await t(150); // deeper row; rows 1–2 become rollups
+  await shot('04-expanded-row');
+  await m.getByRole('button', { name: /start a session/i }).focus(); await t(120); // visible focus ring
+  await shot('05-focus-state');
+}
+
+/** Side-by-side comparison board of all three themes (?compare=1), desktop or mobile render. */
+async function captureCompare(page, mode, shots) {
+  const url = mode === 'mobile' ? `${BASE}?compare=1&mode=mobile` : `${BASE}?compare=1`;
+  await page.goto(url, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1400); // let the three same-origin theme iframes render
+  const p = `${OUT_DIR}/compare-${mode}-board.png`;
+  await page.screenshot({ path: p, fullPage: true });
+  shots.push(p);
+}
+
 /** QA/design reference — only via ?qa=1 (kept out of the product frame). */
 async function qaWalk(page, tag, shots) {
   await page.goto(`${BASE}?qa=1`, { waitUntil: 'networkidle' });
@@ -85,13 +119,21 @@ async function main() {
   page.on('request', (r) => { if (!isLocal(r.url())) { try { external.push(new URL(r.url()).origin); } catch { external.push('[external]'); } } });
 
   const shots = [];
+  // Desktop — full journey (downstream regression + isolation), QA sheet, then the three themes.
   await page.setViewportSize({ width: 1280, height: 900 });
   await walk(page, 'desktop', shots, external);
   await qaWalk(page, 'desktop', shots);
+  for (const th of ['a', 'b', 'c']) await themeWalk(page, th, 'desktop', shots);
+  await page.setViewportSize({ width: 1640, height: 1120 });
+  await captureCompare(page, 'desktop', shots);
 
+  // Mobile — same journey + themes at 375, plus a stacked-render comparison board.
   await page.setViewportSize({ width: 375, height: 812 });
   await walk(page, 'mobile', shots, external);
   await qaWalk(page, 'mobile', shots);
+  for (const th of ['a', 'b', 'c']) await themeWalk(page, th, 'mobile', shots);
+  await page.setViewportSize({ width: 1180, height: 1600 });
+  await captureCompare(page, 'mobile', shots);
 
   const uniqueExternal = [...new Set(external)];
   writeFileSync(`${OUT_DIR}/manifest.json`, JSON.stringify({ screenshots: shots, externalOrigins: uniqueExternal }, null, 2));
