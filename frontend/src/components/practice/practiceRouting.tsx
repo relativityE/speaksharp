@@ -12,7 +12,7 @@
  */
 
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { ENV } from '@/config/TestFlags';
@@ -76,18 +76,38 @@ export const PracticeEntryGate: React.FC<{ children: React.ReactNode }> = ({ chi
 export const PostAuthRedirect: React.FC<{ from?: FromLocation }> = ({ from }) => {
   const { user } = useAuthProvider();
   const userId = user?.id ?? null;
+  // Explicit scalar deps (no exhaustive-deps suppression): recompute only when the identity or the
+  // meaningful return-path values change. The `from` object is reconstructed inside the effect.
+  const fromPathname = from?.pathname;
+  const fromSearch = from?.search;
   const [path, setPath] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let active = true;
     const forced = e2eForcedEnabled();
     if (forced !== null) { setPath(forced ? '/practice' : '/session'); return; }
-    void resolveAuthedDefaultPath(userId, from).then((p) => { if (active) setPath(p); });
-    return () => { active = false; };
-    // `from` is read once at mount; user id is the identity signal we wait on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    const fromArg = fromPathname ? { pathname: fromPathname, search: fromSearch } : null;
+    void resolveAuthedDefaultPath(userId, fromArg).then((p) => { if (active) setPath(p); });
+    return () => { active = false; }; // cancellation: a stale async decision cannot navigate after unmount
+  }, [userId, fromPathname, fromSearch]);
 
   if (!path) return <GateLoader />;
   return <Navigate to={path} replace />;
+};
+
+/**
+ * Dedicated authenticated CONTINUATION route (e.g. the magic-link email return target). It is PUBLIC, so
+ * it renders while the session is being recovered from the URL — waiting on `loading` — instead of a
+ * ProtectedRoute bouncing the just-recovered magic-link user to /auth before the session settles. Once the
+ * authenticated session exists, it defers to PostAuthRedirect, which runs the SAME post-identify flag
+ * decision as password sign-in (targeted → /practice; non-targeted/error/timeout → /session; deep-link
+ * wins). No anonymous flag is ever read. No loop: with no recovered session it falls back to sign-in.
+ */
+export const PostAuthContinue: React.FC = () => {
+  const { user, loading } = useAuthProvider();
+  const location = useLocation();
+  const from = (location.state as { from?: FromLocation } | null)?.from ?? null;
+  if (loading) return <GateLoader />;                       // wait for the (magic-link) session to resolve
+  if (!user) return <Navigate to="/auth/signin" replace />; // no session recovered → sign in (not a loop)
+  return <PostAuthRedirect from={from} />;
 };

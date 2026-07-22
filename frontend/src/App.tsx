@@ -4,7 +4,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { PracticeEntryGate } from './components/practice/practiceRouting';
+import { PracticeEntryGate, PostAuthContinue } from './components/practice/practiceRouting';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
@@ -363,6 +363,9 @@ const App: React.FC = () => {
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                   <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
                   <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+                  {/* PUBLIC authenticated-continuation target for magic-link returns: waits for the
+                      recovered session, then runs the same post-auth rollout decision as password sign-in. */}
+                  <Route path="/auth/continue" element={<PageTransition><PostAuthContinue /></PageTransition>} />
                   <Route path="/practice" element={
                     <ProtectedRoute>
                       <PracticeEntryGate>

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, goToApp } from './helpers';
 
 /**
  * Pre-merge VISUAL + CDP + NAVIGATION proof for #1019 (authenticated /practice entry). No production
@@ -114,6 +114,13 @@ test.describe('Practice entry — real Back navigation, visual + CDP evidence', 
     await page.screenshot({ path: `${DIR}/05-chooser-mobile.png`, fullPage: true });
     await openQuickOverview(page);
     await clickBackToChooser(page, 'practice-back-top');
+
+    // === MAGIC-LINK CONTINUATION === the /auth/continue return target must defer to the SAME authenticated
+    // decision as password sign-in: with an authenticated session + flag ON, it lands on the /practice
+    // chooser (not /session). Proven at browser level with the recovered (mock) session.
+    await page.setViewportSize(DESKTOP);
+    await goToApp(page, '/auth/continue'); // helper preserves MSW init; PostAuthContinue redirects to /practice
+    await expectOnChooser(page); // targeted → /practice chooser, via /auth/continue → PostAuthRedirect
 
     // CDP + navigation assertions: clean, self-contained, and never left /practice for /session.
     expect(sessionNavs, `unexpected /session navigations: ${sessionNavs.join(' | ')}`).toEqual([]);

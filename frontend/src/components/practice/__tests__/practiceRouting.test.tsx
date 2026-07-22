@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // which would nest routers). useAuthProvider is mocked, so no real AuthContext provider is needed.
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { PracticeEntryGate, PostAuthRedirect } from '../practiceRouting';
+import { PracticeEntryGate, PostAuthRedirect, PostAuthContinue } from '../practiceRouting';
 import PracticePage from '@/pages/PracticePage';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { resolveAuthedFlag, resolveAuthedDefaultPath } from '@/services/practiceEntryFlags';
@@ -28,6 +28,7 @@ const mockedAuth = vi.mocked(useAuthProvider);
 const mockedFlag = vi.mocked(resolveAuthedFlag);
 const mockedDefault = vi.mocked(resolveAuthedDefaultPath);
 const asUser = (id: string | null) => ({ user: id ? { id } : null } as ReturnType<typeof useAuthProvider>);
+const asAuth = (id: string | null, loading: boolean) => ({ user: id ? { id } : null, loading } as ReturnType<typeof useAuthProvider>);
 
 function renderAt(initial: string, entryElement?: React.ReactNode) {
   return render(
@@ -106,5 +107,53 @@ describe('PostAuthRedirect — resolves the authenticated default before navigat
     renderAt('/auth', <PostAuthRedirect from={{ pathname: '/session' }} />);
     expect(await screen.findByTestId('session-page')).toBeInTheDocument();
     expect(mockedDefault).toHaveBeenCalledWith('u1', { pathname: '/session' });
+  });
+});
+
+describe('PostAuthContinue — magic-link continuation defers to the authenticated decision', () => {
+  beforeEach(() => { mockedAuth.mockReset(); mockedDefault.mockReset(); });
+
+  function renderContinue(initial = '/auth/continue') {
+    return render(
+      <MemoryRouter initialEntries={[initial]}>
+        <main id="main-content">
+          <Routes>
+            <Route path="/auth/continue" element={<PostAuthContinue />} />
+            <Route path="/auth/signin" element={<div data-testid="signin-page">SIGNIN</div>} />
+            <Route path="/practice" element={<PracticeEntryGate><PracticePage /></PracticeEntryGate>} />
+            <Route path="/session" element={<div data-testid="session-page">SESSION</div>} />
+          </Routes>
+        </main>
+      </MemoryRouter>,
+    );
+  }
+
+  it('WAITS for the recovering session (loading) — shows a loader, navigates nowhere', () => {
+    mockedAuth.mockReturnValue(asAuth(null, true)); // session still being recovered from the magic-link URL
+    renderContinue();
+    expect(screen.getByTestId('practice-gate-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('signin-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('session-page')).not.toBeInTheDocument();
+  });
+
+  it('after the session resolves, a targeted user reaches /practice', async () => {
+    mockedAuth.mockReturnValue(asAuth('u1', false));
+    mockedFlag.mockResolvedValue(true);
+    mockedDefault.mockResolvedValue('/practice');
+    renderContinue();
+    expect(await screen.findByTestId('practice-root')).toBeInTheDocument();
+  });
+
+  it('after the session resolves, a non-targeted/timeout user reaches /session', async () => {
+    mockedAuth.mockReturnValue(asAuth('u1', false));
+    mockedDefault.mockResolvedValue('/session');
+    renderContinue();
+    expect(await screen.findByTestId('session-page')).toBeInTheDocument();
+  });
+
+  it('no recovered session → sign-in (no redirect loop back to /auth/continue)', () => {
+    mockedAuth.mockReturnValue(asAuth(null, false));
+    renderContinue();
+    expect(screen.getByTestId('signin-page')).toBeInTheDocument();
   });
 });
