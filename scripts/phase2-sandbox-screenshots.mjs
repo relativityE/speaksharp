@@ -31,37 +31,52 @@ async function walk(page, tag, shots, external) {
   // 1. Prepare
   await shot('01-prepare');
 
-  // 2. Rehearse — passive agenda (item 1 covered, item 2 partly, items 3/4 not) — also the "partly addressed" state
+  // 2. Ready state (after Start, before speaking)
   await page.getByRole('button', { name: /start rehearsal/i }).click();
-  await page.waitForTimeout(5200);
-  await shot('02-in-session-passive-agenda');
+  await page.waitForTimeout(150);
+  await shot('02-ready');
 
-  // 3. Help requested → one remedy shown (target the approval-request item specifically — its help
-  // button index shifts as items get covered, so select by the item's text, not by nth()).
+  // 3. Listening — passive agenda (item 1 covered, item 2 partly) — also the "partly addressed" state
+  await page.getByRole('button', { name: /begin speaking/i }).click();
+  await page.waitForTimeout(5400);
+  await shot('03-listening-passive-agenda');
+
+  // 4. Paused
+  await page.getByRole('button', { name: /^pause$/i }).click();
+  await page.waitForTimeout(150);
+  await shot('04-paused');
+  await page.getByRole('button', { name: /resume/i }).click();
+  await page.waitForTimeout(150);
+
+  // 5. Help requested → one remedy shown (approval-request item specifically)
   await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click();
   await page.waitForTimeout(150);
-  await shot('03-help-requested-remedy');
+  await shot('05-help-requested-remedy');
 
-  // 4. Recovered after guidance (in-session)
+  // 6. Recovered after guidance (in-session)
   await page.getByRole('button', { name: /i addressed it just now/i }).click();
   await page.waitForTimeout(150);
-  await shot('04-recovered-after-guidance');
+  await shot('06-recovered-after-guidance');
 
-  // 5. Post-session outcome summary
+  // 7. Processing (Finalizing…) — captured before it auto-advances (~1.6s)
   await page.getByRole('button', { name: /finish rehearsal/i }).click();
-  await page.waitForTimeout(200);
-  await shot('05-post-session-outcome');
+  await page.waitForTimeout(250);
+  await shot('07-processing');
 
-  // 6. General practice — improved (raw movement leads)
+  // 8. Complete — outcome summary
+  await page.waitForTimeout(1800);
+  await shot('08-complete-summary');
+
+  // 9. General practice — improved (raw movement leads)
   await page.getByRole('button', { name: /rehearse again/i }).click();
   await page.getByRole('button', { name: /skip agenda — general practice/i }).click();
   await page.waitForTimeout(150);
-  await shot('06-general-improved');
+  await shot('09-general-improved');
 
-  // 7. General practice — first-session baseline (not a grade)
+  // 10. General practice — first-session baseline (not a grade)
   await page.getByRole('button', { name: /first-session \(baseline\) example/i }).click();
   await page.waitForTimeout(150);
-  await shot('07-general-baseline');
+  await shot('10-general-baseline');
 }
 
 async function main() {

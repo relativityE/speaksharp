@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { ProgressRehearsalSandbox } from '../ProgressRehearsalSandbox';
 
 // The sandbox is provider-free, so it renders with a plain RTL render (no app wrappers).
@@ -11,6 +11,10 @@ describe('ProgressRehearsalSandbox — journey', () => {
   });
 
   const main = () => screen.getByRole('main');
+  const beginSpeaking = () => {
+    fireEvent.click(screen.getByRole('button', { name: /start rehearsal/i }));
+    fireEvent.click(screen.getByRole('button', { name: /begin speaking/i }));
+  };
 
   it('opens on the Prepare screen with one obvious primary action and no numbers', () => {
     render(<ProgressRehearsalSandbox />);
@@ -19,33 +23,56 @@ describe('ProgressRehearsalSandbox — journey', () => {
     expect(within(main()).queryAllByText(/%/)).toHaveLength(0);
   });
 
-  it('Start rehearsal → the passive cockpit with an agenda, no scores/percentages while speaking', () => {
+  it('Rehearse opens in a Ready state before listening', () => {
     render(<ProgressRehearsalSandbox />);
     fireEvent.click(screen.getByRole('button', { name: /start rehearsal/i }));
+    expect(within(main()).getByText(/ready when you are/i)).toBeInTheDocument();
+    expect(within(main()).getByRole('button', { name: /begin speaking/i })).toBeInTheDocument();
+  });
+
+  it('Begin speaking → passive cockpit with an agenda, no scores/percentages while speaking', () => {
+    render(<ProgressRehearsalSandbox />);
+    beginSpeaking();
     expect(within(main()).getByText(/speak naturally/i)).toBeInTheDocument();
     expect(within(main()).getByRole('list', { name: /agenda/i })).toBeInTheDocument();
     expect(within(main()).queryAllByText(/%/)).toHaveLength(0);
     expect(within(main()).queryAllByText(/WPM/)).toHaveLength(0);
   });
 
-  it('the full request-help → remedy → recovery sequence surfaces "Recovered after guidance"', () => {
+  it('supports Pause and Resume', () => {
     render(<ProgressRehearsalSandbox />);
-    fireEvent.click(screen.getByRole('button', { name: /start rehearsal/i }));
+    beginSpeaking();
+    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
+    expect(within(main()).getAllByText(/paused/i).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /resume/i }));
+    expect(within(main()).getByText(/speak naturally/i)).toBeInTheDocument();
+  });
 
-    // The approval request is the scripted recovery point — target its item specifically.
-    const approvalItem = screen.getByText(/request approval for two additional/i).closest('li') as HTMLElement;
-    fireEvent.click(within(approvalItem).getByRole('button', { name: /help me with this point/i }));
-    expect(screen.getByText(/one suggestion/i)).toBeInTheDocument(); // one concise remedy, not a list
-    fireEvent.click(screen.getByRole('button', { name: /i addressed it just now/i }));
+  it('request-help → remedy → recovery → processing → recovered summary', () => {
+    vi.useFakeTimers();
+    try {
+      render(<ProgressRehearsalSandbox />);
+      beginSpeaking();
 
-    fireEvent.click(screen.getByRole('button', { name: /finish rehearsal/i }));
+      // The approval request is the scripted recovery point — target its item specifically.
+      const approvalItem = screen.getByText(/request approval for two additional/i).closest('li') as HTMLElement;
+      fireEvent.click(within(approvalItem).getByRole('button', { name: /help me with this point/i }));
+      expect(screen.getByText(/one suggestion/i)).toBeInTheDocument(); // one concise remedy, not a list
+      fireEvent.click(screen.getByRole('button', { name: /i addressed it just now/i }));
 
-    expect(screen.getByRole('heading', { name: /recovered the approval request after asking for help/i })).toBeInTheDocument();
-    const outcome = screen.getByRole('list', { name: /agenda outcome/i });
-    expect(within(outcome).getByText(/recovered after guidance/i)).toBeInTheDocument();
-    expect(screen.getByText(/next run/i)).toBeInTheDocument();
-    // Percentages/formulas stay behind disclosure, not on the primary summary.
-    expect(screen.getByText(/how speaksharp determined this/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /finish rehearsal/i }));
+      // Processing (Finalizing…) then auto-advances to the summary.
+      expect(screen.getByText(/finalizing your rehearsal/i)).toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1800); });
+
+      expect(screen.getByRole('heading', { name: /recovered the approval request after asking for help/i })).toBeInTheDocument();
+      const outcome = screen.getByRole('list', { name: /agenda outcome/i });
+      expect(within(outcome).getByText(/recovered after guidance/i)).toBeInTheDocument();
+      expect(screen.getByText(/next run/i)).toBeInTheDocument();
+      expect(screen.getByText(/how speaksharp determined this/i)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('general practice leads with raw movement; percentage stays behind details', () => {
@@ -53,8 +80,6 @@ describe('ProgressRehearsalSandbox — journey', () => {
     fireEvent.click(screen.getByRole('button', { name: /skip agenda — general practice/i }));
     expect(within(main()).getByText(/you improved on your last comparable session/i)).toBeInTheDocument();
     expect(within(main()).getByText(/fewer filler words per minute than your baseline/i)).toBeInTheDocument();
-    // Every percentage in the product frame lives INSIDE the collapsed "How SpeakSharp determined
-    // this" disclosure — never in the primary flow.
     const details = within(main()).getByText(/how speaksharp determined this/i).closest('details');
     expect(details).toBeTruthy();
     within(main()).queryAllByText(/\d+%/).forEach((el) => expect(details!.contains(el)).toBe(true));
@@ -70,9 +95,7 @@ describe('ProgressRehearsalSandbox — journey', () => {
 
   it('the QA fixture switcher is a separate, collapsed Review-all-states panel (not the product frame)', () => {
     render(<ProgressRehearsalSandbox />);
-    // Product is primary...
     expect(within(main()).getByRole('heading', { name: /what are you rehearsing\?/i })).toBeInTheDocument();
-    // ...and the QA panel exists but outside the product frame.
     expect(screen.getByText(/review all states \(qa\)/i)).toBeInTheDocument();
     expect(within(main()).queryByText(/review all states/i)).not.toBeInTheDocument();
   });

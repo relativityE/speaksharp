@@ -97,24 +97,34 @@ async function walkJourney(page, tag, report) {
   const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
   await shot('01-prepare');
   await page.getByRole('button', { name: /start rehearsal/i }).click();
-  await page.waitForTimeout(5200);
-  await shot('02-in-session-passive-agenda');
+  await page.waitForTimeout(150);
+  await shot('02-ready');
+  await page.getByRole('button', { name: /begin speaking/i }).click();
+  await page.waitForTimeout(5400);
+  await shot('03-listening-passive-agenda');
+  await page.getByRole('button', { name: /^pause$/i }).click();
+  await page.waitForTimeout(150);
+  await shot('04-paused');
+  await page.getByRole('button', { name: /resume/i }).click();
+  await page.waitForTimeout(150);
   await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click();
   await page.waitForTimeout(150);
-  await shot('03-help-requested-remedy');
+  await shot('05-help-requested-remedy');
   await page.getByRole('button', { name: /i addressed it just now/i }).click();
   await page.waitForTimeout(150);
-  await shot('04-recovered-after-guidance');
+  await shot('06-recovered-after-guidance');
   await page.getByRole('button', { name: /finish rehearsal/i }).click();
-  await page.waitForTimeout(200);
-  await shot('05-post-session-outcome');
+  await page.waitForTimeout(250);
+  await shot('07-processing');
+  await page.waitForTimeout(1800);
+  await shot('08-complete-summary');
   await page.getByRole('button', { name: /rehearse again/i }).click();
   await page.getByRole('button', { name: /skip agenda — general practice/i }).click();
   await page.waitForTimeout(150);
-  await shot('06-general-improved');
+  await shot('09-general-improved');
   await page.getByRole('button', { name: /first-session \(baseline\) example/i }).click();
   await page.waitForTimeout(150);
-  await shot('07-general-baseline');
+  await shot('10-general-baseline');
 }
 
 async function main() {

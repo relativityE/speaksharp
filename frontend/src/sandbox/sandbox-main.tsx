@@ -14,6 +14,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../index.css';
+import './sandbox.css';
 import { ProgressRehearsalSandbox } from './ProgressRehearsalSandbox';
 
 const rootEl = document.getElementById('sandbox-root');

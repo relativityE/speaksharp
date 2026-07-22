@@ -14,11 +14,12 @@ import { T } from './theme';
 import { JourneySteps } from './components/ui';
 import { PrepareScreen } from './journey/PrepareScreen';
 import { RehearseScreen, type RehearsalResult } from './journey/RehearseScreen';
+import { ProcessingScreen } from './journey/ProcessingScreen';
 import { FinishScreen } from './journey/FinishScreen';
 import { ReviewPanel } from './components/ReviewPanel';
 import { trace } from './trace';
 
-type Phase = 'prepare' | 'rehearse' | 'finish';
+type Phase = 'prepare' | 'rehearse' | 'processing' | 'finish';
 type FinishData = { kind: 'rehearsal'; result: RehearsalResult } | { kind: 'general'; which: 'baseline' | 'improved' };
 
 export function ProgressRehearsalSandbox() {
@@ -30,7 +31,7 @@ export function ProgressRehearsalSandbox() {
   const toPrepare = () => { setFinish(null); setPhase('prepare'); };
   const startRehearsal = () => setPhase('rehearse');
   const startGeneral = () => { setFinish({ kind: 'general', which: 'improved' }); setPhase('finish'); };
-  const onRehearsalFinish = (result: RehearsalResult) => { setFinish({ kind: 'rehearsal', result }); setPhase('finish'); };
+  const onRehearsalFinish = (result: RehearsalResult) => { setFinish({ kind: 'rehearsal', result }); setPhase('processing'); };
   const toggleGeneralKind = () =>
     setFinish((f) => (f && f.kind === 'general' ? { kind: 'general', which: f.which === 'improved' ? 'baseline' : 'improved' } : f));
 
@@ -41,7 +42,7 @@ export function ProgressRehearsalSandbox() {
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-5 py-3">
           <FlaskConical className="text-indigo-400" size={20} aria-hidden />
           <span className="mr-auto font-semibold text-white">SpeakSharp · Executive Rehearsal</span>
-          <div className="hidden sm:block"><JourneySteps current={phase} /></div>
+          <div className="hidden sm:block"><JourneySteps current={phase === 'processing' ? 'rehearse' : phase} /></div>
           <span className="rounded-full border border-amber-500/40 bg-amber-400/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-300">Sandbox</span>
         </div>
       </header>
@@ -51,6 +52,8 @@ export function ProgressRehearsalSandbox() {
           <PrepareScreen onStart={startRehearsal} onStartGeneral={startGeneral} />
         ) : phase === 'rehearse' ? (
           <RehearseScreen onFinish={onRehearsalFinish} onBack={toPrepare} />
+        ) : phase === 'processing' ? (
+          <ProcessingScreen onDone={() => setPhase('finish')} />
         ) : finish?.kind === 'rehearsal' ? (
           <FinishScreen rehearsal={finish.result} onAgain={toPrepare} />
         ) : finish?.kind === 'general' ? (

@@ -67,6 +67,42 @@ export function ListeningPulse({ label = 'Listening' }: { label?: string }) {
   );
 }
 
+export type RecordStatus = 'ready' | 'listening' | 'paused' | 'processing';
+
+/** Listening visualization — a small equalizer that animates only while listening (reduced-motion safe). */
+export function Equalizer({ active }: { active: boolean }) {
+  const bars = [0, 1, 2, 3, 4];
+  return (
+    <span aria-hidden className="flex h-6 items-end gap-1">
+      {bars.map((b) => (
+        <span
+          key={b}
+          className={`w-1 rounded-full ${active ? 'ss-eq-bar bg-teal-400' : 'bg-slate-600'}`}
+          style={{ height: '100%', animationDelay: `${b * 0.12}s`, transform: active ? undefined : 'scaleY(0.4)' }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** State-aware recording indicator (Ready / Listening / Paused / Processing) — text + icon + color. */
+export function RecordingIndicator({ status, seconds }: { status: RecordStatus; seconds?: number }) {
+  const label = status === 'ready' ? 'Ready' : status === 'listening' ? 'Listening' : status === 'paused' ? 'Paused' : 'Finalizing';
+  const dot = status === 'listening' ? 'bg-teal-400' : status === 'paused' ? 'bg-amber-400' : status === 'processing' ? 'bg-indigo-400' : 'bg-slate-400';
+  const mm = seconds !== undefined ? String(Math.floor(seconds / 60)) : null;
+  const ss = seconds !== undefined ? String(seconds % 60).padStart(2, '0') : null;
+  return (
+    <span className="inline-flex items-center gap-3">
+      <span className="inline-flex items-center gap-2 rounded-full bg-slate-800/70 px-3 py-1.5 text-sm font-semibold text-slate-100 ring-1 ring-slate-700">
+        <span className={`h-2 w-2 rounded-full ${dot}`} />
+        {label}
+      </span>
+      <Equalizer active={status === 'listening'} />
+      {mm !== null ? <span className="text-sm font-medium tabular-nums text-slate-400">{mm}:{ss}</span> : null}
+    </span>
+  );
+}
+
 /** Progressive-disclosure block — the numbers/formulas live here, off the primary screen. */
 export function Disclosure({ summary, children, onOpen }: { summary: string; children: React.ReactNode; onOpen?: () => void }) {
   return (
