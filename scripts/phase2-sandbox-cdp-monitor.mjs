@@ -94,35 +94,40 @@ function classifyRequest(u) {
 // Walk the product journey (Prepare → Rehearse → Help → Recover → Summary → general practice),
 // capturing a screenshot at each state and proving zero external traffic throughout.
 async function walkJourney(page, tag, report) {
-  const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p, fullPage: true }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
+  // Viewport-only screenshots (not fullPage) — a headed Chrome resizes the viewport for fullPage
+  // captures, which breaks click actionability mid-walk. The uploaded artifact screenshots come from
+  // the headless workflow; here the screenshots are a secondary record and the network/error proof is
+  // the point.
+  const shot = async (name) => { const p = `${OUT_DIR}/${tag}-${name}.png`; await page.screenshot({ path: p }); report.screenshots.push(p); report.fixturesInspected.push(`${tag}-${name}`); };
+  const click = async (loc) => { await loc.scrollIntoViewIfNeeded(); await loc.click({ timeout: 15000 }); };
   await shot('01-prepare');
-  await page.getByRole('button', { name: /start rehearsal/i }).click();
+  await click(page.getByRole('button', { name: /start rehearsal/i }));
   await page.waitForTimeout(150);
   await shot('02-ready');
-  await page.getByRole('button', { name: /begin speaking/i }).click();
+  await click(page.getByRole('button', { name: /begin speaking/i }));
   await page.waitForTimeout(5400);
   await shot('03-listening-passive-agenda');
-  await page.getByRole('button', { name: /^pause$/i }).click();
+  await click(page.getByRole('button', { name: /^pause$/i }));
   await page.waitForTimeout(150);
   await shot('04-paused');
-  await page.getByRole('button', { name: /resume/i }).click();
+  await click(page.getByRole('button', { name: /resume/i }));
   await page.waitForTimeout(150);
-  await page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }).click();
+  await click(page.locator('li', { hasText: /request approval for two additional/i }).getByRole('button', { name: /help me with this point/i }));
   await page.waitForTimeout(150);
   await shot('05-help-requested-remedy');
-  await page.getByRole('button', { name: /i addressed it just now/i }).click();
+  await click(page.getByRole('button', { name: /i addressed it just now/i }));
   await page.waitForTimeout(150);
   await shot('06-recovered-after-guidance');
-  await page.getByRole('button', { name: /finish rehearsal/i }).click();
+  await click(page.getByRole('button', { name: /finish rehearsal/i }));
   await page.waitForTimeout(250);
   await shot('07-processing');
   await page.waitForTimeout(1800);
   await shot('08-complete-summary');
-  await page.getByRole('button', { name: /rehearse again/i }).click();
-  await page.getByRole('button', { name: /skip agenda — general practice/i }).click();
+  await click(page.getByRole('button', { name: /rehearse again/i }));
+  await click(page.getByRole('button', { name: /skip agenda — general practice/i }));
   await page.waitForTimeout(150);
   await shot('09-general-improved');
-  await page.getByRole('button', { name: /first-session \(baseline\) example/i }).click();
+  await click(page.getByRole('button', { name: /first-session \(baseline\) example/i }));
   await page.waitForTimeout(150);
   await shot('10-general-baseline');
 }
@@ -166,12 +171,13 @@ async function main() {
   await client.send('Performance.enable');
   client.on('Network.requestWillBeSent', (e) => classifyRequest(e.request.url));
 
-  // Reload to capture boot under instrumentation, then walk the product journey desktop + mobile.
-  await page.reload({ waitUntil: 'networkidle' });
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await walkJourney(page, 'desktop', report);
-  await page.setViewportSize({ width: 375, height: 812 });
-  await walkJourney(page, 'mobile', report);
+  // Reload to capture boot under instrumentation, then walk the product journey. Use domcontentloaded
+  // (not networkidle — the Vite HMR socket keeps the network non-idle) and DO NOT call setViewportSize
+  // (it corrupts interaction on a headed CDP Chrome). The uploaded artifact screenshots (desktop +
+  // mobile) come from the headless workflow; this monitor's job is the network/console/error proof.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: /start rehearsal/i }).waitFor({ timeout: 15000 });
+  await walkJourney(page, 'cdp', report);
 
   // Render metrics (content-free).
   try {
@@ -216,8 +222,10 @@ async function main() {
     summaryPath,
   }, null, 2));
 
-  // Do NOT close the browser — it is the operator's dedicated CDP instance.
+  // Do NOT close the browser — it is the operator's dedicated CDP instance. Detach and exit cleanly
+  // (the open CDP connection would otherwise keep the process alive).
   await client.detach().catch(() => {});
+  process.exit(report.result.startsWith('PASS') ? 0 : 2);
 }
 
 main().catch((e) => fail(e.message));
