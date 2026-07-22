@@ -48,6 +48,7 @@ const RouteReadinessManager: React.FC = () => {
 
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
+const PracticePage = React.lazy(() => import('./pages/PracticePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
@@ -361,6 +362,11 @@ const App: React.FC = () => {
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                   <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
                   <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+                  <Route path="/practice" element={
+                    <ProtectedRoute>
+                      <PageTransition><PracticePage /></PageTransition>
+                    </ProtectedRoute>
+                  } />
                   <Route path="/session" element={
                     <ProtectedRoute>
                       <TranscriptionProvider>

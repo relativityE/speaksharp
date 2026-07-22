@@ -11,10 +11,11 @@
  * separately in the report's `session_id` column (validated + ownership-guarded by the DB), NOT here.
  */
 
-export type ProductMode = 'marketing' | 'session' | 'progress' | 'account' | 'other';
+export type ProductMode = 'marketing' | 'practice' | 'session' | 'progress' | 'account' | 'other';
 
 export type PageKey =
   | 'home'
+  | 'practice'
   | 'session'
   | 'analytics'
   | 'analytics_session'
@@ -57,6 +58,7 @@ const OTHER_CONTEXT: PageContext = { pageKey: 'other', pageLabel: 'Other page', 
 // form produced by toCanonicalRoute (so /analytics/<uuid> matches '/analytics/:id').
 const ROUTE_REGISTRY: Record<string, PageContext> = {
   '/': { pageKey: 'home', pageLabel: 'SpeakSharp landing', productMode: 'marketing', journeyStep: 'landing', canonicalRoute: '/' },
+  '/practice': { pageKey: 'practice', pageLabel: 'SpeakSharp Practice', productMode: 'practice', journeyStep: 'chooser', canonicalRoute: '/practice' },
   '/session': { pageKey: 'session', pageLabel: 'Session · Speaking', productMode: 'session', journeyStep: 'speaking', canonicalRoute: '/session' },
   '/analytics': { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/analytics' },
   '/analytics/:id': { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/analytics/:sessionId' },
@@ -77,6 +79,14 @@ export function resolvePageContext(pathname: string | null | undefined): PageCon
 
 // Page-specific "What part had a problem?" options. Every set ends with `other` so nothing is forced.
 const AREAS: Record<PageKey, IssueAreaOption[]> = {
+  practice: [
+    { value: 'understanding_choices', label: 'Understanding the choices' },
+    { value: 'quick_practice', label: 'Quick Practice' },
+    { value: 'guided_rehearsal', label: 'Guided Rehearsal' },
+    { value: 'navigation', label: 'Navigation' },
+    { value: 'visual_layout', label: 'Visual / layout' },
+    { value: 'other', label: 'Other' },
+  ],
   home: [
     { value: 'understanding_choices', label: 'Understanding the choices' },
     { value: 'navigation', label: 'Navigation' },

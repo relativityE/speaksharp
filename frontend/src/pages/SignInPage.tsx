@@ -2,6 +2,7 @@ import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { resolvePostAuthPath } from '@/services/practiceEntryFlags';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,7 +35,9 @@ export default function SignInPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
-    const postAuthPath = `${fromLocation?.pathname || '/session'}${fromLocation?.search || ''}`;
+    // Post-auth: a valid protected deep-link wins; otherwise default to /practice (rollout flag ON) or
+    // the unchanged /session (flag OFF = rollback). Unsafe/external `from` values are rejected.
+    const postAuthPath = resolvePostAuthPath(fromLocation);
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');

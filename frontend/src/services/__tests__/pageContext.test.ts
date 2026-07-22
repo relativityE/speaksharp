@@ -26,6 +26,12 @@ describe('pageContext — canonical route sanitization', () => {
 });
 
 describe('pageContext — resolvePageContext', () => {
+  it('resolves the /practice entry route with its own page identity + issue areas', () => {
+    expect(resolvePageContext('/practice')).toMatchObject({ pageKey: 'practice', pageLabel: 'SpeakSharp Practice', productMode: 'practice', canonicalRoute: '/practice' });
+    const areas = issueAreasFor('practice').map((a) => a.value);
+    expect(areas).toEqual(expect.arrayContaining(['quick_practice', 'guided_rehearsal', 'understanding_choices', 'other']));
+  });
+
   it('resolves current production routes to allowlisted page identities', () => {
     expect(resolvePageContext('/')).toMatchObject({ pageKey: 'home', productMode: 'marketing', canonicalRoute: '/' });
     expect(resolvePageContext('/session')).toMatchObject({ pageKey: 'session', productMode: 'session', canonicalRoute: '/session' });
