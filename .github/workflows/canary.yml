@@ -27,6 +27,11 @@ jobs:
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Sign-in-first: the healthy path uses the public anon flow (same key users authenticate with)
+          # so a stale/rotated service-role key can't fail the canary when the account is healthy.
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Service-role is now the RECOVERY-only path (missing account). An invalid-JWT here is reported
+          # as an actionable "rotate the key" config failure.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
           # Stable email so provision-canary.mjs reuses ONE account every run (its idempotent
