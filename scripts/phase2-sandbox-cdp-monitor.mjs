@@ -173,7 +173,7 @@ async function main() {
   // (it corrupts interaction on a headed CDP Chrome). The uploaded artifact screenshots (desktop +
   // mobile) come from the headless workflow; this monitor's job is the network/console/error proof.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: /start rehearsal/i }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: /try a sample/i }).waitFor({ timeout: 15000 });
   await walkJourney(page, 'cdp', report);
 
   // Render metrics (content-free).
