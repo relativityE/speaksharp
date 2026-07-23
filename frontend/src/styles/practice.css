@@ -9,9 +9,9 @@
   --ss-canvas: #F6F8FF;
   --ss-surface: #FFFFFF;
   --ss-text: #16213E;
-  --ss-text-secondary: #526078;
+  --ss-text-secondary: #45526F;  /* darkened for legible secondary copy (overview description, journey detail) */
   --ss-border: #DCE2F2;
-  --ss-neutral: #64748B;
+  --ss-neutral: #4F5C77;  /* darkened for legible small print (disclosure, section labels) */
   --ss-neutral-soft: #EEF2F7;
   --ss-neutral-text: #334155;
   --ss-success: #087A55;
@@ -49,7 +49,7 @@
      green). Violet band = a bit darker for stronger contrast against the white card body. */
   --ss-session-panel: linear-gradient(145deg, #84BAB7 0%, #B5D5D4 100%); --ss-session-border: #4C9E99;
   --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE;
-  --ss-exec-panel: linear-gradient(145deg, #7A61EF 0%, #9C89F6 100%); --ss-exec-border: #6A57E8;
+  --ss-exec-panel: linear-gradient(145deg, #5E43E0 0%, #7C61EE 100%); --ss-exec-border: #5A46E0;
 }
 
 /* Same-element compound selector (the class sits ON .practice-root, not a descendant). */

@@ -45,37 +45,41 @@ export function LandingHeroArt() {
   );
 }
 
-/** Quick Practice — waveform → transcript → delivery-feedback check. */
+/** Quick Practice — waveform → transcript → delivery-feedback check. Uses a deep-teal INK
+ * (`--ss-art-ink`) so it reads clearly on the LIGHT teal band; warm bars stay orange. */
 export function QuickPracticeArt({ emphasis = false }: { emphasis?: boolean }) {
   const heights = [14, 26, 20, 38, 30, 46, 34, 52, 40, 30, 44, 24];
   const warmAt = new Set([5, 9]);
   const lines = [128, 96, 112];
+  const ink = 'var(--ss-art-ink, var(--ss-card))';
   return (
     <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      <line x1="16" y1="60" x2="150" y2="60" stroke="var(--ss-card)" strokeOpacity="0.22" strokeWidth="1.5" />
+      <line x1="16" y1="60" x2="150" y2="60" stroke={ink} strokeOpacity="0.3" strokeWidth="1.5" />
       {heights.map((h, i) => {
         const x = 18 + i * 11.4;
-        const fill = warmAt.has(i) ? 'var(--ss-card-warm)' : 'var(--ss-card)';
-        const op = warmAt.has(i) ? 1 : 0.5 + (i % 4) * 0.16 + (emphasis ? 0.12 : 0);
+        const fill = warmAt.has(i) ? 'var(--ss-card-warm)' : ink;
+        const op = warmAt.has(i) ? 1 : 0.72 + (i % 4) * 0.09 + (emphasis ? 0.08 : 0);
         return <rect key={i} x={x} y={60 - h / 2} width={5.5} height={h} rx={2.75} fill={fill} opacity={Math.min(op, 1)} />;
       })}
-      <path d="M162 60 h16 m0 0 l-5 -4 m5 4 l-5 4" fill="none" stroke="var(--ss-card)" strokeOpacity="0.5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M162 60 h16 m0 0 l-5 -4 m5 4 l-5 4" fill="none" stroke={ink} strokeOpacity="0.7" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       {lines.map((w, i) => (
-        <rect key={i} x={190} y={38 + i * 16} width={w} height={8} rx={4} fill="var(--ss-card)" opacity={i === 0 ? 0.5 : 0.28} />
+        <rect key={i} x={190} y={38 + i * 16} width={w} height={8} rx={4} fill={ink} opacity={i === 0 ? 0.7 : 0.45} />
       ))}
-      <circle cx={196} cy={92} r={9} fill="var(--ss-card)" opacity={emphasis ? 1 : 0.9} />
+      <circle cx={196} cy={92} r={9} fill={ink} opacity={1} />
       <path d="M191.5 92 l3 3 l6 -6.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-/** Guided Rehearsal — agenda points → covered / partly / recovered / open outcomes. */
+/** Guided Rehearsal — agenda points → covered / partly / recovered / open outcomes. Rendered LIGHT-on-dark
+ * (light circles + dark-violet glyphs + brighter bars) so every row reads clearly on the deep violet band. */
 export function GuidedRehearsalArt({ emphasis = false }: { emphasis?: boolean }) {
+  const glyphInk = '#3A2E96'; // deep violet — reads on the light circles that sit over the dark band
   const rows = [
-    { c: 'var(--ss-success)', w: 150, glyph: 'check' },
-    { c: 'var(--ss-partial)', w: 116, glyph: 'half' },
-    { c: 'var(--ss-card)', w: 132, glyph: 'star' },
-    { c: 'var(--ss-neutral)', w: 92, glyph: 'open' },
+    { c: '#7FE8B6', w: 150, glyph: 'check' }, // covered = light green
+    { c: '#FFCF6E', w: 116, glyph: 'half' },  // partial = light amber
+    { c: '#FFFFFF', w: 132, glyph: 'star' },  // rehearsed = white
+    { c: '#D3DAF6', w: 92, glyph: 'open' },   // open = light indigo outline
   ];
   return (
     <svg viewBox="0 0 320 120" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
@@ -85,12 +89,12 @@ export function GuidedRehearsalArt({ emphasis = false }: { emphasis?: boolean })
         return (
           <g key={i}>
             {solid
-              ? <circle cx={24} cy={y} r={6} fill={r.c} opacity={emphasis ? 1 : 0.95} />
-              : <circle cx={24} cy={y} r={5.5} fill="none" stroke={r.c} strokeWidth="1.6" opacity={0.9} />}
-            {r.glyph === 'check' ? <path d={`M20.5 ${y} l2.4 2.4 l4.6 -5`} fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /> : null}
-            {r.glyph === 'star' ? <path d={`M24 ${y - 3.2} l1 2.2 l2.4 .3 l-1.7 1.7 l.4 2.4 l-2.1 -1.1 l-2.1 1.1 l.4 -2.4 l-1.7 -1.7 l2.4 -.3 z`} fill="#fff" opacity="0.95" /> : null}
-            <rect x={40} y={y - 4} width={r.w} height={8} rx={4} fill={r.c} opacity={0.34} />
-            <rect x={40 + r.w + 8} y={y - 4} width={40} height={8} rx={4} fill="var(--ss-card)" opacity={0.15} />
+              ? <circle cx={24} cy={y} r={7} fill={r.c} opacity={1} />
+              : <circle cx={24} cy={y} r={6.5} fill="none" stroke={r.c} strokeWidth="2" opacity={0.95} />}
+            {r.glyph === 'check' ? <path d={`M20.4 ${y} l2.6 2.6 l4.9 -5.3`} fill="none" stroke={glyphInk} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /> : null}
+            {r.glyph === 'star' ? <path d={`M24 ${y - 3.4} l1.05 2.3 l2.5 .3 l-1.8 1.8 l.45 2.5 l-2.2 -1.15 l-2.2 1.15 l.45 -2.5 l-1.8 -1.8 l2.5 -.3 z`} fill={glyphInk} /> : null}
+            <rect x={40} y={y - 4} width={r.w} height={8} rx={4} fill={r.c} opacity={emphasis ? 0.68 : 0.6} />
+            <rect x={40 + r.w + 8} y={y - 4} width={40} height={8} rx={4} fill="#FFFFFF" opacity={0.3} />
           </g>
         );
       })}

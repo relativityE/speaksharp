@@ -49,6 +49,8 @@ const QUICK_VARS: React.CSSProperties = {
   ['--ss-card' as string]: 'var(--ss-session-accent)', ['--ss-card-btn' as string]: 'var(--ss-session-btn)',
   ['--ss-card-soft' as string]: 'var(--ss-session-soft)', ['--ss-card-panel' as string]: 'var(--ss-session-panel)',
   ['--ss-card-border' as string]: 'var(--ss-session-border)', ['--ss-card-warm' as string]: 'var(--ss-sun)',
+  // Deep teal INK for the illustration so the waveform/transcript read clearly on the LIGHT teal band.
+  ['--ss-art-ink' as string]: '#065E5A',
 };
 const GUIDED_VARS: React.CSSProperties = {
   ['--ss-card' as string]: 'var(--ss-exec-accent)', ['--ss-card-btn' as string]: 'var(--ss-exec-btn)',
