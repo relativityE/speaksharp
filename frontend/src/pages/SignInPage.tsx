@@ -2,7 +2,7 @@ import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useLocation } from 'react-router-dom';
-import { safeDeepLink } from '@/services/practiceEntryFlags';
+import { safeDeepLink } from '@/services/postAuthRouting';
 import { PostAuthRedirect } from '@/components/practice/practiceRouting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,11 +35,9 @@ export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
     const location = useLocation();
     const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
-    // The magic-link target is baked into an email requested while ANONYMOUS, so it must NOT encode a flag
-    // decision. A safe deep-link still wins; otherwise it returns to the PUBLIC authenticated-continuation
-    // route /auth/continue, which waits for the recovered session and then runs the SAME post-identify
-    // rollout decision as password sign-in (targeted → /practice; else → /session). The decision is
-    // deferred until an authenticated identity exists — no anonymous feature-flag read here.
+    // Magic-link return target: a safe deep-link wins; otherwise the email returns to the PUBLIC
+    // continuation route /auth/continue, which waits for the recovered session and then applies the same
+    // default as password sign-in — /practice. Routing never consults PostHog.
     const magicLinkPath = safeDeepLink(fromLocation) ?? '/auth/continue';
 
     const [email, setEmail] = useState('');

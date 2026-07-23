@@ -52,6 +52,10 @@ export const trackPracticeOverviewExpanded = (mode: PracticeMode): void =>
 export const trackQuickPracticeStarted = (source: PracticeEntrySource): void =>
   emit('quick_practice_started', { mode: 'quick', entry_source: normalizeSource(source) });
 
-/** The Guided Rehearsal preview was viewed (it stays on /practice; no functional rehearsal). */
-export const trackGuidedRehearsalPreviewViewed = (): void =>
-  emit('guided_rehearsal_preview_viewed', { mode: 'guided' });
+/**
+ * Guided Rehearsal was selected while UNAVAILABLE (stays on /practice; shows the unavailable toast). This
+ * does NOT claim a preview was shown — `available: false` is a bounded, content-free flag. The toast text
+ * itself is never sent.
+ */
+export const trackGuidedRehearsalUnavailable = (): void =>
+  emit('guided_rehearsal_unavailable_selected', { mode: 'guided', available: false });

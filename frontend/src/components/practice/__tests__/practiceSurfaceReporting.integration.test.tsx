@@ -13,14 +13,16 @@ vi.mock('@/services/issueReportService', async (orig) => {
 });
 vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeEntryViewed: vi.fn(), trackPracticeModeSelected: vi.fn(), trackPracticeOverviewExpanded: vi.fn(),
-  trackQuickPracticeStarted: vi.fn(), trackGuidedRehearsalPreviewViewed: vi.fn(),
+  trackQuickPracticeStarted: vi.fn(), trackGuidedRehearsalUnavailable: vi.fn(),
+}));
+vi.mock('@/lib/toast', () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn() }),
 }));
 // Report persistence must be INDEPENDENT of the analytics transport: make AnalyticsBuffer.push throw and
 // prove a report still persists (the Report Issue submit path never touches telemetry).
 vi.mock('@/services/AnalyticsBuffer', () => ({
   analyticsBuffer: { push: vi.fn(() => { throw new Error('analytics transport down'); }), identify: vi.fn() },
 }));
-vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const submit = vi.mocked(issueReportService.submit);
 
@@ -75,7 +77,7 @@ describe('Report Issue — /practice surface attribution (one route, three surfa
   it('quick_practice_overview: shows Quick Practice overview + quick areas, stores quick surface', async () => {
     renderApp();
     fireEvent.click(screen.getByTestId('practice-card-quick'));
-    const meta = await reportAndCapture(/Quick Practice overview/, ['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other']);
+    const meta = await reportAndCapture(/Quick Practice overview/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
     expect(meta).toMatchObject({ practiceSurface: 'quick_practice_overview', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
   });
 
@@ -87,22 +89,37 @@ describe('Report Issue — /practice surface attribution (one route, three surfa
     expect(meta.practiceSurface).toBe('practice_home');
   });
 
-  it('guided_rehearsal_preview (expanded): shows Guided Rehearsal preview + guided areas', async () => {
+  it('guided: internal token guided_rehearsal_unavailable but VISIBLE label exactly "Guided Rehearsal"', async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId('practice-card-guided')); // shows toast + marks surface (no preview)
+    await openReport();
+    // Visible label is exactly "Guided Rehearsal" — never "(unavailable)".
+    expect(banner()).toHaveTextContent(/Reporting from:\s*Guided Rehearsal/);
+    expect(banner()).not.toHaveTextContent(/unavailable/i);
+    expect(areaValues()).toEqual(['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
+    fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: 'A clear title' } });
+    fireEvent.change(screen.getByTestId('issue-report-description'), { target: { value: 'A description with enough length.' } });
+    fireEvent.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    const calls = submit.mock.calls;
+    const meta = calls[calls.length - 1][0].metadata;
+    // Internal token still records unavailability for triage.
+    expect(meta).toMatchObject({ practiceSurface: 'guided_rehearsal_unavailable', pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', canonicalRoute: '/practice' });
+  });
+
+  it('guided attribution PERSISTS after the toast, and resets only when Quick is selected', async () => {
     renderApp();
     fireEvent.click(screen.getByTestId('practice-card-guided'));
-    const meta = await reportAndCapture(/Guided Rehearsal preview/, ['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other']);
-    expect(meta).toMatchObject({ practiceSurface: 'guided_rehearsal_preview', journeyStep: 'guided_preview', canonicalRoute: '/practice' });
+    // Still on the chooser (no preview); a report opened now attributes to Guided.
+    const first = await reportAndCapture(/Guided Rehearsal/, ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
+    expect(first.practiceSurface).toBe('guided_rehearsal_unavailable');
+    // Selecting Quick changes the surface to quick.
+    fireEvent.click(screen.getByTestId('practice-card-quick'));
+    const second = await reportAndCapture(/Quick Practice overview/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
+    expect(second.practiceSurface).toBe('quick_practice_overview');
   });
 
-  it('guided preview closed returns context to practice_home', async () => {
-    renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-guided')); // open
-    fireEvent.click(screen.getByTestId('practice-card-guided')); // close
-    const meta = await reportAndCapture(/SpeakSharp Practice/, ['understanding_choices', 'navigation', 'visual_layout', 'other']);
-    expect(meta.practiceSurface).toBe('practice_home');
-  });
-
-  it('Quick "Start speaking" → /session, and a report there uses the Session · Speaking context (surface reset)', async () => {
+  it('Quick "Open Practice Session" → /session, and a report there uses the Session · Speaking context (surface reset)', async () => {
     renderApp();
     fireEvent.click(screen.getByTestId('practice-card-quick'));
     fireEvent.click(screen.getByTestId('practice-quick-start')); // navigate('/session') → PracticePage unmounts

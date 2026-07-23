@@ -36,9 +36,8 @@ export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
   const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
-  // The post-auth destination is resolved ASYNCHRONOUSLY by <PostAuthRedirect> once the authenticated
-  // identity + its flags are loaded — never from the pre-identification anonymous flag state. A safe
-  // deep-link wins immediately; else targeted → /practice, everyone else → the unchanged /session.
+  // The post-auth destination is resolved by <PostAuthRedirect>: a safe deep-link wins, otherwise every
+  // authenticated user lands on /practice. Routing never consults PostHog.
 
   // Determine initial view from URL path
   const getInitialView = (): AuthView => {

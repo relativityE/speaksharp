@@ -75,10 +75,12 @@ describe('pageContext — /practice surfaces (closed contract)', () => {
   it('distinguishes the three surfaces by label + journeyStep, all keeping /practice as the route', () => {
     const home = resolvePageContext('/practice', 'practice_home');
     const quick = resolvePageContext('/practice', 'quick_practice_overview');
-    const guided = resolvePageContext('/practice', 'guided_rehearsal_preview');
+    const guided = resolvePageContext('/practice', 'guided_rehearsal_unavailable');
     expect(home).toMatchObject({ pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser', practiceSurface: 'practice_home' });
     expect(quick).toMatchObject({ pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview', practiceSurface: 'quick_practice_overview' });
-    expect(guided).toMatchObject({ pageLabel: 'Guided Rehearsal preview', journeyStep: 'guided_preview', practiceSurface: 'guided_rehearsal_preview' });
+    // Tester-facing label is exactly "Guided Rehearsal"; availability lives in the token, not the label.
+    expect(guided).toMatchObject({ pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', practiceSurface: 'guided_rehearsal_unavailable' });
+    expect(guided.pageLabel).not.toContain('unavailable');
     for (const c of [home, quick, guided]) { expect(c.pageKey).toBe('practice'); expect(c.canonicalRoute).toBe('/practice'); }
   });
 
@@ -99,9 +101,9 @@ describe('pageContext — /practice surfaces (closed contract)', () => {
     expect(issueAreasForContext(resolvePageContext('/practice', 'practice_home')).map((a) => a.value))
       .toEqual(['understanding_choices', 'navigation', 'visual_layout', 'other']);
     expect(issueAreasForContext(resolvePageContext('/practice', 'quick_practice_overview')).map((a) => a.value))
-      .toEqual(['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other']);
-    expect(issueAreasForContext(resolvePageContext('/practice', 'guided_rehearsal_preview')).map((a) => a.value))
-      .toEqual(['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other']);
+      .toEqual(['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
+    expect(issueAreasForContext(resolvePageContext('/practice', 'guided_rehearsal_unavailable')).map((a) => a.value))
+      .toEqual(['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
     expect(issueAreasForContext(resolvePageContext('/session')).map((a) => a.value)).toContain('transcription');
   });
 });

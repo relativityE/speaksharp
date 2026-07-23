@@ -28,12 +28,15 @@ export type PageKey =
  * distinguish them WITHOUT a route change and WITHOUT trusting arbitrary strings. Only these three tokens
  * are ever accepted; anything else fails closed to `practice_home`.
  */
-export type PracticeSurface = 'practice_home' | 'quick_practice_overview' | 'guided_rehearsal_preview';
+export type PracticeSurface = 'practice_home' | 'quick_practice_overview' | 'guided_rehearsal_unavailable';
 
 const PRACTICE_SURFACES: Record<PracticeSurface, { pageLabel: string; journeyStep: string }> = {
   practice_home: { pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser' },
   quick_practice_overview: { pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview' },
-  guided_rehearsal_preview: { pageLabel: 'Guided Rehearsal preview', journeyStep: 'guided_preview' },
+  // Guided is planned, not a working product. The tester-facing LABEL is exactly "Guided Rehearsal"
+  // (availability is conveyed by the internal token `guided_rehearsal_unavailable` + issue-area, NOT the
+  // label). Prod Owner decision: the label must NOT read "(unavailable)".
+  guided_rehearsal_unavailable: { pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable' },
 };
 
 export function isPracticeSurface(x: unknown): x is PracticeSurface {
@@ -171,15 +174,15 @@ const PRACTICE_SURFACE_AREAS: Record<PracticeSurface, IssueAreaOption[]> = {
   ],
   quick_practice_overview: [
     { value: 'walkthrough', label: 'Walkthrough' },
-    { value: 'start_speaking', label: 'Start speaking' },
+    { value: 'open_practice_session', label: 'Opening the practice session' },
     { value: 'navigation', label: 'Navigation' },
     { value: 'visual_layout', label: 'Visual / layout' },
     { value: 'other', label: 'Other' },
   ],
-  guided_rehearsal_preview: [
-    { value: 'walkthrough', label: 'Walkthrough' },
-    { value: 'correction_loop', label: 'Correction loop' },
-    { value: 'feature_clarity', label: 'Feature clarity' },
+  guided_rehearsal_unavailable: [
+    { value: 'availability', label: 'Availability' },
+    { value: 'product_clarity', label: 'Product clarity' },
+    { value: 'navigation', label: 'Navigation' },
     { value: 'visual_layout', label: 'Visual / layout' },
     { value: 'other', label: 'Other' },
   ],
