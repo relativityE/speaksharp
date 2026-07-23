@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { APIResponse, Page } from '@playwright/test';
 import { test, expect } from './helpers/deployedLiveTest';
 
 /**
@@ -6,14 +6,13 @@ import { test, expect } from './helpers/deployedLiveTest';
  * CI-secret bypass path (rc-gates → VERCEL_AUTOMATION_BYPASS_SECRET). Exercises Vercel's ACTUAL edge
  * routing + header application (NOT the local emulator, NOT the browser service worker).
  *
- * Bypass plumbing (the earlier failure): `deployedLiveTest` injects the bypass via `context.route`, which
- * ONLY covers browser-originated requests — NOT Node-side `page.request.*`. So this spec:
- *   - attaches `x-vercel-protection-bypass` EXPLICITLY to every `page.request.*` call (raw edge routing,
- *     no service worker, no browser CSP), and
- *   - seeds the bypass COOKIE first (via a header'd request whose Set-Cookie lands in the shared context
- *     jar) so the browser `page.goto` used to prove the inline release script executes is also authorized.
- * A 302→/sso-api (bypass absent/invalid) makes the first assertion FAIL with a "preview inaccessible"
- * BLOCKER message rather than silently degrading.
+ * Bypass plumbing: `deployedLiveTest` injects `x-vercel-protection-bypass` via `context.route`, which
+ * ONLY covers browser-originated requests — NOT Node-side `page.request.*`. So this spec attaches the
+ * bypass header EXPLICITLY to every `page.request.*` call. We use HEADER-ONLY automation bypass (no
+ * `x-vercel-set-bypass-cookie` — that variant makes Vercel answer with a 307 cookie-planting redirect,
+ * which a prior revision then mis-read as "inaccessible"). Redirects ARE followed; if the bypass secret
+ * is absent/invalid the request lands on `…/sso-api`, which we detect and FAIL as an explicit BLOCKER
+ * ("verify VERCEL_AUTOMATION_BYPASS_SECRET") rather than silently degrading.
  *
  * BASE_URL must be the PR's preview; EXPECTED_RELEASE (or GITHUB_SHA) is the exact deployed commit SHA.
  */
@@ -22,30 +21,32 @@ const BASE = (process.env.BASE_URL || '').replace(/\/$/, '');
 const EXPECTED_SHA = (process.env.EXPECTED_RELEASE || process.env.GITHUB_SHA || '').trim();
 const BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '';
 
-// Bypass header for raw page.request calls (Node-side; NOT covered by deployedLiveTest's context.route).
+// Header-only automation bypass, attached to every Node-side page.request call.
 const H: Record<string, string> = BYPASS ? { 'x-vercel-protection-bypass': BYPASS } : {};
-// Same, plus ask Vercel to persist the bypass COOKIE into the shared context jar so page.goto is authorized.
-const H_SEED: Record<string, string> = BYPASS
-  ? { 'x-vercel-protection-bypass': BYPASS, 'x-vercel-set-bypass-cookie': 'samesitenone' }
-  : {};
 
-/** Raw edge GET with the bypass header and NO redirect-following, so we observe Vercel's real response
- * (a 302 to /sso-api means the bypass did not apply → preview inaccessible, surfaced as a hard failure). */
-const edge = (page: Page, path: string, headers: Record<string, string> = H) =>
-  page.request.get(`${BASE}${path}`, { headers, maxRedirects: 0 });
+const edge = (page: Page, path: string) => page.request.get(`${BASE}${path}`, { headers: H });
+
+/** True when a response ended up on Vercel's SSO challenge (bypass not honored → preview inaccessible). */
+const landedOnSso = (res: APIResponse, body = ''): boolean =>
+  /\/sso-api|vercel\.com\/sso|Authentication Required/i.test(`${res.url()} ${body.slice(0, 600)}`);
 
 test.describe('Stale-chunk P0 — real Vercel preview routing + release', () => {
   test.beforeAll(() => {
     test.skip(!BASE || !/vercel\.app$/.test(new URL(BASE).host), 'Requires a Vercel preview BASE_URL.');
+    // The bypass secret is the ONLY approved way into a protected preview; without it, stop (blocker).
+    expect(BYPASS, 'VERCEL_AUTOMATION_BYPASS_SECRET must be present to reach a protected preview (blocker if empty)').toBeTruthy();
   });
 
   test('routing: valid JS 200; missing assets/models 404 (not HTML, not immutable); app routes SPA; /api unchanged', async ({ page }) => {
-    // Seed the bypass cookie + prove the preview is reachable (a 302 here = bypass not applied = BLOCKER).
-    const root = await edge(page, '/', H_SEED);
-    expect(root.status(), 'preview reachable via bypass (not a 302 to /sso-api) — else preview INACCESSIBLE (blocker)').toBe(200);
+    // Reachability: header-only bypass should serve the app directly. If it lands on /sso-api the bypass
+    // secret is not honored → preview INACCESSIBLE via the approved path (a hard blocker, not a routing bug).
+    const root = await edge(page, '/');
+    const rootBody = await root.text();
+    expect(landedOnSso(root, rootBody),
+      `preview INACCESSIBLE via bypass — landed on ${root.url()} (BLOCKER: verify VERCEL_AUTOMATION_BYPASS_SECRET)`).toBe(false);
+    expect(root.status(), 'preview / → 200 via bypass').toBe(200);
 
-    const html = await root.text();
-    const existingJs = html.match(/\/assets\/[A-Za-z0-9._-]+\.js/)?.[0];
+    const existingJs = rootBody.match(/\/assets\/[A-Za-z0-9._-]+\.js/)?.[0];
     expect(existingJs, 'index.html references a hashed /assets/*.js').toBeTruthy();
 
     const okJs = await edge(page, existingJs!);
@@ -75,15 +76,17 @@ test.describe('Stale-chunk P0 — real Vercel preview routing + release', () => 
   });
 
   test('release: window.__APP_RELEASE__ + runtime config equal the deployed SHA; SHA absent from JS chunks; private-dropin valid', async ({ page }) => {
-    // Seed the bypass cookie (header'd request → Set-Cookie into the shared jar) so the browser navigation
-    // below is authorized, then navigate for real so the INLINE release script runs (proves not CSP-blocked).
-    await edge(page, '/', H_SEED);
+    // Navigate through the browser (deployedLiveTest's context.route injects the bypass header on the
+    // navigation + its redirects) so the INLINE release script executes in a real browser — proving it is
+    // NOT CSP-blocked. If we end up on the SSO page, that is the same bypass blocker as above.
     const nav = await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
-    expect(nav?.status() ?? 0, 'preview navigable via bypass — else inaccessible (blocker)').toBeLessThan(400);
+    const pageUrl = page.url();
+    expect(/\/sso-api|vercel\.com\/sso/i.test(pageUrl),
+      `preview navigation landed on SSO (${pageUrl}, status ${nav?.status()}) — BLOCKER: verify VERCEL_AUTOMATION_BYPASS_SECRET`).toBe(false);
 
     const release = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__);
     const cfgRelease = await page.evaluate(() => window.__APP_RUNTIME_CONFIG__?.release);
-    expect(release, 'window.__APP_RELEASE__ present (inline release script ran → not CSP-blocked)').toBeTruthy();
+    expect(release, `window.__APP_RELEASE__ present (inline release script ran → not CSP-blocked); page=${pageUrl}`).toBeTruthy();
     expect(cfgRelease, 'runtime config release matches the injected global').toBe(release);
     if (EXPECTED_SHA) {
       expect(release, 'release equals the exact deployed head SHA').toBe(EXPECTED_SHA);
