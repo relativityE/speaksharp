@@ -27,21 +27,32 @@
   --ss-primary-soft: #ECEAFE;
   --ss-primary-soft-text: #4738CD;
 
-  /* Warm SpeakSharp entrance — ivory/tan canvas + amber/gold hero uniting both modes. */
-  --ss-landing-canvas: #FBF7EF;
-  --ss-hero-gradient: linear-gradient(135deg, #FFF3DC 0%, #FFE7C2 46%, #FDEEDA 100%);
-  --ss-amber: #E8890C;
+  /* Warm SpeakSharp entrance — a soft SLATE page so the white product cards lift clearly, under a
+     distinctly warm ORANGE/peach hero. Orange is the brand/hero color: deep, saturated warm orange
+     near the brand statement, softening to tan/peach toward the cards. NOT pale yellow/cream, not
+     fluorescent, not brown. */
+  --ss-landing-canvas: #E7ECF6;
+  --ss-hero-gradient: linear-gradient(158deg, #F2802B 0%, #FA9E45 34%, #FCC282 64%, #FBDEC4 100%);
+  --ss-hero-glow: radial-gradient(130% 95% at 10% -8%, rgba(214,92,14,0.42) 0%, rgba(226,116,30,0.16) 40%, rgba(226,116,30,0) 66%);
+  --ss-amber: #C96608;   /* deep warm orange for the hero underline + waveform accents */
+  --ss-amber-surface: #FFF4E6;  /* warm opaque surface for the contextual Guided notice */
+  --ss-amber-border: #F0C088;   /* soft warm border around that notice */
   --ss-coral: #FF7657;
-  --ss-sun: #F4B63D;
+  --ss-sun: #EE9A1F;
 
-  /* Quick Practice = teal identity; Guided Rehearsal = violet identity. */
-  --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3; --ss-session-panel: linear-gradient(145deg, #DFF9F5 0%, #F5FFFF 100%);
-  --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE; --ss-exec-panel: linear-gradient(145deg, #EAE7FF 0%, #FFF0EA 100%);
+  /* Quick Practice = teal identity (primary action color); Guided Rehearsal = violet identity. */
+  --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3;
+  --ss-session-panel: linear-gradient(145deg, #C7F0EA 0%, #E9FCF8 100%); --ss-session-border: #57C6C0;
+  --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE;
+  --ss-exec-panel: linear-gradient(145deg, #D8D1FF 0%, #EEEAFF 100%); --ss-exec-border: #9C8FF6;
 }
 
-.practice-root .ss-landing-canvas { background: var(--ss-landing-canvas); }
-.practice-root .ss-theme-hero { background: var(--ss-hero-gradient); }
-.practice-root .ss-overview-hero { background: linear-gradient(135deg, #FCF4E7 0%, var(--ss-card-soft) 92%); }
+/* Same-element compound selector (the class sits ON .practice-root, not a descendant). */
+.practice-root.ss-landing-canvas { background: var(--ss-landing-canvas); }
+/* Warm hero: a deep-orange glow anchored at the brand statement (top-left) over the orange→tan
+   gradient, with a subtle bottom fade into the slate page so the seam is soft (not a hard line). */
+.practice-root .ss-theme-hero { background: linear-gradient(to bottom, rgba(231,236,246,0) 82%, var(--ss-landing-canvas) 100%), var(--ss-hero-glow), var(--ss-hero-gradient); }
+.practice-root .ss-overview-hero { background: linear-gradient(135deg, #FCEBD7 0%, var(--ss-card-soft) 92%); }
 .practice-root .ss-card-panel { background: var(--ss-card-panel); }
 
 .practice-root .ss-accent-btn { background: var(--ss-card-btn); color: #fff; }
@@ -57,6 +68,15 @@
 }
 .practice-root .ss-fade-up { animation: ss-practice-fade-up 0.3s ease-out both; }
 
+/* Entrance for the contextual Guided notice: a gentle slide that NEVER touches opacity, so the notice is
+   ALWAYS rendered at full opacity (it must stay fully legible the instant it appears, and never be caught
+   half-faded in a screenshot or by assistive tech). */
+@keyframes ss-practice-slide-in {
+  from { transform: translateY(6px); }
+  to { transform: translateY(0); }
+}
+.practice-root .ss-slide-in { animation: ss-practice-slide-in 0.3s ease-out both; }
+
 @media (prefers-reduced-motion: reduce) {
-  .practice-root .ss-fade-up { animation: none; }
+  .practice-root .ss-fade-up, .practice-root .ss-slide-in { animation: none; }
 }

@@ -6,29 +6,39 @@
 
 import React from 'react';
 
-/** Overall-landing shared graphic: one amber voice BRANCHING into teal (Quick) and violet (Guided). */
+/**
+ * Overall-landing shared graphic: one bold ORANGE voice (the SpeakSharp brand through-line) BRANCHING
+ * into the teal (Quick) and violet (Guided) practice paths. Deliberately bold — strong line weights and
+ * solid nodes so the "one voice → two ways to practice" idea reads instantly, without any caption.
+ */
 export function LandingHeroArt() {
   return (
     <svg viewBox="0 0 320 200" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      {[26, 44, 34, 58, 40, 30].map((h, i) => (
-        <rect key={i} x={14 + i * 11} y={100 - h / 2} width={6} height={h} rx={3} fill="var(--ss-amber)" opacity={0.45 + (i % 3) * 0.2} />
+      {/* Orange voice waveform — the brand source. Bolder bars, full-strength brand orange. */}
+      {[30, 52, 40, 68, 46, 34].map((h, i) => (
+        <rect key={i} x={12 + i * 12} y={100 - h / 2} width={7.5} height={h} rx={3.75} fill="var(--ss-amber)" opacity={0.6 + (i % 3) * 0.2} />
       ))}
-      <circle cx={92} cy={100} r={7} fill="var(--ss-amber)" />
-      <path d="M99 100 C 140 100, 150 54, 196 54" fill="none" stroke="var(--ss-session-accent)" strokeWidth="2.5" strokeOpacity="0.5" strokeLinecap="round" />
+      <circle cx={96} cy={100} r={10} fill="var(--ss-amber)" />
+      <circle cx={96} cy={100} r={10} fill="none" stroke="var(--ss-amber)" strokeWidth="3" strokeOpacity="0.25" />
+
+      {/* Teal branch → Quick Practice (transcript lines + a completed check). */}
+      <path d="M106 100 C 148 100, 158 52, 200 52" fill="none" stroke="var(--ss-session-accent)" strokeWidth="4" strokeOpacity="0.85" strokeLinecap="round" />
       {[150, 120, 138].map((w, i) => (
-        <rect key={`q${i}`} x={206} y={40 + i * 14} width={w * 0.5} height={7} rx={3.5} fill="var(--ss-session-accent)" opacity={i === 0 ? 0.55 : 0.3} />
+        <rect key={`q${i}`} x={216} y={38 + i * 14} width={w * 0.52} height={8} rx={4} fill="var(--ss-session-accent)" opacity={i === 0 ? 0.7 : 0.4} />
       ))}
-      <circle cx={212} cy={40} r={8} fill="var(--ss-session-accent)" />
-      <path d="M207.5 40 l3 3 l6 -6.5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M99 100 C 140 100, 150 148, 196 148" fill="none" stroke="var(--ss-exec-accent)" strokeWidth="2.5" strokeOpacity="0.5" strokeLinecap="round" />
+      <circle cx={204} cy={38} r={10} fill="var(--ss-session-accent)" />
+      <path d="M198.5 38 l3.6 3.6 l7 -7.6" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+
+      {/* Violet branch → Guided Rehearsal (agenda outcomes: covered / partial / open). */}
+      <path d="M106 100 C 148 100, 158 150, 200 150" fill="none" stroke="var(--ss-exec-accent)" strokeWidth="4" strokeOpacity="0.85" strokeLinecap="round" />
       {[
         { c: 'var(--ss-success)', y: 132 },
-        { c: 'var(--ss-exec-accent)', y: 150 },
-        { c: 'var(--ss-partial)', y: 168 },
+        { c: 'var(--ss-exec-accent)', y: 152 },
+        { c: 'var(--ss-partial)', y: 172 },
       ].map((r, i) => (
         <g key={`g${i}`}>
-          <circle cx={212} cy={r.y} r={6} fill={r.c} />
-          <rect x={226} y={r.y - 3.5} width={70 - i * 12} height={7} rx={3.5} fill={r.c} opacity={0.32} />
+          <circle cx={204} cy={r.y} r={8} fill={r.c} />
+          <rect x={220} y={r.y - 4} width={78 - i * 14} height={8} rx={4} fill={r.c} opacity={0.42} />
         </g>
       ))}
     </svg>

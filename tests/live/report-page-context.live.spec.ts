@@ -227,15 +227,17 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     const guidedCta = page.getByTestId('practice-card-guided');
     await expect(guidedCta).toBeEnabled();
     await guidedCta.click();
-    await expect(page.getByText('Product not available at this time')).toBeVisible();
+    // Contextual notice anchored to the Guided card (role=status), not a global toast.
+    const guidedArticle = page.locator('article', { has: page.getByTestId('practice-card-guided') });
+    await expect(guidedArticle.getByTestId('guided-unavailable-notice')).toHaveText('Product not available at this time');
     expect(new URL(page.url()).pathname).toBe('/practice');
     await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
     await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
     // The Guided card alone becomes disabled: CTA → "Unavailable", natively disabled.
     await expect(guidedCta).toHaveText(/unavailable/i);
     await expect(guidedCta).toBeDisabled();
-    // Attribution PERSISTS after the toast disappears (until Quick is selected or the user leaves /practice).
-    await expect(page.getByText('Product not available at this time')).toBeHidden({ timeout: 15000 });
+    // Attribution PERSISTS after the notice auto-hides (until Quick is selected or the user leaves /practice).
+    await expect(page.getByTestId('guided-unavailable-notice')).toBeHidden({ timeout: 15000 });
     await page.getByTestId('nav-report-issue-button').click();
     await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('issue-report-page-context')).toContainText('Guided Rehearsal');

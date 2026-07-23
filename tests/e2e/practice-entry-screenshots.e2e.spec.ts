@@ -8,8 +8,8 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
  * Proves, with real clicks (no force, no direct-navigation substitute for a control):
  *  - /practice renders as the authenticated default landing;
  *  - Quick Practice → overview → "Open Practice Session" → the unchanged /session (no auto-record);
- *  - Guided Rehearsal → exactly one toast "Product not available at this time"; stays on /practice; no
- *    preview / walkthrough / correction loop;
+ *  - Guided Rehearsal → exactly one CONTEXTUAL notice "Product not available at this time" anchored to the
+ *    Guided card (not a global toast); then the Guided card alone becomes disabled; no preview/correction loop;
  *  - Report Issue is globally available and surface-aware on the landing, Quick overview, Guided-unavailable
  *    selection, and /session;
  *  - the Back controls (top + bottom) work through normal clicks below the fixed nav.
@@ -22,7 +22,7 @@ const DIR = 'test-results/practice-entry';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-analytics.com', 'googletagmanager.com', 'doubleclick.net'];
-const GUIDED_TOAST = 'Product not available at this time';
+const GUIDED_NOTICE = 'Product not available at this time';
 
 // Surface-specific issue-area option values (mirrors services/pageContext).
 const AREAS = {
@@ -35,6 +35,17 @@ const AREAS = {
 async function enterPractice(page: Page) {
   await navigateToRoute(page, '/practice'); // /practice is the plain authenticated landing (no gate)
   await expectOnChooser(page);
+}
+
+// Wait for the page-transition (framer-motion) opacity to SETTLE to 1 before a screenshot — otherwise the
+// capture lands mid-fade and the palette reads as washed out. Then take the shot.
+async function shot(page: Page, path: string) {
+  await page.waitForFunction(() => {
+    let el = document.querySelector('[data-testid="practice-root"]') as HTMLElement | null;
+    while (el) { if (parseFloat(getComputedStyle(el).opacity || '1') < 0.99) return false; el = el.parentElement; }
+    return true;
+  }, { timeout: 5000 }).catch(() => { /* best-effort: capture anyway */ });
+  await page.screenshot({ path, fullPage: true });
 }
 
 async function expectOnChooser(page: Page) {
@@ -74,7 +85,7 @@ async function assertReport(page: Page, expectedLabel: string | RegExp, expected
 }
 
 test.describe('Practice landing — default entry, Guided unavailable, surface-aware Report Issue', () => {
-  test('Quick → Open Practice Session → /session; Guided → exact toast; Report Issue on every surface', async ({ page }) => {
+  test('Quick → Open Practice Session → /session; Guided → contextual notice + disabled; Report Issue on every surface', async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     const trackingRequests: string[] = [];
@@ -94,7 +105,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     // === DESKTOP LANDING ===
     await page.setViewportSize(DESKTOP);
     await enterPractice(page);
-    await page.screenshot({ path: `${DIR}/01-chooser-desktop.png`, fullPage: true });
+    await shot(page, `${DIR}/01-chooser-desktop.png`);
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
     // Both products render; Guided is clearly marked unavailable (text, not color alone).
     await expect(page.getByRole('heading', { name: /^Quick Practice$/i })).toBeVisible();
@@ -104,23 +115,25 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
 
     // === QUICK OVERVIEW ===
     await openQuickOverview(page);
-    await page.screenshot({ path: `${DIR}/02-quick-overview-desktop.png`, fullPage: true });
+    await shot(page, `${DIR}/02-quick-overview-desktop.png`);
     // Final CTA reads exactly "Open Practice Session" (never "Start speaking").
     await expect(page.getByRole('button', { name: /open practice session/i }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /start speaking/i })).toHaveCount(0);
     await assertReport(page, 'Quick Practice overview', AREAS.quick_practice_overview);
-    await page.screenshot({ path: `${DIR}/03-quick-walkthrough-desktop.png`, fullPage: true });
+    await shot(page, `${DIR}/03-quick-walkthrough-desktop.png`);
 
     // Back to chooser. BEFORE: the Guided card is at normal emphasis, CTA "Guided Rehearsal", enabled.
     await clickBackToChooser(page, 'practice-back-top');
     const guidedCta = page.getByTestId('practice-card-guided');
     await expect(guidedCta).toHaveText(/guided rehearsal/i);
     await expect(guidedCta).toBeEnabled();
-    await page.screenshot({ path: `${DIR}/04a-guided-before-desktop.png`, fullPage: true });
+    await shot(page, `${DIR}/04a-guided-before-desktop.png`);
 
     await guidedCta.click();
-    // Exactly the approved toast; stays on /practice; no preview/walkthrough/correction loop.
-    await expect(page.getByText(GUIDED_TOAST)).toBeVisible();
+    // Exactly ONE contextual notice, anchored INSIDE the Guided card (role=status) — not a global toast.
+    const guidedArticle = page.locator('article', { has: page.getByTestId('practice-card-guided') });
+    await expect(guidedArticle.getByTestId('guided-unavailable-notice')).toHaveText(GUIDED_NOTICE);
+    await expect(page.getByTestId('guided-unavailable-notice')).toHaveCount(1);
     expect(new URL(page.url()).pathname).toBe('/practice');
     await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
     await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
@@ -129,7 +142,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await expect(guidedCta).toBeDisabled();
     await expect(guidedCta).toHaveAccessibleName(/guided rehearsal — unavailable/i);
     await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
-    await page.screenshot({ path: `${DIR}/04b-guided-after-disabled-desktop.png`, fullPage: true });
+    await shot(page, `${DIR}/04b-guided-after-disabled-desktop.png`);
     // Visible Report Issue label is EXACTLY "Guided Rehearsal" (never "(unavailable)").
     await page.getByTestId('nav-report-issue-button').click();
     await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
@@ -154,16 +167,27 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     // === MOBILE === (fresh page instance → Guided starts enabled again; capture before/after at MOBILE).
     await page.setViewportSize(MOBILE);
     await enterPractice(page);
-    await page.screenshot({ path: `${DIR}/06-chooser-mobile.png`, fullPage: true });
+    await shot(page, `${DIR}/06-chooser-mobile.png`);
     const guidedMobile = page.getByTestId('practice-card-guided');
     await expect(guidedMobile).toBeEnabled();
-    await page.screenshot({ path: `${DIR}/07a-guided-before-mobile.png`, fullPage: true });
+    await shot(page, `${DIR}/07a-guided-before-mobile.png`);
     await guidedMobile.click();
-    await expect(page.getByText(GUIDED_TOAST)).toBeVisible();
+    const mobileNotice = page.getByTestId('guided-unavailable-notice');
+    await expect(mobileNotice).toHaveText(GUIDED_NOTICE);
     await expect(guidedMobile).toHaveText(/unavailable/i);
     await expect(guidedMobile).toBeDisabled();
     await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
-    await page.screenshot({ path: `${DIR}/07b-guided-after-disabled-mobile.png`, fullPage: true });
+    // The fixed mobile BOTTOM nav must not OBSCURE the contextual notice: scrolled into view, the point at
+    // the notice's centre must hit the notice itself (or a child), not the overlaying nav bar. Proves the
+    // bottom safe-area padding keeps the notice reachable and fully legible above the nav.
+    await mobileNotice.scrollIntoViewIfNeeded();
+    const noticeReachable = await mobileNotice.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === el || el.contains(hit));
+    });
+    expect(noticeReachable, 'mobile bottom nav must not obscure the Guided notice').toBe(true);
+    await shot(page, `${DIR}/07b-guided-after-disabled-mobile.png`);
     await openQuickOverview(page);
     await clickBackToChooser(page, 'practice-back-top');
 

@@ -14,31 +14,59 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, Check, Clock, Play, ChevronDown, Shield, ArrowLeft,
-  Settings2, Mic, FileText, LineChart, Target,
+  ArrowRight, Check, Clock, Info, Play, ChevronDown, Shield, ArrowLeft,
+  Settings2, Mic, FileText, LineChart, Target, AudioLines, ListChecks, Repeat,
   type LucideIcon,
 } from 'lucide-react';
 import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { PracticeSurface } from '@/services/pageContext';
-import { toast } from '@/lib/toast';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
 
-/** The ONLY Guided message shown in this release. Deduped by a stable toast id (no stacking). */
+/** The ONLY Guided message shown in this release — as a CONTEXTUAL notice anchored to the Guided card. */
 export const GUIDED_UNAVAILABLE_MESSAGE = 'Product not available at this time';
+
+/**
+ * Informational (not destructive) notice anchored beneath the Guided CTA; announced via role="status".
+ * CRITICAL: this renders OUTSIDE the Guided card's dimmed subtree, so it stays at full opacity even while
+ * the card is muted. Warm opaque surface, navy text, a bold 3px ORANGE edge + icon (brand color, not red).
+ */
+function GuidedUnavailableNotice() {
+  return (
+    <p role="status" data-testid="guided-unavailable-notice"
+      className="ss-slide-in mt-3 inline-flex max-w-xs items-start gap-2 rounded-md border border-[color:var(--ss-amber-border)] border-l-[3px] border-l-[color:var(--ss-amber)] bg-[color:var(--ss-amber-surface)] px-3 py-2 text-sm font-semibold text-[color:var(--ss-text)] opacity-100 shadow-[0_2px_8px_rgba(15,23,42,0.12)]">
+      <Info size={15} aria-hidden className="mt-0.5 shrink-0 text-[color:var(--ss-amber)]" />
+      <span>{GUIDED_UNAVAILABLE_MESSAGE}</span>
+    </p>
+  );
+}
 
 const QUICK_VARS: React.CSSProperties = {
   ['--ss-card' as string]: 'var(--ss-session-accent)', ['--ss-card-btn' as string]: 'var(--ss-session-btn)',
-  ['--ss-card-soft' as string]: 'var(--ss-session-soft)', ['--ss-card-panel' as string]: 'var(--ss-session-panel)', ['--ss-card-warm' as string]: 'var(--ss-sun)',
+  ['--ss-card-soft' as string]: 'var(--ss-session-soft)', ['--ss-card-panel' as string]: 'var(--ss-session-panel)',
+  ['--ss-card-border' as string]: 'var(--ss-session-border)', ['--ss-card-warm' as string]: 'var(--ss-sun)',
 };
 const GUIDED_VARS: React.CSSProperties = {
   ['--ss-card' as string]: 'var(--ss-exec-accent)', ['--ss-card-btn' as string]: 'var(--ss-exec-btn)',
-  ['--ss-card-soft' as string]: 'var(--ss-exec-soft)', ['--ss-card-panel' as string]: 'var(--ss-exec-panel)', ['--ss-card-warm' as string]: 'var(--ss-coral)',
+  ['--ss-card-soft' as string]: 'var(--ss-exec-soft)', ['--ss-card-panel' as string]: 'var(--ss-exec-panel)',
+  ['--ss-card-border' as string]: 'var(--ss-exec-border)', ['--ss-card-warm' as string]: 'var(--ss-coral)',
 };
+
+// Short visual product lists — three concise, scannable capabilities per card (no dense paragraph).
+const QUICK_BULLETS: Bullet[] = [
+  { text: 'No agenda or setup', Icon: Check },
+  { text: 'Speak and see your live transcript', Icon: AudioLines },
+  { text: 'Review fillers, delivery, and progress', Icon: LineChart },
+];
+const GUIDED_BULLETS: Bullet[] = [
+  { text: 'Prepare the points you need to cover', Icon: ListChecks },
+  { text: 'Track covered and missed points', Icon: Target },
+  { text: 'Rehearse corrections before the real moment', Icon: Repeat },
+];
 
 interface Step { title: string; result: string; detail: string; Icon: LucideIcon }
 
@@ -56,9 +84,9 @@ const DISCLOSURE = 'Your available transcription options and how speech is proce
 function JourneyStep({ step, index, open, onToggle }: { step: Step; index: number; open: boolean; onToggle: () => void }) {
   const id = `pstep-${index}`;
   return (
-    <li className={`overflow-hidden rounded-2xl transition-colors ${open ? 'bg-[color:var(--ss-card-soft)] ring-1 ring-[color:var(--ss-card)]' : 'bg-[color:var(--ss-surface)] ring-1 ring-[color:var(--ss-border)]'}`}>
+    <li className={`overflow-hidden rounded-lg transition-colors ${open ? 'bg-[color:var(--ss-card-soft)] ring-1 ring-[color:var(--ss-card)]' : 'bg-[color:var(--ss-surface)] ring-1 ring-[color:var(--ss-border)]'}`}>
       <button type="button" aria-expanded={open} aria-controls={id} onClick={onToggle} className="ss-ring flex w-full items-center gap-4 px-4 py-3.5 text-left">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: 'var(--ss-card-soft)', color: 'var(--ss-card-btn)' }}><step.Icon size={19} aria-hidden /></span>
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--ss-card-soft)', color: 'var(--ss-card-btn)' }}><step.Icon size={19} aria-hidden /></span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white" style={{ background: 'var(--ss-card-btn)' }}>{index + 1}</span>
@@ -99,11 +127,11 @@ function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () =>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[color:var(--ss-text)]">Speak freely. See how you’re progressing.</h2>
               <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[color:var(--ss-text-secondary)]">Start immediately without preparing an agenda. SpeakSharp captures your words and helps you review focused delivery evidence.</p>
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button onClick={onStart} data-testid="practice-quick-start" className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Open Practice Session</button>
-                <button onClick={() => journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="ss-accent-outline ss-ring inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold">See how it works</button>
+                <button onClick={onStart} data-testid="practice-quick-start" className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Open Practice Session</button>
+                <button onClick={() => journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="ss-accent-outline ss-ring inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold">See how it works</button>
               </div>
             </div>
-            <div className="ss-card-panel h-40 overflow-hidden rounded-2xl ring-1 ring-[color:var(--ss-border)]"><div className="h-full w-full px-6 py-5"><QuickPracticeArt emphasis /></div></div>
+            <div className="ss-card-panel h-40 overflow-hidden rounded-xl ring-1 ring-[color:var(--ss-border)]"><div className="h-full w-full px-6 py-5"><QuickPracticeArt emphasis /></div></div>
           </div>
           <Disclosure />
         </div>
@@ -114,7 +142,7 @@ function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () =>
           {QUICK_STEPS.map((s, i) => <JourneyStep key={s.title} step={s} index={i} open={open === i} onToggle={() => setOpen((o) => (o === i ? null : i))} />)}
         </ol>
         <div className="mt-8 flex flex-wrap items-center gap-3">
-          <button onClick={onStart} className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Open Practice Session</button>
+          <button onClick={onStart} className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Open Practice Session</button>
           <button onClick={onBack} data-testid="practice-back-bottom" className="ss-ring scroll-mt-24 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]">Back to practice choices</button>
         </div>
       </div>
@@ -122,39 +150,61 @@ function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () =>
   );
 }
 
-function ModeCard({ vars, art, title, promise, description, marker, markerIcon, ctaLabel, ctaAria, onClick, testid, disabled, ctaLabelDisabled, ctaAriaDisabled }: {
-  vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; description: string;
-  marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; onClick: () => void; testid: string;
-  disabled?: boolean; ctaLabelDisabled?: string; ctaAriaDisabled?: string;
+interface Bullet { text: string; Icon: LucideIcon }
+
+function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid, disabled, ctaLabelDisabled, ctaAriaDisabled, notice }: {
+  vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
+  marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; ctaSolid?: boolean; onClick: () => void; testid: string;
+  disabled?: boolean; ctaLabelDisabled?: string; ctaAriaDisabled?: string; notice?: React.ReactNode;
 }) {
   // The marker icon reinforces status WITHOUT relying on color: a check for an available product, a clock
   // for a planned/unavailable one. A checkmark on an unavailable product would wrongly imply "ready".
   const MarkerIcon = markerIcon ?? Check;
   const isDisabled = !!disabled;
   // Disabled treatment (this card ONLY): the semantic state is carried by the CTA text change + native
-  // disabled + the Clock/marker text — never opacity/color alone. Title/description stay readable.
+  // disabled + the Clock/marker text — never opacity/color alone. Title/bullets stay readable.
   const label = isDisabled ? (ctaLabelDisabled ?? ctaLabel) : ctaLabel;
   const aria = isDisabled ? (ctaAriaDisabled ?? ctaAria) : ctaAria;
-  // Semantic card: an <article> with a real heading and a single, keyboard-operable CTA <button>. The
-  // card is NOT itself a button — an interactive element must not contain headings/paragraphs/blocks
-  // (invalid HTML + confusing for assistive tech). The whole product is understandable from the heading,
-  // promise, description and marker (text, never color alone); the button carries the action.
+  // CTA style: a SOLID accent button is the strongest action (Quick's primary); an OUTLINE button reads as
+  // secondary (Guided). When disabled, drop the accent entirely for a neutral, muted control. Sharp 8px.
+  const ctaClass = isDisabled
+    ? 'mt-4 inline-flex w-fit cursor-not-allowed items-center gap-1.5 rounded-lg border border-[color:var(--ss-border)] bg-[color:var(--ss-neutral-soft)] px-4 py-2 text-sm font-semibold text-[color:var(--ss-neutral-text)]'
+    : `ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
+  // Semantic card: an <article> with a real heading and a single, keyboard-operable CTA <button>. The card
+  // is NOT itself a button (an interactive element must not contain headings/lists — invalid HTML + bad
+  // for AT). The product reads from the heading, benefit, a short visual list, and marker (text, never
+  // color alone); the button carries the action. Sharp geometry (10px card / crisp tinted border) so the
+  // two modes read as distinct and confident. The card itself is NEVER opacity-dimmed — the dimming is
+  // scoped to the inner content subtree ONLY, so the contextual notice below can stay fully legible.
   return (
     <article style={vars} data-disabled={isDisabled || undefined}
-      className={`group ss-mode-card flex flex-col overflow-hidden rounded-3xl bg-[color:var(--ss-surface)] transition-all duration-200 ${isDisabled
-        ? 'opacity-[0.65] shadow-sm shadow-slate-900/[0.04] ring-1 ring-[color:var(--ss-border)]'
-        : 'shadow-lg shadow-slate-900/[0.06] ring-1 ring-[color:var(--ss-border)] hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/[0.10] hover:ring-2 hover:ring-[color:var(--ss-card)]'}`}>
-      <div className="ss-card-panel relative h-20 border-b border-[color:var(--ss-border)]"><div className={`absolute inset-0 px-5 py-3 ${isDisabled ? 'grayscale-[0.6] saturate-[0.5]' : ''}`}>{art}</div></div>
-      <div className="flex flex-1 flex-col p-5">
-        <h3 className="text-lg font-semibold text-[color:var(--ss-text)]">{title}</h3>
-        <p className="mt-0.5 text-sm font-semibold text-[color:var(--ss-card-btn)]">{promise}</p>
-        <p className="mt-2 text-sm text-[color:var(--ss-text-secondary)]">{description}</p>
-        <span className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--ss-card-soft)] px-3 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
-        <button type="button" onClick={isDisabled ? undefined : onClick} disabled={isDisabled} data-testid={testid} aria-label={aria}
-          className={`ss-accent-outline ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold ${isDisabled ? 'cursor-not-allowed opacity-80' : ''}`}>
-          {label} <ArrowRight size={15} aria-hidden className={isDisabled ? '' : 'transition-transform group-hover:translate-x-0.5'} />
-        </button>
+      className={`group ss-mode-card flex flex-col overflow-hidden rounded-[10px] bg-[color:var(--ss-surface)] transition-all duration-200 ${isDisabled
+        ? 'shadow-[0_2px_10px_rgba(15,23,42,0.07)] ring-1 ring-[color:var(--ss-border)]'
+        : 'shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-2 ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]'}`}>
+      {/* Dimmed subtree = everything EXCEPT the notice. Muting the art + content here (not the <article>)
+          keeps the sibling notice at full opacity. data-dimmed marks it so tests can prove the notice is
+          rendered OUTSIDE this subtree. */}
+      <div data-dimmed={isDisabled || undefined} className={`flex flex-1 flex-col ${isDisabled ? 'opacity-[0.6]' : ''}`}>
+        <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]"><div className={`absolute inset-0 px-5 py-3 ${isDisabled ? 'grayscale-[0.75] saturate-[0.35]' : ''}`}>{art}</div></div>
+        <div className="flex flex-1 flex-col p-5">
+          <h3 className="text-lg font-bold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
+          <p className="mt-0.5 text-sm font-semibold text-[color:var(--ss-card-btn)]">{promise}</p>
+          <ul className="mt-3 space-y-2">
+            {bullets.map((b) => (
+              <li key={b.text} className="flex items-start gap-2 text-sm text-[color:var(--ss-text)]">
+                <span aria-hidden className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-[5px] bg-[color:var(--ss-card-soft)] text-[color:var(--ss-card-btn)]"><b.Icon size={13} /></span>
+                <span>{b.text}</span>
+              </li>
+            ))}
+          </ul>
+          <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
+          <button type="button" onClick={isDisabled ? undefined : onClick} disabled={isDisabled} data-testid={testid} aria-label={aria} className={ctaClass}>
+            {label}{isDisabled ? null : <ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />}
+          </button>
+        </div>
       </div>
+      {/* Contextual notice — OUTSIDE the dimmed subtree, so full opacity, still inside the card + below CTA. */}
+      {notice ? <div className="px-5 pb-5">{notice}</div> : null}
     </article>
   );
 }
@@ -168,8 +218,12 @@ export default function PracticePage() {
   const [guidedSelected, setGuidedSelected] = React.useState(false);
   // Once the user has acknowledged the unavailable Guided (first click), the Guided card renders in a
   // disabled state. LOCAL PAGE STATE ONLY: it survives a Quick→back round-trip within this /practice visit,
-  // but a full reload / later visit resets it (allowing the explanatory toast again). No storage/DB/profile.
+  // but a full reload / later visit resets it (showing the notice again). No storage/DB/profile.
   const [guidedAcknowledged, setGuidedAcknowledged] = React.useState(false);
+  // The contextual notice shows on that first click and auto-hides after a few seconds; the disabled card
+  // treatment remains regardless.
+  const [guidedNoticeVisible, setGuidedNoticeVisible] = React.useState(false);
+  const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -189,21 +243,24 @@ export default function PracticePage() {
     setSurface(surface);
   }, [view, guidedSelected, setSurface]);
 
-  // Reset the override when leaving /practice so a report elsewhere never inherits a stale surface.
-  React.useEffect(() => () => setSurface(null), [setSurface]);
+  // Reset the override when leaving /practice so a report elsewhere never inherits a stale surface, and
+  // clear the notice timer on unmount.
+  React.useEffect(() => () => { setSurface(null); if (noticeTimer.current) clearTimeout(noticeTimer.current); }, [setSurface]);
 
   const openQuick = () => { setGuidedSelected(false); trackPracticeModeSelected('quick', 'landing_card'); trackPracticeOverviewExpanded('quick'); setView('quick-overview'); };
   // Guided selected while UNAVAILABLE: stay on /practice, mark the reporting surface, and (ONCE) emit
-  // content-free telemetry + one toast, then disable the Guided card. No nav, no preview, no
-  // mic/AI/network/persistence. The card's CTA becomes natively disabled, so a repeat click cannot fire —
-  // the guard is a defensive belt-and-braces against any programmatic re-entry (no 2nd toast/telemetry).
+  // content-free telemetry + show ONE contextual notice anchored to the Guided card, then disable the card.
+  // No nav, no preview, no mic/AI/network/persistence, and NO global toast. The CTA becomes natively
+  // disabled, so a repeat click cannot fire — the guard is a defensive belt against programmatic re-entry.
   const selectGuided = () => {
     setGuidedSelected(true);
     if (guidedAcknowledged) return;
     setGuidedAcknowledged(true);
+    setGuidedNoticeVisible(true);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setGuidedNoticeVisible(false), 6000);
     trackPracticeModeSelected('guided', 'landing_card');
     trackGuidedRehearsalUnavailable();
-    toast(GUIDED_UNAVAILABLE_MESSAGE, { id: 'guided-unavailable' });
   };
   const startQuick = () => { trackQuickPracticeStarted('quick_overview'); navigate('/session'); };
 
@@ -219,33 +276,37 @@ export default function PracticePage() {
           <>
             <div className="ss-theme-hero">
               {/* pt-24 keeps the chooser's content clear of the fixed global <nav> (h-16 / z-40). */}
-              <div className="mx-auto max-w-5xl px-5 pb-12 pt-24 sm:px-8">
-                <div className="mt-1 grid items-center gap-6 md:grid-cols-[1fr_18rem]">
+              <div className="mx-auto max-w-5xl px-5 pb-14 pt-24 sm:px-8">
+                <div className="mt-1 grid items-center gap-8 md:grid-cols-[1fr_22rem]">
                   <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-4xl">Private Practice. Public Impact!</h1>
-                    <span aria-hidden className="mt-2 block h-1 w-16 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                    <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-[color:var(--ss-text-secondary)]">SpeakSharp helps you practice important speaking moments, review focused feedback, and see how you improve over time. Choose the type of practice that matches what you need today.</p>
-                    <p className="mt-4 text-sm font-semibold text-[color:var(--ss-text)]">Do you want to speak freely, or practice toward specific outcomes?</p>
+                    <h1 className="text-3xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[2.6rem] sm:leading-[1.1]">Private Practice. Public Impact!</h1>
+                    <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
+                    <p className="mt-4 max-w-xl text-[19px] font-medium leading-[1.5] text-[color:var(--ss-text)]">Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
+                    <p className="mt-5 inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-[color:var(--ss-text)]"><span aria-hidden className="h-4 w-1 rounded-full" style={{ background: 'var(--ss-amber)' }} />Choose how you want to practice:</p>
                   </div>
-                  {/* Desktop: full hero graphic. Mobile: an intentional COMPACT version (never hidden). */}
-                  <div className="mx-auto mt-5 h-24 w-56 md:mx-0 md:mt-0 md:h-44 md:w-72"><LandingHeroArt /></div>
+                  {/* Enlarged hero graphic — the orange voice branching into the two practice paths. Desktop:
+                      ~35-40% of hero width. Mobile: ~240px, centered under the hero text (never a tiny icon). */}
+                  <div className="mx-auto mt-4 h-40 w-[240px] md:mx-0 md:mt-0 md:h-64 md:w-full"><LandingHeroArt /></div>
                 </div>
               </div>
             </div>
 
-            <div className="mx-auto -mt-6 max-w-5xl px-5 pb-12 sm:px-8">
-              <div className="grid grid-cols-1 items-stretch gap-5 md:grid-cols-2">
+            {/* pb-28 below md clears the fixed mobile BOTTOM nav (Navigation.tsx: md:hidden fixed bottom-0,
+                ~80px) plus safe-area, so the Guided CTA + contextual notice are never obscured. */}
+            <div className="mx-auto -mt-6 max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8">
+              <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
                 <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Quick Practice" promise="Speak freely. See how you’re progressing."
-                  description="Start immediately without an agenda. Review your live transcript and delivery evidence during the session, and see progress against your own prior practice."
-                  marker="No agenda required." ctaLabel="Explore Quick Practice" ctaAria="Explore Quick Practice" onClick={openQuick} testid="practice-card-quick" />
+                  bullets={QUICK_BULLETS}
+                  marker="Available now" ctaLabel="Explore Quick Practice" ctaAria="Explore Quick Practice" ctaSolid onClick={openQuick} testid="practice-card-quick" />
                 <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
-                  description="Prepare key outcomes, rehearse while SpeakSharp tracks coverage, and recover missed points."
+                  bullets={GUIDED_BULLETS}
                   marker="Planned — not available yet" markerIcon={Clock} ctaLabel="Guided Rehearsal" ctaAria="Guided Rehearsal — not available yet"
                   disabled={guidedAcknowledged} ctaLabelDisabled="Unavailable" ctaAriaDisabled="Guided Rehearsal — unavailable"
+                  notice={guidedNoticeVisible ? <GuidedUnavailableNotice /> : null}
                   onClick={selectGuided} testid="practice-card-guided" />
               </div>
 
-              <p className="mt-5 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Quick Practice</span> is available now — Guided Rehearsal is coming later.</p>
+              <p className="mt-6 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Quick Practice</span> is available now — Guided Rehearsal is coming later.</p>
             </div>
           </>
         )}
