@@ -18,6 +18,7 @@ import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
 import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
+import { installStaleChunkRecovery, markStaleChunkAppBooted } from './lib/staleChunkRecovery';
 import { analyticsBuffer } from './services/AnalyticsBuffer';
 
 declare global {
@@ -26,6 +27,17 @@ declare global {
     __APP_BOOTED__?: boolean;
     __e2e_e2e_msw_ready_fired__?: boolean;
   }
+}
+
+// P0 stale-deployment recovery: register the vite:preloadError / dynamic-import failure handlers BEFORE
+// any app initialization, so a long-lived tab that outlived a deployment recovers with a single guarded
+// reload instead of crashing on a missing chunk. Must run first — the app's lazy imports fire later.
+installStaleChunkRecovery();
+// After a successful boot (fresh asset graph loaded), clear the loop guard. Scheduled after first paint;
+// if boot itself hits a stale chunk, recovery reloads/handles it before this runs (and it no-ops while
+// the recovery UI is showing).
+if (typeof requestAnimationFrame !== 'undefined') {
+  requestAnimationFrame(() => requestAnimationFrame(() => markStaleChunkAppBooted()));
 }
 
 // STT release-proof config-discipline: publish the canonical runtime environment

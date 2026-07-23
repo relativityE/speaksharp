@@ -483,7 +483,7 @@ export class SpeechRuntimeController {
             // Fall back to the variant's default model id if metadata hasn't surfaced one yet, so
             // the durable engine_version is always private_v2:<model> / private_v4:<model>.
             const model = meta?.modelName ?? (assignment.engine_variant === 'private_v4' ? 'base_q4' : 'whisper-base.en');
-            const release = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
+            const release = typeof window !== 'undefined' ? (window.__APP_RELEASE__ ?? null) : null;
             setPrivateSampleContext({
                 session_id: this.sessionId,
                 engine_variant: assignment.engine_variant,

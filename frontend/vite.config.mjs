@@ -15,7 +15,17 @@ export default defineConfig(({ mode }) => {
   // __dirname is frontend/, so we need to go up one level to find .env files
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test';
-  const buildStamp = Date.now();
+  // NOTE: asset filenames are content-addressed via Rollup's [hash] ONLY. We deliberately do NOT append
+  // a per-build timestamp: that rotated EVERY asset URL on every deployment (even unchanged chunks), so a
+  // long-lived tab requesting an old chunk got a 404/HTML and crashed. [hash] already busts caches when
+  // (and only when) content changes, which keeps unchanged chunks stable across deploys.
+  //
+  // Release id = the commit SHA in prod/CI, stable 'dev' locally. It is injected into index.html (which
+  // is regenerated every deploy anyway) as `window.__APP_RELEASE__` and NOT `define`-inlined into the JS
+  // bundle — inlining the volatile SHA into the `main` chunk cascaded new content-hashes across the whole
+  // app import graph, so every commit (even a test-only one) renamed unchanged chunks.
+  const releaseId =
+    process.env.BUILD_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? 'dev';
   console.log(`[Vite] Mode: ${mode}`);
 
   // EXPERIMENT TOGGLE (off by default) — scoped cross-origin-isolation proof.
@@ -47,7 +57,7 @@ export default defineConfig(({ mode }) => {
   const assetFileName = (assetInfo) => {
     const sourceName = assetInfo.names?.[0] ?? assetInfo.name ?? '';
     const ext = sourceName.endsWith('.ts') ? 'js' : '[ext]';
-    return `assets/[name]-[hash]-${buildStamp}.${ext}`;
+    return `assets/[name]-[hash].${ext}`;
   };
 
   return {
@@ -61,6 +71,18 @@ export default defineConfig(({ mode }) => {
     plugins: [
       tsconfigPaths(),
       react(),
+      // Inject the release id into index.html (regenerated every build) as a global, so the SHA is
+      // available at runtime WITHOUT being inlined into — and rotating the hash of — any JS chunk.
+      {
+        name: 'speaksharp-release-inject',
+        transformIndexHtml() {
+          return [{
+            tag: 'script',
+            injectTo: 'head-prepend',
+            children: `window.__APP_RELEASE__=${JSON.stringify(releaseId)};`,
+          }];
+        },
+      },
       // #891 observability: upload source maps to Sentry so captured production stacks resolve to real
       // filenames/lines instead of minified frames. Activates ONLY when SENTRY_AUTH_TOKEN is present in
       // the BUILD env — no-op locally and in any build without the token. `sourcemap: 'hidden'` (below)
@@ -124,9 +146,10 @@ export default defineConfig(({ mode }) => {
           privateDropin: path.resolve(__dirname, 'private-dropin.html'),
         },
         output: {
-          // Add timestamp to filenames to force cache bust
-          entryFileNames: `assets/[name]-[hash]-${buildStamp}.js`,
-          chunkFileNames: `assets/[name]-[hash]-${buildStamp}.js`,
+          // Content-addressed filenames ([hash] only). No per-build timestamp — unchanged chunks keep
+          // stable URLs across deploys, so a long-lived tab never requests a rotated-away chunk.
+          entryFileNames: `assets/[name]-[hash].js`,
+          chunkFileNames: `assets/[name]-[hash].js`,
           assetFileNames: assetFileName,
           manualChunks: {
             'vendor-react': ['react', 'react-dom', 'react-router-dom'],
@@ -146,15 +169,9 @@ export default defineConfig(({ mode }) => {
       // We only need to override specific values here
 
       'global': 'globalThis',
-      // Release id surfaced at runtime via window.__APP_RUNTIME_CONFIG__.release (PROD-CONFIG-1).
-      // Prefer an explicit BUILD_ID, then the platform commit SHA (Vercel/GitHub set these at build),
-      // falling back to a timestamp for local dev so the field is always populated.
-      '__BUILD_ID__': JSON.stringify(
-        process.env.BUILD_ID
-        ?? process.env.VERCEL_GIT_COMMIT_SHA
-        ?? process.env.GITHUB_SHA
-        ?? new Date().toISOString()
-      ),
+      // Release id is NO LONGER define-inlined here (it is injected into index.html as
+      // window.__APP_RELEASE__ — see the release-inject plugin), so the volatile SHA never enters the JS
+      // import graph and never rotates unchanged chunk hashes.
       // STT release-proof config-discipline: inject the canonical mode meta (single source
       // of truth = APP_MODES in build.config.js). The app reads this to publish
       // window.__APP_RUNTIME_CONFIG__, which the test-agent proof preflight validates against.

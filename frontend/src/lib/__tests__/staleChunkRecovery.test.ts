@@ -1,0 +1,149 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Fresh module per test resets the in-flight claim / recovery-UI flags (as a real page reload would).
+type Mod = typeof import('../staleChunkRecovery');
+let mod: Mod;
+let reloadSpy: ReturnType<typeof vi.fn>;
+
+/** Re-import the module WITHOUT clearing sessionStorage — models a page reload (fresh JS, persisted guard). */
+async function reimportAsAfterReload(): Promise<Mod> {
+  vi.resetModules();
+  return import('../staleChunkRecovery');
+}
+
+beforeEach(async () => {
+  vi.resetModules();
+  window.sessionStorage.clear();
+  document.body.innerHTML = '';
+  reloadSpy = vi.fn();
+  Object.defineProperty(window.location, 'reload', { configurable: true, value: reloadSpy });
+  mod = await import('../staleChunkRecovery');
+});
+
+const GUARD = 'ss_stale_chunk_recovery';
+
+describe('isChunkLoadError', () => {
+  it('detects the known stale-deployment dynamic-import failures (Chromium/Firefox/WebKit + Vite)', () => {
+    for (const m of [
+      'Failed to fetch dynamically imported module: https://app/assets/x.js',
+      'error loading dynamically imported module',
+      'Importing a module script failed.',
+      'Expected a JavaScript module script but the server responded with a MIME type of text/html',
+      'Expected a JavaScript module but received text/html',
+      // The exact Chromium message observed in the rollover test:
+      'Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html".',
+    ]) {
+      expect(mod.isChunkLoadError(m)).toBe(true);
+      expect(mod.isChunkLoadError(new Error(m))).toBe(true);
+    }
+  });
+  it('does NOT match unrelated errors (incl. the generic React.lazy "default" TypeError)', () => {
+    expect(mod.isChunkLoadError('TypeError: undefined is not a function')).toBe(false);
+    expect(mod.isChunkLoadError("Cannot read properties of undefined (reading 'default')")).toBe(false);
+    expect(mod.isChunkLoadError(new Error('boom'))).toBe(false);
+    expect(mod.isChunkLoadError(undefined)).toBe(false);
+  });
+});
+
+describe('isStaleChunkRecoveryInFlight (lets the boundary suppress the downstream symptom)', () => {
+  it('false initially, true after a recovery is claimed, false again after a successful boot', () => {
+    expect(mod.isStaleChunkRecoveryInFlight()).toBe(false);
+    mod.recoverFromStaleChunk(1000);
+    expect(mod.isStaleChunkRecoveryInFlight()).toBe(true);
+    mod.markStaleChunkAppBooted();
+    expect(mod.isStaleChunkRecoveryInFlight()).toBe(false);
+  });
+});
+
+describe('decideRecovery (pure loop guard)', () => {
+  it('first failure → reload; second inside window → recover; after window → reload', () => {
+    expect(mod.decideRecovery(null, 1000)).toEqual({ action: 'reload', nextGuard: { at: 1000, count: 1 } });
+    expect(mod.decideRecovery({ at: 1000, count: 1 }, 6000)).toEqual({ action: 'recover', nextGuard: { at: 6000, count: 2 } });
+    const after = 1000 + mod.GUARD_WINDOW_MS + 1;
+    expect(mod.decideRecovery({ at: 1000, count: 2 }, after)).toEqual({ action: 'reload', nextGuard: { at: after, count: 1 } });
+  });
+});
+
+describe('atomic in-flight claim — one failure handled once', () => {
+  it('first failure reloads once and preserves the URL (reload, never assign)', () => {
+    const assignSpy = vi.fn();
+    Object.defineProperty(window.location, 'assign', { configurable: true, value: assignSpy });
+    expect(mod.recoverFromStaleChunk(1000)).toBe('reload');
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(assignSpy).not.toHaveBeenCalled();
+    expect(JSON.parse(window.sessionStorage.getItem(GUARD)!)).toEqual({ at: 1000, count: 1 });
+  });
+
+  it('vite:preloadError + ErrorBoundary for the SAME failure → reload once, guard stays count 1', () => {
+    expect(mod.recoverFromStaleChunk(1000)).toBe('reload');   // vite:preloadError
+    expect(mod.recoverFromStaleChunk(1000)).toBe('ignored');  // ErrorBoundary, same failure
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(window.sessionStorage.getItem(GUARD)!).count).toBe(1);
+    expect(document.getElementById('ss-stale-chunk-recovery')).toBeNull(); // not escalated
+  });
+
+  it('a duplicate in a microtask is deduped', async () => {
+    mod.recoverFromStaleChunk(1000);
+    await Promise.resolve();
+    expect(mod.recoverFromStaleChunk(1000)).toBe('ignored');
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a duplicate in a later macrotask (before navigation) is deduped', async () => {
+    mod.recoverFromStaleChunk(1000);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(mod.recoverFromStaleChunk(1050)).toBe('ignored');
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reset + escalation across a reload', () => {
+  it('after a successful boot reset, a later INDEPENDENT failure is NOT suppressed → reloads again', () => {
+    mod.recoverFromStaleChunk(1000);
+    expect(window.sessionStorage.getItem(GUARD)).not.toBeNull();
+    mod.markStaleChunkAppBooted(); // fresh graph loaded → clears in-flight + guard
+    expect(window.sessionStorage.getItem(GUARD)).toBeNull();
+    expect(mod.recoverFromStaleChunk(9_000)).toBe('reload'); // new event, not deduped
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('after the one reload, a SECOND genuine failure → no reload, shows the specific recovery UI', async () => {
+    mod.recoverFromStaleChunk(1000);        // reload; guard count 1 persisted in sessionStorage
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+
+    // Simulate the reload: fresh module (in-flight reset), sessionStorage guard PRESERVED.
+    const after = await reimportAsAfterReload();
+    const action = after.recoverFromStaleChunk(1000 + 3_000); // still inside the window
+    expect(action).toBe('recover');
+    expect(reloadSpy).toHaveBeenCalledTimes(1); // NO second reload (no loop)
+    const ui = document.getElementById('ss-stale-chunk-recovery');
+    expect(ui?.textContent).toContain(after.RECOVERY_MESSAGE);
+    (document.getElementById('ss-stale-chunk-reload') as HTMLButtonElement).click();
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
+    expect(window.sessionStorage.getItem(GUARD)).toBeNull(); // the action clears the guard
+  });
+
+  it('markStaleChunkAppBooted does NOT clear the guard/claim while the recovery UI is shown', async () => {
+    mod.recoverFromStaleChunk(1000);
+    const after = await reimportAsAfterReload();
+    after.recoverFromStaleChunk(1000 + 2_000); // → recovery UI shown
+    after.markStaleChunkAppBooted();
+    expect(window.sessionStorage.getItem(GUARD)).not.toBeNull();
+  });
+});
+
+describe('installStaleChunkRecovery', () => {
+  it('a vite:preloadError → preventDefault + exactly one reload', () => {
+    mod.installStaleChunkRecovery();
+    const prevented = !window.dispatchEvent(new Event('vite:preloadError', { cancelable: true }));
+    expect(prevented).toBe(true);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a non-chunk unhandledrejection is IGNORED (no reload, no guard claim)', () => {
+    mod.installStaleChunkRecovery();
+    window.dispatchEvent(Object.assign(new Event('unhandledrejection', { cancelable: true }), { reason: new Error('unrelated') }));
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(GUARD)).toBeNull();
+  });
+});
