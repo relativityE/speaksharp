@@ -7,6 +7,7 @@
  */
 
 import { type Locator, type Page, expect } from '@playwright/test';
+import { isExpectedAuthLanding, DEFAULT_AUTH_LANDING, type ExpectedAuthLanding } from './canaryLanding';
 import { setupE2EManifest, type E2EWindow } from './helpers/setupE2EManifest';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 import { createMockSession } from '../../frontend/src/mocks/test-user-utils';
@@ -272,7 +273,22 @@ export async function openSessionDetailFromHistoryItem(page: Page, historyItem: 
 
 
 // 4. Auth & Readiness Helpers (Section 7)
-export async function canaryLogin(page: Page, email?: string, password?: string) {
+/**
+ * Real login for the canary.
+ *
+ * `expectedPath` is the REQUIRED post-login destination and defaults to `/practice` — the authenticated
+ * default for an ordinary login with no requested deep-link (the rollout flag was retired in #1022, and
+ * the canary had retained the pre-/practice assertion). A caller that intentionally begins from a
+ * protected deep-link must pass its explicit destination (e.g. `'/session'`, or `ANALYTICS_SESSION_LANDING`
+ * for `/analytics/:sessionId`). The match is exact (string) or pattern (RegExp) — NEVER a broad
+ * "any authenticated route", so a regression that lands an ordinary login on /session or /analytics fails.
+ */
+export async function canaryLogin(
+  page: Page,
+  email?: string,
+  password?: string,
+  expectedPath: ExpectedAuthLanding = DEFAULT_AUTH_LANDING,
+) {
   if (!email || !password) {
     throw new Error('[CANARY] Missing credentials for canaryLogin');
   }
@@ -283,11 +299,15 @@ export async function canaryLogin(page: Page, email?: string, password?: string)
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 
-  // The authenticated home is /practice (default post-auth entry since the rollout flag was retired in
-  // #1022); a preserved deep-link may instead land on /session or /analytics. Accept any authenticated
-  // landing — the old /(session|analytics)-only assertion predated /practice and failed once the deploy
-  // race no longer masked it.
-  await expect(page).toHaveURL(/\/(practice|session|analytics)(\/|\?|#|$)/, { timeout: 30000 });
+  // Poll the redirect until it settles on the REQUIRED destination (exact string / RegExp) — never a
+  // broad any-authenticated-route match. On timeout the message names the expected path; the trace/URL
+  // shows where it actually landed.
+  await expect
+    .poll(() => isExpectedAuthLanding(new URL(page.url()).pathname, expectedPath), {
+      message: `[CANARY] ordinary login must land on ${String(expectedPath)} (the authenticated default), not any other authenticated route`,
+      timeout: 30000,
+    })
+    .toBe(true);
   await waitForAppReady(page);
 }
 
