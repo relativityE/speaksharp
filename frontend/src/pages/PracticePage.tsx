@@ -279,14 +279,22 @@ export default function PracticePage() {
               <div className="mx-auto max-w-5xl px-5 pb-14 pt-24 sm:px-8">
                 <div className="mt-1 grid items-center gap-8 md:grid-cols-[1fr_22rem]">
                   <div>
-                    <h1 className="text-3xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[2.6rem] sm:leading-[1.1]">Private Practice. Public Impact!</h1>
+                    {/* Split-color tagline: one phrase, two semantic spans — navy "Private Practice." +
+                        saturated teal "Public Impact!" (same family/weight). Wraps naturally on mobile. */}
+                    <h1 className="text-3xl font-extrabold tracking-tight sm:text-[2.6rem] sm:leading-[1.1]">
+                      <span className="text-[color:var(--ss-text)]">Private Practice.</span>{' '}
+                      <span className="text-[color:var(--ss-teal-title)]">Public Impact!</span>
+                    </h1>
                     <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                    <p className="mt-4 max-w-xl text-[19px] font-medium leading-[1.5] text-[color:var(--ss-text)]">Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
-                    <p className="mt-5 inline-flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-[color:var(--ss-text)]"><span aria-hidden className="h-4 w-1 rounded-full" style={{ background: 'var(--ss-amber)' }} />Choose how you want to practice:</p>
+                    <p className="mt-4 max-w-xl text-[20px] font-normal leading-[1.5] text-[color:var(--ss-body-slate)]">Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
+                    <p className="mt-5 inline-flex items-center gap-2 text-[17px] font-semibold text-[color:var(--ss-text)]"><span aria-hidden className="h-4 w-1 rounded-full" style={{ background: 'var(--ss-amber)' }} />Choose how you want to practice:</p>
                   </div>
-                  {/* Enlarged hero graphic — the orange voice branching into the two practice paths. Desktop:
-                      ~35-40% of hero width. Mobile: ~240px, centered under the hero text (never a tiny icon). */}
-                  <div className="mx-auto mt-4 h-40 w-[240px] md:mx-0 md:mt-0 md:h-64 md:w-full"><LandingHeroArt /></div>
+                  {/* Enlarged hero graphic in a near-white panel (crisp border + controlled shadow, 10px radius)
+                      so it reads as a meaningful product explanation. Desktop ~35-40% of hero width; mobile
+                      ~240px, centered under the hero text (never a tiny floating icon). */}
+                  <div className="mx-auto mt-5 w-[248px] rounded-[10px] border border-[color:var(--ss-border)] bg-white/75 p-3 shadow-[0_4px_16px_rgba(15,23,42,0.08)] md:mx-0 md:mt-0 md:w-full">
+                    <div className="h-36 w-full md:h-56"><LandingHeroArt /></div>
+                  </div>
                 </div>
               </div>
             </div>
