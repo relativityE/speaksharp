@@ -116,6 +116,12 @@ if (!skipSentry) {
   try {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
+      // Release tag comes from the RUNTIME global (index.html inline script), NOT the Sentry bundler
+      // plugin's build-time injection. The plugin injects the release SHA into EVERY chunk, which rotates
+      // every chunk's content hash on every deploy (the stale-chunk churn). We keep the plugin for source
+      // maps (associated via debug IDs) but disable its release injection (see vite.config.mjs) and set the
+      // release here instead, so attribution is preserved while chunks stay SHA-free + stable across deploys.
+      release: typeof window !== 'undefined' ? window.__APP_RELEASE__ : undefined,
       integrations: [
         ...(enableSentryTracing ? [Sentry.browserTracingIntegration()] : []),
         ...(enableSentryReplay ? [Sentry.replayIntegration()] : []),

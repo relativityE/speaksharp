@@ -94,6 +94,13 @@ export default defineConfig(({ mode }) => {
             project: process.env.SENTRY_PROJECT,
             authToken: process.env.SENTRY_AUTH_TOKEN,
             sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
+            // CRITICAL for stale-chunk stability: do NOT inject the release into the bundle. The plugin's
+            // default release injection writes `SENTRY_RELEASE={id:<commit SHA>}` into EVERY chunk, so every
+            // chunk's content — and content hash — changes on every deploy (a long-lived tab then 404s on a
+            // rotated-away chunk = the P0 crash). Source maps still upload and resolve via debug IDs (which
+            // are content-derived, so unchanged chunks keep stable ids). The runtime release is set in
+            // Sentry.init from window.__APP_RELEASE__ (main.tsx), preserving release attribution.
+            release: { name: releaseId, inject: false },
             telemetry: false,
           })]
         : []),
