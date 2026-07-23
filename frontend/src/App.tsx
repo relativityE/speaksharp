@@ -6,6 +6,7 @@ import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PostAuthContinue } from './components/practice/practiceRouting';
 import { AuthIndexRedirect } from './components/AuthIndexRedirect';
+import { AuthAwareRoot } from './components/AuthAwareRoot';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -348,7 +349,8 @@ const App: React.FC = () => {
             <Suspense fallback={<PageLoader />}>
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
-                  <Route path="/" element={<PageTransition><Index /></PageTransition>} />
+                  {/* Auth-aware home: authenticated → /practice; anonymous → the public Index. */}
+                  <Route path="/" element={<AuthAwareRoot><PageTransition><Index /></PageTransition></AuthAwareRoot>} />
                   <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
                   <Route path="/terms" element={<PageTransition><TermsPage /></PageTransition>} />
                   <Route path="/privacy" element={<PageTransition><PrivacyPage /></PageTransition>} />
