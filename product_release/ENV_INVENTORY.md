@@ -90,7 +90,7 @@ reach a production build it is a launch blocker (test/mock behavior in prod).
 ### Platform-provided (build time)
 | Variable | Home | Notes |
 |---|---|---|
-| `VERCEL_GIT_COMMIT_SHA` | B (auto) | Vercel sets at build → `__BUILD_ID__` → `window.__APP_RUNTIME_CONFIG__.release`. |
+| `VERCEL_GIT_COMMIT_SHA` | B (auto) | Vercel sets at build → injected into `index.html` as inline `window.__APP_RELEASE__` → `window.__APP_RUNTIME_CONFIG__.release` + PostHog `release_sha`. (PR #1027: NOT a `__BUILD_ID__` JS define — removed so the volatile SHA never rotates chunk hashes. Sentry release injection also disabled; Sentry release set at runtime from `window.__APP_RELEASE__`.) |
 
 ---
 
