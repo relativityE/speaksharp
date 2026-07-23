@@ -1,12 +1,26 @@
 // src/config/env.ts
 import type { UserGoals } from '../types/goal';
-export const getEnvVar = (key: string): string | undefined => {
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    return (import.meta.env as Record<string, string>)[key];
-  }
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[key];
-  }
+
+/**
+ * STATIC allowlist of the client env this module exposes. Each value is read with DIRECT property access
+ * (`import.meta.env.VITE_x`) so Vite statically replaces exactly that key at build time. We must never read
+ * `import.meta.env[dynamicKey]` or spread/iterate the object: a computed access forces Vite to inline the
+ * ENTIRE env object into the chunk — which on Vercel includes the per-deployment `VITE_VERCEL_GIT_COMMIT_SHA`,
+ * embedding the commit SHA into otherwise-stable chunks and rotating their content hash every deploy.
+ */
+const CLIENT_ENV = {
+  VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL as string | undefined,
+  VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
+} as const;
+
+export type ClientEnvKey = keyof typeof CLIENT_ENV;
+
+export const getEnvVar = (key: ClientEnvKey): string | undefined => {
+  const fromVite = CLIENT_ENV[key];
+  if (fromVite !== undefined) return fromVite;
+  // Node/SSR/test fallback. process.env is NOT bundled by Vite, so a dynamic read here is safe (it never
+  // inlines the client env object) and only runs outside the browser build.
+  if (typeof process !== 'undefined' && process.env) return process.env[key];
   return undefined;
 };
 

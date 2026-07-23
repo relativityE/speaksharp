@@ -139,13 +139,26 @@ export function recoverFromStaleChunk(now: number = Date.now()): 'reload' | 'rec
 }
 
 /**
- * Guard lifetime: we deliberately DO NOT proactively clear the guard on the OLD (reloading) page, and we
- * do NOT use a frame-count heuristic to declare the new page "booted" (two animation frames do not prove
- * the destination lazy route is operational). The persisted guard is simply RETAINED until its bounded
- * expiry (GUARD_WINDOW_MS): a repeat failure inside the window escalates to the recovery UI (no loop); a
- * failure after the window is a fresh event. The in-flight claim resets naturally when the reload replaces
- * the page (a new module instance starts with recoveryInFlight = false).
+ * Guard lifetime. The guard is cleared on a GENUINELY successful application boot — specifically when a
+ * lazily-imported route chunk has actually resolved and MOUNTED (see markStaleChunkBootSuccess, wired from
+ * a component rendered inside the app's route <Suspense> boundary). That is a real operational signal that
+ * the previously-failing dynamic import now works, NOT a frame-count heuristic (two animation frames do not
+ * prove the destination lazy route is operational). It runs on the NEW (post-reload) page: the old page
+ * never reaches a successful lazy-route mount for the chunk that just failed, so it cannot clear the guard
+ * before the reload it triggered.
+ *
+ * If a genuine boot never happens (the reload lands on a still-broken deployment where the chunk 404s
+ * again), the guard is NOT cleared → the repeat failure inside GUARD_WINDOW_MS escalates to the recovery UI
+ * instead of looping. The bounded expiry (GUARD_WINDOW_MS) is a backstop for the case where neither a
+ * successful boot nor a repeat failure occurs. The in-flight claim resets naturally when the reload
+ * replaces the page (a new module instance starts with recoveryInFlight = false).
  */
+export function markStaleChunkBootSuccess(): void {
+  // A lazy route chunk resolved + mounted → the deployment the tab is now on is operational. Clear the
+  // persisted guard so a LATER, unrelated stale-chunk event (e.g. a subsequent deploy) starts fresh rather
+  // than being mis-counted as the second failure of the previous incident.
+  clearStaleChunkGuard();
+}
 
 let listenersInstalled = false;
 

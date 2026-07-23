@@ -10,6 +10,7 @@ import { AuthAwareRoot } from './components/AuthAwareRoot';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { StaleChunkBootClear } from '@/components/StaleChunkBootClear';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
@@ -347,6 +348,9 @@ const App: React.FC = () => {
         >
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
+              {/* Inside Suspense: mounts only once a lazy route chunk resolves → clears the stale-chunk
+                  recovery guard on a genuinely successful post-reload boot (not a frame-count heuristic). */}
+              <StaleChunkBootClear />
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
                   {/* Auth-aware home: authenticated → /practice; anonymous → the public Index. */}

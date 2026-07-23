@@ -74,16 +74,11 @@ if (ENV.isTest) {
 // here: Sentry already no-ops without a DSN (see init below), and payment
 // surfaces are hidden when the Stripe key is missing (arePaymentsEnabled),
 // so the app boots and core STT works without either configured.
-const REQUIRED_ENV_VARS: string[] = [
-  'VITE_SUPABASE_URL',
-  'VITE_SUPABASE_ANON_KEY',
-];
-
 const areEnvVarsPresent = (): boolean => {
-  return REQUIRED_ENV_VARS.every(varName => {
-    const value = import.meta.env[varName];
-    return value && value !== '';
-  });
+  // DIRECT static reads only — never `import.meta.env[dynamicKey]`. A computed access makes Vite inline the
+  // whole env object (incl. Vercel's per-deploy VITE_VERCEL_GIT_COMMIT_SHA) into this entry chunk.
+  const present = (v: string | undefined): boolean => !!v && v !== '';
+  return present(import.meta.env.VITE_SUPABASE_URL) && present(import.meta.env.VITE_SUPABASE_ANON_KEY);
 };
 
 const rootElement = document.getElementById('root');

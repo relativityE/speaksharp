@@ -43,15 +43,25 @@ describe('vercel.json SPA fallback', () => {
     }
   });
 
-  it('immutable 1-year caching is scoped to the real /assets and /models file namespaces only', () => {
-    const immutable = vercel.headers.filter((h) =>
+  it('does NOT apply a blanket immutable/1-year browser Cache-Control to /assets or /models', () => {
+    // Vercel applies `headers` by pathname regardless of whether the file exists, and it cannot condition
+    // a header on response status. A blanket immutable rule on /assets/(.*) or /models/(.*) therefore
+    // stamps a 404 (a rotated-away chunk an old tab requests) as browser-immutable for a year. We removed
+    // those rules and rely on Vercel's CDN edge-caching of the content-hashed assets instead.
+    const immutableRules = vercel.headers.filter((h) =>
       h.headers.some((x) => x.key === 'Cache-Control' && /immutable/.test(x.value)),
     );
-    const sources = immutable.map((h) => h.source).sort();
-    expect(sources).toEqual(['/assets/(.*)', '/models/(.*)']);
-    // Those namespaces no longer serve an HTML fallback (they 404 on miss), so immutable caching never
-    // pins an index-HTML document under /assets.
-    expect(rewritesToIndex('/assets/anything.js')).toBe(false);
-    expect(rewritesToIndex('/models/anything.bin')).toBe(false);
+    expect(immutableRules, 'no header rule may set an immutable browser Cache-Control').toEqual([]);
+
+    const longMaxAge = vercel.headers.filter((h) =>
+      h.headers.some((x) => x.key === 'Cache-Control' && /max-age=(\d{6,})/.test(x.value)),
+    );
+    expect(longMaxAge, 'no header rule may set a multi-day+ browser max-age (would pin 404s too)').toEqual([]);
+  });
+
+  it('keeps sw.js on no-cache (unchanged)', () => {
+    const sw = vercel.headers.find((h) => h.source === '/sw.js');
+    expect(sw?.headers.some((x) => x.key === 'Cache-Control' && /no-cache/.test(x.value)),
+      'sw.js must stay no-cache').toBe(true);
   });
 });

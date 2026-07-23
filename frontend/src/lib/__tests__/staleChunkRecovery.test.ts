@@ -137,6 +137,41 @@ describe('retain-until-expiry guard + escalation across a reload', () => {
   });
 });
 
+describe('markStaleChunkBootSuccess (genuine boot clears the guard — NOT a frame heuristic)', () => {
+  it('clears the persisted guard', () => {
+    mod.recoverFromStaleChunk(1000);
+    expect(window.sessionStorage.getItem(GUARD)).not.toBeNull();
+    mod.markStaleChunkBootSuccess();
+    expect(window.sessionStorage.getItem(GUARD)).toBeNull();
+  });
+
+  it('after a reload + GENUINE boot, a later failure inside the window is FRESH (reload), not escalated', async () => {
+    mod.recoverFromStaleChunk(1000);                 // reload; guard count 1
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+
+    // Reload lands on a WORKING deployment: a lazy route mounts → StaleChunkBootClear fires this.
+    const after = await reimportAsAfterReload();
+    after.markStaleChunkBootSuccess();               // genuine successful boot
+    expect(window.sessionStorage.getItem(GUARD)).toBeNull();
+
+    // A later, unrelated stale-chunk event (still inside the old window) must reload afresh, not show the UI.
+    const action = after.recoverFromStaleChunk(1000 + 4_000);
+    expect(action).toBe('reload');
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
+    expect(document.getElementById('ss-stale-chunk-recovery')).toBeNull(); // not escalated
+  });
+
+  it('WITHOUT a genuine boot (chunk still 404s after reload), the guard is retained → escalation', async () => {
+    mod.recoverFromStaleChunk(1000);
+    const after = await reimportAsAfterReload();
+    // No markStaleChunkBootSuccess() — the destination chunk failed again, so no lazy route ever mounted.
+    const action = after.recoverFromStaleChunk(1000 + 4_000);
+    expect(action).toBe('recover');
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('ss-stale-chunk-recovery')).not.toBeNull();
+  });
+});
+
 describe('installStaleChunkRecovery', () => {
   it('a vite:preloadError → preventDefault + exactly one reload', () => {
     mod.installStaleChunkRecovery();

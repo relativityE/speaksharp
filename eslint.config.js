@@ -39,6 +39,37 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       'no-empty': 'error',
+      // Forbid dynamic / whole-object `import.meta.env` access. A computed read (`import.meta.env[key]`) or a
+      // spread (`{...import.meta.env}`) makes Vite inline the ENTIRE env object into the chunk — which on
+      // Vercel includes the per-deployment `VITE_VERCEL_GIT_COMMIT_SHA`, baking the commit SHA into otherwise
+      // stable chunks and rotating their content hash every deploy (stale-chunk churn). Read specific keys
+      // with direct property access (`import.meta.env.VITE_X`) via the allowlist in src/config/env.ts.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "MemberExpression[computed=true][object.type='MemberExpression'][object.property.name='env'][object.object.type='MetaProperty']",
+          message:
+            'Do not read import.meta.env with a computed key — it inlines the whole env object (incl. the Vercel deploy SHA). Use direct import.meta.env.VITE_X access (see src/config/env.ts).',
+        },
+        {
+          selector:
+            "SpreadElement[argument.type='MemberExpression'][argument.property.name='env'][argument.object.type='MetaProperty']",
+          message:
+            'Do not spread import.meta.env — it inlines the whole env object (incl. the Vercel deploy SHA). Read specific VITE_ keys directly (see src/config/env.ts).',
+        },
+        {
+          selector:
+            "MemberExpression[optional=true][object.type='MemberExpression'][object.property.name='env'][object.object.type='MetaProperty']",
+          message:
+            'Do not use optional chaining on import.meta.env (import.meta.env?.X) — it defeats Vite static replacement and inlines the whole env object (incl. the Vercel deploy SHA). Use direct import.meta.env.VITE_X access.',
+        },
+        {
+          selector: 'TSAsExpression > MetaProperty',
+          message:
+            'Do not cast import.meta (e.g. `(import.meta as ...).env?.X`) — the cast + optional chaining defeats Vite static replacement and inlines the whole env object (incl. the Vercel deploy SHA). Use direct import.meta.env.VITE_X access.',
+        },
+      ],
       'no-console': 'error', // App code MUST use the structured logger (src/lib/logger). pino routes error/warn to console.* so escalation still surfaces. Tests are exempt below.
       'react-refresh/only-export-components': [
         'warn',  // Downgrade to warning - this is a dev-time optimization hint, not a critical error
