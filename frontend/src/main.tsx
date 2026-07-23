@@ -18,6 +18,7 @@ import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
 import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
+import { installStaleChunkRecovery } from './lib/staleChunkRecovery';
 import { analyticsBuffer } from './services/AnalyticsBuffer';
 
 declare global {
@@ -27,6 +28,12 @@ declare global {
     __e2e_e2e_msw_ready_fired__?: boolean;
   }
 }
+
+// P0 stale-deployment recovery: register the vite:preloadError / dynamic-import failure handlers BEFORE
+// any app initialization, so a long-lived tab that outlived a deployment recovers with a single guarded
+// reload instead of crashing on a missing chunk. Must run first — the app's lazy imports fire later. The
+// loop guard is time-bounded (retained until expiry); we do NOT frame-count a "booted" signal here.
+installStaleChunkRecovery();
 
 // STT release-proof config-discipline: publish the canonical runtime environment
 // (port/mode/auth/releaseProofEligible) so the test-agent proof preflight can validate it
@@ -67,16 +74,11 @@ if (ENV.isTest) {
 // here: Sentry already no-ops without a DSN (see init below), and payment
 // surfaces are hidden when the Stripe key is missing (arePaymentsEnabled),
 // so the app boots and core STT works without either configured.
-const REQUIRED_ENV_VARS: string[] = [
-  'VITE_SUPABASE_URL',
-  'VITE_SUPABASE_ANON_KEY',
-];
-
 const areEnvVarsPresent = (): boolean => {
-  return REQUIRED_ENV_VARS.every(varName => {
-    const value = import.meta.env[varName];
-    return value && value !== '';
-  });
+  // DIRECT static reads only — never `import.meta.env[dynamicKey]`. A computed access makes Vite inline the
+  // whole env object (incl. Vercel's per-deploy VITE_VERCEL_GIT_COMMIT_SHA) into this entry chunk.
+  const present = (v: string | undefined): boolean => !!v && v !== '';
+  return present(import.meta.env.VITE_SUPABASE_URL) && present(import.meta.env.VITE_SUPABASE_ANON_KEY);
 };
 
 const rootElement = document.getElementById('root');
@@ -114,6 +116,12 @@ if (!skipSentry) {
   try {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
+      // Release tag comes from the RUNTIME global (index.html inline script), NOT the Sentry bundler
+      // plugin's build-time injection. The plugin injects the release SHA into EVERY chunk, which rotates
+      // every chunk's content hash on every deploy (the stale-chunk churn). We keep the plugin for source
+      // maps (associated via debug IDs) but disable its release injection (see vite.config.mjs) and set the
+      // release here instead, so attribution is preserved while chunks stay SHA-free + stable across deploys.
+      release: typeof window !== 'undefined' ? window.__APP_RELEASE__ : undefined,
       integrations: [
         ...(enableSentryTracing ? [Sentry.browserTracingIntegration()] : []),
         ...(enableSentryReplay ? [Sentry.replayIntegration()] : []),

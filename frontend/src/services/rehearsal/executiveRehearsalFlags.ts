@@ -42,7 +42,9 @@ export interface FlagReader {
  */
 function isHardDisabled(): boolean {
   try {
-    return (import.meta as unknown as { env?: Record<string, unknown> })?.env?.VITE_EXECUTIVE_REHEARSAL_DISABLED === 'true';
+    // DIRECT static access — casting import.meta / optional-chaining `?.env` defeats Vite's static
+    // replacement and inlines the WHOLE env object (incl. the Vercel deploy SHA) into this chunk.
+    return import.meta.env.VITE_EXECUTIVE_REHEARSAL_DISABLED === 'true';
   } catch {
     return false;
   }

@@ -4,16 +4,22 @@ import pino from 'pino';
 import { LoggerOptions } from 'pino';
 import { resolveLoggerLevel } from './loggerConfig';
 
-const readViteEnv = (key: string): string | undefined => {
-  return (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.[key];
-};
+// DIRECT static reads: Vite replaces each `import.meta.env.<KEY>` with its literal value at build time, so
+// the whole env object is never inlined into this (near-universally imported) module. A cast/computed/spread
+// access would inline the entire env — including Vercel's per-deploy VITE_VERCEL_GIT_COMMIT_SHA — and rotate
+// every chunk's content hash on every deploy. Guarded for non-Vite Node contexts where import.meta.env is
+// undefined (in the Vite/vitest bundle these reads are already replaced with literals, so they never throw).
+let viteMode: string | undefined;
+try { viteMode = import.meta.env.MODE; } catch { viteMode = undefined; }
+let viteLogLevel: string | undefined;
+try { viteLogLevel = import.meta.env.VITE_LOG_LEVEL; } catch { viteLogLevel = undefined; }
 
 const mode =
-  readViteEnv('MODE') ||
+  viteMode ||
   (typeof process !== 'undefined' && process.env?.NODE_ENV) ||
   'production';
 const explicitLevel =
-  readViteEnv('VITE_LOG_LEVEL') ||
+  viteLogLevel ||
   (typeof process !== 'undefined' && process.env?.LOG_LEVEL) ||
   null;
 

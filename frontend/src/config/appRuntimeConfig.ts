@@ -12,8 +12,8 @@ declare const __APP_MODE_META__:
   | { command: string; viteMode: string; port: number; authMode: string; releaseProofEligible: boolean }
   | undefined;
 
-/** Build/release id injected by Vite `define` — the git commit SHA in production (PROD-CONFIG-1). */
-declare const __BUILD_ID__: string | undefined;
+/** Build/release id injected into index.html (window.__APP_RELEASE__) — the git commit SHA in production
+ * (PROD-CONFIG-1). NOT a JS `define`, so the volatile SHA never rotates chunk hashes across deploys. */
 
 export interface AppModeMeta {
   viteMode: string;
@@ -95,6 +95,8 @@ export interface AppRuntimeConfig {
 declare global {
   interface Window {
     __APP_RUNTIME_CONFIG__?: AppRuntimeConfig;
+    /** Release id (commit SHA in prod) injected into index.html by the release-inject Vite plugin. */
+    __APP_RELEASE__?: string;
   }
 }
 
@@ -161,7 +163,7 @@ export function publishAppRuntimeConfig(): AppRuntimeConfig {
       typeof window !== 'undefined' && window.location.port ? Number(window.location.port) : meta.port,
     url: typeof window !== 'undefined' ? window.location.href : '',
     stripeKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
-    release: typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : undefined,
+    release: typeof window !== 'undefined' ? window.__APP_RELEASE__ : undefined,
   });
   if (typeof window !== 'undefined') {
     window.__APP_RUNTIME_CONFIG__ = cfg;
