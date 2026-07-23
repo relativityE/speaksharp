@@ -46,12 +46,13 @@ describe('isChunkLoadError', () => {
 });
 
 describe('isStaleChunkRecoveryInFlight (lets the boundary suppress the downstream symptom)', () => {
-  it('false initially, true after a recovery is claimed, false again after a successful boot', () => {
+  it('false initially, true after a recovery is claimed, and resets on the reload (fresh module)', async () => {
     expect(mod.isStaleChunkRecoveryInFlight()).toBe(false);
     mod.recoverFromStaleChunk(1000);
     expect(mod.isStaleChunkRecoveryInFlight()).toBe(true);
-    mod.markStaleChunkAppBooted();
-    expect(mod.isStaleChunkRecoveryInFlight()).toBe(false);
+    // The claim resets when the reload replaces the page — a new module instance starts clean.
+    const after = await reimportAsAfterReload();
+    expect(after.isStaleChunkRecoveryInFlight()).toBe(false);
   });
 });
 
@@ -97,21 +98,12 @@ describe('atomic in-flight claim — one failure handled once', () => {
   });
 });
 
-describe('reset + escalation across a reload', () => {
-  it('after a successful boot reset, a later INDEPENDENT failure is NOT suppressed → reloads again', () => {
-    mod.recoverFromStaleChunk(1000);
-    expect(window.sessionStorage.getItem(GUARD)).not.toBeNull();
-    mod.markStaleChunkAppBooted(); // fresh graph loaded → clears in-flight + guard
-    expect(window.sessionStorage.getItem(GUARD)).toBeNull();
-    expect(mod.recoverFromStaleChunk(9_000)).toBe('reload'); // new event, not deduped
-    expect(reloadSpy).toHaveBeenCalledTimes(2);
-  });
-
+describe('retain-until-expiry guard + escalation across a reload', () => {
   it('after the one reload, a SECOND genuine failure → no reload, shows the specific recovery UI', async () => {
     mod.recoverFromStaleChunk(1000);        // reload; guard count 1 persisted in sessionStorage
     expect(reloadSpy).toHaveBeenCalledTimes(1);
 
-    // Simulate the reload: fresh module (in-flight reset), sessionStorage guard PRESERVED.
+    // Simulate the reload: fresh module (in-flight reset), sessionStorage guard PRESERVED (not boot-cleared).
     const after = await reimportAsAfterReload();
     const action = after.recoverFromStaleChunk(1000 + 3_000); // still inside the window
     expect(action).toBe('recover');
@@ -123,12 +115,25 @@ describe('reset + escalation across a reload', () => {
     expect(window.sessionStorage.getItem(GUARD)).toBeNull(); // the action clears the guard
   });
 
-  it('markStaleChunkAppBooted does NOT clear the guard/claim while the recovery UI is shown', async () => {
+  it('a DELAYED second failure (well after two animation frames, still within the window) → recovery UI, no reload', async () => {
+    mod.recoverFromStaleChunk(1000);
+    // Model the reloaded page reaching "two frames" and beyond WITHOUT any boot-clear of the guard.
+    const after = await reimportAsAfterReload();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // two frames elapse
+    await new Promise((r) => setTimeout(r, 30)); // ...and well beyond
+    // The failure surfaces ~6s later (still < GUARD_WINDOW_MS): the guard must NOT have been frame-cleared.
+    const action = after.recoverFromStaleChunk(1000 + 6_000);
+    expect(action).toBe('recover');
+    expect(reloadSpy).toHaveBeenCalledTimes(1); // still exactly one reload — the 2-frame heuristic is gone
+    expect(document.getElementById('ss-stale-chunk-recovery')).not.toBeNull();
+  });
+
+  it('a failure AFTER the bounded window expires is treated as fresh → reloads again', async () => {
     mod.recoverFromStaleChunk(1000);
     const after = await reimportAsAfterReload();
-    after.recoverFromStaleChunk(1000 + 2_000); // → recovery UI shown
-    after.markStaleChunkAppBooted();
-    expect(window.sessionStorage.getItem(GUARD)).not.toBeNull();
+    const action = after.recoverFromStaleChunk(1000 + mod.GUARD_WINDOW_MS + 1);
+    expect(action).toBe('reload'); // window elapsed → fresh event
+    expect(reloadSpy).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -145,5 +150,17 @@ describe('installStaleChunkRecovery', () => {
     window.dispatchEvent(Object.assign(new Event('unhandledrejection', { cancelable: true }), { reason: new Error('unrelated') }));
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem(GUARD)).toBeNull();
+  });
+
+  it('is IDEMPOTENT: repeated installs register exactly ONE listener per event type', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    mod.installStaleChunkRecovery();
+    mod.installStaleChunkRecovery();
+    mod.installStaleChunkRecovery();
+    const count = (type: string) => addSpy.mock.calls.filter((c) => c[0] === type).length;
+    expect(count('vite:preloadError')).toBe(1);
+    expect(count('unhandledrejection')).toBe(1);
+    expect(count('error')).toBe(1);
+    addSpy.mockRestore();
   });
 });

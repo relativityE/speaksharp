@@ -111,10 +111,10 @@ export function showStaleChunkRecoveryUI(doc: Document = document): void {
 /**
  * Atomic in-flight claim. A single failed import() surfaces BOTH as `vite:preloadError` AND via React's
  * error boundary (and possibly `error`/`unhandledrejection`). The FIRST recognized failure claims the
- * recovery attempt; every later invocation before navigation or a successful boot is a no-op and does NOT
- * touch the session guard. It is reset (a) implicitly by the page reload it triggers, and (b) explicitly
- * by markStaleChunkAppBooted() on a successful boot. A genuine failure AFTER the reload lands on a fresh
- * module (claim reset) and, because the persisted guard survived the reload, escalates to the recovery UI.
+ * recovery attempt; every later invocation for the same page-life is a no-op and does NOT touch the
+ * session guard. The claim resets ONLY when the reload it triggers replaces the page (a new module
+ * instance starts with recoveryInFlight = false). A genuine failure AFTER the reload lands on that fresh
+ * module and, because the persisted guard survived the reload, escalates to the recovery UI.
  */
 let recoveryInFlight = false;
 
@@ -138,21 +138,26 @@ export function recoverFromStaleChunk(now: number = Date.now()): 'reload' | 'rec
   return action;
 }
 
-/** Call once the app has booted successfully — a fresh graph loaded, so the in-flight claim + loop guard
- * reset. No-op while the recovery UI is showing (that state is a failed recovery, not a successful boot). */
-export function markStaleChunkAppBooted(): void {
-  if (recoveryUiShown) return;
-  recoveryInFlight = false;
-  clearStaleChunkGuard();
-}
+/**
+ * Guard lifetime: we deliberately DO NOT proactively clear the guard on the OLD (reloading) page, and we
+ * do NOT use a frame-count heuristic to declare the new page "booted" (two animation frames do not prove
+ * the destination lazy route is operational). The persisted guard is simply RETAINED until its bounded
+ * expiry (GUARD_WINDOW_MS): a repeat failure inside the window escalates to the recovery UI (no loop); a
+ * failure after the window is a fresh event. The in-flight claim resets naturally when the reload replaces
+ * the page (a new module instance starts with recoveryInFlight = false).
+ */
+
+let listenersInstalled = false;
 
 /**
  * Install global listeners BEFORE app initialization. Handles Vite's `vite:preloadError` and the raw
  * dynamic-import rejection/error shapes, calling preventDefault so the known deployment condition never
- * becomes an uncaught error / generic error page.
+ * becomes an uncaught error / generic error page. IDEMPOTENT: repeated calls install exactly one listener
+ * per event type.
  */
 export function installStaleChunkRecovery(): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined' || listenersInstalled) return;
+  listenersInstalled = true;
 
   window.addEventListener('vite:preloadError', (event) => {
     event.preventDefault();
