@@ -234,15 +234,32 @@ describe('Navigation', () => {
     });
 
     describe('Navigation Links', () => {
-        it('should have correct href for Home link', () => {
+        it('authenticated Home link points to the authenticated home /practice', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
-            const homeLinks = screen.getAllByRole('link', { name: /home/i });
-            expect(homeLinks[0]).toHaveAttribute('href', '/');
+            // Precise: the Home NAV link carries the testid (logo shares the "…Home" accessible name).
+            expect(screen.getByTestId('nav-home-link')).toHaveAttribute('href', '/practice');
+        });
+
+        it('authenticated logo points to /practice; anonymous logo points to public /', () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            const authed = renderNavigation();
+            expect(screen.getByRole('link', { name: 'SpeakSharp Home' })).toHaveAttribute('href', '/practice');
+            authed.unmount();
+
+            mockUseAuthProvider.mockReturnValue({
+                session: null,
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            renderNavigation();
+            expect(screen.getByRole('link', { name: 'SpeakSharp Home' })).toHaveAttribute('href', '/');
         });
 
         it('should have correct href for Session link', () => {
@@ -295,16 +312,16 @@ describe('Navigation', () => {
     });
 
     describe('Active Link Highlighting', () => {
-        it('should highlight Home link when on home page', () => {
+        it('highlights the Home link as active when on /practice (the authenticated home)', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
-            renderNavigation('/');
-            // The active link should have 'default' or 'secondary' variant
-            // We can check if the link exists and is rendered
-            expect(screen.getAllByText('Home')).toHaveLength(2);
+            renderNavigation('/practice');
+            expect(screen.getAllByText('Home')).toHaveLength(2); // desktop + mobile
+            // The active desktop Home link carries the active-state class (asChild merges it onto the Link).
+            expect(screen.getByTestId('nav-home-link').className).toContain('bg-muted');
         });
 
         it('should highlight Session link when on session page without rendering duplicate mobile nav', () => {

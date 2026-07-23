@@ -72,9 +72,11 @@ const Navigation = () => {
     }
   };
 
+  // The nav items render ONLY for an authenticated session (see the `{session && …}` gates below), so
+  // the authenticated HOME destination is the authenticated home: /practice (not the public Index).
   const navItems = [
     {
-      path: "/",
+      path: "/practice",
       icon: Home,
       label: "Home",
       testId: TEST_IDS.NAV_HOME_LINK
@@ -139,8 +141,8 @@ const Navigation = () => {
       <nav className="fixed top-0 left-0 right-0 z-40 bg-background/85 backdrop-blur-md border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2" aria-label="SpeakSharp Home">
+            {/* Logo → authenticated home is /practice; anonymous logo stays the public Index. */}
+            <Link to={session ? "/practice" : "/"} className="flex items-center space-x-2" aria-label="SpeakSharp Home">
               <Mic className="h-5 w-5 text-primary" aria-hidden="true" />
               <span className="text-lg font-bold text-foreground tracking-tight">SpeakSharp</span>
             </Link>
