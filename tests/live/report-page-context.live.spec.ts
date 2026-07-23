@@ -36,8 +36,8 @@ const EXPECTED = {
 // The three closed /practice surfaces (one route, distinguished by the active UI state).
 const PRACTICE_EXPECTED = {
   practice_home: { surface: 'practice_home', label: 'SpeakSharp Practice', journeyStep: 'chooser', areas: ['understanding_choices', 'navigation', 'visual_layout', 'other'] },
-  quick_practice_overview: { surface: 'quick_practice_overview', label: 'Quick Practice overview', journeyStep: 'quick_overview', areas: ['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other'] },
-  guided_rehearsal_preview: { surface: 'guided_rehearsal_preview', label: 'Guided Rehearsal preview', journeyStep: 'guided_preview', areas: ['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other'] },
+  quick_practice_overview: { surface: 'quick_practice_overview', label: 'Quick Practice overview', journeyStep: 'quick_overview', areas: ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other'] },
+  guided_rehearsal_unavailable: { surface: 'guided_rehearsal_unavailable', label: 'Guided Rehearsal', journeyStep: 'guided_unavailable', areas: ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other'] },
 } as const;
 const SESSION_AREAS = EXPECTED.session.areas;
 
@@ -195,21 +195,21 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
   // POST-ACTIVATION proof: the three /practice surfaces are distinguishable server-side while all keeping
   // canonicalRoute /practice. Reserved for after the rollout flag is activated for this account — it skips
   // cleanly (never fails the gate) if /practice is not reachable yet.
-  test('distinguishes practice_home / quick_practice_overview / guided_rehearsal_preview server-side', async ({ page }) => {
+  test('distinguishes practice_home / quick_practice_overview / guided_rehearsal_unavailable server-side', async ({ page }) => {
     await signIn(page);
     await navigateToRoute(page, '/practice');
     const onPractice = await page.getByTestId('practice-root').isVisible().catch(() => false);
-    test.skip(!onPractice, 'Practice-entry flag is OFF for this account here — post-activation proof.');
+    test.skip(!onPractice, '/practice not reachable for this account here.');
 
     // chooser
     await submitReport(page, `${MARK} practice-home`, PRACTICE_EXPECTED.practice_home);
     // quick overview
     await page.getByTestId('practice-card-quick').click();
     await submitReport(page, `${MARK} quick`, PRACTICE_EXPECTED.quick_practice_overview);
-    // back to chooser, then guided preview
+    // back to chooser, then select the UNAVAILABLE Guided (shows a toast, marks the surface)
     await page.getByTestId('practice-back-top').click();
     await page.getByTestId('practice-card-guided').click();
-    await submitReport(page, `${MARK} guided`, PRACTICE_EXPECTED.guided_rehearsal_preview);
+    await submitReport(page, `${MARK} guided`, PRACTICE_EXPECTED.guided_rehearsal_unavailable);
 
     await expect.poll(async () => {
       const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK} practice-%`);
@@ -222,7 +222,7 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     const rows = (data ?? []) as StoredReport[];
     const bySuffix = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
 
-    for (const [suffix, exp] of [['practice-home', PRACTICE_EXPECTED.practice_home], ['quick', PRACTICE_EXPECTED.quick_practice_overview], ['guided', PRACTICE_EXPECTED.guided_rehearsal_preview]] as const) {
+    for (const [suffix, exp] of [['practice-home', PRACTICE_EXPECTED.practice_home], ['quick', PRACTICE_EXPECTED.quick_practice_overview], ['guided', PRACTICE_EXPECTED.guided_rehearsal_unavailable]] as const) {
       const row = bySuffix(suffix);
       expect(row, `stored report ${suffix}`).toBeTruthy();
       // One canonical route for all three surfaces; the surface is the distinguisher.

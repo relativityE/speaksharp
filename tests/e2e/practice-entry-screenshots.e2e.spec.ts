@@ -1,42 +1,39 @@
 import { test, expect, type Page } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, goToApp } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 /**
- * Pre-merge VISUAL + CDP + NAVIGATION proof for #1019 (authenticated /practice entry). No production
- * deployment: authenticates via the E2E mock/synthetic path, forces the rollout flag ON through the E2E
- * manifest override (window.__SS_E2E__.flags.practiceEntry), and drives the REAL user journey.
+ * Pre-merge VISUAL + CDP + NAVIGATION proof for the authenticated `/practice` landing (flag-free release).
+ * No production deployment: authenticates via the E2E mock/synthetic path and drives the REAL user journey.
  *
- * Crucially, this exercises the actual "Back to practice choices" controls with normal clicks (no force,
- * no direct-navigation bypass): a tester must be able to enter Quick Practice, click Back to return to the
- * chooser, and then open Guided Rehearsal — all on /practice with no page reload. A prior version of this
- * spec hid a real actionability defect (the top Back button sat under the fixed global <nav>, which
- * intercepted the click) by re-navigating instead of clicking; that product defect is now fixed (the
- * heroes clear the nav) and proven here through the control itself.
+ * Proves, with real clicks (no force, no direct-navigation substitute for a control):
+ *  - /practice renders as the authenticated landing (no rollout gate);
+ *  - Quick Practice → overview → "Open Practice Session" → the unchanged /session (no auto-record);
+ *  - Guided Rehearsal → exactly one toast "Product not available at this time"; stays on /practice; no
+ *    preview / walkthrough / correction loop;
+ *  - Report Issue is globally available and surface-aware on the landing, Quick overview, Guided-unavailable
+ *    selection, and /session;
+ *  - the Back controls (top + bottom) work through normal clicks below the fixed nav.
  *
- * CDP: asserts zero console/page errors and no third-party tracking requests on /practice. Screenshots go
- * to test-results/practice-entry/ (uploaded as ux-review-screenshots-*).
+ * CDP: asserts zero console/page errors and no third-party tracking requests. Screenshots → test-results/
+ * practice-entry/ (uploaded as ux-review-screenshots-*).
  */
 
 const DIR = 'test-results/practice-entry';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-analytics.com', 'googletagmanager.com', 'doubleclick.net'];
+const GUIDED_TOAST = 'Product not available at this time';
 
-// MUST be registered AFTER programmaticLoginWithRoutes: that helper's E2E-manifest addInitScript rebuilds
-// window.__SS_E2E__ on every page load, so a flag set by an EARLIER-registered script would be wiped. Init
-// scripts run in registration order on each full navigation (navigateToRoute → page.goto), so registering
-// this last makes it win. (This ordering bug is exactly what made a prior run fail 10/10.)
-async function forcePracticeFlag(page: Page) {
-  await page.addInitScript(() => {
-    const w = window as unknown as { __SS_E2E__?: { flags?: Record<string, unknown> } };
-    w.__SS_E2E__ = w.__SS_E2E__ ?? {};
-    w.__SS_E2E__.flags = { ...(w.__SS_E2E__.flags ?? {}), practiceEntry: true };
-  });
-}
+// Surface-specific issue-area option values (mirrors services/pageContext).
+const AREAS = {
+  practice_home: ['understanding_choices', 'navigation', 'visual_layout', 'other'],
+  quick_practice_overview: ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other'],
+  guided_rehearsal_unavailable: ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other'],
+  session: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'],
+};
 
-// INITIAL page entry only (never used as a substitute for clicking Back mid-journey).
 async function enterPractice(page: Page) {
-  await navigateToRoute(page, '/practice');
+  await navigateToRoute(page, '/practice'); // /practice is the plain authenticated landing (no gate)
   await expectOnChooser(page);
 }
 
@@ -52,8 +49,7 @@ async function openQuickOverview(page: Page) {
 }
 
 // Click a Back control the way a tester does — normal click, no force. Playwright's actionability check
-// (visible, stable, ENABLED, receives pointer events / not obscured) must pass, proving the fixed nav no
-// longer intercepts it. Then verify we are back on the chooser at /practice, with no /session navigation.
+// proves the fixed nav does not intercept it. Then verify we are back on the chooser at /practice.
 async function clickBackToChooser(page: Page, testid: string) {
   const back = page.getByTestId(testid);
   await back.scrollIntoViewIfNeeded();
@@ -64,16 +60,8 @@ async function clickBackToChooser(page: Page, testid: string) {
   await expect(page.getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toHaveCount(0);
 }
 
-// Expected surface-specific issue-area option values (mirrors services/pageContext).
-const AREAS = {
-  practice_home: ['understanding_choices', 'navigation', 'visual_layout', 'other'],
-  quick_practice_overview: ['walkthrough', 'start_speaking', 'navigation', 'visual_layout', 'other'],
-  guided_rehearsal_preview: ['walkthrough', 'correction_loop', 'feature_clarity', 'visual_layout', 'other'],
-  session: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'],
-};
-
-// Open the GLOBAL Report Issue dialog, assert the visible page label + surface-specific issue areas, then
-// close it WITHOUT submitting (Escape) — normal interactions only.
+// Open the GLOBAL Report Issue dialog, assert the visible page label + surface issue areas, then close it
+// WITHOUT submitting (Escape).
 async function assertReport(page: Page, expectedLabel: string | RegExp, expectedAreas: readonly string[]) {
   await page.getByTestId('nav-report-issue-button').click();
   await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
@@ -85,8 +73,8 @@ async function assertReport(page: Page, expectedLabel: string | RegExp, expected
   await expect(page.getByTestId('issue-report-title')).toHaveCount(0);
 }
 
-test.describe('Practice entry — real Back navigation, visual + CDP evidence', () => {
-  test('Quick → Back → chooser → Guided in one uninterrupted journey (both Back controls), clean page', async ({ page }) => {
+test.describe('Practice landing — default entry, Guided unavailable, surface-aware Report Issue', () => {
+  test('Quick → Open Practice Session → /session; Guided → exact toast; Report Issue on every surface', async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     const trackingRequests: string[] = [];
@@ -102,58 +90,70 @@ test.describe('Practice entry — real Back navigation, visual + CDP evidence', 
     });
 
     await programmaticLoginWithRoutes(page, { userType: 'free' });
-    await forcePracticeFlag(page); // AFTER login: must win over the manifest's init script (see note above)
 
-    // === DESKTOP ===
+    // === DESKTOP LANDING ===
     await page.setViewportSize(DESKTOP);
     await enterPractice(page);
     await page.screenshot({ path: `${DIR}/01-chooser-desktop.png`, fullPage: true });
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
-    // Report Issue on the chooser → practice_home.
+    // Both products render; Guided is clearly marked unavailable (text, not color alone).
+    await expect(page.getByRole('heading', { name: /^Quick Practice$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
+    await expect(page.getByTestId('practice-card-guided')).toHaveText(/guided rehearsal/i);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
-    // 1) TOP Back journey: Quick → top Back → chooser → Guided (no reload, stays on /practice).
+    // === QUICK OVERVIEW ===
     await openQuickOverview(page);
     await page.screenshot({ path: `${DIR}/02-quick-overview-desktop.png`, fullPage: true });
-    // Report Issue on the Quick overview → quick_practice_overview (distinct label + areas).
+    // Final CTA reads exactly "Open Practice Session" (never "Start speaking").
+    await expect(page.getByRole('button', { name: /open practice session/i }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /start speaking/i })).toHaveCount(0);
     await assertReport(page, 'Quick Practice overview', AREAS.quick_practice_overview);
+    await page.screenshot({ path: `${DIR}/03-quick-walkthrough-desktop.png`, fullPage: true });
+
+    // Back to chooser, then GUIDED UNAVAILABLE.
     await clickBackToChooser(page, 'practice-back-top');
     await page.getByTestId('practice-card-guided').click();
-    await expect(page.getByText(/preview · coming soon/i)).toBeVisible();
+    // Exactly the approved toast; stays on /practice; no preview/walkthrough/correction loop.
+    await expect(page.getByText(GUIDED_TOAST)).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/practice');
-    // Report Issue on the Guided preview → guided_rehearsal_preview (distinct label + areas).
-    await assertReport(page, 'Guided Rehearsal preview', AREAS.guided_rehearsal_preview);
-    await page.screenshot({ path: `${DIR}/03-guided-expanded-desktop.png`, fullPage: true });
+    await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
+    await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
+    await page.screenshot({ path: `${DIR}/04-guided-unavailable-toast-desktop.png`, fullPage: true });
+    // Visible Report Issue label is EXACTLY "Guided Rehearsal" (never "(unavailable)").
+    await page.getByTestId('nav-report-issue-button').click();
+    await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('issue-report-page-context')).toContainText('Guided Rehearsal');
+    await expect(page.getByTestId('issue-report-page-context')).not.toContainText(/unavailable/i);
+    const guidedAreas = await page.getByTestId('issue-report-area').locator('option')
+      .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
+    expect(guidedAreas).toEqual(AREAS.guided_rehearsal_unavailable);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-report-title')).toHaveCount(0);
 
-    // 2) BOTTOM Back journey: re-enter overview, scroll the bottom Back into view, click it, return.
+    // Bottom Back journey.
     await openQuickOverview(page);
     await clickBackToChooser(page, 'practice-back-bottom');
 
-    // 3) Keyboard focus on the Quick CTA.
+    // Keyboard focus on the Quick CTA.
     const quickCta = page.getByTestId('practice-card-quick');
     await quickCta.focus();
     await expect(quickCta).toBeFocused();
-    await page.screenshot({ path: `${DIR}/04-keyboard-focus-desktop.png` });
+    await page.screenshot({ path: `${DIR}/05-keyboard-focus-desktop.png` });
 
-    // === MOBILE === (same top-Back journey on a phone viewport).
+    // === MOBILE ===
     await page.setViewportSize(MOBILE);
     await enterPractice(page);
-    await page.screenshot({ path: `${DIR}/05-chooser-mobile.png`, fullPage: true });
+    await page.screenshot({ path: `${DIR}/06-chooser-mobile.png`, fullPage: true });
     await openQuickOverview(page);
     await clickBackToChooser(page, 'practice-back-top');
 
-    // === MAGIC-LINK CONTINUATION === the /auth/continue return target must defer to the SAME authenticated
-    // decision as password sign-in: with an authenticated session + flag ON, it lands on the /practice
-    // chooser (not /session). Proven at browser level with the recovered (mock) session.
+    // Up to here NOTHING navigated to /session (Quick opens an overview, Guided shows a toast).
+    expect(sessionNavs, `unexpected /session navigations before Open Practice Session: ${sessionNavs.join(' | ')}`).toEqual([]);
+
+    // === OPEN PRACTICE SESSION → /session === the INTENTIONAL handoff (no auto-record).
     await page.setViewportSize(DESKTOP);
-    await goToApp(page, '/auth/continue'); // helper preserves MSW init; PostAuthContinue redirects to /practice
-    await expectOnChooser(page); // targeted → /practice chooser, via /auth/continue → PostAuthRedirect
-
-    // Up to here NOTHING should have navigated to /session — Back/Guided/continuation all stay on /practice.
-    expect(sessionNavs, `unexpected /session navigations before Start speaking: ${sessionNavs.join(' | ')}`).toEqual([]);
-
-    // === START SPEAKING → /session === the INTENTIONAL handoff. Its Report Issue must use the existing,
-    // unchanged Session · Speaking context (surface reset on leaving /practice).
+    await enterPractice(page);
     await openQuickOverview(page);
     await page.getByTestId('practice-quick-start').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });

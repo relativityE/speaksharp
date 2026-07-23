@@ -1,159 +1,70 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-// Raw RTL render: this suite controls its OWN MemoryRouter (the shared test-utils render injects one,
-// which would nest routers). useAuthProvider is mocked, so no real AuthContext provider is needed.
+// Raw RTL render: this suite controls its OWN MemoryRouter. useAuthProvider is mocked, so no real
+// AuthContext provider is needed.
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { PracticeEntryGate, PostAuthRedirect, PostAuthContinue } from '../practiceRouting';
-import PracticePage from '@/pages/PracticePage';
+import { PostAuthRedirect, PostAuthContinue } from '../practiceRouting';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { resolveAuthedFlag, resolveAuthedDefaultPath } from '@/services/practiceEntryFlags';
 
 // Keep the real module (shared test-utils imports AuthContext from it) — override only the hook.
 vi.mock('@/contexts/AuthProvider', async (orig) => {
   const actual = await orig<typeof import('@/contexts/AuthProvider')>();
   return { ...actual, useAuthProvider: vi.fn() };
 });
-vi.mock('@/config/TestFlags', () => ({ ENV: { isE2E: false } }));
-vi.mock('@/services/practiceEntryFlags', () => ({
-  resolveAuthedFlag: vi.fn(),
-  resolveAuthedDefaultPath: vi.fn(),
-}));
-// Keep the page inert (no analytics side effects) — routing/landmark structure is what we assert.
-vi.mock('@/services/practiceTelemetry', () => ({
-  trackPracticeEntryViewed: vi.fn(), trackPracticeModeSelected: vi.fn(), trackPracticeOverviewExpanded: vi.fn(),
-  trackQuickPracticeStarted: vi.fn(), trackGuidedRehearsalPreviewViewed: vi.fn(),
-}));
 
 const mockedAuth = vi.mocked(useAuthProvider);
-const mockedFlag = vi.mocked(resolveAuthedFlag);
-const mockedDefault = vi.mocked(resolveAuthedDefaultPath);
-const asUser = (id: string | null) => ({ user: id ? { id } : null } as ReturnType<typeof useAuthProvider>);
 const asAuth = (id: string | null, loading: boolean) => ({ user: id ? { id } : null, loading } as ReturnType<typeof useAuthProvider>);
 
 function renderAt(initial: string, entryElement?: React.ReactNode) {
   return render(
     <MemoryRouter initialEntries={[initial]}>
-      {/* Mirror App.tsx: the single page <main> landmark lives here, above the routes. */}
       <main id="main-content">
         <Routes>
           {entryElement ? <Route path={initial} element={entryElement} /> : null}
-          <Route path="/practice" element={<PracticeEntryGate><PracticePage /></PracticeEntryGate>} />
+          <Route path="/practice" element={<div data-testid="practice-marker">PRACTICE</div>} />
           <Route path="/session" element={<div data-testid="session-page">SESSION</div>} />
+          <Route path="/auth/signin" element={<div data-testid="signin-page">SIGNIN</div>} />
         </Routes>
       </main>
     </MemoryRouter>,
   );
 }
 
-describe('PracticeEntryGate — direct /practice obeys the rollout gate', () => {
-  beforeEach(() => { mockedAuth.mockReset(); mockedFlag.mockReset(); });
+describe('PostAuthRedirect — /practice is the flag-free default', () => {
+  beforeEach(() => mockedAuth.mockReset());
 
-  it('flag ON → renders the chooser (and still exactly ONE main landmark / #main-content)', async () => {
-    mockedAuth.mockReturnValue(asUser('u1'));
-    mockedFlag.mockResolvedValue(true);
-    render(
-      <MemoryRouter initialEntries={['/practice']}>
-        <main id="main-content">
-          <Routes>
-            <Route path="/practice" element={<PracticeEntryGate><PracticePage /></PracticeEntryGate>} />
-            <Route path="/session" element={<div data-testid="session-page">SESSION</div>} />
-          </Routes>
-        </main>
-      </MemoryRouter>,
-    );
-    expect(await screen.findByTestId('practice-root')).toBeInTheDocument();
-    // The nested-<main> regression: App owns the only landmark; the page adds none.
-    expect(screen.getAllByRole('main')).toHaveLength(1);
-    expect(document.querySelectorAll('#main-content')).toHaveLength(1);
-  });
-
-  it('flag OFF → redirects a direct /practice visit to /session (real one-switch rollback)', async () => {
-    mockedAuth.mockReturnValue(asUser('u1'));
-    mockedFlag.mockResolvedValue(false);
-    renderAt('/practice');
-    expect(await screen.findByTestId('session-page')).toBeInTheDocument();
-    expect(screen.queryByTestId('practice-root')).not.toBeInTheDocument();
-  });
-
-  it('no authenticated user → gate denies → /session', async () => {
-    mockedAuth.mockReturnValue(asUser(null));
-    mockedFlag.mockResolvedValue(true); // even if it would be ON, no identity ⇒ deny
-    renderAt('/practice');
-    expect(await screen.findByTestId('session-page')).toBeInTheDocument();
-  });
-});
-
-describe('PostAuthRedirect — resolves the authenticated default before navigating', () => {
-  beforeEach(() => { mockedAuth.mockReset(); mockedDefault.mockReset(); });
-
-  it('targeted → /practice', async () => {
-    mockedAuth.mockReturnValue(asUser('u1'));
-    mockedFlag.mockResolvedValue(true);
-    mockedDefault.mockResolvedValue('/practice');
+  it('no deep-link → /practice', () => {
     renderAt('/auth', <PostAuthRedirect from={null} />);
-    expect(await screen.findByTestId('practice-root')).toBeInTheDocument();
+    expect(screen.getByTestId('practice-marker')).toBeInTheDocument();
   });
-
-  it('non-targeted / timeout → /session', async () => {
-    mockedAuth.mockReturnValue(asUser('u1'));
-    mockedDefault.mockResolvedValue('/session');
-    renderAt('/auth', <PostAuthRedirect from={null} />);
-    expect(await screen.findByTestId('session-page')).toBeInTheDocument();
-  });
-
-  it('honors a safe deep-link destination', async () => {
-    mockedAuth.mockReturnValue(asUser('u1'));
-    mockedDefault.mockResolvedValue('/session'); // resolver already applied the deep-link decision
+  it('safe deep-link wins (e.g. a /session bookmark)', () => {
     renderAt('/auth', <PostAuthRedirect from={{ pathname: '/session' }} />);
-    expect(await screen.findByTestId('session-page')).toBeInTheDocument();
-    expect(mockedDefault).toHaveBeenCalledWith('u1', { pathname: '/session' });
+    expect(screen.getByTestId('session-page')).toBeInTheDocument();
+  });
+  it('unsafe/external return path is rejected → /practice', () => {
+    renderAt('/auth', <PostAuthRedirect from={{ pathname: '//evil.com' }} />);
+    expect(screen.getByTestId('practice-marker')).toBeInTheDocument();
   });
 });
 
-describe('PostAuthContinue — magic-link continuation defers to the authenticated decision', () => {
-  beforeEach(() => { mockedAuth.mockReset(); mockedDefault.mockReset(); });
-
-  function renderContinue(initial = '/auth/continue') {
-    return render(
-      <MemoryRouter initialEntries={[initial]}>
-        <main id="main-content">
-          <Routes>
-            <Route path="/auth/continue" element={<PostAuthContinue />} />
-            <Route path="/auth/signin" element={<div data-testid="signin-page">SIGNIN</div>} />
-            <Route path="/practice" element={<PracticeEntryGate><PracticePage /></PracticeEntryGate>} />
-            <Route path="/session" element={<div data-testid="session-page">SESSION</div>} />
-          </Routes>
-        </main>
-      </MemoryRouter>,
-    );
-  }
+describe('PostAuthContinue — magic-link continuation → /practice (after session recovery)', () => {
+  beforeEach(() => mockedAuth.mockReset());
 
   it('WAITS for the recovering session (loading) — shows a loader, navigates nowhere', () => {
-    mockedAuth.mockReturnValue(asAuth(null, true)); // session still being recovered from the magic-link URL
-    renderContinue();
+    mockedAuth.mockReturnValue(asAuth(null, true));
+    renderAt('/auth/continue', <PostAuthContinue />);
     expect(screen.getByTestId('practice-gate-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('practice-marker')).not.toBeInTheDocument();
     expect(screen.queryByTestId('signin-page')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('session-page')).not.toBeInTheDocument();
   });
-
-  it('after the session resolves, a targeted user reaches /practice', async () => {
+  it('after the session resolves (no deep-link) → /practice', () => {
     mockedAuth.mockReturnValue(asAuth('u1', false));
-    mockedFlag.mockResolvedValue(true);
-    mockedDefault.mockResolvedValue('/practice');
-    renderContinue();
-    expect(await screen.findByTestId('practice-root')).toBeInTheDocument();
+    renderAt('/auth/continue', <PostAuthContinue />);
+    expect(screen.getByTestId('practice-marker')).toBeInTheDocument();
   });
-
-  it('after the session resolves, a non-targeted/timeout user reaches /session', async () => {
-    mockedAuth.mockReturnValue(asAuth('u1', false));
-    mockedDefault.mockResolvedValue('/session');
-    renderContinue();
-    expect(await screen.findByTestId('session-page')).toBeInTheDocument();
-  });
-
-  it('no recovered session → sign-in (no redirect loop back to /auth/continue)', () => {
+  it('no recovered session → sign-in (no loop back to /auth/continue)', () => {
     mockedAuth.mockReturnValue(asAuth(null, false));
-    renderContinue();
+    renderAt('/auth/continue', <PostAuthContinue />);
     expect(screen.getByTestId('signin-page')).toBeInTheDocument();
   });
 });

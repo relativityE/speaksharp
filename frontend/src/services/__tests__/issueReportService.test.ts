@@ -47,13 +47,13 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
 
   it('validates issueArea against the ACTIVE /practice surface, rejecting cross-surface areas', () => {
     const quick = resolvePageContext('/practice', 'quick_practice_overview');
-    const guided = resolvePageContext('/practice', 'guided_rehearsal_preview');
+    const guided = resolvePageContext('/practice', 'guided_rehearsal_unavailable');
     // Valid for the active surface → kept.
-    expect(buildIssueReportMetadata({ context: quick, issueArea: 'start_speaking' }).issueArea).toBe('start_speaking');
-    expect(buildIssueReportMetadata({ context: guided, issueArea: 'correction_loop' }).issueArea).toBe('correction_loop');
+    expect(buildIssueReportMetadata({ context: quick, issueArea: 'open_practice_session' }).issueArea).toBe('open_practice_session');
+    expect(buildIssueReportMetadata({ context: guided, issueArea: 'availability' }).issueArea).toBe('availability');
     // Valid for a DIFFERENT surface → coerced to null (no cross-surface leakage).
-    expect(buildIssueReportMetadata({ context: quick, issueArea: 'correction_loop' }).issueArea).toBeNull();
-    expect(buildIssueReportMetadata({ context: guided, issueArea: 'start_speaking' }).issueArea).toBeNull();
+    expect(buildIssueReportMetadata({ context: quick, issueArea: 'availability' }).issueArea).toBeNull();
+    expect(buildIssueReportMetadata({ context: guided, issueArea: 'open_practice_session' }).issueArea).toBeNull();
   });
 
   it('persists the active practiceSurface (and only a valid one) in metadata', () => {

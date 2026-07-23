@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
-  trackQuickPracticeStarted, trackGuidedRehearsalPreviewViewed,
+  trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
   type PracticeEntrySource,
 } from '@/services/practiceTelemetry';
 
@@ -18,18 +18,18 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
   it('emits the expected event names with only allowlisted properties', () => {
     trackPracticeEntryViewed(true);
     trackPracticeModeSelected('quick', 'landing_card');
-    trackPracticeOverviewExpanded('guided');
+    trackPracticeOverviewExpanded('quick');
     trackQuickPracticeStarted('quick_overview');
-    trackGuidedRehearsalPreviewViewed();
+    trackGuidedRehearsalUnavailable();
 
     const names = push.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       'practice_entry_viewed', 'practice_mode_selected', 'practice_overview_expanded',
-      'quick_practice_started', 'guided_rehearsal_preview_viewed',
+      'quick_practice_started', 'guided_rehearsal_unavailable_selected',
     ]);
 
     // Every payload carries only allowlisted keys and no free-form user content.
-    const allowed = new Set(['mode', 'entry_source', 'returning_user', 'release_sha']);
+    const allowed = new Set(['mode', 'entry_source', 'returning_user', 'available', 'release_sha']);
     const allProps = push.mock.calls.map(([, props]) => (props ?? {}) as Record<string, unknown>);
     const allKeys = [...new Set(allProps.flatMap((p) => Object.keys(p)))];
     allKeys.forEach((key) => {
@@ -59,6 +59,14 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     trackQuickPracticeStarted('quick_overview');
     expect(push.mock.calls[0][1]).toMatchObject({ entry_source: 'landing_card' });
     expect(push.mock.calls[1][1]).toMatchObject({ entry_source: 'quick_overview' });
+  });
+
+  it('guided-unavailable event is content-free: mode=guided + available=false, never the toast text', () => {
+    trackGuidedRehearsalUnavailable();
+    const [name, props] = push.mock.calls[0];
+    expect(name).toBe('guided_rehearsal_unavailable_selected');
+    expect(props).toMatchObject({ mode: 'guided', available: false });
+    expect(JSON.stringify(props)).not.toContain('not available at this time');
   });
 
   // RESTORED failure-path test (one-shot mock — a persistent throwing mockImplementation interferes with

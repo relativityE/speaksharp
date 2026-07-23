@@ -4,7 +4,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { PracticeEntryGate, PostAuthContinue } from './components/practice/practiceRouting';
+import { PostAuthContinue } from './components/practice/practiceRouting';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -372,9 +372,7 @@ const App: React.FC = () => {
                   <Route path="/auth/continue" element={<PageTransition><PostAuthContinue /></PageTransition>} />
                   <Route path="/practice" element={
                     <ProtectedRoute>
-                      <PracticeEntryGate>
-                        <PageTransition><PracticePage /></PageTransition>
-                      </PracticeEntryGate>
+                      <PageTransition><PracticePage /></PageTransition>
                     </ProtectedRoute>
                   } />
                   <Route path="/session" element={

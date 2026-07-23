@@ -2,7 +2,7 @@ import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useLocation } from 'react-router-dom';
-import { safeDeepLink } from '@/services/practiceEntryFlags';
+import { safeDeepLink } from '@/services/postAuthRouting';
 import { PostAuthRedirect } from '@/components/practice/practiceRouting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

@@ -12,15 +12,20 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeModeSelected: vi.fn(),
   trackPracticeOverviewExpanded: vi.fn(),
   trackQuickPracticeStarted: vi.fn(),
-  trackGuidedRehearsalPreviewViewed: vi.fn(),
+  trackGuidedRehearsalUnavailable: vi.fn(),
 }));
+vi.mock('@/lib/toast', () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn() }),
+}));
+import { toast } from '@/lib/toast';
+const toastMock = vi.mocked(toast);
 
 // PracticePage no longer renders its own <main> — App.tsx owns the single #main-content landmark, so in
 // isolation we scope queries to the page's content container instead of a main landmark.
 const root = () => screen.getByTestId('practice-root');
 
 describe('PracticePage — orientation entry (Quick → /session; Guided stays inline)', () => {
-  beforeEach(() => navigateSpy.mockReset());
+  beforeEach(() => { navigateSpy.mockReset(); toastMock.mockClear(); });
 
   it('does NOT render a <main> landmark or #main-content (App owns the sole one)', () => {
     const { container } = render(<PracticePage />);
@@ -49,12 +54,15 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(quickCta.querySelector('h1,h2,h3,h4')).toBeNull();
   });
 
-  it('Quick Practice → overview (5-step) → "Start speaking" navigates to the unchanged /session', () => {
+  it('Quick Practice → overview → "Open Practice Session" navigates to the unchanged /session', () => {
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-quick'));
     // Overview appears with the specialized hero + journey.
     expect(within(root()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
-    expect(within(root()).getByText(/choose your transcription mode/i)).toBeInTheDocument();
+    expect(within(root()).getByText(/choose an available transcription mode|choose your transcription mode/i)).toBeInTheDocument();
+    // The final CTA reads EXACTLY "Open Practice Session" — never "Start speaking".
+    expect(within(root()).getAllByRole('button', { name: /open practice session/i }).length).toBeGreaterThanOrEqual(1);
+    expect(within(root()).queryByRole('button', { name: /start speaking/i })).not.toBeInTheDocument();
     // Primary action hands off to /session — and nothing else.
     fireEvent.click(screen.getByTestId('practice-quick-start'));
     expect(navigateSpy).toHaveBeenCalledTimes(1);
@@ -70,9 +78,10 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
     expect(within(root()).queryByRole('heading', { name: /speak freely\. see how you.re progressing/i })).not.toBeInTheDocument();
     expect(navigateSpy).not.toHaveBeenCalled();
-    // And from the returned chooser, Guided still opens inline (no reload / no navigation).
+    // And from the returned chooser, Guided shows the unavailable toast (no navigation, no preview).
     fireEvent.click(screen.getByTestId('practice-card-guided'));
-    expect(within(root()).getByText(/preview · coming soon/i)).toBeInTheDocument();
+    expect(toastMock).toHaveBeenCalledWith('Product not available at this time', { id: 'guided-unavailable' });
+    expect(within(root()).queryByText(/preview · coming soon/i)).not.toBeInTheDocument();
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
@@ -84,18 +93,42 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
-  it('Guided Rehearsal stays on the page: expands an inline PREVIEW and never navigates', () => {
+  it('Guided card copy is exactly the approved marker + description (no preview/soon/future language)', () => {
     render(<PracticePage />);
-    fireEvent.click(screen.getByTestId('practice-card-guided'));
-    // Stays put — an inline preview appears, clearly labelled as not-yet-available.
-    expect(within(root()).getByRole('heading', { name: /prepare what matters\. rehearse until it lands/i })).toBeInTheDocument();
-    expect(within(root()).getByText(/preview · coming soon/i)).toBeInTheDocument();
-    expect(within(root()).getByText(/the correction loop/i)).toBeInTheDocument();
-    // No fake "Set up a rehearsal" action, and no navigation.
-    expect(within(root()).queryByRole('button', { name: /set up a rehearsal/i })).not.toBeInTheDocument();
-    expect(navigateSpy).not.toHaveBeenCalled();
-    // Collapses again on toggle.
-    fireEvent.click(screen.getByTestId('practice-card-guided'));
+    const card = within(root()).getAllByRole('article')[1]; // second card = Guided
+    expect(within(card).getByText('Planned — not available yet')).toBeInTheDocument();
+    expect(within(card).getByText('Prepare key outcomes, rehearse while SpeakSharp tracks coverage, and recover missed points.')).toBeInTheDocument();
+    // Forbidden copy must NOT appear on the card.
+    for (const banned of [/coming soon/i, /future direction/i, /preview/i, /see how it works/i]) {
+      expect(within(card).queryByText(banned)).not.toBeInTheDocument();
+    }
+  });
+
+  it('Guided Rehearsal is UNAVAILABLE: exact toast, stays on /practice, no preview, no navigation', () => {
+    render(<PracticePage />);
+    const guided = screen.getByTestId('practice-card-guided');
+    // CTA text is exactly "Guided Rehearsal".
+    expect(guided).toHaveTextContent('Guided Rehearsal');
+    fireEvent.click(guided);
+    // Exactly ONE toast with EXACTLY the approved message (deduped by a stable id).
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(toastMock).toHaveBeenCalledWith('Product not available at this time', { id: 'guided-unavailable' });
+    // No preview / walkthrough / correction loop; no fabricated actions; no navigation; still on chooser.
     expect(within(root()).queryByText(/preview · coming soon/i)).not.toBeInTheDocument();
+    expect(within(root()).queryByText(/the correction loop/i)).not.toBeInTheDocument();
+    expect(within(root()).queryByRole('button', { name: /set up a rehearsal|try a sample|see how it works/i })).not.toBeInTheDocument();
+    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+  });
+
+  it('rapid repeat Guided clicks reuse one deduped toast id (no uncontrolled stacking)', () => {
+    render(<PracticePage />);
+    const guided = screen.getByTestId('practice-card-guided');
+    fireEvent.click(guided); fireEvent.click(guided); fireEvent.click(guided);
+    toastMock.mock.calls.forEach(([msg, opts]) => {
+      expect(msg).toBe('Product not available at this time');
+      expect(opts).toMatchObject({ id: 'guided-unavailable' });
+    });
+    expect(navigateSpy).not.toHaveBeenCalled();
   });
 });
