@@ -192,50 +192,91 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     }
   });
 
-  // POST-ACTIVATION proof: the three /practice surfaces are distinguishable server-side while all keeping
-  // canonicalRoute /practice. Reserved for after the rollout flag is activated for this account — it skips
-  // cleanly (never fails the gate) if /practice is not reachable yet.
-  test('distinguishes practice_home / quick_practice_overview / guided_rehearsal_unavailable server-side', async ({ page }) => {
+  // Production RELEASE proof: /practice is the DEFAULT authenticated landing for every authenticated user.
+  // Sign-in naturally lands on /practice — absence of /practice is a release failure, never a skip. Then the
+  // full journey: Quick → Open Practice Session → /session; Guided → the exact unavailable toast; surface-
+  // aware Report Issue on all four surfaces, verified server-side.
+  test('default landing + full production journey (Quick → /session, Guided unavailable, report attribution)', async ({ page }) => {
+    // ── A. AUTHENTICATION → natural landing on /practice (no manual navigation) ──
     await signIn(page);
-    await navigateToRoute(page, '/practice');
-    const onPractice = await page.getByTestId('practice-root').isVisible().catch(() => false);
-    test.skip(!onPractice, '/practice not reachable for this account here.');
+    await expect(page.getByTestId('practice-root'), 'sign-in must land on the /practice default').toBeVisible({ timeout: 20000 });
+    expect(new URL(page.url()).pathname, '/practice is the default authenticated entry').toBe('/practice');
+    await expect(page.getByRole('heading', { name: /private practice\. public impact/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Quick Practice$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
+    await submitReport(page, `${MARK} j-home`, PRACTICE_EXPECTED.practice_home);
 
-    // chooser
-    await submitReport(page, `${MARK} practice-home`, PRACTICE_EXPECTED.practice_home);
-    // quick overview
+    // ── B. QUICK PRACTICE → overview (stays on /practice) → Open Practice Session → /session ──
     await page.getByTestId('practice-card-quick').click();
-    await submitReport(page, `${MARK} quick`, PRACTICE_EXPECTED.quick_practice_overview);
-    // back to chooser, then select the UNAVAILABLE Guided (shows a toast, marks the surface)
-    await page.getByTestId('practice-back-top').click();
-    await page.getByTestId('practice-card-guided').click();
-    await submitReport(page, `${MARK} guided`, PRACTICE_EXPECTED.guided_rehearsal_unavailable);
+    await expect(page.getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/practice');
+    await expect(page.getByRole('button', { name: /open practice session/i }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /start speaking/i })).toHaveCount(0);
+    await submitReport(page, `${MARK} j-quick`, PRACTICE_EXPECTED.quick_practice_overview);
+    await page.getByTestId('practice-quick-start').click();
+    await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
+    // Recording does NOT auto-start: the start/stop control is present and in its start (not-recording) state.
+    const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+    await expect(startStop).toBeVisible({ timeout: 20000 });
+    await expect(startStop).toHaveAccessibleName(/start/i);
+    await submitReport(page, `${MARK} j-session`, EXPECTED.session);
 
+    // ── C. GUIDED REHEARSAL → return to /practice via normal nav → unavailable toast, no preview ──
+    await navigateToRoute(page, '/practice');
+    await expect(page.getByTestId('practice-root')).toBeVisible();
+    const guidedCta = page.getByTestId('practice-card-guided');
+    await expect(guidedCta).toBeEnabled();
+    await guidedCta.click();
+    await expect(page.getByText('Product not available at this time')).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/practice');
+    await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
+    await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
+    // The Guided card alone becomes disabled: CTA → "Unavailable", natively disabled.
+    await expect(guidedCta).toHaveText(/unavailable/i);
+    await expect(guidedCta).toBeDisabled();
+    // Attribution PERSISTS after the toast disappears (until Quick is selected or the user leaves /practice).
+    await expect(page.getByText('Product not available at this time')).toBeHidden({ timeout: 15000 });
+    await page.getByTestId('nav-report-issue-button').click();
+    await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('issue-report-page-context')).toContainText('Guided Rehearsal');
+    await expect(page.getByTestId('issue-report-page-context')).not.toContainText(/unavailable/i);
+    const gAreas = await page.getByTestId('issue-report-area').locator('option').evaluateAll((o) => o.map((x) => (x as HTMLOptionElement).value));
+    expect(gAreas).toEqual([...PRACTICE_EXPECTED.guided_rehearsal_unavailable.areas]);
+    await page.getByTestId('issue-report-title').fill(`${MARK} j-guided`);
+    await page.getByTestId('issue-report-description').fill(`${MARK} j-guided — content-free`);
+    await page.getByTestId('issue-report-submit').click();
+    await expect(page.getByTestId('issue-report-title')).toBeHidden({ timeout: 15000 });
+
+    // ── D. REPORT PERSISTENCE — verify stored context server-side for all four journey surfaces ──
     await expect.poll(async () => {
-      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK} practice-%`);
+      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK} j-%`);
       return data?.length ?? 0;
-    }, { timeout: 20000 }).toBeGreaterThanOrEqual(1);
+    }, { timeout: 20000, message: 'all four journey reports persisted' }).toBe(4);
 
     const { data } = await admin
       .from('user_issue_reports').select('title, session_id, page_url, metadata')
-      .eq('user_id', basicUserId).ilike('title', `${MARK}%`);
+      .eq('user_id', basicUserId).ilike('title', `${MARK} j-%`);
     const rows = (data ?? []) as StoredReport[];
     const bySuffix = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
 
-    for (const [suffix, exp] of [['practice-home', PRACTICE_EXPECTED.practice_home], ['quick', PRACTICE_EXPECTED.quick_practice_overview], ['guided', PRACTICE_EXPECTED.guided_rehearsal_unavailable]] as const) {
+    // The three /practice surfaces: one canonical route, distinguished by the surface token; no session id.
+    for (const [suffix, exp] of [['j-home', PRACTICE_EXPECTED.practice_home], ['j-quick', PRACTICE_EXPECTED.quick_practice_overview], ['j-guided', PRACTICE_EXPECTED.guided_rehearsal_unavailable]] as const) {
       const row = bySuffix(suffix);
       expect(row, `stored report ${suffix}`).toBeTruthy();
-      // One canonical route for all three surfaces; the surface is the distinguisher.
       expect(row.page_url).toBe('/practice');
       expect(row.metadata.canonicalRoute).toBe('/practice');
       expect(row.metadata.pageKey).toBe('practice');
       expect(row.metadata.practiceSurface).toBe(exp.surface);
       expect(row.metadata.journeyStep).toBe(exp.journeyStep);
-      // issueArea (if any) is a valid slug for THIS surface — never cross-surface.
       const area = row.metadata.issueArea;
       expect(area === null || (exp.areas as readonly string[]).includes(area as string)).toBe(true);
-      // No session id or raw navigation content leaked into a /practice report.
       expect(row.session_id).toBeNull();
     }
+    // Session behavior unchanged: the /session report keeps the existing Session · Speaking context.
+    const jSession = bySuffix('j-session');
+    expect(jSession.metadata.pageKey).toBe('session');
+    expect(jSession.metadata.canonicalRoute).toBe('/session');
+    expect(jSession.page_url).toBe('/session');
+    // afterAll deletes ALL current-run (`${MARK}%`) rows and asserts zero remain.
   });
 });

@@ -1,6 +1,6 @@
 /**
  * PracticePage — the authenticated `/practice` landing (orientation before recording controls). This is
- * the default authenticated entry (no rollout gate).
+ * the default authenticated entry.
  *
  * Quick Practice is the only working product: card → its overview → "Open Practice Session" navigates to
  * the UNCHANGED /session (a pure navigation handoff — this page imports/changes nothing in the session
@@ -14,7 +14,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, Check, Play, ChevronDown, Shield, ArrowLeft,
+  ArrowRight, Check, Clock, Play, ChevronDown, Shield, ArrowLeft,
   Settings2, Mic, FileText, LineChart, Target,
   type LucideIcon,
 } from 'lucide-react';
@@ -122,26 +122,37 @@ function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () =>
   );
 }
 
-function ModeCard({ vars, art, title, promise, description, marker, ctaLabel, ctaAria, onClick, testid }: {
+function ModeCard({ vars, art, title, promise, description, marker, markerIcon, ctaLabel, ctaAria, onClick, testid, disabled, ctaLabelDisabled, ctaAriaDisabled }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; description: string;
-  marker: string; ctaLabel: string; ctaAria: string; onClick: () => void; testid: string;
+  marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; onClick: () => void; testid: string;
+  disabled?: boolean; ctaLabelDisabled?: string; ctaAriaDisabled?: string;
 }) {
+  // The marker icon reinforces status WITHOUT relying on color: a check for an available product, a clock
+  // for a planned/unavailable one. A checkmark on an unavailable product would wrongly imply "ready".
+  const MarkerIcon = markerIcon ?? Check;
+  const isDisabled = !!disabled;
+  // Disabled treatment (this card ONLY): the semantic state is carried by the CTA text change + native
+  // disabled + the Clock/marker text — never opacity/color alone. Title/description stay readable.
+  const label = isDisabled ? (ctaLabelDisabled ?? ctaLabel) : ctaLabel;
+  const aria = isDisabled ? (ctaAriaDisabled ?? ctaAria) : ctaAria;
   // Semantic card: an <article> with a real heading and a single, keyboard-operable CTA <button>. The
   // card is NOT itself a button — an interactive element must not contain headings/paragraphs/blocks
   // (invalid HTML + confusing for assistive tech). The whole product is understandable from the heading,
   // promise, description and marker (text, never color alone); the button carries the action.
   return (
-    <article style={vars}
-      className="group ss-mode-card flex flex-col overflow-hidden rounded-3xl bg-[color:var(--ss-surface)] shadow-lg shadow-slate-900/[0.06] ring-1 ring-[color:var(--ss-border)] transition-all duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/[0.10] hover:ring-2 hover:ring-[color:var(--ss-card)]">
-      <div className="ss-card-panel relative h-20 border-b border-[color:var(--ss-border)]"><div className="absolute inset-0 px-5 py-3">{art}</div></div>
+    <article style={vars} data-disabled={isDisabled || undefined}
+      className={`group ss-mode-card flex flex-col overflow-hidden rounded-3xl bg-[color:var(--ss-surface)] transition-all duration-200 ${isDisabled
+        ? 'opacity-[0.65] shadow-sm shadow-slate-900/[0.04] ring-1 ring-[color:var(--ss-border)]'
+        : 'shadow-lg shadow-slate-900/[0.06] ring-1 ring-[color:var(--ss-border)] hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/[0.10] hover:ring-2 hover:ring-[color:var(--ss-card)]'}`}>
+      <div className="ss-card-panel relative h-20 border-b border-[color:var(--ss-border)]"><div className={`absolute inset-0 px-5 py-3 ${isDisabled ? 'grayscale-[0.6] saturate-[0.5]' : ''}`}>{art}</div></div>
       <div className="flex flex-1 flex-col p-5">
         <h3 className="text-lg font-semibold text-[color:var(--ss-text)]">{title}</h3>
         <p className="mt-0.5 text-sm font-semibold text-[color:var(--ss-card-btn)]">{promise}</p>
         <p className="mt-2 text-sm text-[color:var(--ss-text-secondary)]">{description}</p>
-        <span className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--ss-card-soft)] px-3 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><Check size={13} aria-hidden /> {marker}</span>
-        <button type="button" onClick={onClick} data-testid={testid} aria-label={ctaAria}
-          className="ss-accent-outline ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold">
-          {ctaLabel} <ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
+        <span className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--ss-card-soft)] px-3 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
+        <button type="button" onClick={isDisabled ? undefined : onClick} disabled={isDisabled} data-testid={testid} aria-label={aria}
+          className={`ss-accent-outline ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold ${isDisabled ? 'cursor-not-allowed opacity-80' : ''}`}>
+          {label} <ArrowRight size={15} aria-hidden className={isDisabled ? '' : 'transition-transform group-hover:translate-x-0.5'} />
         </button>
       </div>
     </article>
@@ -155,6 +166,10 @@ export default function PracticePage() {
   // Guided is not a working product: selecting it shows an unavailable toast and marks the reporting
   // surface (it does NOT open a page/preview). `guidedSelected` only affects Report Issue attribution.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
+  // Once the user has acknowledged the unavailable Guided (first click), the Guided card renders in a
+  // disabled state. LOCAL PAGE STATE ONLY: it survives a Quick→back round-trip within this /practice visit,
+  // but a full reload / later visit resets it (allowing the explanatory toast again). No storage/DB/profile.
+  const [guidedAcknowledged, setGuidedAcknowledged] = React.useState(false);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -178,11 +193,14 @@ export default function PracticePage() {
   React.useEffect(() => () => setSurface(null), [setSurface]);
 
   const openQuick = () => { setGuidedSelected(false); trackPracticeModeSelected('quick', 'landing_card'); trackPracticeOverviewExpanded('quick'); setView('quick-overview'); };
-  // Guided selected while UNAVAILABLE: stay on /practice, mark the surface, emit content-free telemetry,
-  // and show exactly one toast (deduped by a stable id so rapid clicks never stack). No nav, no preview,
-  // no mic/AI/network/persistence.
+  // Guided selected while UNAVAILABLE: stay on /practice, mark the reporting surface, and (ONCE) emit
+  // content-free telemetry + one toast, then disable the Guided card. No nav, no preview, no
+  // mic/AI/network/persistence. The card's CTA becomes natively disabled, so a repeat click cannot fire —
+  // the guard is a defensive belt-and-braces against any programmatic re-entry (no 2nd toast/telemetry).
   const selectGuided = () => {
     setGuidedSelected(true);
+    if (guidedAcknowledged) return;
+    setGuidedAcknowledged(true);
     trackPracticeModeSelected('guided', 'landing_card');
     trackGuidedRehearsalUnavailable();
     toast(GUIDED_UNAVAILABLE_MESSAGE, { id: 'guided-unavailable' });
@@ -222,7 +240,9 @@ export default function PracticePage() {
                   marker="No agenda required." ctaLabel="Explore Quick Practice" ctaAria="Explore Quick Practice" onClick={openQuick} testid="practice-card-quick" />
                 <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
                   description="Prepare key outcomes, rehearse while SpeakSharp tracks coverage, and recover missed points."
-                  marker="Planned — not available yet" ctaLabel="Guided Rehearsal" ctaAria="Guided Rehearsal — not available yet" onClick={selectGuided} testid="practice-card-guided" />
+                  marker="Planned — not available yet" markerIcon={Clock} ctaLabel="Guided Rehearsal" ctaAria="Guided Rehearsal — not available yet"
+                  disabled={guidedAcknowledged} ctaLabelDisabled="Unavailable" ctaAriaDisabled="Guided Rehearsal — unavailable"
+                  onClick={selectGuided} testid="practice-card-guided" />
               </div>
 
               <p className="mt-5 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Quick Practice</span> is available now — Guided Rehearsal is coming later.</p>

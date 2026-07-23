@@ -18,14 +18,16 @@ vi.mock('@/lib/toast', () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn() }),
 }));
 import { toast } from '@/lib/toast';
+import { trackGuidedRehearsalUnavailable } from '@/services/practiceTelemetry';
 const toastMock = vi.mocked(toast);
+const guidedTelemetry = vi.mocked(trackGuidedRehearsalUnavailable);
 
 // PracticePage no longer renders its own <main> — App.tsx owns the single #main-content landmark, so in
 // isolation we scope queries to the page's content container instead of a main landmark.
 const root = () => screen.getByTestId('practice-root');
 
 describe('PracticePage — orientation entry (Quick → /session; Guided stays inline)', () => {
-  beforeEach(() => { navigateSpy.mockReset(); toastMock.mockClear(); });
+  beforeEach(() => { navigateSpy.mockReset(); toastMock.mockClear(); guidedTelemetry.mockClear(); });
 
   it('does NOT render a <main> landmark or #main-content (App owns the sole one)', () => {
     const { container } = render(<PracticePage />);
@@ -102,13 +104,25 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     for (const banned of [/coming soon/i, /future direction/i, /preview/i, /see how it works/i]) {
       expect(within(card).queryByText(banned)).not.toBeInTheDocument();
     }
+    // Status icon conveys unavailability WITHOUT color: a clock, never a checkmark (which implies ready).
+    const marker = within(card).getByText('Planned — not available yet').closest('span');
+    expect(marker?.querySelector('.lucide-clock')).toBeTruthy();
+    expect(marker?.querySelector('.lucide-check')).toBeNull();
+  });
+
+  it('Quick card keeps a checkmark marker (available)', () => {
+    render(<PracticePage />);
+    const quickCard = within(root()).getAllByRole('article')[0];
+    const marker = within(quickCard).getByText('No agenda required.').closest('span');
+    expect(marker?.querySelector('.lucide-check')).toBeTruthy();
   });
 
   it('Guided Rehearsal is UNAVAILABLE: exact toast, stays on /practice, no preview, no navigation', () => {
     render(<PracticePage />);
     const guided = screen.getByTestId('practice-card-guided');
-    // CTA text is exactly "Guided Rehearsal".
+    // BEFORE click: CTA is exactly "Guided Rehearsal", enabled and keyboard-operable.
     expect(guided).toHaveTextContent('Guided Rehearsal');
+    expect(guided).toBeEnabled();
     fireEvent.click(guided);
     // Exactly ONE toast with EXACTLY the approved message (deduped by a stable id).
     expect(toastMock).toHaveBeenCalledTimes(1);
@@ -121,14 +135,53 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
   });
 
-  it('rapid repeat Guided clicks reuse one deduped toast id (no uncontrolled stacking)', () => {
+  it('after first Guided click, the Guided card ALONE becomes disabled (CTA "Unavailable", natively disabled)', () => {
     render(<PracticePage />);
-    const guided = screen.getByTestId('practice-card-guided');
-    fireEvent.click(guided); fireEvent.click(guided); fireEvent.click(guided);
-    toastMock.mock.calls.forEach(([msg, opts]) => {
-      expect(msg).toBe('Product not available at this time');
-      expect(opts).toMatchObject({ id: 'guided-unavailable' });
-    });
+    const guidedCard = within(root()).getAllByRole('article')[1];
+    const quickCard = within(root()).getAllByRole('article')[0];
+    const guidedCta = screen.getByTestId('practice-card-guided');
+    // Before: enabled, "Guided Rehearsal", card not marked disabled.
+    expect(guidedCta).toBeEnabled();
+    expect(guidedCard).not.toHaveAttribute('data-disabled');
+
+    fireEvent.click(guidedCta);
+
+    // CTA text → "Unavailable", natively disabled, accessible name updated, card marked disabled.
+    expect(guidedCta).toHaveTextContent('Unavailable');
+    expect(guidedCta).toBeDisabled();
+    expect(guidedCta).toHaveAccessibleName(/guided rehearsal — unavailable/i);
+    expect(guidedCard).toHaveAttribute('data-disabled', 'true');
+    // Quick card is untouched: enabled, not disabled, no global opacity/inert on the page.
+    expect(screen.getByTestId('practice-card-quick')).toBeEnabled();
+    expect(quickCard).not.toHaveAttribute('data-disabled');
+    expect(root()).not.toHaveAttribute('inert');
+    expect(root()).not.toHaveAttribute('aria-hidden');
+    // No full-page overlay/backdrop/focus-trap.
+    expect(within(root()).queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('a disabled Guided CTA cannot be reactivated — no second toast, no second telemetry event', () => {
+    render(<PracticePage />);
+    const guidedCta = screen.getByTestId('practice-card-guided');
+    fireEvent.click(guidedCta); // 1st: toast + telemetry, then disabled
+    fireEvent.click(guidedCta); // native-disabled → no-op
+    fireEvent.keyDown(guidedCta, { key: 'Enter' });
+    fireEvent.click(guidedCta);
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(guidedTelemetry).toHaveBeenCalledTimes(1);
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('the disabled Guided state survives a Quick → back round-trip within the visit', () => {
+    render(<PracticePage />);
+    fireEvent.click(screen.getByTestId('practice-card-guided')); // acknowledge → disabled
+    expect(screen.getByTestId('practice-card-guided')).toBeDisabled();
+    // Go into Quick overview and back to the chooser.
+    fireEvent.click(screen.getByTestId('practice-card-quick'));
+    fireEvent.click(screen.getByTestId('practice-back-top'));
+    // Guided remains disabled (local state retained); no extra toast was shown.
+    expect(screen.getByTestId('practice-card-guided')).toBeDisabled();
+    expect(screen.getByTestId('practice-card-guided')).toHaveTextContent('Unavailable');
+    expect(toastMock).toHaveBeenCalledTimes(1);
   });
 });

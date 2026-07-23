@@ -1,10 +1,9 @@
 /**
  * Post-auth routing helper — `/practice` is the CODE-DEFINED authenticated default.
  *
- * There is NO feature flag here. The previous PostHog practice-entry rollout gate has been retired:
- * `/practice` is now the accepted default landing for every authenticated user, so a missing flag, a
- * PostHog timeout, initialization timing, or an ingestion outage have ZERO effect on routing. PostHog is
- * not consulted for routing at all. A valid protected deep-link still wins; unsafe/external paths rejected.
+ * `/practice` is the accepted default landing for every authenticated user. Routing is decided entirely
+ * in code — PostHog is not consulted for routing at all, so PostHog state (init timing, timeout, ingestion)
+ * has ZERO effect on where a user lands. A valid protected deep-link still wins; unsafe/external paths rejected.
  */
 
 /**

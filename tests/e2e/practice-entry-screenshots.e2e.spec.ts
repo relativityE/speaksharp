@@ -6,7 +6,7 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
  * No production deployment: authenticates via the E2E mock/synthetic path and drives the REAL user journey.
  *
  * Proves, with real clicks (no force, no direct-navigation substitute for a control):
- *  - /practice renders as the authenticated landing (no rollout gate);
+ *  - /practice renders as the authenticated default landing;
  *  - Quick Practice → overview → "Open Practice Session" → the unchanged /session (no auto-record);
  *  - Guided Rehearsal → exactly one toast "Product not available at this time"; stays on /practice; no
  *    preview / walkthrough / correction loop;
@@ -111,15 +111,25 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await assertReport(page, 'Quick Practice overview', AREAS.quick_practice_overview);
     await page.screenshot({ path: `${DIR}/03-quick-walkthrough-desktop.png`, fullPage: true });
 
-    // Back to chooser, then GUIDED UNAVAILABLE.
+    // Back to chooser. BEFORE: the Guided card is at normal emphasis, CTA "Guided Rehearsal", enabled.
     await clickBackToChooser(page, 'practice-back-top');
-    await page.getByTestId('practice-card-guided').click();
+    const guidedCta = page.getByTestId('practice-card-guided');
+    await expect(guidedCta).toHaveText(/guided rehearsal/i);
+    await expect(guidedCta).toBeEnabled();
+    await page.screenshot({ path: `${DIR}/04a-guided-before-desktop.png`, fullPage: true });
+
+    await guidedCta.click();
     // Exactly the approved toast; stays on /practice; no preview/walkthrough/correction loop.
     await expect(page.getByText(GUIDED_TOAST)).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/practice');
     await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
     await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
-    await page.screenshot({ path: `${DIR}/04-guided-unavailable-toast-desktop.png`, fullPage: true });
+    // AFTER: the Guided card ALONE is disabled — CTA "Unavailable", natively disabled; Quick stays enabled.
+    await expect(guidedCta).toHaveText(/unavailable/i);
+    await expect(guidedCta).toBeDisabled();
+    await expect(guidedCta).toHaveAccessibleName(/guided rehearsal — unavailable/i);
+    await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
+    await page.screenshot({ path: `${DIR}/04b-guided-after-disabled-desktop.png`, fullPage: true });
     // Visible Report Issue label is EXACTLY "Guided Rehearsal" (never "(unavailable)").
     await page.getByTestId('nav-report-issue-button').click();
     await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
@@ -141,10 +151,19 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await expect(quickCta).toBeFocused();
     await page.screenshot({ path: `${DIR}/05-keyboard-focus-desktop.png` });
 
-    // === MOBILE ===
+    // === MOBILE === (fresh page instance → Guided starts enabled again; capture before/after at MOBILE).
     await page.setViewportSize(MOBILE);
     await enterPractice(page);
     await page.screenshot({ path: `${DIR}/06-chooser-mobile.png`, fullPage: true });
+    const guidedMobile = page.getByTestId('practice-card-guided');
+    await expect(guidedMobile).toBeEnabled();
+    await page.screenshot({ path: `${DIR}/07a-guided-before-mobile.png`, fullPage: true });
+    await guidedMobile.click();
+    await expect(page.getByText(GUIDED_TOAST)).toBeVisible();
+    await expect(guidedMobile).toHaveText(/unavailable/i);
+    await expect(guidedMobile).toBeDisabled();
+    await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
+    await page.screenshot({ path: `${DIR}/07b-guided-after-disabled-mobile.png`, fullPage: true });
     await openQuickOverview(page);
     await clickBackToChooser(page, 'practice-back-top');
 

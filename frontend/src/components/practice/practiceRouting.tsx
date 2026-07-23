@@ -2,14 +2,12 @@
  * Practice-entry routing glue — flag-free. `/practice` is the authenticated default landing.
  *
  *  - `PostAuthRedirect`  — where an authenticated user lands after sign-in (or when an already-signed-in
- *                          user hits /auth). A safe deep-link wins; otherwise → /practice. Synchronous:
- *                          no PostHog, no flag, no timeout.
+ *                          user hits /auth). A safe deep-link wins; otherwise → /practice. Synchronous.
  *  - `PostAuthContinue`  — the PUBLIC magic-link return target (/auth/continue). It waits for the session
  *                          being recovered from the URL, then defers to PostAuthRedirect. No session →
  *                          sign-in (no loop).
  *
- * There is no rollout gate: /practice is a plain ProtectedRoute now, so a missing/timed-out/erroring
- * PostHog flag cannot affect whether a user reaches the approved landing.
+ * /practice is a plain ProtectedRoute — the authenticated default. Routing never consults PostHog.
  */
 
 import React from 'react';
