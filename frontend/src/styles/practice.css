@@ -40,14 +40,16 @@
   --ss-coral: #FF7657;
   --ss-sun: #EE9A1F;
   --ss-teal-title: #055C58;  /* rich saturated teal for the "Public Impact!" half of the split tagline (large-text AA 3.9 on the warm hero top) */
-  --ss-body-slate: #39465F;  /* distinct slate-blue for the hero explanation (AA 4.7+ everywhere, not faint gray) */
+  --ss-body-slate: #2E4860;  /* prominent deep slate-blue for the hero explanation (AA ≥4.7 at every peach-hero point; distinct from the navy headline, never gray) */
 
   /* Quick Practice = teal identity (primary action color); Guided Rehearsal = violet identity. RICH
      header bands (not faint pastel) so the two products read as unmistakably different at a glance. */
   --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3;
-  --ss-session-panel: linear-gradient(145deg, #4FCEC2 0%, #86E2D9 100%); --ss-session-border: #2CB3AB;
+  /* Quick band = a much-lighter TINT of the same #08746F button teal (same hue family, not a different
+     green). Violet band = a bit darker for stronger contrast against the white card body. */
+  --ss-session-panel: linear-gradient(145deg, #84BAB7 0%, #B5D5D4 100%); --ss-session-border: #4C9E99;
   --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE;
-  --ss-exec-panel: linear-gradient(145deg, #8E77F4 0%, #B0A0F9 100%); --ss-exec-border: #7A67F0;
+  --ss-exec-panel: linear-gradient(145deg, #7A61EF 0%, #9C89F6 100%); --ss-exec-border: #6A57E8;
 }
 
 /* Same-element compound selector (the class sits ON .practice-root, not a descendant). */

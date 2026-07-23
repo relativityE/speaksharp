@@ -286,7 +286,9 @@ export default function PracticePage() {
                       <span className="text-[color:var(--ss-teal-title)]">Public Impact!</span>
                     </h1>
                     <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                    <p className="mt-4 max-w-xl text-[20px] font-normal leading-[1.5] text-[color:var(--ss-body-slate)]">Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
+                    {/* Prominent orientation copy: weight-500 deep slate-blue, 20px mobile / 22px desktop,
+                        with an intentional sentence break after "private." (kept as one paragraph for AT). */}
+                    <p className="mt-4 max-w-xl text-[20px] font-medium leading-[1.5] text-[color:var(--ss-body-slate)] md:text-[22px]">Practice important speaking moments in private.<br />Get focused feedback and track your improvement before the moment matters.</p>
                     <p className="mt-5 inline-flex items-center gap-2 text-[17px] font-semibold text-[color:var(--ss-text)]"><span aria-hidden className="h-4 w-1 rounded-full" style={{ background: 'var(--ss-amber)' }} />Choose how you want to practice:</p>
                   </div>
                   {/* Enlarged hero graphic in a near-white panel (crisp border + controlled shadow, 10px radius)
