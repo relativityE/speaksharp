@@ -1,10 +1,11 @@
 import React, { Suspense, useEffect } from 'react';
-import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PostAuthContinue } from './components/practice/practiceRouting';
+import { AuthIndexRedirect } from './components/AuthIndexRedirect';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -362,8 +363,8 @@ const App: React.FC = () => {
                       ops page unauthenticated once InternalRoute was removed. Exact-case access stays
                       edge-authed; variants fall through to NotFound. */}
                   <Route path="/admin/ops-status" caseSensitive element={<PageTransition><OpsStatusPage /></PageTransition>} />
-                  <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
-                  <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
+                  <Route path="/auth" element={<AuthIndexRedirect to="/auth/signin" />} />
+                  <Route path="/signup" element={<AuthIndexRedirect to="/auth/signup" />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                   <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
                   <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />

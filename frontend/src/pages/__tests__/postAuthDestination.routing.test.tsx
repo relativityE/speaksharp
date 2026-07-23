@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import SignInPage from '../SignInPage';
 import AuthPage from '../AuthPage';
+import { AuthIndexRedirect } from '@/components/AuthIndexRedirect';
 import * as AuthProvider from '@/contexts/AuthProvider';
 
 // Both auth pages delegate the post-auth destination to <PostAuthRedirect>, which is flag-free: a safe
@@ -43,6 +44,43 @@ describe('post-auth destination — /practice is the flag-free default (SignInPa
   });
   it('an unsafe/external return path is rejected → /practice', () => {
     renderPage(SignInPage, { from: { pathname: '//evil.com' } });
+    expect(screen.getByTestId('practice')).toBeInTheDocument();
+  });
+});
+
+describe('deep-link survives the REAL /auth hop (regression: ProtectedRoute → /auth → /auth/signin)', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockUseAuthProvider.mockReturnValue(authed()); });
+
+  // Reproduces the real unauthenticated-deep-link flow: ProtectedRoute sends the user to /auth with
+  // state.from; the /auth index-redirect must FORWARD that state to /auth/signin (a plain <Navigate> would
+  // drop it), so SignInPage still sees from=/session and lands there — not the /practice default.
+  it('a /session bookmark opened signed-out lands back on /session after sign-in (state not dropped)', () => {
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/auth', state: { from: { pathname: '/session' } } }]}>
+        <Routes>
+          <Route path="/auth" element={<AuthIndexRedirect to="/auth/signin" />} />
+          <Route path="/auth/signin" element={<SignInPage />} />
+          <Route path="/practice" element={<div data-testid="practice">PRACTICE</div>} />
+          <Route path="/session" element={<div data-testid="session">SESSION</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    // /auth → (state forwarded) → /auth/signin → SignInPage(authed) → PostAuthRedirect(from=/session) → /session.
+    expect(screen.getByTestId('session')).toBeInTheDocument();
+    expect(screen.queryByTestId('practice')).not.toBeInTheDocument();
+  });
+
+  it('with no protected deep-link, the /auth hop still resolves to the /practice default', () => {
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/auth' }]}>
+        <Routes>
+          <Route path="/auth" element={<AuthIndexRedirect to="/auth/signin" />} />
+          <Route path="/auth/signin" element={<SignInPage />} />
+          <Route path="/practice" element={<div data-testid="practice">PRACTICE</div>} />
+          <Route path="/session" element={<div data-testid="session">SESSION</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
     expect(screen.getByTestId('practice')).toBeInTheDocument();
   });
 });
