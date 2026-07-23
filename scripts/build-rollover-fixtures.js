@@ -12,17 +12,20 @@
  * Deterministic + self-cleaning: the SessionPage edit is reverted via git even on failure.
  */
 import { execSync } from 'node:child_process';
-import { cpSync, rmSync, mkdirSync, appendFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { rmSync, mkdirSync, appendFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(ROOT, 'test-results/rollover');
-const DIST = resolve(ROOT, 'frontend/dist');
 const SESSION_PAGE = resolve(ROOT, 'frontend/src/pages/SessionPage.tsx');
 const MARKER = `\n// --- rollover fixture marker (Build B only; top-level side effect, not tree-shaken) ---\n(globalThis).__ROLLOVER_VARIANT__ = 'B';\n`;
 
 const run = (cmd, env) => execSync(cmd, { cwd: ROOT, stdio: 'inherit', env: { ...process.env, ...env } });
+// Build straight into the fixture dir via --outDir so we NEVER touch frontend/dist (that dir is served
+// by the shared serve:e2e webServer for the rest of the E2E shard; wiping it mid-run breaks other specs).
+const buildInto = (outDir, buildId) =>
+  run(`pnpm --dir frontend exec vite build --mode test --outDir "${outDir}" --emptyOutDir`, { BUILD_ID: buildId });
 const sessionPageAsset = (dir) => {
   const f = readdirSync(resolve(dir, 'assets')).find((n) => /^SessionPage-.*\.js$/.test(n));
   if (!f) throw new Error(`no SessionPage chunk in ${dir}`);
@@ -35,14 +38,12 @@ try {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
 
-  // Build A
-  run('pnpm build:test', { BUILD_ID: 'rolloverBuildA' });
-  cpSync(DIST, resolve(OUT, 'a'), { recursive: true });
+  // Build A — straight into the fixture dir (frontend/dist is left untouched).
+  buildInto(resolve(OUT, 'a'), 'rolloverBuildA');
 
   // Change ONLY SessionPage → Build B
   appendFileSync(SESSION_PAGE, MARKER);
-  run('pnpm build:test', { BUILD_ID: 'rolloverBuildB' });
-  cpSync(DIST, resolve(OUT, 'b'), { recursive: true });
+  buildInto(resolve(OUT, 'b'), 'rolloverBuildB');
 
   revert();
 
