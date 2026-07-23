@@ -283,7 +283,11 @@ export async function canaryLogin(page: Page, email?: string, password?: string)
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 
-  await expect(page).toHaveURL(/\/(session|analytics)/, { timeout: 30000 });
+  // The authenticated home is /practice (default post-auth entry since the rollout flag was retired in
+  // #1022); a preserved deep-link may instead land on /session or /analytics. Accept any authenticated
+  // landing — the old /(session|analytics)-only assertion predated /practice and failed once the deploy
+  // race no longer masked it.
+  await expect(page).toHaveURL(/\/(practice|session|analytics)(\/|\?|#|$)/, { timeout: 30000 });
   await waitForAppReady(page);
 }
 
