@@ -60,23 +60,21 @@ jobs:
           set -euo pipefail
           node scripts/verify-test-users.mjs
 
-      # Values are injected by GitHub and consumed only inside the Node process. They are never echoed,
-      # written to the summary, or uploaded. The script prints aggregates exclusively.
+      # Secrets/variables are injected by GitHub and consumed only inside the Node process. They are never
+      # echoed, written to the summary, or uploaded. The script prints aggregates + category names only.
       - name: Run read-only tester evidence audit
         env:
+          # SUPABASE_URL is a GitHub Actions VARIABLE; SUPABASE_SERVICE_ROLE_KEY is a SECRET. This audit
+          # uses the repository's established service-role key (same as the existing Auth-Admin callers).
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          # This workflow uses the repository's established SUPABASE_SERVICE_ROLE_KEY (the same key the
-          # existing Auth-Admin callers use). No anon key, no passwords, no sign-in.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
-          # Established fallback (rc-gates.yml, setup-test-users.yml): FREE reuses the BASIC account when
-          # no dedicated FREE address exists. The script counts a shared address once.
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
-          # Owner/admin exclusion. When this secret is absent the audit reports classification_complete=false
-          # and labels the count an upper bound (never printed).
-          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          # Centrally-managed exclusion manifest (SECRET). A JSON object of categorized address arrays
+          # (owner_admin/synthetic/checkout/canary/qa). REQUIRED — the audit fails closed if it is
+          # absent/malformed/empty. Addresses are never printed; only per-category counts are reported.
+          # The audit no longer consumes OWNER_EMAIL/BASIC/FREE/PRO/CHECKOUT individually.
+          AUDIT_EXCLUDED_EMAILS_JSON: ${{ secrets.AUDIT_EXCLUDED_EMAILS_JSON }}
+          # Non-secret VARIABLE — printed for traceability of which manifest version was applied.
+          AUDIT_EXCLUSION_LIST_VERSION: ${{ vars.AUDIT_EXCLUSION_LIST_VERSION }}
           PRACTICE_DEPLOY_AT: ${{ github.event.inputs.practice_deploy_at }}
           FINAL_DEPLOY_AT: ${{ github.event.inputs.final_deploy_at }}
         # No `tee`: the script writes the sanitized report itself. `set -euo pipefail` so any failure

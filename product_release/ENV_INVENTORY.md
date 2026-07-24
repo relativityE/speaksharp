@@ -245,8 +245,12 @@ for current configuration.
 - **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` (P2 dependency/bloat maintenance epic).
 - **VITE_DEV_PREMIUM_ACCESS cleanup:** remove the dead test-only stub or wire an intentional owner-QA path; today it is stubbed but unused in `src`.
 
-## GitHub Actions secret-name inventory (audit evidence)
+## GitHub Actions inventory for the tester-evidence audit (names + scope only)
 
-**Captured 2026-07-24 (names only — no values; used by the tester-evidence audit for the SUPABASE key choice).**
+**Captured 2026-07-24 (names and scope only — never values).** Distinguishes GitHub Actions **variables** from **secrets**.
 
-Supabase secret names present in the repository Actions scope: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`. No `SUPABASE_SECRET_KEY` was present at capture time; the repo is user-owned (no org Actions secrets) and the `Preview` / `Production` / `production-db` environments had zero Actions secrets. The tester-evidence audit (`tester-evidence-audit.yml`) therefore uses the repository's established `SUPABASE_SERVICE_ROLE_KEY`, matching the existing Auth-Admin callers. Also absent at capture time: `SUPABASE_SECRET_KEY`, `FREE_TEST_EMAIL`, `OWNER_EMAIL`, a canary email secret (canary is excluded via the public constant `canary@speaksharp.app`). Re-verify with `gh api /repos/:owner/:repo/actions/secrets` (names only) before relying on this list.
+**Variables** (`${{ vars.* }}`): `SUPABASE_URL`, `SUPABASE_PROJECT_ID`, `AUDIT_EXCLUSION_LIST_VERSION` (non-secret manifest version, printed for traceability), plus the PostHog/Sentry `*_HOST`/DSN vars.
+
+**Secrets** (`${{ secrets.* }}`) relevant to the audit: `SUPABASE_SERVICE_ROLE_KEY` (the Auth-Admin key the audit uses), and `AUDIT_EXCLUDED_EMAILS_JSON` (the centralized exclusion manifest — a JSON object of categorized address arrays; the audit fails closed if absent/malformed). Supabase secret names present at capture: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`. `SUPABASE_URL` is a **variable**, not a secret.
+
+Absent at capture time (the audit does NOT depend on these): `SUPABASE_SECRET_KEY`, `AUDIT_EXCLUDED_EMAILS_JSON` and `AUDIT_EXCLUSION_LIST_VERSION` (must be provisioned by the owner before the audit can run — it fails closed until then), `OWNER_EMAIL`, `FREE_TEST_EMAIL`, a canary-email secret. The repo is user-owned (no org Actions secrets); the `Preview`/`Production`/`production-db` environments held zero Actions secrets. Re-verify names only with `gh api /repos/:owner/:repo/actions/secrets` and `.../actions/variables`.

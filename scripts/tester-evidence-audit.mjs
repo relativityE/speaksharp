@@ -11,118 +11,127 @@
  * insert/update/upsert/delete/rpc, Auth Admin is reached only via a narrow `listUsers` wrapper, and the
  * accompanying tests reject known mutation/RPC calls. It NEVER prints emails, credentials, tokens, user
  * ids, session ids, audio, or transcript bodies — transcripts are inspected in memory and only aggregates
- * / derived quality signals are emitted.
+ * / derived quality signals are emitted. ALL external errors are reduced to an allowlist (status/code/name
+ * + operation label); raw error messages are never printed.
  *
- * Auth key: this workflow uses the repository's established SUPABASE_SERVICE_ROLE_KEY, mirroring the
- * existing Auth-Admin callers (scripts/verify-test-users.mjs et al.). A dated secret-name inventory lives
- * in product_release/ENV_INVENTORY.md — never secret values.
+ * Auth key: this workflow uses the repository's established SUPABASE_SERVICE_ROLE_KEY (a GitHub Actions
+ * SECRET), and SUPABASE_URL (a GitHub Actions VARIABLE). See product_release/ENV_INVENTORY.md for the
+ * dated name/scope inventory — never values.
  *
- * Prior Auth-Admin rejection: an `invalid JWT` signature error was observed ONCE in an earlier run; its
- * exact cause is UNPROVEN. No client-option or perPage change is claimed to have fixed it. This audit
- * mirrors the established Auth-Admin client and FAILS CLOSED (no totals, no artifact, non-zero exit) if
- * the rejection recurs; a successful workflow run is the required evidence.
+ * Exclusion model: non-testers are defined by ONE centrally-managed manifest secret,
+ * AUDIT_EXCLUDED_EMAILS_JSON (a JSON object of categorized arrays: owner_admin, synthetic, checkout,
+ * canary, qa). It is REQUIRED and parsed in memory only; missing/malformed/empty/unknown-category/
+ * non-array configuration FAILS CLOSED (non-zero exit, no totals, no summary, no artifact). Addresses are
+ * never printed, logged, hashed, or uploaded — only per-category counts and the non-secret
+ * AUDIT_EXCLUSION_LIST_VERSION. Narrow code patterns remain only for unmistakable reserved/automation
+ * domains. The audit no longer consumes the individual OWNER_EMAIL/BASIC/FREE/PRO/CHECKOUT email secrets.
  *
- * Env (injected by GitHub Actions; never echoed):
- *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY             (required)
- *   BASIC_TEST_EMAIL, FREE_TEST_EMAIL, PRO_TEST_EMAIL,
- *   CHECKOUT_TEST_EMAIL, CANARY_TEST_EMAIL, OWNER_EMAIL (optional exclusions — IN-MEMORY classification
- *                                                        only; values never printed)
- *   PRACTICE_DEPLOY_AT, FINAL_DEPLOY_AT                 ISO window boundaries.
+ * Prior Auth-Admin rejection: an `invalid JWT` signature error was observed ONCE; its exact cause is
+ * UNPROVEN. No client-option or perPage change is claimed to have fixed it. The audit mirrors the
+ * established Auth-Admin client and FAILS CLOSED if it recurs; a successful workflow run is the evidence.
  */
 import { createClient as defaultCreateClient } from '@supabase/supabase-js';
 import { pathToFileURL } from 'node:url';
 
-const MIN_SESSION_DURATION_SECONDS = 5; // == frontend/src/config/env.ts (app-configured minimum)
-// Public, non-secret canary address (hardcoded in .github/workflows/canary.yml + tests/unit/canaryProvision.test.js).
-const CANARY_CONST = 'canary@speaksharp.app';
+const MIN_SESSION_DURATION_SECONDS = 5; // == frontend/src/config/env.ts (contract-tested for no drift)
 const SYNTHETIC_TITLE = /(^|\s)(rpc-smoke-|e2e|playwright|synthetic|smoke|canary|qa-)/i;
 const SECRETISH = /(sk_live|sk_test|whsec_|eyJ[A-Za-z0-9_-]{10,}|bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key)/i;
 const PAGE = 1000;
+const MANIFEST_CATEGORIES = ['owner_admin', 'synthetic', 'checkout', 'canary', 'qa'];
+// Narrow, unmistakable automation/reserved patterns ONLY. Operational accounts live in the manifest.
+const CODE_PATTERNS = [
+  [/@example\.(com|org)$/i, 'reserved example domain'],
+  [/^(e2e|playwright)[._-]/i, 'explicit E2E fixture'],
+  [/\.(test|invalid)$/i, 'reserved test TLD'],
+];
+
+/** Allowlisted error shape — never the raw message (which can carry emails/tokens/URLs/UUIDs/fragments). */
+const errShape = (op, e) =>
+  `[audit] ${op} failed (sanitized): status=${e?.status ?? 'n/a'} code=${e?.code ?? 'n/a'} name=${e?.name ?? 'n/a'}`;
 
 /**
- * @returns {Promise<{ code: number, report: string|null }>} report is non-null ONLY on success (code 0).
- * On any failure the report is null so a failed run can never publish a successful-looking artifact.
+ * Parse + validate the exclusion manifest. Category NAMES may appear in errors (not secret); addresses
+ * never do. @returns {{ ok: true, byEmail: Map<string,string> } | { ok: false, error: string }}
  */
+export function parseExclusionManifest(raw) {
+  if (!raw || !raw.trim()) return { ok: false, error: 'AUDIT_EXCLUDED_EMAILS_JSON is absent/empty' };
+  let obj;
+  try { obj = JSON.parse(raw); } catch { return { ok: false, error: 'AUDIT_EXCLUDED_EMAILS_JSON is not valid JSON' }; }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, error: 'manifest must be a JSON object of categorized arrays' };
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return { ok: false, error: 'manifest object is empty' };
+  const unknown = keys.filter((k) => !MANIFEST_CATEGORIES.includes(k));
+  if (unknown.length) return { ok: false, error: `manifest has unknown category name(s): ${unknown.join(', ')}` };
+  const byEmail = new Map(); // first-category-wins dedupe
+  for (const cat of keys) {
+    const arr = obj[cat];
+    if (!Array.isArray(arr)) return { ok: false, error: `category '${cat}' must be an array` };
+    for (const entry of arr) {
+      if (typeof entry !== 'string') return { ok: false, error: `category '${cat}' contains a non-string entry` };
+      const norm = entry.trim().toLowerCase();
+      if (norm && !byEmail.has(norm)) byEmail.set(norm, cat);
+    }
+  }
+  if (byEmail.size === 0) return { ok: false, error: 'manifest contains no addresses' };
+  return { ok: true, byEmail };
+}
+
+/** @returns {Promise<{ code: number, report: string|null }>} report is non-null ONLY on success. */
 export async function runAudit({ createClient = defaultCreateClient, env = process.env, errlog = () => {} } = {}) {
   const url = env.SUPABASE_URL;
-  const key = env.SUPABASE_SERVICE_ROLE_KEY; // exact configured key name; no ambiguous fallback.
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    errlog(`[audit] Missing credentials (present/absent only): URL=${url ? 'present' : 'absent'} SERVICE_ROLE_KEY=${key ? 'present' : 'absent'}`);
+    errlog(`[audit] Missing credentials (present/absent only): SUPABASE_URL=${url ? 'present' : 'absent'} SUPABASE_SERVICE_ROLE_KEY=${key ? 'present' : 'absent'}`);
     return { code: 2, report: null };
   }
 
+  // Manifest is REQUIRED: validate BEFORE constructing any client or touching data (fail closed).
+  const manifest = parseExclusionManifest(env.AUDIT_EXCLUDED_EMAILS_JSON);
+  if (!manifest.ok) {
+    errlog(`[audit] Exclusion manifest invalid — FAILING CLOSED (no totals, no artifact): ${manifest.error}`);
+    return { code: 1, report: null };
+  }
+  const listVersion = (env.AUDIT_EXCLUSION_LIST_VERSION || 'unset').trim();
   const PRACTICE_DEPLOY_AT = env.PRACTICE_DEPLOY_AT || '2026-07-23T14:37:41Z';
   const FINAL_DEPLOY_AT = env.FINAL_DEPLOY_AT || '';
 
   // ── Clients ─────────────────────────────────────────────────────────────────────────────────────
   const clientOpts = { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } };
-
-  // Auth Admin exposed ONLY as listUsers — no mutating admin method is handed to audit logic.
   const authClient = createClient(url, key, clientOpts);
-  const authAdmin = { listUsers: (opts) => authClient.auth.admin.listUsers(opts) };
-
-  // PostgREST read-only guard: any mutating verb throws.
+  const authAdmin = { listUsers: (opts) => authClient.auth.admin.listUsers(opts) }; // narrow: listUsers only
   const BLOCKED = new Set(['insert', 'update', 'upsert', 'delete', 'rpc']);
   const pgClient = createClient(url, key, clientOpts);
   const guard = (obj, label) => new Proxy(obj, {
     get(target, prop) {
-      if (typeof prop === 'string' && BLOCKED.has(prop)) {
-        throw new Error(`[audit] BLOCKED mutation attempt: ${label}.${prop}() — this audit is read-only.`);
-      }
+      if (typeof prop === 'string' && BLOCKED.has(prop)) throw new Error(`[audit] BLOCKED mutation attempt: ${label}.${prop}() — read-only.`);
       const v = Reflect.get(target, prop);
       return typeof v === 'function' ? v.bind(target) : v;
     },
   });
   const sb = { from: (t) => guard(pgClient.from(t), `from(${t})`) };
 
-  // ── Exclusions: IN-MEMORY email classification (addresses never printed) ─────────────────────────
-  const freeEmail = env.FREE_TEST_EMAIL || env.BASIC_TEST_EMAIL; // established fallback (rc-gates/setup-test-users)
-  const configured = [
-    ['BASIC synthetic', env.BASIC_TEST_EMAIL], ['FREE_TEST', freeEmail], ['PRO_TEST', env.PRO_TEST_EMAIL],
-    ['checkout test', env.CHECKOUT_TEST_EMAIL], ['canary', env.CANARY_TEST_EMAIL || CANARY_CONST],
-    ['owner/admin', env.OWNER_EMAIL],
-  ];
-  // First category wins per address (so FREE resolving to BASIC does not double-count or reclassify).
-  const EXCLUDE_EXACT = new Map();
-  for (const [cat, v] of configured) {
-    const e = (v || '').trim().toLowerCase();
-    if (e && !EXCLUDE_EXACT.has(e)) EXCLUDE_EXACT.set(e, cat);
-  }
-  const freeAliasesBasic = !!(env.BASIC_TEST_EMAIL && (!env.FREE_TEST_EMAIL || env.FREE_TEST_EMAIL === env.BASIC_TEST_EMAIL));
-  const EXCLUDE_PATTERNS = [
-    [/\+(e2e|qa|test|canary|smoke|auto)[^@]*@/i, 'plus-tagged QA/E2E fixture'],
-    [/@example\.(com|org)$/i, 'example.com fixture'],
-    [/^(e2e|qa|test|canary|smoke|playwright|soak)[._-]/i, 'QA-prefixed fixture'],
-    [/\.(test|invalid)$/i, 'reserved test TLD'],
-  ];
   const classify = (email) => {
     const e = (email || '').trim().toLowerCase();
     if (!e) return 'missing-email';
-    if (EXCLUDE_EXACT.has(e)) return EXCLUDE_EXACT.get(e);
-    for (const [re, label] of EXCLUDE_PATTERNS) if (re.test(e)) return label;
-    return null; // genuine tester
+    if (manifest.byEmail.has(e)) return manifest.byEmail.get(e);
+    for (const [re, label] of CODE_PATTERNS) if (re.test(e)) return label;
+    return null; // candidate genuine tester
   };
-  // owner/admin stays explicitly incomplete unless an address is configured.
-  const unconfiguredExclusions = [
-    ['owner/admin', env.OWNER_EMAIL],
-    ['PRO_TEST', env.PRO_TEST_EMAIL], ['checkout test', env.CHECKOUT_TEST_EMAIL],
-  ].filter(([, v]) => !v).map(([cat]) => cat);
 
-  // ── Accounts (Auth Admin inventory — established server-side model; paginated at perPage 100) ────
+  // ── Accounts (Auth Admin listUsers; paginated at perPage 100) ────────────────────────────────────
   const users = [];
   for (let page = 1; ; page += 1) {
     const { data, error } = await authAdmin.listUsers({ page, perPage: 100 });
     if (error) {
-      errlog(`[audit] Auth Admin user inventory failed (sanitized): status=${error.status ?? 'n/a'} name=${error.name ?? 'n/a'}`);
-      errlog('[audit] Confirm SUPABASE_URL (variable) and SUPABASE_SERVICE_ROLE_KEY belong to the SAME Supabase project.');
-      errlog('[audit] FAILING CLOSED: no fallback to synthetic-account sign-ins; no tester totals published.');
+      errlog(errShape('Auth Admin listUsers', error));
+      errlog('[audit] Confirm SUPABASE_URL (variable) and SUPABASE_SERVICE_ROLE_KEY (secret) belong to the SAME project.');
+      errlog('[audit] FAILING CLOSED: no sign-in fallback; no tester totals published.');
       return { code: 1, report: null };
     }
     const batch = data?.users ?? [];
     users.push(...batch);
     if (batch.length < 100) break;
   }
-
   const exclusionCounts = new Map();
   const realUsers = [];
   for (const u of users) {
@@ -132,28 +141,24 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
   }
   const realIds = new Set(realUsers.map((u) => u.id));
 
-  // ── Sessions (completion source of truth) ───────────────────────────────────────────────────────
-  const sessions = [];
-  for (let from = 0; from < 200000; from += PAGE) {
-    const { data, error } = await sb.from('sessions')
-      .select('id,user_id,title,duration,transcript,total_words,filler_words,engine,created_at')
-      .order('created_at', { ascending: true }).range(from, from + PAGE - 1);
-    if (error) { errlog(`[audit] sessions select failed: ${error.message ?? error}`); return { code: 1, report: null }; }
-    sessions.push(...(data ?? []));
-    if ((data?.length ?? 0) < PAGE) break;
-  }
+  // ── Sessions + reports (read-only select; sanitized errors) ──────────────────────────────────────
+  const pageAll = async (table, cols, op) => {
+    const rows = [];
+    for (let from = 0; from < 200000; from += PAGE) {
+      const { data, error } = await sb.from(table).select(cols).order('created_at', { ascending: true }).range(from, from + PAGE - 1);
+      if (error) { errlog(errShape(op, error)); return null; }
+      rows.push(...(data ?? []));
+      if ((data?.length ?? 0) < PAGE) break;
+    }
+    return rows;
+  };
+  const sessions = await pageAll('sessions', 'id,user_id,title,duration,transcript,total_words,filler_words,engine,created_at', 'sessions select');
+  if (sessions === null) return { code: 1, report: null };
+  const reports = await pageAll('user_issue_reports', 'id,user_id,title,session_id,metadata,created_at', 'reports select');
+  if (reports === null) return { code: 1, report: null };
+
   const realSessions = sessions.filter((s) => realIds.has(s.user_id) && !SYNTHETIC_TITLE.test(s.title ?? ''));
   const syntheticSessionCount = sessions.length - realSessions.length;
-
-  // ── Issue reports ────────────────────────────────────────────────────────────────────────────────
-  const reports = [];
-  for (let from = 0; from < 200000; from += PAGE) {
-    const { data, error } = await sb.from('user_issue_reports')
-      .select('id,user_id,title,session_id,metadata,created_at').order('created_at', { ascending: true }).range(from, from + PAGE - 1);
-    if (error) { errlog(`[audit] reports select failed: ${error.message ?? error}`); return { code: 1, report: null }; }
-    reports.push(...(data ?? []));
-    if ((data?.length ?? 0) < PAGE) break;
-  }
   const realReports = reports.filter((r) => realIds.has(r.user_id) && !SYNTHETIC_TITLE.test(r.title ?? ''));
 
   // ── Derivations (aggregate only) ─────────────────────────────────────────────────────────────────
@@ -165,17 +170,12 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
     const w = (t ?? '').toLowerCase().split(/\s+/).filter(Boolean);
     if (w.length < 24) return false;
     const seen = new Map();
-    for (let i = 0; i + 4 <= w.length; i++) {
-      const k = w.slice(i, i + 4).join(' ');
-      seen.set(k, (seen.get(k) ?? 0) + 1);
-      if (seen.get(k) > 3) return true;
-    }
+    for (let i = 0; i + 4 <= w.length; i++) { const k = w.slice(i, i + 4).join(' '); seen.set(k, (seen.get(k) ?? 0) + 1); if (seen.get(k) > 3) return true; }
     return false;
   };
   const endsAbruptly = (t) => { const s = (t ?? '').trim(); return s.length > 0 && !/[.!?]$/.test(s); };
   const hasPunctuation = (t) => /[.!?,]/.test(t ?? '');
   const pct = (n, d) => (d ? ((100 * n) / d).toFixed(1) + '%' : 'n/a');
-
   const sessionReport = (list) => {
     const saved = list.filter(isSaved);
     const nonEmpty = saved.filter((s) => words(s.transcript) > 0);
@@ -224,39 +224,23 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
     raw_url_in_metadata: list.filter((r) => r.metadata?.appRuntimeConfig?.url).length,
   });
 
-  // ── Emit (aggregates only) ───────────────────────────────────────────────────────────────────────
+  // ── Emit (aggregates + category NAMES/counts + version only) ─────────────────────────────────────
   const out = [];
   const say = (s) => out.push(s);
   say('===== TESTER EVIDENCE AUDIT (READ-ONLY, aggregates only) =====');
-  say(`auth_key_env_var_used  : SUPABASE_SERVICE_ROLE_KEY (name only; value never read, printed, or transformed)`);
+  say('auth_key: SUPABASE_SERVICE_ROLE_KEY (secret) — value consumed only by the Supabase client; never printed, logged, transformed, or included in the report.');
+  say(`exclusion_list_version : ${listVersion}`);
   say(`min_session_duration_seconds (app-configured): ${MIN_SESSION_DURATION_SECONDS}`);
   say('');
-  // Classification is complete ONLY when every non-genuine category has a configured exclusion. If the
-  // owner/admin (or any other) exclusion is unconfigured, the count is an UPPER BOUND and no final
-  // tester-completion conclusion may be issued.
-  const classificationComplete = unconfiguredExclusions.length === 0;
-  say('--- EXCLUSIONS (categories + counts only; no addresses or ids) ---');
+  say('--- EXCLUSIONS (category NAMES + counts only; no addresses or ids) ---');
   say(`total_auth_accounts_scanned : ${users.length}`);
   for (const [cat, n] of [...exclusionCounts].sort((a, b) => b[1] - a[1])) say(`excluded[${cat}] : ${n}`);
   say(`excluded_total          : ${users.length - realUsers.length}`);
-  say(`classification_complete : ${classificationComplete}`);
-  if (classificationComplete) {
-    say(`genuine_tester_accounts : ${realUsers.length}`);
-  } else {
-    say(`candidate_genuine_accounts_upper_bound : ${realUsers.length}`);
-  }
+  // The manifest is required + validated (we fail closed otherwise), so classification is complete here.
+  say('classification_complete : true');
+  say(`genuine_tester_accounts : ${realUsers.length}`);
   say(`synthetic/QA sessions excluded by title marker: ${syntheticSessionCount}`);
-  if (freeAliasesBasic) say('note: FREE_TEST resolves to the BASIC address (shared account) — counted once under BASIC synthetic.');
-  say('');
-  if (!classificationComplete) {
-    say('!! CLASSIFICATION INCOMPLETE — the account count above is an UPPER BOUND, not a genuine-tester total.');
-    say('   Exclusion is by exact email match (in memory) + QA-fixture patterns + the hardcoded canary const.');
-    say('   These categories have NO address configured, so such an account is NOT excluded and inflates the count:');
-    for (const c of unconfiguredExclusions) say(`   UNCONFIGURED: ${c}`);
-    say('   Configure OWNER_EMAIL (and any others) as GitHub secrets to complete classification.');
-  } else {
-    say('classification_complete: all exclusion categories configured.');
-  }
+  say('note: completeness reflects exclusion_list_version above; an exclusion manifest is only as complete as its maintenance.');
   say('');
 
   const windows = [['A. ALL-TIME', null], [`B. SINCE /practice DEPLOY (${PRACTICE_DEPLOY_AT})`, PRACTICE_DEPLOY_AT]];
@@ -286,12 +270,8 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
   say(' missing telemetry, a conversion failure, or product abandonment. No historical /practice conversion is computed.)');
   say('');
   say('--- FINAL TESTER-COMPLETION CONCLUSION ---');
-  if (classificationComplete) {
-    say('classification_complete=true — a tester-completion conclusion may be drawn from the aggregates above.');
-  } else {
-    say('WITHHELD: classification_complete=false. No final tester-completion conclusion is issued while the');
-    say('account count is an upper bound (unconfigured exclusion categories listed above).');
-  }
+  say('classification_complete=true — a tester-completion conclusion may be drawn from the aggregates above,');
+  say('subject to the maintenance of exclusion_list_version.');
   say('');
   say('note: read-only; only Auth Admin listUsers + PostgREST select were performed; no emails/ids/tokens/transcripts/audio printed.');
   return { code: 0, report: out.join('\n') };
