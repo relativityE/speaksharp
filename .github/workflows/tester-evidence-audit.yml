@@ -1,0 +1,68 @@
+name: Tester Evidence Audit (READ-ONLY)
+
+# Manual-only, read-only production tester audit. Supabase is the completion source of truth.
+# Performs SELECT/list operations ONLY — the script hard-blocks insert/update/upsert/delete/rpc at
+# runtime and fails the job if a mutation is attempted. Emits aggregates only: never emails,
+# credentials, tokens, user/session ids, audio, or transcript bodies.
+
+on:
+  workflow_dispatch:
+    inputs:
+      practice_deploy_at:
+        description: 'ISO timestamp of the /practice deploy (c99208b9) — window B boundary'
+        required: false
+        default: '2026-07-23T14:37:41Z'
+      final_deploy_at:
+        description: 'ISO timestamp of the FINAL production deploy — optional window C (post-final baseline)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tester-evidence-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only tester evidence audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.20.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Values are injected by GitHub and consumed only inside the Node process. They are never echoed,
+      # written to the summary, or uploaded. The script prints aggregates exclusively.
+      - name: Run read-only tester evidence audit
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
+          PRACTICE_DEPLOY_AT: ${{ github.event.inputs.practice_deploy_at }}
+          FINAL_DEPLOY_AT: ${{ github.event.inputs.final_deploy_at }}
+        run: node scripts/tester-evidence-audit.mjs | tee /tmp/tester-evidence-audit.txt
+
+      # Sanitized aggregate output only (the script never emits PII/content). Short retention.
+      - name: Upload sanitized aggregate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tester-evidence-audit-aggregates
+          path: /tmp/tester-evidence-audit.txt
+          retention-days: 7
