@@ -247,10 +247,16 @@ for current configuration.
 
 ## GitHub Actions inventory for the tester-evidence audit (names + scope only)
 
-**Captured 2026-07-24 (names and scope only — never values).** Distinguishes GitHub Actions **variables** from **secrets**.
+**Captured 2026-07-24 (names and scope only — never values).** The `tester-evidence-audit.yml` workflow consumes ONLY the following, and references no individual per-account email/password secret, no anon key, and no hardcoded operational address:
 
-**Variables** (`${{ vars.* }}`): `SUPABASE_URL`, `SUPABASE_PROJECT_ID`, `AUDIT_EXCLUSION_LIST_VERSION` (non-secret manifest version, printed for traceability), plus the PostHog/Sentry `*_HOST`/DSN vars.
+| Name | Kind | Role |
+|---|---|---|
+| `SUPABASE_URL` | **variable** | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | **secret** | Auth-Admin `listUsers` + PostgREST select (the established key) |
+| `AUDIT_EXCLUDED_EMAILS_JSON` | **secret** | centralized exclusion manifest (JSON: owner_admin/synthetic/checkout/canary/qa arrays of emails); audit fails closed if absent/malformed/incomplete |
+| `AUDIT_EXCLUSION_LIST_VERSION` | **variable** | manifest version string (printed for traceability; part of the completion gate) |
+| `AUDIT_EXCLUSION_LIST_REVIEWED_AT` | **variable** | ISO timestamp the manifest was last reviewed (must be a valid non-future time; completion gate) |
 
-**Secrets** (`${{ secrets.* }}`) relevant to the audit: `SUPABASE_SERVICE_ROLE_KEY` (the Auth-Admin key the audit uses), and `AUDIT_EXCLUDED_EMAILS_JSON` (the centralized exclusion manifest — a JSON object of categorized address arrays; the audit fails closed if absent/malformed). Supabase secret names present at capture: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`. `SUPABASE_URL` is a **variable**, not a secret.
+Workflow inputs: `practice_deploy_at`, `final_deploy_at`, `confirm_exclusion_manifest_complete` (required boolean; the operator attests manifest completeness — the audit fails closed unless true).
 
-Absent at capture time (the audit does NOT depend on these): `SUPABASE_SECRET_KEY`, `AUDIT_EXCLUDED_EMAILS_JSON` and `AUDIT_EXCLUSION_LIST_VERSION` (must be provisioned by the owner before the audit can run — it fails closed until then), `OWNER_EMAIL`, `FREE_TEST_EMAIL`, a canary-email secret. The repo is user-owned (no org Actions secrets); the `Preview`/`Production`/`production-db` environments held zero Actions secrets. Re-verify names only with `gh api /repos/:owner/:repo/actions/secrets` and `.../actions/variables`.
+**Note the variable-vs-secret split:** `SUPABASE_URL`, `AUDIT_EXCLUSION_LIST_VERSION`, and `AUDIT_EXCLUSION_LIST_REVIEWED_AT` are **variables**; `SUPABASE_SERVICE_ROLE_KEY` and `AUDIT_EXCLUDED_EMAILS_JSON` are **secrets**. The audit no longer depends on the individual `*_TEST_EMAIL` secrets (those remain for the workflows that operate those accounts). Not present at capture time (the audit fails closed until the owner provisions them): `AUDIT_EXCLUDED_EMAILS_JSON`, `AUDIT_EXCLUSION_LIST_VERSION`, `AUDIT_EXCLUSION_LIST_REVIEWED_AT`. Re-verify names only with `gh api /repos/:owner/:repo/actions/secrets` and `.../actions/variables`.
