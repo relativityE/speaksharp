@@ -10,22 +10,45 @@ This is the entry point and authority map for SpeakSharp documentation. It defin
 
 It replaces [`content_list.md`](./content_list.md) as the index and **absorbs [`PRECEDENCE.md`](./PRECEDENCE.md)** (its conflict-resolution rules live in §1 below). The source-by-source, section-level migration record is in [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md).
 
-> **What this PR is.** This establishes the approved canonical **system** and the complete extraction **ledger**. The **actual consolidation is PRs 2–6**; the final PR moves superseded active files into `archive/` and leaves **exactly 14** canonical active Markdown files. During migration the active root count **temporarily increases** (this PR adds the portal + ledger + pinned history). `DOC_MIGRATION_LEDGER.md` is **temporary** — archived at migration closeout; it is **not** a fifteenth canonical document.
+> **What this PR is.** A **docs-only foundation + SSOT repair**. It establishes the approved canonical **system** and the complete section-level extraction **ledger**, and it **repairs `RELEASE_STATUS.md`** to current verified truth (the portal declares that file the SSOT, so it cannot stay stale). The **actual consolidation is PRs 2–6**; the final PR moves superseded active files into `archive/` and leaves **exactly 14** canonical active Markdown files. During migration the active root count **temporarily increases** (this PR adds the portal + ledger + pinned history). `DOC_MIGRATION_LEDGER.md` is **temporary** — archived at migration closeout; it is **not** a fifteenth canonical document.
 >
-> **What this PR is not.** It does not delete/move/rewrite any active document, and it changes **no** code, telemetry, DB values, or product behavior. No PRD/STT/attribution/entitlement/UI-label/harness implementation happens on this branch.
+> **Scope.** Docs-only — **no** code, telemetry, DB values, or product behavior change; no PRD/STT/attribution/entitlement/UI-label/harness implementation on this branch. The only active document rewritten is `RELEASE_STATUS.md` (SSOT repair, above); this portal replaces `content_list.md`/absorbs `PRECEDENCE.md` in later PRs. Everything else is additive (portal, ledger, pinned history).
 
 ---
 
 ## 1. Precedence model (conflict resolution)
 
-Documentation describes a product bound by promises. Precedence is therefore **not** "whatever the code does wins." Four distinct layers, and a conflict between them is a **release event**, not a silent pick:
+*(Absorbs `PRECEDENCE.md` in full — the hierarchy of truth, the canonical-release-artifact rule, and the enforcement protocol below are its durable content.)*
 
-1. **Normative obligations — the binding constraints.** User-trust, privacy, legal, and billing promises (e.g. "Private STT audio never leaves the browser," "no silent switch to a paid/cloud engine," "billing fails closed"). These are **release constraints**. If shipped behavior violates one of them, the behavior is **wrong** — the promise does not bend to the code.
-2. **Observed implementation — what the code/runtime actually does.** Authoritative for *describing current behavior*, and it overrides stale prose. But when it conflicts with a layer-1 obligation, that conflict is a **release blocker requiring reconciliation** (fix the code, or change the promise through an explicit, owner-approved decision) — never "the code is therefore correct."
-3. **Current operational status.** [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) is the single source of truth (SSOT) for changing state: baselines, deploy posture, run IDs, blockers, go/no-go. No other document records changing status.
-4. **Canonical contracts & procedures.** The 14 documents below — authoritative for *what the product promises and how it is built/operated*, subordinate to the live status in (3).
+Documentation describes a product bound by promises. Precedence is therefore **not** "whatever the code does wins." A conflict between layers is a **release event**, not a silent pick.
 
-**Resolution rule:** obligation (1) vs. implementation (2) disagreement → **reconcile before release** (blocker). Contract (4) vs. live status (3) → status wins for *current* facts; the contract is corrected. Any document vs. `RELEASE_STATUS.md` on changing state → `RELEASE_STATUS.md` wins.
+### Hierarchy of truth (highest binding authority first)
+
+| Level | Domain | Scope |
+|---|---|---|
+| **1** | **User Trust & Legal Promises** — the binding constraints | PRD + Billing + Privacy + Security promises (e.g. "Private STT audio never leaves the browser," "no silent switch to a paid/cloud engine," "billing fails closed") |
+| **2** | **Runtime Truth** — observed behavior | Deployed code + DB schema + edge functions + env config |
+| **3** | **Data Integrity Invariants** | ACID/atomicity/schema consistency |
+| **4** | **Security Invariants** | RLS + JWT validation + CSRF + rate limiting |
+| **5** | **Operational Survivability** | Availability + latency + error recovery |
+| **6** | **Tests / CI Evidence** | E2E + unit + integration + static analysis |
+| **7** | **Architecture Intent / Docs** | `ARCHITECTURE.md` + design docs |
+| **8** | **Roadmap / Status / Triage** | Current status + backlog + triage |
+
+### Durable rules (carried from `PRECEDENCE.md`)
+
+- **Normative obligations bind.** If shipped behavior violates a Level-1 promise, the behavior is **wrong** — the promise does not bend to the code.
+- **Runtime truth is observed, not exculpatory.** The system is what it *does* (Level 2), and Level-2 reality overrides stale prose (a doc that disagrees with code is **Drift**; code that violates intent is a **Vulnerability**). But **runtime truth never excuses violating a Level-1/3/4 obligation** — an obligation-vs-implementation conflict is a **release blocker requiring reconciliation** (fix the code, or change the promise through an explicit, owner-approved decision), never "the code is therefore correct."
+- **Silent data corruption is categorically worse than an outage.** A feature that cannot guarantee data integrity MUST fail closed or be disabled, **even if that causes a service outage** (Level 3 > Level 5).
+- **Never trade security for survivability.** A Security Invariant (Level 4) may **not** be bypassed to restore Survivability (Level 5). Establish runtime state (Level 2) before attempting recovery (Level 5); recovery must respect Data Integrity (Level 3).
+- **Tests/CI are evidence, not truth.** Level-6 evidence sits **below** runtime truth and obligations; a green suite does not override a Level-1/2/3 reality.
+- **Architecture drift is classified, not automatically a trust violation.** A Level-7 doc/code divergence is "launch polish" **unless** it cascades into Levels 1–4, in which case it inherits their severity.
+- **Canonical release-artifact rule.** Current release status may be taken **only** from [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) (SSOT). Older reports/audits are historical evidence; if they conflict with `RELEASE_STATUS.md`, current workflow results, or deployed runtime, the newer canonical source wins.
+
+### Enforcement (Go/No-Go)
+
+- Any violation of **Level 1 (User Trust)** or **Level 3 (Data Integrity)** is an **AUTOMATIC NO-GO**.
+- Level-7 (Architecture Intent) violations are "polish" unless they cascade into Levels 1–4.
 
 Below these layers sit **evidence** (dated proof; cite for rationale, never current status) and **archive/legacy** (historical, non-authoritative).
 
@@ -51,6 +74,19 @@ After migration, these — and only these — are the active canonical Markdown 
 | 12 | **TESTER_GUIDE.md** | Plain-language external tester-facing guide | Procedure | `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` |
 | 13 | **TESTER_OPERATIONS.md** | Internal tester administration, audit procedures, tester-ops protocols | Procedure | tester-ops parts of `INTERNAL_TEST_PROTOCOL.md`, tester-facing manual-hardware procedures |
 | 14 | **EVIDENCE_INDEX.md** | Index of all dated evidence (launch/entitlement/STT/test) | Evidence (index) | indexes `evidence/`, `PUBLIC_LAUNCH_LEDGER.md`, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` |
+
+### Accountable-role map
+
+Ownership is per-document by accountable role (Product Owner remains final approver on all). Technical verification is owned by the relevant engineering/quality/ops role, not blanket Product Owner:
+
+| Role | Canonical documents |
+|---|---|
+| **Product Owner** | PRODUCT_REQUIREMENTS, ROADMAP, COACHING_SCORE, ENTITLEMENTS_AND_BILLING (product policy), TESTER_GUIDE |
+| **Engineering** | ARCHITECTURE, STT (implementation contracts) |
+| **Engineering / Quality** | QUALITY, RELEASE_PROCESS |
+| **Operations / Security** | OPERATIONS_AND_SECURITY |
+| **Product Operations / Quality** | TESTER_OPERATIONS, EVIDENCE_INDEX |
+| **Product Owner (SSOT)** | RELEASE_STATUS, README |
 
 **Retained by classification, NOT canonical (indexed by `EVIDENCE_INDEX.md` or kept in `archive/`):**
 - **Evidence** (dated proof; cite for rationale): `evidence/**`, `PUBLIC_LAUNCH_LEDGER.md`, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`.
@@ -91,14 +127,22 @@ Every source section in the ledger carries exactly one:
 
 ## 5. Metadata schema
 
-Each canonical document carries:
+Each canonical document carries this header:
 
 ```
-**Owner:** <role/person accountable>
-**Last Reviewed:** <YYYY-MM-DD>
+**Status:** <Authoritative | Draft | ⚠️ STALE — UNDER REVISION>
+**Owner:** <accountable role — see §2 role map>
+**Last Reviewed:** <YYYY-MM-DD prose was last read by a human>
+**Last Verified:** <YYYY-MM-DD the factual claims were last checked against current code/runtime/evidence>
+**Applies To:** <scope: which product surface / release track>
 **Class:** <classification from §3>
 **Authority:** <what this doc is the SSOT for, one line>
+**Not Authoritative For:** <what readers must NOT take from this doc — e.g. current status → RELEASE_STATUS.md>
+**Supersedes:** <prior docs this replaces, if any>
+**Evidence Sources:** <links to the code/tests/evidence backing the claims>
 ```
+
+**`Last Reviewed` ≠ `Last Verified`.** Review means a human read the prose; **verification** means its factual claims were checked against current code, runtime, or dated evidence. A canonical doc may be recently reviewed yet unverified — the two dates make that explicit.
 
 `RELEASE_STATUS.md` additionally carries the **Update rule** (only it receives changing status) and the **Evidence Freshness Contract**. Stale contracts are **banner-marked** (`⚠️ STALE — UNDER REVISION`), never silently trusted.
 

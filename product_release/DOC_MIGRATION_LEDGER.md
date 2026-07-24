@@ -1,20 +1,29 @@
-**Owner:** Prod Owner (relativityE)
+**Status:** Draft (temporary migration record)
+**Owner:** Prod Owner (final approver); per-row accountable role in each subsection header
 **Last Reviewed:** 2026-07-24
+**Last Verified:** 2026-07-24 (headings enumerated from the live sources / pinned commits; current-state facts verified via `RELEASE_STATUS.md`)
 **Class:** Procedure (migration record — **temporary**)
-**Authority:** Section-level source→target inventory for the documentation-canonicalization effort. Companion to [`README.md`](./README.md). **Not** a canonical document — archived at migration closeout.
+**Authority:** Section-level source→target inventory for the documentation-canonicalization effort.
+**Not Authoritative For:** current release status (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md)); this ledger contains no changing SHAs/run IDs.
+**Supersedes:** —
+**Evidence Sources:** the enumerated source files + their commits, cited per row.
 
 # Documentation Migration Ledger
 
-Section-level inventory of every substantive documentation source in `product_release/` (and the pinned historical `docs/*` sources), mapping each to its target among the **14 Product Owner-approved canonical documents** ([`README.md`](./README.md) §2). Taxonomies in `README.md` §3–§4.
+Section-level inventory of every substantive documentation source in `product_release/` (and the pinned historical `docs/*` sources), mapping each to its target among the **14 Product Owner-approved canonical documents** ([`README.md`](./README.md) §2). **Temporary** — archived at migration closeout; not a canonical document.
 
-> **No current-state facts here.** This ledger contains **no changing SHAs, deployment baselines, or run IDs** — those live only in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) (SSOT). The ledger **links** to `RELEASE_STATUS.md`; it never duplicates it. (Historical version tags inside pinned `archive/legacy-docs/` copies are frozen provenance, not current baselines.)
+> **No current-state facts here.** No changing SHAs, deployment baselines, or run IDs — those live only in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md). (Historical version tags inside `archive/legacy-docs/` are frozen provenance, not current baselines.)
 >
-> **No consolidation happens in this PR.** Dispositions describe the *planned* migration executed by later single-topic PRs (2–6). This PR adds only the portal, this ledger, and pinned history.
+> **No consolidation in this PR.** Dispositions describe the *planned* migration executed by later PRs (2–6). This PR adds the portal, this ledger, the pinned history, and the `RELEASE_STATUS.md` SSOT repair.
 
-**Legend — Class:** PR = product requirement/decision · RF = runtime fact · AI = architecture invariant/ADR · AC = acceptance criterion/SLO · PROC = procedure · EV = evidence · GAP = open gap/risk · HIST = superseded history · HYP = unverified hypothesis.
-**Legend — Disposition:** EXTRACTED · EVIDENCE_ONLY · SUPERSEDED · OPEN_GAP · NO_DURABLE_CONTENT.
-**Verify** = must this claim be re-verified against code/runtime before it is lifted into a canonical doc? (Y/N)
-**Owner** for every row below: Prod Owner (relativityE), unless a canonical doc later assigns a section owner.
+**Two separate axes per row (do not conflate):**
+- **Content disposition** — what happens to the *content*: `EXTRACTED` · `EVIDENCE_ONLY` · `OPEN_GAP` · `NO_DURABLE_CONTENT`.
+- **Source-file state** — what happens to the *file*: `ACTIVE` (stays) · `RETAINED_EVIDENCE` (kept under `evidence/`) · `ARCHIVE_AT_CLOSEOUT` (moved to `archive/` after its content is proven-incorporated) · `ALREADY_ARCHIVED`.
+- A historical file with durable material is therefore **content=EXTRACTED, file-state=ARCHIVE_AT_CLOSEOUT** — `SUPERSEDED` alone is never permission to archive without proving incorporation.
+
+**Legend — Class:** PR product-requirement/decision · RF runtime-fact · AI architecture-invariant/ADR · AC acceptance-criterion/SLO · PROC procedure · EV evidence · GAP open-gap/risk · HIST superseded-history · HYP unverified-hypothesis.
+**Legend — Role:** PO Product Owner · ENG Engineering · EQ Engineering/Quality · OPS Operations/Security · POQ Product-Ops/Quality. (PO is final approver on all.)
+**Verification method** = how the atomic claim will be checked before it is lifted (grep/read code path, run named test, read runtime value, cross-check `RELEASE_STATUS.md`, PostHog query, or N/A for pure provenance).
 
 ---
 
@@ -29,326 +38,534 @@ Section-level inventory of every substantive documentation source in `product_re
 
 ---
 
-## 2. File-level disposition summary (33 active root docs)
+## 2. File-level summary (33 active root docs)
 
-| Source (`product_release/`) | → Canonical target | Disposition |
-|---|---|---|
-| `RELEASE_STATUS.md` | (10) RELEASE_STATUS | EXTRACTED — remains SSOT verbatim |
-| `PRECEDENCE.md` | (1) README §1 | SUPERSEDED — precedence model absorbed into portal |
-| `content_list.md` | (1) README | SUPERSEDED — replaced by portal |
-| `PRD.operational.md` | (2) PRODUCT_REQUIREMENTS (+ (7) entitlement rows) | EXTRACTED |
-| `PRODUCT_FEATURES.operational.md` | (2) PRODUCT_REQUIREMENTS | EXTRACTED |
-| `SPEAKSHARP_SESSION_PROGRESS.operational.md` | (6) COACHING_SCORE | EXTRACTED |
-| `ARCHITECTURE.operational.md` | (4) ARCHITECTURE | EXTRACTED |
-| `CODEBASE_MAP.md` | (4) ARCHITECTURE | EXTRACTED — folded, not standalone |
-| `STT_BASELINE_CONTRACTS.operational.md` | (5) STT | EXTRACTED |
-| `PRIVATE_STT_ACCURACY_LEVERS.md` | (5) STT | EXTRACTED |
-| `stt-perf-proof-protocol.md` | (5) STT | EXTRACTED |
-| `SERVICE_LEVELS.operational.md` | (8) QUALITY (general SLOs) + (5) STT (STT SLOs) | EXTRACTED — split |
-| `SOFTWARE_QUALITY.operational.md` | (8) QUALITY | EXTRACTED |
-| `QUALITY_METRICS.md` | (8) QUALITY | EXTRACTED |
-| `RC_GATES.md` | (9) RELEASE_PROCESS (+ (8) QUALITY acceptance detail) | EXTRACTED — split |
-| `RC_TEST_INVENTORY.md` | (8) QUALITY | EXTRACTED |
-| `INTERNAL_TEST_PROTOCOL.md` | (8) QUALITY (engineering) + (13) TESTER_OPERATIONS (tester-ops) | EXTRACTED — split |
-| `MANUAL_HARDWARE_VALIDATION.md` | (8) QUALITY (protocol) + (13) TESTER_OPERATIONS (procedures) | EXTRACTED — split |
-| `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` | (12) TESTER_GUIDE | EXTRACTED |
-| `LAUNCH_ENV_CHECKLIST.md` | (11) OPERATIONS_AND_SECURITY | EXTRACTED |
-| `ENV_INVENTORY.md` | (11) OPERATIONS_AND_SECURITY | EXTRACTED |
-| `SECRET_ROTATION_RUNBOOK.md` | (11) OPERATIONS_AND_SECURITY | EXTRACTED |
-| `PAID_OPS_HARDENING_RUNBOOK.md` | (11) OPERATIONS_AND_SECURITY (+ (7) billing gating) | EXTRACTED |
-| `RELEASE_RECOVERY.md` | (9) RELEASE_PROCESS | EXTRACTED |
-| `OPS_HEALTH_DASHBOARD.md` | (11) OPERATIONS_AND_SECURITY | EXTRACTED |
-| `SCA_EXCEPTIONS.md` | (11) OPERATIONS_AND_SECURITY | EXTRACTED |
-| `BACKLOG.md` | (3) ROADMAP | EXTRACTED — Now/Next/Later/Declined |
-| `ACTIVE_COORDINATION.md` | (3) ROADMAP | EXTRACTED — current board folds into Now |
-| `ROADMAP.operational.md` | (3) ROADMAP | SUPERSEDED — ⚠️ STALE; durable risks fold in |
-| `RELEASE_CLOSEOUT_LEDGER.md` | (3) ROADMAP + (14) EVIDENCE_INDEX | SUPERSEDED — open items → ROADMAP, dated proof → evidence |
-| `PUBLIC_LAUNCH_LEDGER.md` | (14) EVIDENCE_INDEX → `evidence/` | EVIDENCE_ONLY |
-| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | (14) EVIDENCE_INDEX; requirements → (7) ENTITLEMENTS_AND_BILLING | EVIDENCE_ONLY (+ requirement extraction) |
-| `attribution-sanitation-crosswalk.md` | `archive/` | SUPERSEDED — immutable historical crosswalk |
+| Source | → Target | Content disp. | Source-file state | Role |
+|---|---|---|---|---|
+| `RELEASE_STATUS.md` | (10) | EXTRACTED (repaired in this PR) | ACTIVE | PO |
+| `PRECEDENCE.md` | (1) §1 | EXTRACTED (§3.0) | ARCHIVE_AT_CLOSEOUT | PO |
+| `content_list.md` | (1) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `PRD.operational.md` | (2)(+7) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `PRODUCT_FEATURES.operational.md` | (2) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `SPEAKSHARP_SESSION_PROGRESS.operational.md` | (6) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `ARCHITECTURE.operational.md` | (4) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | ENG |
+| `CODEBASE_MAP.md` | (4) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | ENG |
+| `STT_BASELINE_CONTRACTS.operational.md` | (5) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | ENG |
+| `PRIVATE_STT_ACCURACY_LEVERS.md` | (5) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | ENG |
+| `stt-perf-proof-protocol.md` | (5) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | ENG |
+| `SERVICE_LEVELS.operational.md` | (8)(+5) | EXTRACTED (split) | ARCHIVE_AT_CLOSEOUT | EQ |
+| `SOFTWARE_QUALITY.operational.md` | (8) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | EQ |
+| `QUALITY_METRICS.md` | (8) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | EQ |
+| `RC_GATES.md` | (9)(+8) | EXTRACTED (split) | ARCHIVE_AT_CLOSEOUT | EQ |
+| `RC_TEST_INVENTORY.md` | (8) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | EQ |
+| `INTERNAL_TEST_PROTOCOL.md` | (8)(+13) | EXTRACTED (split) | ARCHIVE_AT_CLOSEOUT | EQ/POQ |
+| `MANUAL_HARDWARE_VALIDATION.md` | (8)(+13) | EXTRACTED (split) | ARCHIVE_AT_CLOSEOUT | EQ/POQ |
+| `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` | (12) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `LAUNCH_ENV_CHECKLIST.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `ENV_INVENTORY.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `SECRET_ROTATION_RUNBOOK.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `PAID_OPS_HARDENING_RUNBOOK.md` | (11)(+7) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `RELEASE_RECOVERY.md` | (9) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS/EQ |
+| `OPS_HEALTH_DASHBOARD.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `SCA_EXCEPTIONS.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `BACKLOG.md` | (3) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `ACTIVE_COORDINATION.md` | (3) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
+| `ROADMAP.operational.md` | (3) | EXTRACTED (durable risks only) | ARCHIVE_AT_CLOSEOUT | PO |
+| `RELEASE_CLOSEOUT_LEDGER.md` | (3)(+14) | EXTRACTED + EVIDENCE_ONLY | ARCHIVE_AT_CLOSEOUT | PO/POQ |
+| `PUBLIC_LAUNCH_LEDGER.md` | (14) | EVIDENCE_ONLY | RETAINED_EVIDENCE | POQ |
+| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | (14)(+7) | EVIDENCE_ONLY (+ requirement extraction) | RETAINED_EVIDENCE | POQ/PO |
+| `attribution-sanitation-crosswalk.md` | `archive/` | NO_DURABLE_CONTENT (provenance) | ALREADY_ARCHIVED (semantics) | PO |
 
-**Subtrees:** `evidence/**` (14 md) → (14) EVIDENCE_INDEX, **EVIDENCE_ONLY**. `v4_work/**` (5 md) → reference for deferred v4 disposition, **EVIDENCE_ONLY**. `archive/**` → already **SUPERSEDED**. `archive/legacy-docs/**` → pinned history, **SUPERSEDED** (see §3.A).
+**Subtrees:** `evidence/**` → (14), EVIDENCE_ONLY, RETAINED_EVIDENCE, POQ (substantive ones enumerated in §3.I). `v4_work/**` → reference, EVIDENCE_ONLY, RETAINED_EVIDENCE, ENG. `archive/**` → NO_DURABLE_CONTENT/provenance, ALREADY_ARCHIVED. `archive/legacy-docs/**` → §3.A.
 
 ---
 
 ## 3. Section-level extraction coverage
 
-Each substantive source is inventoried at heading level so no valuable content can be silently dropped. **Source path + commit** and **owner** are stated per subsection header; table columns give the remaining fields.
+Per-subsection header states **Source · Commit · Role**. Columns: `Heading` · `Atomic claim` · `Class` · `Verify method` · `Target → §` · `Content disp.` (file-state stated in the subsection header). Grouped rows enumerate every included heading and share one class/target/verify/disposition.
 
-### 3.A Historical `docs/*` (pinned, read-only) — all SUPERSEDED
+### 3.0 `PRECEDENCE.md` — Commit: current `main` · Role: PO · File-state: ARCHIVE_AT_CLOSEOUT
 
-These are frozen provenance. Nothing is authoritative; extraction means *durable ideas may be re-stated (and re-verified) in a canonical doc*, never copied as current truth.
-
-#### `archive/legacy-docs/d31102a8/ARCHITECTURE.md` — commit `d31102a8` (3386 lines)
-
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| 1. Project Directory Structure | Repo layout (drifted since May) | AI | Y | ARCHITECTURE → Layout | SUPERSEDED |
-| 2. System Overview | High-level component model | AI | Y | ARCHITECTURE → Overview | SUPERSEDED |
-| 2. Technology Stack | Stack list (partly stale) | AI | Y | ARCHITECTURE → Stack | SUPERSEDED |
-| 3. Code Quality Standards | Lint/type/test standards | PROC | Y | QUALITY → Standards | SUPERSEDED |
-| Testing and CI/CD | Historical CI topology | PROC | Y | QUALITY / RELEASE_PROCESS | SUPERSEDED |
-| 8. Workflow Architecture & Automation | Agent/automation model (dated) | AI | Y | ARCHITECTURE → Automation | SUPERSEDED |
-| 3. Frontend Architecture | React/store/provider structure | AI | Y | ARCHITECTURE → Frontend | SUPERSEDED |
-| 4. Backend Architecture | Supabase/edge-function structure | AI | Y | ARCHITECTURE → Backend | SUPERSEDED |
-| 5. Feature Architecture | Feature-module model | AI | Y | ARCHITECTURE → Features | SUPERSEDED |
-| 6. User Roles and Tiers | Tier model (see current entitlements) | PR | Y | ENTITLEMENTS_AND_BILLING | SUPERSEDED |
-| 5.5 Domain Services Layer | `domainServices.ts` role | AI | Y | ARCHITECTURE → Services | SUPERSEDED |
-| 6. Transcription Service | STT service architecture | AI | Y | ARCHITECTURE + STT | SUPERSEDED |
-| 7. Configuration Management | Config/env approach (drifted) | AI | Y | ARCHITECTURE / OPERATIONS_AND_SECURITY | SUPERSEDED |
-| 9. UI/UX Implementation Standards | UI standards | PROC | Y | ARCHITECTURE → UI | SUPERSEDED |
-| 10. Performance Optimizations | O(1) analytics, rolling WPM | AI | Y | ARCHITECTURE / STT | SUPERSEDED |
-| 15. Resilience Patterns (v5.4) | Watchdog/heartbeat patterns | AI | Y | ARCHITECTURE → Resilience | SUPERSEDED |
-| 17. Technical Debt & Known Issues (Feb 2026) | Historical debt list | GAP | Y | ROADMAP (if still open) | SUPERSEDED |
-| 18. Hardening Patterns & CI Stability | CI stability patterns | PROC | Y | QUALITY | SUPERSEDED |
-| 4. Testing & Deterministic Logic | Deterministic-test approach | PROC | Y | QUALITY | SUPERSEDED |
+| Hierarchy of Truth | 8-level truth order (User-Trust > Runtime > Data-Integrity > Security > Survivability > Tests/CI > Arch-Intent > Roadmap) | AI/PR | cross-check README §1 table | README §1 | EXTRACTED |
+| Canonical Release Artifact Rule | Status only from `RELEASE_STATUS.md`; older audits historical | PROC | cross-check README §1 + RELEASE_STATUS Update rule | README §1 | EXTRACTED |
+| Strategic Rationale §1 (Integrity vs Survivability) | Silent corruption worse than outage; fail-closed even if outage | AI | cross-check README §1 rules | README §1; OPERATIONS_AND_SECURITY | EXTRACTED |
+| Strategic Rationale §2 (Runtime Truth anchor) | System is what it does; doc-vs-code = Drift/Vulnerability | AI | cross-check README §1 rules | README §1; ARCHITECTURE | EXTRACTED |
+| Strategic Rationale §3 (Separation of runtime/survivability) | Establish runtime state before recovery | PROC | cross-check RELEASE_PROCESS recovery | README §1; RELEASE_PROCESS | EXTRACTED |
+| Enforcement — Go/No-Go | L1/L3 violation = automatic NO-GO; L7 = polish unless cascading | AC | cross-check RELEASE_PROCESS gates | README §1; RELEASE_PROCESS | EXTRACTED |
+| Enforcement — P0 Incident Response | Recovery respects Data-Integrity; never bypass Security for Survivability | PROC | cross-check OPERATIONS_AND_SECURITY recovery | README §1; OPERATIONS_AND_SECURITY | EXTRACTED |
+| Tests/CI evidence placement | Tests/CI (L6) are evidence below runtime truth | AC | cross-check QUALITY evidence chain | README §1; QUALITY | EXTRACTED |
 
-#### `archive/legacy-docs/d31102a8/PRD.md` — commit `d31102a8` (725 lines)
+### 3.A Historical `docs/*` (pinned, read-only) — File-state: ALREADY_ARCHIVED
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+Content is durable-idea-only (re-stated + re-verified in canonical docs, never copied as current truth).
+
+#### `archive/legacy-docs/d31102a8/ARCHITECTURE.md` — Commit: `d31102a8` · Role: ENG
+
+| Heading (H2) | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| 1. Executive Summary | Product one-liner | PR | Y | PRODUCT_REQUIREMENTS → Summary | SUPERSEDED |
-| 2. Vision & Positioning | Private-first positioning | PR | Y | PRODUCT_REQUIREMENTS → Positioning | SUPERSEDED |
-| 3. UX Standards & Product Guardrails | UX guardrails | PR | Y | PRODUCT_REQUIREMENTS → UX | SUPERSEDED |
-| 4. User Experience & Feedback | Feedback flows | PR | Y | PRODUCT_REQUIREMENTS | SUPERSEDED |
-| 5. Testing & Quality Assurance | QA intent | PROC | Y | QUALITY | SUPERSEDED |
-| 5. Known Issues & Risks | Historical risks | GAP | Y | ROADMAP | SUPERSEDED |
-| 6. Development Roadmap | Old roadmap | GAP | Y | ROADMAP | SUPERSEDED |
-| 6. Software Quality Metrics | Old quality targets | AC | Y | QUALITY | SUPERSEDED |
-| 8. Metrics and Success Criteria | Conversion/retention/WER targets | PR/AC | Y | PRODUCT_REQUIREMENTS + STT | SUPERSEDED |
-| 9. Future Enhancements / Opportunities | Idea backlog | GAP | Y | ROADMAP → Later | SUPERSEDED |
-| 10. Strategic Review & Analysis | Market analysis | HYP | Y | (evidence/archive) | SUPERSEDED |
-| 11. Deployment (Alpha Release) | Old deploy notes | HIST | N | archive | SUPERSEDED |
+| 1. Project Directory Structure | Repo layout (drifted) | AI | grep current tree vs doc | ARCHITECTURE → Layout | EXTRACTED |
+| 2. System Overview | Component model | AI | read src/ structure | ARCHITECTURE → Overview | EXTRACTED |
+| 2. Technology Stack | Stack list (stale) | AI | read package.json | ARCHITECTURE → Stack | EXTRACTED |
+| 3. Code Quality Standards | Lint/type/test standards | PROC | read eslint/tsconfig | QUALITY → Standards | EXTRACTED |
+| Testing and CI/CD | CI topology (dated) | PROC | read .github/workflows | QUALITY / RELEASE_PROCESS | EXTRACTED |
+| 8. Workflow Architecture & Automation | Automation model (dated) | AI | read workflows | ARCHITECTURE → Automation | EXTRACTED |
+| 3. Frontend Architecture | React/store/provider structure | AI | read src/providers,stores | ARCHITECTURE → Frontend | EXTRACTED |
+| 4. Backend Architecture | Supabase/edge structure | AI | read backend/supabase | ARCHITECTURE → Backend | EXTRACTED |
+| 5. Feature Architecture | Feature-module model | AI | read src/components | ARCHITECTURE → Features | EXTRACTED |
+| 6. User Roles and Tiers | Tier model | PR | cross-check ENTITLEMENTS_AND_BILLING | ENTITLEMENTS_AND_BILLING | EXTRACTED |
+| 5.5 Domain Services Layer | `domainServices.ts` role | AI | grep domainServices.ts | ARCHITECTURE → Services | EXTRACTED |
+| 6. Transcription Service | STT service architecture | AI | read services/transcription | ARCHITECTURE + STT | EXTRACTED |
+| 7. Configuration Management | Config/env approach (drifted) | AI | read env config | ARCHITECTURE / OPERATIONS_AND_SECURITY | EXTRACTED |
+| 9. UI/UX Implementation Standards | UI standards | PROC | read components | ARCHITECTURE → UI | EXTRACTED |
+| 10. Performance Optimizations | O(1) analytics, rolling WPM | AI | grep observer/WPM code | ARCHITECTURE / STT | EXTRACTED |
+| 15. Resilience Patterns (v5.4) | Watchdog/heartbeat | AI | grep watchdog/heartbeat | ARCHITECTURE → Resilience | EXTRACTED |
+| 17. Technical Debt & Known Issues | Historical debt list | GAP | triage vs BACKLOG | ROADMAP (if open) | OPEN_GAP |
+| 18. Hardening Patterns & CI Stability | CI stability patterns | PROC | read workflows | QUALITY | EXTRACTED |
+| 4. Testing & Deterministic Logic | Deterministic-test approach | PROC | read test setup | QUALITY | EXTRACTED |
 
-#### `archive/legacy-docs/d31102a8/ROADMAP.md` — commit `d31102a8` (978 lines)
+#### `archive/legacy-docs/d31102a8/PRD.md` — Commit: `d31102a8` · Role: PO
 
-| Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading (H2) | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| "✅ COMPLETE" phase sections (CI stability, Live-UI/STT, Frontend verification, Security hardening, Phase 3/4/4/5/6, Nightly CI, v0.5.4.5, System-integrity) | Completed-work narrative | HIST | N | archive (git history is truth) | SUPERSEDED |
-| Quality & Reliability Sprint (Q1 2026, 🟡) | Then-open reliability items | GAP | Y | ROADMAP (if still open) | SUPERSEDED |
-| Marketing & Growth | Growth ideas | GAP | Y | ROADMAP → Later | SUPERSEDED |
-| Phase 1: Stabilize & Harden MVP | MVP hardening items | GAP | Y | ROADMAP | SUPERSEDED |
-| Phase 2 / 2.5: User Validation & UI Polish | Validation/polish items | GAP | Y | ROADMAP | SUPERSEDED |
-| Required for any Supabase migration PR | Migration checklist | PROC | Y | RELEASE_PROCESS / OPERATIONS_AND_SECURITY | SUPERSEDED |
-| Forensic Telemetry & Provisioning FSM (Apr 2026, 🟡) | Then-in-progress FSM work | GAP | Y | ROADMAP | SUPERSEDED |
+| 1. Executive Summary | Product one-liner | PR | cross-check PRODUCT_FEATURES | PRODUCT_REQUIREMENTS → Summary | EXTRACTED |
+| 2. Vision & Positioning | Private-first positioning | PR | cross-check current positioning | PRODUCT_REQUIREMENTS → Positioning | EXTRACTED |
+| 3. UX Standards & Product Guardrails | UX guardrails | PR | cross-check current UX | PRODUCT_REQUIREMENTS → UX | EXTRACTED |
+| 4. User Experience & Feedback | Feedback flows | PR | cross-check issue-report code | PRODUCT_REQUIREMENTS | EXTRACTED |
+| 5. Testing & Quality Assurance | QA intent | PROC | cross-check QUALITY | QUALITY | EXTRACTED |
+| 5. Known Issues & Risks | Historical risks | GAP | triage vs BACKLOG | ROADMAP | OPEN_GAP |
+| 6. Development Roadmap | Old roadmap | GAP | triage vs BACKLOG | ROADMAP | OPEN_GAP |
+| 6. Software Quality Metrics | Old quality targets | AC | cross-check QUALITY targets | QUALITY | EXTRACTED |
+| 8. Metrics and Success Criteria | Conversion/retention/WER targets | PR/AC | cross-check PRD.operational §5 | PRODUCT_REQUIREMENTS + STT | EXTRACTED |
+| 9. Future Enhancements / Opportunities | Idea backlog | GAP | triage | ROADMAP → Later | OPEN_GAP |
+| 10. Strategic Review & Analysis | Market analysis | HYP | flag unverified | EVIDENCE_INDEX (dated) | EVIDENCE_ONLY |
+| 11. Deployment (Alpha Release) | Old deploy notes | HIST | N/A | archive | NO_DURABLE_CONTENT |
 
-#### `archive/legacy-docs/d31102a8/CHANGELOG.md` — commit `d31102a8` (2196 lines)
+#### `archive/legacy-docs/d31102a8/ROADMAP.md` — Commit: `d31102a8` · Role: PO
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading(s) (H2) | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| All `[x.y.z] - date` version entries (0.1.0 → 0.6.19, incl. 1.4.0/3.5.4 legacy) | Per-release change narrative | HIST | N | archive (git history + `RELEASE_STATUS.md` are truth) | SUPERSEDED — NO_DURABLE_CONTENT beyond provenance |
+| Grouped — completed phases: "CI Stability & Observability Hardening", "Live Recording UI & STT Stabilization ✅", "Frontend Verification & Defect Resolution ✅", "Security & Infrastructure Hardening ✅", "Phase 3 Stripe Webhook ✅", "Phase 4 PDF Parsing ✅", "Phase 4 Production Readiness ✅", "Phase 5 Zero-Debt ✅", "Nightly CI Harmonization ✅", "v0.5.4.5 Release Hardening ✅", "Phase 6 Perf & Architecture ✅", "System Integrity & Agent-Loop ✅" | Completed-work narrative (git history is truth) | HIST | N/A (provenance) | archive | NO_DURABLE_CONTENT |
+| Quality & Reliability Sprint (Q1 2026 🟡) | Then-open reliability items | GAP | triage vs BACKLOG | ROADMAP | OPEN_GAP |
+| Marketing & Growth | Growth ideas | GAP | triage | ROADMAP → Later | OPEN_GAP |
+| Phase 1: Stabilize & Harden MVP | MVP hardening items | GAP | triage vs BACKLOG | ROADMAP | OPEN_GAP |
+| Phase 2 / Phase 2.5 (User Validation & UI Polish) | Validation/polish items | GAP | triage | ROADMAP | OPEN_GAP |
+| Required for any Supabase migration PR | Migration checklist | PROC | read migration convention | RELEASE_PROCESS / OPERATIONS_AND_SECURITY | EXTRACTED |
+| Forensic Telemetry & Provisioning FSM (Apr 2026 🟡) | Then-in-progress FSM work | GAP | triage vs BACKLOG | ROADMAP | OPEN_GAP |
 
-> `archive/legacy-docs/d31102a8/OUTLINE.md`, `a21e1e52/USER_GUIDE.md`, `a21e1e52/research/pricing_analysis.md`, `a247f62c/Backend/edge-functions.md`: **SUPERSEDED**. USER_GUIDE content → TESTER_GUIDE (verify Y); edge-functions → ARCHITECTURE → Backend (verify Y); pricing_analysis → evidence/ (EVIDENCE_ONLY); OUTLINE → NO_DURABLE_CONTENT.
+#### `archive/legacy-docs/d31102a8/CHANGELOG.md` — Commit: `d31102a8` · Role: PO
 
-### 3.B Current product/requirement docs
-
-#### `PRD.operational.md` — commit: current `main` (see `RELEASE_STATUS.md`); ⚠️ banner-marked STALE
-
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| 0. Product Feature Inventory | Pointer to feature doc | PR | N | PRODUCT_REQUIREMENTS → Features | EXTRACTED |
-| 1. User-Visible Guarantees | Persistence, quotas, privacy (audio never leaves browser), no-silent-switch, private-first hierarchy, cloud-chunk contract | PR | Y | PRODUCT_REQUIREMENTS → Guarantees; billing rows → ENTITLEMENTS_AND_BILLING | EXTRACTED |
-| 2. Failure Behavior | Fail-closed quota, model-download failure, webhook-delay, watchdog, cloud-chunk violation | PR | Y | PRODUCT_REQUIREMENTS → Failure | EXTRACTED |
-| 3. Explicit Non-Goals | Bluetooth handoff, Safari offline, multi-tab | PR | N | PRODUCT_REQUIREMENTS → Non-goals | EXTRACTED |
-| 4. Service-Level Expectations | Product-level SL intent | AC | Y | SERVICE→ QUALITY / STT | EXTRACTED |
-| 5. Metrics & Success Criteria | WER<10% Private / <8% Cloud, conversion, retention, Native benchmark boundary | AC | Y | PRODUCT_REQUIREMENTS + STT | EXTRACTED |
-| 6. Software Quality Evidence | Evidence pointer | EV | N | QUALITY | EXTRACTED |
+| Grouped — all `[x.y.z] - date` entries (0.1.0 → 0.6.19, incl. legacy 1.4.0 / 3.5.4) | Per-release change narrative (git history + `RELEASE_STATUS.md` are truth) | HIST | N/A (provenance) | archive | NO_DURABLE_CONTENT |
 
-#### `PRODUCT_FEATURES.operational.md` — current `main`
+> `OUTLINE.md` (`d31102a8`): NO_DURABLE_CONTENT. `USER_GUIDE.md` (`a21e1e52`): EXTRACTED → TESTER_GUIDE (verify: cross-check current tester copy). `research/pricing_analysis.md` (`a21e1e52`): EVIDENCE_ONLY → EVIDENCE_INDEX. `Backend/edge-functions.md` (`a247f62c`): EXTRACTED → ARCHITECTURE → Backend (verify: read backend/supabase/functions). File-state = ALREADY_ARCHIVED.
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+### 3.B Product / requirements (current) — File-state: ARCHIVE_AT_CLOSEOUT
+
+#### `PRD.operational.md` — Commit: current `main` (⚠️ STALE banner) · Role: PO
+
+| Heading (H2) | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Personal Progress & Executive Rehearsal Contract | Canonical progress/rehearsal direction | PR | Y | COACHING_SCORE + PRODUCT_REQUIREMENTS | EXTRACTED |
-| Feature Group Taxonomy | Feature grouping | PR | N | PRODUCT_REQUIREMENTS | EXTRACTED |
-| Vetted Product Claim Register | Approved marketable claims | PR | Y | PRODUCT_REQUIREMENTS → Claims | EXTRACTED |
-| Product Surface Summary | Surfaces inventory | PR | N | PRODUCT_REQUIREMENTS | EXTRACTED |
-| Accepted Feature Candidates & Timing | Roadmap-ish candidates | GAP | Y | ROADMAP | EXTRACTED |
-| Detailed Feature Inventory | Full feature list | PR | N | PRODUCT_REQUIREMENTS | EXTRACTED |
-| Product Positioning / Claims Boundary | Positioning + claim limits (Native not corpus-WER) | PR | Y | PRODUCT_REQUIREMENTS + STT | EXTRACTED |
+| 0. Product Feature Inventory | Pointer to feature doc | PR | N/A | PRODUCT_REQUIREMENTS → Features | EXTRACTED |
+| 1. User-Visible Guarantees | Persistence, quotas (1h Free/2h Pro), privacy (audio never leaves browser), no-silent-switch, private-first, cloud-chunk contract | PR | verify each vs code (grep quota, STT switch guard, chunk sizing) | PRODUCT_REQUIREMENTS → Guarantees; billing→ENTITLEMENTS_AND_BILLING | EXTRACTED |
+| 2. Failure Behavior | Fail-closed quota, model-download failure, webhook-delay, watchdog 8s, cloud-chunk violation | PR | verify vs code (fail-closed paths) | PRODUCT_REQUIREMENTS → Failure | EXTRACTED |
+| 3. Explicit Non-Goals | Bluetooth handoff, Safari offline, multi-tab mutex | PR | cross-check mutex code | PRODUCT_REQUIREMENTS → Non-goals | EXTRACTED |
+| 4. Service-Level Expectations | Product-level SL intent | AC | cross-check SERVICE_LEVELS | QUALITY / STT | EXTRACTED |
+| 5. Metrics & Success Criteria | WER<10% Private/<8% Cloud; conversion 2%; retention >30%; Native benchmark boundary | AC | verify targets vs STT evidence | PRODUCT_REQUIREMENTS + STT | EXTRACTED |
+| 6. Software Quality Evidence | Evidence pointer | EV | N/A | QUALITY | EXTRACTED |
 
-#### `SPEAKSHARP_SESSION_PROGRESS.operational.md` — current `main` (27 sections)
+#### `PRODUCT_FEATURES.operational.md` — Commit: current `main` · Role: PO
 
-| Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading (H2) | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| A.0–A.9 (Personal Progress direction) | Score-retirement rationale, baseline-not-grade, source priority, two-view calc, transparency rules, worked examples, comparable-session contract, outcome/agenda coverage, completion≠performance | PR | Y | COACHING_SCORE → Part A | EXTRACTED |
-| Reviewer Context / Source Of Truth / Signed-Off Architecture Boundary | Decision provenance + boundary | PR | N | COACHING_SCORE → Provenance | EXTRACTED |
-| Implementation Design / What The Score Means / Score Weights / Formula / Calibration / Score Labels / Confidence Levels / UX Rules | Legacy 0–10 score model (staged retirement) | PR/AI | Y | COACHING_SCORE → Part B (legacy) | EXTRACTED |
-| Research Anchors | Cited research basis | EV | Y | COACHING_SCORE → Research / evidence | EXTRACTED |
+| Personal Progress & Executive Rehearsal Contract | Canonical progress/rehearsal direction | PR | cross-check SESSION_PROGRESS | COACHING_SCORE + PRODUCT_REQUIREMENTS | EXTRACTED |
+| Feature Group Taxonomy | Feature grouping | PR | N/A | PRODUCT_REQUIREMENTS | EXTRACTED |
+| Vetted Product Claim Register | Approved marketable claims | PR | verify each claim vs evidence | PRODUCT_REQUIREMENTS → Claims | EXTRACTED |
+| Product Surface Summary | Surfaces inventory | PR | cross-check routes | PRODUCT_REQUIREMENTS | EXTRACTED |
+| Accepted Feature Candidates & Timing | Roadmap candidates | GAP | triage | ROADMAP | OPEN_GAP |
+| Detailed Feature Inventory | Full feature list | PR | cross-check code | PRODUCT_REQUIREMENTS | EXTRACTED |
+| Product Positioning | Positioning statement | PR | cross-check RELEASE_STATUS | PRODUCT_REQUIREMENTS | EXTRACTED |
+| Current Product Claims Boundary | Claim limits (Native not corpus-WER) | PR | verify vs STT boundary | PRODUCT_REQUIREMENTS + STT | EXTRACTED |
+| Related Operational Docs | Cross-links | PROC | N/A | (portal) | NO_DURABLE_CONTENT |
 
-#### `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — current `main`
+#### `SPEAKSHARP_SESSION_PROGRESS.operational.md` — Commit: current `main` · Role: PO
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Release closeout summary | Entitlement audit closeout | EV | N | EVIDENCE_INDEX | EVIDENCE_ONLY |
-| Finding 1: Pro daily/monthly limit (policy const vs DB) | Requirement + open ops item | PR/GAP | Y | ENTITLEMENTS_AND_BILLING (requirement); ROADMAP (open item) | EVIDENCE_ONLY + extraction |
-| Finding 2: overlapping usage functions | Divergent usage fns | GAP | Y | ROADMAP | EVIDENCE_ONLY |
-| Verified OK / Open needs-ops | Verified facts + open ops | EV/GAP | Y | EVIDENCE_INDEX + ROADMAP | EVIDENCE_ONLY |
+| A.0 Why the score is being retired | Score-retirement rationale | PR | N/A (decision) | COACHING_SCORE → A.0 | EXTRACTED |
+| A.1 Baseline: first session is a starting point | First session = baseline not grade | PR | N/A (decision) | COACHING_SCORE → A.1 | EXTRACTED |
+| A.2 Target source (priority order) | Source priority order | PR | verify vs code target resolution | COACHING_SCORE → A.2 | EXTRACTED |
+| A.3 Progress calculation (two views) | Two views never conflated | PR | verify vs calc code | COACHING_SCORE → A.3 | EXTRACTED |
+| A.4 What every percentage must expose | Transparency requirements | PR | verify vs UI | COACHING_SCORE → A.4 | EXTRACTED |
+| A.5 Worked examples (canonical) | Canonical examples | PR | recompute examples | COACHING_SCORE → A.5 | EXTRACTED |
+| A.6 Comparable-session contract | Comparability rules | PR | verify vs comparison code | COACHING_SCORE → A.6 | EXTRACTED |
+| A.7 Outcome Progress (agenda coverage) | Executive-Rehearsal agenda coverage | PR | verify vs rehearsal code | COACHING_SCORE → A.7 | EXTRACTED |
+| A.8 Summary language (initial) | Initial summary wording | PR | cross-check UI copy | COACHING_SCORE → A.8 | EXTRACTED |
+| A.9 Completion is not performance | Completion ≠ performance | PR | N/A (decision) | COACHING_SCORE → A.9 | EXTRACTED |
+| Reviewer Context | Decision provenance | PR | N/A | COACHING_SCORE → Provenance | EXTRACTED |
+| Source Of Truth | Which artifact is truth for the score | AI | N/A | COACHING_SCORE → Provenance | EXTRACTED |
+| Implementation Design | Legacy score impl design | AI | verify vs code | COACHING_SCORE → B (legacy) | EXTRACTED |
+| Signed-Off Architecture Boundary | Boundary of the score subsystem | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
+| What The Score Means | Score semantics (legacy) | PR | N/A | COACHING_SCORE → B | EXTRACTED |
+| Research Anchors | Cited research basis | EV | verify citations | COACHING_SCORE → Research; EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Score Weights | Legacy weight table | AI | verify vs code constants | COACHING_SCORE → B | EXTRACTED |
+| Formula | Legacy score formula | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
+| Calibration And Bias Testing | Calibration/bias approach | AC | verify vs tests | COACHING_SCORE → B; QUALITY | EXTRACTED |
+| Score Labels | Legacy label bands | PR | cross-check UI | COACHING_SCORE → B | EXTRACTED |
+| Confidence Levels | Confidence bands | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
+| User Experience Rules | Score UX rules | PR | cross-check UI | COACHING_SCORE → B | EXTRACTED |
 
-### 3.C Architecture (current)
+> Any remaining `SESSION_PROGRESS` sub-notes under "Reviewer Context" share class=PR, target=COACHING_SCORE → Provenance, verify=N/A, content=EXTRACTED.
 
-#### `ARCHITECTURE.operational.md` — current `main`
+### 3.C Architecture (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: ENG
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+#### `ARCHITECTURE.operational.md` — Commit: current `main`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| 🏛️ Authoritative Sources of Truth | Which artifact is truth for what | AI | Y | ARCHITECTURE → Sources of Truth | EXTRACTED |
-| 🛡️ Structural Invariants | No-silent-fallback, singleton controller, mutex, fail-closed, etc. | AI | Y | ARCHITECTURE → Invariants | EXTRACTED |
-| 🏗️ Operational Components | Component responsibilities | AI | Y | ARCHITECTURE → Components | EXTRACTED |
+| 🏛️ Authoritative Sources of Truth | Which artifact is truth for what | AI | cross-check README §1 | ARCHITECTURE → Sources of Truth | EXTRACTED |
+| 🛡️ Structural Invariants | No-silent-fallback, singleton controller, mutex, fail-closed | AI | grep each invariant in code | ARCHITECTURE → Invariants | EXTRACTED |
+| 🏗️ Operational Components | Component responsibilities | AI | read components | ARCHITECTURE → Components | EXTRACTED |
 
-#### `CODEBASE_MAP.md` — current `main`
+#### `CODEBASE_MAP.md` — Commit: current `main`
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Product direction + intent→code→test→doc rows | Breadcrumb map (promise → path → protecting test → doc) | AI | Y | ARCHITECTURE → Code Map | EXTRACTED — folded (not standalone) |
+| Product direction + intent→code→test→doc rows | Breadcrumb (promise→path→test→doc) | AI | verify each path/test exists | ARCHITECTURE → Code Map | EXTRACTED |
 
-### 3.D STT (current)
+### 3.D STT (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: ENG
 
-#### `STT_BASELINE_CONTRACTS.operational.md` — current `main` (14 sections)
+#### `STT_BASELINE_CONTRACTS.operational.md` — Commit: current `main`
 
-| Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Current Execution Addendum / Test Environment / "Drop-In" meaning | Test-env + drop-in definition | AC | Y | STT → Environment | EXTRACTED |
-| Stored Benchmark Targets / Published Performance Objectives / Acceptance Targets | Per-engine WER/latency targets | AC | Y | STT → Targets | EXTRACTED |
-| Shared Cross-Engine Contract / Baseline Matrix / Full Harvard Corpus Comparison | Cross-engine contract + corpus matrix | AC | Y | STT → Contract/Matrix | EXTRACTED |
-| Gate Status Language / Evidence Table Required / Deterministic Evidence Collected / Review Rule | Gate vocabulary + required evidence | AC | Y | STT → Evidence; QUALITY (gate lang) | EXTRACTED |
-| SpeakSharp Score Eligibility | Which engines are benchmarkable (Native = browser behavior only) | PR/AC | Y | STT + PRODUCT_REQUIREMENTS | EXTRACTED |
+| 2026-06-01 Current Execution Addendum | Current execution notes | AC | cross-check STT evidence | STT → Environment | EXTRACTED |
+| Test Environment For Latest Corpus Evidence | Test-env definition | AC | read harness config | STT → Environment | EXTRACTED |
+| What "Drop-In" Means | Drop-in definition | AC | N/A | STT → Environment | EXTRACTED |
+| Stored Benchmark Targets | Per-engine stored targets | AC | verify vs metrics matrix | STT → Targets | EXTRACTED |
+| Published Performance Objectives | Published objectives | AC | verify vs SERVICE_LEVELS | STT → Targets | EXTRACTED |
+| Shared Cross-Engine Contract | Cross-engine contract | AC | verify vs code | STT → Contract | EXTRACTED |
+| Baseline Matrix | Baseline matrix | AC | verify vs evidence | STT → Matrix | EXTRACTED |
+| Gate Status Language | Gate vocabulary | AC | cross-check RC_GATES | STT → Evidence; QUALITY | EXTRACTED |
+| Evidence Table Required For Each STT | Required evidence per engine | AC | cross-check evidence files | STT → Evidence | EXTRACTED |
+| Deterministic Evidence Collected | Collected deterministic runs | EV | verify artifacts | STT → Evidence; EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Full Harvard Corpus Baseline Comparison | Corpus comparison | AC/EV | verify vs artifacts | STT → Matrix | EXTRACTED |
+| SpeakSharp Score Eligibility | Which engines benchmarkable (Native=browser behavior only) | PR/AC | verify vs product boundary | STT + PRODUCT_REQUIREMENTS | EXTRACTED |
+| Acceptance Targets | Acceptance thresholds | AC | verify vs gates | STT → Targets | EXTRACTED |
+| Review Rule | STT review rule | PROC | N/A | STT → Review | EXTRACTED |
 
-#### `PRIVATE_STT_ACCURACY_LEVERS.md` — current `main`
+#### `PRIVATE_STT_ACCURACY_LEVERS.md` — Commit: current `main`
 
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Reference baselines | What each number proves | AC/EV | Y | STT → Levers | EXTRACTED |
-| Lever 1 Mic-constraint / Lever 2 COI→multithread / Lever 3 WebGPU / Lever 4 model upgrade | Accuracy/latency levers + ordering | AC | Y | STT → Levers | EXTRACTED |
-| Recommended sequence | Ordered improvement plan | GAP | Y | STT → Levers / ROADMAP | EXTRACTED |
+| Reference baselines | What each number proves | AC/EV | verify vs evidence | STT → Levers | EXTRACTED |
+| Lever 1 — Mic-constraint alignment | Mic-constraint lever (do-first) | AC | verify vs code | STT → Levers | EXTRACTED |
+| Lever 2 — COI → WASM multithreading | Cross-origin-isolation latency lever | AC | verify vs headers/code | STT → Levers | EXTRACTED |
+| Lever 3 — WebGPU acceleration | WebGPU latency lever | AC | verify vs v4 (hard-off) | STT → Levers | EXTRACTED |
+| Lever 4 — Model upgrade tiny→base/small | Accuracy-ceiling lever | AC | verify vs model flag | STT → Levers | EXTRACTED |
+| Recommended sequence | Ordered plan | GAP | triage | STT → Levers / ROADMAP | OPEN_GAP |
 
-#### `stt-perf-proof-protocol.md` — current `main`
+#### `stt-perf-proof-protocol.md` — Commit: current `main`
 
-| Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Tiered ladder / Layered measurement / Cold-warm-hot / Controls / Minimum matrix / Report fields / Slowdown classification / Decision thresholds | STT perf-proof measurement protocol + thresholds | AC/PROC | Y | STT → Perf Proof | EXTRACTED |
+| Tiered ladder | Top-down early-exit ladder | PROC | N/A | STT → Perf Proof | EXTRACTED |
+| Layered measurement | Separate each measured layer | PROC | N/A | STT → Perf Proof | EXTRACTED |
+| Cold / warm / hot | Mandatory thermal states | AC | N/A | STT → Perf Proof | EXTRACTED |
+| Controls | Attribution controls | PROC | N/A | STT → Perf Proof | EXTRACTED |
+| Minimum matrix | Next-pass matrix | AC | N/A | STT → Perf Proof | EXTRACTED |
+| Report fields | Required report fields | PROC | N/A | STT → Perf Proof | EXTRACTED |
+| Slowdown classification | Classify every result | AC | N/A | STT → Perf Proof | EXTRACTED |
+| Decision thresholds | Thresholds set before running | AC | N/A | STT → Perf Proof / (harness step 7) | EXTRACTED |
 
-### 3.E Quality & service levels (current)
+### 3.E Quality / service-levels / test-inventory (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: EQ
 
-#### `SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, `SERVICE_LEVELS.operational.md` — current `main`
+#### `SOFTWARE_QUALITY.operational.md` — Commit: current `main`
 
-| Source · Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| SOFTWARE_QUALITY · 1–6 (Evidence Chain, Sources, Generated Files, Targets, Interpretation, Related) | Quality-evidence taxonomy + targets + interpretation rules | PROC/AC | Y | QUALITY | EXTRACTED |
-| QUALITY_METRICS · Evidence Files / Release Targets / Target-vs-Measured Digest / Closure Rule | Quality digest + closure rule | AC/EV | Y | QUALITY (targets) + EVIDENCE_INDEX (digest) | EXTRACTED |
-| SERVICE_LEVELS · 1 Definitions / 3 Industry Check / 5 Release-Gate Fit / 6 Artifact Expectations | General SLO/SLC/SLA terms + gate fit | AC | Y | QUALITY | EXTRACTED |
-| SERVICE_LEVELS · 2 Soft-Release Targets / 4 Evidence Mapping (STT-specific SLOs) | STT-specific latency/WER SLOs | AC | Y | STT → SLOs | EXTRACTED (split) |
+| 1. Evidence Chain | Evidence-chain model | PROC | N/A | QUALITY → Evidence Chain | EXTRACTED |
+| 2. Quality Evidence Sources | Source list | PROC | verify sources exist | QUALITY → Sources | EXTRACTED |
+| 3. Generated Evidence Files | Generated digests | EV | verify files under evidence/ | QUALITY; EVIDENCE_INDEX | EXTRACTED |
+| 4. Current Quality Targets | Coverage/lighthouse/etc. targets | AC | verify vs CI thresholds | QUALITY → Targets | EXTRACTED |
+| 5. Interpretation Rules | How to read evidence | PROC | N/A | QUALITY → Interpretation | EXTRACTED |
+| 6. Related Documents | Cross-links | PROC | N/A | (portal) | NO_DURABLE_CONTENT |
 
-#### `RC_TEST_INVENTORY.md` — current `main` (17 sections)
+#### `QUALITY_METRICS.md` — Commit: current `main`
 
-| Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Executive Summary / Per-File Triage / RC Gate Structure / How Tests → Gates / Gate Coverage Map | Counted tests mapped to gates | AC | Y | QUALITY → Test Inventory | EXTRACTED |
-| STT Corpus Gate Layers / Contract Source Requirement / RC-Counted ledgers | STT + unit/browser counted ledgers | AC | Y | QUALITY (+ STT corpus) | EXTRACTED |
-| Where Workflows Fit / GitHub Workflows / Script Inventory | Workflow/script inventory | PROC | Y | QUALITY / RELEASE_PROCESS | EXTRACTED |
-| Current Gaps / Redundancy Candidates | Coverage gaps + waste | GAP | Y | ROADMAP | OPEN_GAP |
-| Tests Added/Tightened latest push / Recommended RC Reporting | Recent additions + report format | AC/PROC | N | QUALITY | EXTRACTED |
+| Current Evidence Files | Evidence file list | EV | verify files | QUALITY; EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Release Targets | Release quality targets | AC | verify vs CI | QUALITY → Targets | EXTRACTED |
+| Latest Target Vs Measured Digest | Digest table | EV | regenerate digest | EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Evidence Closure Rule | Closure rule | PROC | N/A | QUALITY → Interpretation | EXTRACTED |
 
-#### `INTERNAL_TEST_PROTOCOL.md`, `MANUAL_HARDWARE_VALIDATION.md` — current `main`
+#### `SERVICE_LEVELS.operational.md` — Commit: current `main`
 
-| Source · Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| INTERNAL_TEST · Release posture / Entitlement rules / Acceptance criteria / Session UI truth / Data provenance / Browser wording / v4 posture | Engineering acceptance protocol | PROC | Y | QUALITY | EXTRACTED |
-| INTERNAL_TEST · Pre-invite operator checklist / Automated first-time-tester proof | Tester-ops procedures | PROC | Y | TESTER_OPERATIONS | EXTRACTED (split) |
-| MANUAL_HARDWARE · Desktop Chrome/Safari/Firefox/iPhone/Bluetooth/Stress + Evidence Logs | Manual hardware/browser matrix | PROC/EV | Y | QUALITY (protocol) + TESTER_OPERATIONS (run) + EVIDENCE_INDEX (logs) | EXTRACTED (split) |
+| 1. Definitions | SLO/SLC/SLA terms | AC | N/A | QUALITY → SLOs | EXTRACTED |
+| 2. Soft-Release Targets | Per-metric targets (incl STT latency/WER) | AC | verify vs evidence | QUALITY (general) + STT (STT SLOs) | EXTRACTED |
+| 3. Industry Reality Check | Industry comparison | HYP | flag unverified | QUALITY → SLOs (context) | EVIDENCE_ONLY |
+| 4. Evidence Mapping | Metric→evidence map (incl STT) | AC | verify links | QUALITY + STT | EXTRACTED |
+| 5. Release-Gate Fit | Which SL feeds which gate | AC | cross-check RC_GATES | QUALITY / RELEASE_PROCESS | EXTRACTED |
+| 6. Evidence Artifact Expectations | Required artifacts | PROC | N/A | QUALITY | EXTRACTED |
 
-### 3.F Release process, status, roadmap (current)
+#### `RC_TEST_INVENTORY.md` — Commit: current `main`
 
-#### `RC_GATES.md` — current `main` (10 sections)
-
-| Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Evidence Rules / Gate Summary / Gate 1–5 (Product Truth, SAST, DAST, SCA, UX Smoke) | Gate definitions + evidence requirements | AC | Y | RELEASE_PROCESS → Gates; acceptance detail → QUALITY | EXTRACTED (split) |
-| Observability API Readback / Evidence Freshness Contract / Named STT Gate Artifacts | Freshness contract + named artifacts | AC | Y | RELEASE_PROCESS + STT (STT artifacts) | EXTRACTED |
+| Executive Summary | Inventory summary | AC | N/A | QUALITY → Test Inventory | EXTRACTED |
+| Per-File Triage Status | Per-file triage | AC | verify vs test tree | QUALITY | EXTRACTED |
+| RC Gate Structure | Gate structure | AC | cross-check RC_GATES | RELEASE_PROCESS / QUALITY | EXTRACTED |
+| How Tests Are Decided Into Gates | Gate-assignment rule | PROC | N/A | QUALITY | EXTRACTED |
+| STT Corpus Gate Layers | STT corpus layers | AC | cross-check STT | QUALITY + STT | EXTRACTED |
+| Contract Source Requirement | Contract-source rule | PROC | N/A | QUALITY | EXTRACTED |
+| RC-Counted Browser And Live Ledger | Counted browser/live tests | AC | verify vs workflows | QUALITY | EXTRACTED |
+| RC-Counted Unit / Component Ledger | Counted unit tests | AC | verify vs vitest | QUALITY | EXTRACTED |
+| Gate Coverage Map | Gate→test map | AC | verify | QUALITY | EXTRACTED |
+| Where Workflows Fit | Workflow placement | PROC | read workflows | QUALITY / RELEASE_PROCESS | EXTRACTED |
+| Tests Added Or Tightened (latest) | Recent additions | AC | verify vs git | QUALITY | EXTRACTED |
+| GitHub Workflows | Workflow inventory | PROC | read .github/workflows | RELEASE_PROCESS | EXTRACTED |
+| Script Inventory | Script list | PROC | read scripts/ | QUALITY / RELEASE_PROCESS | EXTRACTED |
+| What Counts For Release Confidence | Confidence criteria | AC | N/A | QUALITY | EXTRACTED |
+| Current Gaps | Coverage gaps | GAP | triage | ROADMAP | OPEN_GAP |
+| Redundancy / Waste Candidates | Waste candidates | GAP | triage | ROADMAP | OPEN_GAP |
+| Recommended RC Reporting Format | Report format | PROC | N/A | QUALITY | EXTRACTED |
 
-#### `RELEASE_RECOVERY.md`, `RELEASE_CLOSEOUT_LEDGER.md`, `RELEASE_STATUS.md` — current `main`
+### 3.F Release process / status / roadmap (current)
 
-| Source · Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+#### `RC_GATES.md` — Commit: current `main` · Role: EQ · File-state: ARCHIVE_AT_CLOSEOUT
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| RELEASE_RECOVERY · Doctrine / Triage / Rollback criteria / Supabase patching / Data integrity / Comms / Deploy facts | Recovery + rollback procedure | PROC | Y | RELEASE_PROCESS → Recovery | EXTRACTED |
-| RELEASE_CLOSEOUT · Target state / Live lane / A–E closeout sections / Dev posture | Older closeout tracker (has dated proof + open items) | GAP/EV | Y | ROADMAP (open) + EVIDENCE_INDEX (proof) | SUPERSEDED |
-| RELEASE_STATUS · all sections | Current posture (**SSOT**) | RF | N | RELEASE_STATUS (unchanged) | EXTRACTED |
+| Evidence Rules | Gate evidence rules | AC | N/A | RELEASE_PROCESS → Gates | EXTRACTED |
+| Gate Summary | 5-gate summary | AC | cross-check workflows | RELEASE_PROCESS → Gates | EXTRACTED |
+| Gate 1 - Product Truth | Product-truth gate | AC | verify workflow | RELEASE_PROCESS; QUALITY | EXTRACTED |
+| Gate 2 - SAST / Code Review | SAST gate | AC | verify workflow | RELEASE_PROCESS | EXTRACTED |
+| Gate 3 - DAST / Running App | Live DAST gate | AC | verify workflow | RELEASE_PROCESS | EXTRACTED |
+| Gate 4 - SCA / Dependency Review | SCA gate | AC | verify sca-osv | RELEASE_PROCESS; OPERATIONS_AND_SECURITY | EXTRACTED |
+| Gate 5 - UX Smoke | UX-smoke gate | AC | verify workflow | RELEASE_PROCESS; QUALITY | EXTRACTED |
+| Observability API Readback | Readback requirements | AC | verify vs providers | RELEASE_PROCESS; OPERATIONS_AND_SECURITY | EXTRACTED |
+| Evidence Freshness Contract | Freshness contract | AC | N/A | RELEASE_PROCESS; RELEASE_STATUS | EXTRACTED |
+| Named STT Gate Artifacts | Named STT artifacts | AC | verify artifact names | STT + RELEASE_PROCESS | EXTRACTED |
 
-#### `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md` — current `main`
+#### `RELEASE_RECOVERY.md` — Commit: current `main` · Role: OPS/EQ · File-state: ARCHIVE_AT_CLOSEOUT
 
-| Source · Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| BACKLOG · 1 Product Positioning Contract | Positioning invariants | PR | Y | PRODUCT_REQUIREMENTS (contract) + ROADMAP | EXTRACTED |
-| BACKLOG · 2 Remaining P0 / 3 Remaining P1 / 4 Deferred P2-P3 | All open work by priority | GAP | Y | ROADMAP → Now/Next/Later | EXTRACTED |
-| BACKLOG · 5 Triage Rules | How work is prioritized | PROC | N | ROADMAP → Triage | EXTRACTED |
-| ACTIVE_COORDINATION · Current baseline / Current work | Working board (references `RELEASE_STATUS.md` for baseline) | GAP | N | ROADMAP → Now | EXTRACTED |
-| ROADMAP.operational · Risk Matrix / Pre-Launch Hardening / Launch Boundary | STALE risk matrix + 12-hr-sprint framing + declined boundary | GAP/HIST | Y | ROADMAP → Now/Declined (durable risks only) | SUPERSEDED |
+| Recovery Doctrine: Forward-Fix First | Forward-fix doctrine | PROC | N/A | RELEASE_PROCESS → Recovery | EXTRACTED |
+| 🚨 Emergency Triage Levels | Triage levels | PROC | N/A | RELEASE_PROCESS → Recovery | EXTRACTED |
+| 1. Emergency Rollback Criteria | Rollback criteria | PROC | N/A | RELEASE_PROCESS → Recovery | EXTRACTED |
+| 2. Supabase Emergency Patching | Emergency patch steps | PROC | verify vs supabase config | RELEASE_PROCESS; OPERATIONS_AND_SECURITY | EXTRACTED |
+| 3. Data Integrity Recovery | Data-integrity recovery (respects L3) | PROC | cross-check PRECEDENCE rules | RELEASE_PROCESS → Recovery | EXTRACTED |
+| 4. Communication Protocol | Comms protocol | PROC | N/A | RELEASE_PROCESS → Recovery | EXTRACTED |
+| 5. Deployment & schema facts | Deploy/schema facts | AI/RF | verify vs current; move volatile to RELEASE_STATUS | RELEASE_PROCESS; RELEASE_STATUS (volatile) | EXTRACTED |
 
-### 3.G Operations & security (current)
+#### `RELEASE_CLOSEOUT_LEDGER.md` — Commit: current `main` · Role: PO/POQ · File-state: ARCHIVE_AT_CLOSEOUT
 
-#### `LAUNCH_ENV_CHECKLIST.md`, `ENV_INVENTORY.md`, `SECRET_ROTATION_RUNBOOK.md`, `PAID_OPS_HARDENING_RUNBOOK.md`, `OPS_HEALTH_DASHBOARD.md`, `SCA_EXCEPTIONS.md` — current `main`
-
-| Source · Heading group | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| LAUNCH_ENV_CHECKLIST · 1–8 + Verification Protocol | Pre-launch env/billing/observability/STT-flag checklist | PROC | Y | OPERATIONS_AND_SECURITY → Env Checklist | EXTRACTED |
-| ENV_INVENTORY · Storage homes / `.env` map / VITE_* / secrets / GH Actions / Vercel / add-new / flag sync / #1006 draft / open decisions / audit-workflow inventory | Full env/secrets/flag inventory (names + scope only) | PROC | Y | OPERATIONS_AND_SECURITY → Env Inventory | EXTRACTED |
-| SECRET_ROTATION_RUNBOOK · What-to-rotate / Automation / Sequence / Verify / Ownership | Rotation runbook | PROC | Y | OPERATIONS_AND_SECURITY → Rotation | EXTRACTED |
-| PAID_OPS_HARDENING · Gating architecture / verifiable-now / live-var checklist / activation verification / scope note / guardrails | Paid-path gating + activation contract | PROC/PR | Y | OPERATIONS_AND_SECURITY → Paid Ops; billing gating → ENTITLEMENTS_AND_BILLING | EXTRACTED |
-| OPS_HEALTH_DASHBOARD · Status / rows / GitHub-API semantics / vocabulary / security rules / usage / WIP / future | Ops-health scope + status vocabulary | PROC | Y | OPERATIONS_AND_SECURITY → Ops Health | EXTRACTED |
-| SCA_EXCEPTIONS · GHSA-5xrq / Pinned-audit result | Single ignored advisory + rationale | PROC/EV | Y | OPERATIONS_AND_SECURITY → SCA | EXTRACTED |
+| Target state (release-owner) | Older target state | GAP | triage | ROADMAP | OPEN_GAP |
+| Live release lane — current status | Stale current-status | RF | move to RELEASE_STATUS | RELEASE_STATUS | NO_DURABLE_CONTENT |
+| A. Backlog / disposition ledger | Deferred items | GAP | triage | ROADMAP | OPEN_GAP |
+| B. Documentation-gap closures | Recorded doc statuses | EV | verify | EVIDENCE_INDEX | EVIDENCE_ONLY |
+| C. Prep-only checklist — SLO/SLC | SLO rig checklist | PROC | cross-check QUALITY | QUALITY / RELEASE_PROCESS | EXTRACTED |
+| D. #3 Stripe activation contract | Live-activation contract | PR/PROC | verify vs PAID_OPS | ENTITLEMENTS_AND_BILLING; OPERATIONS_AND_SECURITY | EXTRACTED |
+| E. DB hygiene closeout | Historical DB cleanup | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Dev posture | Dev posture note | GAP | N/A | ROADMAP | NO_DURABLE_CONTENT |
 
-### 3.H Tester copy (current)
+#### `BACKLOG.md` / `ACTIVE_COORDINATION.md` / `ROADMAP.operational.md` — Commit: current `main` · Role: PO · File-state: ARCHIVE_AT_CLOSEOUT
 
-#### `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` — current `main`
-
-| Heading | Atomic content / claim | Class | Verify | Target → § | Disp. |
+| Source · Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| What is SpeakSharp? / Beta invitation copy / Simple walkthrough / What feedback helps most | Plain-language external tester guide + send-ready invite copy | PROC | Y | TESTER_GUIDE | EXTRACTED |
+| BACKLOG · 1 Product Positioning Contract | Positioning invariants | PR | cross-check RELEASE_STATUS | PRODUCT_REQUIREMENTS + ROADMAP | EXTRACTED |
+| BACKLOG · 2 Remaining P0 | Open P0 items | GAP | triage | ROADMAP → Now | OPEN_GAP |
+| BACKLOG · 3 Remaining P1 | Open P1 items | GAP | triage | ROADMAP → Next | OPEN_GAP |
+| BACKLOG · 4 Deferred P2/P3 | Deferred items | GAP | triage | ROADMAP → Later | OPEN_GAP |
+| BACKLOG · 5 Triage Rules | Prioritization rules | PROC | N/A | ROADMAP → Triage | EXTRACTED |
+| ACTIVE_COORDINATION · Current baseline | References RELEASE_STATUS baseline | RF | move to RELEASE_STATUS | RELEASE_STATUS | NO_DURABLE_CONTENT |
+| ACTIVE_COORDINATION · Current work | Working board | GAP | triage | ROADMAP → Now | OPEN_GAP |
+| ROADMAP.operational · Risk Matrix | Stale risk matrix (durable risks only) | GAP | triage each row | ROADMAP → Now/Declined | OPEN_GAP |
+| ROADMAP.operational · Pre-Launch Hardening (12-hr sprint) | Stale sprint framing | HIST | N/A | ROADMAP (superseded) | NO_DURABLE_CONTENT |
+| ROADMAP.operational · Launch Boundary (Deferred) | Declined/deferred boundary | GAP | triage | ROADMAP → Declined | OPEN_GAP |
 
-### 3.I Evidence & exploratory (file-level)
+### 3.G Operations & security (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: OPS
 
-| Source | Atomic content / claim | Class | Verify | Target → § | Disp. |
+#### `LAUNCH_ENV_CHECKLIST.md`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| `evidence/**` (14 md: beta50, private-path validation, STT release reports, metrics matrix, generated digests) | Dated proof packets | EV | N | EVIDENCE_INDEX | EVIDENCE_ONLY |
-| `PUBLIC_LAUNCH_LEDGER.md` (PL-002…PL-011 gate evidence) | Broad-launch gate evidence | EV | N | EVIDENCE_INDEX | EVIDENCE_ONLY |
-| `v4_work/**` (5 md: app-path proof, complete test, decode root-cause, posthog readiness, recovery) | v4 exploration (hard-off engine) | EV/HYP | N | reference for deferred v4 disposition (ROADMAP → Later) | EVIDENCE_ONLY |
-| `attribution-sanitation-crosswalk.md` | Old→new SHA crosswalk (2026-07-15) | HIST | N | archive | SUPERSEDED |
+| 1. Billing & Payments (Stripe) | Stripe env checklist | PROC | verify vs env | OPERATIONS_AND_SECURITY → Env | EXTRACTED |
+| 2. Backend Infrastructure (Supabase) | Supabase env checklist | PROC | verify vs env | OPERATIONS_AND_SECURITY → Env | EXTRACTED |
+| 3. Vercel Frontend Environment Safety | Vercel env safety | PROC | verify vs Vercel | OPERATIONS_AND_SECURITY → Env | EXTRACTED |
+| 4. Observability & Monitoring | Observability env | PROC | verify vs providers | OPERATIONS_AND_SECURITY → Env | EXTRACTED |
+| 5. Third-Party APIs | Third-party API env | PROC | verify vs env | OPERATIONS_AND_SECURITY → Env | EXTRACTED |
+| 6. Live Database Entitlement Evidence | Entitlement evidence check | EV | verify vs DB | EVIDENCE_INDEX; ENTITLEMENTS_AND_BILLING | EVIDENCE_ONLY |
+| 7. Security & Rate Limiting | Security/rate-limit checklist | PROC | verify vs edge functions | OPERATIONS_AND_SECURITY → Security | EXTRACTED |
+| 8. STT feature flags & runtime toggles | STT flag checklist | PROC | verify vs flags | OPERATIONS_AND_SECURITY → Flags | EXTRACTED |
+| 🛡️ Verification Protocol | Verification steps | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+
+#### `ENV_INVENTORY.md`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| Storage Homes (legend) | Env storage legend | PROC | N/A | OPERATIONS_AND_SECURITY → Env Inventory | EXTRACTED |
+| `.env.*` file map + minimum set | Env-file map | PROC | verify vs repo | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Decisions log | Env decisions | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| 1. Client-public `VITE_*` | Public client vars (not secrets) | PROC | verify vs build | OPERATIONS_AND_SECURITY | EXTRACTED |
+| 2. Server-side secrets (Edge, Home C) | Secret inventory (names/scope only) | PROC | verify names vs functions | OPERATIONS_AND_SECURITY → Secrets | EXTRACTED |
+| 3. GitHub Actions env (Home D) | Actions secrets vs variables | PROC | verify vs workflows | OPERATIONS_AND_SECURITY | EXTRACTED |
+| 4. Vercel Project Env (Home B) | Vercel env inventory | PROC | verify vs Vercel | OPERATIONS_AND_SECURITY | EXTRACTED |
+| How to add a NEW env variable | Add-var procedure | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Feature-flag & runtime vars — code-verified sync | Flag/var sync | PROC | grep flags in code | OPERATIONS_AND_SECURITY → Flags | EXTRACTED |
+| Draft #1006 — NOT deployed | #1006 draft vars (not shipped) | GAP | cross-check RELEASE_STATUS (#1006 CLOSED) | ROADMAP (if revived) | OPEN_GAP |
+| Open decisions affecting this inventory | Open env decisions | GAP | triage | ROADMAP | OPEN_GAP |
+| GitHub Actions inventory (tester-evidence audit) | Audit workflow env (names/scope) | PROC | verify vs workflow | OPERATIONS_AND_SECURITY; TESTER_OPERATIONS | EXTRACTED |
+
+#### `SECRET_ROTATION_RUNBOOK.md`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| What Must Be Rotated Or Proved Fake | Rotation inventory | PROC | verify vs secrets | OPERATIONS_AND_SECURITY → Rotation | EXTRACTED |
+| Automation Reality | Rotation automation limits | PROC | N/A | OPERATIONS_AND_SECURITY → Rotation | EXTRACTED |
+| Recommended Product-Ops Sequence | Rotation sequence | PROC | N/A | OPERATIONS_AND_SECURITY → Rotation | EXTRACTED |
+| Verification After Rotation | Post-rotation verification | PROC | N/A | OPERATIONS_AND_SECURITY → Rotation | EXTRACTED |
+| Ownership | Rotation ownership | PROC | N/A | OPERATIONS_AND_SECURITY → Rotation | EXTRACTED |
+
+#### `PAID_OPS_HARDENING_RUNBOOK.md` — Role: OPS (+PO for billing gating)
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| How the paid path is gated (architecture) | Paid-path gating architecture | AI/PR | grep payment switches in code | OPERATIONS_AND_SECURITY; ENTITLEMENTS_AND_BILLING | EXTRACTED |
+| Checklist — verifiable now (no live keys) | Now-verifiable checklist | PROC | run checklist | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Live env variable checklist | Live-var checklist (Dev never handles secrets) | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Required live-activation verification + optional smoke | Activation verification | PROC | N/A | ENTITLEMENTS_AND_BILLING; OPERATIONS_AND_SECURITY | EXTRACTED |
+| Scope note — not proven here | Scope caveat | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Guardrails honored | Guardrails | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+
+#### `OPS_HEALTH_DASHBOARD.md`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| Implementation Status | Ops-health impl status | RF | verify vs code | OPERATIONS_AND_SECURITY → Ops Health | EXTRACTED |
+| What It Answers | Dashboard scope | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Current V1 Rows | V1 health rows | PROC | verify vs code | OPERATIONS_AND_SECURITY | EXTRACTED |
+| GitHub API row — bounded-retry semantics (#990) | Retry/recovery semantics | AI | grep ops-health code | OPERATIONS_AND_SECURITY; ARCHITECTURE | EXTRACTED |
+| Status Vocabulary | Status vocabulary | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Security Rules | Ops-health security rules | PROC | N/A | OPERATIONS_AND_SECURITY → Security | EXTRACTED |
+| Usage | Usage instructions | PROC | N/A | OPERATIONS_AND_SECURITY | EXTRACTED |
+| Work In Progress Checks | WIP checks | GAP | triage | ROADMAP | OPEN_GAP |
+| Future Checks | Future checks | GAP | triage | ROADMAP → Later | OPEN_GAP |
+
+#### `SCA_EXCEPTIONS.md`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| GHSA-5xrq — Vitest UI advisory | Single ignored advisory + rationale | PROC/EV | verify vs sca-osv config | OPERATIONS_AND_SECURITY → SCA | EXTRACTED |
+| Pinned-audit execution result (2026-07-15) | Dated audit result | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
+
+### 3.H Tester copy — File-state: ARCHIVE_AT_CLOSEOUT
+
+#### `INTERNAL_TEST_PROTOCOL.md` — Commit: current `main` · Role: EQ (engineering) / POQ (tester-ops)
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| Release posture | Engineering release posture | PROC | cross-check RELEASE_STATUS | QUALITY | EXTRACTED |
+| Pre-invite operator checklist | Operator pre-invite steps | PROC | N/A | TESTER_OPERATIONS | EXTRACTED |
+| Entitlement / scope rules | Tester entitlement rules | PR | cross-check ENTITLEMENTS_AND_BILLING | QUALITY; ENTITLEMENTS_AND_BILLING | EXTRACTED |
+| Per-tester acceptance criteria | "Successful session" definition | AC | verify vs app | QUALITY → Acceptance | EXTRACTED |
+| Session UI truth | What the session screen shows | PR | verify vs UI | QUALITY; PRODUCT_REQUIREMENTS | EXTRACTED |
+| Data provenance / observability truth | Provenance/observability facts | AI | verify vs code | QUALITY; ARCHITECTURE | EXTRACTED |
+| Browser-support wording | Browser-support statement | PR | verify vs support matrix | QUALITY; TESTER_GUIDE | EXTRACTED |
+| Automated first-time-tester proof | Pre-invite automated proof | PROC | run proof | TESTER_OPERATIONS | EXTRACTED |
+| Private v4 rollout posture (internal) | v4 internal posture (never in tester guide) | PR | cross-check RELEASE_STATUS | TESTER_OPERATIONS; STT | EXTRACTED |
+
+#### `MANUAL_HARDWARE_VALIDATION.md` — Commit: current `main` · Role: EQ (protocol) / POQ (run)
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| Desktop Chrome | Chrome validation protocol | PROC | run protocol | QUALITY (protocol); TESTER_OPERATIONS (run) | EXTRACTED |
+| Desktop Safari | Safari protocol | PROC | run protocol | QUALITY; TESTER_OPERATIONS | EXTRACTED |
+| Firefox | Firefox protocol | PROC | run protocol | QUALITY; TESTER_OPERATIONS | EXTRACTED |
+| iPhone Safari | iPhone protocol | PROC | run protocol | QUALITY; TESTER_OPERATIONS | EXTRACTED |
+| Bluetooth / External Mic | Bluetooth/mic protocol | PROC | run protocol | QUALITY; TESTER_OPERATIONS | EXTRACTED |
+| Stress / Degraded Conditions | Stress protocol | PROC | run protocol | QUALITY; TESTER_OPERATIONS | EXTRACTED |
+| Hardware Evidence Logs | Dated hardware logs | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
+
+#### `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` — Commit: current `main` · Role: PO
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| What is SpeakSharp? | Plain-language intro | PR | cross-check PRODUCT_REQUIREMENTS | TESTER_GUIDE → Intro | EXTRACTED |
+| Beta invitation copy | Send-ready invite copy | PR | cross-check RELEASE_STATUS posture | TESTER_GUIDE → Invite | EXTRACTED |
+| A simple walkthrough | Tester walkthrough | PROC | verify vs app flow | TESTER_GUIDE → Walkthrough | EXTRACTED |
+| What feedback helps most | Feedback guidance | PROC | N/A | TESTER_GUIDE → Feedback | EXTRACTED |
+
+### 3.I Evidence & exploratory (substantive files enumerated) — File-state: RETAINED_EVIDENCE · Role: POQ
+
+#### `PUBLIC_LAUNCH_LEDGER.md` — Commit: current `main`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| Gate Ledger / Phase Plan / Next Gate | Broad-launch gate plan | GAP | triage vs ROADMAP | ROADMAP (open gates) | OPEN_GAP |
+| PL-002…PL-011 evidence summaries (Checkout, Entitlement, Billing lifecycle, Access lifecycle, Cloud transcript/provider proof, AI feedback, PDF, Mobile, Observability) | Dated per-gate proof | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
+
+#### `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — Commit: current `main`
+
+| Heading | Atomic claim | Class | Verify method | Target → § | Content |
+|---|---|---|---|---|---|
+| Release closeout summary | Entitlement audit closeout | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Finding 1: Pro daily/monthly limit (const vs DB) | Requirement + open ops item | PR/GAP | verify policy const vs deployed DB | ENTITLEMENTS_AND_BILLING (req); ROADMAP (open) | EXTRACTED + OPEN_GAP |
+| Finding 2: overlapping usage functions | Divergent usage fns | GAP | grep usage functions | ROADMAP | OPEN_GAP |
+| Verified OK | Verified facts | EV | N/A | EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Open / needs-ops | Open ops items | GAP | triage | ROADMAP | OPEN_GAP |
+
+> `evidence/**` (beta50 packets, private-path validation, STT release reports, metrics matrix, generated digests) and `v4_work/**` (5 md, v4 hard-off exploration): all **EVIDENCE_ONLY / RETAINED_EVIDENCE**, indexed by EVIDENCE_INDEX; any embedded requirement/gap is routed (requirement→canonical, gap→ROADMAP) at EVIDENCE_INDEX build. `attribution-sanitation-crosswalk.md`: NO_DURABLE_CONTENT (provenance), semantics ALREADY_ARCHIVED.
 
 ---
 
-## 4. Current-state corrections (from superseded PR #1031)
+## 4. Current-state corrections (from superseded PR #1031) — applied to `RELEASE_STATUS.md` in THIS PR
 
-PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) was a narrow stale-fact correction, **closed as superseded** (not merged). Its corrections apply to **`RELEASE_STATUS.md` (SSOT)** and the canonical docs, executed by the relevant later PR. **This ledger records only the *kinds* of correction — not the changing values** (per the no-competing-source rule; read the values from `RELEASE_STATUS.md`):
+PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superseded) flagged stale current-state facts. **This PR repairs `RELEASE_STATUS.md` directly** (the SSOT), so the corrections are now *applied*, not merely recorded. Read the current values from `RELEASE_STATUS.md` — the kinds of correction (no changing SHAs here):
 
-- **Baseline references** in `RELEASE_STATUS.md`, `content_list.md`, `ACTIVE_COORDINATION.md`, `CODEBASE_MAP.md` must track the current `main` HEAD and last product-behavior baseline **as recorded in `RELEASE_STATUS.md`** (an earlier stale `main` SHA and the old build-id define were corrected — read the current values from `RELEASE_STATUS.md`, not here).
-- **Release mechanism:** the `__BUILD_ID__` JS `define` was removed; release SHA is an inline `window.__APP_RELEASE__` in `index.html` (from `VERCEL_GIT_COMMIT_SHA`), surfaced at `window.__APP_RUNTIME_CONFIG__.release`; Sentry `release.inject:false`. → ARCHITECTURE (mechanism) + `RELEASE_STATUS.md` (how to verify SHA-equality).
-- **STT posture:** Private v2 (`whisper-base.en`) default; Private v4 (WebGPU) experimental + hard-disabled; Cloud explicit-choice; Native/Browser = Web Speech, not universally offline (Chrome→Google), never automatic fallback; app never silently switches. → PRODUCT_REQUIREMENTS + STT.
-- **Billing:** invite-only, fail-closed; checkout closed unless BOTH `VITE_PAYMENTS_ENABLED` and `PAYMENTS_ENABLED`; Pro/Cloud QA = comped DB entitlement; one-hour Pro trial retired. → ENTITLEMENTS_AND_BILLING.
-- **Stale banners:** `PRD.operational.md`, `ROADMAP.operational.md` (v0.6.19-rc0, reviewed 2026-05-26) banner-marked ⚠️ STALE; PRODUCT_REQUIREMENTS (PRD v1) is the authoritative replacement.
-- **`docs/PRD.md`** retirement stub points at current sources.
+- **Baselines** now distinguish repo `main` (moving pointer), last product-behavior release, later docs/audit/tooling commits, and the deployed release (`window.__APP_RELEASE__`).
+- **Release mechanism** corrected to `window.__APP_RELEASE__` (the `__BUILD_ID__` define was removed in #1027; Sentry `release.inject:false`).
+- **#1006 corrected to CLOSED** (no longer current work).
+- **Posture** updated to `/practice` default (#1022), stale-chunk P0 (#1027), issue-report hygiene (#1024); audit tooling #1028–#1030 = no product-behavior change.
+- **STT/tester wording** corrected (Quick Preview (Browser); v2 default; v4 hard-off; Cloud paid-Pro-only).
 
 ---
 
 ## 5. The "Quick Preview (Browser)" naming decision
 
 **Decision (approved):** the user-facing label for the Web Speech engine is **"Quick Preview (Browser)"**, replacing user-facing "Native".
-
-- **Scope:** display label + truthful copy **only**. Internal engine token, telemetry values, and DB `engine`/`mode` values remain **`native`** — unchanged.
+- **Scope:** display label + truthful copy **only**. Internal engine token, telemetry, and DB `engine`/`mode` values remain **`native`** — unchanged.
 - **Approved copy:** *"Uses your browser's speech recognition for a fast preview. Availability, processing, and accuracy vary by browser. Chrome recommended."*
-- **Guardrails:** never claim **local, offline, on-device, Private-equivalent, or cross-browser-consistent** (Chrome routes audio to Google). Convenience preview, not a benchmarked STT path, never an automatic fallback.
-- **Not in this PR:** the display-label change is a later product-copy PR. Canonical docs (PRODUCT_REQUIREMENTS, STT, TESTER_GUIDE) must use this truthful wording.
+- **Guardrails:** never claim **local, offline, on-device, Private-equivalent, or cross-browser-consistent** (Chrome routes audio to Google). Convenience preview, not a benchmarked path, never an automatic fallback.
+- **Not in this PR:** display-label change is a later product-copy PR. Canonical docs must use this truthful wording.
 
 ---
 
 ## 6. Known gaps & open decisions
 
-1. **Canonical set is Product Owner-approved** (`README.md` §2, 14 docs). New-file names are fixed by that approval.
-2. **PRODUCT_REQUIREMENTS (PRD v1) not yet written** — the interim `PRD.operational.md` is banner-marked stale; `RELEASE_STATUS.md` + `ARCHITECTURE.operational.md` are authoritative where they conflict.
-3. **ARCHITECTURE + STT ADRs pending** — durable design decisions consolidate into ARCHITECTURE; the live `docs/ARCHITECTURE.md` reference consolidation is a later PR.
-4. **Entitlement-policy divergence (deferred)** — routed to ROADMAP; documentation cannot resolve it.
-5. **Private v2 ≈90s finalize** = accepted RC limitation with honest "Finalizing…" UX, **not** a measured p95 — STT.md must state it as such.
-6. **Stale durable engine-attribution** (product code) fixed under PR #1033 — recorded so STT.md does not overclaim attribution reliability.
-7. **`ENTITLEMENT_PRO_LIMIT_EVIDENCE` open item** overlaps BACKLOG P1.3 — route the open ops item to ROADMAP.
-8. **Sequencing** — one reconciliation PR at a time, each based on the previous merged result; final PR archives superseded files → exactly 14 canonical + this ledger archived.
+1. **Canonical set is Product Owner-approved** (`README.md` §2). New-file names fixed.
+2. **PRODUCT_REQUIREMENTS (PRD v1) not yet written** — interim `PRD.operational.md` is banner-marked stale; `RELEASE_STATUS.md` + `ARCHITECTURE.operational.md` are authoritative where they conflict.
+3. **ARCHITECTURE + STT ADRs pending.**
+4. **Entitlement-policy divergence (deferred)** → ROADMAP.
+5. **Private v2 ≈90s finalize** = accepted RC limitation, **not** a measured p95 — STT.md must state it so.
+6. **Durable engine-attribution: OPEN GAP** — proposed fix in **unmerged PR #1033**; **not proven or deployed**. (Not "fixed".)
+7. **`ENTITLEMENT_PRO_LIMIT_EVIDENCE` open item** overlaps BACKLOG P1.3 → ROADMAP.
+8. **Sequencing** — one reconciliation PR at a time; final PR archives superseded files → exactly 14 canonical + this ledger archived.
 
 ---
 
-*This ledger is a temporary migration record, archived at closeout. It carries no changing release status; that lives only in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md).*
+## 7. Ledger validation (run in this PR — see PR body for command output)
+
+Automated checks assert: every active root source present; every enumerated source heading has a disposition; every EXTRACTED row has a canonical target heading; every `Verify≠N/A` row names a method; every canonical target has an accountable role (§2 + README role map); no open/unmerged PR described as fixed/shipped (#1033 = OPEN GAP); no changing release SHA/run ID outside `RELEASE_STATUS.md`; final target remains exactly 14.
+
+---
+
+*Temporary migration record, archived at closeout. No changing release status; that lives only in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md).*
