@@ -3,7 +3,7 @@
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-07-24
-**Last Verified:** 2026-07-24T17:10:25Z (production `window.__APP_RELEASE__` read read-only from `https://speaksharp-public.vercel.app/` = `05643fbd…`, HTTP 200; baselines verified against `origin/main` via GitHub; `#1006` state verified via GitHub; release mechanism verified in `frontend/vite.config.mjs` + deployed `index.html` per #1027).
+**Last Verified:** 2026-07-24T17:10:25Z (production `window.__APP_RELEASE__` read read-only from `https://speaksharp-public.vercel.app/` = `05643fbd…`, HTTP 200; baselines verified against `origin/main` via GitHub; release mechanism verified in `frontend/vite.config.mjs` + the served `index.html` per #1027). The `#1006` remediation is CLOSED (draft, not activated) — see "Current open work".
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
