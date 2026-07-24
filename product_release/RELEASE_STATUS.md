@@ -3,7 +3,7 @@
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-07-24
-**Last Verified:** 2026-07-24T17:10:25Z (production `window.__APP_RELEASE__` read read-only from `https://speaksharp-public.vercel.app/` = `05643fbd…`, HTTP 200; baselines verified against `origin/main` via GitHub; release mechanism verified in `frontend/vite.config.mjs` + the served `index.html` per #1027). The `#1006` remediation is CLOSED (draft, not activated) — see "Current open work".
+**Last Verified:** 2026-07-24T17:10:25Z (production `window.__APP_RELEASE__` read read-only from `https://speaksharp-public.vercel.app/` = `05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`, HTTP 200; baselines verified against `origin/main` via GitHub; release mechanism verified in `frontend/vite.config.mjs` + the served `index.html` per #1027). The `#1006` remediation is CLOSED (draft, not activated) — see "Current open work".
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -17,10 +17,10 @@ Four distinct identities — do not conflate them:
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `05643fbd` at last review (`#1030`, read-only audit tooling) | **Moving** — verify the live pointer directly on GitHub (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Repository `main` (moving branch pointer)** | `05643fbd991a503f8c183a4ac19ab2aa8d2d2f95` at last review (`#1030`, read-only audit tooling) | **Moving** — verify the live pointer directly on GitHub (`git rev-parse origin/main`); do not treat this SHA as fixed. |
 | **Last product-behavior release** | `c25b2178` (`#1024`, issue-report metadata hygiene) atop `a37a6ba1` (`#1027`, stale-chunk P0: recovery + stable content-hash assets + SPA 404 fallback) and `c99208b9` (`#1022`, `/practice` default entry, Guided unavailable) | Product commits on `main`; each shipped a runtime/product-behavior change. |
-| **Later docs/audit/tooling commits (NOT product-behavior deployments)** | `#1028` (`ab46cc84`), `#1029` (`85118374`), `#1030` (`05643fbd`) — read-only tester-evidence audit tooling | These change **no** deployed product behavior; they only add the `workflow_dispatch` audit. |
-| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 05643fbd…`, read read-only from `https://speaksharp-public.vercel.app/` (HTTP 200) at **2026-07-24T17:10:25Z**. At that check production == `main` HEAD, but this is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` (or `window.__APP_RUNTIME_CONFIG__.release`) from the deployed page and update the value + UTC timestamp here. |
+| **Later docs/audit/tooling commits (NOT product-behavior deployments)** | `#1028` (`ab46cc84`), `#1029` (`85118374`), `#1030` (`05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`) — read-only tester-evidence audit tooling | These change **no** deployed product behavior; they only add the `workflow_dispatch` audit. |
+| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`, read read-only from `https://speaksharp-public.vercel.app/` (HTTP 200) at **2026-07-24T17:10:25Z**. At that check production == `main` HEAD, but this is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` (or `window.__APP_RUNTIME_CONFIG__.release`) from the deployed page and update the value + UTC timestamp here. |
 
 **Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) + [CODEBASE_MAP.md](CODEBASE_MAP.md).
 

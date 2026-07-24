@@ -76,7 +76,7 @@ Section-level inventory of every substantive documentation source in `product_re
 | `RELEASE_CLOSEOUT_LEDGER.md` — dated proof | (14) → `evidence/` | EVIDENCE_ONLY | ARCHIVE_AT_CLOSEOUT → `archive/` | POQ |
 | `PUBLIC_LAUNCH_LEDGER.md` | (14) indexes `evidence/PUBLIC_LAUNCH_LEDGER.md` | EVIDENCE_ONLY | RETAINED_EVIDENCE → moves to `evidence/` | POQ |
 | `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — dated proof | (14) → `evidence/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | EVIDENCE_ONLY | RETAINED_EVIDENCE → moves to `evidence/` | POQ |
-| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — Pro-limit requirement | (7) ENTITLEMENTS_AND_BILLING | EXTRACTED | (row above carries the file) | PO |
+| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — Pro-limit requirement | (7) ENTITLEMENTS_AND_BILLING | EXTRACTED | RETAINED_EVIDENCE (shared file) | PO |
 | `attribution-sanitation-crosswalk.md` | `archive/attribution-sanitation-crosswalk.md` | NO_DURABLE_CONTENT (provenance) | ARCHIVE_AT_CLOSEOUT → `archive/` | PO |
 
 **Subtrees:** `evidence/**` → (14), EVIDENCE_ONLY, RETAINED_EVIDENCE, POQ (substantive ones enumerated in §3.I). `v4_work/**` → reference, EVIDENCE_ONLY, RETAINED_EVIDENCE, ENG. `archive/**` → NO_DURABLE_CONTENT/provenance, ALREADY_ARCHIVED. `archive/legacy-docs/**` → §3.A.
@@ -107,8 +107,8 @@ Per-subsection header states **Source · Commit · Role**. Columns: `Heading` ·
 | Strategic Rationale §1 (Integrity vs Survivability) | Silent corruption worse than outage; fail-closed even if outage | AI | cross-check README §1 rules | README §1; OPERATIONS_AND_SECURITY | EXTRACTED |
 | Strategic Rationale §2 (Runtime Truth anchor) | System is what it does; doc-vs-code = Drift/Vulnerability | AI | cross-check README §1 rules | README §1; ARCHITECTURE | EXTRACTED |
 | Strategic Rationale §3 (Separation of runtime/survivability) | Establish runtime state before recovery | PROC | cross-check RELEASE_PROCESS recovery | README §1; RELEASE_PROCESS | EXTRACTED |
-| Enforcement — Go/No-Go | L1/L3 violation = automatic NO-GO; L7 = polish unless cascading | AC | cross-check RELEASE_PROCESS gates | README §1; RELEASE_PROCESS | EXTRACTED |
-| Enforcement — P0 Incident Response | Recovery respects Data-Integrity; never bypass Security for Survivability | PROC | cross-check OPERATIONS_AND_SECURITY recovery | README §1; OPERATIONS_AND_SECURITY | EXTRACTED |
+| 🚦 Enforcement Protocol — Go/No-Go | L1/L3 violation = automatic NO-GO; L7 = polish unless cascading | AC | cross-check RELEASE_PROCESS gates | README §1; RELEASE_PROCESS | EXTRACTED |
+| 🚦 Enforcement Protocol — P0 Incident Response | Recovery respects Data-Integrity; never bypass Security for Survivability | PROC | cross-check OPERATIONS_AND_SECURITY recovery | README §1; OPERATIONS_AND_SECURITY | EXTRACTED |
 | Tests/CI evidence placement | Tests/CI (L6) are evidence below runtime truth | AC | cross-check QUALITY evidence chain | README §1; QUALITY | EXTRACTED |
 
 ### 3.A Historical `docs/*` (pinned, read-only) — File-state: ALREADY_ARCHIVED
@@ -230,8 +230,11 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 | Score Labels | Legacy label bands | PR | cross-check UI | COACHING_SCORE → B | EXTRACTED |
 | Confidence Levels | Confidence bands | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
 | User Experience Rules | Score UX rules | PR | cross-check UI | COACHING_SCORE → B | EXTRACTED |
-
-> Any remaining `SESSION_PROGRESS` sub-notes under "Reviewer Context" share class=PR, target=COACHING_SCORE → Provenance, verify=N/A, content=EXTRACTED.
+| AI Role | AI's role in the legacy score | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
+| Number-To-Coaching Flow | Score→coaching mapping | PR | verify vs code | COACHING_SCORE → B | EXTRACTED |
+| Experiment Status | Score experiment status | GAP | triage vs ROADMAP | ROADMAP | OPEN_GAP |
+| Future Model Improvements | Planned score-model changes | GAP | triage | ROADMAP → Later | OPEN_GAP |
+| Release Guardrail | Score release guardrail | AC | verify vs gates | COACHING_SCORE → B | EXTRACTED |
 
 ### 3.C Architecture (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: ENG
 
@@ -524,8 +527,8 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 
 | Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Gate Ledger / Phase Plan / Next Gate | Broad-launch gate plan | GAP | triage vs ROADMAP | ROADMAP (open gates) | OPEN_GAP |
-| PL-002…PL-011 evidence summaries (Checkout, Entitlement, Billing lifecycle, Access lifecycle, Cloud transcript/provider proof, AI feedback, PDF, Mobile, Observability) | Dated per-gate proof | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
+| Gate Ledger / Phase Plan / Latest Evidence / Next Gate | Broad-launch gate plan | GAP | triage vs ROADMAP | ROADMAP (open gates) | OPEN_GAP |
+| Evidence summaries PL-002 · PL-003 · PL-004 · PL-005 · PL-006 · PL-007 (Cloud transcript attempt + provider-level proof) · PL-008 · PL-009 · PL-010 · PL-011 | Dated per-gate proof (Checkout, Entitlement, Billing lifecycle, Access lifecycle, Cloud, AI feedback, PDF, Mobile, Observability) | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
 
 #### `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — Commit: current `main`
 
