@@ -497,6 +497,7 @@ export class SpeechRuntimeController {
             // Capture the resolved arm now (engine is resolved here) for durable persistence at
             // stop — independent of the telemetry context's clear timing.
             this.resolvedPrivateEngineVersion = buildEngineVersion(assignment.engine_variant, model);
+            this.resolvedPrivateEngineSessionId = this.sessionId; // scope the arm to THIS recording (#1033)
         } catch {
             /* telemetry context must never break the recording pipeline */
         }
@@ -509,45 +510,72 @@ export class SpeechRuntimeController {
     /** Resolved Private arm (private_v2:<model> / private_v4:<model>), captured at engine-resolve
      *  for durable persistence to sessions.engine_version at stop. */
     private resolvedPrivateEngineVersion: string | null = null;
-
-    /** Mode-based fallback identity, mirroring the placeholder save. */
-    private defaultMetadataForMode(mode: string | null): { engineVersion: string; modelName: string; deviceType: string } {
-        if (mode === 'private') return { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' };
-        if (mode === 'cloud') return { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' };
-        return { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' };
-    }
+    /** The recording/session the resolved Private arm belongs to, so it can never verify a different recording. */
+    private resolvedPrivateEngineSessionId: string | null = null;
+    /** #1033: last recording whose durable attribution write failed — stashed so Retry Save can promote it
+     *  pending→verified via UPDATE (never a duplicate session). Null when nothing is awaiting retry. */
+    private pendingAttributionRetry: { sessionId: string; patch: Parameters<typeof updateSession>[1] } | null = null;
 
     /**
-     * #1033 — Capture the finalizing engine's durable identity BEFORE teardown, as an atomic patch.
-     * One recording = one engine (the selector is locked while recording), so `producerMode`
-     * (the live `service.getMode()` at stop) is authoritative — it cannot have changed mid-recording.
-     * Returns a VERIFIED tuple (engine/engine_version/model_name/device_type + attribution_status), or
-     * `{ attribution_status: 'unverified' }` when the producing engine cannot be resolved — never invents
-     * an engine/model token and never overwrites the placeholder identity in that case. The caller writes
-     * this in a single atomic `updateSession`; on write failure the row stays `pending` for retry.
+     * #1033 Retry Save — re-attempt the durable attribution write for the last recording whose write
+     * failed. Updates the SAME row by session id (never creates a duplicate session). On success the row
+     * moves pending→verified/unverified; on failure it stays pending and remains retryable. Idempotent
+     * (returns true when nothing is pending).
+     */
+    public async retryPendingAttribution(): Promise<boolean> {
+        const pending = this.pendingAttributionRetry;
+        if (!pending) return true;
+        try {
+            const res = await updateSession(pending.sessionId, pending.patch);
+            if (res && (res as { success?: boolean }).success === false) return false;
+            this.pendingAttributionRetry = null;
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
+    private static readonly VERIFIABLE_ENGINES: ReadonlySet<string> = new Set(['native', 'private', 'cloud']);
+
+    /**
+     * #1033 — Snapshot the finalizing engine's durable identity from the LIVE engine.
+     * MUST be called BEFORE `service.stopTranscription()` (which can mutate/destroy engine metadata).
+     * One recording = one engine (the selector is locked while recording — Part 2), so `producerMode`
+     * is authoritative.
+     *
+     * VERIFIED requires ALL of: a known engine token (closed allowlist), real live `getMetadata()`
+     * (no fabricated/default fallback), and non-blank engine_version/model_name/device_type. For Private
+     * the resolved arm is used only when it belongs to THE CURRENT recording/session. Anything unconfirmable
+     * — unknown engine, missing/throwing metadata, incomplete/blank tuple — yields `{ attribution_status:
+     * 'unverified' }` and does NOT overwrite the placeholder identity. Never invents a token.
      */
     private captureFinalizingIdentity(
-        service: { getMetadata?: () => { engineVersion: string; modelName: string; deviceType: string } | null } | null,
+        service: { getMetadata?: () => { engineVersion?: string | null; modelName?: string | null; deviceType?: string | null } | null } | null,
         producerMode: string | null,
     ): { engine?: string; engine_version?: string; model_name?: string; device_type?: string; attribution_status: AttributionStatus } {
+        const unverified = { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as const;
+        const nonBlank = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
         try {
-            if (!producerMode || producerMode === 'unknown') {
-                return { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED };
-            }
-            const fallback = this.defaultMetadataForMode(producerMode);
-            const meta = service?.getMetadata?.() ?? fallback;
-            const engineVersion = (producerMode === 'private' && this.resolvedPrivateEngineVersion)
-                ? this.resolvedPrivateEngineVersion
-                : (meta?.engineVersion ?? fallback.engineVersion);
+            if (!producerMode || !SpeechRuntimeController.VERIFIABLE_ENGINES.has(producerMode)) return unverified;
+            const meta = service?.getMetadata?.();
+            if (!meta) return unverified; // verified requires the real engine's metadata — never guess
+            const armForThisRecording = (
+                producerMode === 'private'
+                && nonBlank(this.resolvedPrivateEngineVersion)
+                && this.resolvedPrivateEngineSessionId === this.sessionId
+            ) ? this.resolvedPrivateEngineVersion : null;
+            const engineVersion = armForThisRecording ?? meta.engineVersion;
+            if (!nonBlank(engineVersion) || !nonBlank(meta.modelName) || !nonBlank(meta.deviceType)) return unverified;
             return {
                 engine: producerMode,
                 engine_version: engineVersion,
-                model_name: meta?.modelName ?? fallback.modelName,
-                device_type: meta?.deviceType ?? fallback.deviceType,
+                model_name: meta.modelName,
+                device_type: meta.deviceType,
                 attribution_status: ATTRIBUTION_STATUS.VERIFIED,
             };
         } catch {
-            return { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED };
+            return unverified;
         }
     }
     private emitPrivateSampleSetupStatus(type: string): void {
@@ -1274,6 +1302,10 @@ export class SpeechRuntimeController {
 
     private resetAnalysisStateForNewRecording(): void {
         const store = useSessionStore.getState();
+        // #1033: drop the resolved Private arm at the recording boundary so a prior Private recording
+        // can never verify a later Browser/Cloud/Private row (re-latched on the next Private resolve).
+        this.resolvedPrivateEngineVersion = null;
+        this.resolvedPrivateEngineSessionId = null;
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
         store.freezeTranscriptAtStop(null);
@@ -2108,6 +2140,9 @@ export class SpeechRuntimeController {
                     // (telemetry / __PRIVATE_TIMING__ / proof) and is NOT a session-length input.
                     const recordingStoppedAt = Date.now();
                     const recordingDurationSeconds = startTime ? Math.max(0, (recordingStoppedAt - startTime) / 1000) : 0;
+                    // #1033: snapshot the producing-engine identity from the LIVE engine, BEFORE
+                    // stopTranscription() can mutate/destroy engine metadata. Used for durable attribution.
+                    const finalizingIdentityPatch = this.captureFinalizingIdentity(service, service.getMode?.() ?? stopEntryMode);
                     result = await service.stopTranscription();
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
@@ -2224,9 +2259,6 @@ export class SpeechRuntimeController {
                         const frozenStopTranscript = store.frozenTranscriptAtStop?.trim() || '';
                         const resultTranscript = result.transcript?.trim() || '';
                         const modeForFinalization = service.getMode?.() ?? stopEntryMode;
-                        // #1033: capture the finalizing engine identity NOW (before any teardown), while
-                        // service.getMode()/getMetadata() still reflect the producing engine.
-                        const finalizingIdentityPatch = this.captureFinalizingIdentity(service, modeForFinalization);
                         const candidates: Array<{ source: TranscriptLifecycleSource; text: string }> = [
                             { source: 'service_result', text: resultTranscript },
                             { source: 'committed_final', text: this.transcriptLifecycle.committedFinal || chunkTranscript || storeTranscript },
@@ -2528,9 +2560,15 @@ export class SpeechRuntimeController {
                             // later retry can promote it to verified. Engine-specific evidence uses only
                             // attribution_status = 'verified' (no engine_version string heuristics).
                             try {
-                                await updateSession(sessionId, finalizingIdentityPatch as Parameters<typeof updateSession>[1]);
+                                const attrResult = await updateSession(sessionId, finalizingIdentityPatch as Parameters<typeof updateSession>[1]);
+                                if (attrResult && (attrResult as { success?: boolean }).success === false) throw new Error('attribution update returned success:false');
+                                this.pendingAttributionRetry = null;
                             } catch (attributionError) {
-                                logger.warn({ attributionError, sessionId }, '[controller] attribution persist failed (non-fatal) — row stays pending for retry');
+                                // #1033: transcript is already persisted (completeSession). The row stays 'pending'
+                                // (DB default) and the captured patch is stashed so Retry Save can promote it
+                                // pending→verified via UPDATE — no duplicate session, no transcript loss.
+                                this.pendingAttributionRetry = { sessionId, patch: finalizingIdentityPatch as Parameters<typeof updateSession>[1] };
+                                logger.warn({ attributionError, sessionId }, '[controller] attribution persist failed — row stays pending; retry available');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;

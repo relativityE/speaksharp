@@ -1,5 +1,7 @@
 // #1033 — STT engine-attribution lifecycle (durable contract, Option B).
-// A saved session's `attribution_status` self-describes whether its persisted STT identity
+// `attribution_status` is a CONSTRAINED TEXT status column (a TEXT column + CHECK constraint on
+// public.sessions, not a PostgreSQL ENUM type). A saved session's `attribution_status` self-describes
+// whether its persisted STT identity
 // (engine / engine_version / model_name / device_type) was actually confirmed — so analytics,
 // benchmarks, audits and Report Issue never have to infer it from engine_version naming.
 

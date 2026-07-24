@@ -530,23 +530,79 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
-    it('#1033: Private finalization uses the resolved Private arm for engine_version', async () => {
+    it('#1033: Private finalization uses the resolved Private arm ONLY when it belongs to this recording', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.updateSession).mockClear();
         (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = 'private_v2:whisper-base.en';
+        (controller as unknown as { resolvedPrivateEngineSessionId: string | null }).resolvedPrivateEngineSessionId = 'sess-attr-private-arm';
         await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }), 'sess-attr-private-arm', 'private');
         expect(attributionPatch(storage)).toMatchObject({ engine: 'private', engine_version: 'private_v2:whisper-base.en', attribution_status: 'verified' });
     });
 
-    it('#1033: attribution write failure is non-fatal — transcript preserved, row left for retry', async () => {
+    it('#1033: a STALE Private arm from another recording is NOT used (no cross-recording leak)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockClear();
+        (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = 'private_v2:STALE-ARM';
+        (controller as unknown as { resolvedPrivateEngineSessionId: string | null }).resolvedPrivateEngineSessionId = 'a-DIFFERENT-session';
+        await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }), 'sess-attr-stale', 'private');
+        const patch = attributionPatch(storage) as Record<string, unknown>;
+        expect(patch.engine_version).toBe('transformers-js'); // live metadata, NOT the stale arm
+        expect(patch.engine_version).not.toBe('private_v2:STALE-ARM');
+    });
+
+    it.each([
+        { label: 'missing metadata', svc: { getMetadata: () => null } },
+        { label: 'throwing metadata', svc: { getMetadata: () => { throw new Error('gone'); } } },
+        { label: 'blank engine_version', svc: { getMetadata: () => ({ engineVersion: '  ', modelName: 'm', deviceType: 'd' }) } },
+        { label: 'blank device_type', svc: { getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'm', deviceType: '' }) } },
+    ])('#1033: $label → UNVERIFIED, never guessed/verified, no identity overwrite', async ({ svc }) => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockClear();
+        const base = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
+        await driveStopWithService({ ...base, ...svc }, 'sess-attr-unv', 'native');
+        const patch = attributionPatch(storage) as Record<string, unknown>;
+        expect(patch).toEqual({ attribution_status: 'unverified' }); // status only — no engine/version/model/device
+    });
+
+    it('#1033: an engine token outside the allowlist → UNVERIFIED (not marked verified)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockClear();
+        const svc = { ...mkService('native', { engineVersion: 'x', modelName: 'y', deviceType: 'z' }), getMode: vi.fn().mockReturnValue('some-unknown-engine') };
+        await driveStopWithService(svc, 'sess-attr-badtoken', 'native');
+        expect(attributionPatch(storage)).toEqual({ attribution_status: 'unverified' });
+    });
+
+    it('#1033: identity is snapshotted BEFORE stopTranscription()', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockClear();
+        const order: string[] = [];
+        const svc = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
+        svc.getMetadata = vi.fn(() => { order.push('getMetadata'); return { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }; });
+        svc.stopTranscription = vi.fn(async () => { order.push('stopTranscription'); return { success: true, transcript: '', stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 10, accuracy: 1 } }; });
+        await driveStopWithService(svc, 'sess-attr-order', 'native');
+        expect(order.indexOf('getMetadata')).toBeLessThan(order.indexOf('stopTranscription'));
+    });
+
+    it('#1033: write failure keeps transcript + leaves row pending; retryPendingAttribution promotes it (no duplicate)', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.saveSession).mockClear();
+        let failAttribution = true;
         vi.mocked(storage.updateSession).mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
-            if (patch && Object.prototype.hasOwnProperty.call(patch, 'attribution_status')) throw new Error('DB down');
+            if (failAttribution && patch && Object.prototype.hasOwnProperty.call(patch, 'attribution_status')) throw new Error('DB down');
             return { success: true };
         });
-        await expect(driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-attr-fail', 'native')).resolves.not.toThrow();
-        expect(storage.completeSession).toHaveBeenCalledWith('sess-attr-fail', expect.objectContaining({ status: 'completed' }));
+        const saveCallsBefore = vi.mocked(storage.saveSession).mock.calls.length;
+        await expect(driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-attr-retry', 'native')).resolves.not.toThrow();
+        // transcript survived the attribution failure
+        expect(storage.completeSession).toHaveBeenCalledWith('sess-attr-retry', expect.objectContaining({ status: 'completed' }));
+        // now Retry Save succeeds and promotes the SAME row via UPDATE (no new saveSession/duplicate)
+        failAttribution = false;
+        vi.mocked(storage.updateSession).mockClear();
+        await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> }).retryPendingAttribution()).resolves.toBe(true);
+        const retryCall = vi.mocked(storage.updateSession).mock.calls.find(c => c[0] === 'sess-attr-retry' && !!c[1] && Object.prototype.hasOwnProperty.call(c[1], 'attribution_status'));
+        expect(retryCall?.[1]).toMatchObject({ engine: 'native', attribution_status: 'verified' });
+        expect(vi.mocked(storage.saveSession).mock.calls.length).toBe(saveCallsBefore); // no duplicate session created
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true }); // restore for later tests
     });
 
