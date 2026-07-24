@@ -244,3 +244,19 @@ for current configuration.
 - **ENV-PROD:** whether to migrate the Home-A committed `VITE_*` (public) into Home B (Vercel), to match the Stripe-key pattern. This table is the migration checklist if so.
 - **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` (P2 dependency/bloat maintenance epic).
 - **VITE_DEV_PREMIUM_ACCESS cleanup:** remove the dead test-only stub or wire an intentional owner-QA path; today it is stubbed but unused in `src`.
+
+## GitHub Actions inventory for the tester-evidence audit (names + scope only)
+
+**Captured 2026-07-24 (names and scope only — never values).** The `tester-evidence-audit.yml` workflow consumes ONLY the following, and references no individual per-account email/password secret, no anon key, and no hardcoded operational address:
+
+| Name | Kind | Role |
+|---|---|---|
+| `SUPABASE_URL` | **variable** | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | **secret** | Auth-Admin `listUsers` + PostgREST select (the established key) |
+| `AUDIT_EXCLUDED_EMAILS_JSON` | **secret** | centralized exclusion manifest (JSON: owner_admin/synthetic/checkout/canary/qa arrays of emails); audit fails closed if absent/malformed/incomplete |
+| `AUDIT_EXCLUSION_LIST_VERSION` | **variable** | manifest version string (printed for traceability; part of the completion gate) |
+| `AUDIT_EXCLUSION_LIST_REVIEWED_AT` | **variable** | ISO timestamp the manifest was last reviewed (must be a valid non-future time; completion gate) |
+
+Workflow inputs: `practice_deploy_at`, `final_deploy_at`, `confirm_exclusion_manifest_complete` (required boolean; the operator attests manifest completeness — the audit fails closed unless true).
+
+**Note the variable-vs-secret split:** `SUPABASE_URL`, `AUDIT_EXCLUSION_LIST_VERSION`, and `AUDIT_EXCLUSION_LIST_REVIEWED_AT` are **variables**; `SUPABASE_SERVICE_ROLE_KEY` and `AUDIT_EXCLUDED_EMAILS_JSON` are **secrets**. The audit no longer depends on the individual `*_TEST_EMAIL` secrets (those remain for the workflows that operate those accounts). Not present at capture time (the audit fails closed until the owner provisions them): `AUDIT_EXCLUDED_EMAILS_JSON`, `AUDIT_EXCLUSION_LIST_VERSION`, `AUDIT_EXCLUSION_LIST_REVIEWED_AT`. Re-verify names only with `gh api /repos/:owner/:repo/actions/secrets` and `.../actions/variables`.
