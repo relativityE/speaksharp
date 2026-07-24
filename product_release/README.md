@@ -1,8 +1,13 @@
-**Owner:** Prod Owner (relativityE)
+**Status:** Authoritative (canonical portal)
+**Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-07-24
+**Last Verified:** 2026-07-24 (canonical set, precedence model, and links verified against the repo tree)
+**Applies To:** All SpeakSharp product/release documentation under `product_release/`
 **Class:** Procedure (documentation portal)
-**Authority:** Entry point, precedence model, and canonical-document map for SpeakSharp product/release docs.
-**Status:** Foundation PR — establishes the **Product Owner-approved** canonical system. **Unmerged, pending Product Owner approval.**
+**Authority:** Entry point, precedence model, and canonical-document map — the SSOT for *documentation structure and authority*.
+**Not Authoritative For:** current release/deployment status (→ `RELEASE_STATUS.md`); PR/merge state (→ the PR description).
+**Supersedes:** `content_list.md`; absorbs `PRECEDENCE.md` (§1).
+**Evidence Sources:** the 14 canonical documents (§2) and `DOC_MIGRATION_LEDGER.md`.
 
 # SpeakSharp Documentation Portal
 
@@ -10,9 +15,7 @@ This is the entry point and authority map for SpeakSharp documentation. It defin
 
 It replaces [`content_list.md`](./content_list.md) as the index and **absorbs [`PRECEDENCE.md`](./PRECEDENCE.md)** (its conflict-resolution rules live in §1 below). The source-by-source, section-level migration record is in [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md).
 
-> **What this PR is.** A **docs-only foundation + SSOT repair**. It establishes the approved canonical **system** and the complete section-level extraction **ledger**, and it **repairs `RELEASE_STATUS.md`** to current verified truth (the portal declares that file the SSOT, so it cannot stay stale). The **actual consolidation is PRs 2–6**; the final PR moves superseded active files into `archive/` and leaves **exactly 14** canonical active Markdown files. During migration the active root count **temporarily increases** (this PR adds the portal + ledger + pinned history). `DOC_MIGRATION_LEDGER.md` is **temporary** — archived at migration closeout; it is **not** a fifteenth canonical document.
->
-> **Scope.** Docs-only — **no** code, telemetry, DB values, or product behavior change; no PRD/STT/attribution/entitlement/UI-label/harness implementation on this branch. The only active document rewritten is `RELEASE_STATUS.md` (SSOT repair, above); this portal replaces `content_list.md`/absorbs `PRECEDENCE.md` in later PRs. Everything else is additive (portal, ledger, pinned history).
+> **The migration model.** The canonicalization proceeds as a sequence of docs-only reconciliation steps. The foundation establishes this portal, the section-level extraction ledger, the pinned historical sources, and the repaired `RELEASE_STATUS.md`. Consolidation into the 14 targets happens in subsequent single-topic steps; the final step moves superseded active files into `archive/`/`evidence/` and leaves **exactly 14** canonical Markdown files at the root of `product_release/`. During the migration the active root count is temporarily higher than 14. `DOC_MIGRATION_LEDGER.md` is **temporary** — archived at closeout; it is **not** a fifteenth canonical document. The migration changes no code, telemetry, DB values, or product behavior.
 
 ---
 
@@ -113,15 +116,27 @@ Ownership is per-document by accountable role (Product Owner remains final appro
 
 ## 4. Disposition taxonomy
 
-Every source section in the ledger carries exactly one:
+Two independent axes. Every ledger row carries **exactly one content disposition** *and* one source-file state — they are never combined into a single value.
+
+**Content disposition** (what happens to the *content*):
 
 | Disposition | Meaning |
 |---|---|
 | **EXTRACTED** | Durable content lifts into a canonical document (later PR). |
 | **EVIDENCE_ONLY** | Kept as dated evidence; indexed, not promoted to a contract. |
-| **SUPERSEDED** | Replaced by a canonical document; retained read-only for history. |
 | **OPEN_GAP** | Names unfinished work; routes to ROADMAP. |
 | **NO_DURABLE_CONTENT** | Nothing worth carrying forward; archive/retire only. |
+
+**Source-file state** (what happens to the *file* — this axis, not content disposition, carries the "superseded/archived" idea):
+
+| State | Meaning |
+|---|---|
+| **ACTIVE** | Remains a canonical active file. |
+| **RETAINED_EVIDENCE** | Kept under `evidence/`. |
+| **ARCHIVE_AT_CLOSEOUT** | Moved to `archive/` after its durable content is proven-incorporated. |
+| **ALREADY_ARCHIVED** | Already under `archive/`. |
+
+A source with durable content that will be retired is therefore **content=EXTRACTED, file-state=ARCHIVE_AT_CLOSEOUT** — never "SUPERSEDED" as a content disposition. A single atomic claim that is *both* a durable requirement *and* an open gap is split into two rows (one EXTRACTED, one OPEN_GAP).
 
 ---
 

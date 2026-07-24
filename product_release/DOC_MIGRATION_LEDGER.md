@@ -2,6 +2,7 @@
 **Owner:** Prod Owner (final approver); per-row accountable role in each subsection header
 **Last Reviewed:** 2026-07-24
 **Last Verified:** 2026-07-24 (headings enumerated from the live sources / pinned commits; current-state facts verified via `RELEASE_STATUS.md`)
+**Applies To:** The documentation-canonicalization migration (33 active root sources + subtrees + pinned history → 14 canonical docs).
 **Class:** Procedure (migration record — **temporary**)
 **Authority:** Section-level source→target inventory for the documentation-canonicalization effort.
 **Not Authoritative For:** current release status (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md)); this ledger contains no changing SHAs/run IDs.
@@ -71,12 +72,25 @@ Section-level inventory of every substantive documentation source in `product_re
 | `BACKLOG.md` | (3) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
 | `ACTIVE_COORDINATION.md` | (3) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
 | `ROADMAP.operational.md` | (3) | EXTRACTED (durable risks only) | ARCHIVE_AT_CLOSEOUT | PO |
-| `RELEASE_CLOSEOUT_LEDGER.md` | (3)(+14) | EXTRACTED + EVIDENCE_ONLY | ARCHIVE_AT_CLOSEOUT | PO/POQ |
-| `PUBLIC_LAUNCH_LEDGER.md` | (14) | EVIDENCE_ONLY | RETAINED_EVIDENCE | POQ |
-| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | (14)(+7) | EVIDENCE_ONLY (+ requirement extraction) | RETAINED_EVIDENCE | POQ/PO |
-| `attribution-sanitation-crosswalk.md` | `archive/` | NO_DURABLE_CONTENT (provenance) | ALREADY_ARCHIVED (semantics) | PO |
+| `RELEASE_CLOSEOUT_LEDGER.md` — open items | (3) ROADMAP | EXTRACTED | ARCHIVE_AT_CLOSEOUT → `archive/` | PO |
+| `RELEASE_CLOSEOUT_LEDGER.md` — dated proof | (14) → `evidence/` | EVIDENCE_ONLY | ARCHIVE_AT_CLOSEOUT → `archive/` | POQ |
+| `PUBLIC_LAUNCH_LEDGER.md` | (14) indexes `evidence/PUBLIC_LAUNCH_LEDGER.md` | EVIDENCE_ONLY | RETAINED_EVIDENCE → moves to `evidence/` | POQ |
+| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — dated proof | (14) → `evidence/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | EVIDENCE_ONLY | RETAINED_EVIDENCE → moves to `evidence/` | POQ |
+| `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` — Pro-limit requirement | (7) ENTITLEMENTS_AND_BILLING | EXTRACTED | (row above carries the file) | PO |
+| `attribution-sanitation-crosswalk.md` | `archive/attribution-sanitation-crosswalk.md` | NO_DURABLE_CONTENT (provenance) | ARCHIVE_AT_CLOSEOUT → `archive/` | PO |
 
 **Subtrees:** `evidence/**` → (14), EVIDENCE_ONLY, RETAINED_EVIDENCE, POQ (substantive ones enumerated in §3.I). `v4_work/**` → reference, EVIDENCE_ONLY, RETAINED_EVIDENCE, ENG. `archive/**` → NO_DURABLE_CONTENT/provenance, ALREADY_ARCHIVED. `archive/legacy-docs/**` → §3.A.
+
+### 2.1 Closeout arithmetic — exactly 14 root files
+
+At migration closeout the root of `product_release/` contains **exactly 14** canonical Markdown files (`README.md` §2). Every other current root Markdown has an explicit off-root destination:
+
+- **Stay ACTIVE at root (2):** `README.md` (replaces `content_list.md`), `RELEASE_STATUS.md`.
+- **Consolidated then moved to `archive/` (ARCHIVE_AT_CLOSEOUT):** `PRECEDENCE.md`, `content_list.md`, `PRD.operational.md`, `PRODUCT_FEATURES.operational.md`, `SPEAKSHARP_SESSION_PROGRESS.operational.md`, `ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`, `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, `stt-perf-proof-protocol.md`, `SERVICE_LEVELS.operational.md`, `SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, `RC_GATES.md`, `RC_TEST_INVENTORY.md`, `INTERNAL_TEST_PROTOCOL.md`, `MANUAL_HARDWARE_VALIDATION.md`, `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`, `LAUNCH_ENV_CHECKLIST.md`, `ENV_INVENTORY.md`, `SECRET_ROTATION_RUNBOOK.md`, `PAID_OPS_HARDENING_RUNBOOK.md`, `RELEASE_RECOVERY.md`, `OPS_HEALTH_DASHBOARD.md`, `SCA_EXCEPTIONS.md`, `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, `attribution-sanitation-crosswalk.md`, `DOC_MIGRATION_LEDGER.md` (this file, archived last).
+- **Moved to `evidence/` (RETAINED_EVIDENCE):** `PUBLIC_LAUNCH_LEDGER.md`, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`.
+- **New canonical files created by consolidation (12):** `PRODUCT_REQUIREMENTS.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `STT.md`, `COACHING_SCORE.md`, `ENTITLEMENTS_AND_BILLING.md`, `QUALITY.md`, `RELEASE_PROCESS.md`, `OPERATIONS_AND_SECURITY.md`, `TESTER_GUIDE.md`, `TESTER_OPERATIONS.md`, `EVIDENCE_INDEX.md`.
+
+Root at closeout = 2 retained + 12 new = **14**. No evidence file remains at the root.
 
 ---
 
@@ -518,7 +532,8 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 | Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
 | Release closeout summary | Entitlement audit closeout | EV | N/A (dated) | EVIDENCE_INDEX | EVIDENCE_ONLY |
-| Finding 1: Pro daily/monthly limit (const vs DB) | Requirement + open ops item | PR/GAP | verify policy const vs deployed DB | ENTITLEMENTS_AND_BILLING (req); ROADMAP (open) | EXTRACTED + OPEN_GAP |
+| Finding 1a — Pro daily/monthly limit requirement | Pro daily/monthly limit (policy constant) | PR | verify policy const in code | ENTITLEMENTS_AND_BILLING → Limits | EXTRACTED |
+| Finding 1b — Pro limit const-vs-DB reconciliation | Open ops: const vs deployed DB mismatch | GAP | verify deployed DB value | ROADMAP | OPEN_GAP |
 | Finding 2: overlapping usage functions | Divergent usage fns | GAP | grep usage functions | ROADMAP | OPEN_GAP |
 | Verified OK | Verified facts | EV | N/A | EVIDENCE_INDEX | EVIDENCE_ONLY |
 | Open / needs-ops | Open ops items | GAP | triage | ROADMAP | OPEN_GAP |
@@ -527,9 +542,9 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 
 ---
 
-## 4. Current-state corrections (from superseded PR #1031) — applied to `RELEASE_STATUS.md` in THIS PR
+## 4. Current-state corrections (from superseded PR #1031) — applied to `RELEASE_STATUS.md` in the foundation step
 
-PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superseded) flagged stale current-state facts. **This PR repairs `RELEASE_STATUS.md` directly** (the SSOT), so the corrections are now *applied*, not merely recorded. Read the current values from `RELEASE_STATUS.md` — the kinds of correction (no changing SHAs here):
+PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superseded) flagged stale current-state facts. The foundation step repairs `RELEASE_STATUS.md` directly (the SSOT), so the corrections are *applied*, not merely recorded. Read the current values from `RELEASE_STATUS.md` — the kinds of correction (no changing SHAs here):
 
 - **Baselines** now distinguish repo `main` (moving pointer), last product-behavior release, later docs/audit/tooling commits, and the deployed release (`window.__APP_RELEASE__`).
 - **Release mechanism** corrected to `window.__APP_RELEASE__` (the `__BUILD_ID__` define was removed in #1027; Sentry `release.inject:false`).
@@ -562,9 +577,9 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 
 ---
 
-## 7. Ledger validation (run in this PR — see PR body for command output)
+## 7. Ledger validation (committed, CI-wired test)
 
-Automated checks assert: every active root source present; every enumerated source heading has a disposition; every EXTRACTED row has a canonical target heading; every `Verify≠N/A` row names a method; every canonical target has an accountable role (§2 + README role map); no open/unmerged PR described as fixed/shipped (#1033 = OPEN GAP); no changing release SHA/run ID outside `RELEASE_STATUS.md`; final target remains exactly 14.
+A deterministic documentation-contract test — [`tests/config/documentationContract.test.ts`](../tests/config/documentationContract.test.ts) — runs under `pnpm test:unit` (the **CI - Test Audit** gate) and asserts: exactly 14 canonical names; every pre-foundation root Markdown is mapped in this ledger; the required metadata fields on `README.md` / `RELEASE_STATUS.md` / this ledger; single-value content dispositions (no compound cells); every EXTRACTED row has a canonical target heading; relative links resolve; every retained-evidence file has an exact destination; no open/unmerged PR is recorded as complete (#1033 remains an OPEN GAP); volatile release identity (SHAs) appears only in `RELEASE_STATUS.md`; the closeout leaves exactly 14 root files. It is a real test, not an ad-hoc check.
 
 ---
 
