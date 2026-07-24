@@ -32,13 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.20.0
+      # No `version:` input — the pnpm version comes from package.json `packageManager`. Pinning it here
+      # too makes action-setup fail with "Multiple versions of pnpm specified". Matches ops-health.yml.
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
 
       - name: Install dependencies
