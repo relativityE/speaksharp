@@ -3,6 +3,7 @@ import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
 import { issueAreasForContext, type PageContext } from '@/services/pageContext';
+import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -32,7 +33,11 @@ export interface IssueReportMetadata {
   /** Build/release id (git SHA in production) so a report pins to a build, when available. */
   releaseId?: string | null;
   releaseProofEligible?: boolean;
-  appRuntimeConfig?: unknown;
+  /**
+   * Allowlisted runtime facts ONLY (see pickPersistedRuntimeConfig). Never the raw runtime config —
+   * that carries `url` (the full location.href with dynamic ids / query / fragment).
+   */
+  appRuntimeConfig?: PersistedRuntimeConfig;
   userAgent?: string;
   viewport?: { width: number; height: number };
   timezone?: string;
@@ -104,7 +109,9 @@ export const buildIssueReportMetadata = (input: {
     sttMode: input.sttMode ?? null,
     runtimeState: input.runtimeState ?? null,
     releaseProofEligible: runtimeConfig?.releaseProofEligible,
-    appRuntimeConfig: runtimeConfig,
+    // Allowlist ONLY — strips `url` (raw location.href), `port`, and `supabaseUrl` so no dynamic route
+    // id / query / fragment (session UUIDs, emails, invite/reset tokens) is ever persisted here.
+    appRuntimeConfig: pickPersistedRuntimeConfig(runtimeConfig),
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
     viewport: typeof window !== 'undefined' ? { width: window.innerWidth, height: window.innerHeight } : undefined,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,

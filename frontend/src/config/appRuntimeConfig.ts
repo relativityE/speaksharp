@@ -100,6 +100,39 @@ declare global {
   }
 }
 
+/**
+ * The ONLY AppRuntimeConfig fields that may be PERSISTED (e.g. in an issue report's metadata blob).
+ * Deliberately EXCLUDES every URL-bearing / environment-locating field:
+ *   - `url`         — the raw `window.location.href`; carries dynamic route ids (session UUIDs), query
+ *                     strings, and fragments (emails / reset+invite tokens can appear in any of these).
+ *   - `port`        — noise, no support value.
+ *   - `supabaseUrl` — a raw origin, and redundant: the environment is already conveyed by
+ *                     `stripeKeyClass` + `release`.
+ * NEVER widen this to include any raw URL, pathname, query string, fragment, or dynamic identifier.
+ */
+export type PersistedRuntimeConfig = Pick<
+  AppRuntimeConfig,
+  'viteMode' | 'authMode' | 'mockAuth' | 'stripeKeyClass' | 'releaseProofEligible' | 'release'
+>;
+
+/**
+ * Reduce a full runtime config to the persistence allowlist. Explicit field-by-field pick (not a
+ * denylist) so a future field added to AppRuntimeConfig can never silently leak into persisted metadata.
+ */
+export function pickPersistedRuntimeConfig(
+  cfg: AppRuntimeConfig | undefined | null,
+): PersistedRuntimeConfig | undefined {
+  if (!cfg) return undefined;
+  return {
+    viteMode: cfg.viteMode,
+    authMode: cfg.authMode,
+    mockAuth: cfg.mockAuth,
+    stripeKeyClass: cfg.stripeKeyClass,
+    releaseProofEligible: cfg.releaseProofEligible,
+    release: cfg.release,
+  };
+}
+
 const USES_REAL_SUPABASE = /\.supabase\.co\/?$/;
 
 /** Pure resolution (testable): combine canonical mode meta with the actual runtime env. */

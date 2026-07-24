@@ -1,0 +1,30 @@
+name: Issue-report URL metadata audit (read-only)
+
+# READ-ONLY historical audit for the post-#1022 P2 finding. Manual dispatch only. Runs a SELECT/COUNT
+# script and prints ONLY aggregates (count + date range) — never mutates rows, never prints PII/urls.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-report-url-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Read-only count of appRuntimeConfig.url rows
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/count-issue-report-url-metadata.mjs

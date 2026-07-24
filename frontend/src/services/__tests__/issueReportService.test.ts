@@ -1,9 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildIssueReportMetadata, issueReportService } from '@/services/issueReportService';
 import { resolvePageContext } from '@/services/pageContext';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import type { AppRuntimeConfig } from '@/config/appRuntimeConfig';
 
 const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+
+// Build a full runtime config whose raw `url` embeds whatever sensitive segment a test wants to prove
+// never survives into persisted metadata.
+const runtimeConfigWithUrl = (url: string): AppRuntimeConfig => ({
+  url, port: 5174, viteMode: 'production', authMode: 'real', mockAuth: false,
+  supabaseUrl: 'https://yxlapjuovrsvjswkwnrk.supabase.co', releaseProofEligible: true,
+  stripeKeyClass: 'live', release: 'c99208b917f5bb4223e8c40109ec4887e08abaef',
+});
+const setRuntimeConfig = (url: string) => {
+  (window as unknown as { __APP_RUNTIME_CONFIG__?: AppRuntimeConfig }).__APP_RUNTIME_CONFIG__ = runtimeConfigWithUrl(url);
+};
 
 describe('buildIssueReportMetadata — page context + sanitization', () => {
   it('stores the sanitized canonical route TEMPLATE, never a concrete id/query/hash', () => {
@@ -61,6 +73,56 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
       .toMatchObject({ practiceSurface: 'quick_practice_overview', pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
     // Off /practice: no surface attached.
     expect(buildIssueReportMetadata({ context: resolvePageContext('/session') }).practiceSurface).toBeNull();
+  });
+});
+
+// Regression for the post-#1022 P2 finding: the raw `appRuntimeConfig.url` (= window.location.href) must
+// NEVER be persisted into report metadata — it carries dynamic route ids / query / fragment where session
+// UUIDs, emails, and invite/reset tokens can appear. buildIssueReportMetadata must allowlist runtime facts.
+describe('buildIssueReportMetadata — appRuntimeConfig URL hygiene (P2 leak fix)', () => {
+  afterEach(() => {
+    delete (window as unknown as { __APP_RUNTIME_CONFIG__?: unknown }).__APP_RUNTIME_CONFIG__;
+  });
+
+  it('never persists a session UUID from the runtime url (owned id belongs only in session_id)', () => {
+    const uuid = '7e7aca2c-c192-4a80-8976-df5637859164';
+    setRuntimeConfig(`https://speaksharp-public.vercel.app/analytics/${uuid}`);
+    const meta = buildIssueReportMetadata({ context: resolvePageContext(`/analytics/${uuid}`) });
+    expect(JSON.stringify(meta)).not.toContain(uuid);
+    expect(meta.canonicalRoute).toBe('/analytics/:sessionId'); // sanitized template preserved
+  });
+
+  it.each([
+    ['email path segment', 'https://app/u/reset/user@example.com/edit', 'user@example.com'],
+    ['token path segment', 'https://app/invite/tok_live_9fA3Z7Qw', 'tok_live_9fA3Z7Qw'],
+    ['query parameters', 'https://app/session?email=user@example.com&token=abc123', 'user@example.com'],
+    ['query token value', 'https://app/session?token=abc123secret', 'abc123secret'],
+    ['url fragment', 'https://app/analytics#access_token=frag-secret-xyz', 'frag-secret-xyz'],
+  ])('never persists a %s from the runtime url', (_label, url, secret) => {
+    setRuntimeConfig(url);
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(JSON.stringify(meta)).not.toContain(secret);
+  });
+
+  it('keeps the allowlisted runtime facts but drops url / port / supabaseUrl', () => {
+    setRuntimeConfig('https://speaksharp-public.vercel.app/analytics/7e7aca2c-c192-4a80-8976-df5637859164');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.appRuntimeConfig).toEqual({
+      viteMode: 'production', authMode: 'real', mockAuth: false,
+      stripeKeyClass: 'live', releaseProofEligible: true,
+      release: 'c99208b917f5bb4223e8c40109ec4887e08abaef',
+    });
+    // Top-level release breadcrumb still available for build pinning.
+    expect(meta.releaseId).toBe('c99208b917f5bb4223e8c40109ec4887e08abaef');
+    const cfg = meta.appRuntimeConfig as Record<string, unknown>;
+    expect(cfg).not.toHaveProperty('url');
+    expect(cfg).not.toHaveProperty('port');
+    expect(cfg).not.toHaveProperty('supabaseUrl');
+  });
+
+  it('omits appRuntimeConfig entirely when no runtime config is published', () => {
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.appRuntimeConfig).toBeUndefined();
   });
 });
 
