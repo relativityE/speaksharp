@@ -2,7 +2,7 @@
 
 A breadcrumb for new developers. It answers: where a product promise lives in code, which test protects it, and which doc to update when you change it. Paths are repo-relative and verified against `main`. Keep this current; do **not** add PR narratives here.
 
-> Baseline when written: `main` `65e58a62` (the #1010 CORS config fix on top of the `e9040464` private-first UX milestone). The durable outbox / provenance / owner-alert / retrieval architecture is **DRAFT #1006 — NOT shipped, NOT deployed, NOT activated**; it is called out below where relevant.
+> Baseline: last product-behavior change `main` `c25b2178` (#1024) atop `a37a6ba1` (#1027) and `c99208b9` (#1022); current `main` HEAD `05643fbd` (audit tooling only). See `RELEASE_STATUS.md` (SSOT). The durable outbox / provenance / owner-alert / retrieval architecture is **DRAFT #1006 — NOT shipped, NOT deployed, NOT activated**; it is called out below where relevant.
 
 ## 1. Product direction
 - **Private = Recommended** and the main beta experience. **Browser = "Quick preview"** (not equivalent to Private). **Cloud = Pro**, unavailable to Free testers during the no-billing beta (existing paid-Pro accounts retain access).

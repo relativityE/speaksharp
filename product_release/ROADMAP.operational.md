@@ -5,6 +5,8 @@
 
 # Release Risk Tracker (Operational Roadmap)
 
+> ⚠️ **STALE — UNDER REVISION (2026-07-24).** Stamped **v0.6.19-rc0 (last reviewed 2026-05-26)** and framed around a "12-hour launch window" that no longer matches the current invite-only, billing-fail-closed beta. Superseded for current status by `RELEASE_STATUS.md`; a normalized backlog (Now/Next/Later/Declined) is tracked separately. Do not rely on this file for current priorities.
+
 > Roadmap/risk contract, not release status.
 > Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 

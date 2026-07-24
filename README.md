@@ -1,8 +1,8 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-06
+**Last Reviewed:** 2026-07-24
 
-# SpeakSharp v0.6.18 (SpeechRuntime Stabilized)
-**v0.6.18 (SpeechRuntime Stabilized)** | **Last Updated: 2026-05-06**
+# SpeakSharp — private-first speech practice (beta)
+**Current release:** see [`product_release/RELEASE_STATUS.md`](product_release/RELEASE_STATUS.md) (single source of truth). Deployed `main` HEAD `05643fbd`; latest cut tag `v0.9.0-rc4`. Invite-only beta; billing fail-closed (no live charges). | **Last Updated: 2026-07-24**
 
 - **Phase 8: SpeechRuntime Stabilization (v0.6.18):** **Deterministic Engine Signaling**.
     - **Token-First warmUp Pattern**: Implemented safe, enqueued re-initialization in `SpeechRuntimeController.updatePolicy` to eliminate race conditions during tier-switch hydration.
@@ -14,10 +14,10 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 
 ### 🎙️ Core Features
 
--   **Triple-Engine Transcription:** 
-    -   **Private Mode:** Recommended Pro default. On-device processing via WebGPU first, then CPU/Transformers.js, with browser-managed model caching for maximum privacy and zero variable STT cost.
-    -   **Cloud Mode:** First-class Pro option for high-fidelity AssemblyAI Streaming with user word boosting.
-    -   **Native Mode:** Browser Web Speech API baseline and final fallback when Private cannot initialize.
+-   **Multi-Engine Transcription (explicit user choice — the app never silently switches processing mode):**
+    -   **Private (default):** on-device Whisper via Transformers.js (CPU/WASM; model **v2 = `whisper-base.en`** is the supported default). Local audio, browser-cached model, zero variable STT cost. **Private v4 (WebGPU) is experimental and hard-disabled** pending a decision gate — not a production path.
+    -   **Cloud:** first-class Pro option (AssemblyAI Streaming) — an explicit user choice; audio is sent to the provider for processing.
+    -   **Native / Browser:** zero-setup browser Web Speech baseline. **Not universally offline** (Chrome sends audio to Google) and **never an automatic fallback**.
 -   **Advanced Vocal Analytics:**
     -   **Adaptive Noise Floor:** Intelligently filters background noise to provide precision pause detection.
     -   **Rolling WPM:** Smooth, 15-second rolling window for real-time speaking pace feedback.
@@ -30,7 +30,7 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 -   **Integration & Metering Hardening (Mar 2026):** **3-PR Integration Baseline**.
     -   **SQL Extraction (PR #732):** Atomic session creation and hardened usage metering in the database layer.
     -   **Tier Limits (PR #731):** Dynamic `tier_configs` enforcement with strict concurrency protection.
-    -   **3-Layer Runtime (PR #729):** Resilient STT hierarchy (WebGPU -> WASM -> Native) with model loading progress.
+    -   **Private runtime:** on-device Whisper (WASM/CPU) with model-loading progress. (WebGPU/v4 is experimental and hard-disabled — not part of the production path. Native is a separate explicit engine, not an automatic fallback tier.)
     -   **Zero-Debt Audit:** 100% pass rate in Vitest (Unit) and Playwright (E2E) suites.
 -   **Zero-Debt & Scalability Hardening (Feb 2026):** **"Zero-Debt" & Scalability Baseline**.
     -   **O(1) Live Analytics:** Infinite-duration sessions supported via incremental observer pattern.
@@ -158,7 +158,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
     ```
 
-    > **Trial Access:** New accounts receive an automatic one-hour Pro trial through the database entitlement layer. No tester code or admin secret is required. Cloud STT is a Pro feature (unavailable for trial) to avoid provider costs during trial testing.
+    > **Access model (current beta):** invite-only, **billing fail-closed** — no live Stripe charges; paid checkout stays closed unless BOTH `VITE_PAYMENTS_ENABLED` (frontend) and `PAYMENTS_ENABLED` (backend) are true (see [`product_release/LAUNCH_ENV_CHECKLIST.md`](product_release/LAUNCH_ENV_CHECKLIST.md)). Pro/Cloud QA uses a comped DB entitlement, not a live subscription. (The earlier "automatic one-hour Pro trial" flow is retired.)
 
 5.  **Run the development server:**
     ```bash

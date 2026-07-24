@@ -1,7 +1,9 @@
 # Product Release — Document Index
 
 > Directory index, **not** release status. Current ship/deployment posture, blockers, and run IDs live only in [RELEASE_STATUS.md](./RELEASE_STATUS.md). Precedence on conflict: [PRECEDENCE.md](./PRECEDENCE.md).
-> Product baseline at last reconcile: `main` `65e58a62` (the #1010 CORS config fix on top of the `e9040464` #1007/#1008 UX milestone). Not every file here is equally authoritative — the sections below control precedence.
+> Product baseline at last reconcile: last product-behavior change `main` `c25b2178` (#1024) atop `a37a6ba1` (#1027 stale-chunk P0) and `c99208b9` (#1022 `/practice` default); current `main` HEAD `05643fbd` (audit tooling only). See `RELEASE_STATUS.md` for live status. Not every file here is equally authoritative — the sections below control precedence.
+
+> **Doc-truth reset 2026-07-24:** stale baselines (`65e58a62` / `__BUILD_ID__`) corrected to the current `05643fbd` HEAD + `window.__APP_RELEASE__` mechanism; `README.md` STT/trial claims corrected (v2-default, v4-hard-off, no-silent-fallback, billing fail-closed); `PRD.operational.md` + `ROADMAP.operational.md` (both v0.6.19-rc0, reviewed 2026-05-26) banner-marked STALE / under revision. Authoritative for current facts: this index → `PRECEDENCE.md` → `RELEASE_STATUS.md` (status) + `ARCHITECTURE.operational.md` (invariants).
 
 ## Current SSOT / status
 - [RELEASE_STATUS.md](./RELEASE_STATUS.md) — current go/no-go, deployment posture, latest run IDs.

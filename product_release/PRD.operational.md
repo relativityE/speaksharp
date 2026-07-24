@@ -5,6 +5,8 @@
 
 # SpeakSharp Operational PRD (The Contract)
 
+> ⚠️ **STALE — UNDER REVISION (2026-07-24).** This contract is still stamped **v0.6.19-rc0 (last reviewed 2026-05-26)** and predates the shipped `/practice` default entry (#1022), the stale-chunk release mechanism (#1027, `window.__APP_RELEASE__`), and the current v2-default / v4-hard-off STT posture. A rewritten **PRD v1** is the authoritative replacement (tracked separately). Until then, treat `RELEASE_STATUS.md` (current status) + `ARCHITECTURE.operational.md`/`STT_BASELINE_CONTRACTS.operational.md` (invariants) as authoritative where this file conflicts.
+
 > Contract document, not release status.
 > Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 
