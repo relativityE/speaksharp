@@ -67,10 +67,15 @@ const SOURCES: Array<{ label: string; path: string; key: string }> = [
   { label: 'ENTITLEMENT_EVIDENCE', path: 'ENTITLEMENT_PRO_LIMIT_EVIDENCE.md', key: '`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`' },
 ];
 
-// Explicit allowlist for intentionally grouped / provenance-only headings, WITH a reason each.
-function allowReason(label: string): string | null {
-  if (label === 'CHANGELOG') return 'CHANGELOG version entries are provenance-only, grouped as one NO_DURABLE_CONTENT row (permitted exception).';
-  if (label === 'CODEBASE_MAP.md') return 'CODEBASE_MAP breadcrumb sections are grouped into one architecture code-map row.';
+// Explicit, heading-level allowlist for intentionally grouped / provenance-only headings, WITH a reason.
+// (CODEBASE_MAP is NOT allowlisted — its 8 sections are enumerated individually in the ledger.)
+function allowReason(label: string, heading: string): string | null {
+  // The historical CHANGELOG is provenance-only (git history + RELEASE_STATUS are the truth); the
+  // Product Owner permits grouping it as one NO_DURABLE_CONTENT row. This covers its version H2s
+  // (`[x.y.z] - date`) and their change-type H3 sub-entries (Added/Fixed/Changed/...). This is the
+  // ONLY whole-source allowance; every other source (incl. CODEBASE_MAP) is enumerated per heading.
+  if (label === 'CHANGELOG') return 'CHANGELOG version/change entries — provenance-only, grouped as one NO_DURABLE_CONTENT row (permitted exception).';
+  void heading;
   return null;
 }
 
@@ -99,8 +104,37 @@ function ledgerSubsection(key: string): string {
 function h2Headings(md: string): string[] {
   return [...md.matchAll(/^##\s+(.+)$/gm)].map(m => m[1].trim());
 }
-function h3Headings(md: string): string[] {
-  return [...md.matchAll(/^###\s+(.+)$/gm)].map(m => m[1].trim());
+// Headings in SOURCE ORDER, so each H3 can be tied to its nearest preceding H2 (its actual parent).
+function orderedHeadings(md: string): Array<{ level: 2 | 3; text: string }> {
+  const out: Array<{ level: 2 | 3; text: string }> = [];
+  for (const line of md.split('\n')) {
+    const m3 = /^###\s+(.+)$/.exec(line);
+    if (m3) { out.push({ level: 3, text: m3[1].trim() }); continue; }
+    const m2 = /^##\s+(.+)$/.exec(line);
+    if (m2) out.push({ level: 2, text: m2[1].trim() });
+  }
+  return out;
+}
+
+// An H3 passes ONLY when it is directly covered, or its ACTUAL parent H2 (nearest preceding) is
+// covered by a ledger row. A covered unrelated H2 elsewhere in the file does NOT satisfy it.
+function h3Coverage(
+  ordered: Array<{ level: 2 | 3; text: string }>,
+  subRaw: string,
+  allowlisted: (h: string) => boolean = () => false,
+): { failures: string[]; direct: number; viaParent: number } {
+  let parent: string | null = null;
+  const failures: string[] = [];
+  let direct = 0;
+  let viaParent = 0;
+  for (const h of ordered) {
+    if (h.level === 2) { parent = h.text; continue; }
+    if (allowlisted(h.text)) continue;
+    if (covered(h.text, subRaw)) { direct++; continue; }
+    if (parent && covered(parent, subRaw)) { viaParent++; continue; }
+    failures.push(h.text);
+  }
+  return { failures, direct, viaParent };
 }
 
 function covered(heading: string, subRaw: string): boolean {
@@ -148,29 +182,39 @@ describe('documentation contract — product_release/', () => {
   it('every H2 heading of every substantive source is covered in its ledger subsection (or allowlisted with a reason)', () => {
     const failures: string[] = [];
     for (const src of SOURCES) {
-      const reason = allowReason(src.label);
-      if (reason) continue; // grouped/provenance — see allowlist
       const subRaw = ledgerSubsection(src.key);
       for (const h of h2Headings(read(src.path))) {
+        if (allowReason(src.label, h)) continue; // heading-level allowlist (provenance)
         if (!covered(h, subRaw)) failures.push(`${src.label} :: ${h}`);
       }
     }
     expect(failures, `uncovered H2 headings:\n${failures.join('\n')}`).toEqual([]);
   });
 
-  it('every H3 heading is covered directly or grouped under a covered H2 parent', () => {
+  it('every H3 heading is covered directly, or under its ACTUAL nearest-preceding H2 parent', () => {
     const failures: string[] = [];
     for (const src of SOURCES) {
-      if (allowReason(src.label)) continue;
-      const md = read(src.path);
       const subRaw = ledgerSubsection(src.key);
-      const h2 = h2Headings(md);
-      for (const h of h3Headings(md)) {
-        const parentOk = h2.some(p => covered(p, subRaw)); // grouped-under-H2 allowance
-        if (!covered(h, subRaw) && !parentOk) failures.push(`${src.label} :: ### ${h}`);
-      }
+      const ordered = orderedHeadings(read(src.path));
+      const r = h3Coverage(ordered, subRaw, (h) => allowReason(src.label, h) !== null);
+      r.failures.forEach(f => failures.push(`${src.label} :: ### ${f}`));
     }
     expect(failures, `uncovered H3 headings:\n${failures.join('\n')}`).toEqual([]);
+  });
+
+  it('H3 coverage uses the ACTUAL parent H2, not any covered H2 (negative regression)', () => {
+    // A covered UNRELATED H2 must NOT rescue an H3 whose real parent is uncovered.
+    const negative = h3Coverage(
+      [{ level: 2, text: 'Alpha Covered' }, { level: 2, text: 'Beta Uncovered' }, { level: 3, text: 'Gamma Child' }],
+      'Alpha Covered',
+    );
+    expect(negative.failures).toEqual(['Gamma Child']); // parent is Beta (uncovered) → FAIL despite Alpha covered
+    // The actual parent being covered → PASS.
+    const positive = h3Coverage(
+      [{ level: 2, text: 'Delta Covered' }, { level: 3, text: 'Epsilon Child' }],
+      'Delta Covered',
+    );
+    expect(positive.failures).toEqual([]);
   });
 
   it('every §3 table row carries exactly one valid content disposition (last cell)', () => {

@@ -36,7 +36,7 @@ Four distinct identities — do not conflate them:
 ## Current merged product posture
 - **`/practice` default entry (#1022):** authenticated home is `/practice` (#1025 hotfix; #1026 canary asserts it); Guided is surfaced-but-unavailable; the rollout flag is retired.
 - **Stale-chunk P0 hardened (#1027):** `preloadError` recovery + stable content-hash asset names + SPA 404 fallback; release identity moved to `window.__APP_RELEASE__` (above).
-- **Private-first UX (through #1007/#1008, still current):** Private = Recommended/main; the free browser convenience preview = Cloud = Pro (unavailable to Free testers in the no-billing beta; existing paid-Pro accounts retain access). One authoritative post-save `StatusNotificationBar`; completion toast / "Next: Analytics" overlay deleted.
+- **Private-first UX (through #1007/#1008, still current):** Private = Recommended/main; Quick preview = the free Browser convenience path; Cloud = paid-Pro-only and unavailable to Free testers during the no-billing beta (existing paid-Pro accounts retain access). One authoritative post-save `StatusNotificationBar`; completion toast / "Next: Analytics" overlay deleted.
 - **STT mode labels (deployed vs approved):** the wording **currently visible in production** for the Web Speech engine is **"Quick preview"** (shipped #1007/#1008). **"Quick Preview (Browser)"** is the **approved** replacement label but is **not deployed** until its UI-copy PR lands. The internal engine token / telemetry / DB value remains **`native`** and is unchanged by either label.
 - **Issue-report hygiene (#1024):** raw `appRuntimeConfig.url` no longer persisted in report metadata.
 - Billing closed, exact-origin CORS hardened, v4 off (as above).

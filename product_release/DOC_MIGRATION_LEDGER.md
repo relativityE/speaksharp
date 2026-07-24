@@ -250,7 +250,14 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 
 | Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Product direction + intent→code→test→doc rows | Breadcrumb (promise→path→test→doc) | AI | verify each path/test exists | ARCHITECTURE → Code Map | EXTRACTED |
+| 1. Product direction | Product-direction breadcrumb (promise→path→test→doc) | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 2. Session / UI (mode hierarchy + post-save) | Session/UI mode hierarchy + post-save map | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 3. STT policy / entitlements | STT-policy / entitlement code map | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 4. Billing (dual fail-closed) | Billing dual-fail-closed code map | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 5. Persistence and feedback (Supabase = source of truth) | Persistence/feedback (Supabase SSOT) map | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 6. Security perimeter | Security-perimeter code map | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 7. Observability & release operations | Observability/release-ops code map | AI | verify paths/tests exist | ARCHITECTURE → Code Map | EXTRACTED |
+| 8. When changing X, update Y | Change-impact breadcrumb | AI | N/A | ARCHITECTURE → Code Map | EXTRACTED |
 
 ### 3.D STT (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: ENG
 
