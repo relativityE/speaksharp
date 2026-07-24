@@ -108,7 +108,10 @@ describe('audit behavior — pagination, fail-closed, no PII (mocked Auth Admin)
     const { code, report } = await runAudit({ createClient: mockCreateClient({ pages }), env: BASE_ENV });
     expect(code).toBe(0);
     expect(report).toMatch(/total_auth_accounts_scanned : 101/);
-    expect(report).toMatch(/GENUINE tester accounts : 101/);
+    // BASE_ENV has no OWNER_EMAIL → classification incomplete → upper-bound label, not genuine_tester_accounts.
+    expect(report).toMatch(/classification_complete : false/);
+    expect(report).toMatch(/candidate_genuine_accounts_upper_bound : 101/);
+    expect(report).not.toMatch(/genuine_tester_accounts :/);
   });
 
   it('fails closed on Auth-Admin error: non-zero code, NO report/totals, sanitized error only', async () => {
@@ -148,7 +151,7 @@ describe('audit behavior — pagination, fail-closed, no PII (mocked Auth Admin)
     expect(report).toMatch(/meaningful_completions\s*:\s*1/);
   });
 
-  it('excludes the hardcoded canary + configured synthetic emails from the genuine count', async () => {
+  it('excludes the hardcoded canary + configured synthetic emails; count stays an upper bound while incomplete', async () => {
     const pages = [[
       { id: 'c', email: 'canary@speaksharp.app', created_at: '2026-07-24T01:00:00Z' },
       { id: 'b', email: 'basic@fixtures.io', created_at: '2026-07-24T01:00:00Z' },
@@ -158,7 +161,22 @@ describe('audit behavior — pagination, fail-closed, no PII (mocked Auth Admin)
     const { report } = await runAudit({ createClient: mockCreateClient({ pages }), env });
     expect(report).toMatch(/excluded\[canary\] : 1/);
     expect(report).toMatch(/excluded\[BASIC synthetic\] : 1/);
-    expect(report).toMatch(/GENUINE tester accounts : 1/);
+    expect(report).toMatch(/candidate_genuine_accounts_upper_bound : 1/); // OWNER/PRO/checkout unconfigured
+  });
+
+  it('flips to classification_complete=true + genuine_tester_accounts when EVERY exclusion is configured', async () => {
+    const pages = [[
+      { id: 'o', email: 'owner@speaksharp.app', created_at: '2026-07-24T01:00:00Z' },
+      { id: 'g', email: 'realperson@gmail.com', created_at: '2026-07-24T01:00:00Z' },
+    ]];
+    const env = {
+      ...BASE_ENV, BASIC_TEST_EMAIL: 'basic@fixtures.io', PRO_TEST_EMAIL: 'pro@fixtures.io',
+      CHECKOUT_TEST_EMAIL: 'co@fixtures.io', OWNER_EMAIL: 'owner@speaksharp.app',
+    };
+    const { report } = await runAudit({ createClient: mockCreateClient({ pages }), env });
+    expect(report).toMatch(/classification_complete : true/);
+    expect(report).toMatch(/genuine_tester_accounts : 1/);
+    expect(report).toMatch(/classification_complete=true — a tester-completion conclusion may be drawn/);
   });
 });
 
@@ -173,10 +191,23 @@ describe('audit output — framing + completeness disclosure', () => {
     expect(script).toMatch(/total_auth_accounts_scanned/);
     expect(script).not.toMatch(/total_accounts \(user_profiles\)/);
   });
-  it('keeps owner/admin classification explicitly incomplete when unconfigured', async () => {
+  it('withholds the final tester-completion conclusion while classification is incomplete', async () => {
     const { report } = await runAudit({ createClient: mockCreateClient({ pages: [[]] }), env: BASE_ENV });
+    expect(report).toMatch(/classification_complete : false/);
     expect(report).toMatch(/UNCONFIGURED: owner\/admin/);
-    expect(report).toMatch(/UPPER BOUND/);
+    expect(report).toMatch(/WITHHELD: classification_complete=false/);
+    expect(report).not.toMatch(/a tester-completion conclusion may be drawn/);
+  });
+});
+
+describe('session-duration threshold — contract with product config (no drift)', () => {
+  it('the audit MIN_SESSION_DURATION_SECONDS equals frontend/src/config/env.ts', () => {
+    const env = read('../../frontend/src/config/env.ts');
+    const product = env.match(/MIN_SESSION_DURATION_SECONDS\s*=\s*(\d+)/)?.[1];
+    const audit = script.match(/MIN_SESSION_DURATION_SECONDS\s*=\s*(\d+)/)?.[1];
+    expect(product, 'product config exposes MIN_SESSION_DURATION_SECONDS').toBeTruthy();
+    expect(audit, 'audit defines MIN_SESSION_DURATION_SECONDS').toBeTruthy();
+    expect(audit, 'audit threshold must match the product config (contract)').toBe(product);
   });
 });
 

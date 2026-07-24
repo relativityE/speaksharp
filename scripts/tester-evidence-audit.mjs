@@ -3,22 +3,24 @@
  * READ-ONLY production tester-evidence audit.
  *
  * Supabase is the COMPLETION source of truth. Produces aggregate, sanitized evidence about genuine
- * testers only. Strictly read-only and content-free:
- *   - PostgREST access is limited to SELECT via a guarded wrapper (insert/update/upsert/delete/rpc throw).
- *   - Auth Admin is exposed to audit logic ONLY through a narrow `listUsers` wrapper — no createUser,
- *     updateUserById, deleteUser, inviteUserByEmail, generateLink, or MFA/admin mutation is reachable.
- *   - NEVER prints emails, credentials, tokens, user ids, session ids, audio, or transcript bodies.
- *     Transcripts are inspected IN MEMORY only; only aggregates / derived quality signals are emitted.
+ * testers only.
  *
- * Auth key: this repository provisions SUPABASE_SERVICE_ROLE_KEY (verified across repo/org/environment
- * secret scopes; no SUPABASE_SECRET_KEY exists in any scope available to this workflow). The audit uses
- * SUPABASE_SERVICE_ROLE_KEY directly, mirroring the established Auth-Admin callers
- * (scripts/verify-test-users.mjs, canary-ceiling.mjs, setup-test-users.mjs). Migrating those workflows to
- * a renamed key is out of scope for this audit.
+ * SAFETY GUARANTEE (stated accurately): the credential is privileged; this is an APPLICATION-LEVEL
+ * constraint, NOT an immutable or permission-level read-only boundary. Concretely, the audit performs
+ * ONLY Auth Admin `listUsers` and PostgREST `select` operations; a guarded wrapper throws on any
+ * insert/update/upsert/delete/rpc, Auth Admin is reached only via a narrow `listUsers` wrapper, and the
+ * accompanying tests reject known mutation/RPC calls. It NEVER prints emails, credentials, tokens, user
+ * ids, session ids, audio, or transcript bodies — transcripts are inspected in memory and only aggregates
+ * / derived quality signals are emitted.
  *
- * Prior Auth-Admin rejection: an `invalid JWT` error was observed ONCE in an earlier run; its exact cause
- * is unproven. This audit now mirrors the established repository Auth-Admin client and FAILS CLOSED (no
- * totals, non-zero exit) if the rejection recurs.
+ * Auth key: this workflow uses the repository's established SUPABASE_SERVICE_ROLE_KEY, mirroring the
+ * existing Auth-Admin callers (scripts/verify-test-users.mjs et al.). A dated secret-name inventory lives
+ * in product_release/ENV_INVENTORY.md — never secret values.
+ *
+ * Prior Auth-Admin rejection: an `invalid JWT` signature error was observed ONCE in an earlier run; its
+ * exact cause is UNPROVEN. No client-option or perPage change is claimed to have fixed it. This audit
+ * mirrors the established Auth-Admin client and FAILS CLOSED (no totals, no artifact, non-zero exit) if
+ * the rejection recurs; a successful workflow run is the required evidence.
  *
  * Env (injected by GitHub Actions; never echoed):
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY             (required)
@@ -229,22 +231,31 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
   say(`auth_key_env_var_used  : SUPABASE_SERVICE_ROLE_KEY (name only; value never read, printed, or transformed)`);
   say(`min_session_duration_seconds (app-configured): ${MIN_SESSION_DURATION_SECONDS}`);
   say('');
+  // Classification is complete ONLY when every non-genuine category has a configured exclusion. If the
+  // owner/admin (or any other) exclusion is unconfigured, the count is an UPPER BOUND and no final
+  // tester-completion conclusion may be issued.
+  const classificationComplete = unconfiguredExclusions.length === 0;
   say('--- EXCLUSIONS (categories + counts only; no addresses or ids) ---');
   say(`total_auth_accounts_scanned : ${users.length}`);
   for (const [cat, n] of [...exclusionCounts].sort((a, b) => b[1] - a[1])) say(`excluded[${cat}] : ${n}`);
   say(`excluded_total          : ${users.length - realUsers.length}`);
-  say(`GENUINE tester accounts : ${realUsers.length}`);
+  say(`classification_complete : ${classificationComplete}`);
+  if (classificationComplete) {
+    say(`genuine_tester_accounts : ${realUsers.length}`);
+  } else {
+    say(`candidate_genuine_accounts_upper_bound : ${realUsers.length}`);
+  }
   say(`synthetic/QA sessions excluded by title marker: ${syntheticSessionCount}`);
   if (freeAliasesBasic) say('note: FREE_TEST resolves to the BASIC address (shared account) — counted once under BASIC synthetic.');
   say('');
-  if (unconfiguredExclusions.length) {
-    say('!! CLASSIFICATION COMPLETENESS — read before trusting the "genuine" count:');
+  if (!classificationComplete) {
+    say('!! CLASSIFICATION INCOMPLETE — the account count above is an UPPER BOUND, not a genuine-tester total.');
     say('   Exclusion is by exact email match (in memory) + QA-fixture patterns + the hardcoded canary const.');
-    say('   These categories have NO address configured, so such an account would be counted as GENUINE:');
+    say('   These categories have NO address configured, so such an account is NOT excluded and inflates the count:');
     for (const c of unconfiguredExclusions) say(`   UNCONFIGURED: ${c}`);
-    say('   Treat the genuine-tester total as an UPPER BOUND until these are configured.');
+    say('   Configure OWNER_EMAIL (and any others) as GitHub secrets to complete classification.');
   } else {
-    say('classification_completeness: all exclusion categories configured.');
+    say('classification_complete: all exclusion categories configured.');
   }
   say('');
 
@@ -274,7 +285,15 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
   say(' /practice events are owner/QA/synthetic and are excluded from real-tester adoption totals. This is NOT');
   say(' missing telemetry, a conversion failure, or product abandonment. No historical /practice conversion is computed.)');
   say('');
-  say('note: read-only; zero mutations; no emails/ids/tokens/transcripts/audio printed.');
+  say('--- FINAL TESTER-COMPLETION CONCLUSION ---');
+  if (classificationComplete) {
+    say('classification_complete=true — a tester-completion conclusion may be drawn from the aggregates above.');
+  } else {
+    say('WITHHELD: classification_complete=false. No final tester-completion conclusion is issued while the');
+    say('account count is an upper bound (unconfigured exclusion categories listed above).');
+  }
+  say('');
+  say('note: read-only; only Auth Admin listUsers + PostgREST select were performed; no emails/ids/tokens/transcripts/audio printed.');
   return { code: 0, report: out.join('\n') };
 }
 

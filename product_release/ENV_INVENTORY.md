@@ -244,3 +244,9 @@ for current configuration.
 - **ENV-PROD:** whether to migrate the Home-A committed `VITE_*` (public) into Home B (Vercel), to match the Stripe-key pattern. This table is the migration checklist if so.
 - **ORT-WASM-SAME-ORIGIN:** unrelated to env, but tracked in `BACKLOG.md` (P2 dependency/bloat maintenance epic).
 - **VITE_DEV_PREMIUM_ACCESS cleanup:** remove the dead test-only stub or wire an intentional owner-QA path; today it is stubbed but unused in `src`.
+
+## GitHub Actions secret-name inventory (audit evidence)
+
+**Captured 2026-07-24 (names only — no values; used by the tester-evidence audit for the SUPABASE key choice).**
+
+Supabase secret names present in the repository Actions scope: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`. No `SUPABASE_SECRET_KEY` was present at capture time; the repo is user-owned (no org Actions secrets) and the `Preview` / `Production` / `production-db` environments had zero Actions secrets. The tester-evidence audit (`tester-evidence-audit.yml`) therefore uses the repository's established `SUPABASE_SERVICE_ROLE_KEY`, matching the existing Auth-Admin callers. Also absent at capture time: `SUPABASE_SECRET_KEY`, `FREE_TEST_EMAIL`, `OWNER_EMAIL`, a canary email secret (canary is excluded via the public constant `canary@speaksharp.app`). Re-verify with `gh api /repos/:owner/:repo/actions/secrets` (names only) before relying on this list.

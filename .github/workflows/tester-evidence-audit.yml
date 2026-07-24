@@ -44,10 +44,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Auth-Admin / key preflight — the EXISTING, unchanged scripts/verify-test-users.mjs. If Auth Admin
-      # or the key/URL pairing is broken, this fails the whole job here, BEFORE the audit runs, so no
-      # tester totals are ever published on a broken credential. (verify-test-users.mjs is read-only:
-      # listUsers + a profile read; the mutating setup-test-users.mjs / provision-canary.mjs are NOT run.)
+      # Configuration/credential preflight — the EXISTING, unchanged scripts/verify-test-users.mjs. It is
+      # INTENTIONALLY REDUNDANT with the audit's own first Auth Admin read: running it first fails the job
+      # here (before any audit output) if the key/URL pairing or Auth Admin is broken, so no tester totals
+      # are ever published on a broken credential. verify-test-users.mjs is read-only (Auth Admin listUsers
+      # + a profile read); the mutating setup-test-users.mjs / provision-canary.mjs are NOT run.
       - name: Preflight — Auth Admin + key reachability (existing verify-test-users.mjs, unchanged)
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -64,9 +65,8 @@ jobs:
       - name: Run read-only tester evidence audit
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          # This repo provisions SUPABASE_SERVICE_ROLE_KEY (verified across repo/org/environment scopes;
-          # no SUPABASE_SECRET_KEY exists in any scope). Used directly, mirroring the established
-          # Auth-Admin callers. No anon key, no passwords, no sign-in.
+          # This workflow uses the repository's established SUPABASE_SERVICE_ROLE_KEY (the same key the
+          # existing Auth-Admin callers use). No anon key, no passwords, no sign-in.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
           # Established fallback (rc-gates.yml, setup-test-users.yml): FREE reuses the BASIC account when
@@ -74,6 +74,9 @@ jobs:
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
+          # Owner/admin exclusion. When this secret is absent the audit reports classification_complete=false
+          # and labels the count an upper bound (never printed).
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           PRACTICE_DEPLOY_AT: ${{ github.event.inputs.practice_deploy_at }}
           FINAL_DEPLOY_AT: ${{ github.event.inputs.final_deploy_at }}
         # No `tee`: the script writes the sanitized report itself. `set -euo pipefail` so any failure
