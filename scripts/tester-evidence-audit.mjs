@@ -46,46 +46,49 @@ const sb = { from: (t) => guard(raw.from(t), `from(${t})`), auth: raw.auth };
 const fail = (label, e) => { console.error(`[audit] ${label} failed:`, e?.message ?? e); process.exit(1); };
 const pct = (n, d) => (d ? ((100 * n) / d).toFixed(1) + '%' : 'n/a');
 
-// ── Exclusions (categories + counts only; addresses never printed) ──────────────────────────────────
-const EXCLUDE_EXACT = new Map();
-for (const [cat, v] of [
-  ['BASIC synthetic', process.env.BASIC_TEST_EMAIL], ['FREE_TEST', process.env.FREE_TEST_EMAIL],
-  ['PRO_TEST', process.env.PRO_TEST_EMAIL], ['checkout test', process.env.CHECKOUT_TEST_EMAIL],
-  ['canary', process.env.CANARY_TEST_EMAIL], ['owner/admin', process.env.OWNER_EMAIL],
-]) if (v) EXCLUDE_EXACT.set(v.trim().toLowerCase(), cat);
-
-// Pattern-based synthetic detection (QA automation / E2E fixtures).
-const EXCLUDE_PATTERNS = [
-  [/\+(e2e|qa|test|canary|smoke|auto)[^@]*@/i, 'plus-tagged QA/E2E fixture'],
-  [/@example\.(com|org)$/i, 'example.com fixture'],
-  [/^(e2e|qa|test|canary|smoke|playwright)[._-]/i, 'QA-prefixed fixture'],
-  [/\.(test|invalid)$/i, 'reserved test TLD'],
-];
-const classify = (email) => {
-  const e = (email || '').trim().toLowerCase();
-  if (!e) return 'missing-email';
-  if (EXCLUDE_EXACT.has(e)) return EXCLUDE_EXACT.get(e);
-  for (const [re, label] of EXCLUDE_PATTERNS) if (re.test(e)) return label;
-  return null; // genuine tester
-};
-
 // ── Accounts ────────────────────────────────────────────────────────────────────────────────────────
-const users = [];
-for (let page = 1; page <= 50; page++) {
-  const { data, error } = await sb.auth.admin.listUsers({ page, perPage: 200 });
-  if (error) fail('listUsers', error);
-  const batch = data?.users ?? [];
-  users.push(...batch);
-  if (batch.length < 200) break;
-}
+// NOTE: we deliberately do NOT use `auth.admin.listUsers()`. This project's service-role key is accepted
+// by PostgREST but REJECTED by the GoTrue admin API ("unrecognized JWT kid <nil> for algorithm ES256"),
+// and tests/live/report-page-context.live.spec.ts already resolves ids "through the NORMAL authenticated
+// path (anon sign-in) — NOT admin.listUsers". Emails live in auth.users and are not reachable via
+// PostgREST, so synthetic accounts are excluded by RESOLVED USER ID, not by address.
+const anonKey = process.env.SUPABASE_ANON_KEY;
+const syntheticIds = new Set();
 const exclusionCounts = new Map();
-const realUsers = [];
-for (const u of users) {
-  const cat = classify(u.email);
-  if (cat) exclusionCounts.set(cat, (exclusionCounts.get(cat) ?? 0) + 1);
-  else realUsers.push(u);
+const unresolvedCreds = [];
+if (anonKey) {
+  const anon = createClient(url, anonKey, { auth: { persistSession: false } });
+  const creds = [
+    ['BASIC synthetic', process.env.BASIC_TEST_EMAIL, process.env.BASIC_TEST_PASSWORD],
+    ['FREE_TEST', process.env.FREE_TEST_EMAIL, process.env.FREE_TEST_PASSWORD],
+    ['PRO_TEST', process.env.PRO_TEST_EMAIL, process.env.PRO_TEST_PASSWORD],
+    ['checkout test', process.env.CHECKOUT_TEST_EMAIL, process.env.CHECKOUT_TEST_PASSWORD],
+  ];
+  for (const [cat, email, password] of creds) {
+    if (!email || !password) { unresolvedCreds.push(`${cat} (credentials not injected)`); continue; }
+    const { data, error } = await anon.auth.signInWithPassword({ email, password });
+    const id = data?.user?.id;
+    if (error || !id) { unresolvedCreds.push(`${cat} (sign-in failed: ${error?.message ?? 'no user id'})`); continue; }
+    syntheticIds.add(id);
+    exclusionCounts.set(cat, (exclusionCounts.get(cat) ?? 0) + 1);
+    await anon.auth.signOut();
+  }
+} else {
+  unresolvedCreds.push('SUPABASE_ANON_KEY absent — no synthetic id could be resolved');
 }
-const realIds = new Set(realUsers.map((u) => u.id));
+
+// Account population comes from user_profiles (1 row per account; no email column exists here).
+const profiles = [];
+for (let from = 0; from < 100000; from += 1000) {
+  const { data, error } = await sb.from('user_profiles')
+    .select('id,created_at').order('created_at', { ascending: true }).range(from, from + 999);
+  if (error) fail('user_profiles select', error);
+  profiles.push(...(data ?? []));
+  if ((data?.length ?? 0) < 1000) break;
+}
+const users = profiles;
+const realUsers = profiles.filter((p) => !syntheticIds.has(p.id));
+const realIds = new Set(realUsers.map((p) => p.id));
 
 // ── Sessions (completion source of truth) ───────────────────────────────────────────────────────────
 const sessions = [];
@@ -198,12 +201,20 @@ const say = (s) => { out.push(s); console.log(s); };
 say('===== TESTER EVIDENCE AUDIT (READ-ONLY, aggregates only) =====');
 say(`min_session_duration_seconds (app-configured): ${MIN_SESSION_DURATION_SECONDS}`);
 say('');
-say('--- EXCLUSIONS (categories + counts only; no addresses) ---');
-say(`total_accounts_scanned : ${users.length}`);
+say('--- EXCLUSIONS (categories + counts only; no addresses or ids) ---');
+say(`total_accounts (user_profiles) : ${users.length}`);
 for (const [cat, n] of [...exclusionCounts].sort((a, b) => b[1] - a[1])) say(`excluded[${cat}] : ${n}`);
-say(`excluded_total         : ${users.length - realUsers.length}`);
-say(`GENUINE tester accounts: ${realUsers.length}`);
+say(`excluded_total          : ${users.length - realUsers.length}`);
+say(`GENUINE tester accounts : ${realUsers.length}`);
 say(`synthetic/QA sessions excluded by title marker: ${syntheticSessionCount}`);
+say('');
+say('!! CLASSIFICATION LIMITATION — read before trusting the "genuine" count:');
+say('   Emails live in auth.users and are NOT reachable here (this project\'s service-role key is accepted');
+say('   by PostgREST but REJECTED by the GoTrue admin API), so synthetic accounts are excluded ONLY by a');
+say('   user id resolved via anon sign-in with injected credentials. Any synthetic/QA/owner/canary account');
+say('   whose credentials are not injected CANNOT be resolved and is therefore counted as GENUINE below.');
+for (const u of unresolvedCreds) say(`   UNRESOLVED: ${u}`);
+if (!unresolvedCreds.length) say('   (all configured synthetic credentials resolved)');
 say('');
 
 for (const [label, since] of windows) {

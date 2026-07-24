@@ -50,13 +50,24 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Anon key + credentials are used ONLY to resolve synthetic account user IDs via normal
+          # sign-in (the service-role key is rejected by the GoTrue admin API on this project).
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
+          CHECKOUT_TEST_PASSWORD: ${{ secrets.CHECKOUT_TEST_PASSWORD }}
           PRACTICE_DEPLOY_AT: ${{ github.event.inputs.practice_deploy_at }}
           FINAL_DEPLOY_AT: ${{ github.event.inputs.final_deploy_at }}
-        run: node scripts/tester-evidence-audit.mjs | tee /tmp/tester-evidence-audit.txt
+        # `set -o pipefail` is REQUIRED: without it the pipe to tee masks a non-zero exit from the audit
+        # script, so a failed audit would report the job as green (observed in run 30057301254).
+        run: |
+          set -o pipefail
+          node scripts/tester-evidence-audit.mjs | tee /tmp/tester-evidence-audit.txt
 
       # Sanitized aggregate output only (the script never emits PII/content). Short retention.
       - name: Upload sanitized aggregate report
