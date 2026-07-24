@@ -20,6 +20,7 @@ import {
     buildSampleEnvProps,
     buildEngineVersion,
 } from '@/services/transcription/privateSampleTelemetry';
+import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -508,6 +509,47 @@ export class SpeechRuntimeController {
     /** Resolved Private arm (private_v2:<model> / private_v4:<model>), captured at engine-resolve
      *  for durable persistence to sessions.engine_version at stop. */
     private resolvedPrivateEngineVersion: string | null = null;
+
+    /** Mode-based fallback identity, mirroring the placeholder save. */
+    private defaultMetadataForMode(mode: string | null): { engineVersion: string; modelName: string; deviceType: string } {
+        if (mode === 'private') return { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' };
+        if (mode === 'cloud') return { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' };
+        return { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' };
+    }
+
+    /**
+     * #1033 — Capture the finalizing engine's durable identity BEFORE teardown, as an atomic patch.
+     * One recording = one engine (the selector is locked while recording), so `producerMode`
+     * (the live `service.getMode()` at stop) is authoritative — it cannot have changed mid-recording.
+     * Returns a VERIFIED tuple (engine/engine_version/model_name/device_type + attribution_status), or
+     * `{ attribution_status: 'unverified' }` when the producing engine cannot be resolved — never invents
+     * an engine/model token and never overwrites the placeholder identity in that case. The caller writes
+     * this in a single atomic `updateSession`; on write failure the row stays `pending` for retry.
+     */
+    private captureFinalizingIdentity(
+        service: { getMetadata?: () => { engineVersion: string; modelName: string; deviceType: string } | null } | null,
+        producerMode: string | null,
+    ): { engine?: string; engine_version?: string; model_name?: string; device_type?: string; attribution_status: AttributionStatus } {
+        try {
+            if (!producerMode || producerMode === 'unknown') {
+                return { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED };
+            }
+            const fallback = this.defaultMetadataForMode(producerMode);
+            const meta = service?.getMetadata?.() ?? fallback;
+            const engineVersion = (producerMode === 'private' && this.resolvedPrivateEngineVersion)
+                ? this.resolvedPrivateEngineVersion
+                : (meta?.engineVersion ?? fallback.engineVersion);
+            return {
+                engine: producerMode,
+                engine_version: engineVersion,
+                model_name: meta?.modelName ?? fallback.modelName,
+                device_type: meta?.deviceType ?? fallback.deviceType,
+                attribution_status: ATTRIBUTION_STATUS.VERIFIED,
+            };
+        } catch {
+            return { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED };
+        }
+    }
     private emitPrivateSampleSetupStatus(type: string): void {
         try {
             if ((this.service?.getMode?.() ?? null) !== 'private') return;
@@ -2182,6 +2224,9 @@ export class SpeechRuntimeController {
                         const frozenStopTranscript = store.frozenTranscriptAtStop?.trim() || '';
                         const resultTranscript = result.transcript?.trim() || '';
                         const modeForFinalization = service.getMode?.() ?? stopEntryMode;
+                        // #1033: capture the finalizing engine identity NOW (before any teardown), while
+                        // service.getMode()/getMetadata() still reflect the producing engine.
+                        const finalizingIdentityPatch = this.captureFinalizingIdentity(service, modeForFinalization);
                         const candidates: Array<{ source: TranscriptLifecycleSource; text: string }> = [
                             { source: 'service_result', text: resultTranscript },
                             { source: 'committed_final', text: this.transcriptLifecycle.committedFinal || chunkTranscript || storeTranscript },
@@ -2474,20 +2519,18 @@ export class SpeechRuntimeController {
                             if (!completion.success) {
                                 throw new Error('SESSION_COMPLETION_FAILED');
                             }
-                            // Persist the resolved Private engine arm durably. The placeholder save
-                            // ran before the engine resolved (engine_version defaulted to
-                            // 'transformers-js'); completeSession does not touch engine_version. Read
-                            // the live sample context (engine_variant + model) and write the real arm
-                            // (private_v2:<model> / private_v4:<model>) so it is reconstructable from
-                            // the row even without PostHog. Non-fatal.
+                            // #1033: persist the finalizing engine identity + attribution_status in ONE
+                            // atomic update. The row was created 'pending' (DB default); a VERIFIED tuple
+                            // (engine/engine_version/model_name/device_type) or an 'unverified' status is
+                            // written from the identity captured before teardown. The engine cannot have
+                            // changed mid-recording (selector locked), so this is never a mis-attribution.
+                            // On write failure the row simply stays 'pending' (transcript preserved), so a
+                            // later retry can promote it to verified. Engine-specific evidence uses only
+                            // attribution_status = 'verified' (no engine_version string heuristics).
                             try {
-                                if (this.resolvedPrivateEngineVersion) {
-                                    await updateSession(sessionId, {
-                                        engine_version: this.resolvedPrivateEngineVersion,
-                                    } as Parameters<typeof updateSession>[1]);
-                                }
-                            } catch (engineVersionError) {
-                                logger.warn({ engineVersionError, sessionId }, '[controller] engine_version persist failed (non-fatal)');
+                                await updateSession(sessionId, finalizingIdentityPatch as Parameters<typeof updateSession>[1]);
+                            } catch (attributionError) {
+                                logger.warn({ attributionError, sessionId }, '[controller] attribution persist failed (non-fatal) — row stays pending for retry');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;

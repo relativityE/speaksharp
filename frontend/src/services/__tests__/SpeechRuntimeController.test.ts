@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
-import { buildPolicyForUser, TranscriptionPolicy } from '../transcription/TranscriptionPolicy';
+import { buildPolicyForUser, TranscriptionPolicy, type TranscriptionMode } from '../transcription/TranscriptionPolicy';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { sessionManager } from '@/services/transcription/SessionManager';
@@ -487,6 +487,68 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             expect(useSessionStore.getState().transcript.partial).toBe('');
         }
     );
+
+    // #1033: one recording = one engine → finalization persists a VERIFIED identity tuple +
+    // attribution_status atomically (row is 'pending' by DB default until then).
+    const driveStopWithService = async (svc: Record<string, unknown>, sessionId: string, mode: TranscriptionMode) => {
+        (controller as unknown as { service: unknown }).service = svc;
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string }).sessionId = sessionId;
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode(mode);
+        (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: 'today i expect live transcript text to remain after stop' },
+        });
+        await controller.stopRecording();
+        await controller.whenStable();
+    };
+    const mkService = (mode: string, meta: { engineVersion: string; modelName: string; deviceType: string }) => ({
+        getMode: vi.fn().mockReturnValue(mode),
+        getState: vi.fn().mockReturnValue('RECORDING'),
+        getStartTime: vi.fn().mockReturnValue(Date.now() - 10_000),
+        stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 10, accuracy: 1 } }),
+        destroy: vi.fn().mockResolvedValue(undefined),
+        getMetadata: vi.fn().mockReturnValue(meta),
+        setSessionId: vi.fn(),
+        isServiceDestroyed: () => false,
+    });
+    const attributionPatch = (storage: { updateSession: unknown }) =>
+        vi.mocked(storage.updateSession as (...a: unknown[]) => unknown).mock.calls
+            .map((c) => c[1])
+            .find((p) => !!p && Object.prototype.hasOwnProperty.call(p, 'attribution_status'));
+
+    it.each(['native', 'private', 'cloud'] as const)(
+        '#1033: finalization persists a VERIFIED attribution tuple for %s',
+        async (mode) => {
+            const storage = await import('../../lib/storage');
+            vi.mocked(storage.updateSession).mockClear();
+            (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = null;
+            await driveStopWithService(mkService(mode, { engineVersion: `v-${mode}`, modelName: `m-${mode}`, deviceType: `d-${mode}` }), `sess-attr-${mode}`, mode);
+            expect(attributionPatch(storage)).toMatchObject({
+                engine: mode, engine_version: `v-${mode}`, model_name: `m-${mode}`, device_type: `d-${mode}`, attribution_status: 'verified',
+            });
+        }
+    );
+
+    it('#1033: Private finalization uses the resolved Private arm for engine_version', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockClear();
+        (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = 'private_v2:whisper-base.en';
+        await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }), 'sess-attr-private-arm', 'private');
+        expect(attributionPatch(storage)).toMatchObject({ engine: 'private', engine_version: 'private_v2:whisper-base.en', attribution_status: 'verified' });
+    });
+
+    it('#1033: attribution write failure is non-fatal — transcript preserved, row left for retry', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.updateSession).mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+            if (patch && Object.prototype.hasOwnProperty.call(patch, 'attribution_status')) throw new Error('DB down');
+            return { success: true };
+        });
+        await expect(driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-attr-fail', 'native')).resolves.not.toThrow();
+        expect(storage.completeSession).toHaveBeenCalledWith('sess-attr-fail', expect.objectContaining({ status: 'completed' }));
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true }); // restore for later tests
+    });
 
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of

@@ -18,6 +18,8 @@ export interface PracticeSession {
   engine_version?: string;
   model_name?: string;
   device_type?: string;
+  /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
+  attribution_status?: import('@/constants/attributionStatus').AttributionStatus;
   custom_words?: Record<string, unknown>;
   clarity_score?: number;
   wpm?: number;
