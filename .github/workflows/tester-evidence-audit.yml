@@ -49,31 +49,31 @@ jobs:
       - name: Run read-only tester evidence audit
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Supabase's current guidance names this SUPABASE_SECRET_KEY; this repo currently provisions
+          # SUPABASE_SERVICE_ROLE_KEY (which every existing Auth-Admin caller uses). Both are passed so the
+          # script prefers the new name when it exists — no sign-in, no anon key, no passwords.
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Anon key + credentials are used ONLY to resolve synthetic account user IDs via normal
-          # sign-in (the service-role key is rejected by the GoTrue admin API on this project).
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
-          BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
-          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
-          CHECKOUT_TEST_PASSWORD: ${{ secrets.CHECKOUT_TEST_PASSWORD }}
           PRACTICE_DEPLOY_AT: ${{ github.event.inputs.practice_deploy_at }}
           FINAL_DEPLOY_AT: ${{ github.event.inputs.final_deploy_at }}
-        # `set -o pipefail` is REQUIRED: without it the pipe to tee masks a non-zero exit from the audit
-        # script, so a failed audit would report the job as green (observed in run 30057301254).
+        # No `tee`: the script writes the sanitized report itself. `set -euo pipefail` so any failure
+        # fails the job (run 30057301254 went green because tee's exit status masked the script's exit 1).
         run: |
-          set -o pipefail
-          node scripts/tester-evidence-audit.mjs | tee /tmp/tester-evidence-audit.txt
+          set -euo pipefail
+          node scripts/tester-evidence-audit.mjs > "$RUNNER_TEMP/tester-evidence-audit.txt"
+          cat "$RUNNER_TEMP/tester-evidence-audit.txt"
 
-      # Sanitized aggregate output only (the script never emits PII/content). Short retention.
+      # Upload ONLY on success: a failed/partial run must never produce a successful-looking audit
+      # artifact. `if-no-files-found: error` so a missing report is a hard failure, not a silent pass.
       - name: Upload sanitized aggregate report
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: tester-evidence-audit-aggregates
-          path: /tmp/tester-evidence-audit.txt
+          path: ${{ runner.temp }}/tester-evidence-audit.txt
+          if-no-files-found: error
           retention-days: 7

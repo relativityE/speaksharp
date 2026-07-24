@@ -10,18 +10,28 @@
  *     Transcripts are inspected IN MEMORY only; just aggregates/derived quality signals are reported.
  *
  * Env (injected by GitHub Actions; never echoed):
- *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY            (required)
+ *   SUPABASE_URL                                        (required)
+ *   SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY    (required — see key note below)
  *   BASIC_TEST_EMAIL, FREE_TEST_EMAIL, PRO_TEST_EMAIL,
- *   CHECKOUT_TEST_EMAIL, CANARY_TEST_EMAIL, OWNER_EMAIL (optional exclusions — values never printed)
+ *   CHECKOUT_TEST_EMAIL, CANARY_TEST_EMAIL, OWNER_EMAIL (optional exclusions — used for IN-MEMORY
+ *                                                        classification only; values never printed)
  *   PRACTICE_DEPLOY_AT   ISO ts of the /practice deploy (c99208b9). Default below.
  *   FINAL_DEPLOY_AT      ISO ts of the final deployment (optional 3rd window).
+ *
+ * KEY NOTE: Supabase's current server-side guidance names this SUPABASE_SECRET_KEY, but this repository
+ * currently provisions only SUPABASE_SERVICE_ROLE_KEY (verified against the repo secret inventory), and
+ * every existing Auth-Admin caller — verify-test-users.mjs, canary-ceiling.mjs, setup-test-users.mjs —
+ * reads SUPABASE_SERVICE_ROLE_KEY. We therefore PREFER SUPABASE_SECRET_KEY when present and fall back to
+ * SUPABASE_SERVICE_ROLE_KEY, so a future migration needs no change here. We never sign in as a synthetic
+ * account, and never alias, print, hash, or transform the key.
  */
 import { createClient } from '@supabase/supabase-js';
 
 const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const keyVarUsed = process.env.SUPABASE_SECRET_KEY ? 'SUPABASE_SECRET_KEY' : 'SUPABASE_SERVICE_ROLE_KEY';
 if (!url || !key) {
-  console.error(`[audit] Missing credentials (present/absent only): URL=${url ? 'present' : 'absent'} SERVICE_ROLE=${key ? 'present' : 'absent'}`);
+  console.error(`[audit] Missing credentials (present/absent only): URL=${url ? 'present' : 'absent'} KEY=${key ? 'present' : 'absent'}`);
   process.exit(2);
 }
 
@@ -29,9 +39,17 @@ const PRACTICE_DEPLOY_AT = process.env.PRACTICE_DEPLOY_AT || '2026-07-23T14:37:4
 const FINAL_DEPLOY_AT = process.env.FINAL_DEPLOY_AT || '';
 const MIN_SESSION_DURATION_SECONDS = 5; // == frontend/src/config/env.ts (app-configured minimum)
 
-// ── Hard read-only guard ────────────────────────────────────────────────────────────────────────────
+// ── Clients ─────────────────────────────────────────────────────────────────────────────────────────
+// Auth-Admin client built exactly like the established server-side pattern (verify-test-users.mjs).
+const adminAuth = createClient(url, key, {
+  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+});
+
+// Hard read-only guard for all PostgREST access.
 const BLOCKED = new Set(['insert', 'update', 'upsert', 'delete', 'rpc']);
-const raw = createClient(url, key, { auth: { persistSession: false } });
+const raw = createClient(url, key, {
+  auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+});
 const guard = (obj, label) => new Proxy(obj, {
   get(target, prop) {
     if (typeof prop === 'string' && BLOCKED.has(prop)) {
@@ -41,54 +59,64 @@ const guard = (obj, label) => new Proxy(obj, {
     return typeof v === 'function' ? v.bind(target) : v;
   },
 });
-const sb = { from: (t) => guard(raw.from(t), `from(${t})`), auth: raw.auth };
+const sb = { from: (t) => guard(raw.from(t), `from(${t})`) };
 
 const fail = (label, e) => { console.error(`[audit] ${label} failed:`, e?.message ?? e); process.exit(1); };
 const pct = (n, d) => (d ? ((100 * n) / d).toFixed(1) + '%' : 'n/a');
 
-// ── Accounts ────────────────────────────────────────────────────────────────────────────────────────
-// NOTE: we deliberately do NOT use `auth.admin.listUsers()`. This project's service-role key is accepted
-// by PostgREST but REJECTED by the GoTrue admin API ("unrecognized JWT kid <nil> for algorithm ES256"),
-// and tests/live/report-page-context.live.spec.ts already resolves ids "through the NORMAL authenticated
-// path (anon sign-in) — NOT admin.listUsers". Emails live in auth.users and are not reachable via
-// PostgREST, so synthetic accounts are excluded by RESOLVED USER ID, not by address.
-const anonKey = process.env.SUPABASE_ANON_KEY;
-const syntheticIds = new Set();
-const exclusionCounts = new Map();
-const unresolvedCreds = [];
-if (anonKey) {
-  const anon = createClient(url, anonKey, { auth: { persistSession: false } });
-  const creds = [
-    ['BASIC synthetic', process.env.BASIC_TEST_EMAIL, process.env.BASIC_TEST_PASSWORD],
-    ['FREE_TEST', process.env.FREE_TEST_EMAIL, process.env.FREE_TEST_PASSWORD],
-    ['PRO_TEST', process.env.PRO_TEST_EMAIL, process.env.PRO_TEST_PASSWORD],
-    ['checkout test', process.env.CHECKOUT_TEST_EMAIL, process.env.CHECKOUT_TEST_PASSWORD],
-  ];
-  for (const [cat, email, password] of creds) {
-    if (!email || !password) { unresolvedCreds.push(`${cat} (credentials not injected)`); continue; }
-    const { data, error } = await anon.auth.signInWithPassword({ email, password });
-    const id = data?.user?.id;
-    if (error || !id) { unresolvedCreds.push(`${cat} (sign-in failed: ${error?.message ?? 'no user id'})`); continue; }
-    syntheticIds.add(id);
-    exclusionCounts.set(cat, (exclusionCounts.get(cat) ?? 0) + 1);
-    await anon.auth.signOut();
+// ── Exclusions: IN-MEMORY email classification only (addresses never printed) ────────────────────────
+const EXCLUDE_EXACT = new Map();
+for (const [cat, v] of [
+  ['BASIC synthetic', process.env.BASIC_TEST_EMAIL], ['FREE_TEST', process.env.FREE_TEST_EMAIL],
+  ['PRO_TEST', process.env.PRO_TEST_EMAIL], ['checkout test', process.env.CHECKOUT_TEST_EMAIL],
+  ['canary', process.env.CANARY_TEST_EMAIL], ['owner/admin', process.env.OWNER_EMAIL],
+]) if (v) EXCLUDE_EXACT.set(v.trim().toLowerCase(), cat);
+
+const EXCLUDE_PATTERNS = [
+  [/\+(e2e|qa|test|canary|smoke|auto)[^@]*@/i, 'plus-tagged QA/E2E fixture'],
+  [/@example\.(com|org)$/i, 'example.com fixture'],
+  [/^(e2e|qa|test|canary|smoke|playwright|soak)[._-]/i, 'QA-prefixed fixture'],
+  [/\.(test|invalid)$/i, 'reserved test TLD'],
+];
+const classify = (email) => {
+  const e = (email || '').trim().toLowerCase();
+  if (!e) return 'missing-email';
+  if (EXCLUDE_EXACT.has(e)) return EXCLUDE_EXACT.get(e);
+  for (const [re, label] of EXCLUDE_PATTERNS) if (re.test(e)) return label;
+  return null; // genuine tester
+};
+const unconfiguredExclusions = [
+  ['BASIC synthetic', process.env.BASIC_TEST_EMAIL], ['FREE_TEST', process.env.FREE_TEST_EMAIL],
+  ['PRO_TEST', process.env.PRO_TEST_EMAIL], ['checkout test', process.env.CHECKOUT_TEST_EMAIL],
+  ['canary', process.env.CANARY_TEST_EMAIL], ['owner/admin', process.env.OWNER_EMAIL],
+].filter(([, v]) => !v).map(([cat]) => cat);
+
+// ── Accounts (Auth Admin — the established server-side model) ───────────────────────────────────────
+// Mirrors scripts/verify-test-users.mjs: trusted Actions process, admin client with
+// autoRefreshToken/persistSession/detectSessionInUrl disabled, listUsers paginated at perPage 100.
+// We NEVER sign in as a synthetic account, and never print users/emails/ids/raw responses.
+const users = [];
+for (let page = 1; ; page += 1) {
+  const { data, error } = await adminAuth.auth.admin.listUsers({ page, perPage: 100 });
+  if (error) {
+    console.error(`[audit] Auth Admin user inventory failed (sanitized): status=${error.status ?? 'n/a'} name=${error.name ?? 'n/a'}`);
+    console.error('[audit] Verify that SUPABASE_URL (variable) and the injected service key belong to the SAME Supabase project.');
+    console.error('[audit] Not falling back to synthetic-account sign-ins; no tester totals will be published.');
+    process.exit(1);
   }
-} else {
-  unresolvedCreds.push('SUPABASE_ANON_KEY absent — no synthetic id could be resolved');
+  const batch = data?.users ?? [];
+  users.push(...batch);
+  if (batch.length < 100) break;
 }
 
-// Account population comes from user_profiles (1 row per account; no email column exists here).
-const profiles = [];
-for (let from = 0; from < 100000; from += 1000) {
-  const { data, error } = await sb.from('user_profiles')
-    .select('id,created_at').order('created_at', { ascending: true }).range(from, from + 999);
-  if (error) fail('user_profiles select', error);
-  profiles.push(...(data ?? []));
-  if ((data?.length ?? 0) < 1000) break;
+const exclusionCounts = new Map();
+const realUsers = [];
+for (const u of users) {
+  const cat = classify(u.email);
+  if (cat) exclusionCounts.set(cat, (exclusionCounts.get(cat) ?? 0) + 1);
+  else realUsers.push(u);
 }
-const users = profiles;
-const realUsers = profiles.filter((p) => !syntheticIds.has(p.id));
-const realIds = new Set(realUsers.map((p) => p.id));
+const realIds = new Set(realUsers.map((u) => u.id));
 
 // ── Sessions (completion source of truth) ───────────────────────────────────────────────────────────
 const sessions = [];
@@ -208,13 +236,17 @@ say(`excluded_total          : ${users.length - realUsers.length}`);
 say(`GENUINE tester accounts : ${realUsers.length}`);
 say(`synthetic/QA sessions excluded by title marker: ${syntheticSessionCount}`);
 say('');
-say('!! CLASSIFICATION LIMITATION — read before trusting the "genuine" count:');
-say('   Emails live in auth.users and are NOT reachable here (this project\'s service-role key is accepted');
-say('   by PostgREST but REJECTED by the GoTrue admin API), so synthetic accounts are excluded ONLY by a');
-say('   user id resolved via anon sign-in with injected credentials. Any synthetic/QA/owner/canary account');
-say('   whose credentials are not injected CANNOT be resolved and is therefore counted as GENUINE below.');
-for (const u of unresolvedCreds) say(`   UNRESOLVED: ${u}`);
-if (!unresolvedCreds.length) say('   (all configured synthetic credentials resolved)');
+say(`auth_key_env_var_used  : ${keyVarUsed} (name only; value never read, printed, or transformed)`);
+say('');
+if (unconfiguredExclusions.length) {
+  say('!! CLASSIFICATION COMPLETENESS — read before trusting the "genuine" count:');
+  say('   Exclusion is by exact email match (in memory) plus QA-fixture patterns. These exclusion');
+  say('   categories have NO address configured, so such an account would be counted as GENUINE:');
+  for (const c of unconfiguredExclusions) say(`   UNCONFIGURED: ${c}`);
+  say('   Treat the genuine-tester total as an UPPER BOUND until these are configured.');
+} else {
+  say('classification_completeness: all exclusion categories configured.');
+}
 say('');
 
 for (const [label, since] of windows) {
