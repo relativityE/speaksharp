@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '../../../tests/support/test-utils';
 import React from 'react';
 import SessionPage from '../SessionPage';
-import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 
 // #1033 Part-2b — the FULL user-visible chain proven through the REAL SessionPage:
@@ -92,8 +91,10 @@ describe('#1033 SessionPage recovery projection (full chain)', () => {
         expect(locked()).toBe('false');
     });
 
-    it('2. FAILED Retry Save keeps the banner, actions, lock, and the durable draft', async () => {
+    it('2. FAILED Retry Save keeps the banner, actions, lock, and preserves the owned durable draft', async () => {
         storage.completeSession.mockResolvedValue({ success: false });
+        const draft = await import('@/services/sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-x', userId: 'owner-user', transcript: 'words', durationSeconds: 10, mode: 'private' });
         seedUnresolved('full_save');
         render(<SessionPage />);
         fireEvent.click(screen.getByTestId('session-retry-save'));
@@ -101,6 +102,8 @@ describe('#1033 SessionPage recovery projection (full chain)', () => {
         expect(banner()).toBeInTheDocument();
         expect(screen.getByTestId('session-retry-save')).toBeInTheDocument();
         expect(locked()).toBe('true');
+        // the failed retry must not touch the owned durable draft
+        expect(draft.getSessionRecoveryDraft()?.sessionId).toBe('sess-x');
     });
 
     it('3. successful Retry verification removes the attribution banner and unlocks (Discard never present)', async () => {
