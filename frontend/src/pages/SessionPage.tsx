@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Settings } from 'lucide-react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,6 @@ import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
-import { clearSessionRecoveryDraft, getRecoverableDraftForUser, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 
@@ -38,20 +38,14 @@ export const SessionPage: React.FC = () => {
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [recoveryDraft, setRecoveryDraft] = useState<SessionRecoveryDraft | null>(null);
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
     const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
-    const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
     // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
     const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
     const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
-    // NOTE: "Your words are still here" is computed at the render site (below), because the values it
-    // depends on (recoveryDraft, transcriptContent) are declared later in this component.
-    const setRecoveredChunks = useSessionStore(state => state.setChunks);
-    const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
@@ -86,81 +80,15 @@ export const SessionPage: React.FC = () => {
         history
     } = useSessionLifecycle();
 
-    const restoreRecoveryDraft = useCallback((draft: SessionRecoveryDraft) => {
-        clearSessionRecoveryDraft(draft.sessionId);
-        updateRecoveredTranscript(draft.transcript, '');
-        setRecoveredChunks([{
-            transcript: draft.transcript,
-            timestamp: new Date(draft.savedAt).getTime() || Date.now(),
-            isFinal: true,
-        }]);
-        setRecoveredStatus({
-            type: 'warning',
-            message: 'Recovered unsaved session draft.',
-            detail: 'Your last transcript was kept on this device after a save issue.',
-        });
-        setRecoveryDraft(null);
-    }, [setRecoveredChunks, setRecoveredStatus, updateRecoveredTranscript]);
-
-    useEffect(() => {
-        if (isListening) {
-            setRecoveryDraft(null);
-            return;
-        }
-        // A successfully-saved session is NOT an orphaned draft to recover. The stop flow writes a
-        // transient crash-safety recovery draft and clears it only after the async save completes;
-        // surfacing it on isListening->false would falsely tell the user their saved work is "unsaved".
-        // Suppress the banner (and drop the stale draft) once the current session is persisted.
-        if (sessionSaved) {
-            // #1033 A6 (DATA-LOSS FIX): this previously called clearSessionRecoveryDraft() with NO
-            // arguments, which unconditionally removes the single browser-local draft key — so a save
-            // by account B would DELETE account A's unsaved recovery draft on a shared browser.
-            // Delete only a draft we actually own, and address it by its own session id.
-            const owned = authUserId ? getRecoverableDraftForUser(authUserId) : null;
-            if (owned) clearSessionRecoveryDraft(owned.sessionId);
-            setRecoveryDraft(null);
-            return;
-        }
-        // #1033 A6: read the draft ONLY through the owner-scoped reader. The previous unscoped
-        // getSessionRecoveryDraft() call would surface — and auto-restore — a draft belonging to a
-        // DIFFERENT account (or an unattributable legacy draft) into whoever is signed in now.
-        // Fail closed: no resolved authenticated owner => no recovery read at all.
-        if (!authUserId) {
-            setRecoveryDraft(null);
-            return;
-        }
-        const draft = getRecoverableDraftForUser(authUserId);
-        setRecoveryDraft(draft);
-        if (!draft || transcriptContent.trim()) return;
-
-        restoreRecoveryDraft(draft);
-    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent, authUserId]);
-
-    // #1033 A5: same-user reload rehydration. Once the authenticated owner is resolved, re-arm the
-    // controller's unresolved-recording state (lock + the correct pending resolution) from that
-    // user's OWN durable draft. Guarded by a ref keyed on the user id so rerenders, effect re-runs
-    // and React Strict Mode's double-invoke cannot rehydrate twice or duplicate a session.
-    const rehydratedForUserRef = useRef<string | null>(null);
-    useEffect(() => {
-        if (!authUserId) return;
-        if (rehydratedForUserRef.current === authUserId) return;
-        rehydratedForUserRef.current = authUserId;
-        void import('@/services/SpeechRuntimeController')
-            .then(m => m.speechRuntimeController.rehydrateUnresolvedRecording(authUserId));
-    }, [authUserId]);
-
-    // #1033 A6: an account CHANGE must drop the previous account's in-memory recovery state from this
-    // view (the durable draft itself is retained — it stays recoverable by its real owner). Tracks the
-    // previous id so this never fires on first mount, which would otherwise clear the dedup ref that
-    // the rehydration effect above just set and cause a repeat rehydration.
-    const previousAuthUserRef = useRef<string | null | undefined>(undefined);
-    useEffect(() => {
-        const previous = previousAuthUserRef.current;
-        previousAuthUserRef.current = authUserId;
-        if (previous === undefined || previous === authUserId) return;
-        setRecoveryDraft(null);
-        rehydratedForUserRef.current = null;
-    }, [authUserId]);
+    // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
+    // owner-scoped read, fail-closed on unresolved auth, same-user rehydrate-once, account-change
+    // isolation, and scoped (never destructive no-arg) draft deletion.
+    const { recoveryDraft, restoreRecoveryDraft, dismissRecoveryDraft } = useUnresolvedRecovery({
+        authUserId,
+        isListening,
+        sessionSaved,
+        transcriptContent,
+    });
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
@@ -338,10 +266,7 @@ export const SessionPage: React.FC = () => {
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => {
-                                    clearSessionRecoveryDraft(recoveryDraft.sessionId);
-                                    setRecoveryDraft(null);
-                                }}
+                                onClick={() => dismissRecoveryDraft(recoveryDraft)}
                                 data-testid="session-recovery-dismiss"
                             >
                                 Dismiss
