@@ -638,6 +638,79 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
     });
 
+    // #1033 Part-2a race fixes
+    const setLock = (intent: boolean, state: string, pending: unknown = null) => {
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = intent;
+        (controller as unknown as { state: string }).state = state;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = pending;
+    };
+
+    it('#1033: engine selection locks SYNCHRONOUSLY at Start intent (before INITIATING)', async () => {
+        setLock(false, 'IDLE', null);
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        const p = controller.startRecording(buildPolicyForUser(true, 'private', { allowCloud: false })); // not awaited
+        expect(controller.isEngineSelectionLocked()).toBe(true); // locked immediately, before any await resolves
+        await controller.whenStable().catch(() => undefined);
+        await p.catch(() => undefined);
+        setLock(false, 'IDLE', null);
+    });
+
+    it.each(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'] as const)(
+        '#1033: switchToNative is rejected in locked lifecycle state %s',
+        async (st) => {
+            const seg = vi.fn().mockResolvedValue(undefined);
+            (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, switchToNativeSegmented: seg };
+            setLock(false, st, null);
+            await controller.switchToNative();
+            await controller.whenStable();
+            expect(seg).not.toHaveBeenCalled();
+        }
+    );
+
+    it('#1033: switchToNative is rejected while an attribution retry is pending (even at READY)', async () => {
+        const seg = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, switchToNativeSegmented: seg };
+        setLock(false, 'READY', { sessionId: 'A', patch: { attribution_status: 'verified' } });
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        await controller.switchToNative();
+        await controller.whenStable();
+        expect(seg).not.toHaveBeenCalled();
+        setLock(false, 'READY', null);
+    });
+
+    it('#1033: a FAILED session-B write does NOT overwrite pending session A', async () => {
+        const storage = await import('../../lib/storage');
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'sess-A', patch: { attribution_status: 'verified', engine: 'private' } };
+        vi.mocked(storage.updateSession).mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
+            if (patch && Object.prototype.hasOwnProperty.call(patch, 'attribution_status')) throw new Error('DB down');
+            return { success: true };
+        });
+        await driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-B', 'native');
+        expect((controller as unknown as { pendingAttributionRetry: { sessionId: string } }).pendingAttributionRetry).toMatchObject({ sessionId: 'sess-A' }); // A preserved
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1033: retry of session A does not clear a pending that changed to session B mid-flight (compare-and-clear)', async () => {
+        const storage = await import('../../lib/storage');
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'A', patch: { attribution_status: 'verified' } };
+        vi.mocked(storage.updateSession).mockImplementation(async () => {
+            (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'B', patch: { attribution_status: 'verified' } };
+            return { success: true };
+        });
+        await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> }).retryPendingAttribution()).resolves.toBe(true);
+        expect((controller as unknown as { pendingAttributionRetry: { sessionId: string } }).pendingAttributionRetry).toMatchObject({ sessionId: 'B' }); // B not cleared
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1033: a clean initialization failure releases the Start-intent lock', async () => {
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = true;
+        (controller as unknown as { state: string }).state = 'INITIATING';
+        await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('FAILED');
+        expect((controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked).toBe(false);
+    });
+
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
     // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.

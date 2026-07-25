@@ -518,11 +518,17 @@ export class SpeechRuntimeController {
 
     /** Recording-lifecycle states during which the STT engine selection is locked (one engine per recording). */
     private static readonly RECORDING_LIFECYCLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING']);
-    /** #1033: engine selection is locked while a recording is in its lifecycle (init→record→stop→save) OR a
-     *  prior recording's attribution write is still pending retry. Consumed by the UI selector AND enforced in
-     *  the controller — programmatic switches are rejected, not merely UI-disabled. */
+    /** #1033: set SYNCHRONOUSLY the instant Start is invoked (before the enqueued work reaches INITIATING),
+     *  so the lock cannot lose a race to a rapid engine change right after Start. Released by transition()
+     *  once a real state (INITIATING/…/terminal) is reached, where the lifecycle/pending predicates take over. */
+    private engineSelectionIntentLocked = false;
+    /** #1033: engine selection is locked (a) from Start intent, (b) through the recording lifecycle, and
+     *  (c) while a prior recording's attribution write is pending retry. THE single authoritative predicate —
+     *  consumed by the UI selector AND enforced in the controller so programmatic switches are rejected. */
     public isEngineSelectionLocked(): boolean {
-        return SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state) || this.pendingAttributionRetry !== null;
+        return this.engineSelectionIntentLocked
+            || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
+            || this.pendingAttributionRetry !== null;
     }
     /** #1033: true while a completed recording's attribution write is awaiting Retry Save. */
     public hasPendingAttribution(): boolean {
@@ -538,10 +544,15 @@ export class SpeechRuntimeController {
     public async retryPendingAttribution(): Promise<boolean> {
         const pending = this.pendingAttributionRetry;
         if (!pending) return true;
+        const targetSessionId = pending.sessionId;
         try {
             const res = await updateSession(pending.sessionId, pending.patch);
             if (res && (res as { success?: boolean }).success === false) return false;
-            this.pendingAttributionRetry = null;
+            // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
+            // changed to another session while the update was in flight, leave that one intact (#1033).
+            if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
+                this.pendingAttributionRetry = null;
+            }
             return true;
         } catch {
             return false;
@@ -1008,6 +1019,9 @@ export class SpeechRuntimeController {
     }
 
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
+        // #1033: release the Start-intent lock once a real state is reached — from here the lifecycle-state
+        // set (INITIATING/…/STOPPING) and the pending-retry predicate govern isEngineSelectionLocked().
+        this.engineSelectionIntentLocked = false;
         if (newState === 'RECORDING') {
             if (!this.canTransitionToRecording()) {
                 return;
@@ -1711,6 +1725,9 @@ export class SpeechRuntimeController {
             useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
             return;
         }
+        // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
+        // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
+        this.engineSelectionIntentLocked = true;
         this.policy = policy || null;
         this.userWords = userWords;
         // A new recording supersedes any prior stop's pending finalization: bump the finalize token so a
@@ -2590,9 +2607,14 @@ export class SpeechRuntimeController {
                                 }
                             } catch (attributionError) {
                                 // #1033: transcript is already persisted (completeSession). The row stays 'pending'
-                                // (DB default) and the captured patch is stashed so Retry Save can promote it
-                                // pending→verified via UPDATE — no duplicate session, no transcript loss.
-                                this.pendingAttributionRetry = { sessionId, patch: finalizingIdentityPatch as Parameters<typeof updateSession>[1] };
+                                // (DB default); stash the patch so Retry Save can promote it pending→verified via
+                                // UPDATE (no duplicate session, no transcript loss). Session-safe: NEVER overwrite a
+                                // DIFFERENT session's unresolved pending retry — fail closed if one impossibly exists.
+                                if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
+                                    this.pendingAttributionRetry = { sessionId, patch: finalizingIdentityPatch as Parameters<typeof updateSession>[1] };
+                                } else {
+                                    logger.error({ existing: this.pendingAttributionRetry.sessionId, sessionId }, '[controller] attribution retry slot held by another session — failing closed, not overwriting (#1033)');
+                                }
                                 logger.warn({ attributionError, sessionId }, '[controller] attribution persist failed — row stays pending; retry available');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
@@ -2992,10 +3014,11 @@ export class SpeechRuntimeController {
     public async switchToNative(): Promise<void> {
         return this.enqueue(async (token) => {
             if (token.cancelled || token.version !== this.lifecycleVersion) return;
-            // #1033: one engine per recording — the controller REJECTS a programmatic engine switch while a
-            // recording is in its lifecycle (not merely a UI disable). Switching happens only from IDLE/READY.
-            if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) {
-                logger.warn({ state: this.state }, '[controller] switchToNative rejected: engine locked during active recording (#1033)');
+            // #1033: one engine per recording — the controller REJECTS a programmatic engine switch whenever
+            // the single authoritative predicate says selection is locked (Start intent, recording lifecycle,
+            // OR a pending attribution retry). Not merely a UI disable; switching happens only when unlocked.
+            if (this.isEngineSelectionLocked()) {
+                logger.warn({ state: this.state, pending: this.pendingAttributionRetry?.sessionId ?? null }, '[controller] switchToNative rejected: engine selection locked (#1033)');
                 return;
             }
             if (this.service?.isServiceDestroyed()) {
