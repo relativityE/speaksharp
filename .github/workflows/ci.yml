@@ -406,7 +406,7 @@ jobs:
           npx lhci autorun || echo "⚠️ Lighthouse advisory failed; release gate continues."
 
           echo "=== LHCI Results Debug ==="
-          ls -R lighthouse-results || echo "Directory empty or missing"
+          find lighthouse-results -maxdepth 2 -type f -print 2>/dev/null || echo "Directory empty or missing"
 
       - name: Upload Lighthouse Report
         if: always()
@@ -475,18 +475,35 @@ jobs:
           cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
           cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
 
-          find artifacts -type f -name 'report-*.zip' | while read report; do
-            shard_num=$(basename "$report" .zip | sed 's/report-//')
-            mkdir -p artifacts/playwright/shard-${shard_num}
-            cp "$report" artifacts/playwright/shard-${shard_num}/
+          # Canonical Playwright evidence contract (ONE exact shape):
+          #   artifacts/playwright/shard-<N>/report-full-suite-<N>.zip   for N in 1..4
+          # Explicit per-shard loop. Directory names are NEVER derived from whatever report-*.zip
+          # happens to be present (that produced shard-full-suite-1/ and could never satisfy the
+          # shard-1/ assertion). Missing, duplicate or ambiguous shard reports are rejected.
+          shard_error=0
+          for shard in 1 2 3 4; do
+            matches=$(find artifacts -type f -name "report-*${shard}.zip" ! -path 'artifacts/playwright/*' | sort)
+            count=$(printf '%s\n' "$matches" | grep -c . || true)
+            if [ "$count" -eq 0 ]; then
+              echo "::error::no Playwright report found for shard ${shard}"; shard_error=1; continue
+            fi
+            if [ "$count" -gt 1 ]; then
+              echo "::error::ambiguous Playwright reports for shard ${shard}:"; printf '%s\n' "$matches"
+              shard_error=1; continue
+            fi
+            mkdir -p "artifacts/playwright/shard-${shard}"
+            cp "$(printf '%s\n' "$matches" | head -1)" "artifacts/playwright/shard-${shard}/"
           done
+          if [ "$shard_error" -ne 0 ]; then
+            echo "::error::Playwright shard evidence is incomplete or ambiguous"; exit 1
+          fi
 
           if [ -d "artifacts/lighthouse-report" ]; then
             cp -r artifacts/lighthouse-report/* artifacts/lighthouse/ 2>/dev/null || true
           fi
 
           echo "✅ Canonical artifacts organized in /artifacts"
-          ls -R artifacts/
+          find artifacts -maxdepth 2 -type f -print
 
       - name: Merge E2E Reports
         run: |
