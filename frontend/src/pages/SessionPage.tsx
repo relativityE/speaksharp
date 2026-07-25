@@ -45,6 +45,11 @@ export const SessionPage: React.FC = () => {
     const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
     const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
     const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
+    // Attribution-only = the transcript IS persisted; only producing-engine verification failed.
+    // This state must never expose a destructive discard, and must never be labelled "Retry Save".
+    const isAttributionOnly = pendingResolutionKind === 'attribution';
+    // NOTE: "Your words are still here" is computed at the render site (below), because the values it
+    // depends on (recoveryDraft, transcriptContent) are declared later in this component.
     const setRecoveredChunks = useSessionStore(state => state.setChunks);
     const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
@@ -274,9 +279,11 @@ export const SessionPage: React.FC = () => {
                                 ? 'Working…'
                                 : recoveryError
                                     ? recoveryError
-                                    : pendingResolutionKind === 'attribution'
-                                        ? 'Your transcript was saved, but we could not confirm which transcription method produced it.'
-                                        : 'Your last recording has not been saved yet. Your words are still here.'}
+                                    : isAttributionOnly
+                                        ? 'Your transcript was saved. We could not verify which transcription method produced it.'
+                                        : pendingResolutionKind === 'full_save'
+                                            ? `Your last recording was not fully saved.${((recoveryDraft?.transcript ?? '').trim() || (transcriptContent ?? '').trim()) ? ' Your words are still here.' : ''}`
+                                            : `Your last recording has not been saved yet.${((recoveryDraft?.transcript ?? '').trim() || (transcriptContent ?? '').trim()) ? ' Your words are still here.' : ''}`}
                         </span>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <Button
@@ -284,19 +291,27 @@ export const SessionPage: React.FC = () => {
                                 variant="outline"
                                 size="sm"
                                 disabled={recoveryBusy}
-                                data-testid="session-retry-save"
+                                data-testid={isAttributionOnly ? 'session-retry-verification' : 'session-retry-save'}
                                 onClick={() => {
                                     setRecoveryError(null);
                                     setRecoveryBusy(true);
                                     void import('@/services/SpeechRuntimeController')
                                         .then(m => m.speechRuntimeController.retryRecordingSave())
-                                        .then((ok) => { if (!ok) setRecoveryError('Saving failed again. You can retry.'); })
+                                        .then((ok) => {
+                                            if (!ok) setRecoveryError(isAttributionOnly
+                                                ? 'Verification failed again. You can retry.'
+                                                : 'Saving failed again. You can retry.');
+                                        })
                                         .finally(() => setRecoveryBusy(false));
                                 }}
                             >
-                                Retry Save
+                                {isAttributionOnly ? 'Retry verification' : 'Retry Save'}
                             </Button>
-                            {confirmDiscard ? (
+                            {/* #1033 Part-2b: an attribution-only failure means the transcript IS persisted —
+                                only its producing-engine verification failed. The destructive discard control
+                                must NOT EXIST in this state (not merely be relabelled or disabled), so it can
+                                never be rendered, focused, or invoked to "resolve" a metadata problem. */}
+                            {isAttributionOnly ? null : confirmDiscard ? (
                                 <Button
                                     type="button"
                                     variant="destructive"
@@ -319,7 +334,7 @@ export const SessionPage: React.FC = () => {
                                             .finally(() => setRecoveryBusy(false));
                                     }}
                                 >
-                                    Yes, permanently discard
+                                    Permanently discard this unsaved recording? Its recoverable transcript will be removed. This cannot be undone.
                                 </Button>
                             ) : (
                                 <Button
