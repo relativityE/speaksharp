@@ -52,6 +52,7 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
+          install-native-deps: 'true'
           install-playwright: 'false'
 
       - name: Run Unit Shard
@@ -79,6 +80,7 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
+          install-native-deps: 'true'
           install-playwright: 'false'
 
       - name: Run Unit Coverage
@@ -175,7 +177,9 @@ jobs:
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
-    needs: [unit-shard, edge-tests, build, health-check]
+    # CI-PERF: E2E consumes only the build artifact, so it no longer waits on unit shards,
+    # edge tests or health-check. Those still gate the overall result via `report`.
+    needs: [build]
     if: success()
     runs-on: ubuntu-latest
     strategy:
@@ -283,8 +287,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
 
+      # CI-PERF: report only downloads + organizes artifacts. It needs no dependencies, no native
+      # packages, no Supabase CLI and no browser — that setup cost ~55s for ~5-10s of real work.
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
+        with:
+          install-dependencies: 'false'
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v7
