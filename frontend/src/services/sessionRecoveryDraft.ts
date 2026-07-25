@@ -52,18 +52,35 @@ export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
 }
 
 /**
- * #1033 (C) — account-boundary safe read. Returns the stored draft ONLY when it belongs to `userId`
- * (there is a single global draft key, so one user's unsaved work must never be exposed to another after
- * a logout/account switch). A null/blank `userId` never matches a draft that carries a user. A legacy draft
- * with no `userId` is returned only when the caller also has no user (best-effort, pre-userId drafts).
+ * #1033 (C) — account-boundary safe read. Returns the stored draft ONLY when it is owned by a real user
+ * AND that owner is exactly `userId`. There is a single global draft key, so one account's unsaved work
+ * must never be exposed to another after a logout/account switch.
+ *
+ * LEGACY OWNERLESS DRAFTS (written before drafts were owner-bound) are **never** returned here and are
+ * never auto-adopted into any account — an ownerless draft may in fact belong to a previously signed-in
+ * user of this browser, so silently handing it to the current user would leak it. They are readable only
+ * through the explicit `getLegacyOwnerlessDraft()` escape hatch, for a deliberate, user-confirmed decision.
  */
 export function getRecoverableDraftForUser(userId: string | null | undefined): SessionRecoveryDraft | null {
   const draft = getSessionRecoveryDraft();
   if (!draft) return null;
   const draftUser = draft.userId ?? null;
   const currentUser = userId ?? null;
-  if (draftUser !== currentUser) return null; // strict owner match — no cross-user exposure
+  if (!draftUser || !currentUser) return null; // ownerless draft, or no authenticated caller → fail closed
+  if (draftUser !== currentUser) return null;  // strict owner match — no cross-account exposure
   return draft;
+}
+
+/**
+ * #1033 (1) — explicit, opt-in access to a LEGACY draft that carries no owner. Returns null when the stored
+ * draft is owned (use `getRecoverableDraftForUser` for those). Never call this to auto-rehydrate: an
+ * ownerless draft has unknown provenance, so it may only be surfaced behind an explicit user decision
+ * (e.g. "recover this unsaved transcript?" / discard), never adopted into an account automatically.
+ */
+export function getLegacyOwnerlessDraft(): SessionRecoveryDraft | null {
+  const draft = getSessionRecoveryDraft();
+  if (!draft) return null;
+  return draft.userId ? null : draft;
 }
 
 export function clearSessionRecoveryDraft(sessionId?: string): void {

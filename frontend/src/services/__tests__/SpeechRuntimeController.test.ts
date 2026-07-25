@@ -793,6 +793,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
         (controller as unknown as { sessionId: string | null }).sessionId = 'sess-hb';
+        (controller as unknown as { capturedUserId: string | null }).capturedUserId = 'user-1'; // owner-scoped recovery
+        useSessionStore.getState().updateTranscript('', ''); // the live store is gone; only the owned draft survives
+        useSessionStore.getState().setChunks([]);
+        (controller as unknown as { resetTranscriptLifecycle: () => void }).resetTranscriptLifecycle();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
         await doTransition('FAILED'); // heartbeat/engine failure lands here
@@ -820,6 +824,199 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(draft.getSessionRecoveryDraft()).toBeNull(); // owned draft cleared
         expect(controller.pendingResolutionKind()).toBeNull();
         expect(controller.isEngineSelectionLocked()).toBe(false); // unlocked only after discard completed
+    });
+
+    // ---- #1033 correction round: findings 1-6 ----------------------------------------------------------
+    const setOwner = (u: string | null) => { (controller as unknown as { capturedUserId: string | null }).capturedUserId = u; };
+    const resetLifecycle = () => (controller as unknown as { resetTranscriptLifecycle: () => void }).resetTranscriptLifecycle();
+
+    // Finding 1 — drafts are owner-bound at creation; an authenticated session never writes an ownerless draft.
+    it('#1033 (1): persistActiveRecoveryDraft binds the draft to the captured user', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        resetLifecycle();
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-own';
+        setOwner('user-owner');
+        useSessionStore.getState().setStartTime(Date.now() - 4000);
+        useSessionStore.getState().updateTranscript('owner bound words', '');
+        controller.persistActiveRecoveryDraft();
+        expect(draft.getSessionRecoveryDraft()?.userId).toBe('user-owner');
+        expect(draft.getRecoverableDraftForUser('user-owner')?.sessionId).toBe('sess-own');
+        clearDraft();
+    });
+
+    it('#1033 (1): persistActiveRecoveryDraft FAILS CLOSED (writes nothing) when the owner is unknown', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        resetLifecycle();
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-noowner';
+        setOwner(null);
+        useSessionStore.getState().setStartTime(Date.now() - 4000);
+        useSessionStore.getState().updateTranscript('words with no known owner', '');
+        controller.persistActiveRecoveryDraft();
+        expect(draft.getSessionRecoveryDraft()).toBeNull(); // never write an ownerless draft
+        clearDraft();
+    });
+
+    // Finding 2 — recovery is resolved ONLY by current session id + authenticated owner; foreign drafts ignored.
+    it('#1033 (2): a STALE FOREIGN draft is never consumed by a post-start failure (fails closed)', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-otherA', userId: 'user-OTHER', transcript: 'another accounts private words', durationSeconds: 30, mode: 'private' });
+        resetLifecycle();
+        setLock(false, 'RECORDING', null);
+        setUnresolved(true);
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-mine';
+        setOwner('user-ME');
+        useSessionStore.getState().updateTranscript('', '');
+        useSessionStore.getState().setChunks([]);
+        await doTransition('FAILED');
+        // Nothing of MINE is recoverable, and the other account's draft must never be adopted.
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect(draft.getSessionRecoveryDraft()?.userId).toBe('user-OTHER'); // left untouched
+        clearDraft();
+    });
+
+    // Finding 3 — every recoverable transcript source counts; partial-only / chunks-only are NOT "empty".
+    it.each([
+        { label: 'partial-only', arrange: () => { useSessionStore.getState().updateTranscript('', 'only an in progress partial utterance'); } },
+        { label: 'chunks-only', arrange: () => { useSessionStore.getState().updateTranscript('', ''); useSessionStore.getState().setChunks([{ transcript: 'only chunked words were captured', timestamp: Date.now(), isFinal: true }]); } },
+    ])('#1033 (3): $label recording is recoverable — never classified as empty', async ({ arrange }) => {
+        clearDraft();
+        resetLifecycle();
+        setLock(false, 'RECORDING', null);
+        setUnresolved(true);
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-src';
+        setOwner('user-1');
+        useSessionStore.getState().setChunks([]);
+        arrange();
+        await doTransition('FAILED');
+        expect(controller.pendingResolutionKind()).toBe('full_save'); // recoverable → actionable, still locked
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        useSessionStore.getState().setChunks([]);
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    it('#1033 (3): a committed body PLUS its in-progress partial tail is preserved whole', () => {
+        resetLifecycle();
+        useSessionStore.getState().setChunks([]);
+        useSessionStore.getState().updateTranscript('the committed body of the talk', 'and the trailing partial');
+        const text = (controller as unknown as { collectRecoverableTranscript: () => string }).collectRecoverableTranscript();
+        expect(text).toContain('committed body');
+        expect(text).toContain('trailing partial');
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    // Finding 4 — the producing engine is latched; a mid-recording service callback cannot change identity.
+    it.each(['native', 'private', 'cloud'] as const)('#1033 (4): a mid-recording callback reporting another engine is REJECTED (latched %s)', (latched) => {
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        useSessionStore.getState().setSTTMode(latched);
+        const other = latched === 'native' ? 'private' : 'native';
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, other, { allowCloud: true }); // even if policy would allow it
+        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange(other);
+        expect(useSessionStore.getState().sttMode).toBe(latched); // producer identity held
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
+    });
+
+    it('#1033 (4): finalizing with a mode that differs from the latch yields UNVERIFIED (never mis-attributed)', () => {
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
+        const patch = (controller as unknown as { captureFinalizingIdentity: (s: unknown, m: string) => { attribution_status: string } })
+            .captureFinalizingIdentity({ getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }) }, 'native');
+        expect(patch.attribution_status).toBe('unverified');
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
+    });
+
+    it('#1033 (4): the latch does not leak across recordings (cleared on resolution)', () => {
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
+        setUnresolved(true);
+        (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
+        expect((controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode).toBeNull();
+    });
+
+    // Finding 5 — allowFallback is producer-affecting and is frozen with the rest while locked; then queued.
+    it('#1033 (5): allowFallback CANNOT change while locked, and the change is applied at the next boundary', () => {
+        (controller as unknown as { service: unknown }).service = null;
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = { ...buildPolicyForUser(true, 'private', { allowCloud: false }), allowFallback: false };
+        useSessionStore.getState().setSTTMode('private');
+        setLock(false, 'RECORDING', null);
+        setUnresolved(true);
+        controller.updatePolicy({ ...buildPolicyForUser(true, 'private', { allowCloud: false }), allowFallback: true });
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.allowFallback).toBe(false); // frozen
+        // resolve the recording → the queued producer policy is applied for the NEXT recording
+        (controller as unknown as { state: string }).state = 'READY';
+        (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.allowFallback).toBe(true); // not lost
+        setLock(false, 'IDLE', null);
+    });
+
+    // Finding 6 — discard must be honest about persistence.
+    it('#1033 (6): discard when the row CANNOT be marked failed stays RETRYABLE, keeps the draft, stays locked', async () => {
+        clearDraft();
+        const storage = await import('../../lib/storage');
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-dbdown', userId: 'user-1', transcript: 'the only copy of my words', durationSeconds: 12, mode: 'private' });
+        vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-dbdown', completeArgs: { status: 'completed', transcript: 'the only copy of my words', duration: 12 }, attributionPatch: { attribution_status: 'unverified' } };
+        setUnresolved(true);
+        const res = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
+        expect(res.outcome).toBe('retryable');
+        expect(draft.getSessionRecoveryDraft()?.sessionId).toBe('sess-dbdown'); // sole recovery copy PRESERVED
+        expect(controller.isEngineSelectionLocked()).toBe(true); // no false claim of a clean discard
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        clearDraft();
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1033 (6): discard when completeSession returns success:false is also RETRYABLE (not a silent success)', async () => {
+        clearDraft();
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: false });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-nofail', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionPatch: {} };
+        setUnresolved(true);
+        const res = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
+        expect(res.outcome).toBe('retryable');
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1033 (6): discard with NO database row succeeds without any completeSession call', async () => {
+        clearDraft();
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        setUnresolved(true);
+        const res = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
+        expect(res.outcome).toBe('discarded');
+        expect(storage.completeSession).not.toHaveBeenCalled(); // nothing to reconcile
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+    });
+
+    it('#1033 (6): a retried discard after the database recovers succeeds and unlocks (idempotent)', async () => {
+        clearDraft();
+        const storage = await import('../../lib/storage');
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-retryd', userId: 'user-1', transcript: 'words', durationSeconds: 9, mode: 'private' });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-retryd', completeArgs: { status: 'completed', transcript: 'words', duration: 9 }, attributionPatch: {} };
+        setUnresolved(true);
+        vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
+        const first = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
+        expect(first.outcome).toBe('retryable');
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        const second = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
+        expect(second.outcome).toBe('discarded');
+        expect(draft.getSessionRecoveryDraft()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
     });
 
     it('#1033: successful durable save + attribution UNLOCKS (only after persistence completes)', async () => {
@@ -1391,6 +1588,11 @@ describe('SpeechRuntimeController.persistActiveRecoveryDraft (UX-NAV-1)', () => 
     const arrangeRecording = (sessionId: string | null, transcript: string, partial = '') => {
         (controller as unknown as { state: string }).state = 'RECORDING';
         (controller as unknown as { sessionId: string | null }).sessionId = sessionId;
+        // #1033 (1): a persisted session belongs to an authenticated user, so the draft must be owner-bound.
+        (controller as unknown as { capturedUserId: string | null }).capturedUserId = 'user-nav';
+        // Clear any transcript-lifecycle state left on the singleton by an earlier test (in production this is
+        // reset at every recording boundary by resetAnalysisStateForNewRecording).
+        (controller as unknown as { resetTranscriptLifecycle: () => void }).resetTranscriptLifecycle();
         const store = useSessionStore.getState();
         // setSTTMode resets the visible session (incl. startTime/transcript) when the mode
         // changes, so set the mode FIRST, then seed startTime + transcript.

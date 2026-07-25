@@ -38,10 +38,16 @@ ALTER TABLE public.sessions
 ALTER TABLE public.sessions
   ALTER COLUMN attribution_status SET NOT NULL;
 
+-- Constraint existence is checked SCOPED TO public.sessions (conrelid), not by name alone: a same-named
+-- constraint on any other relation must never cause the sessions CHECK to be silently skipped.
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'sessions_attribution_status_check'
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'sessions_attribution_status_check'
+      AND conrelid = 'public.sessions'::regclass
+      AND contype = 'c'
   ) THEN
     ALTER TABLE public.sessions
       ADD CONSTRAINT sessions_attribution_status_check
