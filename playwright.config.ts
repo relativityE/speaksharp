@@ -97,7 +97,16 @@ export default defineConfig({
     {
       name: 'full-suite',
       testMatch: ['tests/e2e/**/*.spec.ts'],
-      testIgnore: ['**/infra.probe.e2e.spec.ts', '**/dump-ground/**', '**/*.live.spec.ts'],
+      // CI-PERF/honesty: the v4 browser-control proof is gated on RUN_V4_BROWSER_PROOF=1 and is
+      // EXCLUDED from the normal suite rather than collected as three permanently "skipped" tests.
+      // It runs only via the dedicated workflow_dispatch path (run_v4_browser_proof), which sets the
+      // variable — see .github/workflows/ci.yml. Without that path it was effectively dormant.
+      testIgnore: [
+        '**/infra.probe.e2e.spec.ts',
+        '**/dump-ground/**',
+        '**/*.live.spec.ts',
+        ...(process.env.RUN_V4_BROWSER_PROOF === '1' ? [] : ['**/v4-posthog-browser-control.e2e.spec.ts']),
+      ],
       dependencies: ['infra-probe'],
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
       use: {

@@ -9,12 +9,21 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_v4_browser_proof:
+        description: 'Run the v4 browser-control proof (tests/e2e/v4-posthog-browser-control.e2e.spec.ts)'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
+  # Real dispatch path for the v4 browser-control proof. Outside this input the spec is EXCLUDED by
+  # playwright.config.ts (not collected as permanently "skipped" tests).
+  RUN_V4_BROWSER_PROOF: ${{ github.event.inputs.run_v4_browser_proof == 'true' && '1' || '0' }}
   VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
   VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 

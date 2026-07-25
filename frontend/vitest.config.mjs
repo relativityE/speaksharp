@@ -136,16 +136,18 @@ export default defineConfig({
       },
     },
 
-    // ✅ KEY CHANGE: Use maxForks, NOT singleFork
-    // On CI: 1 fork (sequential, low memory)
-    // Locally: 3 forks (parallel, faster)
-    // ✅ SOLUTION: Process Isolation
-    // Each test file runs in its own process, ensuring fresh React/Zustand state.
+    // Process isolation: each test file runs in its own fork so React/Zustand state is fresh.
+    //
+    // CI-PERF: fork count is ENV-CONTROLLED via VITEST_MAX_FORKS (default 1).
+    // It was previously hardcoded to 1 under a comment claiming "Locally: 3 forks" — the code never
+    // did that, and sequential execution is the single largest cost in the full-coverage job.
+    // Raise deliberately (VITEST_MAX_FORKS=2) and prove memory/isolation stability before going higher;
+    // resource-heavy STT suites can still be pinned back to 1 by setting the variable.
     pool: 'forks',
     poolOptions: {
       forks: {
         isolate: true,
-        maxForks: 1, // Phase 1: Strict sequential execution
+        maxForks: Number(process.env.VITEST_MAX_FORKS) > 0 ? Number(process.env.VITEST_MAX_FORKS) : 1,
         execArgv: ['--max-old-space-size=4096']
       }
     },
