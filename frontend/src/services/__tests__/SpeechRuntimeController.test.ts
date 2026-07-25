@@ -1020,6 +1020,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
         (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null; // singleton isolation
         (controller as unknown as { state: string }).state = 'RECORDING';
         (controller as unknown as { sessionId: string | null }).sessionId = 'sess-mix';
         setOwner('user-1'); setInitialCtx(null);
@@ -1041,6 +1042,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(patch.attribution_status).toBe('unverified');
         expect(useSessionStore.getState().sttStatus.type).toBe('error');  // never keeps claiming the old engine silently
         (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         setUnresolved(false);
@@ -1051,6 +1053,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => 'private' };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { state: string }).state = 'RECORDING';
         useSessionStore.getState().setSTTMode('private');
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native', { allowCloud: true });
@@ -1084,7 +1088,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         // resolve → apply coherently
         (controller as unknown as { state: string }).state = 'READY';
         (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
-        await controller.whenStable().catch(() => undefined);
+        await (controller as unknown as { queuedPolicyApplication: Promise<void> | null }).queuedPolicyApplication;
         const ctrl = (controller as unknown as { policy: TranscriptionPolicy }).policy;
         expect(ctrl.preferredMode).not.toBe(from);                     // stale selection cannot survive revocation
         expect(useSessionStore.getState().sttMode).toBe(ctrl.preferredMode); // UI agrees with the controller
@@ -1096,16 +1100,120 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
     });
 
+    // ---- Final defect batch: owner-before-speech · teardown dedup · awaited policy application ----------
+
+    // (1) A transcript callback emitted SYNCHRONOUSLY during startTranscription must already be owner-bound.
+    it('#1033 (1-final): owner + initial-save context exist BEFORE startTranscription can emit a transcript', async () => {
+        clearDraft(); resetLifecycle();
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockResolvedValue({ session: null } as never); // no row yet
+        let ownerAtFirstTranscript: string | null | undefined;
+        let ctxAtFirstTranscript: unknown;
+        const svc = {
+            isServiceDestroyed: () => false,
+            warmUp: vi.fn().mockResolvedValue(undefined),
+            getStrategy: () => undefined,
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getMode: vi.fn().mockReturnValue('private'),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'v', modelName: 'm', deviceType: 'd' }),
+            setSessionId: vi.fn(),
+            fsm: { is: () => false },
+            // the engine emits speech the instant it starts — the classic pre-owner window
+            startTranscription: vi.fn().mockImplementation(async () => {
+                ownerAtFirstTranscript = (controller as unknown as { capturedUserId: string | null }).capturedUserId;
+                ctxAtFirstTranscript = (controller as unknown as { pendingInitialSaveContext: unknown }).pendingInitialSaveContext;
+            }),
+            stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: {} }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+        };
+        (controller as unknown as { service: unknown }).service = svc;
+        setLock(false, 'IDLE', null); setUnresolved(false);
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        setOwner(null); setInitialCtx(null);
+        await controller.startRecording(buildPolicyForUser(true, 'private', { allowCloud: false })).catch(() => undefined);
+        await controller.whenStable().catch(() => undefined);
+        expect(svc.startTranscription).toHaveBeenCalled();
+        // The owner was already resolved when the very first transcript could be produced.
+        expect(ownerAtFirstTranscript).toBe('test-user');
+        expect(ctxAtFirstTranscript).toMatchObject({ userId: 'test-user' });
+        setLock(false, 'IDLE', null); setUnresolved(false); setInitialCtx(null);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+    });
+
+    // (2) Duplicate/concurrent mismatched callbacks must reuse ONE teardown — no second stop/transition/DB op.
+    it('#1033 (2-final): concurrent + post-completion duplicate mismatch callbacks perform exactly ONE teardown', async () => {
+        clearDraft(); resetLifecycle();
+        const stop = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => 'private' };
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-dupe';
+        setOwner('user-1');
+        useSessionStore.getState().setSTTMode('private');
+        useSessionStore.getState().updateTranscript('some words', '');
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native', { allowCloud: true });
+        const hmc = (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange.bind(controller);
+        // three CONCURRENT duplicates before the teardown settles
+        hmc('native'); hmc('native'); hmc('cloud');
+        await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
+        // ...and a stale one AFTER completion
+        hmc('native');
+        await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
+        expect(stop).toHaveBeenCalledTimes(1); // exactly one engine stop
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    // (3) If the SERVICE rejects the queued policy, nothing may claim success.
+    it('#1033 (3-final): a service-rejected queued policy restores prior state, RETAINS the queue, and surfaces an error', async () => {
+        const svcUpdate = vi.fn().mockRejectedValue(new Error('service refused policy'));
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn() };
+        const prior = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = prior;
+        useSessionStore.getState().setSTTMode('private');
+        setLock(false, 'RECORDING', null); setUnresolved(true);
+        controller.updatePolicy(buildPolicyForUser(false, 'native', { allowCloud: false })); // queued while locked
+        expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).not.toBeNull();
+        (controller as unknown as { state: string }).state = 'READY';
+        (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
+        await (controller as unknown as { queuedPolicyApplication: Promise<void> | null }).queuedPolicyApplication;
+        // service refused → prior coherent state restored, queue KEPT for retry, user told it did not apply
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
+        expect(useSessionStore.getState().sttMode).toBe('private');
+        expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).not.toBeNull();
+        expect(useSessionStore.getState().sttStatus.type).toBe('error');
+        (controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy = null;
+        setLock(false, 'IDLE', null); setUnresolved(false);
+    });
+
     // Finding 4 — the producing engine is latched; a mid-recording service callback cannot change identity.
-    it.each(['native', 'private', 'cloud'] as const)('#1033 (4): a mid-recording callback reporting another engine is REJECTED (latched %s)', (latched) => {
+    it.each(['native', 'private', 'cloud'] as const)('#1033 (4): a mid-recording callback reporting another engine NEVER silently continues (latched %s)', async (latched) => {
+        const stop = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { state: string }).state = 'RECORDING';
         useSessionStore.getState().setSTTMode(latched);
         const other = latched === 'native' ? 'private' : 'native';
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, other, { allowCloud: true }); // even if policy would allow it
         (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange(other);
-        expect(useSessionStore.getState().sttMode).toBe(latched); // producer identity held
+        await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
+        // The recording is torn down and permanently unverifiable — the label is NOT merely repainted.
+        expect((controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised).toBe(true);
+        expect(stop).toHaveBeenCalledTimes(1);
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
     });
 
     it('#1033 (4): finalizing with a mode that differs from the latch yields UNVERIFIED (never mis-attributed)', () => {
@@ -1124,7 +1232,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     // Finding 5 — allowFallback is producer-affecting and is frozen with the rest while locked; then queued.
-    it('#1033 (5): allowFallback CANNOT change while locked, and the change is applied at the next boundary', () => {
+    it('#1033 (5): allowFallback CANNOT change while locked, and the change is applied at the next boundary', async () => {
         (controller as unknown as { service: unknown }).service = null;
         (controller as unknown as { policy: TranscriptionPolicy }).policy = { ...buildPolicyForUser(true, 'private', { allowCloud: false }), allowFallback: false };
         useSessionStore.getState().setSTTMode('private');
@@ -1135,6 +1243,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         // resolve the recording → the queued producer policy is applied for the NEXT recording
         (controller as unknown as { state: string }).state = 'READY';
         (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
+        await (controller as unknown as { queuedPolicyApplication: Promise<void> | null }).queuedPolicyApplication;
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.allowFallback).toBe(true); // not lost
         setLock(false, 'IDLE', null);
     });
