@@ -18,7 +18,13 @@ const BASE_URL = `http://${process.env.E2E_HOST || '127.0.0.1'}:${process.env.E2
 export default defineConfig({
   ...baseConfig,
   testDir: './tests/e2e',
-  testIgnore: [/.*\.(live|canary|soak)\.spec\.ts/], // Exclude other categories
+  // Exclude other categories. The v4 browser-control proof is additionally excluded unless explicitly
+  // requested, so the normal suite reports no permanently "skipped" tests; it runs only via the
+  // dispatch-only .github/workflows/v4-browser-proof.yml, which sets RUN_V4_BROWSER_PROOF=1.
+  testIgnore: [
+    /.*\.(live|canary|soak)\.spec\.ts/,
+    ...(process.env.RUN_V4_BROWSER_PROOF === '1' ? [] : [/v4-posthog-browser-control\.e2e\.spec\.ts/]),
+  ],
   outputDir: './test-results/playwright',
   // FAIL FAST: Aggressive timeouts - no test should hang
   timeout: 60_000 * TIMEOUT_MULTIPLIER, // 60s per test max (bridged to diagnostic guard)
@@ -97,7 +103,15 @@ export default defineConfig({
     {
       name: 'full-suite',
       testMatch: ['tests/e2e/**/*.spec.ts'],
-      testIgnore: ['**/infra.probe.e2e.spec.ts', '**/dump-ground/**', '**/*.live.spec.ts'],
+      // NOTE: project-level testIgnore OVERRIDES the root-level one in Playwright (it does not merge),
+      // so the v4 exclusion MUST be repeated here. A root-only exclusion is silently ineffective —
+      // verified: root-only still collected all 3 v4 tests.
+      testIgnore: [
+        '**/infra.probe.e2e.spec.ts',
+        '**/dump-ground/**',
+        '**/*.live.spec.ts',
+        ...(process.env.RUN_V4_BROWSER_PROOF === '1' ? [] : ['**/v4-posthog-browser-control.e2e.spec.ts']),
+      ],
       dependencies: ['infra-probe'],
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
       use: {

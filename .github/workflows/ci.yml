@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_full:
+        description: 'Run the complete merge-candidate lane'
+        type: boolean
+        required: false
+        default: true
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -19,58 +25,187 @@ env:
   VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
 jobs:
-  prepare:
-    name: prepare
+  # Replaces the ~79s serial `prepare` barrier. Runs no install (node is preinstalled on the runner)
+  # and only classifies the change. scripts/ci-change-scope.mjs is unit-tested and FAILS SAFE: any
+  # control path (CI, deps, build/test config, migrations) or unrecognised path selects the full lane,
+  # as does any push, any force_full dispatch, any non-draft PR, and any unresolvable diff.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    outputs:
+      full_required: ${{ steps.classify.outputs.full_required }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
+      edge_changed: ${{ steps.classify.outputs.edge_changed }}
+      e2e_required: ${{ steps.classify.outputs.e2e_required }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Classify Change
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
+          else
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
+          node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+
+  # ---- Affected draft lane (NEW, non-required names; drafts cannot merge) ------------------------
+  draft-checks:
+    name: draft-checks
+    needs: scope
+    if: needs.scope.outputs.full_required != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
-          install-playwright: 'false'
+          install-native-deps: ${{ needs.scope.outputs.docs_only != 'true' && 'true' || 'false' }}
+          install-playwright: ${{ needs.scope.outputs.e2e_required }}
 
       - name: Validate Environment Variables
         run: node scripts/validate-env.mjs
 
-      - name: Run Prepare Stage
-        run: pnpm ci:prepare
+      - name: Diff Check
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...HEAD
 
+      - name: Typecheck
+        if: needs.scope.outputs.docs_only != 'true'
+        run: pnpm typecheck
+
+      - name: Collect Changed Files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=ACMR ${{ github.event.pull_request.base.sha }}...HEAD \
+            | grep -E '\.(js|jsx|ts|tsx)$' > "$RUNNER_TEMP/changed-code.txt" || true
+          grep -E '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
+            > "$RUNNER_TEMP/changed-tests.txt" || true
+          # sources = code files that are NOT tests, so `vitest related` never re-runs a changed
+          # test file that the explicit step above already executed.
+          grep -vE '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
+            > "$RUNNER_TEMP/changed-sources.txt" || true
+          echo "changed code=$(wc -l < "$RUNNER_TEMP/changed-code.txt") tests=$(wc -l < "$RUNNER_TEMP/changed-tests.txt") sources=$(wc -l < "$RUNNER_TEMP/changed-sources.txt")"
+
+      - name: Lint Changed Files
+        if: needs.scope.outputs.docs_only != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s "$RUNNER_TEMP/changed-code.txt" ]]; then
+            xargs pnpm exec eslint --max-warnings 0 < "$RUNNER_TEMP/changed-code.txt"
+          else
+            echo "No JS/TS files changed."
+          fi
+
+      - name: Documentation Contracts
+        if: needs.scope.outputs.docs_only == 'true'
+        run: |
+          pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+            tests/config/documentationContract.test.ts tests/deps/docs-integrity.test.js \
+            tests/release/tester-instructions.test.ts
+
+      - name: Directly Changed Test Files
+        if: needs.scope.outputs.docs_only != 'true'
+        shell: bash
+        env:
+          VITEST_MAX_FORKS: '2'
+        run: |
+          set -euo pipefail
+          # `vitest related` selects tests that IMPORT a changed source file; it does not necessarily
+          # select a changed test file itself. Run those explicitly.
+          if [[ -s "$RUNNER_TEMP/changed-tests.txt" ]]; then
+            mapfile -t files < "$RUNNER_TEMP/changed-tests.txt"
+            pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+              --passWithNoTests "${files[@]}"
+          else
+            echo "No test files changed."
+          fi
+
+      - name: Related Unit Tests
+        if: needs.scope.outputs.docs_only != 'true'
+        shell: bash
+        env:
+          VITEST_MAX_FORKS: '2'
+        run: |
+          set -euo pipefail
+          if [[ -s "$RUNNER_TEMP/changed-sources.txt" ]]; then
+            mapfile -t files < "$RUNNER_TEMP/changed-sources.txt"
+            # --passWithNoTests: a changed file with no importing test must NOT fail the lane.
+            pnpm exec vitest related --run --config frontend/vitest.config.mjs \
+              --coverage.enabled=false --passWithNoTests "${files[@]}"
+          else
+            echo "No changed source files require related tests."
+          fi
+
+      - name: Build (frontend/e2e-affecting changes only)
+        if: needs.scope.outputs.frontend_changed == 'true' || needs.scope.outputs.e2e_required == 'true'
+        run: pnpm ci:build
+
+      - name: Setup Deno
+        if: needs.scope.outputs.edge_changed == 'true'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Edge Tests
+        if: needs.scope.outputs.edge_changed == 'true'
+        run: pnpm test:edge
+
+      - name: Browser Infrastructure Probe
+        if: needs.scope.outputs.e2e_required == 'true'
+        env:
+          STT_ENGINE: mock
+        run: pnpm exec playwright test --config=playwright.config.ts --project=infra-probe
+
+  # BRANCH-PROTECTION COMPATIBILITY GATES (temporary).
+  # These names are still required by branch protection on `main`. They no longer run test shards —
+  # the unit suite executes exactly ONCE in `unit-coverage` (with coverage + per-file thresholds).
+  # Each gate FAILS unless both `unit-coverage` and `full-evidence` succeeded, so a required check can
+  # never pass while the real work failed, and a skipped dependency produces a failed (not skipped) check.
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
-    needs: prepare
+    needs: [scope, unit-coverage, full-evidence]
+    if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'false'
-
-      - name: Run Unit Shard
-        run: pnpm ci:unit:shard ${{ matrix.shard }} 4
-
-      - name: Upload Unit Shard Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: unit-shard-${{ matrix.shard }}-artifacts
-          path: |
-            test-results/unit
-            unit-metrics.json
-          retention-days: 30
-          if-no-files-found: warn
+      - name: Compatibility Gate
+        env:
+          UNIT_RESULT: ${{ needs.unit-coverage.result }}
+          EVIDENCE_RESULT: ${{ needs.full-evidence.result }}
+        run: |
+          set -euo pipefail
+          echo "unit-coverage=$UNIT_RESULT full-evidence=$EVIDENCE_RESULT"
+          if [[ "$UNIT_RESULT" != "success" || "$EVIDENCE_RESULT" != "success" ]]; then
+            echo "::error::unit-shard-${{ matrix.shard }} compatibility gate FAILED (unit-coverage=$UNIT_RESULT, full-evidence=$EVIDENCE_RESULT)"
+            exit 1
+          fi
+          echo "Unit suite (single coverage run) and full evidence both succeeded."
 
   unit-coverage:
     name: unit-coverage
-    needs: prepare
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -79,9 +214,12 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
+          install-native-deps: 'true'
           install-playwright: 'false'
 
-      - name: Run Unit Coverage
+      - name: Run Unit Coverage (the ONLY full unit execution)
+        env:
+          VITEST_MAX_FORKS: '2'
         run: pnpm ci:unit
 
       - name: Upload Unit Artifacts
@@ -93,12 +231,13 @@ jobs:
             artifacts/coverage
             frontend/coverage
             unit-metrics.json
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
   edge-tests:
     name: edge-tests
-    needs: prepare
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -119,7 +258,8 @@ jobs:
 
   build:
     name: build
-    needs: prepare
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -138,11 +278,12 @@ jobs:
         with:
           name: build-artifacts
           path: frontend/dist
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
 
   health-check:
     name: health-check
-    needs: build
+    needs: [scope, build]
+    if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -170,13 +311,15 @@ jobs:
         with:
           name: health-check-report
           path: test-results/playwright-infra
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: error
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
-    needs: [unit-shard, edge-tests, build, health-check]
-    if: success()
+    # CI-PERF: E2E consumes only the build artifact, so it no longer waits on unit work,
+    # edge tests or health-check. Those still gate the overall result via `report`.
+    needs: [scope, build]
+    if: success() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -212,7 +355,7 @@ jobs:
           path: |
             blob-report
             test-results/playwright
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
       # UX review screenshots (post-save consolidation + mode selector). ONE uploader, both paths.
@@ -232,8 +375,8 @@ jobs:
 
   lighthouse-advisory:
     name: lighthouse-advisory
-    needs: build
-    if: always() && !cancelled()
+    needs: [scope, build]
+    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -263,7 +406,7 @@ jobs:
           npx lhci autorun || echo "⚠️ Lighthouse advisory failed; release gate continues."
 
           echo "=== LHCI Results Debug ==="
-          ls -R lighthouse-results || echo "Directory empty or missing"
+          find lighthouse-results -maxdepth 2 -type f -print 2>/dev/null || echo "Directory empty or missing"
 
       - name: Upload Lighthouse Report
         if: always()
@@ -271,28 +414,48 @@ jobs:
         with:
           name: lighthouse-report
           path: lighthouse-results/
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
-  report:
-    name: report
-    needs: [unit-shard, unit-coverage, edge-tests, build, health-check, e2e, lighthouse-advisory]
-    if: always() && !cancelled()
+  # Heavy evidence generation for the FULL lane. It installs dependencies because it genuinely needs
+  # them (playwright merge-reports, ci:report:github, aggregate-ci, report-ci-timing). Splitting this
+  # out keeps the required `report` gate thin AND keeps evidence inside the acceptance result.
+  full-evidence:
+    name: full-evidence
+    needs: [scope, unit-coverage, edge-tests, build, health-check, e2e, lighthouse-advisory]
+    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Fail BEFORE expensive setup/aggregation when required upstream work already failed.
+      - name: Require Upstream Success
+        env:
+          UNIT: ${{ needs.unit-coverage.result }}
+          EDGE: ${{ needs.edge-tests.result }}
+          BUILD: ${{ needs.build.result }}
+          HEALTH: ${{ needs.health-check.result }}
+          E2E: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E"
+          for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
+            [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
+          done
+
       - name: Checkout Code
         uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
 
-      - name: Download All Artifacts
+      # D1: named artifacts only (no unfiltered download). D2: no recursive `ls -R`.
+      - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report}'
 
-      - name: List Artifacts
-        run: ls -R artifacts
+      - name: Summarise Downloaded Artifacts
+        run: find artifacts -maxdepth 2 -type d -print
 
       - name: Organize Canonical Artifacts
         run: |
@@ -312,18 +475,35 @@ jobs:
           cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
           cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
 
-          find artifacts -type f -name 'report-*.zip' | while read report; do
-            shard_num=$(basename "$report" .zip | sed 's/report-//')
-            mkdir -p artifacts/playwright/shard-${shard_num}
-            cp "$report" artifacts/playwright/shard-${shard_num}/
+          # Canonical Playwright evidence contract (ONE exact shape):
+          #   artifacts/playwright/shard-<N>/report-full-suite-<N>.zip   for N in 1..4
+          # Explicit per-shard loop. Directory names are NEVER derived from whatever report-*.zip
+          # happens to be present (that produced shard-full-suite-1/ and could never satisfy the
+          # shard-1/ assertion). Missing, duplicate or ambiguous shard reports are rejected.
+          shard_error=0
+          for shard in 1 2 3 4; do
+            matches=$(find artifacts -type f -name "report-*${shard}.zip" ! -path 'artifacts/playwright/*' | sort)
+            count=$(printf '%s\n' "$matches" | grep -c . || true)
+            if [ "$count" -eq 0 ]; then
+              echo "::error::no Playwright report found for shard ${shard}"; shard_error=1; continue
+            fi
+            if [ "$count" -gt 1 ]; then
+              echo "::error::ambiguous Playwright reports for shard ${shard}:"; printf '%s\n' "$matches"
+              shard_error=1; continue
+            fi
+            mkdir -p "artifacts/playwright/shard-${shard}"
+            cp "$(printf '%s\n' "$matches" | head -1)" "artifacts/playwright/shard-${shard}/"
           done
+          if [ "$shard_error" -ne 0 ]; then
+            echo "::error::Playwright shard evidence is incomplete or ambiguous"; exit 1
+          fi
 
           if [ -d "artifacts/lighthouse-report" ]; then
             cp -r artifacts/lighthouse-report/* artifacts/lighthouse/ 2>/dev/null || true
           fi
 
           echo "✅ Canonical artifacts organized in /artifacts"
-          ls -R artifacts/
+          find artifacts -maxdepth 2 -type f -print
 
       - name: Merge E2E Reports
         run: |
@@ -360,7 +540,7 @@ jobs:
             artifacts/ci-job-timing.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
       - name: Upload HTML Report
@@ -369,5 +549,64 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
+
+      - name: Assert Required Evidence Is Present
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          [[ -s artifacts/coverage/coverage-summary.json ]] || { echo "::error::missing coverage-summary.json"; missing=1; }
+          [[ -f unit-metrics.json || -f artifacts/metrics/unit-metrics.json ]] || { echo "::error::missing unit-metrics.json"; missing=1; }
+          for shard in 1 2 3 4; do
+            if ! ls artifacts/playwright/shard-${shard}/* >/dev/null 2>&1; then
+              echo "::error::missing Playwright evidence for shard ${shard}"; missing=1
+            fi
+          done
+          # Lighthouse is advisory and may be intentionally skipped by path policy — not required.
+          exit "$missing"
+
+      - name: Verify Canonical Artifacts
+        run: bash scripts/verify-artifacts.sh
+
+  # ---- Thin aggregate status --------------------------------------------------------------------
+  # NOT a required branch-protection check today (protection currently requires build, edge-tests,
+  # unit-shard-1..4, e2e-shard-1..4 and sca-osv). This is a thin aggregate status only: no checkout,
+  # no setup action, no dependency install, no cache restore. It evaluates the conclusions of
+  # whichever lane was selected — including full-evidence, so evidence generation cannot fail after
+  # the aggregate has already reported success.
+  report:
+    name: report
+    needs: [scope, draft-checks, unit-coverage, edge-tests, build, health-check, e2e, full-evidence]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce Selected Lane
+        env:
+          FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          DRAFT_RESULT: ${{ needs.draft-checks.result }}
+          UNIT_RESULT: ${{ needs.unit-coverage.result }}
+          EDGE_RESULT: ${{ needs.edge-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          HEALTH_RESULT: ${{ needs.health-check.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          EVIDENCE_RESULT: ${{ needs.full-evidence.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$SCOPE_RESULT" != "success" ]]; then
+            echo "::error::change classification failed (scope=$SCOPE_RESULT); refusing to accept."
+            exit 1
+          fi
+          if [[ "$FULL_REQUIRED" == "true" ]]; then
+            echo "Full merge-candidate lane: unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
+            for r in "$UNIT_RESULT" "$EDGE_RESULT" "$BUILD_RESULT" "$HEALTH_RESULT" "$E2E_RESULT" "$EVIDENCE_RESULT"; do
+              [[ "$r" == "success" ]] || { echo "::error::full lane failed"; exit 1; }
+            done
+            echo "Full merge-candidate lane passed."
+          else
+            echo "Affected draft lane: draft-checks=$DRAFT_RESULT"
+            [[ "$DRAFT_RESULT" == "success" ]] || { echo "::error::draft lane failed"; exit 1; }
+            echo "Affected draft lane passed."
+          fi

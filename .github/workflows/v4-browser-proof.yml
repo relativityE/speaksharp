@@ -1,0 +1,57 @@
+name: "v4 Browser Proof (dispatch-only)"
+
+# The v4 browser-control proof is EXCLUDED from the normal E2E suite (playwright.config.ts) so it is
+# not collected as three permanently "skipped" tests. Before this workflow existed, nothing anywhere
+# set RUN_V4_BROWSER_PROOF, so the suite was effectively dormant while still being described as
+# "dispatch-only". This workflow is that dispatch path — and nothing else triggers it, so requesting
+# the proof no longer drags the entire CI pipeline along with it.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: v4-browser-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+  VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+jobs:
+  v4-browser-proof:
+    name: v4-browser-proof
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Build
+        run: pnpm ci:build
+
+      - name: Run the three v4 browser-control proof tests
+        env:
+          RUN_V4_BROWSER_PROOF: '1'
+          STT_ENGINE: mock
+        run: |
+          pnpm exec playwright test \
+            tests/e2e/v4-posthog-browser-control.e2e.spec.ts \
+            --config=playwright.config.ts
+
+      - name: Upload v4 Proof Evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: v4-browser-proof
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,8 +1,26 @@
 name: 'Setup Environment'
-description: 'Sets up Node.js, pnpm, dependencies, and Playwright for CI/CD'
+description: 'Sets up Node.js, pnpm and (opt-in) native deps, Playwright and the Supabase CLI for CI/CD'
+
+# CI-PERF: every capability beyond Node/pnpm/dependencies is OPT-IN and defaults to false.
+# Previously this action unconditionally installed ~80 apt packages (Canvas/Sharp build deps) and the
+# Supabase CLI in EVERY job — including jobs that never use them (build, report, Lighthouse, E2E,
+# health) — and restored the ~619 MB pnpm store TWICE (once via actions/setup-node's built-in
+# `cache: pnpm`, once via a redundant actions/cache step). Both are removed here.
 inputs:
+  install-dependencies:
+    description: 'Run `pnpm install --frozen-lockfile`. Set false for jobs that only aggregate artifacts.'
+    required: false
+    default: 'true'
+  install-native-deps:
+    description: 'Install Canvas/Sharp native build dependencies (apt). Only needed by jobs that execute canvas/image code.'
+    required: false
+    default: 'false'
   install-playwright:
-    description: 'Whether to install Playwright browsers'
+    description: 'Install Playwright browsers.'
+    required: false
+    default: 'false'
+  install-supabase-cli:
+    description: 'Install the Supabase CLI. Only needed by jobs that actually invoke `supabase`.'
     required: false
     default: 'false'
 runs:
@@ -16,31 +34,21 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: '22'
+        # This ALREADY restores/saves the pnpm store. Do not add a second actions/cache step for it.
         cache: 'pnpm'
 
-    - name: Get pnpm store directory
-      shell: bash
-      run: |
-        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-    - name: Setup pnpm cache
-      uses: actions/cache@v5
-      with:
-        path: ${{ env.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-store-
-
     - name: Install System Dependencies (Canvas/Sharp)
+      if: runner.os == 'Linux' && inputs.install-native-deps == 'true'
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
-      if: runner.os == 'Linux'
+        sudo apt-get install -y --no-install-recommends \
+          build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
 
     - name: Install Dependencies
+      if: inputs.install-dependencies == 'true'
       shell: bash
-      run: pnpm install --frozen-lockfile
+      run: pnpm install --frozen-lockfile --prefer-offline
 
     - name: Remove Problematic Package Repositories
       if: inputs.install-playwright == 'true'
@@ -50,13 +58,14 @@ runs:
         sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
         sudo rm -f /etc/apt/sources.list.d/azure-cli.list
         echo "Removed problematic Microsoft package repositories"
-    
+
     - name: Install Playwright Browsers
       if: inputs.install-playwright == 'true'
       shell: bash
       run: pnpm exec playwright install --with-deps chromium
 
     - name: Setup Supabase CLI
+      if: inputs.install-supabase-cli == 'true'
       uses: supabase/setup-cli@v2
       env:
         SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
