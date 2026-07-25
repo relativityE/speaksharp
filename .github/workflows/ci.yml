@@ -79,6 +79,9 @@ jobs:
           install-native-deps: ${{ needs.scope.outputs.docs_only != 'true' && 'true' || 'false' }}
           install-playwright: ${{ needs.scope.outputs.e2e_required }}
 
+      - name: Validate Environment Variables
+        run: node scripts/validate-env.mjs
+
       - name: Diff Check
         run: git diff --check ${{ github.event.pull_request.base.sha }}...HEAD
 
@@ -94,8 +97,11 @@ jobs:
             | grep -E '\.(js|jsx|ts|tsx)$' > "$RUNNER_TEMP/changed-code.txt" || true
           grep -E '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
             > "$RUNNER_TEMP/changed-tests.txt" || true
-          echo "changed code files: $(wc -l < "$RUNNER_TEMP/changed-code.txt")"
-          echo "changed test files: $(wc -l < "$RUNNER_TEMP/changed-tests.txt")"
+          # sources = code files that are NOT tests, so `vitest related` never re-runs a changed
+          # test file that the explicit step above already executed.
+          grep -vE '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
+            > "$RUNNER_TEMP/changed-sources.txt" || true
+          echo "changed code=$(wc -l < "$RUNNER_TEMP/changed-code.txt") tests=$(wc -l < "$RUNNER_TEMP/changed-tests.txt") sources=$(wc -l < "$RUNNER_TEMP/changed-sources.txt")"
 
       - name: Lint Changed Files
         if: needs.scope.outputs.docs_only != 'true'
@@ -112,7 +118,8 @@ jobs:
         if: needs.scope.outputs.docs_only == 'true'
         run: |
           pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
-            tests/config/documentationContract.test.ts tests/deps/docs-integrity.test.js
+            tests/config/documentationContract.test.ts tests/deps/docs-integrity.test.js \
+            tests/release/tester-instructions.test.ts
 
       - name: Directly Changed Test Files
         if: needs.scope.outputs.docs_only != 'true'
@@ -138,13 +145,13 @@ jobs:
           VITEST_MAX_FORKS: '2'
         run: |
           set -euo pipefail
-          if [[ -s "$RUNNER_TEMP/changed-code.txt" ]]; then
-            mapfile -t files < "$RUNNER_TEMP/changed-code.txt"
+          if [[ -s "$RUNNER_TEMP/changed-sources.txt" ]]; then
+            mapfile -t files < "$RUNNER_TEMP/changed-sources.txt"
             # --passWithNoTests: a changed file with no importing test must NOT fail the lane.
             pnpm exec vitest related --run --config frontend/vitest.config.mjs \
               --coverage.enabled=false --passWithNoTests "${files[@]}"
           else
-            echo "No JS/TS files changed."
+            echo "No changed source files require related tests."
           fi
 
       - name: Build (frontend/e2e-affecting changes only)
@@ -224,7 +231,7 @@ jobs:
             artifacts/coverage
             frontend/coverage
             unit-metrics.json
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
   edge-tests:
@@ -271,7 +278,7 @@ jobs:
         with:
           name: build-artifacts
           path: frontend/dist
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
 
   health-check:
     name: health-check
@@ -304,7 +311,7 @@ jobs:
         with:
           name: health-check-report
           path: test-results/playwright-infra
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: error
 
   e2e:
@@ -348,7 +355,7 @@ jobs:
           path: |
             blob-report
             test-results/playwright
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
       # UX review screenshots (post-save consolidation + mode selector). ONE uploader, both paths.
@@ -407,7 +414,7 @@ jobs:
         with:
           name: lighthouse-report
           path: lighthouse-results/
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
   # Heavy evidence generation for the FULL lane. It installs dependencies because it genuinely needs
@@ -419,19 +426,36 @@ jobs:
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Fail BEFORE expensive setup/aggregation when required upstream work already failed.
+      - name: Require Upstream Success
+        env:
+          UNIT: ${{ needs.unit-coverage.result }}
+          EDGE: ${{ needs.edge-tests.result }}
+          BUILD: ${{ needs.build.result }}
+          HEALTH: ${{ needs.health-check.result }}
+          E2E: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E"
+          for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
+            [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
+          done
+
       - name: Checkout Code
         uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
 
-      - name: Download All Artifacts
+      # D1: named artifacts only (no unfiltered download). D2: no recursive `ls -R`.
+      - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report}'
 
-      - name: List Artifacts
-        run: ls -R artifacts
+      - name: Summarise Downloaded Artifacts
+        run: find artifacts -maxdepth 2 -type d -print
 
       - name: Organize Canonical Artifacts
         run: |
@@ -499,7 +523,7 @@ jobs:
             artifacts/ci-job-timing.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
       - name: Upload HTML Report
@@ -508,7 +532,7 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
       - name: Assert Required Evidence Is Present
@@ -518,16 +542,23 @@ jobs:
           missing=0
           [[ -s artifacts/coverage/coverage-summary.json ]] || { echo "::error::missing coverage-summary.json"; missing=1; }
           [[ -f unit-metrics.json || -f artifacts/metrics/unit-metrics.json ]] || { echo "::error::missing unit-metrics.json"; missing=1; }
-          if ! ls artifacts/playwright/shard-*/ >/dev/null 2>&1; then
-            echo "::error::missing Playwright shard evidence"; missing=1
-          fi
+          for shard in 1 2 3 4; do
+            if ! ls artifacts/playwright/shard-${shard}/* >/dev/null 2>&1; then
+              echo "::error::missing Playwright evidence for shard ${shard}"; missing=1
+            fi
+          done
           # Lighthouse is advisory and may be intentionally skipped by path policy — not required.
           exit "$missing"
 
-  # ---- Thin, stable required gate ---------------------------------------------------------------
-  # No checkout, no setup action, no dependency install, no cache restore. It only evaluates the
-  # conclusions of whichever lane was selected — including full-evidence, so evidence generation can
-  # never fail *after* the gate has already passed.
+      - name: Verify Canonical Artifacts
+        run: bash scripts/verify-artifacts.sh
+
+  # ---- Thin aggregate status --------------------------------------------------------------------
+  # NOT a required branch-protection check today (protection currently requires build, edge-tests,
+  # unit-shard-1..4, e2e-shard-1..4 and sca-osv). This is a thin aggregate status only: no checkout,
+  # no setup action, no dependency install, no cache restore. It evaluates the conclusions of
+  # whichever lane was selected — including full-evidence, so evidence generation cannot fail after
+  # the aggregate has already reported success.
   report:
     name: report
     needs: [scope, draft-checks, unit-coverage, edge-tests, build, health-check, e2e, full-evidence]

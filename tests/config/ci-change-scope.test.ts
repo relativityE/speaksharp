@@ -27,7 +27,25 @@ describe('#1054 CI change classifier', () => {
             'playwright.config.ts',
             'tsconfig.json',
             'backend/supabase/migrations/20260724220000_sessions_attribution_status.sql',
+            // control/config files that previously slipped through as "narrow"
+            'frontend/package.json',
+            'frontend/tsconfig.app.json',
+            'frontend/tailwind.config.js',
+            'frontend/postcss.config.js',
+            'eslint.config.js',
+            'backend/supabase/config.toml',
+            'backend/supabase/functions/deno.json',
+            'backend/supabase/functions/import_map.json',
+            'vercel.json',
         ])('control path %s forces full', (file) => {
+            expect(classifyChanges([file], draft).full_required).toBe(true);
+        });
+
+        it.each([
+            'backend/some-other-service/thing.ts',
+            'frontend/scripts/gen.mjs',
+            'infra/terraform/main.tf',
+        ])('unmapped path %s forces full (no blanket frontend/** or backend/** recognition)', (file) => {
             expect(classifyChanges([file], draft).full_required).toBe(true);
         });
 

@@ -11,24 +11,38 @@
 
 /** Paths that always force the full lane: CI/orchestration, dependency, build/test config, DB. */
 const FULL_LANE_PATTERNS = [
+    // CI / orchestration / tooling
     /^\.github\//,
     /^scripts\//,
-    /^package\.json$/,
-    /^pnpm-lock\.yaml$/,
-    /^pnpm-workspace\.yaml$/,
-    /^frontend\/vitest\.config\./,
-    /^frontend\/vite\.config\./,
-    /^playwright[^/]*\.ts$/,
-    /^tsconfig[^/]*\.json$/,
+    // dependency + workspace manifests (root AND package-level)
+    /(^|\/)package\.json$/,
+    /(^|\/)pnpm-lock\.yaml$/,
+    /(^|\/)pnpm-workspace\.yaml$/,
+    /(^|\/)deno\.jsonc?$/,
+    /(^|\/)import_map\.json$/,
+    /(^|\/)deno\.lock$/,
+    // build / test / type / lint / style configuration anywhere
+    /(^|\/)vite\.config\./,
+    /(^|\/)vitest\.config\./,
+    /(^|\/)playwright[^/]*\.(ts|js|mjs|cjs)$/,
+    /(^|\/)tsconfig[^/]*\.json$/,
+    /(^|\/)eslint\.config\./,
+    /(^|\/)\.eslintrc/,
+    /(^|\/)tailwind\.config\./,
+    /(^|\/)postcss\.config\./,
+    /(^|\/)babel\.config\./,
+    // database + platform control
     /^backend\/supabase\/migrations\//,
+    /^backend\/supabase\/config\.toml$/,
     /^vercel\.json$/,
+    /(^|\/)Dockerfile$/,
 ];
 
 /** Documentation-ish paths (never on their own a reason to build or run E2E). */
 const DOCS_PATTERNS = [/\.md$/, /^docs\//, /^product_release\//];
 
-/** Frontend application/source surface. */
-const FRONTEND_PATTERNS = [/^frontend\//];
+/** Frontend application/source surface (explicit; NOT all of frontend/**). */
+const FRONTEND_PATTERNS = [/^frontend\/src\//, /^frontend\/public\//, /^frontend\/index\.html$/];
 
 /** Supabase edge functions. */
 const EDGE_PATTERNS = [/^backend\/supabase\/functions\//];
@@ -49,7 +63,6 @@ const RECOGNISED_PATTERNS = [
     ...EDGE_PATTERNS,
     ...E2E_PATTERNS,
     /^tests\//,
-    /^backend\//,
 ];
 
 const matches = (path, patterns) => patterns.some((re) => re.test(path));
