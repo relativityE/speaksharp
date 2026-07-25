@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Settings } from 'lucide-react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
@@ -21,7 +22,7 @@ import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
-import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { clearSessionRecoveryDraft, getRecoverableDraftForUser, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 
@@ -32,6 +33,10 @@ import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
  * have been extracted into useSessionLifecycle.
  */
 export const SessionPage: React.FC = () => {
+    const { session: authSession } = useAuthProvider();
+    // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
+    // fail closed while it is unresolved — never an unscoped read.
+    const authUserId = authSession?.user?.id ?? null;
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [recoveryDraft, setRecoveryDraft] = useState<SessionRecoveryDraft | null>(null);
     const { runtimeState } = useTranscriptionContext();
@@ -111,12 +116,46 @@ export const SessionPage: React.FC = () => {
             setRecoveryDraft(null);
             return;
         }
-        const draft = getSessionRecoveryDraft();
+        // #1033 A6: read the draft ONLY through the owner-scoped reader. The previous unscoped
+        // getSessionRecoveryDraft() call would surface — and auto-restore — a draft belonging to a
+        // DIFFERENT account (or an unattributable legacy draft) into whoever is signed in now.
+        // Fail closed: no resolved authenticated owner => no recovery read at all.
+        if (!authUserId) {
+            setRecoveryDraft(null);
+            return;
+        }
+        const draft = getRecoverableDraftForUser(authUserId);
         setRecoveryDraft(draft);
         if (!draft || transcriptContent.trim()) return;
 
         restoreRecoveryDraft(draft);
-    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent]);
+    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent, authUserId]);
+
+    // #1033 A5: same-user reload rehydration. Once the authenticated owner is resolved, re-arm the
+    // controller's unresolved-recording state (lock + the correct pending resolution) from that
+    // user's OWN durable draft. Guarded by a ref keyed on the user id so rerenders, effect re-runs
+    // and React Strict Mode's double-invoke cannot rehydrate twice or duplicate a session.
+    const rehydratedForUserRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!authUserId) return;
+        if (rehydratedForUserRef.current === authUserId) return;
+        rehydratedForUserRef.current = authUserId;
+        void import('@/services/SpeechRuntimeController')
+            .then(m => m.speechRuntimeController.rehydrateUnresolvedRecording(authUserId));
+    }, [authUserId]);
+
+    // #1033 A6: an account CHANGE must drop the previous account's in-memory recovery state from this
+    // view (the durable draft itself is retained — it stays recoverable by its real owner). Tracks the
+    // previous id so this never fires on first mount, which would otherwise clear the dedup ref that
+    // the rehydration effect above just set and cause a repeat rehydration.
+    const previousAuthUserRef = useRef<string | null | undefined>(undefined);
+    useEffect(() => {
+        const previous = previousAuthUserRef.current;
+        previousAuthUserRef.current = authUserId;
+        if (previous === undefined || previous === authUserId) return;
+        setRecoveryDraft(null);
+        rehydratedForUserRef.current = null;
+    }, [authUserId]);
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
