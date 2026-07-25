@@ -112,7 +112,12 @@ export const SessionPage: React.FC = () => {
         // surfacing it on isListening->false would falsely tell the user their saved work is "unsaved".
         // Suppress the banner (and drop the stale draft) once the current session is persisted.
         if (sessionSaved) {
-            clearSessionRecoveryDraft();
+            // #1033 A6 (DATA-LOSS FIX): this previously called clearSessionRecoveryDraft() with NO
+            // arguments, which unconditionally removes the single browser-local draft key — so a save
+            // by account B would DELETE account A's unsaved recovery draft on a shared browser.
+            // Delete only a draft we actually own, and address it by its own session id.
+            const owned = authUserId ? getRecoverableDraftForUser(authUserId) : null;
+            if (owned) clearSessionRecoveryDraft(owned.sessionId);
             setRecoveryDraft(null);
             return;
         }
