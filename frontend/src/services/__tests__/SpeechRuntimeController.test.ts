@@ -745,17 +745,81 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
+    const clearDraft = () => { try { window.localStorage.removeItem('speaksharp_unsaved_session_draft'); } catch { /* jsdom */ } };
+
     it.each([
         { from: 'RECORDING', term: 'FAILED' },
         { from: 'RECORDING', term: 'FAILED_VISIBLE' },
         { from: 'STOPPING', term: 'FAILED' },
         { from: 'STOPPING', term: 'TERMINATED' },
-    ])('#1033: POST-start failure ($from → $term) KEEPS engine selection locked', async ({ from, term }) => {
+    ])('#1033 (B): POST-start failure ($from → $term) with RECOVERABLE work STAYS locked + arms a full-save retry', async ({ from, term }) => {
+        clearDraft();
         setLock(false, from, null);
         setUnresolved(true); // recording had begun and is not durably resolved
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-postfail';
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        useSessionStore.getState().updateTranscript('recoverable words captured before the failure', '');
         await doTransition(term);
-        expect(controller.isEngineSelectionLocked()).toBe(true);
+        expect(controller.isEngineSelectionLocked()).toBe(true); // locked because there IS unsaved work
+        expect(controller.pendingResolutionKind()).toBe('full_save'); // ...and an actionable recovery exists (B4)
         setUnresolved(false);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    it.each([
+        { from: 'RECORDING', term: 'FAILED' },
+        { from: 'STOPPING', term: 'TERMINATED' },
+    ])('#1033 (B): POST-start failure ($from → $term) with NOTHING recoverable UNLOCKS (never stuck with a null resolution)', async ({ from, term }) => {
+        clearDraft();
+        setLock(false, from, null);
+        setUnresolved(true);
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        useSessionStore.getState().updateTranscript('', '');
+        await doTransition(term);
+        // B4 invariant: never locked while pendingResolutionKind() is null and no recovery exists.
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        setUnresolved(false);
+    });
+
+    it('#1033 (B): a heartbeat/engine failure with a RECOVERY DRAFT arms a full-save retry (unverified identity, never fabricated)', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-hb', userId: 'user-1', transcript: 'words spoken before the engine died', durationSeconds: 42, mode: 'private' });
+        setLock(false, 'RECORDING', null);
+        setUnresolved(true);
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-hb';
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        await doTransition('FAILED'); // heartbeat/engine failure lands here
+        const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { transcript: string; duration: number }; attributionPatch: { attribution_status: string } } | null }).pendingFullSaveRetry;
+        expect(pending).toMatchObject({ sessionId: 'sess-hb' });
+        expect(pending?.completeArgs.transcript).toContain('engine died');
+        expect(pending?.attributionPatch.attribution_status).toBe('unverified'); // cannot verify a dead engine
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        clearDraft();
+    });
+
+    it('#1033 (B): discardUnresolvedRecording marks the session failed, clears the owned draft, and UNLOCKS', async () => {
+        const storage = await import('../../lib/storage');
+        const draft = await import('../sessionRecoveryDraft');
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-disc', userId: 'user-1', transcript: 'unsaved words', durationSeconds: 10, mode: 'private' });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-disc', completeArgs: { status: 'completed', transcript: 'unsaved words', duration: 10 }, attributionPatch: { attribution_status: 'unverified' } };
+        setUnresolved(true);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        await (controller as unknown as { discardUnresolvedRecording: () => Promise<void> }).discardUnresolvedRecording();
+        expect(storage.completeSession).toHaveBeenCalledWith('sess-disc', expect.objectContaining({ status: 'failed' }));
+        expect(draft.getSessionRecoveryDraft()).toBeNull(); // owned draft cleared
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false); // unlocked only after discard completed
     });
 
     it('#1033: successful durable save + attribution UNLOCKS (only after persistence completes)', async () => {
@@ -806,6 +870,85 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(controller.isEngineSelectionLocked()).toBe(false);
         controller.updatePolicy(buildPolicyForUser(true, 'native', { allowCloud: false }));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('native');
+    });
+
+    // #1033 (A) — the engine-selection bypass is closed on EVERY writer. While locked, the store mode, the
+    // controller policy (engine + all allow-flags), and the service policy must ALL stay on the active engine.
+    const readPolicyA = () => (controller as unknown as { policy: TranscriptionPolicy }).policy;
+    const armLockedPrivate = (svcUpdate?: ReturnType<typeof vi.fn>) => {
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { service: unknown }).service = svcUpdate
+            ? { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn().mockResolvedValue(undefined) }
+            : null;
+        useSessionStore.getState().setSTTMode('private');
+        setLock(false, 'RECORDING', null); // locked via active recording
+    };
+    const producerOf = (p: TranscriptionPolicy) => ({ preferredMode: p.preferredMode, allowNative: p.allowNative, allowCloud: p.allowCloud, allowPrivate: p.allowPrivate });
+
+    it('#1033 (A): requestModeChange REJECTS while locked WITHOUT mutating the store, controller, or service', () => {
+        const svcUpdate = vi.fn().mockResolvedValue(undefined);
+        armLockedPrivate(svcUpdate);
+        const before = producerOf(readPolicyA());
+        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native', { allowCloud: true }));
+        expect(res.accepted).toBe(false);
+        expect(res.reason).toBe('engine_selection_locked');
+        expect(useSessionStore.getState().sttMode).toBe('private'); // store NOT mutated
+        expect(producerOf(readPolicyA())).toEqual(before); // controller producer unchanged
+        expect(svcUpdate).not.toHaveBeenCalled(); // service policy untouched
+        setLock(false, 'IDLE', null);
+    });
+
+    it('#1033 (A): requestModeChange ACCEPTS when unlocked and applies store + policy', () => {
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { service: unknown }).service = null;
+        useSessionStore.getState().setSTTMode('private');
+        setLock(false, 'READY', null);
+        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native', { allowCloud: true }));
+        expect(res.accepted).toBe(true);
+        expect(useSessionStore.getState().sttMode).toBe('native');
+        expect(readPolicyA().preferredMode).toBe('native');
+    });
+
+    it('#1033 (A): Cloud-preservation CANNOT restore a rejected engine while locked (the exact bypass)', () => {
+        // The historical bypass: the store mode was flipped to cloud first, then preserveAllowedCloudSelection
+        // read it and forced preferredMode back to cloud after the gate. Simulate that residual store state.
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        useSessionStore.getState().setSTTMode('cloud'); // hostile/residual store state
+        setLock(false, 'RECORDING', null);
+        controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: true })); // any policy w/ allowCloud
+        expect(readPolicyA().preferredMode).toBe('private'); // NOT restored to cloud
+        useSessionStore.getState().setSTTMode('private');
+        setLock(false, 'IDLE', null);
+    });
+
+    it('#1033 (A): updatePolicy preserves ALL producer allow-flags while locked (entitlement/profile sync)', () => {
+        armLockedPrivate();
+        const before = producerOf(readPolicyA());
+        // an entitlement/profile sync that would drop Private and switch to native
+        controller.updatePolicy(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        expect(producerOf(readPolicyA())).toEqual(before); // engine + allowPrivate/allowCloud/allowNative all kept
+        setLock(false, 'IDLE', null);
+    });
+
+    it('#1033 (A): __E2E_SET_MODE__ path cannot change the engine while locked', () => {
+        armLockedPrivate();
+        const cur = readPolicyA();
+        // __E2E_SET_MODE__ is exactly `updatePolicy({ ...this.policy, preferredMode: mode })` — exercise it.
+        controller.updatePolicy({ ...cur, preferredMode: 'native' });
+        expect(readPolicyA().preferredMode).toBe('private');
+        setLock(false, 'IDLE', null);
+    });
+
+    it('#1033 (A): warmUp cannot change the active engine while locked', async () => {
+        const svcWarm = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, warmUp: svcWarm, updatePolicy: vi.fn() };
+        (controller as unknown as { readyPromise: Promise<void> }).readyPromise = Promise.resolve();
+        useSessionStore.getState().setSTTMode('private');
+        setLock(false, 'RECORDING', null);
+        await controller.warmUp('native');
+        expect(readPolicyA().preferredMode).toBe('private');
+        setLock(false, 'IDLE', null);
     });
 
     // #1033 item 5 — a HARD reset (navigation/logout/account change) must clear the lock + pending retry so
@@ -959,6 +1102,54 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         controller.reset('logout');
         expect(controller.isEngineSelectionLocked()).toBe(false);
         expect((controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry).toBeNull();
+    });
+
+    // #1033 (C) — reload + account-boundary recovery safety.
+    it('#1033 (C1): soft subscriber_unmount preserves BOTH in-memory recovery AND the durable draft', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-soft', userId: 'user-1', transcript: 'unsaved', durationSeconds: 8, mode: 'private' });
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-soft', completeArgs: { status: 'completed', transcript: 'unsaved', duration: 8 }, attributionPatch: { attribution_status: 'unverified' } };
+        controller.reset('subscriber_unmount');
+        expect(controller.isEngineSelectionLocked()).toBe(true); // in-memory recovery preserved
+        expect(draft.getSessionRecoveryDraft()?.sessionId).toBe('sess-soft'); // durable draft preserved
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        clearDraft();
+    });
+
+    it('#1033 (C2/C4): a hard reset preserves the durable draft; same-user reload rehydrates the lock + full-save retry', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-reload', userId: 'user-1', transcript: 'work that survived the reload', durationSeconds: 30, mode: 'private' });
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-reload', completeArgs: { status: 'completed', transcript: 'work that survived the reload', duration: 30 }, attributionPatch: { attribution_status: 'unverified' } };
+        controller.reset('logout'); // hard reset clears in-memory state (simulating a reload)
+        expect(controller.isEngineSelectionLocked()).toBe(false); // in-memory cleared...
+        expect(draft.getSessionRecoveryDraft()?.sessionId).toBe('sess-reload'); // ...but unsaved work NOT destroyed (C4)
+        // same user reloads → rehydrate
+        const rehydrated = (controller as unknown as { rehydrateUnresolvedRecording: (u: string | null) => boolean }).rehydrateUnresolvedRecording('user-1');
+        expect(rehydrated).toBe(true);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        expect(controller.pendingResolutionKind()).toBe('full_save');
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        clearDraft();
+    });
+
+    it('#1033 (C3): a DIFFERENT user cannot rehydrate another user\'s recovery draft (no cross-account exposure)', async () => {
+        clearDraft();
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-userA', userId: 'user-A', transcript: 'user A private words', durationSeconds: 20, mode: 'private' });
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        const rehydrated = (controller as unknown as { rehydrateUnresolvedRecording: (u: string | null) => boolean }).rehydrateUnresolvedRecording('user-B');
+        expect(rehydrated).toBe(false); // user B gets nothing
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect(draft.getRecoverableDraftForUser('user-B')).toBeNull(); // and cannot even read it
+        expect(draft.getRecoverableDraftForUser('user-A')?.sessionId).toBe('sess-userA'); // owner still can
+        clearDraft();
     });
 
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length

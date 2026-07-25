@@ -51,6 +51,21 @@ export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
   }
 }
 
+/**
+ * #1033 (C) — account-boundary safe read. Returns the stored draft ONLY when it belongs to `userId`
+ * (there is a single global draft key, so one user's unsaved work must never be exposed to another after
+ * a logout/account switch). A null/blank `userId` never matches a draft that carries a user. A legacy draft
+ * with no `userId` is returned only when the caller also has no user (best-effort, pre-userId drafts).
+ */
+export function getRecoverableDraftForUser(userId: string | null | undefined): SessionRecoveryDraft | null {
+  const draft = getSessionRecoveryDraft();
+  if (!draft) return null;
+  const draftUser = draft.userId ?? null;
+  const currentUser = userId ?? null;
+  if (draftUser !== currentUser) return null; // strict owner match — no cross-user exposure
+  return draft;
+}
+
 export function clearSessionRecoveryDraft(sessionId?: string): void {
   if (typeof window === 'undefined') return;
 
