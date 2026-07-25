@@ -515,6 +515,15 @@ export class SpeechRuntimeController {
     /** #1033: last recording whose durable attribution write failed — stashed so Retry Save can promote it
      *  pending→verified via UPDATE (never a duplicate session). Null when nothing is awaiting retry. */
     private pendingAttributionRetry: { sessionId: string; patch: Parameters<typeof updateSession>[1] } | null = null;
+    /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
+     *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
+     *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
+     *  never a duplicate. Distinct from pendingAttributionRetry so each resolution retries only what failed. */
+    private pendingFullSaveRetry: {
+        sessionId: string;
+        completeArgs: { status: 'completed'; transcript: string; duration: number };
+        attributionPatch: Parameters<typeof updateSession>[1];
+    } | null = null;
 
     /** Recording-lifecycle states during which the STT engine selection is locked (one engine per recording). */
     private static readonly RECORDING_LIFECYCLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING']);
@@ -535,11 +544,19 @@ export class SpeechRuntimeController {
         return this.engineSelectionIntentLocked
             || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
             || this.pendingAttributionRetry !== null
+            || this.pendingFullSaveRetry !== null
             || this.recordingStartedUnresolved;
     }
-    /** #1033: true while a completed recording's attribution write is awaiting Retry Save. */
+    /** #1033: true while a completed recording's attribution write OR full save is awaiting Retry Save. */
     public hasPendingAttribution(): boolean {
-        return this.pendingAttributionRetry !== null;
+        return this.pendingAttributionRetry !== null || this.pendingFullSaveRetry !== null;
+    }
+    /** #1033 (item 2): what the current Retry Save would re-attempt — the ACTUAL failed op, or none. A full
+     *  save failure outranks an attribution failure (it is the more severe, less-persisted state). */
+    public pendingResolutionKind(): 'full_save' | 'attribution' | null {
+        if (this.pendingFullSaveRetry) return 'full_save';
+        if (this.pendingAttributionRetry) return 'attribution';
+        return null;
     }
 
     /**
@@ -565,6 +582,40 @@ export class SpeechRuntimeController {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * #1033 (item 2/3) unified Retry Save — re-runs the ACTUAL failed op for the last unresolved recording:
+     *  - a FULL-SAVE failure re-runs completeSession THEN the attribution write (the transcript row was never
+     *    persisted); only when BOTH succeed is the recording resolved and the lock released.
+     *  - an ATTRIBUTION-only failure re-runs just the attribution write (transcript already persisted).
+     * Same session id throughout (never a duplicate). Idempotent: returns true when nothing is pending.
+     * Session-safe compare-and-clear: only clears the slot it actually resolved.
+     */
+    public async retryRecordingSave(): Promise<boolean> {
+        const fullSave = this.pendingFullSaveRetry;
+        if (fullSave) {
+            const targetSessionId = fullSave.sessionId;
+            try {
+                const completion = await completeSession(fullSave.sessionId, fullSave.completeArgs);
+                if (!completion?.success) return false;
+                const attrRes = await updateSession(fullSave.sessionId, fullSave.attributionPatch);
+                if (attrRes && (attrRes as { success?: boolean }).success === false) return false;
+                // Full save + attribution both durable → recording resolved. Compare-and-clear (the slot may
+                // have been re-pointed to another session mid-flight, though the single-unresolved invariant
+                // makes that near-impossible); never clear a different session's unresolved work.
+                if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
+                    this.pendingFullSaveRetry = null;
+                    if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                    this.recordingStartedUnresolved = false;
+                }
+                return true;
+            } catch {
+                return false;
+            }
+        }
+        // No full-save failure outstanding → fall back to the attribution-only retry.
+        return this.retryPendingAttribution();
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
@@ -706,6 +757,13 @@ export class SpeechRuntimeController {
         const requestId = ++this.warmUpRequestId;
 
         if (this.service) {
+            // #1033: while engine selection is locked, warm-up must not switch the ACTIVE engine (it writes
+            // this.policy.preferredMode directly, bypassing updatePolicy). Warming the already-selected engine
+            // is fine; warming a DIFFERENT one is rejected so one recording keeps one engine.
+            if (this.isEngineSelectionLocked() && this.policy && mode !== this.policy.preferredMode) {
+                logger.warn({ mode, active: this.policy.preferredMode, state: this.state }, '[SpeechRuntimeController] warmUp: engine change rejected — engine selection locked (#1033)');
+                return;
+            }
             const selectedMode = useSessionStore.getState().sttMode;
             if (selectedMode && selectedMode !== mode) {
                 logger.info({
@@ -843,7 +901,16 @@ export class SpeechRuntimeController {
     }
 
     public updatePolicy(policy: TranscriptionPolicy): void {
-        const effectivePolicy = this.preserveAllowedCloudSelection(policy);
+        // #1033: single authoritative gate — while engine selection is locked (Start intent, recording
+        // lifecycle, pending attribution, or an unresolved recording), NO path (UI setMode, profile/entitlement
+        // sync, __E2E_SET_MODE__, native selection) may change the ACTIVE engine. Keep the current
+        // preferredMode; non-engine fields (cloud entitlement etc.) still apply so a producer stays unchanged.
+        let incoming = policy;
+        if (this.isEngineSelectionLocked() && this.policy && policy.preferredMode !== this.policy.preferredMode) {
+            logger.warn({ from: this.policy.preferredMode, to: policy.preferredMode, state: this.state }, '[controller] updatePolicy: preferredMode change rejected — engine selection locked (#1033)');
+            incoming = { ...policy, preferredMode: this.policy.preferredMode };
+        }
+        const effectivePolicy = this.preserveAllowedCloudSelection(incoming);
         this.policy = effectivePolicy;
         if (this.service) {
             void this.enqueue(async (token) => {
@@ -1734,8 +1801,8 @@ export class SpeechRuntimeController {
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
         // unresolved recording, so the single retry slot / unresolved signal can never be clobbered.
-        if (this.pendingAttributionRetry || this.recordingStartedUnresolved) {
-            logger.warn({ pendingSession: this.pendingAttributionRetry?.sessionId ?? null, unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
+        if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.recordingStartedUnresolved) {
+            logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
             useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
             return;
         }
@@ -1785,6 +1852,10 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_start_skip_bad_state', {
                     state: this.state,
                 });
+                // #1033 item 4: this Start is aborting before any transition (no INITIATING → no lifecycle-state
+                // lock yet). Release the synchronous Start-intent lock so it can't leak. If another recording is
+                // genuinely active it stays locked via RECORDING_LIFECYCLE_STATES; a stale/double Start does not.
+                this.engineSelectionIntentLocked = false;
                 return;
             }
 
@@ -1798,6 +1869,8 @@ export class SpeechRuntimeController {
                     version,
                     lifecycleVersion: this.lifecycleVersion,
                 });
+                // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
+                this.engineSelectionIntentLocked = false;
                 return;
             }
 
@@ -2038,6 +2111,14 @@ export class SpeechRuntimeController {
 
         // 1. Monotonic Boundary Cut (FIRST)
         this.lifecycleVersion++;
+
+        // #1033: a HARD reset (navigation/logout/account change/manual) must clear the engine-selection lock
+        // and any unresolved-attribution retry so state cannot leak across users/sessions. (The soft
+        // 'subscriber_unmount' reset returns earlier and PRESERVES an in-flight recovery.)
+        this.engineSelectionIntentLocked = false;
+        this.recordingStartedUnresolved = false;
+        this.pendingAttributionRetry = null;
+        this.pendingFullSaveRetry = null;
 
         // 2. Cancel tokens & Clear registry
         this.activeTasks.forEach(t => t.cancelled = true);
@@ -2506,6 +2587,9 @@ export class SpeechRuntimeController {
                             store.setSTTStatus(guardedStopStatus);
                             this.updateSessionPersisted(false);
                             store.setSessionSaved(false);
+                            // #1033 (item 3): a no-speech / low-quality recording is RESOLVED by discard (nothing
+                            // to Retry Save). The post-start lock is released uniformly at the normal stop terminal
+                            // (transition READY below) for every non-error terminal, so no per-branch clear here.
                             result = null;
                         } else {
                             // #SSOT (Product Owner decision): the LIVE filler counter is canonical. Use the
@@ -2595,12 +2679,29 @@ export class SpeechRuntimeController {
                                 mode: modeForFinalization ?? 'unknown',
                             });
 
-                            const completion = await completeSession(sessionId, {
-                                status: 'completed',
+                            const completeArgs = {
+                                status: 'completed' as const,
                                 transcript: finalTranscript,
                                 duration: Math.round(duration)
-                            });
+                            };
+                            const completion = await completeSession(sessionId, completeArgs);
                             if (!completion.success) {
+                                // #1033 (item 2/3): the durable FULL SAVE failed — the transcript row is NOT
+                                // persisted (a strictly worse state than an attribution-only miss). Keep the
+                                // recording locked (recordingStartedUnresolved stays true from RECORDING) and
+                                // stash a FULL-SAVE retry so Retry Save re-runs the ACTUAL failed op
+                                // (completeSession + attribution), not just the attribution write. The transcript
+                                // is preserved in the recovery draft (saved just above). Session-safe: never
+                                // overwrite a different session's outstanding retry.
+                                if (!this.pendingFullSaveRetry || this.pendingFullSaveRetry.sessionId === sessionId) {
+                                    this.pendingFullSaveRetry = {
+                                        sessionId,
+                                        completeArgs,
+                                        attributionPatch: finalizingIdentityPatch as Parameters<typeof updateSession>[1],
+                                    };
+                                } else {
+                                    logger.error({ existing: this.pendingFullSaveRetry.sessionId, sessionId }, '[controller] full-save retry slot held by another session — failing closed, not overwriting (#1033)');
+                                }
                                 throw new Error('SESSION_COMPLETION_FAILED');
                             }
                             // #1033: persist the finalizing engine identity + attribution_status in ONE
@@ -2618,6 +2719,10 @@ export class SpeechRuntimeController {
                                 // recording must never clear an earlier session's unresolved pending retry (#1033).
                                 if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
                                     this.pendingAttributionRetry = null;
+                                }
+                                // A clean save for this session also clears any stale full-save retry it held.
+                                if (this.pendingFullSaveRetry?.sessionId === sessionId) {
+                                    this.pendingFullSaveRetry = null;
                                 }
                                 // #1033: durable save + attribution succeeded → this recording is fully resolved;
                                 // release the post-start lock (engine selection can change for the next recording).
@@ -2802,6 +2907,15 @@ export class SpeechRuntimeController {
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                // #1033 (item 3): the stop path reached its NORMAL terminal — the recording was saved, discarded
+                // as no-speech/low-quality, or had nothing to persist. Unless a durable retry was stashed (a
+                // full-save or attribution failure, which keeps the lock for Retry Save), the recording is fully
+                // resolved, so release the post-start engine-selection lock. Covers EVERY non-error stop terminal
+                // uniformly; the error path (catch below) transitions to FAILED and deliberately stays locked so
+                // the recovery draft can be saved. This is the single authoritative unlock for a completed stop.
+                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+                    this.recordingStartedUnresolved = false;
+                }
                 if (sessionCompleted) {
                     this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                     useSessionStore.getState().setSessionSaved(true);
@@ -3038,26 +3152,14 @@ export class SpeechRuntimeController {
                 logger.warn({ state: this.state, pending: this.pendingAttributionRetry?.sessionId ?? null }, '[controller] switchToNative rejected: engine selection locked (#1033)');
                 return;
             }
-            if (this.service?.isServiceDestroyed()) {
-                this.service = null;
-            }
-            const serviceWithHandoff = this.service as { switchToNativeSegmented?: () => Promise<void> };
-            if (serviceWithHandoff && typeof serviceWithHandoff.switchToNativeSegmented === 'function') {
-                await serviceWithHandoff.switchToNativeSegmented();
-                return;
-            }
-            if (this.service) {
-                this.lifecycleVersion++;
-                this.stopWatchdog();
-                await this.service.destroy();
-                this.service = null;
-            }
-            this.setEngineReady(false);
+            // #1033: selecting an engine does NOT start the microphone. Set Browser/native as the PREFERRED
+            // engine for the NEXT recording; a recording begins only via the explicit Start control. (No
+            // mid-recording segmented handoff / auto-restart — one engine per recording.)
             const nativePolicy: TranscriptionPolicy = {
                 allowNative: true, allowCloud: false, allowPrivate: false,
-                preferredMode: 'native', allowFallback: false, executionIntent: 'native-recovery'
+                preferredMode: 'native', allowFallback: false, executionIntent: 'native-selection'
             };
-            await this.startRecording(nativePolicy);
+            this.updatePolicy(nativePolicy);
         });
     }
 }

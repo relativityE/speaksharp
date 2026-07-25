@@ -70,6 +70,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
 
         vi.clearAllMocks();
     });
@@ -612,14 +613,33 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     // #1033 Part 2 — runtime enforcement (controller-level, not UI-only).
-    it('#1033: switchToNative is REJECTED while a recording is active (programmatic switch blocked)', async () => {
-        const switchToNativeSegmented = vi.fn().mockResolvedValue(undefined);
-        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, switchToNativeSegmented };
+    it('#1033: switchToNative is REJECTED while a recording is active (no engine change)', async () => {
+        const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
+        const startSpy = vi.spyOn(controller, 'startRecording');
         (controller as unknown as { state: string }).state = 'RECORDING';
         expect(controller.isEngineSelectionLocked()).toBe(true);
         await controller.switchToNative();
         await controller.whenStable();
-        expect(switchToNativeSegmented).not.toHaveBeenCalled();
+        expect(updatePolicySpy).not.toHaveBeenCalled(); // engine unchanged while locked
+        expect(startSpy).not.toHaveBeenCalled();
+        updatePolicySpy.mockRestore();
+        startSpy.mockRestore();
+    });
+
+    it('#1033: switchToNative does NOT auto-start the microphone — selecting Browser only sets the NEXT-recording engine (item 6)', async () => {
+        (controller as unknown as { state: string }).state = 'READY';
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
+        const startSpy = vi.spyOn(controller, 'startRecording');
+        await controller.switchToNative();
+        await controller.whenStable();
+        expect(startSpy).not.toHaveBeenCalled(); // selecting an engine ≠ Start
+        expect(updatePolicySpy).toHaveBeenCalledWith(expect.objectContaining({ preferredMode: 'native' }));
+        updatePolicySpy.mockRestore();
+        startSpy.mockRestore();
     });
 
     it('#1033: startRecording is BLOCKED while a prior attribution retry is pending', async () => {
@@ -648,6 +668,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = intent;
         (controller as unknown as { state: string }).state = state;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = pending;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
     };
 
     it('#1033: engine selection locks SYNCHRONOUSLY at Start intent (before INITIATING)', async () => {
@@ -661,25 +682,25 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     it.each(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'] as const)(
-        '#1033: switchToNative is rejected in locked lifecycle state %s',
+        '#1033: switchToNative is rejected in locked lifecycle state %s (no engine change)',
         async (st) => {
-            const seg = vi.fn().mockResolvedValue(undefined);
-            (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, switchToNativeSegmented: seg };
+            const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
             setLock(false, st, null);
             await controller.switchToNative();
             await controller.whenStable();
-            expect(seg).not.toHaveBeenCalled();
+            expect(updatePolicySpy).not.toHaveBeenCalled();
+            updatePolicySpy.mockRestore();
         }
     );
 
     it('#1033: switchToNative is rejected while an attribution retry is pending (even at READY)', async () => {
-        const seg = vi.fn().mockResolvedValue(undefined);
-        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, switchToNativeSegmented: seg };
+        const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
         setLock(false, 'READY', { sessionId: 'A', patch: { attribution_status: 'verified' } });
         expect(controller.isEngineSelectionLocked()).toBe(true);
         await controller.switchToNative();
         await controller.whenStable();
-        expect(seg).not.toHaveBeenCalled();
+        expect(updatePolicySpy).not.toHaveBeenCalled();
+        updatePolicySpy.mockRestore();
         setLock(false, 'READY', null);
     });
 
@@ -765,6 +786,179 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         setUnresolved(false);
+    });
+
+    // #1033 item 1 — updatePolicy is the single authoritative engine-selection gate. Every preferred-engine
+    // writer (UI setMode, profile/entitlement sync, __E2E_SET_MODE__, native selection) funnels through it.
+    it('#1033: updatePolicy REJECTS a preferredMode engine change while locked (active engine unchanged)', () => {
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: false });
+        setLock(false, 'RECORDING', null); // locked via recording lifecycle
+        controller.updatePolicy(buildPolicyForUser(true, 'native', { allowCloud: false }));
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
+        setLock(false, 'IDLE', null);
+    });
+
+    it('#1033: updatePolicy ALLOWS a preferredMode change when unlocked', () => {
+        setLock(false, 'READY', null);
+        setUnresolved(false);
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: false });
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        controller.updatePolicy(buildPolicyForUser(true, 'native', { allowCloud: false }));
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('native');
+    });
+
+    // #1033 item 5 — a HARD reset (navigation/logout/account change) must clear the lock + pending retry so
+    // no engine-selection state leaks across users/sessions; the soft subscriber_unmount reset preserves it.
+    it('#1033: hard reset clears engine-selection lock + pending attribution retry (no cross-session leak)', () => {
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = true;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'A', patch: { attribution_status: 'verified' } };
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        controller.reset('logout');
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect((controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry).toBeNull();
+    });
+
+    // #1033 item 4 — the synchronous Start-intent lock must never outlive the Start that set it.
+    it('#1033: a double Start into an active recording releases the transient intent flag (no leak) but stays locked', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        setLock(false, 'RECORDING', null); // a recording is already active
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { service: unknown }).service = null;
+        await controller.startRecording(buildPolicyForUser(true, 'private', { allowCloud: false }));
+        await controller.whenStable();
+        // The Start aborts on the bad state; the transient intent flag is cleared so it cannot pin selection
+        // beyond this recording, while the active recording keeps selection locked via its lifecycle state.
+        expect((controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked).toBe(false);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        setLock(false, 'IDLE', null);
+    });
+
+    it('#1033: soft subscriber_unmount reset PRESERVES an in-flight recovery', () => {
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'A', patch: { attribution_status: 'verified' } };
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        controller.reset('subscriber_unmount');
+        expect(controller.isEngineSelectionLocked()).toBe(true); // recovery preserved
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+    });
+
+    // #1033 items 2 & 3 — the durable FULL SAVE (completeSession) is a distinct, more-severe failure than an
+    // attribution-only miss. It must stay locked, stash a FULL-SAVE retry, and be recoverable by re-running the
+    // ACTUAL failed op (completeSession + attribution). And a no-speech recording must RESOLVE by discard (unlock).
+    it('#1033 item 2/3: a completeSession FULL-SAVE failure stays locked and stashes a full-save retry (not attribution-only)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: false });
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        const svc = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
+        (controller as unknown as { service: unknown }).service = svc;
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string }).sessionId = 'sess-fullsave';
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true; // recording had begun
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode('native');
+        (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({ transcript: { partial: 'today i expect live transcript text to remain after stop' } });
+        await controller.stopRecording().catch(() => undefined); // the full-save failure rejects the stop
+        await controller.whenStable().catch(() => undefined);
+        expect(controller.pendingResolutionKind()).toBe('full_save');
+        expect((controller as unknown as { pendingFullSaveRetry: { sessionId: string } | null }).pendingFullSaveRetry).toMatchObject({ sessionId: 'sess-fullsave' });
+        expect((controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry).toBeNull(); // not the attribution slot
+        expect((controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved).toBe(true);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1033 item 2/3: Retry Save re-runs the FULL save (completeSession + attribution) then unlocks', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.updateSession).mockClear();
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: 'sess-fs', completeArgs: { status: 'completed', transcript: 'hello world', duration: 12 },
+            attributionPatch: { attribution_status: 'verified', engine: 'native' },
+        };
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        expect(storage.completeSession).toHaveBeenCalledWith('sess-fs', expect.objectContaining({ status: 'completed', transcript: 'hello world' }));
+        expect(storage.updateSession).toHaveBeenCalledWith('sess-fs', expect.objectContaining({ attribution_status: 'verified' }));
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect((controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry).toBeNull();
+    });
+
+    it('#1033 item 2/3: a Retry Save whose completeSession fails again stays locked (full-save retry preserved)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: false });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: 'sess-fs2', completeArgs: { status: 'completed', transcript: 'x', duration: 5 },
+            attributionPatch: { attribution_status: 'verified' },
+        };
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(false);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        expect((controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry).not.toBeNull();
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1033: startRecording is BLOCKED while a full-save retry is pending', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionPatch: {} };
+        (controller as unknown as { state: string }).state = 'IDLE';
+        await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        await controller.whenStable();
+        expect(storage.saveSession).not.toHaveBeenCalled();
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+    });
+
+    it('#1033 item 3: a recording with nothing to save (no-speech) RESOLVES at the normal stop terminal and UNLOCKS', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        const svc = {
+            getMode: vi.fn().mockReturnValue('native'),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 3000),
+            stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 3, accuracy: 1 } }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+        };
+        useSessionStore.getState().resetSession(); // clear ALL transcript sources (committed/partial/frozen/chunks)
+        (controller as unknown as { userWords: string[] }).userWords = [];
+        (controller as unknown as { service: unknown }).service = svc;
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string }).sessionId = 'sess-nospeech';
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode('native');
+        await controller.stopRecording().catch(() => undefined);
+        await controller.whenStable().catch(() => undefined);
+        // Whatever non-error terminal an empty recording takes, it must RESOLVE (no retry stashed) and release
+        // the lock — otherwise a no-speech take would permanently block the next recording (item 3).
+        expect(controller.pendingResolutionKind()).toBeNull(); // nothing to retry
+        expect((controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved).toBe(false);
+        expect(controller.isEngineSelectionLocked()).toBe(false); // resolved → unlocked
+    });
+
+    it('#1033: hard reset clears a pending full-save retry too', () => {
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionPatch: {} };
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        controller.reset('logout');
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+        expect((controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry).toBeNull();
     });
 
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
@@ -1073,6 +1267,12 @@ describe('SpeechRuntimeController — policy-writer divergence (P2 regression gu
         (controller as unknown as { state: string }).state = 'IDLE';
         (controller as unknown as { initialized: boolean }).initialized = true;
         (controller as unknown as { policy: unknown }).policy = null;
+        // #1033: clear the engine-selection lock fields so a leaked lock from a prior describe can't make
+        // updatePolicy reject this block's legitimate preferredMode writes.
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         const stubService = {
             updatePolicy: vi.fn().mockResolvedValue(undefined),
             warmUp: vi.fn().mockResolvedValue(undefined),
