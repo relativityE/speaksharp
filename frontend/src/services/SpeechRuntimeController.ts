@@ -1236,17 +1236,23 @@ export class SpeechRuntimeController {
         }
         this.policy = effectivePolicy;
         if (this.service) {
+            // #1033: this write is intentionally fire-and-forget, but its rejection MUST still be handled —
+            // an unhandled promise rejection here would surface as a process-level error (and in strict
+            // runtimes could terminate it) whenever the service refuses a policy. Callers that need the
+            // service to CONFIRM the policy use applyQueuedProducerPolicy(), which awaits it transactionally.
             void this.enqueue(async (token) => {
                 // Token check FIRST
-                if (token.cancelled || token.version !== this.lifecycleVersion) return; 
-                
+                if (token.cancelled || token.version !== this.lifecycleVersion) return;
+
                 const service = this.service; // Capture reference
                 if (!service) return;         // Explicit null check
 
                 await service.updatePolicy(effectivePolicy);
-                
+
                 // Re-check after await
                 if (token.cancelled || token.version !== this.lifecycleVersion) return;
+            }).catch((e) => {
+                logger.warn({ e, preferredMode: effectivePolicy.preferredMode }, '[SpeechRuntimeController] service policy update failed (non-fatal; policy retained)');
             });
         }
     }
