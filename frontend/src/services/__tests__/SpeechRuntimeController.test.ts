@@ -606,6 +606,38 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true }); // restore for later tests
     });
 
+    // #1033 Part 2 — runtime enforcement (controller-level, not UI-only).
+    it('#1033: switchToNative is REJECTED while a recording is active (programmatic switch blocked)', async () => {
+        const switchToNativeSegmented = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, switchToNativeSegmented };
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        await controller.switchToNative();
+        await controller.whenStable();
+        expect(switchToNativeSegmented).not.toHaveBeenCalled();
+    });
+
+    it('#1033: startRecording is BLOCKED while a prior attribution retry is pending', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'sess-A', patch: { attribution_status: 'verified' } };
+        (controller as unknown as { state: string }).state = 'IDLE';
+        await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        await controller.whenStable();
+        expect(storage.saveSession).not.toHaveBeenCalled();
+        expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({ type: 'error' }));
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+    });
+
+    it('#1033: a later recording does NOT clear an earlier session pending retry', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'sess-A', patch: { attribution_status: 'verified' } };
+        await driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-B', 'native');
+        expect((controller as unknown as { pendingAttributionRetry: { sessionId: string } | null }).pendingAttributionRetry).toMatchObject({ sessionId: 'sess-A' });
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+    });
+
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
     // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.

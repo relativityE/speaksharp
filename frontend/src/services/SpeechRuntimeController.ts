@@ -516,6 +516,19 @@ export class SpeechRuntimeController {
      *  pending→verified via UPDATE (never a duplicate session). Null when nothing is awaiting retry. */
     private pendingAttributionRetry: { sessionId: string; patch: Parameters<typeof updateSession>[1] } | null = null;
 
+    /** Recording-lifecycle states during which the STT engine selection is locked (one engine per recording). */
+    private static readonly RECORDING_LIFECYCLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING']);
+    /** #1033: engine selection is locked while a recording is in its lifecycle (init→record→stop→save) OR a
+     *  prior recording's attribution write is still pending retry. Consumed by the UI selector AND enforced in
+     *  the controller — programmatic switches are rejected, not merely UI-disabled. */
+    public isEngineSelectionLocked(): boolean {
+        return SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state) || this.pendingAttributionRetry !== null;
+    }
+    /** #1033: true while a completed recording's attribution write is awaiting Retry Save. */
+    public hasPendingAttribution(): boolean {
+        return this.pendingAttributionRetry !== null;
+    }
+
     /**
      * #1033 Retry Save — re-attempt the durable attribution write for the last recording whose write
      * failed. Updates the SAME row by session id (never creates a duplicate session). On success the row
@@ -1690,6 +1703,14 @@ export class SpeechRuntimeController {
     }
 
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
+        // #1033: do not start a new recording while a prior recording's attribution write is still pending
+        // retry — its engine identity must be resolved (Retry Save) first, and a new recording must never
+        // overwrite/clear that pending retry.
+        if (this.pendingAttributionRetry) {
+            logger.warn({ pendingSession: this.pendingAttributionRetry.sessionId }, '[controller] startRecording blocked: prior attribution pending retry (#1033)');
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
+            return;
+        }
         this.policy = policy || null;
         this.userWords = userWords;
         // A new recording supersedes any prior stop's pending finalization: bump the finalize token so a
@@ -2562,7 +2583,11 @@ export class SpeechRuntimeController {
                             try {
                                 const attrResult = await updateSession(sessionId, finalizingIdentityPatch as Parameters<typeof updateSession>[1]);
                                 if (attrResult && (attrResult as { success?: boolean }).success === false) throw new Error('attribution update returned success:false');
-                                this.pendingAttributionRetry = null;
+                                // Clear the pending-retry ONLY if it belongs to THIS recording — a later
+                                // recording must never clear an earlier session's unresolved pending retry (#1033).
+                                if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
+                                    this.pendingAttributionRetry = null;
+                                }
                             } catch (attributionError) {
                                 // #1033: transcript is already persisted (completeSession). The row stays 'pending'
                                 // (DB default) and the captured patch is stashed so Retry Save can promote it
@@ -2967,6 +2992,12 @@ export class SpeechRuntimeController {
     public async switchToNative(): Promise<void> {
         return this.enqueue(async (token) => {
             if (token.cancelled || token.version !== this.lifecycleVersion) return;
+            // #1033: one engine per recording — the controller REJECTS a programmatic engine switch while a
+            // recording is in its lifecycle (not merely a UI disable). Switching happens only from IDLE/READY.
+            if (SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)) {
+                logger.warn({ state: this.state }, '[controller] switchToNative rejected: engine locked during active recording (#1033)');
+                return;
+            }
             if (this.service?.isServiceDestroyed()) {
                 this.service = null;
             }
