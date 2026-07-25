@@ -66,6 +66,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         useSessionStore.getState().setRuntimeState('IDLE');
         useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready' });
 
+        // #1033: reset the engine-selection lock state on the singleton so it can't leak across tests.
+        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
+        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+
         vi.clearAllMocks();
     });
 
@@ -704,11 +709,62 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
     });
 
-    it('#1033: a clean initialization failure releases the Start-intent lock', async () => {
-        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = true;
-        (controller as unknown as { state: string }).state = 'INITIATING';
-        await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('FAILED');
-        expect((controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked).toBe(false);
+    // #1033 Part-2a — failure-state lock semantics: PRE-recording failure unlocks; POST-start failure stays
+    // locked (transcript/recovery-draft preserved) until durable save/retry/approved-discard.
+    const doTransition = (s: string) => (controller as unknown as { transition: (st: string) => Promise<void> }).transition(s);
+    const setUnresolved = (v: boolean) => { (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = v; };
+
+    it.each(['FAILED', 'FAILED_VISIBLE', 'TERMINATED'] as const)(
+        '#1033: PRE-recording failure (%s, never RECORDING) UNLOCKS engine selection',
+        async (term) => {
+            setLock(true /*intent*/, 'INITIATING', null);
+            setUnresolved(false); // recording never began
+            await doTransition(term);
+            expect(controller.isEngineSelectionLocked()).toBe(false);
+        }
+    );
+
+    it.each([
+        { from: 'RECORDING', term: 'FAILED' },
+        { from: 'RECORDING', term: 'FAILED_VISIBLE' },
+        { from: 'STOPPING', term: 'FAILED' },
+        { from: 'STOPPING', term: 'TERMINATED' },
+    ])('#1033: POST-start failure ($from → $term) KEEPS engine selection locked', async ({ from, term }) => {
+        setLock(false, from, null);
+        setUnresolved(true); // recording had begun and is not durably resolved
+        await doTransition(term);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        setUnresolved(false);
+    });
+
+    it('#1033: successful durable save + attribution UNLOCKS (only after persistence completes)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        setUnresolved(true); // recording had begun
+        await driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-unlock', 'native');
+        expect((controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved).toBe(false);
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+    });
+
+    it('#1033: successful Retry Save UNLOCKS', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        setLock(false, 'READY', { sessionId: 'A', patch: { attribution_status: 'verified' } });
+        setUnresolved(true);
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        await (controller as unknown as { retryPendingAttribution: () => Promise<boolean> }).retryPendingAttribution();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+    });
+
+    it('#1033: startRecording is BLOCKED while a prior recording is unresolved (post-start failure)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        setLock(false, 'IDLE', null);
+        setUnresolved(true); // prior recording failed post-start, not yet saved/retried/discarded
+        await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        await controller.whenStable();
+        expect(storage.saveSession).not.toHaveBeenCalled();
+        setUnresolved(false);
     });
 
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length

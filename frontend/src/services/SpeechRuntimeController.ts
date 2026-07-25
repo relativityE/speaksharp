@@ -522,13 +522,20 @@ export class SpeechRuntimeController {
      *  so the lock cannot lose a race to a rapid engine change right after Start. Released by transition()
      *  once a real state (INITIATING/…/terminal) is reached, where the lifecycle/pending predicates take over. */
     private engineSelectionIntentLocked = false;
-    /** #1033: engine selection is locked (a) from Start intent, (b) through the recording lifecycle, and
-     *  (c) while a prior recording's attribution write is pending retry. THE single authoritative predicate —
-     *  consumed by the UI selector AND enforced in the controller so programmatic switches are rejected. */
+    /** #1033: TRUE once a recording has actually BEGUN (transition to RECORDING) and has NOT yet reached a
+     *  terminal resolution — durable save + attribution success, an approved discard, or successful Retry Save.
+     *  This keeps the lock through POST-START failures (heartbeat/STT/runtime/stop/finalization/attribution),
+     *  which land in non-locked states (FAILED/FAILED_VISIBLE/TERMINATED/READY/IDLE). A PRE-recording failure
+     *  never sets it, so it correctly unlocks. Preserves the transcript/recovery-draft window. */
+    private recordingStartedUnresolved = false;
+    /** #1033: engine selection is locked while (a) Start intent, (b) the recording lifecycle, (c) a pending
+     *  attribution retry, OR (d) a started recording has not yet durably resolved (post-start failure window).
+     *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
     public isEngineSelectionLocked(): boolean {
         return this.engineSelectionIntentLocked
             || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
-            || this.pendingAttributionRetry !== null;
+            || this.pendingAttributionRetry !== null
+            || this.recordingStartedUnresolved;
     }
     /** #1033: true while a completed recording's attribution write is awaiting Retry Save. */
     public hasPendingAttribution(): boolean {
@@ -552,6 +559,7 @@ export class SpeechRuntimeController {
             // changed to another session while the update was in flight, leave that one intact (#1033).
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
                 this.pendingAttributionRetry = null;
+                this.recordingStartedUnresolved = false; // Retry Save succeeded → recording fully resolved → unlock
             }
             return true;
         } catch {
@@ -1019,13 +1027,18 @@ export class SpeechRuntimeController {
     }
 
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
-        // #1033: release the Start-intent lock once a real state is reached — from here the lifecycle-state
-        // set (INITIATING/…/STOPPING) and the pending-retry predicate govern isEngineSelectionLocked().
+        // #1033: release the Start-intent BRIDGE once a real state is reached — the lifecycle-state set,
+        // the pending-retry, and recordingStartedUnresolved now govern isEngineSelectionLocked(). Once a
+        // recording has actually begun, mark it unresolved so a POST-start failure (which lands in a
+        // non-locked state) keeps engine selection locked until durable save/retry/approved-discard.
         this.engineSelectionIntentLocked = false;
         if (newState === 'RECORDING') {
             if (!this.canTransitionToRecording()) {
                 return;
             }
+            // Recording confirmed to begin → keep engine selection locked until durable save/retry/discard,
+            // even if a later failure lands in a non-locked state (FAILED/TERMINATED/READY/IDLE).
+            this.recordingStartedUnresolved = true;
         }
 
         const previousState = this.state;
@@ -1717,11 +1730,12 @@ export class SpeechRuntimeController {
     }
 
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
-        // #1033: do not start a new recording while a prior recording's attribution write is still pending
-        // retry — its engine identity must be resolved (Retry Save) first, and a new recording must never
-        // overwrite/clear that pending retry.
-        if (this.pendingAttributionRetry) {
-            logger.warn({ pendingSession: this.pendingAttributionRetry.sessionId }, '[controller] startRecording blocked: prior attribution pending retry (#1033)');
+        // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
+        // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
+        // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
+        // unresolved recording, so the single retry slot / unresolved signal can never be clobbered.
+        if (this.pendingAttributionRetry || this.recordingStartedUnresolved) {
+            logger.warn({ pendingSession: this.pendingAttributionRetry?.sessionId ?? null, unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
             useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
             return;
         }
@@ -2605,6 +2619,9 @@ export class SpeechRuntimeController {
                                 if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
                                     this.pendingAttributionRetry = null;
                                 }
+                                // #1033: durable save + attribution succeeded → this recording is fully resolved;
+                                // release the post-start lock (engine selection can change for the next recording).
+                                this.recordingStartedUnresolved = false;
                             } catch (attributionError) {
                                 // #1033: transcript is already persisted (completeSession). The row stays 'pending'
                                 // (DB default); stash the patch so Retry Save can promote it pending→verified via
