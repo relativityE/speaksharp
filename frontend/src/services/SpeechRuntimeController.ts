@@ -522,10 +522,18 @@ export class SpeechRuntimeController {
      *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
      *  never a duplicate. Distinct from pendingAttributionRetry so each resolution retries only what failed. */
     private pendingFullSaveRetry: {
-        sessionId: string;
+        /** null when the session ROW DOES NOT EXIST YET (pre-session window) — see `initialSave`. */
+        sessionId: string | null;
+        /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
+         *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
+        initialSave?: { userId: string; recordingId: string; mode: string };
         completeArgs: { status: 'completed'; transcript: string; duration: number };
         attributionPatch: Parameters<typeof updateSession>[1];
     } | null = null;
+
+    /** #1033 (1): owner + idempotency identity for the window between RECORDING and the initial save. Set
+     *  once the authenticated owner is known (before speech), cleared once the row exists or at resolution. */
+    private pendingInitialSaveContext: { userId: string; recordingId: string; mode: string } | null = null;
 
     /** #1033 (5): a producer-affecting policy change (entitlement/profile sync) that arrived while the engine
      *  was locked. It is NOT applied to the live recording; it is queued and applied at the next recording's
@@ -537,6 +545,14 @@ export class SpeechRuntimeController {
      *  attribution must match it. Cleared only on durable save, confirmed discard, or a new recording's start
      *  boundary (a PRE-start failure never latches, so it needs no clearing). */
     private recordingEngineMode: TranscriptionMode | null = null;
+
+    /** #1033 (2): set when the service reported an engine different from the latch — the transcript may mix
+     *  producers, so this recording can NEVER be marked `verified`. Cleared at the recording boundary. */
+    private producerIntegrityCompromised = false;
+
+    /** #1033 (2): in-flight producer-integrity teardown, so duplicate/stale callbacks chain onto the same
+     *  teardown rather than starting a second one (and so it can be awaited deterministically). */
+    private producerIntegrityTeardown: Promise<void> | null = null;
 
     /** Recording-lifecycle states during which the STT engine selection is locked (one engine per recording). */
     private static readonly RECORDING_LIFECYCLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING']);
@@ -566,8 +582,12 @@ export class SpeechRuntimeController {
     }
     /** #1033 (item 2): what the current Retry Save would re-attempt — the ACTUAL failed op, or none. A full
      *  save failure outranks an attribution failure (it is the more severe, less-persisted state). */
-    public pendingResolutionKind(): 'full_save' | 'attribution' | null {
-        if (this.pendingFullSaveRetry) return 'full_save';
+    public pendingResolutionKind(): 'initial_save' | 'full_save' | 'attribution' | null {
+        if (this.pendingFullSaveRetry) {
+            return this.pendingFullSaveRetry.initialSave && !this.pendingFullSaveRetry.sessionId
+                ? 'initial_save'
+                : 'full_save';
+        }
         if (this.pendingAttributionRetry) return 'attribution';
         return null;
     }
@@ -608,11 +628,39 @@ export class SpeechRuntimeController {
     public async retryRecordingSave(): Promise<boolean> {
         const fullSave = this.pendingFullSaveRetry;
         if (fullSave) {
-            const targetSessionId = fullSave.sessionId;
+            let targetSessionId = fullSave.sessionId;
             try {
-                const completion = await completeSession(fullSave.sessionId, fullSave.completeArgs);
+                // #1033 (1): INITIAL SAVE — the row never existed (failure landed between RECORDING and the
+                // placeholder save). Create it with THIS recording's idempotency key so a retry can never
+                // create a duplicate, then complete it and write the (unverified) attribution.
+                if (!targetSessionId) {
+                    const ctx = fullSave.initialSave;
+                    if (!ctx) return false; // no owner/identity → cannot safely persist; stay retryable
+                    const created = await saveSession(
+                        {
+                            user_id: ctx.userId,
+                            title: `Session ${new Date().toLocaleString()}`,
+                            duration: 0,
+                            transcript: ' ',
+                            total_words: 0,
+                            engine: ctx.mode,
+                        },
+                        { id: ctx.userId } as UserProfile,
+                        ctx.mode as TranscriptionMode,
+                        ctx.recordingId, // idempotency identity — same recording, never a duplicate row
+                    );
+                    const createdId = created?.session?.id;
+                    if (!createdId) return false; // still retryable; nothing destroyed
+                    targetSessionId = createdId;
+                    // Adopt the row so a subsequent retry resumes as a normal full-save.
+                    if (this.pendingFullSaveRetry === fullSave) {
+                        this.pendingFullSaveRetry = { ...fullSave, sessionId: createdId };
+                    }
+                    if (!this.sessionId) this.sessionId = createdId;
+                }
+                const completion = await completeSession(targetSessionId, fullSave.completeArgs);
                 if (!completion?.success) return false;
-                const attrRes = await updateSession(fullSave.sessionId, fullSave.attributionPatch);
+                const attrRes = await updateSession(targetSessionId, fullSave.attributionPatch);
                 if (attrRes && (attrRes as { success?: boolean }).success === false) return false;
                 // Full save + attribution both durable → recording resolved. Compare-and-clear (the slot may
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
@@ -647,17 +695,44 @@ export class SpeechRuntimeController {
      * explicitly discarded. Releases the post-start lock AND the immutable producer latch together, so the
      * latch can never outlive its recording (and a stale latch can never reject the next recording's engine).
      */
+    /**
+     * #1033 (3) — the ONE valid next engine under a policy. The requested `preferredMode` wins only if that
+     * engine is still allowed by the policy; otherwise fall back to an allowed engine. A stale UI selection
+     * (e.g. Cloud/Private chosen before entitlement was revoked) can never override a newly restricted policy.
+     */
+    private resolveEntitledMode(p: TranscriptionPolicy): TranscriptionMode {
+        const allowed = (m: TranscriptionMode): boolean =>
+            m === 'cloud' ? Boolean(p.allowCloud)
+                : m === 'private' ? Boolean(p.allowPrivate)
+                    : Boolean(p.allowNative);
+        if (p.preferredMode && allowed(p.preferredMode)) return p.preferredMode;
+        const fallback: TranscriptionMode[] = ['private', 'native', 'cloud'];
+        return fallback.find(allowed) ?? 'native';
+    }
+
     private markRecordingResolved(): void {
         this.recordingStartedUnresolved = false;
         this.recordingEngineMode = null;
+        this.pendingInitialSaveContext = null;
         // #1033 (5): a producer-affecting policy change (e.g. an entitlement/profile sync) that was rejected
         // while locked is applied NOW, at the resolution boundary — the change is never lost, and it never
         // touched the recording that was in flight. Applied only once the lock has actually released.
         const queued = this.queuedProducerPolicy;
-        this.queuedProducerPolicy = null;
         if (queued && !this.isEngineSelectionLocked()) {
-            logger.info({ preferredMode: queued.preferredMode }, '[controller] applying queued producer policy at recording boundary (#1033 5)');
-            this.updatePolicy(queued);
+            // #1033 (3): apply COHERENTLY — compute ONE valid next mode, then bring the session store, the
+            // controller policy, and the service policy into agreement. The store is written FIRST so
+            // Cloud-preservation (which reads the store) cannot resurrect a now-unentitled selection, and so
+            // the UI can never display an engine the runtime is not actually configured for.
+            const nextMode = this.resolveEntitledMode(queued);
+            const coherent: TranscriptionPolicy = { ...queued, preferredMode: nextMode };
+            useSessionStore.getState().setSTTMode(nextMode);
+            this.updatePolicy(coherent);
+            // Only drop the queue once application actually succeeded; otherwise keep it for the next boundary.
+            const applied = this.policy?.preferredMode === nextMode;
+            this.queuedProducerPolicy = applied ? null : queued;
+            logger.info({ nextMode, applied }, '[controller] applied queued producer policy at recording boundary (#1033 3/5)');
+        } else if (!queued) {
+            this.queuedProducerPolicy = null;
         }
     }
 
@@ -676,15 +751,20 @@ export class SpeechRuntimeController {
         const liveTranscript = this.collectRecoverableTranscript();
         const transcript = (liveTranscript || draftForThisSession?.transcript || '').trim();
 
-        if (sessionId && transcript.length > 0) {
+        if (transcript.length > 0 && (sessionId || this.pendingInitialSaveContext)) {
             const startTime = useSessionStore.getState().startTime;
             const liveDuration = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
+            // #1033 (1): if the placeholder row does not exist yet (failure inside the pre-session window),
+            // arm an INITIAL-SAVE retry carrying the owner + this recording's idempotency identity, so the
+            // first persistence can still happen later without ever creating a duplicate session.
+            const initialSave = sessionId ? undefined : (this.pendingInitialSaveContext ?? undefined);
             this.pendingFullSaveRetry = {
                 sessionId,
+                ...(initialSave ? { initialSave } : {}),
                 completeArgs: { status: 'completed', transcript, duration: Math.round(draftForThisSession?.durationSeconds || liveDuration) },
                 attributionPatch: { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as Parameters<typeof updateSession>[1],
             };
-            logger.warn({ sessionId, state: this.state }, '[controller] post-start failure with recoverable transcript → full-save retry armed (#1033 B)');
+            logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
             return;
         }
         // Nothing recoverable for THIS session/owner → resolved by discard; do not leave it locked.
@@ -781,6 +861,12 @@ export class SpeechRuntimeController {
         const nonBlank = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
         try {
             if (!producerMode || !SpeechRuntimeController.VERIFIABLE_ENGINES.has(producerMode)) return unverified;
+            // #1033 (2): the service reported a second engine during this recording — the transcript may mix
+            // producers, so it can NEVER be marked verified regardless of what metadata now reports.
+            if (this.producerIntegrityCompromised) {
+                logger.error({ sessionId: this.sessionId, producerMode }, '[controller] producer integrity compromised → unverified (#1033 2)');
+                return unverified;
+            }
             // #1033 (4): final attribution MUST match the engine latched when this recording started. If the
             // finalizing mode disagrees with the latch, the producer identity is not trustworthy → unverified
             // (fail closed; never attribute a recording to an engine it did not demonstrably start on).
@@ -1601,6 +1687,39 @@ export class SpeechRuntimeController {
         return false;
     }
 
+    /**
+     * #1033 (2) — PRODUCER-INTEGRITY FAILURE. The service reported an engine different from the one latched
+     * for this recording, so the transcript may already mix two producers. Fail closed and honestly:
+     *  1. mark the producer as compromised so finalization can NEVER mark this row `verified`;
+     *  2. stop the engine safely (best-effort) and leave the recording UNRESOLVED so it stays locked;
+     *  3. preserve the recoverable transcript and arm the correct recovery op (initial-save or full-save)
+     *     with `attribution_status = 'unverified'`;
+     *  4. surface an actionable error — never keep claiming the latched engine is still producing.
+     */
+    private async failProducerIntegrity(reportedMode: TranscriptionMode | null): Promise<void> {
+        this.producerIntegrityCompromised = true;
+        pushNativeRuntimeTrace('controller_producer_integrity_failure', {
+            latched: this.recordingEngineMode,
+            reported: reportedMode ?? null,
+        });
+        useSessionStore.getState().setSTTStatus({
+            type: 'error',
+            message: 'Recording stopped: the transcription engine changed unexpectedly.',
+            detail: 'Your transcript was kept and can be saved, but its engine could not be verified.',
+        });
+        // Stop the engine so it cannot keep producing under a second identity. Best-effort: teardown failure
+        // must not prevent the recovery arming below.
+        try {
+            await this.service?.stopTranscription?.();
+        } catch (e) {
+            logger.warn({ e }, '[controller] producer-integrity stop failed (continuing to arm recovery) (#1033 2)');
+        }
+        // The recording BEGAN, so it stays unresolved/locked; arm the actionable recovery for its transcript.
+        this.recordingStartedUnresolved = true;
+        this.ensurePostStartFailureIsActionable();
+        await this.transition('FAILED', new Error('PRODUCER_INTEGRITY_ENGINE_CHANGED'));
+    }
+
     private handleModeChange(mode: TranscriptionMode | null) {
         const store = useSessionStore.getState();
         const isActiveSessionTransition = ['INITIATING', 'RECORDING', 'STOPPING'].includes(this.state);
@@ -1614,21 +1733,25 @@ export class SpeechRuntimeController {
             return;
         }
 
-        // #1033 (4): one recording = one engine. Once the producer is LATCHED, a service callback reporting a
-        // DIFFERENT mode is an identity change mid-recording — reject it and hold the latched producer, even
-        // if the reported mode happens to be allowed by policy. Fail closed: the store keeps the real producer
-        // so the UI, telemetry, and finalization can never disagree about who produced this recording.
+        // #1033 (2/4): one recording = one engine. Once the producer is LATCHED, a service callback reporting a
+        // DIFFERENT mode means the SERVICE MAY ACTUALLY HAVE SWITCHED ENGINES — the transcript could already
+        // contain two producers. Merely ignoring the callback and repainting the old label would leave the UI
+        // claiming an engine that is no longer producing. This is a FATAL producer-integrity event: terminate
+        // the recording safely, preserve the recoverable transcript, arm the correct recovery, and force the
+        // attribution to `unverified` (a mixed-engine row can NEVER be marked verified).
         if (this.recordingEngineMode && mode !== this.recordingEngineMode) {
             logger.error({
                 reportedMode: mode,
                 latchedMode: this.recordingEngineMode,
                 controllerState: this.state,
                 sessionId: this.sessionId,
-            }, '[SpeechRuntimeController] Rejecting mid-recording engine identity change — producer is latched (#1033 4)');
-            if (store.sttMode !== this.recordingEngineMode) {
-                store.setSTTMode(this.recordingEngineMode);
-            }
-            this.subscriberCallbacks.onModeChange?.(this.recordingEngineMode);
+            }, '[SpeechRuntimeController] PRODUCER INTEGRITY FAILURE — service reported a different engine mid-recording (#1033 2)');
+            // Keep a handle on the async teardown so callers/tests can await completion deterministically,
+            // and so a repeated/stale duplicate callback joins the in-flight teardown instead of starting
+            // a second one.
+            this.producerIntegrityTeardown = (this.producerIntegrityTeardown ?? Promise.resolve())
+                .then(() => this.failProducerIntegrity(mode))
+                .catch((e) => { logger.warn({ e }, '[controller] producer-integrity teardown error (#1033 2)'); });
             return;
         }
 
@@ -1679,7 +1802,10 @@ export class SpeechRuntimeController {
         this.resolvedPrivateEngineSessionId = null;
         // #1033 (4): a NEW recording is starting — drop the previous recording's producer latch so it cannot
         // leak across recordings. The new latch is set only once this start actually reaches RECORDING.
+        // The integrity flag is cleared HERE (a recording boundary), never at resolution, so it survives
+        // through finalization and keeps a compromised recording from ever being marked verified.
         this.recordingEngineMode = null;
+        this.producerIntegrityCompromised = false;
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
         store.freezeTranscriptAtStop(null);
@@ -2283,10 +2409,12 @@ export class SpeechRuntimeController {
                 }
                 this.setEngineReady(true);
                 this.isEmissionsSafe = true;
-                pushNativeRuntimeTrace('controller_recording_invariant_start');
-                await this.checkRecordingInvariant();
-                pushNativeRuntimeTrace('controller_recording_invariant_done');
-
+                // #1033 (1): resolve the authenticated OWNER **before** the recording can produce speech.
+                // The RECORDING transition (checkRecordingInvariant, below) opens the window in which speech
+                // is captured; if a failure lands in that window before the initial save, recovery needs an
+                // owner to bind the draft/retry to. Without this hoist, early speech could be lost because no
+                // owner-bound recovery path existed yet. `getSession()` reads the local session, so this adds
+                // no meaningful latency before the mic goes live.
                 const supabase = getSupabaseClient();
                 pushNativeRuntimeTrace('controller_supabase_session_start');
                 const { data: { session } } = await supabase.auth.getSession();
@@ -2300,6 +2428,18 @@ export class SpeechRuntimeController {
 
                 const userId = session?.user?.id;
                 this.capturedUserId = userId || null;
+
+                // #1033 (1): arm the INITIAL-SAVE recovery contract for the pre-session window. From here until
+                // the placeholder row exists, a failure with recoverable speech can still persist the session
+                // for the first time — using this recording's idempotency identity, so a retry can never create
+                // a duplicate row. Cleared once the row exists (or at resolution).
+                this.pendingInitialSaveContext = userId
+                    ? { userId, recordingId, mode: (service.getMode?.() as string | undefined) ?? mode }
+                    : null;
+
+                pushNativeRuntimeTrace('controller_recording_invariant_start');
+                await this.checkRecordingInvariant();
+                pushNativeRuntimeTrace('controller_recording_invariant_done');
 
                 if (userId) {
                     const mode = service.getMode() || 'unknown';
@@ -2334,6 +2474,8 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
+                        this.pendingInitialSaveContext = null;
                         // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
                         // running shadow engine WITHOUT resetting — events captured since the early start
                         // (above, before startTranscription) are preserved. No-op in production.

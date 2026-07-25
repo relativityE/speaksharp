@@ -912,6 +912,190 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         useSessionStore.getState().updateTranscript('', '');
     });
 
+    // ---- Final Part-2a round: pre-session window / producer-integrity / coherent queued policy ----------
+    const setInitialCtx = (ctx: unknown) => { (controller as unknown as { pendingInitialSaveContext: unknown }).pendingInitialSaveContext = ctx; };
+
+    // (1) A failure AFTER RECORDING but BEFORE the initial save must not unlock — it arms an initial_save retry.
+    it('#1033 (1): failure in the PRE-SESSION window arms an initial_save retry (never silently unlocks)', async () => {
+        clearDraft();
+        resetLifecycle();
+        setLock(false, 'RECORDING', null);
+        setUnresolved(true);
+        (controller as unknown as { sessionId: string | null }).sessionId = null; // row does not exist yet
+        setOwner('user-early');
+        setInitialCtx({ userId: 'user-early', recordingId: 'rec-early', mode: 'private' });
+        useSessionStore.getState().setChunks([]);
+        useSessionStore.getState().updateTranscript('speech captured before the session row existed', '');
+        await doTransition('FAILED');
+        expect(controller.pendingResolutionKind()).toBe('initial_save');
+        expect(controller.isEngineSelectionLocked()).toBe(true); // early speech is NOT lost
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false); setInitialCtx(null);
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    it('#1033 (1): PARTIAL-ONLY speech in the pre-session window is still recoverable', async () => {
+        clearDraft(); resetLifecycle();
+        setLock(false, 'RECORDING', null); setUnresolved(true);
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        setOwner('user-early'); setInitialCtx({ userId: 'user-early', recordingId: 'rec-p', mode: 'native' });
+        useSessionStore.getState().setChunks([]);
+        useSessionStore.getState().updateTranscript('', 'only a partial utterance so far');
+        await doTransition('FAILED');
+        expect(controller.pendingResolutionKind()).toBe('initial_save');
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false); setInitialCtx(null);
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    it('#1033 (1): initial_save retry CREATES the row with the recording idempotency key, then completes it', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockClear();
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.updateSession).mockClear();
+        vi.mocked(storage.saveSession).mockResolvedValue({ session: { id: 'new-row-1' } } as never);
+        vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'user-early', recordingId: 'rec-idem-1', mode: 'private' },
+            completeArgs: { status: 'completed', transcript: 'early speech', duration: 11 },
+            attributionPatch: { attribution_status: 'unverified' },
+        };
+        setUnresolved(true);
+        expect(controller.pendingResolutionKind()).toBe('initial_save');
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
+        // created ONCE, with the recording id as the idempotency key → no duplicate session
+        expect(storage.saveSession).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(storage.saveSession).mock.calls[0][3]).toBe('rec-idem-1');
+        expect(storage.completeSession).toHaveBeenCalledWith('new-row-1', expect.objectContaining({ status: 'completed' }));
+        expect(storage.updateSession).toHaveBeenCalledWith('new-row-1', expect.objectContaining({ attribution_status: 'unverified' }));
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+    });
+
+    it('#1033 (1): a FAILED initial_save stays retryable and locked (no duplicate, nothing lost)', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.saveSession).mockResolvedValueOnce({ session: null } as never);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'u', recordingId: 'rec-fail', mode: 'private' },
+            completeArgs: { status: 'completed', transcript: 'x', duration: 2 },
+            attributionPatch: { attribution_status: 'unverified' },
+        };
+        setUnresolved(true);
+        await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(false);
+        expect(controller.pendingResolutionKind()).toBe('initial_save');
+        expect(controller.isEngineSelectionLocked()).toBe(true);
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        vi.mocked(storage.saveSession).mockResolvedValue({ session: { id: 'x' } } as never);
+    });
+
+    it('#1033 (1): a confirmed DISCARD in the pre-session window unlocks without a phantom row', async () => {
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
+            sessionId: null,
+            initialSave: { userId: 'u', recordingId: 'rec-disc', mode: 'private' },
+            completeArgs: { status: 'completed', transcript: 'x', duration: 2 },
+            attributionPatch: {},
+        };
+        (controller as unknown as { sessionId: string | null }).sessionId = null;
+        setUnresolved(true);
+        const res = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
+        expect(res.outcome).toBe('discarded');
+        expect(storage.completeSession).not.toHaveBeenCalled(); // no row was ever created
+        expect(controller.isEngineSelectionLocked()).toBe(false);
+    });
+
+    // (2) A mismatched engine callback is FATAL, not merely ignored.
+    it.each([
+        { latched: 'private', reported: 'native' },
+        { latched: 'private', reported: 'cloud' },
+        { latched: 'native', reported: 'private' },
+    ] as const)('#1033 (2): $latched → $reported callback terminates the recording and forces unverified', async ({ latched, reported }) => {
+        clearDraft(); resetLifecycle();
+        const stop = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string | null }).sessionId = 'sess-mix';
+        setOwner('user-1'); setInitialCtx(null);
+        useSessionStore.getState().setSTTMode(latched);
+        useSessionStore.getState().setChunks([]);
+        useSessionStore.getState().updateTranscript('words produced before the engine changed', '');
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, reported, { allowCloud: true });
+
+        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange(reported);
+        await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
+
+        expect(stop).toHaveBeenCalled();                                  // engine stopped, not left producing
+        expect((controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised).toBe(true);
+        expect(controller.isEngineSelectionLocked()).toBe(true);          // transcript preserved + recovery armed
+        expect(controller.pendingResolutionKind()).not.toBeNull();
+        // a mixed-engine row can NEVER be verified, even with perfect-looking metadata
+        const patch = (controller as unknown as { captureFinalizingIdentity: (s: unknown, m: string) => { attribution_status: string } })
+            .captureFinalizingIdentity({ getMetadata: () => ({ engineVersion: 'v', modelName: 'm', deviceType: 'd' }) }, latched);
+        expect(patch.attribution_status).toBe('unverified');
+        expect(useSessionStore.getState().sttStatus.type).toBe('error');  // never keeps claiming the old engine silently
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+        useSessionStore.getState().updateTranscript('', '');
+    });
+
+    it('#1033 (2): a repeated/stale mismatched callback does not re-trigger a second teardown storm', async () => {
+        const stop = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => 'private' };
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        useSessionStore.getState().setSTTMode('private');
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native', { allowCloud: true });
+        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('native');
+        await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
+        // after the fatal handling the latch is released with the recording; a stale repeat is inert
+        const callsAfterFirst = stop.mock.calls.length;
+        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('native');
+        await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
+        expect(stop.mock.calls.length).toBeLessThanOrEqual(callsAfterFirst + 1);
+        (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
+        (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
+        setUnresolved(false);
+    });
+
+    // (3) The queued producer policy is applied COHERENTLY across store + controller + service.
+    it.each([
+        { from: 'cloud', policy: () => buildPolicyForUser(true, 'cloud', { allowCloud: false }), label: 'Cloud revoked' },
+        { from: 'private', policy: () => buildPolicyForUser(false, 'private', { allowCloud: false }), label: 'Private revoked' },
+    ])('#1033 (3): $label — store, controller policy, and service agree after resolution', async ({ from, policy }) => {
+        const svcUpdate = vi.fn().mockResolvedValue(undefined);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn() };
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, from as TranscriptionMode, { allowCloud: true });
+        useSessionStore.getState().setSTTMode(from as TranscriptionMode);
+        setLock(false, 'RECORDING', null);
+        setUnresolved(true);
+        // entitlement change arrives mid-recording → rejected + queued
+        controller.updatePolicy(policy());
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe(from);
+        // resolve → apply coherently
+        (controller as unknown as { state: string }).state = 'READY';
+        (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
+        await controller.whenStable().catch(() => undefined);
+        const ctrl = (controller as unknown as { policy: TranscriptionPolicy }).policy;
+        expect(ctrl.preferredMode).not.toBe(from);                     // stale selection cannot survive revocation
+        expect(useSessionStore.getState().sttMode).toBe(ctrl.preferredMode); // UI agrees with the controller
+        const svcCalls = svcUpdate.mock.calls;
+        expect(svcCalls.length).toBeGreaterThan(0); // the service WAS reconfigured at the boundary
+        const lastServicePolicy = svcCalls[svcCalls.length - 1][0] as TranscriptionPolicy;
+        expect(lastServicePolicy.preferredMode).toBe(ctrl.preferredMode); // service agrees with store + controller
+        expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).toBeNull();
+        setLock(false, 'IDLE', null);
+    });
+
     // Finding 4 — the producing engine is latched; a mid-recording service callback cannot change identity.
     it.each(['native', 'private', 'cloud'] as const)('#1033 (4): a mid-recording callback reporting another engine is REJECTED (latched %s)', (latched) => {
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
