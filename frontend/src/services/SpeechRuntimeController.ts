@@ -765,6 +765,9 @@ export class SpeechRuntimeController {
         this.recordingStartedUnresolved = false;
         this.recordingEngineMode = null;
         this.pendingInitialSaveContext = null;
+        // #1033 Part-2b: republish so SessionPage's banner disappears + the selector unlocks after a
+        // successful retry/discard resolves the recording (no FSM transition fires here otherwise).
+        this.publishLockState();
         // #1033 (5): a producer-affecting policy change (e.g. an entitlement/profile sync) that was rejected
         // while locked is applied NOW, at the resolution boundary — the change is never lost, and it never
         // touched the recording that was in flight. Applied only once the lock has actually released.
@@ -802,6 +805,7 @@ export class SpeechRuntimeController {
                 attributionPatch: { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as Parameters<typeof updateSession>[1],
             };
             logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
+            this.publishLockState();
             return;
         }
         // Nothing recoverable for THIS session/owner → resolved by discard; do not leave it locked.
@@ -871,6 +875,7 @@ export class SpeechRuntimeController {
             completeArgs: { status: 'completed', transcript: draft.transcript, duration: Math.round(draft.durationSeconds) },
             attributionPatch: { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as Parameters<typeof updateSession>[1],
         };
+        this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated unresolved recording for same user (#1033 C)');
         return true;
     }
@@ -2122,8 +2127,18 @@ export class SpeechRuntimeController {
         if (expectedVersion !== this.lifecycleVersion) return;
         const mode = this.policy?.preferredMode ?? null;
         syncRuntimeState(this.state, mode);
-        // #1033 Part-2b: publish the authoritative lock + recovery state so the selector UI and the
-        // Retry/Discard surfaces read the SAME truth the controller enforces — never their own guess.
+        this.publishLockState();
+    }
+
+    /**
+     * #1033 Part-2b: publish the authoritative lock + recovery state so the selector UI and the
+     * Retry/Discard surfaces read the SAME truth the controller enforces — never their own guess.
+     * `syncProvider` fires only on FSM transitions, but the recovery operations (retry / discard /
+     * rehydrate / resolution) mutate the lock WITHOUT a transition — they must republish, or the banner
+     * would linger and the selector stay locked after a successful retry/discard (and not appear after
+     * a reload rehydration).
+     */
+    private publishLockState(): void {
         useSessionStore.getState().setEngineSelectionLock(this.isEngineSelectionLocked(), this.pendingResolutionKind());
     }
 
