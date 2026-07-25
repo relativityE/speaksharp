@@ -2122,6 +2122,9 @@ export class SpeechRuntimeController {
         if (expectedVersion !== this.lifecycleVersion) return;
         const mode = this.policy?.preferredMode ?? null;
         syncRuntimeState(this.state, mode);
+        // #1033 Part-2b: publish the authoritative lock + recovery state so the selector UI and the
+        // Retry/Discard surfaces read the SAME truth the controller enforces — never their own guess.
+        useSessionStore.getState().setEngineSelectionLock(this.isEngineSelectionLocked(), this.pendingResolutionKind());
     }
 
     /**

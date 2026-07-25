@@ -39,6 +39,12 @@ export const SessionPage: React.FC = () => {
     const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
     const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
+    // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
+    const [confirmDiscard, setConfirmDiscard] = React.useState(false);
+    const [recoveryBusy, setRecoveryBusy] = React.useState(false);
+    const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
+    const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
+    const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
     const setRecoveredChunks = useSessionStore(state => state.setChunks);
     const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
@@ -252,6 +258,84 @@ export const SessionPage: React.FC = () => {
                             : undefined
                     }
                 />
+                {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's
+                    pendingResolutionKind — NOT by local UI guesses — so what we offer always matches what
+                    the runtime will actually do. Discard is two-step confirmed and reports honestly when
+                    persistence could not be reconciled (outcome 'retryable'), instead of claiming success. */}
+                {pendingResolutionKind && (
+                    <div
+                        className="mt-3 flex flex-col gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        data-testid="session-unresolved-recovery"
+                        data-resolution={pendingResolutionKind}
+                        role="status"
+                    >
+                        <span className="font-medium text-foreground/80" data-testid="session-unresolved-message">
+                            {recoveryBusy
+                                ? 'Working…'
+                                : recoveryError
+                                    ? recoveryError
+                                    : pendingResolutionKind === 'attribution'
+                                        ? 'Your transcript was saved, but we could not confirm which transcription method produced it.'
+                                        : 'Your last recording has not been saved yet. Your words are still here.'}
+                        </span>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={recoveryBusy}
+                                data-testid="session-retry-save"
+                                onClick={() => {
+                                    setRecoveryError(null);
+                                    setRecoveryBusy(true);
+                                    void import('@/services/SpeechRuntimeController')
+                                        .then(m => m.speechRuntimeController.retryRecordingSave())
+                                        .then((ok) => { if (!ok) setRecoveryError('Saving failed again. You can retry.'); })
+                                        .finally(() => setRecoveryBusy(false));
+                                }}
+                            >
+                                Retry Save
+                            </Button>
+                            {confirmDiscard ? (
+                                <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    disabled={recoveryBusy}
+                                    data-testid="session-discard-confirm"
+                                    onClick={() => {
+                                        setRecoveryError(null);
+                                        setRecoveryBusy(true);
+                                        void import('@/services/SpeechRuntimeController')
+                                            .then(m => m.speechRuntimeController.discardUnresolvedRecording())
+                                            .then((res) => {
+                                                // Honest: a row we could not mark failed is NOT a clean discard.
+                                                if (res?.outcome !== 'discarded') {
+                                                    setRecoveryError('We could not discard it cleanly. Your recording was kept — you can retry.');
+                                                } else {
+                                                    setConfirmDiscard(false);
+                                                }
+                                            })
+                                            .finally(() => setRecoveryBusy(false));
+                                    }}
+                                >
+                                    Yes, permanently discard
+                                </Button>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={recoveryBusy}
+                                    data-testid="session-discard"
+                                    onClick={() => setConfirmDiscard(true)}
+                                >
+                                    Discard…
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
                 {recoveryDraft && !isListening && (
                     <div
                         className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
@@ -318,6 +402,8 @@ export const SessionPage: React.FC = () => {
                                     formattedTime={metrics.formattedTime}
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}
+                                    engineSelectionLocked={engineSelectionLocked}
+                                    pendingResolutionKind={pendingResolutionKind}
                                     onModeChange={setMode}
                                     onStartStop={() => { void handleStartStop(); }}
                                     onDownloadModel={() => {

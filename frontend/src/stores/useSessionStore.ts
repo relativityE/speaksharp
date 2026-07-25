@@ -43,6 +43,12 @@ export interface FinalizedAnalysisState {
 
 export interface SessionState {
     runtimeState: RuntimeState;
+    /** #1033 Part-2b: TRUE while the STT engine selection is locked (Start intent, recording lifecycle,
+     *  a pending save/attribution resolution, or a started-but-unresolved recording). Published by the
+     *  controller so the selector UI can never disagree with the runtime about whether it may change. */
+    engineSelectionLocked: boolean;
+    /** #1033 Part-2b: which recovery the user can act on, or null. Drives Retry Save / Discard UI. */
+    pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null;
     isLockHeldByOther: boolean;
     isListening: boolean;
     isInitiating: boolean;
@@ -73,6 +79,7 @@ export interface SessionState {
 
 interface SessionActions {
     setRuntimeState: (state: RuntimeState) => void;
+    setEngineSelectionLock: (locked: boolean, pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null) => void;
     startSession: () => void;
     stopSession: () => void;
     setReady: (ready: boolean) => void;
@@ -108,6 +115,8 @@ export type SessionStore = SessionState & SessionActions;
 
 const initialState: SessionState = {
     runtimeState: 'IDLE',
+    engineSelectionLocked: false,
+    pendingResolutionKind: null,
     isLockHeldByOther: false,
     isListening: false,
     isInitiating: false,
@@ -173,6 +182,13 @@ export const useSessionStore = create<SessionStore>((set) => {
     return {
     ...initialState,
 
+    setEngineSelectionLock: (engineSelectionLocked, pendingResolutionKind) => {
+        set((state) => (
+            state.engineSelectionLocked === engineSelectionLocked && state.pendingResolutionKind === pendingResolutionKind
+                ? state
+                : { ...state, engineSelectionLocked, pendingResolutionKind }
+        ));
+    },
     setRuntimeState: (runtimeState) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
         set((state) => {

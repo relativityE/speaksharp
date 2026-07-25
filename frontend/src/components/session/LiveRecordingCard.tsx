@@ -48,6 +48,13 @@ interface LiveRecordingCardProps {
     isFinalizing?: boolean; // post-Stop whole-utterance decode in progress (#891)
     className?: string;
     // Callbacks
+    /** #1033 Part-2b: the AUTHORITATIVE engine-selection lock published by the controller. This is
+     *  strictly broader than `isListening`: it also covers Start intent (before RECORDING), a pending
+     *  save/attribution resolution, and a started-but-unresolved recording. The selector must use THIS,
+     *  never `isListening`, or the UI would offer an engine change the runtime will reject. */
+    engineSelectionLocked?: boolean;
+    /** #1033 Part-2b: drives truthful locked-state copy — what the user must do to unlock. */
+    pendingResolutionKind?: 'initial_save' | 'full_save' | 'attribution' | null;
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
     onDownloadModel?: () => void;
@@ -94,6 +101,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     recordingIntent = false,
     isFinalizing = false,
     className = "",
+    engineSelectionLocked = false,
+    pendingResolutionKind = null,
     onModeChange,
     onStartStop,
     onDownloadModel,
@@ -108,6 +117,20 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
         onModeChange(next);
     };
+
+    // #1033 Part-2b: ONE source of truth for "may the user change engine right now?". `isListening` is
+    // kept only as a fallback for callers that have not yet been migrated to the published lock.
+    const selectionLocked = engineSelectionLocked || isListening;
+    // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
+    // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
+    const lockedReason =
+        pendingResolutionKind === 'initial_save' || pendingResolutionKind === 'full_save'
+            ? 'Save or discard your unsaved recording to change the transcription method'
+            : pendingResolutionKind === 'attribution'
+                ? 'Finish saving your last recording to change the transcription method'
+                : isListening
+                    ? 'Stop recording to change the transcription method'
+                    : 'Finish your current recording to change the transcription method';
 
     // Single controlled description surface for the mode dropdown: one `activeMode` (the hovered/focused
     // row) drives one ModeDescriptionFlyout. Mutually exclusive by construction — moving to another row
@@ -345,18 +368,20 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         </div>
                     </div>
                     <DropdownMenu open={menuOpen} onOpenChange={(o) => { setMenuOpen(o); if (o) setAboutOpen(false); if (!o) setActiveMode(null); }}>
-                        <DropdownMenuTrigger asChild disabled={isListening}>
+                        <DropdownMenuTrigger asChild disabled={selectionLocked}>
                             <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-10 w-full justify-center gap-1.5 rounded-md border border-border px-3.5 text-[11px] font-semibold text-foreground transition-all hover:bg-muted hover:text-foreground sm:w-auto"
-                                title={isListening ? "Cannot change mode during recording" : "Select mode"}
+                                title={selectionLocked ? lockedReason : "Select mode"}
+                                aria-disabled={selectionLocked}
+                                data-locked={selectionLocked ? 'true' : 'false'}
                                 data-testid={TEST_IDS.STT_MODE_SELECT}
                                 data-state={mode}
                             >
                                 <span className="text-primary">•</span>
                                 {getModeLabel(mode)}
-                                {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
+                                {!selectionLocked && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
