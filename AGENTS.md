@@ -195,6 +195,61 @@ If GitHub access or a workflow is unavailable, confirm the repository documentat
 workflow filename, authentication state, and required secret/variable names before
 escalating. Report names and availability only—never values.
 
+## Reusable Test Accounts And Live Verification
+
+SpeakSharp has reusable authenticated test accounts for production/live validation.
+Anyone with repository Actions permission may use them through the approved GitHub
+workflows without learning or copying their credential values.
+
+| Account variables | Intended use |
+|---|---|
+| `BASIC_TEST_EMAIL` / `BASIC_TEST_PASSWORD` | Reusable Free/Basic authentication and ordinary Free-path live checks |
+| `PRO_TEST_EMAIL` / `PRO_TEST_PASSWORD` | Reusable Pro authentication, Cloud/Pro checks, and authenticated STT live checks |
+| `CHECKOUT_TEST_EMAIL` / `CHECKOUT_TEST_PASSWORD` | Dedicated paid-checkout proof only; do not substitute a general account when clean checkout state matters |
+| `SOAK_TEST_PASSWORD` with the soak registry | Stress/endurance workflows only; not the default account for feature verification |
+
+`FREE_TEST_*` and legacy `E2E_*` names remain compatibility aliases in some scripts.
+Current workflows commonly fall back from `FREE_TEST_*` to `BASIC_TEST_*`; inspect the
+specific spec's resolution order instead of guessing. Do not report authenticated testing
+as blocked merely because credentials are not present in the local shell or cannot be
+revealed from GitHub Secrets.
+
+Before declaring an authenticated or persisted-row proof unavailable:
+
+1. Inspect the target test for its accepted account variables.
+2. Check the applicable workflow for those variable/secret names.
+3. Use `.github/workflows/rc-gates.yml` for a targeted live diagnostic or full release
+   gate, or `.github/workflows/live-release-matrix.yml` for its maintained live suites.
+4. Let GitHub Actions inject credentials and sign in through the test. Never print them or
+   move them into chat/local files.
+5. For scoped production-row verification, use an existing or narrowly targeted live test
+   with `SUPABASE_SERVICE_ROLE_KEY` injected by GitHub Actions. A direct database password
+   is not required for a row read available through the Supabase client/API. Query only
+   marked synthetic identifiers and emit sanitized assertions, not row contents.
+
+Use `pnpm verify:test-users` inside its credentialed workflow to confirm that configured
+reviewer accounts exist and have the expected profile tier. If a maintained reusable
+account fits the test, use it rather than creating another account.
+
+Reusable accounts are shared fixtures:
+
+- do not delete them, rotate their passwords, change durable entitlement/billing state,
+  or consume one-time state unless the owning test explicitly restores it;
+- do not assume the Basic account has an unused Private sample or another clean state;
+- tests requiring fresh signup, unused sample, clean checkout, or another stateful
+  precondition must use the dedicated account/workflow for that contract or a marked
+  disposable synthetic account;
+- account creation, entitlement mutation, forced-failure injection, and cleanup are
+  production writes and still require the applicable Product Owner authorization;
+- `.github/workflows/setup-test-users.yml` and `pnpm make:test-user <free|pro>` are the
+  approved provisioning paths when a disposable account is authorized;
+- live suites must own cleanup for disposable fixtures and prove no marked orphan remains.
+
+An inability to perform manual interactive login is not, by itself, a blocker when an
+approved GitHub-hosted Playwright or API proof can exercise the same authenticated path.
+State clearly whether evidence is manual-browser, automated-browser, API/database, or a
+combination; do not present one as another.
+
 ## Pull Requests, Merge, And Branch Hygiene
 
 `main` is branch-protected. No direct pushes and no admin bypass. Follow
