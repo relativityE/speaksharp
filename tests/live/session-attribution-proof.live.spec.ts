@@ -149,7 +149,6 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     const persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
     expect(persistedId, 'the deployed app must expose data-session-persisted-id after save').toBeTruthy();
     createdSessionId = persistedId; // ← enables afterAll cleanup even if a later assertion fails
-    void runStartedIso; // (retained only as documentation of the run window; lookups are by exact id)
 
     // 4) Poll THAT exact row via the service-role API (no DB password) until the app's asynchronous
     //    attribution write resolves off `pending`.
