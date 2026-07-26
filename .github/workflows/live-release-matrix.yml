@@ -12,6 +12,7 @@ on:
           - all
           - attribution-proof
           - orphan-audit
+          - orphan-check
           - custom-words
           - native-preflight
           - cloud-token-gates
@@ -259,6 +260,27 @@ jobs:
             playwright-report/
             test-results/live/
           retention-days: 14
+
+  live-pro-orphan-check:
+    if: ${{ github.event.inputs.suite == 'orphan-check' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+      - name: Run Pro Orphan Read-only Audit
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/pro-orphan-audit.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
   live-free-sample-orphan-audit:
     # #964 — prove zero stt-switching-free-sample-* disposable Free fixtures remain after cleanup.
