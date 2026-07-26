@@ -126,6 +126,15 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     expect((await tokenResponse).status(), 'assemblyai-token must be issued for the Pro cloud recording').toBe(200);
     await expect(startStop).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
 
+    // #1058 review (P2): the controller creates the placeholder session row as soon as recording starts.
+    // Capture its id NOW (from the session store the app exposes) so afterAll cleanup still targets our
+    // owner-scoped row even if a later assertion (transcript/save/attribution) fails before the exact
+    // persisted-id read below. It is refined to the exact persisted id once the save succeeds.
+    createdSessionId = await page.evaluate(() => {
+      const api = (window as unknown as { __SESSION_STORE_API__?: { getState?: () => { sessionId?: string | null } } }).__SESSION_STORE_API__;
+      return api?.getState?.().sessionId ?? null;
+    });
+
     // Wait for real fixture transcript, then satisfy the app's minimum saveable duration. The save
     // policy reads the app's OWN elapsed-time store (not Playwright's wall clock), so poll that.
     await expect(page.getByTestId('transcript-container')).toContainText(TRANSCRIPT_PATTERN, { timeout: 120_000 });

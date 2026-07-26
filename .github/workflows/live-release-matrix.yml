@@ -217,7 +217,10 @@ jobs:
   live-attribution-proof:
     # #1033/#1055 live production attribution proof — the DEPLOYED app must persist
     # attribution_status=verified with a coherent engine tuple for a real Pro recording.
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'attribution-proof' }}
+    # ISOLATION-ONLY (not part of `all`): it records on PRO_TEST via AssemblyAI, which requires one
+    # concurrent Cloud session and is subject to the product's account-wide recording mutex — running it
+    # alongside the other PRO/Cloud jobs in `all` would flake on provider/mutex concurrency.
+    if: ${{ github.event.inputs.suite == 'attribution-proof' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
@@ -259,7 +262,10 @@ jobs:
 
   live-free-sample-orphan-audit:
     # #964 — prove zero stt-switching-free-sample-* disposable Free fixtures remain after cleanup.
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'orphan-audit' }}
+    # ISOLATION-ONLY (not part of `all`): it must run AFTER the stt-switching #964 diagnostic has created
+    # AND cleaned up its own stt-switching-free-sample-* fixture. Inside `all` the two jobs race, so the
+    # audit could false-fail (fixture still active) or false-pass (before a later failed cleanup leaks one).
+    if: ${{ github.event.inputs.suite == 'orphan-audit' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
