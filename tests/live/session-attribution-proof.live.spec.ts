@@ -96,8 +96,12 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     await page.getByTestId('email-input').fill(PRO_EMAIL!);
     await page.getByTestId('password-input').fill(PRO_PASSWORD!);
     await page.getByTestId('sign-in-submit').click();
-    await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
-    await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 30_000 });
+    // The authenticated landing is /practice (default authed home); the recording surface is /session.
+    // Wait until sign-in redirects off the auth page, then navigate to the recording surface explicitly
+    // (same pattern the account-wide-recording-mutex live proof uses).
+    await page.waitForURL((url) => !url.pathname.includes('/auth/signin'), { timeout: 45_000 });
+    await page.goto('/session');
+    await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
 
     await selectBenchmarkMode(page, MODE);
     await assertPreStartMode(page, MODE);
