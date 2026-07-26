@@ -177,7 +177,7 @@ Each canonical document carries this header:
 
 ## 7. Related records
 
-- [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md) — section-level source→target inventory, dispositions, owners, and the Quick Preview (Browser) decision. **Temporary**; archived at closeout.
+- [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md) — section-level source→target inventory, dispositions, owners, and the Browser STT naming decision (#1041 Option B). **Temporary**; archived at closeout.
 - [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) — current posture (SSOT).
 
 *This portal is navigational and structural. It records no changing release status; that lives only in `RELEASE_STATUS.md`.*
