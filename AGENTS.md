@@ -67,6 +67,16 @@ Treat merge, migration, deployment, activation, live proof, and tester invitatio
 separate decisions. Read-only inspection and dry-run evidence do not authorize the
 corresponding write.
 
+Repository automation can couple otherwise separate decisions. Every push to `main`
+currently starts `deploy-edge-functions`. Before requesting or executing any merge,
+inspect the PR's Edge-function diff and disclose this automatic production action:
+
+- if Edge-function source changes, merge and production Edge deployment are inseparable;
+  obtain explicit Product Owner authorization for both before merging;
+- if Edge-function source is unchanged, disclose that the merge will still redeploy the
+  unchanged functions and obtain acceptance of that no-op production action;
+- do not interpret migration or frontend deployment as authorized by that decision.
+
 ## Work And Review Model
 
 - Keep one active implementation PR at a time unless the Product Owner changes priority.
