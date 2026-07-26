@@ -1,24 +1,28 @@
 // @vitest-environment node
 //
-// #1055 — REAL database-row attribution proof (immediate successor to #1033).
+// #1055 — SCHEMA / MIGRATION contract proof (part 1 of 2; immediate successor to #1033).
 //
-// #1033 proved the attribution runtime + recovery UI against MOCKED storage. This proves the SAME
-// lifecycle against a genuine PostgreSQL row (PGlite = Postgres compiled to WASM: real planner,
-// constraints, defaults — NOT a mock), loading the ACTUAL shipped migration file. It changes no
-// product code: it is a test-only guard so the release is protected before the migration is applied
-// or the app is deployed (both remain separate Product Owner decisions).
+// SCOPE OF THIS FILE: the migration `20260724220000` itself — column DEFAULT, backfill, CHECK, NOT
+// NULL, constraint scoping, idempotency-key uniqueness — proven against a genuine PostgreSQL row
+// (PGlite = Postgres compiled to WASM: real planner, constraints, defaults — NOT a mock), loading the
+// ACTUAL shipped migration file. The SQL here is executed directly by the test to characterise the
+// SCHEMA, and it deliberately does NOT claim to prove application behaviour.
 //
-// Content-free: synthetic UUIDs only; no real transcript text.
+// The APPLICATION-to-row proof — that SpeakSharp's real SpeechRuntimeController.retryRecordingSave()
+// reuses the same session_id, never duplicates, and lands the correct final status — lives in the
+// companion file session-attribution-controller.integration.test.js (part 2 of 2), where the real
+// controller method drives these same DB rows.
 //
-// Proven, against a real row on public.sessions:
-//   1. pending -> verified on the SAME row (full engine tuple + attribution_status='verified').
-//   2. pending -> unverified on the SAME row (unconfirmable identity, no invented tokens).
-//   3. A failed save leaves the row pending; a successful retry REUSES the same session_id.
-//   4. No retry path creates a duplicate session (UPDATE never inserts; idempotency_key UNIQUE
-//      rejects a duplicated initial_save).
-//   5. A pre-migration (legacy) row backfills to legacy_unknown and is EXCLUDED from verified-only
+// Both are test-only (no product code, no migration apply, no deploy). Content-free: synthetic UUIDs.
+//
+// Proven HERE, at the schema/migration layer, against a real row on public.sessions:
+//   1. a row can move pending -> verified with a coherent engine tuple (column mechanics).
+//   2. a row can move pending -> unverified (unconfirmable identity, no engine tuple).
+//   3. an UPDATE by id mutates the SAME row in place (no INSERT).
+//   4. the idempotency_key UNIQUE constraint rejects a duplicated initial insert.
+//   5. a pre-migration (legacy) row backfills to legacy_unknown and is EXCLUDED from verified-only
 //      engine evidence.
-//   6. The migration CHECK rejects out-of-set values and is scoped to public.sessions (conrelid).
+//   6. the migration CHECK rejects out-of-set values and is scoped to public.sessions (conrelid).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
@@ -56,9 +60,13 @@ CREATE TABLE public.sessions (
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
 const USER_B = '22222222-2222-4222-8222-222222222222';
-// The full producing-engine tuple an app writes when identity is confirmed (verified). Synthetic.
+// A COHERENT producing-engine tuple: a single engine produces its own version string. The controller's
+// captureFinalizingIdentity() sets engine = producerMode, so `engine='private'` pairs with a
+// `private_v2:*` version (NOT engine='native', which would be an internally inconsistent identity).
+// The application-driven proof of this coherence lives in the companion controller-integration test;
+// here the tuple is only a schema fixture. Synthetic.
 const VERIFIED_TUPLE = {
-  engine: 'native',
+  engine: 'private',
   engine_version: 'private_v2:base',
   model_name: 'base',
   device_type: 'wasm',
@@ -122,7 +130,7 @@ describe('#1055 sessions.attribution_status — real DB-row lifecycle (PGlite)',
     const row = updated.rows[0];
     expect(row.id).toBe(created.id);                 // SAME row
     expect(row.attribution_status).toBe('verified');
-    expect(row.engine).toBe('native');
+    expect(row.engine).toBe('private');              // coherent: engine matches its own version string
     expect(row.engine_version).toBe('private_v2:base');
     expect(row.model_name).toBe('base');
     expect(row.device_type).toBe('wasm');
@@ -145,37 +153,31 @@ describe('#1055 sessions.attribution_status — real DB-row lifecycle (PGlite)',
     expect(row.device_type).toBeNull();
   });
 
-  it('3. a failed save leaves the row pending; the retry REUSES the same session_id to reach verified', async () => {
+  it('3. an UPDATE by id promotes the SAME row in place (pending -> verified) and never inserts a new row', async () => {
+    // SCHEMA-LEVEL characterisation only. The proof that the APPLICATION reuses this id lives in the
+    // companion controller-integration file; here we only show the column mechanics an UPDATE-by-id relies on.
     const created = await insertPendingSession(USER_A);
     const sessionId = created.id;
-
-    // Failed save == nothing committed for this row: it is still pending, still exactly one row.
-    expect((await readRow(sessionId)).attribution_status).toBe('pending');
     const before = await countRows(USER_A);
 
-    // retryRecordingSave() re-targets the SAME sessionId (never mints a new one).
-    const retry = await db.query(
+    const updated = await db.query(
       `UPDATE public.sessions
          SET engine=$2, engine_version=$3, model_name=$4, device_type=$5, attribution_status='verified'
        WHERE id=$1 RETURNING id, attribution_status`,
       [sessionId, VERIFIED_TUPLE.engine, VERIFIED_TUPLE.engine_version, VERIFIED_TUPLE.model_name, VERIFIED_TUPLE.device_type],
     );
-    expect(retry.rows[0].id).toBe(sessionId);               // same session_id reused
-    expect(retry.rows[0].attribution_status).toBe('verified');
-    expect(await countRows(USER_A)).toBe(before);            // retry did not add a row
+    expect(updated.rows[0].id).toBe(sessionId);          // same row
+    expect(updated.rows[0].attribution_status).toBe('verified');
+    expect(await countRows(USER_A)).toBe(before);         // an UPDATE adds no row
   });
 
-  it('4. no retry path creates a duplicate: UPDATE never inserts, and a duplicated initial_save is rejected by idempotency_key', async () => {
+  it('4. the idempotency_key UNIQUE constraint rejects a duplicated insert (the DB guard the app retry relies on)', async () => {
     const key = '33333333-3333-4333-8333-333333333333';
-    const first = await insertPendingSession(USER_B, key);
+    await insertPendingSession(USER_B, key);
     const before = await countRows(USER_B);
 
-    // (a) a repeated attribution UPDATE for the same id cannot fan out into extra rows.
-    await db.query(`UPDATE public.sessions SET attribution_status='verified' WHERE id=$1`, [first.id]);
-    await db.query(`UPDATE public.sessions SET attribution_status='verified' WHERE id=$1`, [first.id]);
-    expect(await countRows(USER_B)).toBe(before);
-
-    // (b) a retried initial_save reusing the same idempotency_key is rejected (no second row).
+    // A raw second insert reusing the same key is rejected at the DB layer — this is the guarantee the
+    // application's idempotent-create leans on (proven end-to-end via the controller in the companion file).
     await expect(
       db.query(
         `INSERT INTO public.sessions (user_id, transcript, duration, status, idempotency_key)
