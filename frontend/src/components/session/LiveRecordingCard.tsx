@@ -260,7 +260,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const privateModeDescription = isPaidProUser
         ? `Private transcription runs on your device after setup — audio processing stays local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
         : canUsePrivate
-            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Private is the recommended main experience: transcription runs on your device and stays local.`
+            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Transcription runs on your device and stays local.`
             : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
     const cloudModeDescription = canUseCloudStt
         ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
@@ -272,8 +272,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
         : cloudModeDescription;
     const nativeOptionDesc = "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
+    // #1064: the concise privacy explanation for the AVAILABLE Private option (tooltip / About body /
+    // flyout). The operational details (beta cap, sample-session limit, auto-save, entitlement) stay in
+    // privateModeDescription — do NOT fold them into this sentence. When unavailable, fall back to the
+    // entitlement explanation so access restrictions remain readable.
     const privateOptionDesc = canUsePrivate
-        ? 'Private runs on your device after a one-time setup. Audio stays local.'
+        ? 'Transcription runs on this device. Audio is not uploaded.'
         : privateModeDescription;
 
     // Short, scannable STT cue shown by default; the explanatory detail lives behind the accessible
@@ -297,7 +301,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         <div className="space-y-2.5" data-testid="stt-modes-about">
             <p className="text-[10px] font-bold uppercase tracking-wide text-foreground/50">About transcription modes</p>
             <div>
-                <p className="font-semibold text-foreground">Private — Recommended</p>
+                <p className="font-semibold text-foreground">Private</p>
                 <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-private">{privateOptionDesc}</p>
                 {isPrivateDownloadRequired && (
                     <p className="mt-0.5 text-[11px] font-normal text-foreground/55" data-testid="private-model-size-note">
@@ -319,7 +323,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // Content for the single flyout, resolved from the active row (same per-mode copy as the About panel).
     const activeFlyout = ((): { title: string; body: string } => {
         switch (activeMode) {
-            case 'private': return { title: 'Private — Recommended', body: privateOptionDesc };
+            case 'private': return { title: 'Private', body: privateOptionDesc };
             case 'native': return { title: 'Browser', body: nativeOptionDesc };
             case 'cloud': return { title: 'Cloud — Pro', body: cloudOptionDesc };
             default: return { title: '', body: '' };
@@ -355,7 +359,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                             {/* P0.2: the single Browser→Private transition happens AFTER a Browser save
                                 (post-save status-bar CTA in StatusNotificationBar). The selector already
-                                advertises Private as Recommended before recording, so there is intentionally
+                                advertises Private (Stays local) before recording, so there is intentionally
                                 NO pre-save card CTA here — avoids a duplicate transition. */}
 
                             {/* Private first-run: no separate "Set up" button — clicking the mic starts the
@@ -393,8 +397,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             className="w-56 max-w-[calc(100vw-2rem)]"
                             onPointerLeave={() => setActiveMode(null)}
                         >
-                            {/* Private-first hierarchy (P0.2): Private (Recommended) → Browser → Cloud (Pro).
-                                ONLY Private carries the Recommended tag. Rows are compact one-
+                            {/* Private-first hierarchy (P0.2): Private (Stays local) → Browser → Cloud (Pro).
+                                ONLY Private carries the Stays local privacy descriptor. Rows are compact one-
                                 liners; hover / keyboard-focus sets a SINGLE activeMode that drives one
                                 ModeDescriptionFlyout (rendered below, disjoint from this menu) — mutually
                                 exclusive by construction, never per-row tooltip elements. */}
@@ -406,12 +410,33 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!canUsePrivate}
                                     onPointerEnter={() => setActiveMode('private')}
                                     onFocus={() => setActiveMode('private')}
-                                    aria-describedby={activeMode === 'private' ? STT_FLYOUT_ID : undefined}
+                                    // #1064: accessible NAME stays "Private" (the method); "Stays local" + the approved
+                                    // privacy sentence are exposed as the accessible DESCRIPTION via the PERSISTENT
+                                    // stt-private-descriptor ONLY (never the flyout id) — so a focused screen reader
+                                    // hears the privacy explanation exactly once.
+                                    aria-describedby="stt-private-descriptor"
                                 >
                                     <span className="flex items-center gap-1.5">
-                                        {!canUsePrivate && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                                        {/* #1064: FOUR distinct signals kept separate. Privacy ARCHITECTURE = a GREEN
+                                            OUTLINED lock, shown ONLY when Private is available; it must never read as the
+                                            muted "unavailable" lock. When unavailable, show ONLY the muted entitlement
+                                            lock (never two locks together) — access restriction is carried by the disabled
+                                            state + entitlement copy, not by the privacy lock. */}
+                                        {canUsePrivate
+                                            ? <Lock className="h-3 w-3 text-green-600 dark:text-green-500" aria-hidden="true" data-testid="stt-private-lock" />
+                                            : <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
                                         Private
-                                        <span data-testid="stt-mode-tag-recommended" className="ml-1 rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">Recommended</span>
+                                        {/* #1064: privacy BENEFIT descriptor badge — the "Stays local" TEXT carries the
+                                            meaning (not color alone). Primary tint when available; muted when unavailable
+                                            so the privacy identity stays truthful even when access is restricted. Visual
+                                            only (aria-hidden): the accessible NAME stays exactly "Private"; "Stays local"
+                                            is announced via the persistent stt-private-descriptor (mirrors Browser / Quick
+                                            preview) so it is never doubled into the name. */}
+                                        <span
+                                            data-testid="stt-mode-tag-stays-local"
+                                            aria-hidden="true"
+                                            className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${canUsePrivate ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}
+                                        >Stays local</span>
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -453,6 +478,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             {/* #1041: the Browser option's accessible description — the "Quick preview" descriptor plus
                                 the approved explanation, available to screen readers without becoming part of the name. */}
                             <span id="stt-native-descriptor" className="sr-only">{`Quick preview. ${nativeOptionDesc}`}</span>
+                            {/* #1064: the Private option's accessible description — "Stays local" plus the approved
+                                privacy sentence, exposed to screen readers as the description (not part of the name). */}
+                            <span id="stt-private-descriptor" className="sr-only">Stays local. Transcription runs on this device; audio is not uploaded.</span>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     {/* The ONE description surface. Disjoint from the menu, beside it, at most one at a time;
