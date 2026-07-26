@@ -78,19 +78,23 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
   });
 
   test.afterAll(async () => {
-    // Clean up ONLY the synthetic session this proof created — scoped by id AND owner. The reusable
-    // Pro account itself is never deleted or otherwise mutated.
+    // Clean up ONLY the synthetic session this proof created — scoped by exact id AND owner — and PROVE
+    // deletion (assert no error, then re-query the same id/owner and assert zero rows remain). Runs even
+    // if the assertions in the test threw, because createdSessionId is captured before any of them. The
+    // reusable Pro account itself is never deleted or otherwise mutated.
     if (createdSessionId && admin && proUserId) {
-      const { error } = await admin.from('sessions').delete().eq('id', createdSessionId).eq('user_id', proUserId);
-      console.log(`LIVE_ATTRIBUTION_CLEANUP ${JSON.stringify({ deletedSessionId: short(createdSessionId), scopedToOwner: true, error: error?.message ?? null })}`);
+      const { error: delError } = await admin.from('sessions').delete().eq('id', createdSessionId).eq('user_id', proUserId);
+      expect(delError, 'cleanup delete of the synthetic session must not error').toBeFalsy();
+      const { count: rowsRemaining, error: verifyError } = await admin
+        .from('sessions').select('id', { count: 'exact', head: true })
+        .eq('id', createdSessionId).eq('user_id', proUserId);
+      expect(verifyError, 'cleanup verification read must succeed').toBeFalsy();
+      console.log(`LIVE_ATTRIBUTION_CLEANUP ${JSON.stringify({ deletedSessionId: short(createdSessionId), scopedToOwner: true, rowsRemaining: rowsRemaining ?? null })}`);
+      expect(rowsRemaining, 'the synthetic session row must be gone after cleanup').toBe(0);
     }
   });
 
   test('a successful Pro recording persists attribution_status=verified with a coherent engine tuple, no duplicate', async ({ page }) => {
-    // Bound the row lookup to sessions created during this run (5s clock-skew buffer). workers=1 +
-    // serial → the newest session for this owner after this instant is unambiguously the one we create.
-    const runStartedIso = new Date(Date.now() - 5_000).toISOString();
-
     // 1) Confirm we are exercising the intended deployed release.
     await page.goto('/auth/signin');
     await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
@@ -137,34 +141,34 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
     await expect(page.getByTestId('status-message-text'), 'the deployed app must save the session').toContainText(/Session saved/i, { timeout: 90_000 });
 
-    // 3) Resolve the created row directly via the service-role API (no DB password, no UI-history
-    //    dependency): the newest session for this Pro owner created during this run. Poll until the
-    //    app's asynchronous attribution write has resolved off `pending`.
+    // 3) Read the EXACT persisted session id the application itself exposes (data-session-persisted-id
+    //    on the document root — set only when a session persists). Capture it BEFORE any verification so
+    //    cleanup can target this precise owner-scoped row even if the assertions below throw. This does
+    //    NOT select the "newest" row for the shared Pro account, so concurrent runs cannot cross-inspect.
+    await page.waitForFunction(() => !!document.documentElement.getAttribute('data-session-persisted-id'), null, { timeout: 30_000 });
+    const persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+    expect(persistedId, 'the deployed app must expose data-session-persisted-id after save').toBeTruthy();
+    createdSessionId = persistedId; // ← enables afterAll cleanup even if a later assertion fails
+    void runStartedIso; // (retained only as documentation of the run window; lookups are by exact id)
+
+    // 4) Poll THAT exact row via the service-role API (no DB password) until the app's asynchronous
+    //    attribution write resolves off `pending`.
     let row: SessionRow | null = null;
     await expect.poll(async () => {
-      const { data, error } = await admin
-        .from('sessions')
-        .select(SESSION_FIELDS)
-        .eq('user_id', proUserId)
-        .gte('created_at', runStartedIso)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      const { data, error } = await admin.from('sessions').select(SESSION_FIELDS).eq('id', persistedId!).eq('user_id', proUserId);
       expect(error, 'service-role read of the created session must succeed').toBeFalsy();
       row = (data?.[0] ?? null) as SessionRow | null;
       return row?.attribution_status ?? null;
     }, { message: 'the deployed app must resolve attribution off pending', timeout: 45_000, intervals: [1_000, 2_000, 3_000, 5_000] }).toBe('verified');
-    expect(row, 'a session row created by this run must exist').not.toBeNull();
+    expect(row, 'the exact persisted session row must exist').not.toBeNull();
     const session: SessionRow = row!;
-    createdSessionId = session.id;
 
-    // attribution reached verified (i.e. NOT left pending) …
+    // attribution reached verified (NOT left pending), with the EXACT expected cloud producer tuple.
     expect(session.attribution_status, 'a successful recording must persist attribution_status=verified').toBe('verified');
-    // … with a coherent, non-fabricated engine tuple (engine matches its own version family).
-    expect(nonBlank(session.engine), 'engine must be non-blank').toBe(true);
-    expect(nonBlank(session.engine_version), 'engine_version must be non-blank').toBe(true);
-    expect(nonBlank(session.model_name), 'model_name must be non-blank').toBe(true);
-    expect(nonBlank(session.device_type), 'device_type must be non-blank').toBe(true);
-    expect(session.engine, 'cloud recording must attribute to the cloud engine').toBe('cloud');
+    expect(session.engine, 'engine').toBe('cloud');
+    expect(session.engine_version, 'engine_version').toBe('assemblyai');
+    expect(session.model_name, 'model_name').toBe('universal-streaming-english');
+    expect(session.device_type, 'device_type').toBe('cloud');
 
     // exactly one row for this session id (no duplicate by identity).
     const { count: idCount } = await admin

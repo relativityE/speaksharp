@@ -25,21 +25,29 @@ test.describe('#964 disposable Free-fixture orphan audit @live', () => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const MAX_PAGES = 50;
+    const PER_PAGE = 200;
     const orphans: string[] = [];
-    for (let page = 1; page <= 50; page++) {
-      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    let reachedEnd = false;
+    let pagesScanned = 0;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: PER_PAGE });
       expect(error, 'service-role listUsers must succeed').toBeFalsy();
       const users = data?.users ?? [];
+      pagesScanned = page;
       for (const u of users) {
         if (typeof u.email === 'string' && u.email.startsWith(MARKER)) orphans.push(u.email);
       }
-      if (users.length < 200) break; // last page reached
+      if (users.length < PER_PAGE) { reachedEnd = true; break; } // a short page is the provable end
     }
 
     // Sanitize: keep the marker prefix, drop the address body/domain (synthetic, but content-free by policy).
     const sanitized = orphans.map(() => `${MARKER}…`);
-    console.log(`FREE_SAMPLE_ORPHAN_AUDIT ${JSON.stringify({ marker: MARKER, orphanCount: orphans.length, sanitized })}`);
+    console.log(`FREE_SAMPLE_ORPHAN_AUDIT ${JSON.stringify({ marker: MARKER, orphanCount: orphans.length, pagesScanned, reachedEnd, sanitized })}`);
 
+    // Pagination must have PROVABLY reached the end. If the final scanned page was full, unseen users may
+    // exist and a zero count would be unsound — fail rather than claim completeness.
+    expect(reachedEnd, `pagination did not complete within ${MAX_PAGES} pages of ${PER_PAGE}; cannot soundly claim zero orphans`).toBe(true);
     expect(orphans, `no ${MARKER}* disposable Free fixtures may remain after the #964 diagnostic run`).toHaveLength(0);
   });
 });
