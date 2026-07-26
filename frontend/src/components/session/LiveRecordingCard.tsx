@@ -420,10 +420,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.STT_MODE_NATIVE}
                                     onPointerEnter={() => setActiveMode('native')}
                                     onFocus={() => setActiveMode('native')}
-                                    aria-describedby={activeMode === 'native' ? STT_FLYOUT_ID : undefined}
+                                    // #1041: accessible NAME stays "Browser" (the method); the "Quick preview" descriptor
+                                    // + approved explanation are exposed as the accessible DESCRIPTION (stt-native-descriptor),
+                                    // never merged into the name and never silently hidden from assistive tech.
+                                    aria-describedby={`stt-native-descriptor${activeMode === 'native' ? ` ${STT_FLYOUT_ID}` : ''}`}
                                 >
                                     <span className="flex items-center gap-1.5">
                                         Browser
+                                        {/* #1041: secondary descriptor badge for the Browser method — visual only
+                                            (aria-hidden); its text is announced via the accessible description above. */}
+                                        <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -442,6 +448,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     </span>
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
+                            {/* #1041: the Browser option's accessible description — the "Quick preview" descriptor plus
+                                the approved explanation, available to screen readers without becoming part of the name. */}
+                            <span id="stt-native-descriptor" className="sr-only">{`Quick preview. ${nativeOptionDesc}`}</span>
                         </DropdownMenuContent>
                     </DropdownMenu>
                     {/* The ONE description surface. Disjoint from the menu, beside it, at most one at a time;

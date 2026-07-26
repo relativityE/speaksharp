@@ -58,10 +58,11 @@ test.describe('Private-first mode selector + single description surface (respons
       await expect(browser).toBeVisible();
       await expect(cloud).toBeVisible();
 
-      // #1041: only Private is Recommended; Browser carries NO badge (Quick preview retired); Cloud = Pro.
+      // #1041: Private = Recommended; Browser keeps its single secondary [Quick preview] descriptor badge
+      // (Browser is the method name, Quick preview is only a descriptor); Cloud = Pro.
       await expect(priv.getByTestId('stt-mode-tag-recommended')).toBeVisible();
-      await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toHaveCount(0);
-      await expect(browser.getByText(/quick preview/i)).toHaveCount(0);
+      await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toBeVisible();
+      await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toHaveCount(1);
       await expect(cloud.getByTestId('stt-mode-tag-pro')).toBeVisible();
       await expect(browser.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);
       await expect(cloud.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);

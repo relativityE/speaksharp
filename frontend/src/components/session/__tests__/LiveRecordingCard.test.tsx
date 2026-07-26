@@ -379,7 +379,7 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/Cloud is available for Pro users/i)).toBeInTheDocument();
     });
 
-    it('uses the Private-first dropdown order and tags: Private (Recommended), Browser (no badge), Cloud (Pro)', async () => {
+    it('uses the Private-first dropdown order and tags: Private (Recommended), Browser (+ Quick preview badge), Cloud (Pro)', async () => {
         render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
@@ -391,18 +391,20 @@ describe('LiveRecordingCard', () => {
         expect(browser).toHaveTextContent('Browser');
         expect(cloud).toHaveTextContent('Cloud');
 
-        // #1041: ONLY Private carries a tag (Recommended). Browser carries NO badge (Quick preview
-        // removed, not replaced); Cloud = Pro.
+        // #1041: Private = Recommended; Browser keeps its SINGLE secondary [Quick preview] descriptor badge
+        // (Browser is the method name; Quick preview is only a descriptor, never a second method); Cloud = Pro.
         expect(within(priv).getByTestId('stt-mode-tag-recommended')).toBeInTheDocument();
-        expect(within(browser).queryByTestId('stt-mode-tag-quick-preview')).toBeNull();
-        expect(within(browser).queryByText(/quick preview/i)).toBeNull();
+        expect(within(browser).getAllByTestId('stt-mode-tag-quick-preview')).toHaveLength(1);
         expect(within(cloud).getByTestId('stt-mode-tag-pro')).toBeInTheDocument();
         expect(within(browser).queryByTestId('stt-mode-tag-recommended')).toBeNull();
 
-        // #1041 accessibility: the Browser option's accessible name is exactly "Browser" — it must not
-        // expose the retired "Native" or "Quick preview" wording to assistive tech.
+        // #1041 accessibility hierarchy: the Browser option's accessible NAME is exactly "Browser" (the
+        // method) — never "Native"/"Quick preview" — while "Quick preview" + the approved explanation are
+        // exposed as its accessible DESCRIPTION (the visible badge is aria-hidden, announced via description).
         expect(browser).toHaveAccessibleName('Browser');
         expect(browser).not.toHaveAccessibleName(/native|quick preview/i);
+        expect(browser).toHaveAccessibleDescription(/quick preview/i);
+        expect(browser).toHaveAccessibleDescription(/uses your browser.s speech recognition/i);
         expect(within(cloud).queryByTestId('stt-mode-tag-recommended')).toBeNull();
 
         // Private-first order: Private before Browser before Cloud.
