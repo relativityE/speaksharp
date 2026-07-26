@@ -34,7 +34,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const MODE = 'cloud' as const;
 const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
 const MIN_SAVEABLE_RECORDING_MS = 7_000;
-const SESSION_FIELDS = 'id, attribution_status, engine, engine_version, model_name, device_type, idempotency_key, user_id';
+const SESSION_FIELDS = 'id, attribution_status, engine, engine_version, model_name, device_type, idempotency_key, user_id, created_at';
 
 interface SessionRow {
   id: string;
@@ -45,6 +45,7 @@ interface SessionRow {
   device_type: string | null;
   idempotency_key: string | null;
   user_id: string;
+  created_at: string;
 }
 
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -86,6 +87,10 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
   });
 
   test('a successful Pro recording persists attribution_status=verified with a coherent engine tuple, no duplicate', async ({ page }) => {
+    // Bound the row lookup to sessions created during this run (5s clock-skew buffer). workers=1 +
+    // serial → the newest session for this owner after this instant is unambiguously the one we create.
+    const runStartedIso = new Date(Date.now() - 5_000).toISOString();
+
     // 1) Confirm we are exercising the intended deployed release.
     await page.goto('/auth/signin');
     await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
@@ -132,47 +137,52 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
     await expect(page.getByTestId('status-message-text'), 'the deployed app must save the session').toContainText(/Session saved/i, { timeout: 90_000 });
 
-    // 3) Resolve the exact created session id from the saved-history detail link.
-    const savedItem = page.getByTestId(/^session-history-item-/).first();
-    await expect(savedItem, 'saved session should appear in history').toBeVisible({ timeout: 45_000 });
-    const detailHref = await savedItem.evaluate((el) => {
-      const self = el as HTMLAnchorElement;
-      const nested = el.querySelector<HTMLAnchorElement>('a[href^="/analytics/"]');
-      return self?.getAttribute('href') ?? nested?.getAttribute('href') ?? null;
-    });
-    const sessionId = detailHref?.match(/[0-9a-f-]{36}/i)?.[0] ?? null;
-    expect(sessionId, `could not resolve a session id from detail href "${detailHref}"`).toBeTruthy();
-    createdSessionId = sessionId;
-
-    // 4) Read back ONLY this row's attribution fields via the service-role API (no DB password).
-    const { data: rows, error } = await admin
-      .from('sessions')
-      .select(SESSION_FIELDS)
-      .eq('id', sessionId!)
-      .eq('user_id', proUserId);
-    expect(error, 'service-role read of the created session must succeed').toBeFalsy();
-    const found = (rows ?? []) as SessionRow[];
-
-    // exactly one row for this session id (owned by the Pro account) — no duplicate.
-    expect(found, 'exactly one row must exist for the created session id').toHaveLength(1);
-    const row = found[0];
+    // 3) Resolve the created row directly via the service-role API (no DB password, no UI-history
+    //    dependency): the newest session for this Pro owner created during this run. Poll until the
+    //    app's asynchronous attribution write has resolved off `pending`.
+    let row: SessionRow | null = null;
+    await expect.poll(async () => {
+      const { data, error } = await admin
+        .from('sessions')
+        .select(SESSION_FIELDS)
+        .eq('user_id', proUserId)
+        .gte('created_at', runStartedIso)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      expect(error, 'service-role read of the created session must succeed').toBeFalsy();
+      row = (data?.[0] ?? null) as SessionRow | null;
+      return row?.attribution_status ?? null;
+    }, { message: 'the deployed app must resolve attribution off pending', timeout: 45_000, intervals: [1_000, 2_000, 3_000, 5_000] }).toBe('verified');
+    expect(row, 'a session row created by this run must exist').not.toBeNull();
+    const session: SessionRow = row!;
+    createdSessionId = session.id;
 
     // attribution reached verified (i.e. NOT left pending) …
-    expect(row.attribution_status, 'a successful recording must persist attribution_status=verified').toBe('verified');
+    expect(session.attribution_status, 'a successful recording must persist attribution_status=verified').toBe('verified');
     // … with a coherent, non-fabricated engine tuple (engine matches its own version family).
-    expect(nonBlank(row.engine), 'engine must be non-blank').toBe(true);
-    expect(nonBlank(row.engine_version), 'engine_version must be non-blank').toBe(true);
-    expect(nonBlank(row.model_name), 'model_name must be non-blank').toBe(true);
-    expect(nonBlank(row.device_type), 'device_type must be non-blank').toBe(true);
-    expect(row.engine, 'cloud recording must attribute to the cloud engine').toBe('cloud');
+    expect(nonBlank(session.engine), 'engine must be non-blank').toBe(true);
+    expect(nonBlank(session.engine_version), 'engine_version must be non-blank').toBe(true);
+    expect(nonBlank(session.model_name), 'model_name must be non-blank').toBe(true);
+    expect(nonBlank(session.device_type), 'device_type must be non-blank').toBe(true);
+    expect(session.engine, 'cloud recording must attribute to the cloud engine').toBe('cloud');
 
-    // no duplicate for the recording identity (idempotency key), when present.
-    if (nonBlank(row.idempotency_key)) {
+    // exactly one row for this session id (no duplicate by identity).
+    const { count: idCount } = await admin
+      .from('sessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('id', session.id)
+      .eq('user_id', proUserId);
+    expect(idCount, 'exactly one row must exist for the created session id').toBe(1);
+
+    // no duplicate for the recording idempotency identity, when present.
+    let idempotencyRowCount: number | null = null;
+    if (nonBlank(session.idempotency_key)) {
       const { count } = await admin
         .from('sessions')
         .select('id', { count: 'exact', head: true })
-        .eq('idempotency_key', row.idempotency_key)
+        .eq('idempotency_key', session.idempotency_key)
         .eq('user_id', proUserId);
+      idempotencyRowCount = count ?? null;
       expect(count, 'the recording idempotency key must map to exactly one row').toBe(1);
     }
 
@@ -186,10 +196,11 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
 
     console.log(`LIVE_ATTRIBUTION_EVIDENCE ${JSON.stringify({
       release,
-      sessionId: short(sessionId!),
-      attribution_status: row.attribution_status,
-      engineTuple: { engine: row.engine, engine_version: row.engine_version, model_name: row.model_name, device_type: row.device_type },
-      duplicateRowsForId: found.length,
+      sessionId: short(session.id),
+      attribution_status: session.attribution_status,
+      engineTuple: { engine: session.engine, engine_version: session.engine_version, model_name: session.model_name, device_type: session.device_type },
+      rowsForSessionId: idCount,
+      rowsForIdempotencyKey: idempotencyRowCount,
       legacyUnknownExists: (legacyCount ?? 0) > 0,
     })}`);
   });
