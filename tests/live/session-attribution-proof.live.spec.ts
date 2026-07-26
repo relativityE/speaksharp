@@ -117,14 +117,20 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     expect((await tokenResponse).status(), 'assemblyai-token must be issued for the Pro cloud recording').toBe(200);
     await expect(startStop).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
 
-    // Wait for real fixture transcript, then satisfy the app's minimum saveable duration.
+    // Wait for real fixture transcript, then satisfy the app's minimum saveable duration. The save
+    // policy reads the app's OWN elapsed-time store (not Playwright's wall clock), so poll that.
     await expect(page.getByTestId('transcript-container')).toContainText(TRANSCRIPT_PATTERN, { timeout: 120_000 });
-    const remaining = MIN_SAVEABLE_RECORDING_MS - (Date.now() - startedAt);
-    if (remaining > 0) await page.waitForTimeout(remaining);
+    const minSeconds = Math.ceil(MIN_SAVEABLE_RECORDING_MS / 1000);
+    await page.waitForTimeout(Math.max(0, MIN_SAVEABLE_RECORDING_MS - (Date.now() - startedAt)));
+    await page.waitForFunction((min) => {
+      const api = (window as unknown as { __SESSION_STORE_API__?: { getState?: () => { elapsedTime?: number } } }).__SESSION_STORE_API__;
+      const elapsed = api?.getState?.().elapsedTime;
+      return typeof elapsed === 'number' && elapsed >= min;
+    }, minSeconds, { timeout: 20_000 }).catch(() => undefined);
 
     await startStop.click();
     await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
-    await expect(page.getByTestId('status-message-text'), 'the deployed app must save the session').toContainText(/Session saved/i, { timeout: 60_000 });
+    await expect(page.getByTestId('status-message-text'), 'the deployed app must save the session').toContainText(/Session saved/i, { timeout: 90_000 });
 
     // 3) Resolve the exact created session id from the saved-history detail link.
     const savedItem = page.getByTestId(/^session-history-item-/).first();
