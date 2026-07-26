@@ -52,8 +52,16 @@ vi.mock('@/hooks/useUserFillerWords', () => ({
 }));
 
 vi.mock('@/services/sessionRecoveryDraft', () => ({
-    getSessionRecoveryDraft: vi.fn(),
+    // #1033 A6: SessionPage now reads recovery drafts ONLY through the owner-scoped reader.
+    getRecoverableDraftForUser: vi.fn(),
     clearSessionRecoveryDraft: vi.fn(),
+}));
+
+// #1033 A5/A6: SessionPage scopes recovery to the authenticated owner; provide one while keeping
+// the module's other exports (AuthContext, AuthProvider) intact.
+vi.mock('@/contexts/AuthProvider', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/contexts/AuthProvider')>()),
+    useAuthProvider: () => ({ session: { user: { id: 'owner-user' } } }),
 }));
 
 // Mock child components to verify props passed to them
@@ -102,7 +110,7 @@ vi.mock('@/components/LocalErrorBoundary', () => ({
 
 // Import hook for mocking responses
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
-import { clearSessionRecoveryDraft, getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { clearSessionRecoveryDraft, getRecoverableDraftForUser } from '@/services/sessionRecoveryDraft';
 
 describe('SessionPage Feedback Logic', () => {
     const defaultMock = {
@@ -138,7 +146,7 @@ describe('SessionPage Feedback Logic', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(getSessionRecoveryDraft).mockReturnValue(null);
+        vi.mocked(getRecoverableDraftForUser).mockReturnValue(null);
         vi.mocked(useSessionLifecycle).mockReturnValue(defaultMock as unknown as ReturnType<typeof useSessionLifecycle>);
         useSessionStore.setState({ finalizedAnalysis: null }); // reset terminal signal between tests
     });
@@ -289,13 +297,14 @@ describe('SessionPage Feedback Logic', () => {
     });
 
     it('shows a same-page recovery action when an unsaved draft exists after a save issue', async () => {
-        vi.mocked(getSessionRecoveryDraft).mockReturnValue({
+        vi.mocked(getRecoverableDraftForUser).mockImplementation((uid) => (uid === 'owner-user' ? {
             sessionId: 'draft-session',
+            userId: 'owner-user',
             transcript: 'Recovered words from a failed save',
             durationSeconds: 42,
             mode: 'private',
             savedAt: new Date('2026-06-12T18:00:00Z').toISOString(),
-        });
+        } : null));
         vi.mocked(useSessionLifecycle).mockReturnValue({
             ...defaultMock,
             isListening: false,
@@ -315,13 +324,14 @@ describe('SessionPage Feedback Logic', () => {
     });
 
     it('clears the restored local recovery draft so the action resolves', async () => {
-        vi.mocked(getSessionRecoveryDraft).mockReturnValue({
+        vi.mocked(getRecoverableDraftForUser).mockImplementation((uid) => (uid === 'owner-user' ? {
             sessionId: 'draft-session',
+            userId: 'owner-user',
             transcript: 'Recovered words from a failed save',
             durationSeconds: 42,
             mode: 'private',
             savedAt: new Date('2026-06-12T18:00:00Z').toISOString(),
-        });
+        } : null));
         vi.mocked(useSessionLifecycle).mockReturnValue({
             ...defaultMock,
             isListening: false,
@@ -337,13 +347,14 @@ describe('SessionPage Feedback Logic', () => {
     });
 
     it('dismisses only the available local recovery draft', async () => {
-        vi.mocked(getSessionRecoveryDraft).mockReturnValue({
+        vi.mocked(getRecoverableDraftForUser).mockImplementation((uid) => (uid === 'owner-user' ? {
             sessionId: 'draft-session',
+            userId: 'owner-user',
             transcript: 'Recovered words from a failed save',
             durationSeconds: 42,
             mode: 'private',
             savedAt: new Date('2026-06-12T18:00:00Z').toISOString(),
-        });
+        } : null));
         vi.mocked(useSessionLifecycle).mockReturnValue({
             ...defaultMock,
             isListening: false,

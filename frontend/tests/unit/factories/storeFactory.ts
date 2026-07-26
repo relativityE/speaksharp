@@ -38,6 +38,8 @@ const initialState: SessionState = {
     finalizedAnalysis: null,
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
+    engineSelectionLocked: false,
+    pendingResolutionKind: null,
 };
 
 /**
@@ -131,6 +133,7 @@ export function createTestSessionStore(
                 history,
             })),
 
+        setEngineSelectionLock: vi.fn(),
         setRuntimeState: vi.fn((state) =>
             set({
                 runtimeState: state,

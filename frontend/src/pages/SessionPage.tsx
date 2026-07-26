@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Settings } from 'lucide-react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
@@ -10,6 +12,7 @@ import { FillerWordsCard } from '@/components/session/FillerWordsCard';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
+import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { SttStatus } from '@/types/transcription';
@@ -20,7 +23,6 @@ import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
-import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 
@@ -31,16 +33,19 @@ import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
  * have been extracted into useSessionLifecycle.
  */
 export const SessionPage: React.FC = () => {
+    const { session: authSession } = useAuthProvider();
+    // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
+    // fail closed while it is unresolved — never an unscoped read.
+    const authUserId = authSession?.user?.id ?? null;
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [recoveryDraft, setRecoveryDraft] = useState<SessionRecoveryDraft | null>(null);
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
     const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
-    const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
-    const setRecoveredChunks = useSessionStore(state => state.setChunks);
-    const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
+    // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
+    const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
+    const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
@@ -75,42 +80,15 @@ export const SessionPage: React.FC = () => {
         history
     } = useSessionLifecycle();
 
-    const restoreRecoveryDraft = useCallback((draft: SessionRecoveryDraft) => {
-        clearSessionRecoveryDraft(draft.sessionId);
-        updateRecoveredTranscript(draft.transcript, '');
-        setRecoveredChunks([{
-            transcript: draft.transcript,
-            timestamp: new Date(draft.savedAt).getTime() || Date.now(),
-            isFinal: true,
-        }]);
-        setRecoveredStatus({
-            type: 'warning',
-            message: 'Recovered unsaved session draft.',
-            detail: 'Your last transcript was kept on this device after a save issue.',
-        });
-        setRecoveryDraft(null);
-    }, [setRecoveredChunks, setRecoveredStatus, updateRecoveredTranscript]);
-
-    useEffect(() => {
-        if (isListening) {
-            setRecoveryDraft(null);
-            return;
-        }
-        // A successfully-saved session is NOT an orphaned draft to recover. The stop flow writes a
-        // transient crash-safety recovery draft and clears it only after the async save completes;
-        // surfacing it on isListening->false would falsely tell the user their saved work is "unsaved".
-        // Suppress the banner (and drop the stale draft) once the current session is persisted.
-        if (sessionSaved) {
-            clearSessionRecoveryDraft();
-            setRecoveryDraft(null);
-            return;
-        }
-        const draft = getSessionRecoveryDraft();
-        setRecoveryDraft(draft);
-        if (!draft || transcriptContent.trim()) return;
-
-        restoreRecoveryDraft(draft);
-    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent]);
+    // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
+    // owner-scoped read, fail-closed on unresolved auth, same-user rehydrate-once, account-change
+    // isolation, and scoped (never destructive no-arg) draft deletion.
+    const { recoveryDraft, restoreRecoveryDraft, dismissRecoveryDraft } = useUnresolvedRecovery({
+        authUserId,
+        isListening,
+        sessionSaved,
+        transcriptContent,
+    });
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
@@ -252,6 +230,20 @@ export const SessionPage: React.FC = () => {
                             : undefined
                     }
                 />
+                {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's
+                    pendingResolutionKind — NOT by local UI guesses — so what we offer always matches what
+                    the runtime will actually do. Discard is two-step confirmed and reports honestly when
+                    persistence could not be reconciled (outcome 'retryable'), instead of claiming success. */}
+                <UnresolvedRecoveryBanner
+                    pendingResolutionKind={pendingResolutionKind}
+                    hasRecoverableWords={Boolean(
+                        (recoveryDraft?.transcript ?? '').trim() || (transcriptContent ?? '').trim()
+                    )}
+                    onRetry={() => import('@/services/SpeechRuntimeController')
+                        .then(m => m.speechRuntimeController.retryRecordingSave())}
+                    onDiscard={() => import('@/services/SpeechRuntimeController')
+                        .then(m => m.speechRuntimeController.discardUnresolvedRecording())}
+                />
                 {recoveryDraft && !isListening && (
                     <div
                         className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
@@ -274,10 +266,7 @@ export const SessionPage: React.FC = () => {
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => {
-                                    clearSessionRecoveryDraft(recoveryDraft.sessionId);
-                                    setRecoveryDraft(null);
-                                }}
+                                onClick={() => dismissRecoveryDraft(recoveryDraft)}
                                 data-testid="session-recovery-dismiss"
                             >
                                 Dismiss
@@ -318,6 +307,8 @@ export const SessionPage: React.FC = () => {
                                     formattedTime={metrics.formattedTime}
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}
+                                    engineSelectionLocked={engineSelectionLocked}
+                                    pendingResolutionKind={pendingResolutionKind}
                                     onModeChange={setMode}
                                     onStartStop={() => { void handleStartStop(); }}
                                     onDownloadModel={() => {
