@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - all
+          - attribution-proof
           - custom-words
           - native-preflight
           - cloud-token-gates
@@ -210,6 +211,49 @@ jobs:
             blob-report/deployed-live/
             playwright-report/deployed-live/
             test-results/deployed-live/
+          retention-days: 14
+
+  live-attribution-proof:
+    # #1033/#1055 live production attribution proof — the DEPLOYED app must persist
+    # attribution_status=verified with a coherent engine tuple for a real Pro recording.
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'attribution-proof' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: live-attribution-proof
+      cancel-in-progress: false
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Live Attribution Proof
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/session-attribution-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+
+      - name: Upload Attribution Proof Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-attribution-proof-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
           retention-days: 14
 
   live-private-cache:
