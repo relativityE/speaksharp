@@ -245,6 +245,43 @@ Reusable accounts are shared fixtures:
   approved provisioning paths when a disposable account is authorized;
 - live suites must own cleanup for disposable fixtures and prove no marked orphan remains.
 
+Choose the account path from the test's state contract:
+
+1. Reuse a maintained account only when the test needs ordinary authentication/tier state
+   and does not consume or depend on one-time mutable state.
+2. If the repository already has a live spec that creates its own synthetic account, use
+   that spec through its GitHub workflow. Do not provision a second account first.
+3. Use `.github/workflows/setup-test-users.yml` or
+   `pnpm make:test-user <free|pro>` only when the target test expects supplied disposable
+   credentials and no self-provisioning contract exists.
+4. For fresh signup, unused sample, clean checkout, or similar one-time state, create a
+   uniquely marked disposable account, seed the exact precondition, and remove only that
+   run's fixtures.
+5. Treat cleanup as proven only when a post-cleanup scoped query returns zero matching
+   synthetic identifiers. `Promise.allSettled`, a cleanup attempt, or an overall green
+   test does not by itself prove that no orphan remains.
+
+The maintained production proof for a Free user with an unused Private sample is
+`tests/live/stt-switching-contract.live.spec.ts`. Its exact Free-path case creates and
+seeds a new account using `SUPABASE_SERVICE_ROLE_KEY`; it must not use the shared Basic
+account. Run the single case in GitHub Actions with:
+
+```bash
+gh workflow run rc-gates.yml \
+  --ref main \
+  -f gate=gate-3-dast \
+  -f base_url=https://speaksharp-public.vercel.app \
+  -f diagnostic_dast_spec=tests/live/stt-switching-contract.live.spec.ts \
+  -f diagnostic_dast_grep='Free user with an UNUSED Private sample: Private enabled, Cloud disabled'
+```
+
+This diagnostic is evidence for that exact contract, not a full Gate 3 pass. Before
+claiming the proof complete, verify the tested SHA, fixture creation, entitlement request
+and assertion, and a zero-result post-cleanup query for the run-specific
+`stt-switching-free-sample-*` marker. If the current spec only attempts deletion without
+asserting the zero-result query, harden the test or use an approved scoped GitHub-hosted
+cleanup-verification step; do not report cleanup as proven.
+
 An inability to perform manual interactive login is not, by itself, a blocker when an
 approved GitHub-hosted Playwright or API proof can exercise the same authenticated path.
 State clearly whether evidence is manual-browser, automated-browser, API/database, or a
