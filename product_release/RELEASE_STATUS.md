@@ -36,8 +36,8 @@ Four distinct identities — do not conflate them:
 ## Current merged product posture
 - **`/practice` default entry (#1022):** authenticated home is `/practice` (#1025 hotfix; #1026 canary asserts it); Guided is surfaced-but-unavailable; the rollout flag is retired.
 - **Stale-chunk P0 hardened (#1027):** `preloadError` recovery + stable content-hash asset names + SPA 404 fallback; release identity moved to `window.__APP_RELEASE__` (above).
-- **Private-first UX (through #1007/#1008, still current):** Private = Recommended/main; Quick preview = the free Browser convenience path; Cloud = paid-Pro-only and unavailable to Free testers during the no-billing beta (existing paid-Pro accounts retain access). One authoritative post-save `StatusNotificationBar`; completion toast / "Next: Analytics" overlay deleted.
-- **STT mode labels (deployed vs approved):** the wording **currently visible in production** for the Web Speech engine is **"Quick preview"** (shipped #1007/#1008). **"Quick Preview (Browser)"** is the **approved** replacement label but is **not deployed** until its UI-copy PR lands. The internal engine token / telemetry / DB value remains **`native`** and is unchanged by either label.
+- **Private-first UX (through #1007/#1008, still current):** Private = Recommended/main; Browser (method name, carrying a secondary "Quick preview" descriptor badge; #1041) = the free convenience path; Cloud = paid-Pro-only and unavailable to Free testers during the no-billing beta (existing paid-Pro accounts retain access). One authoritative post-save `StatusNotificationBar`; completion toast / "Next: Analytics" overlay deleted.
+- **STT mode labels (SHIPPED — #1041 / PR #1060, main `8aae87b8`):** the user-facing **transcription-method name is "Browser"**, with **"Quick preview"** retained as a **secondary descriptor badge** on the Browser option. Approved description: *"Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended."* Accessibility: accessible name = "Browser"; the "Quick preview" descriptor + description are exposed as the option's accessible description. The internal engine token / telemetry / DB value remains **`native`**, unchanged. (Supersedes the earlier **"Quick Preview (Browser)"** primary-label proposal, which is retired.)
 - **Issue-report hygiene (#1024):** raw `appRuntimeConfig.url` no longer persisted in report metadata.
 - Billing closed, exact-origin CORS hardened, v4 off (as above).
 
@@ -47,7 +47,7 @@ Four distinct identities — do not conflate them:
 
 ## Current open work
 - **Documentation canonicalization (in progress):** establishing the approved 14-canonical-document system + migration ledger + SSOT repair (this file); governs the later consolidation steps. (Track current PR/thread state in the relevant PR, not here.)
-- **Adversarial-review roadmap (sequential):** durable engine-attribution (**OPEN GAP** — proposed fix not yet proven/deployed), central entitlement selector (tracked as an issue), STT evidence orchestrator (tracked as an issue), PRD v1, Architecture/STT ADRs, the browser-preview display-label copy change.
+- **Adversarial-review roadmap (sequential):** central entitlement selector (tracked as an issue), STT evidence orchestrator (tracked as an issue), PRD v1, Architecture/STT ADRs, and further items tracked in the #1052 ledger. **Shipped and no longer open:** durable engine-attribution (#1033 — merged, migration applied, deployed, live-proven) and the Browser display-label change (#1041 via PR #1060).
 - **#1006 is CLOSED** (draft, not activated) — no longer current work; the durable-delivery/observability remediation is not shipped/deployed/activated.
 
 ## Private STT finalization — accepted planning budget (not a measured p95)
@@ -57,7 +57,7 @@ The **≈90 seconds** of post-stop processing quoted for a full five-minute sing
 
 | Engine | Availability | Notes |
 |---|---|---|
-| Browser preview (Web Speech; deployed label "Quick preview"; approved label "Quick Preview (Browser)"; internal token `native`) | All tiers (default preview) | Convenience preview; **not** local/offline/on-device (Chrome routes audio to Google); weakest path; never an automatic fallback. Nudge Private after a preview session. |
+| Browser (Web Speech; method name **"Browser"** + secondary **"Quick preview"** descriptor badge, shipped #1041; internal token `native`) | All tiers (default preview) | Convenience path; **not** local/offline/on-device (Chrome routes audio to Google); weakest path; never an automatic fallback. Nudge Private after a preview session. |
 | Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU OFF — `VITE_PRIVATE_STT_V4_DISABLED` hard kill is authoritative; PostHog flags are secondary and cannot override it. |
 | **Cloud (AssemblyAI)** | **Paid Pro only** | Requires real paid Pro entitlement (`stripe_subscription_id`). Not available to Free testers during the no-billing beta; existing paid-Pro accounts retain access. Strongest STT path. |
 
