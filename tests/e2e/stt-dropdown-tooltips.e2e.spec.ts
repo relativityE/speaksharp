@@ -38,7 +38,7 @@ test.describe('STT dropdown option description (single controlled surface)', () 
     // Hover Browser.
     await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).hover();
     await expect(fly).toHaveAttribute('data-mode', 'native');
-    await expect(fly).toContainText(/browser.s speech service/i);
+    await expect(fly).toContainText(/browser.s speech recognition/i);
     expect(await fly.count()).toBe(1);
 
     // Hover Private (now the first, Recommended item).

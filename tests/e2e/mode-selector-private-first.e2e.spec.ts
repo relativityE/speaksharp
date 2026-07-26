@@ -6,7 +6,7 @@ import { TEST_IDS } from '../constants';
 /**
  * P0.2 — Private-first mode hierarchy + the SINGLE controlled description surface.
  *
- * Proves the selector reads Private (Recommended) → Browser (Quick preview) → Cloud (Pro) across
+ * Proves the selector reads Private (Recommended) → Browser → Cloud (Pro) across
  * responsive widths, and that the mode description is ONE controlled flyout — never three overlapping
  * bubbles. Hard geometry assertions: at most one visible flyout; it never intersects the dropdown menu,
  * never overlaps Live Coaching, stays fully in the viewport, keeps a visible gap, and never obscures a
@@ -58,9 +58,11 @@ test.describe('Private-first mode selector + single description surface (respons
       await expect(browser).toBeVisible();
       await expect(cloud).toBeVisible();
 
-      // Only Private is Recommended; Browser = Quick preview; Cloud = Pro.
+      // #1041: Private = Recommended; Browser keeps its single secondary [Quick preview] descriptor badge
+      // (Browser is the method name, Quick preview is only a descriptor); Cloud = Pro.
       await expect(priv.getByTestId('stt-mode-tag-recommended')).toBeVisible();
       await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toBeVisible();
+      await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toHaveCount(1);
       await expect(cloud.getByTestId('stt-mode-tag-pro')).toBeVisible();
       await expect(browser.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);
       await expect(cloud.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);
@@ -104,7 +106,7 @@ test.describe('Private-first mode selector + single description surface (respons
     };
     const expectedText: Record<string, RegExp> = {
       private: /on your device/i,
-      native: /browser.s speech service/i,
+      native: /browser.s speech recognition/i,
       cloud: /external transcription server/i,
     };
 
