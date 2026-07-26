@@ -122,7 +122,9 @@ describe('LiveRecordingCard', () => {
         expect(about).toHaveTextContent('Private — Recommended');
         expect(about).toHaveTextContent('Browser');
         expect(about).toHaveTextContent('Cloud — Pro');
-        // #1041: "Quick preview" is retired user-facing wording; Browser stands alone.
+        // #1041: the About-modes heading is "Browser" (the primary method name). "Quick preview" is
+        // Browser's secondary descriptor BADGE on the selector row — retained, but not part of this
+        // heading (it is not the method name), so it does not appear here.
         expect(about).not.toHaveTextContent(/quick preview/i);
         expect(screen.getByTestId('stt-about-private')).toHaveTextContent(/Private runs on your device after a one-time setup/i);
     });
@@ -265,7 +267,8 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT with a short cue and moves the explanation into help', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        // #1041: the short cue is now "Browser" (Quick preview retired); no visible provider paragraph.
+        // #1041: the short cue is "Browser" (the primary method name); "Quick preview" is a selector-row
+        // descriptor badge (retained), not the cue — so it does not appear in the cue text.
         expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Browser');
         expect(screen.getByTestId('stt-mode-cue')).not.toHaveTextContent(/quick preview/i);
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
@@ -410,6 +413,20 @@ describe('LiveRecordingCard', () => {
         // Private-first order: Private before Browser before Cloud.
         expect(priv.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(browser.compareDocumentPosition(cloud) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('#1041: focusing Browser announces name "Browser" and the description EXACTLY once (no flyout duplication)', async () => {
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const browser = await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
+        // Focus activates the row (the visual flyout renders), but Browser's accessible description must
+        // stay the single persistent descriptor — not also the flyout — so the explanation is not heard twice.
+        fireEvent.focus(browser);
+        expect(browser).toHaveAccessibleName('Browser');
+        // Assert the COMPLETE description (not just substrings) so any duplicated/appended flyout text fails.
+        expect(browser).toHaveAccessibleDescription(
+            "Quick preview. Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.",
+        );
     });
 
     it('drives exactly ONE controlled description surface from the active row (mutually exclusive)', async () => {

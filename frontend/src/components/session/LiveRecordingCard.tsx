@@ -421,9 +421,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onPointerEnter={() => setActiveMode('native')}
                                     onFocus={() => setActiveMode('native')}
                                     // #1041: accessible NAME stays "Browser" (the method); the "Quick preview" descriptor
-                                    // + approved explanation are exposed as the accessible DESCRIPTION (stt-native-descriptor),
-                                    // never merged into the name and never silently hidden from assistive tech.
-                                    aria-describedby={`stt-native-descriptor${activeMode === 'native' ? ` ${STT_FLYOUT_ID}` : ''}`}
+                                    // + approved explanation are exposed as the accessible DESCRIPTION via the PERSISTENT
+                                    // stt-native-descriptor ONLY. The visual flyout still renders on hover/focus, but its id
+                                    // is deliberately NOT added here — otherwise a focused screen reader would hear the same
+                                    // description twice (persistent descriptor + flyout).
+                                    aria-describedby="stt-native-descriptor"
                                 >
                                     <span className="flex items-center gap-1.5">
                                         Browser
