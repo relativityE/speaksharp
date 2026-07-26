@@ -560,15 +560,15 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 - **Release mechanism** corrected to `window.__APP_RELEASE__` (the `__BUILD_ID__` define was removed in #1027; Sentry `release.inject:false`).
 - **#1006 corrected to CLOSED** (no longer current work).
 - **Posture** updated to `/practice` default (#1022), stale-chunk P0 (#1027), issue-report hygiene (#1024); audit tooling #1028–#1030 = no product-behavior change.
-- **STT/tester wording** corrected (Quick Preview (Browser); v2 default; v4 hard-off; Cloud paid-Pro-only).
+- **STT/tester wording** corrected (Browser method name + "Quick preview" descriptor badge, #1041; v2 default; v4 hard-off; Cloud paid-Pro-only).
 
 ---
 
-## 5. The "Quick Preview (Browser)" naming decision
+## 5. The Browser STT naming decision (#1041 Option B, shipped)
 
-**Decision (approved):** the user-facing label for the Web Speech engine is **"Quick Preview (Browser)"**, replacing user-facing "Native".
+**Decision (SHIPPED — #1041 / PR #1060, main `8aae87b8`):** the user-facing **transcription-method name is "Browser"** (replacing user-facing "Native"), with **"Quick preview" retained as a secondary descriptor badge** on the Browser option. This **supersedes** the earlier **"Quick Preview (Browser)"** primary-label proposal (retired). "Quick Practice" (the retired *product* name → Freestyle Practice, #1042) is a separate concept — not to be conflated with the "Quick preview" descriptor.
 - **Scope:** display label + truthful copy **only**. Internal engine token, telemetry, and DB `engine`/`mode` values remain **`native`** — unchanged.
-- **Approved copy:** *"Uses your browser's speech recognition for a fast preview. Availability, processing, and accuracy vary by browser. Chrome recommended."*
+- **Shipped copy (#1041):** *"Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended."*
 - **Guardrails:** never claim **local, offline, on-device, Private-equivalent, or cross-browser-consistent** (Chrome routes audio to Google). Convenience preview, not a benchmarked path, never an automatic fallback.
 - **Not in this PR:** display-label change is a later product-copy PR. Canonical docs must use this truthful wording.
 
