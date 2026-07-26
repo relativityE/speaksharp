@@ -21,11 +21,19 @@ const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 
 async function openMenu(page: Page) {
+  // The dropdown uses CONTROLLED open state: a screenshot or setViewportSize does NOT close it, and clicking
+  // the trigger while it is already open would TOGGLE it shut. So ensure a clean closed state first (Escape),
+  // then open deterministically — this keeps the second (mobile) capture from racing the still-open desktop menu.
+  const priv = page.getByTestId(TEST_IDS.STT_MODE_PRIVATE);
+  if (await priv.count()) {
+    await page.keyboard.press('Escape');
+    await expect(priv).toHaveCount(0);
+  }
   const btn = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
   const bbox = await btn.boundingBox();
   if (bbox) await page.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
   else await btn.click({ force: true });
-  await expect(page.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toBeVisible({ timeout: 10_000 });
+  await expect(priv).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('#1064 Private "Stays local" privacy signal — visual proof', () => {
