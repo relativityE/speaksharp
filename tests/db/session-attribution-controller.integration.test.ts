@@ -115,9 +115,8 @@ CREATE TABLE public.sessions (
 );
 `;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let controller: any;
-const priv = () => controller as {
+let controller: SpeechRuntimeController;
+const priv = () => controller as unknown as {
   pendingFullSaveRetry: unknown;
   pendingAttributionRetry: unknown;
   recordingStartedUnresolved: boolean;
@@ -157,7 +156,7 @@ beforeEach(async () => {
   H.failComplete = false;
   await H.db.query('DELETE FROM public.sessions');
   controller = SpeechRuntimeController.getInstance();
-  const c = controller as Record<string, unknown>;
+  const c = controller as unknown as Record<string, unknown>;
   c.state = 'IDLE';
   c.engineSelectionIntentLocked = false;
   c.pendingFullSaveRetry = null;
@@ -185,7 +184,7 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     const sessionId = (await H.db.query<{ id: string }>(
       `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, 'words', 'active') RETURNING id`, [OWNER],
     )).rows[0].id;
-    const c = controller as Record<string, unknown>;
+    const c = controller as unknown as Record<string, unknown>;
     c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionPatch: buildVerifiedPatch() };
     c.recordingStartedUnresolved = true;
 
@@ -218,7 +217,7 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     expect(unverified.attribution_status).toBe('unverified');
     expect(unverified.engine).toBeUndefined();      // builder invents nothing
 
-    const c = controller as Record<string, unknown>;
+    const c = controller as unknown as Record<string, unknown>;
     c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionPatch: unverified };
     c.recordingStartedUnresolved = true;
 
@@ -233,7 +232,7 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
 
   it('INITIAL-SAVE retry: creates exactly one row keyed by the recording idempotency key; a repeat cannot create a second', async () => {
     const recordingId = '55555555-5555-4555-8555-555555555555';
-    const c = controller as Record<string, unknown>;
+    const c = controller as unknown as Record<string, unknown>;
     const seedInitial = () => {
       c.pendingFullSaveRetry = {
         sessionId: null,
