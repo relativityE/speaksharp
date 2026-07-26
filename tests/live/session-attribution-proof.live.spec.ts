@@ -123,17 +123,29 @@ test.describe.serial('#1033 live production attribution proof @live', () => {
     );
     await startStop.click();
     const startedAt = Date.now();
+
+    // #1058 review (P2, hardened): capture the placeholder session id BEFORE any fallible assertion. The
+    // controller creates the placeholder DB row and sets its authoritative in-flight id (exposed via
+    // window.__SPEECH_RUNTIME_DEBUG__().sessionId) once recording starts, so WAIT for that id (this
+    // inherently waits through token issuance + recording start), then assert it is present. Doing this
+    // first guarantees afterAll cleanup always has an owner-scoped target even if the token /
+    // recording-state / transcript / save assertions below fail. If the token never succeeds, no row is
+    // created and this poll times out with a clear message (nothing to leak).
+    const readRuntimeSessionId = () => page.evaluate(() => {
+      const debug = (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => { sessionId?: string | null } }).__SPEECH_RUNTIME_DEBUG__;
+      return (typeof debug === 'function' ? debug()?.sessionId : null) ?? null;
+    });
+    await expect.poll(readRuntimeSessionId, {
+      message: 'the deployed app must publish a recording session id after Start',
+      timeout: 60_000,
+      intervals: [500, 1_000, 2_000, 3_000],
+    }).toBeTruthy();
+    createdSessionId = await readRuntimeSessionId();
+    expect(createdSessionId, 'a recording session id must be captured before any fallible assertion').toBeTruthy();
+
+    // Now the fallible checks — a failure in any of these still leaves createdSessionId set for cleanup.
     expect((await tokenResponse).status(), 'assemblyai-token must be issued for the Pro cloud recording').toBe(200);
     await expect(startStop).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
-
-    // #1058 review (P2): the controller creates the placeholder session row as soon as recording starts.
-    // Capture its id NOW (from the session store the app exposes) so afterAll cleanup still targets our
-    // owner-scoped row even if a later assertion (transcript/save/attribution) fails before the exact
-    // persisted-id read below. It is refined to the exact persisted id once the save succeeds.
-    createdSessionId = await page.evaluate(() => {
-      const api = (window as unknown as { __SESSION_STORE_API__?: { getState?: () => { sessionId?: string | null } } }).__SESSION_STORE_API__;
-      return api?.getState?.().sessionId ?? null;
-    });
 
     // Wait for real fixture transcript, then satisfy the app's minimum saveable duration. The save
     // policy reads the app's OWN elapsed-time store (not Playwright's wall clock), so poll that.
