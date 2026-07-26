@@ -566,11 +566,11 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 
 ## 5. The Browser STT naming decision (#1041 Option B, shipped)
 
-**Decision (SHIPPED — #1041 / PR #1060, main `8aae87b8`):** the user-facing **transcription-method name is "Browser"** (replacing user-facing "Native"), with **"Quick preview" retained as a secondary descriptor badge** on the Browser option. This **supersedes** the earlier **"Quick Preview (Browser)"** primary-label proposal (retired). "Quick Practice" (the retired *product* name → Freestyle Practice, #1042) is a separate concept — not to be conflated with the "Quick preview" descriptor.
+**Decision (SHIPPED — #1041, merged via PR #1060):** the user-facing **transcription-method name is "Browser"** (replacing user-facing "Native"), with **"Quick preview" retained as a secondary descriptor badge** on the Browser option. This **supersedes** the earlier **"Quick Preview (Browser)"** primary-label proposal (retired). "Quick Practice" (the retired *product* name → Freestyle Practice, #1042) is a separate concept — not to be conflated with the "Quick preview" descriptor.
 - **Scope:** display label + truthful copy **only**. Internal engine token, telemetry, and DB `engine`/`mode` values remain **`native`** — unchanged.
 - **Shipped copy (#1041):** *"Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended."*
 - **Guardrails:** never claim **local, offline, on-device, Private-equivalent, or cross-browser-consistent** (Chrome routes audio to Google). Convenience preview, not a benchmarked path, never an automatic fallback.
-- **Not in this PR:** display-label change is a later product-copy PR. Canonical docs must use this truthful wording.
+- **Status:** implementation shipped in PR #1060; this docs-only successor reconciles the authority record. Canonical docs must use this truthful wording.
 
 ---
 
