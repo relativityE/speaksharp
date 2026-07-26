@@ -11,6 +11,20 @@ Do not put changing release status, run IDs, or temporary plans here.
 Instructions in a more deeply nested `AGENTS.md` override this file for that subtree.
 Product Owner directions for the current task override repository defaults.
 
+## Core Delivery Principle: Release And Iterate
+
+SpeakSharp delivers through small, coherent, production-worthy increments. Release a
+complete increment, verify it, learn from it, and then deliver the next increment.
+
+An issue defines an outcome or body of work; it does not require one large PR. A broad
+issue may be completed through multiple small, sequential PRs. Each PR must leave the
+product in a coherent state and be independently reviewable, testable, releasable, and
+verifiable.
+
+Do not keep expanding an active PR to absorb every related discovery. Complete the
+smallest safe increment, record remaining work against the parent issue, and address it
+through the next scoped PR.
+
 ## Consult Repository Guidance Before Escalating
 
 Before reporting a blocker or asking the Product Owner for repository, environment,
@@ -79,7 +93,9 @@ inspect the PR's Edge-function diff and disclose this automatic production actio
 
 ## Work And Review Model
 
-- Keep one active implementation PR at a time unless the Product Owner changes priority.
+- Keep one active implementation PR at a time unless the Product Owner explicitly changes
+  priority. An issue may span multiple PRs, but those PRs land sequentially rather than
+  accumulating as parallel implementation branches.
 - Use small, coherent PRs with one concern. Do not open scaffold or placeholder PRs.
 - Implement the final approved direction; do not add temporary product states that create
   avoidable cleanup work.
@@ -91,6 +107,35 @@ inspect the PR's Edge-function diff and disclose this automatic production actio
 - “Captured” is not implemented. “Superseded” is not completed. A requirement is complete
   only when it is shipped, explicitly queued, rejected by the Product Owner, or archived
   with provenance.
+
+### Issue, PR, And Forward-Fix Model
+
+- Treat an issue as the durable outcome or body of work, similar to an epic or delivery
+  ticket. Treat each PR as one independently releasable increment against that issue.
+- Scope a PR around one coherent user outcome or internal responsibility and its risk,
+  not an arbitrary file count.
+- Before implementation, identify the parent issue, the specific increment, its
+  acceptance criteria, user/tester impact, and explicit out-of-scope work.
+- Use `Refs #<issue>` for intermediate PRs. Use `Closes #<issue>` only for the final PR
+  that satisfies the issue's remaining acceptance criteria.
+- Keep the parent issue open while accepted work remains. At checkpoint boundaries,
+  record what each merged increment shipped and what remains.
+- Do not absorb adjacent findings into the active PR merely because they were discovered
+  during implementation. Capture out-of-scope findings as successor issues or clearly
+  defined next increments and address them after the active PR closes.
+- If a broad PR begins to sprawl, stop at the nearest safe, coherent release boundary.
+  Complete and verify that increment, then move the remaining work to subsequent PRs.
+- Do not use a future PR to excuse a known defect that violates the active PR's existing
+  acceptance criteria. Fix that defect before merging the active PR.
+- Treat a merged PR as an immutable delivery checkpoint. Do not restore its automatically
+  deleted branch, rewrite its history, or keep treating it as active work.
+- If a defect is discovered after merge, create a narrowly scoped forward-fix issue and
+  PR from current `main`. Link the fix to the originating PR and issue, verify it against
+  the original failure, and release it independently before resuming the planned sequence.
+- Do not revert a successfully merged PR merely because a later defect is found when a
+  safe, narrow forward fix is available. A production rollback or revert is exceptional
+  incident containment, used only when leaving the change live creates greater immediate
+  risk and only with the required Product Owner authorization.
 
 When reporting a review, lead with a plain disposition such as:
 
