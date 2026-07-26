@@ -105,7 +105,7 @@ test.describe('Private-first mode selector + single description surface (respons
     };
     const expectedText: Record<string, RegExp> = {
       private: /on your device/i,
-      native: /browser.s speech service/i,
+      native: /browser.s speech recognition/i,
       cloud: /external transcription server/i,
     };
 
