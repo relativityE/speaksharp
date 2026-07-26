@@ -47,7 +47,7 @@ Four distinct identities — do not conflate them:
 
 ## Current open work
 - **Documentation canonicalization (in progress):** establishing the approved 14-canonical-document system + migration ledger + SSOT repair (this file); governs the later consolidation steps. (Track current PR/thread state in the relevant PR, not here.)
-- **Adversarial-review roadmap (sequential):** durable engine-attribution (**OPEN GAP** — proposed fix not yet proven/deployed), central entitlement selector (tracked as an issue), STT evidence orchestrator (tracked as an issue), PRD v1, Architecture/STT ADRs, the browser-preview display-label copy change.
+- **Adversarial-review roadmap (sequential):** central entitlement selector (tracked as an issue), STT evidence orchestrator (tracked as an issue), PRD v1, Architecture/STT ADRs, and further items tracked in the #1052 ledger. **Shipped and no longer open:** durable engine-attribution (#1033 — merged, migration applied, deployed, live-proven) and the Browser display-label change (#1041 via PR #1060).
 - **#1006 is CLOSED** (draft, not activated) — no longer current work; the durable-delivery/observability remediation is not shipped/deployed/activated.
 
 ## Private STT finalization — accepted planning budget (not a measured p95)
