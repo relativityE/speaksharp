@@ -384,6 +384,12 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByTestId('email-input').fill(email);
   await page.getByTestId('password-input').fill(password);
   await page.getByTestId('sign-in-submit').click();
+  // The authenticated landing is /practice (default authed home) after the /practice-entry change;
+  // navigate to the /session recording surface so callers' toHaveURL(/\/session/) + mode-selector
+  // assertions hold. Without this, sign-in lands on /practice and every caller fails at setup before
+  // its real assertion runs (the #964 entitlement check among them).
+  await page.waitForURL((url) => !url.pathname.includes('/auth/signin'), { timeout: 45_000 });
+  await page.goto('/session');
 }
 
 async function createLiveUser(

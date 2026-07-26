@@ -10,6 +10,8 @@ on:
         type: choice
         options:
           - all
+          - attribution-proof
+          - orphan-audit
           - custom-words
           - native-preflight
           - cloud-token-gates
@@ -211,6 +213,76 @@ jobs:
             playwright-report/deployed-live/
             test-results/deployed-live/
           retention-days: 14
+
+  live-attribution-proof:
+    # #1033/#1055 live production attribution proof — the DEPLOYED app must persist
+    # attribution_status=verified with a coherent engine tuple for a real Pro recording.
+    # ISOLATION-ONLY (not part of `all`): it records on PRO_TEST via AssemblyAI, which requires one
+    # concurrent Cloud session and is subject to the product's account-wide recording mutex — running it
+    # alongside the other PRO/Cloud jobs in `all` would flake on provider/mutex concurrency.
+    if: ${{ github.event.inputs.suite == 'attribution-proof' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: live-attribution-proof
+      cancel-in-progress: false
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Live Attribution Proof
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/session-attribution-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+
+      - name: Upload Attribution Proof Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-attribution-proof-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-free-sample-orphan-audit:
+    # #964 — prove zero stt-switching-free-sample-* disposable Free fixtures remain after cleanup.
+    # ISOLATION-ONLY (not part of `all`): it must run AFTER the stt-switching #964 diagnostic has created
+    # AND cleaned up its own stt-switching-free-sample-* fixture. Inside `all` the two jobs race, so the
+    # audit could false-fail (fixture still active) or false-pass (before a later failed cleanup leaks one).
+    if: ${{ github.event.inputs.suite == 'orphan-audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Free-sample Orphan Audit
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/free-sample-orphan-audit.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
   live-private-cache:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-cache' }}
