@@ -271,7 +271,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const cloudOptionDesc = canUseCloudStt
         ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
         : cloudModeDescription;
-    const nativeOptionDesc = "A quick preview — uses your browser's speech service; the transcript may miss some punctuation and filler words.";
+    const nativeOptionDesc = "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
     const privateOptionDesc = canUsePrivate
         ? 'Private runs on your device after a one-time setup. Audio stays local.'
         : privateModeDescription;
@@ -285,7 +285,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     } else if (mode === 'private') {
         sttCue = isPrivateDownloadRequired ? 'Private on-device' : 'Ready on this device';
     } else {
-        sttCue = 'Quick preview';
+        sttCue = 'Browser';
     }
 
     // "About transcription modes" — a single, touch-friendly help surface that lists ALL THREE mode
@@ -306,7 +306,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 )}
             </div>
             <div>
-                <p className="font-semibold text-foreground">Browser — Quick preview</p>
+                <p className="font-semibold text-foreground">Browser</p>
                 <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-native">{nativeOptionDesc}</p>
             </div>
             <div>
@@ -320,7 +320,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const activeFlyout = ((): { title: string; body: string } => {
         switch (activeMode) {
             case 'private': return { title: 'Private — Recommended', body: privateOptionDesc };
-            case 'native': return { title: 'Browser — Quick preview', body: nativeOptionDesc };
+            case 'native': return { title: 'Browser', body: nativeOptionDesc };
             case 'cloud': return { title: 'Cloud — Pro', body: cloudOptionDesc };
             default: return { title: '', body: '' };
         }
@@ -393,8 +393,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             className="w-56 max-w-[calc(100vw-2rem)]"
                             onPointerLeave={() => setActiveMode(null)}
                         >
-                            {/* Private-first hierarchy (P0.2): Private (Recommended) → Browser (Quick preview)
-                                → Cloud (Pro). ONLY Private carries the Recommended tag. Rows are compact one-
+                            {/* Private-first hierarchy (P0.2): Private (Recommended) → Browser → Cloud (Pro).
+                                ONLY Private carries the Recommended tag. Rows are compact one-
                                 liners; hover / keyboard-focus sets a SINGLE activeMode that drives one
                                 ModeDescriptionFlyout (rendered below, disjoint from this menu) — mutually
                                 exclusive by construction, never per-row tooltip elements. */}
@@ -424,7 +424,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 >
                                     <span className="flex items-center gap-1.5">
                                         Browser
-                                        <span data-testid="stt-mode-tag-quick-preview" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem

@@ -120,8 +120,10 @@ describe('LiveRecordingCard', () => {
         fireEvent.click(screen.getByTestId('stt-mode-help'));
         const about = screen.getByTestId('stt-modes-about');
         expect(about).toHaveTextContent('Private — Recommended');
-        expect(about).toHaveTextContent('Browser — Quick preview');
+        expect(about).toHaveTextContent('Browser');
         expect(about).toHaveTextContent('Cloud — Pro');
+        // #1041: "Quick preview" is retired user-facing wording; Browser stands alone.
+        expect(about).not.toHaveTextContent(/quick preview/i);
         expect(screen.getByTestId('stt-about-private')).toHaveTextContent(/Private runs on your device after a one-time setup/i);
     });
 
@@ -263,16 +265,17 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT with a short cue and moves the explanation into help', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        // Short cue visible; "Browser provider" is gone — Browser is framed as a Quick preview.
-        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Quick preview');
-        expect(screen.queryByText(/Starts instantly with your browser's speech recognition/i)).toBeNull();
+        // #1041: the short cue is now "Browser" (Quick preview retired); no visible provider paragraph.
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Browser');
+        expect(screen.getByTestId('stt-mode-cue')).not.toHaveTextContent(/quick preview/i);
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
-        // The explanation is available through "About transcription modes": Browser = quick preview,
-        // with the punctuation/filler expectation set.
+        // The explanation is available through "About transcription modes" using the exact approved copy.
         fireEvent.click(screen.getByTestId('stt-mode-help'));
-        expect(screen.getByTestId('stt-about-native')).toHaveTextContent(/quick preview/i);
-        expect(screen.getByTestId('stt-about-native')).toHaveTextContent(/may miss some punctuation and filler words/i);
+        expect(screen.getByTestId('stt-about-native')).toHaveTextContent(
+            "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.",
+        );
+        expect(screen.getByTestId('stt-about-native')).not.toHaveTextContent(/quick preview/i);
     });
 
     it('shows NO pre-save Browser card CTA; the Private sample detail lives in help (P0.2 single post-save transition)', () => {
@@ -376,7 +379,7 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/Cloud is available for Pro users/i)).toBeInTheDocument();
     });
 
-    it('uses the Private-first dropdown order and tags: Private (Recommended), Browser (Quick preview), Cloud (Pro)', async () => {
+    it('uses the Private-first dropdown order and tags: Private (Recommended), Browser (no badge), Cloud (Pro)', async () => {
         render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
@@ -388,11 +391,18 @@ describe('LiveRecordingCard', () => {
         expect(browser).toHaveTextContent('Browser');
         expect(cloud).toHaveTextContent('Cloud');
 
-        // ONLY Private carries the Recommended tag; Browser = Quick preview; Cloud = Pro.
+        // #1041: ONLY Private carries a tag (Recommended). Browser carries NO badge (Quick preview
+        // removed, not replaced); Cloud = Pro.
         expect(within(priv).getByTestId('stt-mode-tag-recommended')).toBeInTheDocument();
-        expect(within(browser).getByTestId('stt-mode-tag-quick-preview')).toBeInTheDocument();
+        expect(within(browser).queryByTestId('stt-mode-tag-quick-preview')).toBeNull();
+        expect(within(browser).queryByText(/quick preview/i)).toBeNull();
         expect(within(cloud).getByTestId('stt-mode-tag-pro')).toBeInTheDocument();
         expect(within(browser).queryByTestId('stt-mode-tag-recommended')).toBeNull();
+
+        // #1041 accessibility: the Browser option's accessible name is exactly "Browser" — it must not
+        // expose the retired "Native" or "Quick preview" wording to assistive tech.
+        expect(browser).toHaveAccessibleName('Browser');
+        expect(browser).not.toHaveAccessibleName(/native|quick preview/i);
         expect(within(cloud).queryByTestId('stt-mode-tag-recommended')).toBeNull();
 
         // Private-first order: Private before Browser before Cloud.
@@ -427,7 +437,7 @@ describe('LiveRecordingCard', () => {
             flyouts = screen.getAllByTestId('stt-mode-flyout');
             expect(flyouts).toHaveLength(1);
             expect(flyouts[0]).toHaveAttribute('data-mode', 'native');
-            expect(flyouts[0]).toHaveTextContent(/browser.s speech service/i);
+            expect(flyouts[0]).toHaveTextContent(/browser.s speech recognition/i);
             expect(flyouts[0]).not.toHaveTextContent(/external transcription server/i);
 
             // Move to Private → still exactly one, now Private.
