@@ -8,8 +8,8 @@ vi.mock('@/contexts/AuthProvider');
 vi.mock('@/components/landing/HeroSection', () => ({
     HeroSection: () => <div data-testid="hero-section">HeroSection</div>,
 }));
-vi.mock('@/components/landing/ProductDiscoverySection', () => ({
-    ProductDiscoverySection: () => <div data-testid="product-discovery-section">ProductDiscoverySection</div>,
+vi.mock('@/components/landing/FeaturesSection', () => ({
+    FeaturesSection: () => <div data-testid="features-section">FeaturesSection</div>,
 }));
 vi.mock('@/components/landing/LandingFooter', () => ({
     LandingFooter: () => <footer data-testid="landing-footer">LandingFooter</footer>,
@@ -72,7 +72,7 @@ describe('Index', () => {
             render(<Index />, { route: '/' });
 
             expect(screen.getByTestId('hero-section')).toBeInTheDocument();
-            expect(screen.getByTestId('product-discovery-section')).toBeInTheDocument();
+            expect(screen.getByTestId('features-section')).toBeInTheDocument();
         });
     });
 
@@ -91,7 +91,7 @@ describe('Index', () => {
             render(<Index />);
 
             expect(screen.getByTestId('hero-section')).toBeInTheDocument();
-            expect(screen.getByTestId('product-discovery-section')).toBeInTheDocument();
+            expect(screen.getByTestId('features-section')).toBeInTheDocument();
             expect(screen.getByTestId('landing-footer')).toBeInTheDocument();
         });
 

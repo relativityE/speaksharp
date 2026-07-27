@@ -7,8 +7,8 @@ const benefits = [
     "Track progress over time",
     "Practice talks, interviews, and presentations",
     "Build speaking confidence",
-    "Post-session coaching insights",
-    "Live cues while you speak",
+    "Coaching insights",
+    "Live feedback while you practice",
 ];
 
 export const BenefitsSection = () => {
@@ -23,7 +23,7 @@ export const BenefitsSection = () => {
                         </span>
                     </h2>
                     <p className="mx-auto max-w-2xl text-lg font-medium text-foreground/70">
-                        Start fast in your browser, keep your audio on-device with Private, and get structured feedback that helps you notice filler words, pace, and patterns over time.
+                        Practice with structured feedback that helps you notice filler words, pace, and patterns over time.
                     </p>
                 </div>
 

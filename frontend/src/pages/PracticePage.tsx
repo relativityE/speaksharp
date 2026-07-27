@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
@@ -134,6 +135,10 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
 
 export default function PracticePage() {
   const navigate = useNavigate();
+  const { user } = useAuthProvider();
+  // #1061: ONE canonical auth-aware page. Rendered at `/` for anonymous visitors (marketing + product
+  // choices) and at `/practice` for authenticated users (same page + continuity + direct actions).
+  const isAuthed = !!user;
   const { setSurface } = usePracticeSurface();
   // #1042 PR4: Practice Home continuity — a NARROW read of the most-recent reviewable session (id /
   // created_at / duration / status only). Truthful empty state for new users; honest error state on
@@ -175,7 +180,15 @@ export default function PracticePage() {
   // #1042 PR3: the Freestyle card navigates DIRECTLY to the working Session page — no intermediate
   // overview. It never auto-starts recording (SessionPage owns the mic). Truthful entry source is
   // 'landing_card' (never the removed 'quick_overview').
-  const startFreestyle = () => { setGuidedSelected(false); trackPracticeModeSelected('quick', 'landing_card'); trackQuickPracticeStarted('landing_card'); navigate('/session'); };
+  // Authenticated: go DIRECTLY to /session. Anonymous: route through account access, preserving the
+  // /session intent via location.state.from (resolvePostAuthPath honors safe deep-links); never auto-records.
+  const startFreestyle = () => {
+    setGuidedSelected(false);
+    trackPracticeModeSelected('quick', 'landing_card');
+    trackQuickPracticeStarted('landing_card');
+    if (isAuthed) navigate('/session');
+    else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
+  };
   // Guided selected while UNAVAILABLE: stay on /practice, mark the reporting surface, and (ONCE) emit
   // content-free telemetry + show ONE contextual notice anchored to the Guided card, then disable the card.
   // No nav, no preview, no mic/AI/network/persistence, and NO global toast. The CTA becomes natively
@@ -229,14 +242,17 @@ export default function PracticePage() {
                 ~80px) plus safe-area, so the Guided CTA + contextual notice are never obscured. */}
             <div className="mx-auto -mt-6 max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8">
               {/* #1042 PR4: continuity for returning users (recent-session summary + Review/Analytics),
-                  truthful empty state for new users. Sits above the two-product chooser. */}
-              <PracticeContinuity
-                loading={recentLoading}
-                error={Boolean(recentError)}
-                lastSession={lastSession}
-                onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
-                onViewAnalytics={() => navigate('/analytics')}
-              />
+                  truthful empty state for new users. Sits above the two-product chooser. #1061: shown ONLY
+                  to authenticated users — anonymous visitors on `/` never see session history/account actions. */}
+              {isAuthed && (
+                <PracticeContinuity
+                  loading={recentLoading}
+                  error={Boolean(recentError)}
+                  lastSession={lastSession}
+                  onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
+                  onViewAnalytics={() => navigate('/analytics')}
+                />
+              )}
               <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
                 <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
                   bullets={QUICK_BULLETS}

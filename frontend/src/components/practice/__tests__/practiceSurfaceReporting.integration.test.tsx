@@ -18,6 +18,12 @@ vi.mock('@/services/practiceTelemetry', () => ({
 // #1042 PR4: PracticePage reads the most-recent session via useRecentPracticeSummary; mock it (new user /
 // no sessions) so this integration test needs no QueryClient/Auth provider and the surface flow is unchanged.
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: () => ({ data: [], isLoading: false }) }));
+// #1061: PracticePage is now auth-aware; this suite exercises the AUTHENTICATED /practice reporting surface
+// (Freestyle → /session directly), so mock an authenticated user.
+vi.mock('@/contexts/AuthProvider', async (orig) => {
+  const actual = await orig<typeof import('@/contexts/AuthProvider')>();
+  return { ...actual, useAuthProvider: () => ({ user: { id: 'u-1' } }) };
+});
 vi.mock('@/lib/toast', () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn() }),
 }));

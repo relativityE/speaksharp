@@ -17,6 +17,14 @@ vi.mock('@/services/practiceTelemetry', () => ({
 import { trackGuidedRehearsalUnavailable } from '@/services/practiceTelemetry';
 const guidedTelemetry = vi.mocked(trackGuidedRehearsalUnavailable);
 
+// #1061: PracticePage is the ONE canonical auth-aware page (rendered at `/` for anon + `/practice` for
+// authed). Default = authenticated; individual tests flip `mockUser` to null for the anonymous surface.
+let mockUser: { id: string } | null = { id: 'u-1' };
+vi.mock('@/contexts/AuthProvider', async (orig) => {
+  const actual = await orig<typeof import('@/contexts/AuthProvider')>();
+  return { ...actual, useAuthProvider: () => ({ user: mockUser }) };
+});
+
 // #1042 PR4: the Practice Home continuity block reads the most-recent session via useRecentPracticeSummary.
 // Mock it so these component tests don't need a QueryClient/Auth provider; default = new user (no sessions).
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
@@ -32,6 +40,7 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
   beforeEach(() => {
     navigateSpy.mockReset();
     guidedTelemetry.mockClear();
+    mockUser = { id: 'u-1' }; // default authed; anon tests set this to null
     // Default: new user (no sessions) → truthful empty continuity state.
     mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
   });
@@ -231,5 +240,43 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     render(<PracticePage />);
     expect(screen.getByTestId('practice-continuity-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
+  });
+
+  // #1061: the SAME canonical page rendered for ANONYMOUS visitors at `/`.
+  describe('anonymous state (rendered at `/`)', () => {
+    beforeEach(() => { mockUser = null; });
+
+    it('shows the same hero + both product choices, but NO session history / account actions', () => {
+      mockHistory.mockReturnValue({
+        data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
+        isLoading: false,
+      } as unknown as HistoryReturn);
+      render(<PracticePage />);
+      // Same hero + product cards.
+      expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+      expect(within(root()).getByRole('heading', { name: /^Freestyle Practice$/i })).toBeInTheDocument();
+      expect(within(root()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
+      // No continuity / account actions for anonymous visitors, even if a query somehow returned rows.
+      expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('practice-continuity-review')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('practice-continuity-analytics')).not.toBeInTheDocument();
+    });
+
+    it('Freestyle routes through account access preserving /session intent (never straight to /session)', () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      expect(navigateSpy).toHaveBeenCalledTimes(1);
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
+    });
+
+    it('Guided stays truthfully planned/unavailable for anonymous visitors too', () => {
+      render(<PracticePage />);
+      const guided = screen.getByTestId('practice-card-guided');
+      expect(guided).toHaveTextContent('Guided Rehearsal');
+      fireEvent.click(guided);
+      expect(screen.getByTestId('guided-unavailable-notice')).toHaveTextContent('Product not available at this time');
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
   });
 });

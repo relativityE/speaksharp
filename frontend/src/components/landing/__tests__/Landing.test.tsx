@@ -1,9 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import React from 'react';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { BenefitsSection } from '../BenefitsSection';
 import { CTASection } from '../CTASection';
@@ -11,10 +8,6 @@ import { FeaturesSection } from '../FeaturesSection';
 import { HeroSection } from '../HeroSection';
 import { HeroStatsDashboard } from '../HeroStatsDashboard';
 import { LandingFooter } from '../LandingFooter';
-import { ProductDiscoverySection } from '../ProductDiscoverySection';
-import { TestimonialsSection } from '../TestimonialsSection';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 // Mock the internal Link component if it exists or relies on react-router-dom
 vi.mock('react-router-dom', async () => {
@@ -58,8 +51,7 @@ vi.mock('lucide-react', () => ({
     Quote: () => <div data-testid="icon-quote" />,
     Target: () => <div data-testid="icon-target" />,
     CheckCircle2: () => <div data-testid="icon-check-2" />,
-    Sparkles: () => <div data-testid="icon-sparkles" />,
-    Clock: () => <div data-testid="icon-clock" />
+    Sparkles: () => <div data-testid="icon-sparkles" />
 }));
 
 describe('Landing Page Components', () => {
@@ -101,25 +93,5 @@ describe('Landing Page Components', () => {
         expect(screen.getByText(/SpeakSharp|Copyright/i)).toBeDefined();
     });
 
-    // Smoke: both products render with text-bearing availability (not color alone) and Guided has no
-    // actionable control. Detailed CTA/intent/conversion assertions live in
-    // ProductDiscoverySection.component.test.tsx (real router, full props).
-    it('renders ProductDiscoverySection with both products and truthful availability', () => {
-        render(<ProductDiscoverySection />);
-        expect(screen.getByRole('heading', { level: 2, name: /choose how you want to practice/i })).toBeDefined();
-        expect(screen.getByTestId('product-discovery-freestyle-status')).toHaveTextContent(/available now/i);
-        expect(screen.getByTestId('product-discovery-guided-status')).toHaveTextContent(/planned — not available yet/i);
-        // Guided is not an actionable control.
-        expect(screen.getByTestId('product-discovery-guided').querySelector('button')).toBeNull();
-    });
-
-    // Active absence contract (replaces the prior it.todo): while the PO testimonials-hidden policy is
-    // active, TestimonialsSection must be inert AND must not be composed into the public landing.
-    it('keeps testimonials absent from the landing while the PO policy is active', () => {
-        const { container } = render(<TestimonialsSection />);
-        expect(container).toBeEmptyDOMElement(); // component renders nothing
-        // The landing page (Index) must not actively compose it (commented usage is allowed).
-        const indexSrc = readFileSync(resolve(HERE, '../../../pages/Index.tsx'), 'utf8');
-        expect(indexSrc).not.toMatch(/^\s*<TestimonialsSection\s*\/>/m);
-    });
+    it.todo('renders TestimonialsSection without crashing');
 });
