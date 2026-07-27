@@ -5,17 +5,16 @@ import { setupBrowserLogging, goToApp, programmaticLoginWithRoutes, navigateToRo
 import { TEST_IDS } from '../constants';
 
 /**
- * #1061 — ONE canonical auth-aware page (PracticePage) rendered at BOTH `/` (anonymous) and `/practice`
- * (authenticated). Proves the shared page + only auth-dependent controls change, and that Freestyle intent
- * survives the REAL account-access composition (anonymous → real AuthPage form → PostAuthRedirect).
+ * #1061 — ONE canonical auth-aware page (PracticePage) at BOTH `/` (anonymous marketing state) and
+ * `/practice` (authenticated product state).
  *
- *  - Anonymous `/`: same hero + both product cards; NO session history/account actions; Freestyle →
- *    signup → /session (intent preserved); Guided truthfully planned; no auto-record.
- *  - Authenticated `/practice`: same hero + cards + the "Ready for your next practice?" continuity block;
- *    Freestyle → /session directly.
+ *  - Anonymous `/`: large hero + Start free; a "how it helps" support section (4 cards, grouped by product,
+ *    curved connectors); product cards WITHOUT duplicate CTAs. Freestyle support CTA → signup → /session
+ *    (real account-access composition, intent preserved); Guided support CTA → real "Notify me" dialog.
+ *  - Authenticated `/practice`: compact welcome + continuity; product cards own their actions; Freestyle →
+ *    /session directly; Guided "Notify me" opens the same dialog. Guided is "Coming Soon!" (no "Planned").
  *
- * Screenshots: anonymous `/` and authenticated `/practice`, desktop + mobile → test-results/product-discovery
- * (1-day ux-review artifact; not committed).
+ * Screenshots: anonymous `/` and authenticated `/practice`, desktop + mobile → test-results/product-discovery.
  */
 
 const DIR = 'test-results/product-discovery';
@@ -26,17 +25,16 @@ const PW = 'Test1234!pass';
 async function bootAnonymous(page: Page) {
   await setupE2EMocks(page, { userType: 'free' });
   setupBrowserLogging(page);
-  await setupE2EManifest(page, { engineType: 'mock', userType: 'free', emptySessions: true }); // no storage → anonymous
+  await setupE2EManifest(page, { engineType: 'mock', userType: 'free', emptySessions: true });
 }
 
 async function enterAnonLanding(page: Page) {
   await goToApp(page, '/');
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByRole('heading', { name: /private practice\. public impact/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/');
 }
 
-// Fail-closed settle: the practice-root page-transition opacity must reach 1 before a screenshot.
 async function settle(page: Page) {
   await page.waitForFunction(() => {
     let el = document.querySelector('[data-testid="practice-root"]') as HTMLElement | null;
@@ -45,33 +43,34 @@ async function settle(page: Page) {
   }, { timeout: 10000 });
 }
 
-test.describe('#1061 one canonical auth-aware page (anonymous `/` + authenticated `/practice`)', () => {
-  test('anonymous `/`: same hero + product choices, NO session history; Freestyle → signup → /session', async ({ page }) => {
+test.describe('#1061 one canonical auth-aware page', () => {
+  test('anonymous `/`: hero + 4-card support section + product cards; NO continuity; Coming Soon!', async ({ page }) => {
     await bootAnonymous(page);
 
-    // Desktop landing.
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
-    await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
-    await expect(page.getByText(/choose how you want to practice/i)).toBeVisible();
-    // Guided is truthfully planned; anonymous users get NO continuity/account actions.
-    await expect(page.getByTestId('practice-card-guided')).toContainText(/guided rehearsal/i);
+    await expect(page.getByTestId('practice-hero-start-free')).toBeVisible();
+    // Support section: two product groups, each with an explanation + CTA card.
+    await expect(page.getByTestId('support-freestyle-explain')).toBeVisible();
+    await expect(page.getByTestId('support-freestyle-cta')).toBeVisible();
+    await expect(page.getByTestId('support-guided-explain')).toBeVisible();
+    await expect(page.getByTestId('support-guided-cta')).toBeVisible();
+    // Guided is "Coming Soon!" (never "Planned"); no authenticated continuity for anon.
+    await expect(page.getByText('Coming Soon!').first()).toBeVisible();
+    await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('practice-continuity')).toHaveCount(0);
-    await expect(page.getByTestId('practice-continuity-empty')).toHaveCount(0);
     await settle(page);
     await page.screenshot({ path: `${DIR}/01-anonymous-root-desktop.png`, fullPage: true });
 
-    // Mobile landing.
     await page.setViewportSize(MOBILE);
     await enterAnonLanding(page);
     await settle(page);
     await page.screenshot({ path: `${DIR}/02-anonymous-root-mobile.png`, fullPage: true });
 
-    // Freestyle → real account access → /session (intent preserved), no auto-record.
+    // Freestyle support CTA → real account access → /session (intent preserved), no auto-record.
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
-    await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('support-freestyle-start').click();
     await expect(page).toHaveURL(/\/auth\/signup/, { timeout: 15000 });
     await page.getByTestId('email-input').fill('anon-freestyle@example.com');
     await page.getByTestId('password-input').fill(PW);
@@ -81,24 +80,24 @@ test.describe('#1061 one canonical auth-aware page (anonymous `/` + authenticate
       .toHaveAttribute('data-recording', 'false', { timeout: 20000 });
   });
 
-  test('anonymous `/`: Guided is truthfully planned/unavailable (no navigation)', async ({ page }) => {
+  test('anonymous `/`: Guided "Notify me" opens the real interest dialog (no navigation)', async ({ page }) => {
     await bootAnonymous(page);
     await enterAnonLanding(page);
-    await page.getByTestId('practice-card-guided').click();
-    await expect(page.getByTestId('guided-unavailable-notice')).toHaveText('Product not available at this time');
+    await page.getByTestId('support-guided-notify').click();
+    await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await expect(page.getByText(/get notified about guided rehearsal/i)).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
-  test('authenticated `/practice`: SAME page + continuity; Freestyle → /session directly', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'free' }); // returning session history by default
+  test('authenticated `/practice`: compact welcome + continuity; Freestyle → /session; Guided Notify me', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-    // Same hero + cards…
-    await expect(page.getByRole('heading', { name: /private practice\. public impact/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
-    // …PLUS the authenticated continuity block (the auth-dependent difference).
+    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/let’s get started/i);
     await expect(page.getByTestId('practice-continuity-summary')).toBeVisible();
+    // No anonymous marketing support section after login.
+    await expect(page.getByTestId('practice-support')).toHaveCount(0);
+    await expect(page.getByText('Coming Soon!').first()).toBeVisible();
 
     await page.setViewportSize(DESKTOP);
     await settle(page);
@@ -107,8 +106,11 @@ test.describe('#1061 one canonical auth-aware page (anonymous `/` + authenticate
     await settle(page);
     await page.screenshot({ path: `${DIR}/04-authenticated-practice-mobile.png`, fullPage: true });
 
-    // Authenticated Freestyle goes DIRECTLY to /session.
+    // Guided "Notify me" opens the dialog; Freestyle goes directly to /session.
     await page.setViewportSize(DESKTOP);
+    await page.getByTestId('practice-card-guided').click();
+    await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
     await page.getByTestId('practice-card-quick').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
   });
