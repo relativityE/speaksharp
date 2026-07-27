@@ -109,38 +109,21 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   describe('anonymous state (`/`)', () => {
     beforeEach(() => { mockUser = null; });
 
-    it('shows the large hero + Start free, the 4-card support section, and product cards WITHOUT duplicate CTAs', () => {
+    it('shows the large hero, the Freestyle FREE TRIAL strip, and product cards WITH their own CTAs (no support section / continuity)', () => {
       render(<PracticePage />);
       expect(screen.getByTestId('practice-hero-start-free')).toBeVisible();
-      // Support section: two product groups, each with an explanation + CTA card (4 total).
-      expect(screen.getByTestId('practice-support')).toBeInTheDocument();
-      expect(screen.getByTestId('support-freestyle-explain')).toBeInTheDocument();
-      expect(screen.getByTestId('support-freestyle-cta')).toBeInTheDocument();
-      expect(screen.getByTestId('support-guided-explain')).toBeInTheDocument();
-      expect(screen.getByTestId('support-guided-cta')).toBeInTheDocument();
-      // 2:1 association is structural: the two Freestyle support cards are grouped (role=group, aria-label),
-      // and the Freestyle product card is present (aligned as a grid sibling for equal baselines).
-      const fg = screen.getByTestId('practice-group-freestyle');
-      expect(fg).toHaveAttribute('role', 'group');
-      expect(fg).toHaveAccessibleName(/freestyle practice options/i);
-      expect(within(fg).getByTestId('support-freestyle-explain')).toBeInTheDocument();
-      expect(within(fg).getByTestId('support-freestyle-start')).toBeInTheDocument();
-      expect(screen.getByTestId('practice-card-quick-card')).toBeInTheDocument(); // the product article
-      // Product cards do NOT duplicate the action (the CTA cards own it): the product card has no button,
-      // and the product-CTA testid is absent — the single Freestyle action is the support CTA card.
-      expect(within(screen.getByTestId('practice-card-quick-card')).queryByRole('button')).toBeNull();
-      expect(screen.queryByTestId('practice-card-quick')).not.toBeInTheDocument();
+      // Freestyle FREE TRIAL strip (the four support cards + connectors are removed).
+      const strip = screen.getByTestId('freestyle-trial-strip');
+      expect(strip).toHaveTextContent(/free trial/i);
+      expect(strip).toHaveTextContent(/try private for 5 minutes—no credit card required\./i);
+      expect(screen.queryByTestId('support-freestyle-explain')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('practice-group-freestyle')).not.toBeInTheDocument();
+      // Product cards own their actions (anon shows CTAs, same as authed).
+      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
+      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
       // No authenticated continuity/account actions.
       expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
       expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
-    });
-
-    it('support explanation cards do NOT duplicate the product feature bullets', () => {
-      render(<PracticePage />);
-      const explain = screen.getByTestId('support-freestyle-explain');
-      for (const bullet of ['No agenda or setup', 'Speak and see your live transcript', 'Review fillers, delivery, and progress']) {
-        expect(within(explain).queryByText(bullet)).not.toBeInTheDocument();
-      }
     });
 
     it('Start free → signup → /practice', () => {
@@ -149,25 +132,24 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
     });
 
-    it('Freestyle support CTA → account access preserving /session intent', () => {
+    it('Freestyle FREE TRIAL strip CTA → account access preserving /session intent (no auto-record)', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('support-freestyle-start'));
+      fireEvent.click(screen.getByTestId('freestyle-trial-start'));
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
     });
 
-    it('Guided support CTA opens the Notify-me dialog (empty email for anon), no navigation', async () => {
+    it('Freestyle product card CTA → account access preserving /session intent', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('support-guided-notify'));
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
+    });
+
+    it('Guided product card opens the Notify-me dialog (empty email for anon), no navigation', async () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-guided'));
       expect(await screen.findByTestId('guided-notify-dialog')).toBeInTheDocument();
       expect(screen.getByTestId('guided-notify-email')).toHaveValue('');
       expect(navigateSpy).not.toHaveBeenCalled();
-    });
-
-    it('curved connectors are decorative (aria-hidden) — meaning survives without them', () => {
-      render(<PracticePage />);
-      const fg = screen.getByTestId('practice-group-freestyle');
-      const svg = fg.querySelector('svg[aria-hidden="true"]');
-      expect(svg).toBeTruthy();
     });
   });
 

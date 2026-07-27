@@ -50,11 +50,10 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
     await expect(page.getByTestId('practice-hero-start-free')).toBeVisible();
-    // Support section: two product groups, each with an explanation + CTA card.
-    await expect(page.getByTestId('support-freestyle-explain')).toBeVisible();
-    await expect(page.getByTestId('support-freestyle-cta')).toBeVisible();
-    await expect(page.getByTestId('support-guided-explain')).toBeVisible();
-    await expect(page.getByTestId('support-guided-cta')).toBeVisible();
+    // Freestyle FREE TRIAL strip (the four support cards are removed); product cards own their CTAs.
+    await expect(page.getByTestId('freestyle-trial-strip')).toBeVisible();
+    await expect(page.getByTestId('freestyle-trial-strip')).toContainText(/free trial/i);
+    await expect(page.getByTestId('support-freestyle-explain')).toHaveCount(0);
     // Guided is "Coming Soon!" (never "Planned"); no authenticated continuity for anon.
     await expect(page.getByText('Coming Soon!').first()).toBeVisible();
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
@@ -67,10 +66,10 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await settle(page);
     await page.screenshot({ path: `${DIR}/02-anonymous-root-mobile.png`, fullPage: true });
 
-    // Freestyle support CTA → real account access → /session (intent preserved), no auto-record.
+    // Freestyle (product card CTA) → real account access → /session (intent preserved), no auto-record.
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
-    await page.getByTestId('support-freestyle-start').click();
+    await page.getByTestId('practice-card-quick').click();
     await expect(page).toHaveURL(/\/auth\/signup/, { timeout: 15000 });
     await page.getByTestId('email-input').fill('anon-freestyle@example.com');
     await page.getByTestId('password-input').fill(PW);
@@ -83,7 +82,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
   test('anonymous `/`: Guided "Notify me" opens the real interest dialog (no navigation)', async ({ page }) => {
     await bootAnonymous(page);
     await enterAnonLanding(page);
-    await page.getByTestId('support-guided-notify').click();
+    await page.getByTestId('practice-card-guided').click();
     await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
     await expect(page.getByText(/get notified about guided rehearsal/i)).toBeVisible();
     expect(new URL(page.url()).pathname).toBe('/');

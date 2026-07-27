@@ -16,7 +16,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight, Check, Clock,
-  LineChart, Target, AudioLines, ListChecks, Repeat, Sparkles, Bell,
+  LineChart, Target, AudioLines, ListChecks, Repeat,
   type LucideIcon,
 } from 'lucide-react';
 import '@/styles/practice.css';
@@ -95,32 +95,32 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
   );
 }
 
-/** A compact, visually SUBORDINATE supporting card: an eyebrow + ONE pithy line (+ a bottom-aligned action
- * on CTA cards). flex-column with the action pinned to the bottom (mt-auto) so buttons share a baseline; the
- * card stretches to equal height within its grid row (no fragile fixed heights that could clip long text). */
-function SupportCard({ vars, eyebrow, line, action, testid }: {
-  vars: React.CSSProperties; eyebrow: string; line: string; action?: React.ReactNode; testid: string;
-}) {
+/** Freestyle FREE TRIAL strip (anonymous only) — a compact promo above the product cards. It reuses the
+ * SHARED Freestyle teal token (`--ss-session-panel`) so the repeated color communicates that the trial
+ * belongs to Freestyle; it is deliberately smaller than the product card (promo vs. decision). The CTA
+ * routes to Freestyle (account access → /session, never auto-recording) and does not imply Private is
+ * already active — it is a trial offer. */
+function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
   return (
-    <div style={vars} data-testid={testid}
-      className="flex h-full min-h-[7.5rem] flex-col rounded-[10px] border border-[color:var(--ss-border)] bg-white/80 p-4 shadow-[0_2px_10px_rgba(15,23,42,0.06)]">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-[color:var(--ss-card-btn)]">{eyebrow}</span>
-      <p className="mt-1.5 text-[15px] font-bold leading-snug text-[color:var(--ss-text)]">{line}</p>
-      {action ? <div className="mt-auto pt-3">{action}</div> : null}
+    <div
+      data-testid="freestyle-trial-strip"
+      className="flex flex-col items-start gap-3 rounded-[12px] p-4 shadow-[0_6px_18px_rgba(15,23,42,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5"
+      style={{ background: 'var(--ss-session-panel)' }}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="rounded-full bg-white/25 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white">Free trial</span>
+        <span className="text-[15px] font-semibold text-white">Try Private for 5 minutes—no credit card required.</span>
+      </div>
+      <button
+        type="button"
+        onClick={onStart}
+        data-testid="freestyle-trial-start"
+        aria-label="Start Freestyle Practice with a 5-minute Private trial"
+        className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[color:var(--ss-session-btn,#08746F)] shadow-sm"
+      >
+        Start Freestyle<ArrowRight size={15} aria-hidden />
+      </button>
     </div>
-  );
-}
-
-/** Decorative connector — two curves converging from the pair of support cards down onto the product card.
- * aria-hidden: the product relationship is ALSO encoded structurally (grouped <section> + heading), so the
- * meaning never depends on the arrows or on color. Colored to the product identity. */
-function GroupConnector({ stroke }: { stroke: string }) {
-  return (
-    <svg aria-hidden viewBox="0 0 320 40" className="h-6 w-full" preserveAspectRatio="none">
-      <path d="M70 2 C 70 26, 160 20, 160 38" fill="none" stroke={stroke} strokeWidth="2.5" strokeOpacity="0.7" strokeLinecap="round" />
-      <path d="M250 2 C 250 26, 160 20, 160 38" fill="none" stroke={stroke} strokeWidth="2.5" strokeOpacity="0.7" strokeLinecap="round" />
-      <path d="M154 32 l6 7 l6 -7" fill="none" stroke={stroke} strokeWidth="2.5" strokeOpacity="0.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -174,12 +174,15 @@ export default function PracticePage() {
   const freestyleCard = (
     <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
       bullets={QUICK_BULLETS} marker="Available now" ctaLabel="Start Freestyle Practice" ctaAria="Start Freestyle Practice"
-      ctaSolid onClick={startFreestyle} testid="practice-card-quick" hideCta={!isAuthed} />
+      ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
   );
   const guidedCard = (
     <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
       bullets={GUIDED_BULLETS} marker="Coming Soon!" markerIcon={Clock} ctaLabel="Notify me" ctaAria="Notify me about Guided Rehearsal"
-      onClick={openNotify} testid="practice-card-guided" hideCta={!isAuthed} />
+      onClick={openNotify} testid="practice-card-guided" />
+  );
+  const productGrid = (
+    <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">{freestyleCard}{guidedCard}</div>
   );
 
   return (
@@ -235,46 +238,20 @@ export default function PracticePage() {
                 onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
                 onViewAnalytics={() => navigate('/analytics')}
               />
-              <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
-                {freestyleCard}
-                {guidedCard}
-              </div>
+              {productGrid}
             </>
           ) : (
-            /* ANONYMOUS: a "how it helps" support section — two PRODUCT GROUPS, each with an explanation card,
-               a CTA card, curved connectors, and the product card. Semantic grouping (not arrows/color)
-               carries the relationship. */
-            <section aria-label="Choose the support your moment needs" data-testid="practice-support">
-              <div className="mb-6 text-center">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[color:var(--ss-card-btn,#08746F)]"><Sparkles size={13} aria-hidden /> How it helps</span>
+            /* ANONYMOUS: a compact Freestyle FREE TRIAL strip (shared Freestyle teal token) directly above
+               the two product cards. The strip carries the trial promo; each product card owns its decision
+               + action. No four-card support section. */
+            <>
+              <FreestyleTrialStrip onStart={startFreestyle} />
+              <div className="mb-6 mt-8 text-center" data-testid="practice-support-heading">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[color:var(--ss-card-btn,#08746F)]">How it helps</span>
                 <h2 className="mt-1 text-2xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-3xl">Choose the support your moment needs.</h2>
               </div>
-
-              {/* One grid: on mobile the cells flow in SOURCE order (Freestyle group, then Guided group).
-                  On md+, explicit row/col placement puts the two support rows in the SAME grid row (1fr →
-                  equal height) so the connectors and BOTH product cards land on the same baseline. */}
-              <div className="grid grid-cols-1 gap-x-8 gap-y-3 md:grid-cols-2 md:[grid-template-rows:1fr_auto_1fr]">
-                {/* Freestyle: support (r1c1) → connector (r2c1) → product (r3c1) */}
-                <div role="group" aria-label="Freestyle Practice options" data-testid="practice-group-freestyle"
-                  className="grid grid-cols-2 items-stretch gap-3 md:col-start-1 md:row-start-1">
-                  <SupportCard vars={QUICK_VARS} eyebrow="Why Freestyle" line="No script. No pressure. Just practice." testid="support-freestyle-explain" />
-                  <SupportCard vars={QUICK_VARS} eyebrow="Try Private" line="5-minute Private trial" testid="support-freestyle-cta"
-                    action={<button type="button" onClick={startFreestyle} data-testid="support-freestyle-start" aria-label="Start Freestyle Practice with a 5-minute Private trial" className="ss-ring ss-accent-btn inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm">Start Freestyle<ArrowRight size={15} aria-hidden /></button>} />
-                </div>
-                <div aria-hidden className="md:col-start-1 md:row-start-2"><GroupConnector stroke="var(--ss-session-accent)" /></div>
-                <div className="h-full md:col-start-1 md:row-start-3">{freestyleCard}</div>
-
-                {/* Guided: support (r1c2) → connector (r2c2) → product (r3c2) */}
-                <div role="group" aria-label="Guided Rehearsal options" data-testid="practice-group-guided"
-                  className="mt-3 grid grid-cols-2 items-stretch gap-3 md:col-start-2 md:row-start-1 md:mt-0">
-                  <SupportCard vars={GUIDED_VARS} eyebrow="Why Guided" line="Prepare the points that must land." testid="support-guided-explain" />
-                  <SupportCard vars={GUIDED_VARS} eyebrow="Stay in the loop" line="Want launch updates? Get notified." testid="support-guided-cta"
-                    action={<button type="button" onClick={openNotify} data-testid="support-guided-notify" className="ss-ring ss-accent-outline inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold">Notify me<Bell size={15} aria-hidden /></button>} />
-                </div>
-                <div aria-hidden className="md:col-start-2 md:row-start-2"><GroupConnector stroke="var(--ss-exec-accent)" /></div>
-                <div className="h-full md:col-start-2 md:row-start-3">{guidedCard}</div>
-              </div>
-            </section>
+              {productGrid}
+            </>
           )}
         </div>
       </div>
