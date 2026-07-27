@@ -369,6 +369,7 @@ jobs:
           path: |
             test-results/post-save-consolidation
             test-results/mode-selector
+            test-results/mode-selector-stays-local
             test-results/practice-entry
           retention-days: 1
           if-no-files-found: ignore
