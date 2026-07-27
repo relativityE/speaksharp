@@ -577,7 +577,7 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 ## 6. Known gaps & open decisions
 
 1. **Canonical set is Product Owner-approved** (`README.md` §2). New-file names fixed.
-2. **PRODUCT_REQUIREMENTS (PRD v1) not yet written** — interim `PRD.operational.md` is banner-marked stale; `RELEASE_STATUS.md` + `ARCHITECTURE.operational.md` are authoritative where they conflict.
+2. **PRODUCT_REQUIREMENTS (PRD v1) — WRITTEN (#1038).** `product_release/PRODUCT_REQUIREMENTS.md` is the canonical requirements authority, consolidating the interim `PRD.operational.md` + `PRODUCT_FEATURES.operational.md` (both banner-marked stale; archived at closeout). `RELEASE_STATUS.md` remains authoritative for current release status, and `ARCHITECTURE.operational.md` for structure until `ARCHITECTURE.md` lands.
 3. **ARCHITECTURE + STT ADRs pending.**
 4. **Entitlement-policy divergence (deferred)** → ROADMAP.
 5. **Private v2 ≈90s finalize** = accepted RC limitation, **not** a measured p95 — STT.md must state it so.
@@ -589,7 +589,7 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 
 ## 7. Ledger validation (committed, CI-wired test)
 
-A deterministic documentation-contract test — [`tests/config/documentationContract.test.ts`](../tests/config/documentationContract.test.ts) — runs under `pnpm test:unit` (the **CI - Test Audit** gate) and asserts: exactly 14 canonical names; every pre-foundation root Markdown is mapped in this ledger; the required metadata fields on `README.md` / `RELEASE_STATUS.md` / this ledger; single-value content dispositions (no compound cells); every EXTRACTED row has a canonical target heading; relative links resolve; every retained-evidence file has an exact destination; no open/unmerged PR is recorded as complete (#1033 remains an OPEN GAP); volatile release identity (SHAs) appears only in `RELEASE_STATUS.md`; the closeout leaves exactly 14 root files. It is a real test, not an ad-hoc check.
+A deterministic documentation-contract test — [`tests/config/documentationContract.test.ts`](../tests/config/documentationContract.test.ts) — runs under `pnpm test:unit` (the **CI - Test Audit** gate) and asserts: exactly 14 canonical names; every pre-foundation root Markdown is mapped in this ledger; the required metadata fields on `README.md` / `RELEASE_STATUS.md` / `PRODUCT_REQUIREMENTS.md` / this ledger (each promoted canonical document is added here as it lands); single-value content dispositions (no compound cells); every EXTRACTED row has a canonical target heading; relative links in the governed docs resolve; every retained-evidence file has an exact destination; no open/unmerged PR is recorded as complete (#1033 remains an OPEN GAP); volatile release identity (SHAs) appears only in `RELEASE_STATUS.md`; the closeout leaves exactly 14 root files. It is a real test, not an ad-hoc check.
 
 ---
 
