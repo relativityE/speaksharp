@@ -15,6 +15,7 @@ import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
+import { FreestyleHelpOverlay } from '@/components/session/FreestyleHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
@@ -114,6 +115,25 @@ export const SessionPage: React.FC = () => {
 
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
+    // #1042 PR2: the "How Freestyle Practice works" help overlay is available only when the session is idle
+    // (before recording / after a successful save). It is disabled during starting, initializing, recording,
+    // stopping, finalizing/saving, or an unresolved recovery. This is derived ENTIRELY from the existing
+    // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
+    // lock model. The controller's recording lifecycle is INITIATING/ENGINE_INITIALIZING/RECORDING/STOPPING.
+    const helpOverlayAvailable = !(
+        // engineSelectionLocked is set synchronously on Start INTENT (before the FSM reaches INITIATING),
+        // so it closes the start-intent window where runtimeState/isListening/sttStatus are still idle —
+        // the same authoritative lock the mode selector uses; no separate lock model. When it flips true
+        // the overlay's own effect also auto-closes an already-open guide.
+        engineSelectionLocked ||
+        isActiveStt ||
+        isTranscriptFinalizing ||
+        pendingResolutionKind !== null ||
+        runtimeState === 'INITIATING' ||
+        runtimeState === 'ENGINE_INITIALIZING' ||
+        runtimeState === 'RECORDING' ||
+        runtimeState === 'STOPPING'
+    );
 
     // Track 1: the post-save UI (settled copy, Analytics action, Private CTA, toast) is shown only once
     // finalization is TERMINAL — the controller publishes finalizedAnalysis after persistence +
@@ -221,6 +241,9 @@ export const SessionPage: React.FC = () => {
                 (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
+                {/* #1042 PR2: help affordance directly above the Mic-ready status surface, left-aligned with
+                    the primary recording column. Informational only — never navigates, never records. */}
+                <FreestyleHelpOverlay available={helpOverlayAvailable} />
                 <StatusNotificationBar
                     status={displayStatus}
                     analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
