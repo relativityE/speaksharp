@@ -14,6 +14,7 @@ const read = (rel: string) => fs.readFileSync(path.join(DOCS, rel), 'utf8');
 const README = read('README.md');
 const LEDGER = read('DOC_MIGRATION_LEDGER.md');
 const STATUS = read('RELEASE_STATUS.md');
+const PRODUCT_REQUIREMENTS = read('PRODUCT_REQUIREMENTS.md'); // canonical #2 (#1038)
 
 const CANONICAL_14 = [
   'README.md', 'PRODUCT_REQUIREMENTS.md', 'ROADMAP.md', 'ARCHITECTURE.md', 'STT.md',
@@ -247,15 +248,15 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('the 10 metadata fields appear within the document header (first 25 lines), not merely anywhere', () => {
-    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER]] as const) {
+    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS]] as const) {
       const header = md.split('\n').slice(0, 25).join('\n');
       const missing = METADATA_FIELDS.filter(f => !header.includes(f));
       expect(missing, `${label} header missing fields`).toEqual([]);
     }
   });
 
-  it('relative links in the three governed docs resolve', () => {
-    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS]] as const) {
+  it('relative links in the governed docs resolve', () => {
+    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS]] as const) {
       for (const m of md.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
         expect(fs.existsSync(path.resolve(DOCS, m[1])), `${name}: broken link ${m[1]}`).toBe(true);
       }
@@ -268,12 +269,17 @@ describe('documentation contract — product_release/', () => {
     expect(LEDGER).toContain('archive/attribution-sanitation-crosswalk.md');
   });
 
-  it('no open/unmerged PR is described as complete (positive overclaims only)', () => {
-    const overclaimBefore = /\b(fixed|deployed|shipped|merged)\b[^.\n]{0,30}#1033/i;
-    const overclaimAfter = /#1033[^.\n]*\b(is|now|already|was)\s+(fixed|deployed|shipped|merged)\b/i;
-    expect(overclaimBefore.test(LEDGER)).toBe(false);
-    expect(overclaimAfter.test(LEDGER)).toBe(false);
-    expect(LEDGER).toContain('OPEN GAP');
+  it('the resolved #1033 attribution gap is not preserved as an open/unmerged claim', () => {
+    // #1033 is merged, migrated, deployed, and live-proven — the ledger must not carry the stale
+    // "still open / unmerged" phrasings that once described it. (Accurate #1033 status lives in
+    // RELEASE_STATUS.md; this guard only rejects the specific resolved-gap phrasings.)
+    const stalePhrases = [
+      'unmerged PR #1033',
+      '#1033 remains an OPEN GAP',
+      'Durable engine-attribution: OPEN GAP',
+    ];
+    const preserved = stalePhrases.filter((p) => LEDGER.includes(p));
+    expect(preserved, `stale #1033 open-gap status preserved in ledger: ${JSON.stringify(preserved)}`).toEqual([]);
   });
 
   it('volatile git SHAs appear only in RELEASE_STATUS (README + ledger carry only pinned provenance)', () => {
