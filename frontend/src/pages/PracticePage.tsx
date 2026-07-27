@@ -32,16 +32,20 @@ import {
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
 
+// Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
+// the two-stop 135° gradient #0d7d74→#17a99b (blue-leaning, NOT emerald/mint and NOT the dark CTA teal
+// #0a5f58); icon/pill tint #e6f4f2. The waveform/transcript art reads WHITE on the dark teal band.
 const QUICK_VARS: React.CSSProperties = {
-  ['--ss-card' as string]: 'var(--ss-session-accent)', ['--ss-card-btn' as string]: 'var(--ss-session-btn)',
-  ['--ss-card-soft' as string]: 'var(--ss-session-soft)', ['--ss-card-panel' as string]: 'var(--ss-session-panel)',
-  ['--ss-card-border' as string]: 'var(--ss-session-border)', ['--ss-card-warm' as string]: 'var(--ss-sun)',
-  ['--ss-art-ink' as string]: '#065E5A',
+  ['--ss-card' as string]: '#0d7d74', ['--ss-card-btn' as string]: '#0d7d74',
+  ['--ss-card-soft' as string]: '#e6f4f2', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #0d7d74 0%, #17a99b 100%)',
+  ['--ss-card-border' as string]: '#0d7d74', ['--ss-card-warm' as string]: '#f4c77b',
+  ['--ss-art-ink' as string]: 'rgba(255,255,255,0.9)',
 };
+// Guided violet — same 135° angle + light/dark relationship, violet tokens.
 const GUIDED_VARS: React.CSSProperties = {
-  ['--ss-card' as string]: 'var(--ss-exec-accent)', ['--ss-card-btn' as string]: 'var(--ss-exec-btn)',
-  ['--ss-card-soft' as string]: 'var(--ss-exec-soft)', ['--ss-card-panel' as string]: 'var(--ss-exec-panel)',
-  ['--ss-card-border' as string]: 'var(--ss-exec-border)', ['--ss-card-warm' as string]: 'var(--ss-coral)',
+  ['--ss-card' as string]: '#7b5ce0', ['--ss-card-btn' as string]: '#6a4fd0',
+  ['--ss-card-soft' as string]: '#f0ecfb', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #7b5ce0 0%, #9d7cf0 100%)',
+  ['--ss-card-border' as string]: '#ded8f5', ['--ss-card-warm' as string]: 'var(--ss-coral)',
 };
 
 const QUICK_BULLETS: Bullet[] = [
@@ -113,8 +117,8 @@ function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
   return (
     <div
       data-testid="freestyle-trial-strip"
-      className="flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 shadow-[0_16px_34px_-18px_rgba(31,39,51,0.65)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
-      style={{ background: '#1f2733' }}
+      className="flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 shadow-[0_16px_34px_-18px_rgba(29,74,69,0.6)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
+      style={{ background: '#1d4a45' }}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
@@ -229,7 +233,7 @@ export default function PracticePage() {
                     <span className="text-[color:var(--ss-teal-title)]">Public Impact!</span>
                   </h1>
                   <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                  <p className="mt-4 max-w-xl text-[20px] font-medium leading-[1.5] text-[color:var(--ss-body-slate)] md:text-[22px]">Practice important speaking moments in private.<br />Get focused feedback and track your improvement before the moment matters.</p>
+                  <p className="mt-4 max-w-xl text-[19px] font-semibold leading-[1.5]" style={{ color: '#14181f' }}>Practice important speaking moments in private.<br />Get focused feedback and track your improvement before the moment matters.</p>
                   <div className="mt-6">
                     {/* Teal CTA on the orange field — complementary contrast (Rule 2). White text on teal. */}
                     <button
