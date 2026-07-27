@@ -61,24 +61,19 @@ const GUIDED_BULLETS: Bullet[] = [
 
 interface Bullet { text: string; Icon: LucideIcon }
 
-function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid, hideMarker, cornerBadge }: {
+function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
   marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; ctaSolid?: boolean; onClick: () => void; testid: string;
-  // #1061: hide the in-body status chip when a header cornerBadge already carries status (e.g. Guided "SOON").
-  hideMarker?: boolean;
-  // A small status pill absolutely positioned top-right on the art band (e.g. Guided "SOON").
-  cornerBadge?: React.ReactNode;
 }) {
   const MarkerIcon = markerIcon ?? Check;
-  // Full-width CTA pinned to the bottom (mt-auto) so both product cards' buttons bottom-align.
-  const ctaClass = `ss-ring mt-auto flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-3 text-sm font-bold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
+  // Full-width CTA pinned to the bottom so both product cards' buttons bottom-align.
+  const ctaClass = `ss-ring flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-3 text-sm font-bold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
   return (
     <article style={vars} data-testid={`${testid}-card`}
       className="group ss-mode-card flex h-full flex-col overflow-hidden rounded-[16px] bg-[color:var(--ss-surface)] transition-all duration-200 shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-[1.5px] ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]">
       <div className="flex flex-1 flex-col">
         <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]">
           <div className="absolute inset-0 px-5 py-3">{art}</div>
-          {cornerBadge ? <div className="absolute right-3 top-3">{cornerBadge}</div> : null}
         </div>
         <div className="flex flex-1 flex-col p-5">
           <h3 className="text-[21px] font-extrabold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
@@ -91,9 +86,7 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
               </li>
             ))}
           </ul>
-          {hideMarker ? <div className="mt-3.5" /> : (
-            <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
-          )}
+          <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
           <div className="mt-4 flex flex-1 flex-col justify-end pt-1">
             <button type="button" onClick={onClick} data-testid={testid} aria-label={ctaAria} className={ctaClass}>
               {ctaLabel}<ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
@@ -117,8 +110,8 @@ function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
   return (
     <div
       data-testid="freestyle-trial-strip"
-      className="flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 shadow-[0_16px_34px_-18px_rgba(29,74,69,0.6)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
-      style={{ background: '#1d4a45' }}
+      className="flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 shadow-[0_16px_34px_-18px_rgba(13,125,116,0.5)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
+      style={{ background: 'linear-gradient(135deg, #0d7d74 0%, #17a99b 100%)' }}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
@@ -185,21 +178,18 @@ export default function PracticePage() {
     setNotifyOpen(true);
   };
 
-  const soonBadge = (
-    <span data-testid="guided-soon-badge" className="rounded-full bg-white/95 px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-[color:var(--ss-exec-accent)]">Soon</span>
-  );
   const freestyleCard = (
     <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice"
       promise={isAuthed ? 'Speak freely. See how you’re progressing.' : 'No script. No pressure. Just practice.'}
-      bullets={QUICK_BULLETS} marker="Available now" hideMarker={!isAuthed}
+      bullets={QUICK_BULLETS} marker="Available now"
       ctaLabel={isAuthed ? 'Start Freestyle Practice' : 'Start Freestyle'} ctaAria="Start Freestyle Practice"
       ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
   );
   const guidedCard = (
     <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal"
       promise={isAuthed ? 'Prepare what matters. Rehearse until it lands.' : 'Prepare the points that must land.'}
-      bullets={GUIDED_BULLETS} marker="Coming Soon!" markerIcon={Clock} hideMarker={!isAuthed} cornerBadge={!isAuthed ? soonBadge : undefined}
-      ctaLabel={isAuthed ? 'Notify me' : 'Notify me at launch'} ctaAria="Notify me about Guided Rehearsal"
+      bullets={GUIDED_BULLETS} marker="Coming Soon!" markerIcon={Clock}
+      ctaLabel="Notify me" ctaAria="Notify me about Guided Rehearsal"
       onClick={openNotify} testid="practice-card-guided" />
   );
   const productGrid = (
@@ -211,21 +201,29 @@ export default function PracticePage() {
     <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
       <div className="practice-content">
         {isAuthed ? (
-          /* AUTHENTICATED product state — compact welcome (visibly logged-in), not the marketing hero. */
-          <div className="ss-theme-hero">
-            <div className="mx-auto max-w-5xl px-5 pb-6 pt-24 sm:px-8" data-testid="practice-welcome-authed">
-              <p className="text-lg font-extrabold tracking-tight sm:text-xl">
-                <span className="text-[color:var(--ss-text)]">Private Practice.</span>{' '}
-                <span className="text-[color:var(--ss-teal-title)]">Public Impact!</span>
-              </p>
-              <p className="mt-2 text-2xl font-bold italic text-[color:var(--ss-teal-title)] sm:text-[1.7rem]">Let’s get started! Select what you want to do.</p>
+          /* AUTHENTICATED product state — a greeting ROW (visibly logged-in), NO marketing peach band: the
+             product choices lead the page. Recent-practice continuity sits inline on the right. */
+          <div className="mx-auto max-w-5xl px-5 pb-3 pt-24 sm:px-8" data-testid="practice-welcome-authed">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <span className="text-[13px] font-extrabold uppercase tracking-[0.1em] text-[color:var(--ss-teal-title)]">Welcome back</span>
+                <h1 className="mt-1 text-[30px] font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[38px]">What do you want to work on?</h1>
+              </div>
+              <PracticeContinuity
+                variant="inline"
+                loading={recentLoading}
+                error={Boolean(recentError)}
+                lastSession={lastSession}
+                onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
+                onViewAnalytics={() => navigate('/analytics')}
+              />
             </div>
           </div>
         ) : (
           /* ANONYMOUS marketing state — large sales hero. */
           <div className="ss-theme-hero">
             <div className="mx-auto max-w-5xl px-5 pb-10 pt-24 sm:px-8">
-              <div className="mt-1 grid items-center gap-8 md:grid-cols-[1fr_22rem]">
+              <div className="mt-1 grid items-start gap-8 md:grid-cols-[1fr_22rem]">
                 <div>
                   <h1 className="font-extrabold leading-[1.05] tracking-tight" style={{ fontSize: 'clamp(44px, 6.2vw, 88px)' }}>
                     <span className="text-[color:var(--ss-text)]">Private Practice.</span>
@@ -255,19 +253,10 @@ export default function PracticePage() {
           </div>
         )}
 
-        <div className="mx-auto -mt-6 max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8">
+        <div className={`mx-auto max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8 ${isAuthed ? 'mt-4' : '-mt-6'}`}>
           {isAuthed ? (
-            /* AUTHENTICATED: continuity + product cards (each card owns its own action). */
-            <>
-              <PracticeContinuity
-                loading={recentLoading}
-                error={Boolean(recentError)}
-                lastSession={lastSession}
-                onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
-                onViewAnalytics={() => navigate('/analytics')}
-              />
-              {productGrid}
-            </>
+            /* AUTHENTICATED: the two product cards (each owns its action). Continuity is in the greeting row. */
+            productGrid
           ) : (
             /* ANONYMOUS: a compact Freestyle FREE TRIAL strip (shared Freestyle teal token) directly above
                the two product cards. The strip carries the trial promo; each product card owns its decision

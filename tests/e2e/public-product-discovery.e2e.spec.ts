@@ -54,8 +54,9 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('freestyle-trial-strip')).toBeVisible();
     await expect(page.getByTestId('freestyle-trial-strip')).toContainText(/free trial/i);
     await expect(page.getByTestId('support-freestyle-explain')).toHaveCount(0);
-    // Guided status is the header "SOON" pill on the marketing surface (never "Planned"); no continuity for anon.
-    await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
+    // Guided status is the "Coming Soon!" marker (no duplicate SOON badge), never "Planned"; no continuity for anon.
+    await expect(page.getByTestId('practice-card-guided-card').getByText('Coming Soon!')).toBeVisible();
+    await expect(page.getByTestId('guided-soon-badge')).toHaveCount(0);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('practice-continuity')).toHaveCount(0);
     await settle(page);
@@ -92,7 +93,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/let’s get started/i);
+    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/what do you want to work on/i);
     await expect(page.getByTestId('practice-continuity-summary')).toBeVisible();
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);
