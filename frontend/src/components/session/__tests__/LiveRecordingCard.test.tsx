@@ -115,18 +115,21 @@ describe('LiveRecordingCard', () => {
 
         // Short cue visible; the explanatory detail lives behind the "About transcription modes" help.
         expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Ready on this device');
-        expect(screen.queryByText(/on your device after a one-time setup/i)).toBeNull();
+        // #1064: the concise privacy explanation is not a default paragraph; it lives behind the help.
+        expect(screen.queryByText(/Transcription runs on this device/i)).toBeNull();
         // The help lists all three modes; Private's description sets the on-device expectation.
         fireEvent.click(screen.getByTestId('stt-mode-help'));
         const about = screen.getByTestId('stt-modes-about');
-        expect(about).toHaveTextContent('Private — Recommended');
+        // #1064: the About heading is the method name "Private" — the "Stays local" descriptor is the
+        // dropdown-row badge, not part of this heading (mirrors Browser / Quick preview).
+        expect(within(about).getByText('Private')).toBeInTheDocument();
         expect(about).toHaveTextContent('Browser');
         expect(about).toHaveTextContent('Cloud — Pro');
         // #1041: the About-modes heading is "Browser" (the primary method name). "Quick preview" is
         // Browser's secondary descriptor BADGE on the selector row — retained, but not part of this
         // heading (it is not the method name), so it does not appear here.
         expect(about).not.toHaveTextContent(/quick preview/i);
-        expect(screen.getByTestId('stt-about-private')).toHaveTextContent(/Private runs on your device after a one-time setup/i);
+        expect(screen.getByTestId('stt-about-private')).toHaveTextContent(/Transcription runs on this device\. Audio is not uploaded\./i);
     });
 
     it('tints the status pill amber with "getting mic ready" while warming (#891)', () => {
@@ -289,7 +292,7 @@ describe('LiveRecordingCard', () => {
         // Mode descriptions are not default-visible paragraphs; they live behind the About help.
         expect(screen.queryByTestId('stt-modes-about')).toBeNull();
         fireEvent.click(screen.getByTestId('stt-mode-help'));
-        // The About panel lists all three modes together, Private first (Recommended).
+        // The About panel lists all three modes together, Private first (Stays local).
         expect(screen.getByTestId('stt-about-private')).toBeInTheDocument();
         expect(screen.getByTestId('stt-about-native')).toBeInTheDocument();
         expect(screen.getByTestId('stt-about-cloud')).toBeInTheDocument();
@@ -304,6 +307,13 @@ describe('LiveRecordingCard', () => {
         const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
         expect(privateOption).toHaveAttribute('data-disabled');
         expect(privateOption.textContent).toMatch(/^Private/i);
+        // #1064: when unavailable, the privacy IDENTITY stays truthful — the "Stays local" badge is still
+        // shown (muted) — but the GREEN privacy lock is NOT rendered; access restriction is carried by the
+        // disabled state + entitlement copy + the muted entitlement lock, never by the privacy lock.
+        expect(within(privateOption).getByTestId('stt-mode-tag-stays-local')).toBeInTheDocument();
+        expect(within(privateOption).queryByTestId('stt-private-lock')).toBeNull();
+        // #1064: no "Recommended" on the Private surface anymore.
+        expect(privateOption.textContent ?? '').not.toMatch(/recommended/i);
         // Locked-mode entitlement copy is readable via "About transcription modes" without selecting.
         fireEvent.click(screen.getByTestId('stt-mode-help'));
         const privDesc = screen.getByTestId('stt-about-private');
@@ -382,7 +392,7 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/Cloud is available for Pro users/i)).toBeInTheDocument();
     });
 
-    it('uses the Private-first dropdown order and tags: Private (Recommended), Browser (+ Quick preview badge), Cloud (Pro)', async () => {
+    it('uses the Private-first dropdown order and tags: Private (Stays local + green privacy lock), Browser (+ Quick preview badge), Cloud (Pro)', async () => {
         render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
@@ -394,12 +404,17 @@ describe('LiveRecordingCard', () => {
         expect(browser).toHaveTextContent('Browser');
         expect(cloud).toHaveTextContent('Cloud');
 
-        // #1041: Private = Recommended; Browser keeps its SINGLE secondary [Quick preview] descriptor badge
-        // (Browser is the method name; Quick preview is only a descriptor, never a second method); Cloud = Pro.
-        expect(within(priv).getByTestId('stt-mode-tag-recommended')).toBeInTheDocument();
+        // #1064: Private carries the "Stays local" privacy descriptor badge + the GREEN privacy lock (only
+        // when available). "Recommended" is retired from every Private surface.
+        // #1041: Browser keeps its SINGLE secondary [Quick preview] descriptor badge (Browser is the method
+        // name; Quick preview is only a descriptor, never a second method); Cloud = Pro.
+        expect(within(priv).getByTestId('stt-mode-tag-stays-local')).toBeInTheDocument();
+        expect(within(priv).getByTestId('stt-private-lock')).toBeInTheDocument();
+        expect(priv.textContent ?? '').not.toMatch(/recommended/i);
         expect(within(browser).getAllByTestId('stt-mode-tag-quick-preview')).toHaveLength(1);
         expect(within(cloud).getByTestId('stt-mode-tag-pro')).toBeInTheDocument();
-        expect(within(browser).queryByTestId('stt-mode-tag-recommended')).toBeNull();
+        // The "Stays local" privacy descriptor belongs to Private ONLY.
+        expect(within(browser).queryByTestId('stt-mode-tag-stays-local')).toBeNull();
 
         // #1041 accessibility hierarchy: the Browser option's accessible NAME is exactly "Browser" (the
         // method) — never "Native"/"Quick preview" — while "Quick preview" + the approved explanation are
@@ -408,7 +423,7 @@ describe('LiveRecordingCard', () => {
         expect(browser).not.toHaveAccessibleName(/native|quick preview/i);
         expect(browser).toHaveAccessibleDescription(/quick preview/i);
         expect(browser).toHaveAccessibleDescription(/uses your browser.s speech recognition/i);
-        expect(within(cloud).queryByTestId('stt-mode-tag-recommended')).toBeNull();
+        expect(within(cloud).queryByTestId('stt-mode-tag-stays-local')).toBeNull();
 
         // Private-first order: Private before Browser before Cloud.
         expect(priv.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -427,6 +442,40 @@ describe('LiveRecordingCard', () => {
         expect(browser).toHaveAccessibleDescription(
             "Quick preview. Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.",
         );
+    });
+
+    it('#1064: focusing Private announces name "Private" and the approved privacy sentence EXACTLY once', async () => {
+        render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={true} />);
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        // Focus activates the row (the visual flyout renders), but Private's accessible description must
+        // stay the single persistent descriptor — not also the flyout — so it is not announced twice.
+        fireEvent.focus(priv);
+        // Accessible NAME is exactly "Private" (the method) — never "Stays local" (a descriptor).
+        expect(priv).toHaveAccessibleName('Private');
+        expect(priv).not.toHaveAccessibleName(/stays local/i);
+        // Assert the COMPLETE description (not just substrings) so any duplicated/appended flyout text fails.
+        expect(priv).toHaveAccessibleDescription(
+            'Stays local. Transcription runs on this device; audio is not uploaded.',
+        );
+        // No "secure/encrypted/protected" overclaim in the privacy signal.
+        expect(priv.getAttribute('aria-describedby')).toBe('stt-private-descriptor');
+    });
+
+    it('#1064: available Private shows the GREEN privacy lock; unavailable Private shows neither green lock nor "Recommended"', async () => {
+        const { rerender } = render(<LiveRecordingCard {...defaultProps} canUsePrivate={true} canUseCloudStt={false} />);
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        let priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        // Available: green outlined privacy lock + Stays local badge, no "Recommended".
+        expect(within(priv).getByTestId('stt-private-lock')).toBeInTheDocument();
+        expect(within(priv).getByTestId('stt-mode-tag-stays-local')).toBeInTheDocument();
+        expect(priv.textContent ?? '').not.toMatch(/recommended|secure|encrypted|protected/i);
+
+        // Unavailable: the green privacy lock disappears; the (muted) Stays local badge remains.
+        rerender(<LiveRecordingCard {...defaultProps} canUsePrivate={false} canUseCloudStt={false} />);
+        priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        expect(within(priv).queryByTestId('stt-private-lock')).toBeNull();
+        expect(within(priv).getByTestId('stt-mode-tag-stays-local')).toBeInTheDocument();
     });
 
     it('drives exactly ONE controlled description surface from the active row (mutually exclusive)', async () => {
@@ -465,7 +514,7 @@ describe('LiveRecordingCard', () => {
             flyouts = screen.getAllByTestId('stt-mode-flyout');
             expect(flyouts).toHaveLength(1);
             expect(flyouts[0]).toHaveAttribute('data-mode', 'private');
-            expect(flyouts[0]).toHaveTextContent(/on your device/i);
+            expect(flyouts[0]).toHaveTextContent(/on this device/i);
         } finally {
             window.matchMedia = original;
         }

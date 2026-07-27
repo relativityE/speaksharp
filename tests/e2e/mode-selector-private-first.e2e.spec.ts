@@ -6,7 +6,7 @@ import { TEST_IDS } from '../constants';
 /**
  * P0.2 — Private-first mode hierarchy + the SINGLE controlled description surface.
  *
- * Proves the selector reads Private (Recommended) → Browser → Cloud (Pro) across
+ * Proves the selector reads Private (Stays local) → Browser → Cloud (Pro) across
  * responsive widths, and that the mode description is ONE controlled flyout — never three overlapping
  * bubbles. Hard geometry assertions: at most one visible flyout; it never intersects the dropdown menu,
  * never overlaps Live Coaching, stays fully in the viewport, keeps a visible gap, and never obscures a
@@ -58,14 +58,16 @@ test.describe('Private-first mode selector + single description surface (respons
       await expect(browser).toBeVisible();
       await expect(cloud).toBeVisible();
 
-      // #1041: Private = Recommended; Browser keeps its single secondary [Quick preview] descriptor badge
-      // (Browser is the method name, Quick preview is only a descriptor); Cloud = Pro.
-      await expect(priv.getByTestId('stt-mode-tag-recommended')).toBeVisible();
+      // #1064: Private = Stays local (privacy descriptor badge); #1041: Browser keeps its single secondary
+      // [Quick preview] descriptor badge (Browser is the method name, Quick preview is only a descriptor);
+      // Cloud = Pro. "Recommended" is retired from every Private surface.
+      await expect(priv.getByTestId('stt-mode-tag-stays-local')).toBeVisible();
       await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toBeVisible();
       await expect(browser.getByTestId('stt-mode-tag-quick-preview')).toHaveCount(1);
       await expect(cloud.getByTestId('stt-mode-tag-pro')).toBeVisible();
-      await expect(browser.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);
-      await expect(cloud.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);
+      await expect(priv.getByTestId('stt-mode-tag-recommended')).toHaveCount(0);
+      await expect(browser.getByTestId('stt-mode-tag-stays-local')).toHaveCount(0);
+      await expect(cloud.getByTestId('stt-mode-tag-stays-local')).toHaveCount(0);
 
       // Private-first DOM order.
       const order = await page.evaluate((ids) => {
@@ -105,7 +107,8 @@ test.describe('Private-first mode selector + single description surface (respons
       cloud: page.getByTestId(TEST_IDS.STT_MODE_CLOUD),
     };
     const expectedText: Record<string, RegExp> = {
-      private: /on your device/i,
+      // #1064: available Private (Pro) shows the concise privacy sentence.
+      private: /on this device/i,
       native: /browser.s speech recognition/i,
       cloud: /external transcription server/i,
     };
@@ -159,12 +162,14 @@ test.describe('Private-first mode selector + single description surface (respons
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
     await openMenu(page);
 
-    // ArrowDown highlights the first item (Private) → single flyout shows Private + aria-describedby wires up.
+    // ArrowDown highlights the first item (Private) → single flyout shows Private.
     await page.keyboard.press('ArrowDown');
     const fly = page.getByTestId('stt-mode-flyout');
     await expect(fly).toBeVisible();
     await expect(fly).toHaveAttribute('data-mode', 'private');
-    await expect(page.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('aria-describedby', 'stt-mode-flyout-desc');
+    // #1064: Private's accessible description is the PERSISTENT privacy descriptor (never the flyout id) —
+    // so the "Stays local" privacy sentence is announced exactly once (mirrors Browser / #1041).
+    await expect(page.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('aria-describedby', 'stt-private-descriptor');
     expect(await fly.count()).toBe(1);
 
     await page.keyboard.press('ArrowDown');

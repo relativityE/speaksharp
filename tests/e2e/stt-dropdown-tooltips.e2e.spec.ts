@@ -3,7 +3,7 @@ import { navigateToRoute, programmaticLoginWithRoutes } from './helpers';
 import { TEST_IDS } from '../constants';
 
 /**
- * PO requirement: hovering (or keyboard-focusing) a mode in the STT dropdown — Private (Recommended),
+ * PO requirement: hovering (or keyboard-focusing) a mode in the STT dropdown — Private (Stays local),
  * Browser, Cloud — reveals that mode's approved description. There is ONE controlled description
  * surface (`stt-mode-flyout`) that follows the active row — never three independent bubbles. (Full
  * geometry/containment coverage lives in mode-selector-private-first.e2e.spec.ts.)
@@ -14,7 +14,7 @@ test.describe('STT dropdown option description (single controlled surface)', () 
     await navigateToRoute(page, '/session');
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
 
-    // Open the mode dropdown; Private-first order + labels: Private (Recommended), Browser, Cloud.
+    // Open the mode dropdown; Private-first order + labels: Private (Stays local), Browser, Cloud.
     await page.getByTestId(TEST_IDS.STT_MODE_SELECT).click();
     await expect(page.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toBeVisible();
     await expect(page.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toBeVisible();
@@ -22,7 +22,7 @@ test.describe('STT dropdown option description (single controlled surface)', () 
 
     const fly = page.getByTestId('stt-mode-flyout');
 
-    // Keyboard focus reveals the description: ArrowDown highlights the first item (Private, Recommended).
+    // Keyboard focus reveals the description: ArrowDown highlights the first item (Private, Stays local).
     await page.keyboard.press('ArrowDown');
     await expect(fly).toBeVisible();
     await expect(fly).toHaveAttribute('data-mode', 'private');
@@ -41,10 +41,11 @@ test.describe('STT dropdown option description (single controlled surface)', () 
     await expect(fly).toContainText(/browser.s speech recognition/i);
     expect(await fly.count()).toBe(1);
 
-    // Hover Private (now the first, Recommended item).
+    // Hover Private (the first item; Stays local privacy descriptor).
     await page.getByTestId(TEST_IDS.STT_MODE_PRIVATE).hover();
     await expect(fly).toHaveAttribute('data-mode', 'private');
-    await expect(fly).toContainText(/on your device/i);
+    // #1064: available Private (this is a Pro user) shows the concise privacy sentence.
+    await expect(fly).toContainText(/on this device/i);
     expect(await fly.count()).toBe(1);
   });
 });
