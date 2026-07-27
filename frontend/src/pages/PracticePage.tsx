@@ -22,6 +22,8 @@ import {
 import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
+import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
+import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
@@ -133,6 +135,10 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
 export default function PracticePage() {
   const navigate = useNavigate();
   const { setSurface } = usePracticeSurface();
+  // #1042 PR4: Practice Home continuity — surface the most-recent session for returning users (truthful
+  // empty state for new users). Read-only; one row. The block never fabricates a metric.
+  const { data: recentSessions, isLoading: recentLoading } = usePracticeHistory({ limit: 1 });
+  const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
   // Guided is not a working product: selecting it shows an unavailable toast and marks the reporting
   // surface (it does NOT open a page/preview). `guidedSelected` only affects Report Issue attribution.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
@@ -221,6 +227,14 @@ export default function PracticePage() {
             {/* pb-28 below md clears the fixed mobile BOTTOM nav (Navigation.tsx: md:hidden fixed bottom-0,
                 ~80px) plus safe-area, so the Guided CTA + contextual notice are never obscured. */}
             <div className="mx-auto -mt-6 max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8">
+              {/* #1042 PR4: continuity for returning users (recent-session summary + Review/Analytics),
+                  truthful empty state for new users. Sits above the two-product chooser. */}
+              <PracticeContinuity
+                loading={recentLoading}
+                lastSession={lastSession}
+                onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
+                onViewAnalytics={() => navigate('/analytics')}
+              />
               <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
                 <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
                   bullets={QUICK_BULLETS}
