@@ -77,7 +77,7 @@ describe('pageContext — /practice surfaces (closed contract)', () => {
     const quick = resolvePageContext('/practice', 'quick_practice_overview');
     const guided = resolvePageContext('/practice', 'guided_rehearsal_unavailable');
     expect(home).toMatchObject({ pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser', practiceSurface: 'practice_home' });
-    expect(quick).toMatchObject({ pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview', practiceSurface: 'quick_practice_overview' });
+    expect(quick).toMatchObject({ pageLabel: 'Freestyle Practice help', journeyStep: 'quick_overview', practiceSurface: 'quick_practice_overview' });
     // Tester-facing label is exactly "Guided Rehearsal"; availability lives in the token, not the label.
     expect(guided).toMatchObject({ pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', practiceSurface: 'guided_rehearsal_unavailable' });
     expect(guided.pageLabel).not.toContain('unavailable');

@@ -74,10 +74,10 @@ describe('Report Issue — /practice surface attribution (one route, three surfa
     expect(meta).toMatchObject({ practiceSurface: 'practice_home', journeyStep: 'chooser', canonicalRoute: '/practice', pageKey: 'practice' });
   });
 
-  it('quick_practice_overview: shows Quick Practice overview + quick areas, stores quick surface', async () => {
+  it('quick_practice_overview: shows Freestyle Practice help + quick areas, stores quick surface', async () => {
     renderApp();
     fireEvent.click(screen.getByTestId('practice-card-quick'));
-    const meta = await reportAndCapture(/Quick Practice overview/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
+    const meta = await reportAndCapture(/Freestyle Practice help/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
     expect(meta).toMatchObject({ practiceSurface: 'quick_practice_overview', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
   });
 
@@ -115,7 +115,7 @@ describe('Report Issue — /practice surface attribution (one route, three surfa
     expect(first.practiceSurface).toBe('guided_rehearsal_unavailable');
     // Selecting Quick changes the surface to quick.
     fireEvent.click(screen.getByTestId('practice-card-quick'));
-    const second = await reportAndCapture(/Quick Practice overview/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
+    const second = await reportAndCapture(/Freestyle Practice help/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
     expect(second.practiceSurface).toBe('quick_practice_overview');
   });
 
