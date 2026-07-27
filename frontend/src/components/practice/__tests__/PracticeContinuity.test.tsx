@@ -33,6 +33,22 @@ describe('PracticeContinuity (#1042 PR4)', () => {
         expect(screen.getByTestId('practice-continuity-summary')).not.toHaveTextContent(/WPM/);
     });
 
+    it('omits duration when absent (nullable column) — never shows a fabricated 0:00', () => {
+        render(<PracticeContinuity loading={false} lastSession={makeSession({ duration: null as unknown as number, wpm: null as unknown as number })} onReviewLast={vi.fn()} onViewAnalytics={vi.fn()} />);
+        const summary = screen.getByTestId('practice-continuity-summary');
+        expect(summary).not.toHaveTextContent(/0:00/);
+        expect(summary).not.toHaveTextContent(/\d+:\d\d/);
+    });
+
+    it('load FAILURE shows a truthful error state — never the false "no sessions" empty state', () => {
+        render(<PracticeContinuity loading={false} error={true} lastSession={null} onReviewLast={vi.fn()} onViewAnalytics={vi.fn()} />);
+        const err = screen.getByTestId('practice-continuity-error');
+        expect(err).toHaveTextContent(/couldn.t load your recent practice/i);
+        expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
+        expect(err.textContent ?? '').not.toMatch(/no sessions yet/i);
+    });
+
     it('new user: truthful empty state — no numbers, no dead actions', () => {
         render(<PracticeContinuity loading={false} lastSession={null} onReviewLast={vi.fn()} onViewAnalytics={vi.fn()} />);
         const empty = screen.getByTestId('practice-continuity-empty');

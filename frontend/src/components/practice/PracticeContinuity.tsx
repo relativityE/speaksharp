@@ -31,11 +31,14 @@ function formatWhen(iso: string): string | null {
 
 export function PracticeContinuity({
     loading,
+    error = false,
     lastSession,
     onReviewLast,
     onViewAnalytics,
 }: {
     loading: boolean;
+    /** True when the history query FAILED — must NOT be shown as the empty "no sessions" state. */
+    error?: boolean;
     lastSession: PracticeSession | null;
     onReviewLast: () => void;
     onViewAnalytics: () => void;
@@ -47,6 +50,21 @@ export function PracticeContinuity({
                 aria-hidden="true"
                 className="mb-6 h-16 animate-pulse rounded-xl bg-[color:var(--ss-card-soft)]/60"
             />
+        );
+    }
+
+    // A failed load must NOT masquerade as "no sessions yet" — say so honestly instead of implying the
+    // user has no history.
+    if (error) {
+        return (
+            <section
+                data-testid="practice-continuity-error"
+                role="status"
+                aria-label="Your practice progress"
+                className="mb-6 rounded-xl border border-[color:var(--ss-border)] bg-[color:var(--ss-surface)] px-4 py-3 text-sm text-[color:var(--ss-text-secondary)]"
+            >
+                We couldn’t load your recent practice right now. Your sessions are safe — please try again shortly.
+            </section>
         );
     }
 
@@ -64,11 +82,15 @@ export function PracticeContinuity({
     }
 
     const when = formatWhen(lastSession.created_at);
+    // duration is a nullable DB column; omit it when absent instead of showing a fabricated 0:00.
+    const durationText = typeof lastSession.duration === 'number' && Number.isFinite(lastSession.duration) && lastSession.duration > 0
+        ? formatDuration(lastSession.duration)
+        : null;
     const wpm = typeof lastSession.wpm === 'number' && Number.isFinite(lastSession.wpm) ? Math.round(lastSession.wpm) : null;
     // Compose from persisted fields only; omit any that are absent.
     const parts = [
         when ? `Last session ${when}` : 'Your last session',
-        formatDuration(lastSession.duration),
+        durationText,
         wpm != null ? `${wpm} WPM` : null,
     ].filter(Boolean);
 

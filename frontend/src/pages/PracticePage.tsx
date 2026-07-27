@@ -137,7 +137,7 @@ export default function PracticePage() {
   const { setSurface } = usePracticeSurface();
   // #1042 PR4: Practice Home continuity — surface the most-recent session for returning users (truthful
   // empty state for new users). Read-only; one row. The block never fabricates a metric.
-  const { data: recentSessions, isLoading: recentLoading } = usePracticeHistory({ limit: 1 });
+  const { data: recentSessions, isLoading: recentLoading, error: recentError } = usePracticeHistory({ limit: 1 });
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
   // Guided is not a working product: selecting it shows an unavailable toast and marks the reporting
   // surface (it does NOT open a page/preview). `guidedSelected` only affects Report Issue attribution.
@@ -231,6 +231,7 @@ export default function PracticePage() {
                   truthful empty state for new users. Sits above the two-product chooser. */}
               <PracticeContinuity
                 loading={recentLoading}
+                error={Boolean(recentError)}
                 lastSession={lastSession}
                 onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
                 onViewAnalytics={() => navigate('/analytics')}
