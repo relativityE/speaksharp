@@ -92,24 +92,56 @@ test.describe.serial('Live STT switching contract @live', () => {
   });
 
   test.afterAll(async () => {
-    // Delete every disposable fixture this run created...
-    await Promise.allSettled(
-      createdUsers.map((user) => admin.auth.admin.deleteUser(user.id))
-    );
-    // ...then PROVE cleanup (allSettled alone is not proof): re-query each marked disposable fixture id
-    // in BOTH auth.users and user_profiles and assert zero matching UNUSED/EXHAUSTED identifiers remain.
-    const remaining: Array<{ id: string; email: string; where: string }> = [];
+    // (3) Delete every disposable fixture and INSPECT each deletion result — a swallowed delete error must
+    //     never read as "cleaned up". Fail on any returned deletion error before the post-deletion queries.
+    const deletionErrors: Array<{ id: string; email: string; error: string }> = [];
     for (const user of createdUsers) {
-      const authRes = await admin.auth.admin.getUserById(user.id).catch(() => null);
-      if (authRes?.data?.user) remaining.push({ id: user.id, email: user.email, where: 'auth.users' });
-      const { data: profRows } = await admin.from('user_profiles').select('id').eq('id', user.id);
-      if ((profRows ?? []).length > 0) remaining.push({ id: user.id, email: user.email, where: 'user_profiles' });
+      const { error } = await admin.auth.admin.deleteUser(user.id);
+      if (error) deletionErrors.push({ id: user.id, email: user.email, error: error.message });
     }
+
+    // (1)+(2) PROVE cleanup, FAIL CLOSED. A verification query that errors (auth / network / permission /
+    // rate-limit / unexpected) must NOT be read as "user not found": only the explicit not-found/404
+    // response counts as proof of deletion, and a user_profiles query error is a verification failure —
+    // never interpreted as zero rows.
+    const remaining: Array<{ id: string; email: string; where: string }> = [];
+    const verifyErrors: Array<{ id: string; email: string; where: string; error: string }> = [];
+    for (const user of createdUsers) {
+      // auth.users: getUserById → { data:{user}, error }. Deleted ⇒ a 404 / not-found error; ANY other
+      // error is a verification failure (do not treat it as deletion proof).
+      const authRes = await admin.auth.admin.getUserById(user.id);
+      if (authRes.error) {
+        const status = (authRes.error as { status?: number }).status;
+        const notFound = status === 404 || /not.?found|user.*not.*exist/i.test(authRes.error.message);
+        if (!notFound) {
+          verifyErrors.push({ id: user.id, email: user.email, where: 'auth.users', error: `${status ?? ''} ${authRes.error.message}`.trim() });
+        }
+        // notFound ⇒ confirmed deleted (no remaining entry).
+      } else if (authRes.data?.user) {
+        remaining.push({ id: user.id, email: user.email, where: 'auth.users' });
+      }
+
+      // user_profiles: capture BOTH data and error; assert no query error BEFORE interpreting the count
+      // (data:null must not be mistaken for zero rows).
+      const { data: profRows, error: profErr } = await admin.from('user_profiles').select('id').eq('id', user.id);
+      if (profErr) {
+        verifyErrors.push({ id: user.id, email: user.email, where: 'user_profiles', error: profErr.message });
+      } else if ((profRows ?? []).length > 0) {
+        remaining.push({ id: user.id, email: user.email, where: 'user_profiles' });
+      }
+    }
+
     console.log(`LIVE_STT_SWITCHING_ZERO_ORPHAN_EVIDENCE ${JSON.stringify({
       fixturesCreated: createdUsers.map((u) => u.email),
+      deletionErrors,
+      verifyErrors,
       remaining,
-      zeroOrphans: remaining.length === 0,
+      zeroOrphans: deletionErrors.length === 0 && verifyErrors.length === 0 && remaining.length === 0,
     })}`);
+    // Fail closed on ALL three independent failure modes: deletion error, verification-query error, or a
+    // surviving fixture row.
+    expect(deletionErrors, `fixture deletion errors: ${JSON.stringify(deletionErrors)}`).toHaveLength(0);
+    expect(verifyErrors, `cleanup-verification query errors (fail closed, not zero rows): ${JSON.stringify(verifyErrors)}`).toHaveLength(0);
     expect(remaining, `orphaned disposable fixtures after cleanup: ${JSON.stringify(remaining)}`).toHaveLength(0);
   });
 
@@ -575,11 +607,16 @@ async function assertPrivacySignal(page: Page, opts: { available: boolean }) {
 }
 
 // The exact production release under test — read from the deployed page so the evidence names the SHA.
-async function readReleaseSha(page: Page): Promise<string | null> {
-  return page.evaluate(() => {
+// FAIL CLOSED: no .catch swallowing; the value must be present AND a real 40-char git SHA, else the
+// proof is not valid (a missing/short release would otherwise silently weaken the evidence).
+async function readReleaseSha(page: Page): Promise<string> {
+  const sha = await page.evaluate(() => {
     const w = window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } };
     return w.__APP_RELEASE__ ?? w.__APP_RUNTIME_CONFIG__?.release ?? null;
-  }).catch(() => null);
+  });
+  expect(sha, 'deployed release SHA (window.__APP_RELEASE__) must be present on the tested page').toBeTruthy();
+  expect(sha ?? '', `tested release must be a 40-char git SHA, got: ${sha}`).toMatch(/^[0-9a-f]{40}$/);
+  return sha as string;
 }
 
 async function isModeDisabled(page: Page, mode: 'private' | 'cloud') {
