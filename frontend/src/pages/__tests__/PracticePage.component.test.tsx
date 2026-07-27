@@ -17,12 +17,24 @@ vi.mock('@/services/practiceTelemetry', () => ({
 import { trackGuidedRehearsalUnavailable } from '@/services/practiceTelemetry';
 const guidedTelemetry = vi.mocked(trackGuidedRehearsalUnavailable);
 
+// #1042 PR4: the Practice Home continuity block reads the most-recent session via useRecentPracticeSummary.
+// Mock it so these component tests don't need a QueryClient/Auth provider; default = new user (no sessions).
+vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
+import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
+const mockHistory = vi.mocked(useRecentPracticeSummary);
+type HistoryReturn = ReturnType<typeof useRecentPracticeSummary>;
+
 // PracticePage no longer renders its own <main> — App.tsx owns the single #main-content landmark, so in
 // isolation we scope queries to the page's content container instead of a main landmark.
 const root = () => screen.getByTestId('practice-root');
 
 describe('PracticePage — orientation entry (Quick → /session; Guided stays inline)', () => {
-  beforeEach(() => { navigateSpy.mockReset(); guidedTelemetry.mockClear(); });
+  beforeEach(() => {
+    navigateSpy.mockReset();
+    guidedTelemetry.mockClear();
+    // Default: new user (no sessions) → truthful empty continuity state.
+    mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+  });
 
   it('does NOT render a <main> landmark or #main-content (App owns the sole one)', () => {
     const { container } = render(<PracticePage />);
@@ -199,5 +211,25 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(guided).toBeEnabled();
     expect(guided).toHaveTextContent('Guided Rehearsal');
     expect(screen.queryByTestId('guided-unavailable-notice')).not.toBeInTheDocument();
+  });
+
+  it('#1042 PR4: returning user sees the continuity block; Review → /analytics/<id>, View analytics → /analytics', () => {
+    mockHistory.mockReturnValue({
+      data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
+      isLoading: false,
+    } as unknown as HistoryReturn);
+    render(<PracticePage />);
+    expect(screen.getByTestId('practice-continuity')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('practice-continuity-review'));
+    expect(navigateSpy).toHaveBeenCalledWith('/analytics/sess-9');
+    fireEvent.click(screen.getByTestId('practice-continuity-analytics'));
+    expect(navigateSpy).toHaveBeenCalledWith('/analytics');
+  });
+
+  it('#1042 PR4: new user sees the truthful empty state (no recent-session block)', () => {
+    mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+    render(<PracticePage />);
+    expect(screen.getByTestId('practice-continuity-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
   });
 });
