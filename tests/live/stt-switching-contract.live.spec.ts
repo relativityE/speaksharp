@@ -92,9 +92,57 @@ test.describe.serial('Live STT switching contract @live', () => {
   });
 
   test.afterAll(async () => {
-    await Promise.allSettled(
-      createdUsers.map((user) => admin.auth.admin.deleteUser(user.id))
-    );
+    // (3) Delete every disposable fixture and INSPECT each deletion result — a swallowed delete error must
+    //     never read as "cleaned up". Fail on any returned deletion error before the post-deletion queries.
+    const deletionErrors: Array<{ id: string; email: string; error: string }> = [];
+    for (const user of createdUsers) {
+      const { error } = await admin.auth.admin.deleteUser(user.id);
+      if (error) deletionErrors.push({ id: user.id, email: user.email, error: error.message });
+    }
+
+    // (1)+(2) PROVE cleanup, FAIL CLOSED. A verification query that errors (auth / network / permission /
+    // rate-limit / unexpected) must NOT be read as "user not found": only the explicit not-found/404
+    // response counts as proof of deletion, and a user_profiles query error is a verification failure —
+    // never interpreted as zero rows.
+    const remaining: Array<{ id: string; email: string; where: string }> = [];
+    const verifyErrors: Array<{ id: string; email: string; where: string; error: string }> = [];
+    for (const user of createdUsers) {
+      // auth.users: getUserById → { data:{user}, error }. Deleted ⇒ a 404 / not-found error; ANY other
+      // error is a verification failure (do not treat it as deletion proof).
+      const authRes = await admin.auth.admin.getUserById(user.id);
+      if (authRes.error) {
+        const status = (authRes.error as { status?: number }).status;
+        const notFound = status === 404 || /not.?found|user.*not.*exist/i.test(authRes.error.message);
+        if (!notFound) {
+          verifyErrors.push({ id: user.id, email: user.email, where: 'auth.users', error: `${status ?? ''} ${authRes.error.message}`.trim() });
+        }
+        // notFound ⇒ confirmed deleted (no remaining entry).
+      } else if (authRes.data?.user) {
+        remaining.push({ id: user.id, email: user.email, where: 'auth.users' });
+      }
+
+      // user_profiles: capture BOTH data and error; assert no query error BEFORE interpreting the count
+      // (data:null must not be mistaken for zero rows).
+      const { data: profRows, error: profErr } = await admin.from('user_profiles').select('id').eq('id', user.id);
+      if (profErr) {
+        verifyErrors.push({ id: user.id, email: user.email, where: 'user_profiles', error: profErr.message });
+      } else if ((profRows ?? []).length > 0) {
+        remaining.push({ id: user.id, email: user.email, where: 'user_profiles' });
+      }
+    }
+
+    console.log(`LIVE_STT_SWITCHING_ZERO_ORPHAN_EVIDENCE ${JSON.stringify({
+      fixturesCreated: createdUsers.map((u) => u.email),
+      deletionErrors,
+      verifyErrors,
+      remaining,
+      zeroOrphans: deletionErrors.length === 0 && verifyErrors.length === 0 && remaining.length === 0,
+    })}`);
+    // Fail closed on ALL three independent failure modes: deletion error, verification-query error, or a
+    // surviving fixture row.
+    expect(deletionErrors, `fixture deletion errors: ${JSON.stringify(deletionErrors)}`).toHaveLength(0);
+    expect(verifyErrors, `cleanup-verification query errors (fail closed, not zero rows): ${JSON.stringify(verifyErrors)}`).toHaveLength(0);
+    expect(remaining, `orphaned disposable fixtures after cleanup: ${JSON.stringify(remaining)}`).toHaveLength(0);
   });
 
   test.afterEach(async ({ page }) => {
@@ -193,6 +241,9 @@ test.describe.serial('Live STT switching contract @live', () => {
     await expectModeEnabled(page, 'private');
     // Cloud is always Pro-only → disabled for Free.
     await expectProModeDisabled(page, 'cloud');
+    // #1064: available Private shows the green privacy lock + "Stays local" badge; no "Recommended".
+    await assertPrivacySignal(page, { available: true });
+    const testedReleaseSha = await readReleaseSha(page);
     await page.keyboard.press('Escape');
 
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-unused-sample-contract');
@@ -201,6 +252,11 @@ test.describe.serial('Live STT switching contract @live', () => {
       proBadgeVisible: false,
       privateModeDisabled: false,
       cloudModeDisabled: true,
+      // #1064 selector-signal results (UNUSED sample = available):
+      staysLocalBadgeVisible: true,
+      greenPrivacyLockVisible: true,
+      recommendedAbsent: true,
+      testedReleaseSha,
       runtimeState: snapshot.root?.runtimeState,
     })}`);
   });
@@ -237,6 +293,10 @@ test.describe.serial('Live STT switching contract @live', () => {
     // Sample is spent → Private locks again for Free; Cloud stays Pro-only.
     await expectModeDisabledEventually(page, 'private');
     await expectProModeDisabled(page, 'cloud');
+    // #1064: unavailable Private keeps the (muted) "Stays local" badge but drops the green privacy lock;
+    // no "Recommended". Access restriction is carried by the disabled state, not by the privacy lock.
+    await assertPrivacySignal(page, { available: false });
+    const testedReleaseSha = await readReleaseSha(page);
     await page.keyboard.press('Escape');
 
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-exhausted-sample-contract');
@@ -245,6 +305,11 @@ test.describe.serial('Live STT switching contract @live', () => {
       proBadgeVisible: false,
       privateModeDisabled: true,
       cloudModeDisabled: true,
+      // #1064 selector-signal results (EXHAUSTED sample = unavailable):
+      staysLocalBadgeVisible: true,
+      greenPrivacyLockVisible: false,
+      recommendedAbsent: true,
+      testedReleaseSha,
       runtimeState: snapshot.root?.runtimeState,
     })}`);
   });
@@ -523,6 +588,35 @@ async function attachCloseDiagnostics(page: Page, testInfo: TestInfo) {
     runtimeState: payload.runtimeState,
     modelStatus: payload.modelStatus,
   })}`);
+}
+
+// #1064 live selector-signal contract (menu must already be open). "Stays local" descriptor is present
+// in BOTH entitlement states (privacy identity stays truthful even when access is restricted); the GREEN
+// privacy lock appears ONLY when Private is available and never doubles as an access lock; "Recommended"
+// is retired from every Private surface.
+async function assertPrivacySignal(page: Page, opts: { available: boolean }) {
+  const priv = page.getByTestId('stt-mode-private');
+  await expect(priv).toBeVisible({ timeout: 10_000 });
+  await expect(priv.getByTestId('stt-mode-tag-stays-local')).toBeVisible();
+  if (opts.available) {
+    await expect(priv.getByTestId('stt-private-lock')).toBeVisible();
+  } else {
+    await expect(priv.getByTestId('stt-private-lock')).toHaveCount(0);
+  }
+  expect((await priv.textContent()) ?? '', 'Recommended must be absent from the Private surface').not.toMatch(/recommended/i);
+}
+
+// The exact production release under test — read from the deployed page so the evidence names the SHA.
+// FAIL CLOSED: no .catch swallowing; the value must be present AND a real 40-char git SHA, else the
+// proof is not valid (a missing/short release would otherwise silently weaken the evidence).
+async function readReleaseSha(page: Page): Promise<string> {
+  const sha = await page.evaluate(() => {
+    const w = window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } };
+    return w.__APP_RELEASE__ ?? w.__APP_RUNTIME_CONFIG__?.release ?? null;
+  });
+  expect(sha, 'deployed release SHA (window.__APP_RELEASE__) must be present on the tested page').toBeTruthy();
+  expect(sha ?? '', `tested release must be a 40-char git SHA, got: ${sha}`).toMatch(/^[0-9a-f]{40}$/);
+  return sha as string;
 }
 
 async function isModeDisabled(page: Page, mode: 'private' | 'cloud') {

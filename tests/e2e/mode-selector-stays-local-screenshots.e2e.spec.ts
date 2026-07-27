@@ -20,6 +20,20 @@ const DIR = 'test-results/mode-selector-stays-local';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 
+// Wait for the framer-motion page transition to finish (every ancestor opacity settled to ~1) before a
+// capture — otherwise the shot lands mid-fade and the whole page reads as washed out. This is what made the
+// earlier unavailable captures (taken right after re-login + navigate) look faded.
+async function settlePage(page: Page) {
+  // FAIL CLOSED: if the page never settles (opacity < 1 somewhere up the tree), let the timeout THROW so the
+  // test fails instead of silently capturing another faded, approval-quality screenshot.
+  await page.waitForFunction(() => {
+    let el = document.querySelector('[data-testid="live-recording-card"]') as HTMLElement | null;
+    if (!el) return false;
+    while (el) { if (parseFloat(getComputedStyle(el).opacity || '1') < 0.99) return false; el = el.parentElement; }
+    return true;
+  }, { timeout: 8_000 });
+}
+
 async function openMenu(page: Page) {
   // The dropdown uses CONTROLLED open state: a screenshot or setViewportSize does NOT close it, and clicking
   // the trigger while it is already open would TOGGLE it shut. So ensure a clean closed state first (Escape),
@@ -29,6 +43,8 @@ async function openMenu(page: Page) {
     await page.keyboard.press('Escape');
     await expect(priv).toHaveCount(0);
   }
+  // Ensure the page transition has fully settled (opacity 1) BEFORE opening the menu and capturing.
+  await settlePage(page);
   const btn = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
   const bbox = await btn.boundingBox();
   if (bbox) await page.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
