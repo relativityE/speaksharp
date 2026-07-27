@@ -65,28 +65,15 @@ async function reportAndCapture(expectedLabel: RegExp, expectedAreas: string[]) 
   return meta;
 }
 
-describe('Report Issue — /practice surface attribution (one route, three surfaces)', () => {
+// #1042 PR3: the full-page overview + its `quick_practice_overview` surface were removed — /practice now
+// has TWO surfaces (chooser + Guided-unavailable), and the Freestyle card navigates directly to /session.
+describe('Report Issue — /practice surface attribution (one route, two surfaces)', () => {
   beforeEach(() => submit.mockClear());
 
   it('practice_home (chooser): shows SpeakSharp Practice + home areas, stores practice_home', async () => {
     renderApp();
     const meta = await reportAndCapture(/SpeakSharp Practice/, ['understanding_choices', 'navigation', 'visual_layout', 'other']);
     expect(meta).toMatchObject({ practiceSurface: 'practice_home', journeyStep: 'chooser', canonicalRoute: '/practice', pageKey: 'practice' });
-  });
-
-  it('quick_practice_overview: shows Freestyle Practice help + quick areas, stores quick surface', async () => {
-    renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    const meta = await reportAndCapture(/Freestyle Practice help/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
-    expect(meta).toMatchObject({ practiceSurface: 'quick_practice_overview', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
-  });
-
-  it('Back to chooser returns context to practice_home', async () => {
-    renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    fireEvent.click(screen.getByTestId('practice-back-top'));
-    const meta = await reportAndCapture(/SpeakSharp Practice/, ['understanding_choices', 'navigation', 'visual_layout', 'other']);
-    expect(meta.practiceSurface).toBe('practice_home');
   });
 
   it('guided: internal token guided_rehearsal_unavailable but VISIBLE label exactly "Guided Rehearsal"', async () => {
@@ -107,22 +94,17 @@ describe('Report Issue — /practice surface attribution (one route, three surfa
     expect(meta).toMatchObject({ practiceSurface: 'guided_rehearsal_unavailable', pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', canonicalRoute: '/practice' });
   });
 
-  it('guided attribution PERSISTS after the toast, and resets only when Quick is selected', async () => {
+  it('guided attribution PERSISTS after the toast (a report on the chooser attributes to Guided)', async () => {
     renderApp();
     fireEvent.click(screen.getByTestId('practice-card-guided'));
     // Still on the chooser (no preview); a report opened now attributes to Guided.
     const first = await reportAndCapture(/Guided Rehearsal/, ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
     expect(first.practiceSurface).toBe('guided_rehearsal_unavailable');
-    // Selecting Quick changes the surface to quick.
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    const second = await reportAndCapture(/Freestyle Practice help/, ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other']);
-    expect(second.practiceSurface).toBe('quick_practice_overview');
   });
 
-  it('Quick "Open Practice Session" → /session, and a report there uses the Session · Speaking context (surface reset)', async () => {
+  it('#1042 PR3: the Freestyle card navigates DIRECTLY to /session; a report there uses the Session · Speaking context', async () => {
     renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    fireEvent.click(screen.getByTestId('practice-quick-start')); // navigate('/session') → PracticePage unmounts
+    fireEvent.click(screen.getByTestId('practice-card-quick')); // navigate('/session') → PracticePage unmounts (no overview)
     expect(await screen.findByTestId('session-marker')).toBeInTheDocument();
     await openReport();
     expect(banner()).toHaveTextContent(/Session · Speaking/);
