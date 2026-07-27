@@ -121,6 +121,11 @@ export const SessionPage: React.FC = () => {
     // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
     // lock model. The controller's recording lifecycle is INITIATING/ENGINE_INITIALIZING/RECORDING/STOPPING.
     const helpOverlayAvailable = !(
+        // engineSelectionLocked is set synchronously on Start INTENT (before the FSM reaches INITIATING),
+        // so it closes the start-intent window where runtimeState/isListening/sttStatus are still idle —
+        // the same authoritative lock the mode selector uses; no separate lock model. When it flips true
+        // the overlay's own effect also auto-closes an already-open guide.
+        engineSelectionLocked ||
         isActiveStt ||
         isTranscriptFinalizing ||
         pendingResolutionKind !== null ||
