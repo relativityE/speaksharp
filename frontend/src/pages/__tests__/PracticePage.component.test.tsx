@@ -118,11 +118,14 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.getByTestId('support-freestyle-cta')).toBeInTheDocument();
       expect(screen.getByTestId('support-guided-explain')).toBeInTheDocument();
       expect(screen.getByTestId('support-guided-cta')).toBeInTheDocument();
-      // 2:1 association is structural (grouped sections), not arrow/color dependent.
+      // 2:1 association is structural: the two Freestyle support cards are grouped (role=group, aria-label),
+      // and the Freestyle product card is present (aligned as a grid sibling for equal baselines).
       const fg = screen.getByTestId('practice-group-freestyle');
+      expect(fg).toHaveAttribute('role', 'group');
+      expect(fg).toHaveAccessibleName(/freestyle practice options/i);
       expect(within(fg).getByTestId('support-freestyle-explain')).toBeInTheDocument();
       expect(within(fg).getByTestId('support-freestyle-start')).toBeInTheDocument();
-      expect(within(fg).getByTestId('practice-card-quick-card')).toBeInTheDocument(); // the product article
+      expect(screen.getByTestId('practice-card-quick-card')).toBeInTheDocument(); // the product article
       // Product cards do NOT duplicate the action (the CTA cards own it): the product card has no button,
       // and the product-CTA testid is absent — the single Freestyle action is the support CTA card.
       expect(within(screen.getByTestId('practice-card-quick-card')).queryByRole('button')).toBeNull();

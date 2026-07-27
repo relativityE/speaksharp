@@ -69,7 +69,7 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
   const ctaClass = `ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
   return (
     <article style={vars} data-testid={`${testid}-card`}
-      className="group ss-mode-card flex flex-col overflow-hidden rounded-[10px] bg-[color:var(--ss-surface)] transition-all duration-200 shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-2 ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]">
+      className="group ss-mode-card flex h-full flex-col overflow-hidden rounded-[10px] bg-[color:var(--ss-surface)] transition-all duration-200 shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-2 ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]">
       <div className="flex flex-1 flex-col">
         <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]"><div className="absolute inset-0 px-5 py-3">{art}</div></div>
         <div className="flex flex-1 flex-col p-5">
@@ -95,18 +95,18 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
   );
 }
 
-/** A compact, visually SUBORDINATE supporting card (explanation or CTA) used only on the anonymous landing. */
-function SupportCard({ vars, eyebrow, title, copy, action, testid }: {
-  vars: React.CSSProperties; eyebrow: string; title: string; copy: string;
-  action?: React.ReactNode; testid: string;
+/** A compact, visually SUBORDINATE supporting card: an eyebrow + ONE pithy line (+ a bottom-aligned action
+ * on CTA cards). flex-column with the action pinned to the bottom (mt-auto) so buttons share a baseline; the
+ * card stretches to equal height within its grid row (no fragile fixed heights that could clip long text). */
+function SupportCard({ vars, eyebrow, line, action, testid }: {
+  vars: React.CSSProperties; eyebrow: string; line: string; action?: React.ReactNode; testid: string;
 }) {
   return (
     <div style={vars} data-testid={testid}
-      className="flex h-full flex-col rounded-[10px] border border-[color:var(--ss-border)] bg-white/80 p-4 shadow-[0_2px_10px_rgba(15,23,42,0.06)]">
+      className="flex h-full min-h-[7.5rem] flex-col rounded-[10px] border border-[color:var(--ss-border)] bg-white/80 p-4 shadow-[0_2px_10px_rgba(15,23,42,0.06)]">
       <span className="text-[11px] font-bold uppercase tracking-wide text-[color:var(--ss-card-btn)]">{eyebrow}</span>
-      <p className="mt-1 text-[15px] font-bold text-[color:var(--ss-text)]">{title}</p>
-      <p className="mt-1 text-sm leading-relaxed text-[color:var(--ss-body-slate)]">{copy}</p>
-      {action ? <div className="mt-3">{action}</div> : null}
+      <p className="mt-1.5 text-[15px] font-bold leading-snug text-[color:var(--ss-text)]">{line}</p>
+      {action ? <div className="mt-auto pt-3">{action}</div> : null}
     </div>
   );
 }
@@ -250,38 +250,29 @@ export default function PracticePage() {
                 <h2 className="mt-1 text-2xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-3xl">Choose the support your moment needs.</h2>
               </div>
 
-              <div className="grid grid-cols-1 items-start gap-8 md:grid-cols-2">
-                {/* Freestyle group */}
-                <section aria-labelledby="ss-group-freestyle" className="flex flex-col" data-testid="practice-group-freestyle">
-                  <h3 id="ss-group-freestyle" className="sr-only">Freestyle Practice options</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <SupportCard vars={QUICK_VARS} eyebrow="Why Freestyle" title="Practice without the pressure"
-                      copy="Choose Freestyle for spontaneous practice, daily repetition, or exploring an idea before it is polished."
-                      testid="support-freestyle-explain" />
-                    <SupportCard vars={QUICK_VARS} eyebrow="Have five minutes?" title="Have five minutes?"
-                      copy="Turn a spare moment into useful speaking practice."
-                      testid="support-freestyle-cta"
-                      action={<button type="button" onClick={startFreestyle} data-testid="support-freestyle-start" className="ss-ring ss-accent-btn inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm">Start Freestyle Practice<ArrowRight size={15} aria-hidden /></button>} />
-                  </div>
-                  <GroupConnector stroke="var(--ss-session-accent)" />
-                  {freestyleCard}
-                </section>
+              {/* One grid: on mobile the cells flow in SOURCE order (Freestyle group, then Guided group).
+                  On md+, explicit row/col placement puts the two support rows in the SAME grid row (1fr →
+                  equal height) so the connectors and BOTH product cards land on the same baseline. */}
+              <div className="grid grid-cols-1 gap-x-8 gap-y-3 md:grid-cols-2 md:[grid-template-rows:1fr_auto_1fr]">
+                {/* Freestyle: support (r1c1) → connector (r2c1) → product (r3c1) */}
+                <div role="group" aria-label="Freestyle Practice options" data-testid="practice-group-freestyle"
+                  className="grid grid-cols-2 items-stretch gap-3 md:col-start-1 md:row-start-1">
+                  <SupportCard vars={QUICK_VARS} eyebrow="Why Freestyle" line="No script. No pressure. Just practice." testid="support-freestyle-explain" />
+                  <SupportCard vars={QUICK_VARS} eyebrow="Try Private" line="5-minute Private trial" testid="support-freestyle-cta"
+                    action={<button type="button" onClick={startFreestyle} data-testid="support-freestyle-start" aria-label="Start Freestyle Practice with a 5-minute Private trial" className="ss-ring ss-accent-btn inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold shadow-sm">Start Freestyle<ArrowRight size={15} aria-hidden /></button>} />
+                </div>
+                <div aria-hidden className="md:col-start-1 md:row-start-2"><GroupConnector stroke="var(--ss-session-accent)" /></div>
+                <div className="h-full md:col-start-1 md:row-start-3">{freestyleCard}</div>
 
-                {/* Guided group */}
-                <section aria-labelledby="ss-group-guided" className="flex flex-col" data-testid="practice-group-guided">
-                  <h3 id="ss-group-guided" className="sr-only">Guided Rehearsal options</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <SupportCard vars={GUIDED_VARS} eyebrow="Why Guided" title="Prepare for a moment that matters"
-                      copy="Choose Guided when an interview, presentation, or important message has an outcome you cannot afford to miss."
-                      testid="support-guided-explain" />
-                    <SupportCard vars={GUIDED_VARS} eyebrow="Coming Soon!" title="Want Guided when it launches?"
-                      copy="Join the early-interest list and we’ll email you when Guided Rehearsal becomes available."
-                      testid="support-guided-cta"
-                      action={<button type="button" onClick={openNotify} data-testid="support-guided-notify" className="ss-ring ss-accent-outline inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold">Notify me<Bell size={15} aria-hidden /></button>} />
-                  </div>
-                  <GroupConnector stroke="var(--ss-exec-accent)" />
-                  {guidedCard}
-                </section>
+                {/* Guided: support (r1c2) → connector (r2c2) → product (r3c2) */}
+                <div role="group" aria-label="Guided Rehearsal options" data-testid="practice-group-guided"
+                  className="mt-3 grid grid-cols-2 items-stretch gap-3 md:col-start-2 md:row-start-1 md:mt-0">
+                  <SupportCard vars={GUIDED_VARS} eyebrow="Why Guided" line="Prepare the points that must land." testid="support-guided-explain" />
+                  <SupportCard vars={GUIDED_VARS} eyebrow="Stay in the loop" line="Want launch updates? Get notified." testid="support-guided-cta"
+                    action={<button type="button" onClick={openNotify} data-testid="support-guided-notify" className="ss-ring ss-accent-outline inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold">Notify me<Bell size={15} aria-hidden /></button>} />
+                </div>
+                <div aria-hidden className="md:col-start-2 md:row-start-2"><GroupConnector stroke="var(--ss-exec-accent)" /></div>
+                <div className="h-full md:col-start-2 md:row-start-3">{guidedCard}</div>
               </div>
             </section>
           )}
