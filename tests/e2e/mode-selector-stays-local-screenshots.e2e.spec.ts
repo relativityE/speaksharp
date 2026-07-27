@@ -24,12 +24,14 @@ const MOBILE = { width: 390, height: 844 };
 // capture — otherwise the shot lands mid-fade and the whole page reads as washed out. This is what made the
 // earlier unavailable captures (taken right after re-login + navigate) look faded.
 async function settlePage(page: Page) {
+  // FAIL CLOSED: if the page never settles (opacity < 1 somewhere up the tree), let the timeout THROW so the
+  // test fails instead of silently capturing another faded, approval-quality screenshot.
   await page.waitForFunction(() => {
     let el = document.querySelector('[data-testid="live-recording-card"]') as HTMLElement | null;
     if (!el) return false;
     while (el) { if (parseFloat(getComputedStyle(el).opacity || '1') < 0.99) return false; el = el.parentElement; }
     return true;
-  }, { timeout: 8_000 }).catch(() => { /* best-effort: capture anyway */ });
+  }, { timeout: 8_000 });
 }
 
 async function openMenu(page: Page) {

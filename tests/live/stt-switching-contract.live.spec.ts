@@ -92,9 +92,25 @@ test.describe.serial('Live STT switching contract @live', () => {
   });
 
   test.afterAll(async () => {
+    // Delete every disposable fixture this run created...
     await Promise.allSettled(
       createdUsers.map((user) => admin.auth.admin.deleteUser(user.id))
     );
+    // ...then PROVE cleanup (allSettled alone is not proof): re-query each marked disposable fixture id
+    // in BOTH auth.users and user_profiles and assert zero matching UNUSED/EXHAUSTED identifiers remain.
+    const remaining: Array<{ id: string; email: string; where: string }> = [];
+    for (const user of createdUsers) {
+      const authRes = await admin.auth.admin.getUserById(user.id).catch(() => null);
+      if (authRes?.data?.user) remaining.push({ id: user.id, email: user.email, where: 'auth.users' });
+      const { data: profRows } = await admin.from('user_profiles').select('id').eq('id', user.id);
+      if ((profRows ?? []).length > 0) remaining.push({ id: user.id, email: user.email, where: 'user_profiles' });
+    }
+    console.log(`LIVE_STT_SWITCHING_ZERO_ORPHAN_EVIDENCE ${JSON.stringify({
+      fixturesCreated: createdUsers.map((u) => u.email),
+      remaining,
+      zeroOrphans: remaining.length === 0,
+    })}`);
+    expect(remaining, `orphaned disposable fixtures after cleanup: ${JSON.stringify(remaining)}`).toHaveLength(0);
   });
 
   test.afterEach(async ({ page }) => {
@@ -193,6 +209,9 @@ test.describe.serial('Live STT switching contract @live', () => {
     await expectModeEnabled(page, 'private');
     // Cloud is always Pro-only → disabled for Free.
     await expectProModeDisabled(page, 'cloud');
+    // #1064: available Private shows the green privacy lock + "Stays local" badge; no "Recommended".
+    await assertPrivacySignal(page, { available: true });
+    const testedReleaseSha = await readReleaseSha(page);
     await page.keyboard.press('Escape');
 
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-unused-sample-contract');
@@ -201,6 +220,11 @@ test.describe.serial('Live STT switching contract @live', () => {
       proBadgeVisible: false,
       privateModeDisabled: false,
       cloudModeDisabled: true,
+      // #1064 selector-signal results (UNUSED sample = available):
+      staysLocalBadgeVisible: true,
+      greenPrivacyLockVisible: true,
+      recommendedAbsent: true,
+      testedReleaseSha,
       runtimeState: snapshot.root?.runtimeState,
     })}`);
   });
@@ -237,6 +261,10 @@ test.describe.serial('Live STT switching contract @live', () => {
     // Sample is spent → Private locks again for Free; Cloud stays Pro-only.
     await expectModeDisabledEventually(page, 'private');
     await expectProModeDisabled(page, 'cloud');
+    // #1064: unavailable Private keeps the (muted) "Stays local" badge but drops the green privacy lock;
+    // no "Recommended". Access restriction is carried by the disabled state, not by the privacy lock.
+    await assertPrivacySignal(page, { available: false });
+    const testedReleaseSha = await readReleaseSha(page);
     await page.keyboard.press('Escape');
 
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-exhausted-sample-contract');
@@ -245,6 +273,11 @@ test.describe.serial('Live STT switching contract @live', () => {
       proBadgeVisible: false,
       privateModeDisabled: true,
       cloudModeDisabled: true,
+      // #1064 selector-signal results (EXHAUSTED sample = unavailable):
+      staysLocalBadgeVisible: true,
+      greenPrivacyLockVisible: false,
+      recommendedAbsent: true,
+      testedReleaseSha,
       runtimeState: snapshot.root?.runtimeState,
     })}`);
   });
@@ -523,6 +556,30 @@ async function attachCloseDiagnostics(page: Page, testInfo: TestInfo) {
     runtimeState: payload.runtimeState,
     modelStatus: payload.modelStatus,
   })}`);
+}
+
+// #1064 live selector-signal contract (menu must already be open). "Stays local" descriptor is present
+// in BOTH entitlement states (privacy identity stays truthful even when access is restricted); the GREEN
+// privacy lock appears ONLY when Private is available and never doubles as an access lock; "Recommended"
+// is retired from every Private surface.
+async function assertPrivacySignal(page: Page, opts: { available: boolean }) {
+  const priv = page.getByTestId('stt-mode-private');
+  await expect(priv).toBeVisible({ timeout: 10_000 });
+  await expect(priv.getByTestId('stt-mode-tag-stays-local')).toBeVisible();
+  if (opts.available) {
+    await expect(priv.getByTestId('stt-private-lock')).toBeVisible();
+  } else {
+    await expect(priv.getByTestId('stt-private-lock')).toHaveCount(0);
+  }
+  expect((await priv.textContent()) ?? '', 'Recommended must be absent from the Private surface').not.toMatch(/recommended/i);
+}
+
+// The exact production release under test — read from the deployed page so the evidence names the SHA.
+async function readReleaseSha(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const w = window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } };
+    return w.__APP_RELEASE__ ?? w.__APP_RUNTIME_CONFIG__?.release ?? null;
+  }).catch(() => null);
 }
 
 async function isModeDisabled(page: Page, mode: 'private' | 'cloud') {
