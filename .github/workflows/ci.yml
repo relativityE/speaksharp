@@ -372,6 +372,7 @@ jobs:
             test-results/mode-selector-stays-local
             test-results/practice-entry
             test-results/freestyle-help
+            test-results/practice-continuity
           retention-days: 1
           if-no-files-found: ignore
 

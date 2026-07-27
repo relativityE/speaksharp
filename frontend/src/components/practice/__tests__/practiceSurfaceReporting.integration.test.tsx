@@ -15,9 +15,9 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeEntryViewed: vi.fn(), trackPracticeModeSelected: vi.fn(), trackPracticeOverviewExpanded: vi.fn(),
   trackQuickPracticeStarted: vi.fn(), trackGuidedRehearsalUnavailable: vi.fn(),
 }));
-// #1042 PR4: PracticePage reads the most-recent session via usePracticeHistory; mock it (new user / no
-// sessions) so this integration test needs no QueryClient/Auth provider and the surface flow is unchanged.
-vi.mock('@/hooks/usePracticeHistory', () => ({ usePracticeHistory: () => ({ data: [], isLoading: false }) }));
+// #1042 PR4: PracticePage reads the most-recent session via useRecentPracticeSummary; mock it (new user /
+// no sessions) so this integration test needs no QueryClient/Auth provider and the surface flow is unchanged.
+vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: () => ({ data: [], isLoading: false }) }));
 vi.mock('@/lib/toast', () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn() }),
 }));

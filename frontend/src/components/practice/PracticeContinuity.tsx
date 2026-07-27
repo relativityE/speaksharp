@@ -3,15 +3,19 @@ import { BarChart3, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { PracticeSession } from '@/types/session';
 
+/** The NARROW shape the continuity card needs — only reviewable-history identity + duration. */
+export type RecentSession = Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>;
+
 /**
  * #1042 PR4 — Practice Home continuity block on the authenticated `/practice` chooser.
  *
- * Presentational only (data is fetched in PracticePage via usePracticeHistory). It renders:
- *  - returning user (a most-recent session exists): "Ready for your next practice?" + a TRUTHFUL summary
- *    (only fields actually persisted — date, duration, and WPM when present) + Review-last-session and
- *    View-analytics actions;
- *  - new user (no sessions): a truthful empty state with NO fabricated metrics and no dead actions;
- *  - loading: a neutral placeholder so the block never flashes fabricated data before the query resolves.
+ * Presentational only (data is fetched in PracticePage via useRecentPracticeSummary — a narrow read of
+ * id/created_at/duration/status). It renders:
+ *  - returning user (a most-recent reviewable session exists): "Ready for your next practice?" + a TRUTHFUL
+ *    summary (date + duration only — duration omitted when absent) + Review-last-session and View-analytics;
+ *  - new user (no sessions): "Start your first practice" + the approved reassurance copy;
+ *  - error (the read FAILED): an honest error state — never the false "no sessions" empty state;
+ *  - loading: a neutral placeholder so the block never flashes fabricated data.
  *
  * It never fabricates a metric: a field is shown only when the stored value is present.
  */
@@ -39,7 +43,7 @@ export function PracticeContinuity({
     loading: boolean;
     /** True when the history query FAILED — must NOT be shown as the empty "no sessions" state. */
     error?: boolean;
-    lastSession: PracticeSession | null;
+    lastSession: RecentSession | null;
     onReviewLast: () => void;
     onViewAnalytics: () => void;
 }) {
@@ -53,8 +57,8 @@ export function PracticeContinuity({
         );
     }
 
-    // A failed load must NOT masquerade as "no sessions yet" — say so honestly instead of implying the
-    // user has no history.
+    // A failed load must NOT masquerade as "no sessions yet". Say so honestly and keep the user moving —
+    // without claiming anything about the data we could not read.
     if (error) {
         return (
             <section
@@ -63,20 +67,23 @@ export function PracticeContinuity({
                 aria-label="Your practice progress"
                 className="mb-6 rounded-xl border border-[color:var(--ss-border)] bg-[color:var(--ss-surface)] px-4 py-3 text-sm text-[color:var(--ss-text-secondary)]"
             >
-                We couldn’t load your recent practice right now. Your sessions are safe — please try again shortly.
+                We couldn’t load your recent practice. You can still start Freestyle Practice below.
             </section>
         );
     }
 
     if (!lastSession) {
-        // Truthful empty state — no numbers, no dead actions. The chooser's Freestyle card below is the CTA.
+        // Truthful empty state — the approved new-user heading + reassurance, no numbers, no dead actions.
         return (
             <section
                 data-testid="practice-continuity-empty"
                 aria-label="Your practice progress"
-                className="mb-6 rounded-xl border border-[color:var(--ss-border)] bg-[color:var(--ss-surface)] px-4 py-3 text-sm text-[color:var(--ss-text-secondary)]"
+                className="mb-6 rounded-xl border border-[color:var(--ss-border)] bg-[color:var(--ss-surface)] px-4 py-4"
             >
-                No sessions yet — start your first Freestyle Practice below and your progress will appear here.
+                <h2 className="text-lg font-bold tracking-tight text-[color:var(--ss-text)]">Start your first practice</h2>
+                <p className="mt-1 text-sm text-[color:var(--ss-text-secondary)]">
+                    Your completed sessions and progress will appear here after you finish.
+                </p>
             </section>
         );
     }
@@ -86,12 +93,10 @@ export function PracticeContinuity({
     const durationText = typeof lastSession.duration === 'number' && Number.isFinite(lastSession.duration) && lastSession.duration > 0
         ? formatDuration(lastSession.duration)
         : null;
-    const wpm = typeof lastSession.wpm === 'number' && Number.isFinite(lastSession.wpm) ? Math.round(lastSession.wpm) : null;
-    // Compose from persisted fields only; omit any that are absent.
+    // Composed from persisted fields only (date + duration); duration omitted when absent.
     const parts = [
-        when ? `Last session ${when}` : 'Your last session',
+        when ? `Last practice ${when}` : 'Last practice',
         durationText,
-        wpm != null ? `${wpm} WPM` : null,
     ].filter(Boolean);
 
     return (

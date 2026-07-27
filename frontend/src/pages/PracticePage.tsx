@@ -23,7 +23,7 @@ import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
-import { usePracticeHistory } from '@/hooks/usePracticeHistory';
+import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
@@ -135,9 +135,10 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
 export default function PracticePage() {
   const navigate = useNavigate();
   const { setSurface } = usePracticeSurface();
-  // #1042 PR4: Practice Home continuity — surface the most-recent session for returning users (truthful
-  // empty state for new users). Read-only; one row. The block never fabricates a metric.
-  const { data: recentSessions, isLoading: recentLoading, error: recentError } = usePracticeHistory({ limit: 1 });
+  // #1042 PR4: Practice Home continuity — a NARROW read of the most-recent reviewable session (id /
+  // created_at / duration / status only). Truthful empty state for new users; honest error state on
+  // failure. Never fetches transcript, scores, or full history.
+  const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
   // Guided is not a working product: selecting it shows an unavailable toast and marks the reporting
   // surface (it does NOT open a page/preview). `guidedSelected` only affects Report Issue attribution.

@@ -17,12 +17,12 @@ vi.mock('@/services/practiceTelemetry', () => ({
 import { trackGuidedRehearsalUnavailable } from '@/services/practiceTelemetry';
 const guidedTelemetry = vi.mocked(trackGuidedRehearsalUnavailable);
 
-// #1042 PR4: the Practice Home continuity block reads the most-recent session via usePracticeHistory.
+// #1042 PR4: the Practice Home continuity block reads the most-recent session via useRecentPracticeSummary.
 // Mock it so these component tests don't need a QueryClient/Auth provider; default = new user (no sessions).
-vi.mock('@/hooks/usePracticeHistory', () => ({ usePracticeHistory: vi.fn() }));
-import { usePracticeHistory } from '@/hooks/usePracticeHistory';
-const mockHistory = vi.mocked(usePracticeHistory);
-type HistoryReturn = ReturnType<typeof usePracticeHistory>;
+vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
+import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
+const mockHistory = vi.mocked(useRecentPracticeSummary);
+type HistoryReturn = ReturnType<typeof useRecentPracticeSummary>;
 
 // PracticePage no longer renders its own <main> — App.tsx owns the single #main-content landmark, so in
 // isolation we scope queries to the page's content container instead of a main landmark.
@@ -215,7 +215,7 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
 
   it('#1042 PR4: returning user sees the continuity block; Review → /analytics/<id>, View analytics → /analytics', () => {
     mockHistory.mockReturnValue({
-      data: [{ id: 'sess-9', user_id: 'u', created_at: '2026-07-20T00:00:00.000Z', duration: 120, wpm: 110 }],
+      data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
       isLoading: false,
     } as unknown as HistoryReturn);
     render(<PracticePage />);
