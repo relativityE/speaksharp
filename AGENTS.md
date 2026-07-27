@@ -100,7 +100,9 @@ inspect the PR's Edge-function diff and disclose this automatic production actio
 - Implement the final approved direction; do not add temporary product states that create
   avoidable cleanup work.
 - During development, run focused tests. At a completed checkpoint, reconcile the scope,
-  run the appropriate full validation once, push one coherent checkpoint, and let CI run.
+  run risk-appropriate local validation once, push one coherent checkpoint, and let the
+  required exact-head CI lane run. Reserve the full local suite for broad or high-risk
+  checkpoints, or when the Product Owner explicitly requests it.
 - Avoid CI runs, PR-body rewrites, and ledger edits after every micro-edit. Update them at
   checkpoint boundaries.
 - Independently verify implementation claims against code and GitHub evidence.
@@ -167,6 +169,66 @@ its scope first. Avoid `pnpm reset:env` during active development because it can
 files.
 
 ## Testing And CI
+
+### Risk-Proportionate Evidence
+
+Evidence applies to every implementation PR, but its depth must match the change's actual
+risk. Collect the smallest reliable evidence set that proves the acceptance criteria and
+protects the affected boundary.
+
+For low-risk presentation changes—such as copy, labels, icons, badges, styling, layout,
+responsive presentation, or accessibility semantics that do not change application state
+or business behavior—normally require:
+
+- focused component or unit tests for the changed surface;
+- targeted accessibility assertions when semantics change;
+- one affected browser/E2E path when interaction or rendering changes;
+- desktop/mobile screenshots only when visual review materially helps;
+- Treat screenshots created only for PR review as ephemeral evidence. Do not commit them to
+  the repository unless the Product Owner explicitly approves them as durable documentation,
+  test fixtures, or product assets. Upload review screenshots through the approved GitHub
+  Actions artifact path with `retention-days: 1`, and record the workflow-run and artifact
+  provenance.
+- `pnpm quality` and the required exact-head merge-candidate CI lane.
+
+Do not require production synthetic accounts, database queries, live-provider tests,
+repeated screenshot sets, or a full local suite for low-risk presentation work unless the
+change depends on a production-only condition or a specific discovered risk requires it.
+
+For behavioral implementation changes—such as navigation, state transitions, save/retry
+behavior, authenticated journeys, or user interactions—normally require focused tests at
+the responsible boundary, one targeted integration or E2E path proving the complete user
+outcome, regression coverage for the identified failure, `pnpm quality`, and the required
+exact-head merge-candidate CI lane. Use live production proof only when the behavior cannot
+be established faithfully in local or CI environments, or when a binding release contract
+explicitly requires it.
+
+High-risk changes—such as migrations, authentication, authorization, entitlements,
+payments, production data, privacy boundaries, recording persistence, deployment
+automation, or destructive cleanup—require evidence appropriate to that risk. This may
+include real-database integration, failure-path coverage, idempotency and isolation
+assertions, migration dry-runs, production-equivalent tests, or explicitly authorized live
+proof.
+
+Evidence sufficiency and stopping rules:
+
+- Map each acceptance criterion to at least one meaningful assertion or review artifact.
+- Prefer one strong end-to-end proof over several overlapping text-only checks.
+- Do not add evidence merely because another test, screenshot, or live run is possible.
+- Reuse still-valid evidence when later commits do not affect the behavior or visual output
+  it proves; record the evidence's exact provenance. This general allowance does NOT relax the
+  stricter release-candidate rule: for RC gate artifacts, apply the Artifact Freshness Rule in
+  [product_release/RC_GATES.md](product_release/RC_GATES.md) — any change to a gate item's
+  dependency surface makes its artifact stale, even a behavior-neutral one, and it must be rerun.
+- After the acceptance criteria are proven, focused checks pass, required exact-head CI is
+  green, and review threads are resolved, stop expanding the PR and return it for the
+  Product Owner's decision.
+- If review finds an in-scope correctness defect, group related corrections into one
+  coherent batch when practical, then rerun affected evidence plus required CI.
+- Capture unrelated findings as successor issues or PRs. Do not delay the active PR for
+  unrelated proof or cleanup.
+- Never describe a targeted diagnostic as a complete release gate, and never overstate
+  what an evidence source proves.
 
 Use repository package scripts instead of inventing alternate runners.
 
