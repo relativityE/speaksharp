@@ -7,6 +7,7 @@ export type CheckoutPlan = 'pro';
 export type ConversionSource =
   | 'hero_primary'
   | 'landing_cta'
+  | 'product_discovery_freestyle'
   | 'pricing_free_card'
   | 'pricing_pro_card'
   | 'nav_upgrade'

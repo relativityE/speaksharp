@@ -69,7 +69,9 @@ export const HeroSection = () => {
               Cut filler words, fix your pace, and speak clearer. Start fast in your browser, then use Private for on-device transcription — your practice audio stays on your device in Private mode.
             </motion.p>
 
-            {/* Buttons + Trust badges share the same max-width so edges align */}
+            {/* Buttons + Trust badges share the same max-width so edges align. CTA hierarchy:
+                primary "Start free" (filled) · secondary "Sign in" (outlined) · tertiary
+                "See sample feedback" (text anchor) — not three equally-prominent buttons. */}
             <div className="max-w-md w-full pt-4 space-y-4">
               <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Button size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
@@ -79,15 +81,26 @@ export const HeroSection = () => {
                     className="flex items-center justify-center gap-2"
                     onClick={() => trackConversionCtaClicked({ source: 'hero_primary' })}
                   >
-                    Start free practice
+                    Start free
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
-                <Button variant="secondary" size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
-                  <a href="#see-feedback" onClick={() => trackLandingPreviewClicked()}>
-                    See sample feedback
-                  </a>
+                <Button variant="outline" size="lg" className="h-14 w-full text-base sm:flex-1" asChild>
+                  <Link to="/auth/signin" data-testid="hero-signin-button" className="flex items-center justify-center">
+                    Sign in
+                  </Link>
                 </Button>
+              </motion.div>
+
+              <motion.div variants={itemVariants}>
+                <a
+                  href="#see-feedback"
+                  data-testid="hero-sample-feedback-link"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground/70 underline underline-offset-4 hover:text-foreground"
+                  onClick={() => trackLandingPreviewClicked()}
+                >
+                  See sample feedback
+                </a>
               </motion.div>
 
             <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm font-semibold text-foreground/70 sm:grid-cols-3">

@@ -421,15 +421,62 @@ export async function setupE2EManifest(
       };
     };
 
+    // Mutable session + listener registry so the REAL AuthPage form (signInWithPassword / signUp) can
+    // drive the actual account-access composition end-to-end — the auth backend is mocked at the client
+    // layer (like every other Supabase call here), NOT stubbed by seeding a session. Anonymous boots start
+    // with the storage-derived session (null); form auth then flips it and re-notifies AuthProvider.
+    let currentSession: typeof authSession = authSession;
+    const authListeners: Array<(event: string, session: unknown) => void> = [];
+    const synthUser = (email?: string) => ({
+      id: e2eProfile.id,
+      email: email || 'e2e@example.com',
+      app_metadata: { provider: 'email', subscription_status: e2eProfile.subscription_status },
+      user_metadata: {},
+      aud: 'authenticated',
+      role: 'authenticated',
+      created_at: e2eProfile.created_at,
+    });
+    const synthSession = (email?: string) => ({
+      access_token: 'e2e-form-auth-access',
+      refresh_token: 'e2e-form-auth-refresh',
+      token_type: 'bearer',
+      expires_in: 3600,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      user: synthUser(email),
+    });
+
     win.supabase = {
       auth: {
-        getSession: async () => ({ data: { session: authSession }, error: null }),
-        getUser: async () => ({ data: { user: authSession?.user ?? null }, error: null }),
+        getSession: async () => ({ data: { session: currentSession }, error: null }),
+        getUser: async () => ({ data: { user: currentSession?.user ?? null }, error: null }),
         onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
-          setTimeout(() => callback('INITIAL_SESSION', authSession), 0);
-          return { data: { subscription: { unsubscribe: () => undefined } } };
+          authListeners.push(callback);
+          setTimeout(() => callback('INITIAL_SESSION', currentSession), 0);
+          return {
+            data: {
+              subscription: {
+                unsubscribe: () => {
+                  const i = authListeners.indexOf(callback);
+                  if (i >= 0) authListeners.splice(i, 1);
+                },
+              },
+            },
+          };
         },
-        signOut: async () => ({ error: null }),
+        signInWithPassword: async ({ email }: { email?: string } = {}) => {
+          currentSession = synthSession(email);
+          authListeners.forEach((cb) => cb('SIGNED_IN', currentSession));
+          return { data: { user: currentSession.user, session: currentSession }, error: null };
+        },
+        signUp: async ({ email }: { email?: string } = {}) => {
+          // Mirror the app flow: signUp succeeds without a session; AuthPage then calls signInWithPassword.
+          return { data: { user: synthUser(email), session: null }, error: null };
+        },
+        signOut: async () => {
+          currentSession = null;
+          authListeners.forEach((cb) => cb('SIGNED_OUT', null));
+          return { error: null };
+        },
       },
       from: (table: string) => makeQueryBuilder(table),
       functions: {

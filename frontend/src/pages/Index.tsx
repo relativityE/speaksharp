@@ -1,6 +1,6 @@
 import { BrowserWarning } from "@/components/BrowserWarning";
 import { HeroSection } from "@/components/landing/HeroSection";
-import { FeaturesSection } from "@/components/landing/FeaturesSection";
+import { ProductDiscoverySection } from "@/components/landing/ProductDiscoverySection";
 import { BenefitsSection } from "@/components/landing/BenefitsSection";
 // import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { CTASection } from "@/components/landing/CTASection";
@@ -21,7 +21,7 @@ const Index = () => {
           </div>
         )}
         <HeroSection />
-        <FeaturesSection />
+        <ProductDiscoverySection />
         <BenefitsSection />
         {/* <TestimonialsSection /> */}
         <CTASection />
