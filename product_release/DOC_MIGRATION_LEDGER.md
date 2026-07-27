@@ -581,15 +581,14 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 3. **ARCHITECTURE + STT ADRs pending.**
 4. **Entitlement-policy divergence (deferred)** → ROADMAP.
 5. **Private v2 ≈90s finalize** = accepted RC limitation, **not** a measured p95 — STT.md must state it so.
-6. **Durable engine-attribution: OPEN GAP** — proposed fix in **unmerged PR #1033**; **not proven or deployed**. (Not "fixed".)
-7. **`ENTITLEMENT_PRO_LIMIT_EVIDENCE` open item** overlaps BACKLOG P1.3 → ROADMAP.
-8. **Sequencing** — one reconciliation PR at a time; final PR archives superseded files → exactly 14 canonical + this ledger archived.
+6. **`ENTITLEMENT_PRO_LIMIT_EVIDENCE` open item** overlaps BACKLOG P1.3 → ROADMAP.
+7. **Sequencing** — one reconciliation PR at a time; final PR archives superseded files → exactly 14 canonical + this ledger archived.
 
 ---
 
 ## 7. Ledger validation (committed, CI-wired test)
 
-A deterministic documentation-contract test — [`tests/config/documentationContract.test.ts`](../tests/config/documentationContract.test.ts) — runs under `pnpm test:unit` (the **CI - Test Audit** gate) and asserts: exactly 14 canonical names; every pre-foundation root Markdown is mapped in this ledger; the required metadata fields on `README.md` / `RELEASE_STATUS.md` / `PRODUCT_REQUIREMENTS.md` / this ledger (each promoted canonical document is added here as it lands); single-value content dispositions (no compound cells); every EXTRACTED row has a canonical target heading; relative links in the governed docs resolve; every retained-evidence file has an exact destination; no open/unmerged PR is recorded as complete (#1033 remains an OPEN GAP); volatile release identity (SHAs) appears only in `RELEASE_STATUS.md`; the closeout leaves exactly 14 root files. It is a real test, not an ad-hoc check.
+A deterministic documentation-contract test — [`tests/config/documentationContract.test.ts`](../tests/config/documentationContract.test.ts) — runs under `pnpm test:unit` (the **CI - Test Audit** gate) and asserts: exactly 14 canonical names; every pre-foundation root Markdown is mapped in this ledger; the required metadata fields on `README.md` / `RELEASE_STATUS.md` / `PRODUCT_REQUIREMENTS.md` / this ledger (each promoted canonical document is added here as it lands); single-value content dispositions (no compound cells); every EXTRACTED row has a canonical target heading; relative links in the governed docs resolve; every retained-evidence file has an exact destination; no resolved finding is preserved as an open/unmerged gap; volatile release identity (SHAs) appears only in `RELEASE_STATUS.md`; the closeout leaves exactly 14 root files. It is a real test, not an ad-hoc check.
 
 ---
 

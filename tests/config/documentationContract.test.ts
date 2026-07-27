@@ -269,12 +269,17 @@ describe('documentation contract — product_release/', () => {
     expect(LEDGER).toContain('archive/attribution-sanitation-crosswalk.md');
   });
 
-  it('no open/unmerged PR is described as complete (positive overclaims only)', () => {
-    const overclaimBefore = /\b(fixed|deployed|shipped|merged)\b[^.\n]{0,30}#1033/i;
-    const overclaimAfter = /#1033[^.\n]*\b(is|now|already|was)\s+(fixed|deployed|shipped|merged)\b/i;
-    expect(overclaimBefore.test(LEDGER)).toBe(false);
-    expect(overclaimAfter.test(LEDGER)).toBe(false);
-    expect(LEDGER).toContain('OPEN GAP');
+  it('the resolved #1033 attribution gap is not preserved as an open/unmerged claim', () => {
+    // #1033 is merged, migrated, deployed, and live-proven — the ledger must not carry the stale
+    // "still open / unmerged" phrasings that once described it. (Accurate #1033 status lives in
+    // RELEASE_STATUS.md; this guard only rejects the specific resolved-gap phrasings.)
+    const stalePhrases = [
+      'unmerged PR #1033',
+      '#1033 remains an OPEN GAP',
+      'Durable engine-attribution: OPEN GAP',
+    ];
+    const preserved = stalePhrases.filter((p) => LEDGER.includes(p));
+    expect(preserved, `stale #1033 open-gap status preserved in ledger: ${JSON.stringify(preserved)}`).toEqual([]);
   });
 
   it('volatile git SHAs appear only in RELEASE_STATUS (README + ledger carry only pinned provenance)', () => {
