@@ -2,10 +2,12 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 /**
- * #1042 PR4: VISUAL proof for the new above-the-fold Practice Home continuity block (returning state).
- * Authenticates via the E2E mock path with a RETURNING session history (the default) and captures the
- * "Ready for your next practice?" summary — date + duration only (never WPM) — plus its two actions
- * ("Review last session" → /analytics/:id, "View analytics" → /analytics).
+ * #1042 PR4 (reconciled to #1061): VISUAL proof for the above-the-fold Practice Home continuity block
+ * (returning state). #1061 folded continuity into the authenticated greeting ROW — the compact `inline`
+ * variant renders the same TRUTHFUL summary (date + duration only, never WPM) + the same two actions
+ * ("Review last session" → /analytics/:id, "View analytics" → /analytics), but the standalone "Ready for
+ * your next practice?" heading is gone; the greeting "What do you want to work on?" is now the header.
+ * Authenticates via the E2E mock path with a RETURNING session history (the default).
  *
  * DESKTOP: full-page shot (no fixed bottom nav to obscure content).
  * MOBILE: a SECTION-scoped shot of the continuity block, taken only after asserting both actions clear the
@@ -83,18 +85,20 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     await enterReturningPractice(page);
     const block = page.getByTestId('practice-continuity');
     // Centre the section in the safe area — clear of BOTH the fixed top header and the fixed bottom nav —
-    // so neither overlays the card (scrolling to 'start' would tuck the heading under the top header).
+    // so neither overlays the card (scrolling to 'start' would tuck the summary under the top header).
     await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    const heading = page.getByRole('heading', { name: /ready for your next practice/i });
+    // #1061 inline layout: the block's top line is the summary (no standalone heading); the greeting row
+    // "What do you want to work on?" is the page header.
+    const summary = page.getByTestId('practice-continuity-summary');
     const review = page.getByTestId('practice-continuity-review');
     const analytics = page.getByTestId('practice-continuity-analytics');
-    // The complete block is visible: heading + both actions.
-    await expect(heading).toBeVisible();
+    // The complete block is visible: summary + both actions.
+    await expect(summary).toBeVisible();
     await expect(review).toBeVisible();
     await expect(analytics).toBeVisible();
-    // Nothing in the block is obscured by a fixed bar — the heading clears the top header, and both actions
+    // Nothing in the block is obscured by a fixed bar — the summary clears the top header, and both actions
     // clear the bottom nav (toBeVisible alone does NOT detect occlusion, so hit-test each).
-    expect(await isUnobscured(heading), 'Heading must clear the fixed top header').toBe(true);
+    expect(await isUnobscured(summary), 'Summary must clear the fixed top header').toBe(true);
     expect(await isUnobscured(review), 'Review action must not intersect the fixed bottom nav').toBe(true);
     expect(await isUnobscured(analytics), 'View analytics action must not intersect the fixed bottom nav').toBe(true);
     await settle(page);
