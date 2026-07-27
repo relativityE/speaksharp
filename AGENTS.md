@@ -184,6 +184,11 @@ or business behavior—normally require:
 - targeted accessibility assertions when semantics change;
 - one affected browser/E2E path when interaction or rendering changes;
 - desktop/mobile screenshots only when visual review materially helps;
+- Treat screenshots created only for PR review as ephemeral evidence. Do not commit them to
+  the repository unless the Product Owner explicitly approves them as durable documentation,
+  test fixtures, or product assets. Upload review screenshots through the approved GitHub
+  Actions artifact path with `retention-days: 1`, and record the workflow-run and artifact
+  provenance.
 - `pnpm quality` and the required exact-head merge-candidate CI lane.
 
 Do not require production synthetic accounts, database queries, live-provider tests,
