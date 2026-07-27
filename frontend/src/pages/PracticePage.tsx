@@ -307,9 +307,9 @@ export default function PracticePage() {
                 ~80px) plus safe-area, so the Guided CTA + contextual notice are never obscured. */}
             <div className="mx-auto -mt-6 max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8">
               <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
-                <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Quick Practice" promise="Speak freely. See how you’re progressing."
+                <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
                   bullets={QUICK_BULLETS}
-                  marker="Available now" ctaLabel="Explore Quick Practice" ctaAria="Explore Quick Practice" ctaSolid onClick={openQuick} testid="practice-card-quick" />
+                  marker="Available now" ctaLabel="Explore Freestyle Practice" ctaAria="Explore Freestyle Practice" ctaSolid onClick={openQuick} testid="practice-card-quick" />
                 <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
                   bullets={GUIDED_BULLETS}
                   marker="Planned — not available yet" markerIcon={Clock} ctaLabel="Guided Rehearsal" ctaAria="Guided Rehearsal — not available yet"
@@ -318,7 +318,7 @@ export default function PracticePage() {
                   onClick={selectGuided} testid="practice-card-guided" />
               </div>
 
-              <p className="mt-6 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Quick Practice</span> is available now — Guided Rehearsal is coming later.</p>
+              <p className="mt-6 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Freestyle Practice</span> is available now — Guided Rehearsal is coming later.</p>
             </div>
           </>
         )}

@@ -70,7 +70,7 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
 
   it('persists the active practiceSurface (and only a valid one) in metadata', () => {
     expect(buildIssueReportMetadata({ context: resolvePageContext('/practice', 'quick_practice_overview') }))
-      .toMatchObject({ practiceSurface: 'quick_practice_overview', pageLabel: 'Quick Practice overview', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
+      .toMatchObject({ practiceSurface: 'quick_practice_overview', pageLabel: 'Freestyle Practice help', journeyStep: 'quick_overview', canonicalRoute: '/practice' });
     // Off /practice: no surface attached.
     expect(buildIssueReportMetadata({ context: resolvePageContext('/session') }).practiceSurface).toBeNull();
   });

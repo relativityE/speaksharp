@@ -34,7 +34,7 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     render(<PracticePage />);
     expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
     expect(within(root()).getByText(/choose how you want to practice/i)).toBeInTheDocument();
-    expect(within(root()).getByRole('heading', { name: /^Quick Practice$/i })).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /^Freestyle Practice$/i })).toBeInTheDocument();
     expect(within(root()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
   });
 
@@ -60,13 +60,13 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     // The CTA is a real <button> (keyboard-operable), not a card-as-button wrapping headings.
     const quickCta = screen.getByTestId('practice-card-quick');
     expect(quickCta.tagName).toBe('BUTTON');
-    expect(quickCta).toHaveAccessibleName(/explore quick practice/i);
+    expect(quickCta).toHaveAccessibleName(/explore freestyle practice/i);
     // Headings live in the article, never inside the button.
-    expect(within(cards[0]).getByRole('heading', { name: /quick practice/i })).toBeInTheDocument();
+    expect(within(cards[0]).getByRole('heading', { name: /freestyle practice/i })).toBeInTheDocument();
     expect(quickCta.querySelector('h1,h2,h3,h4')).toBeNull();
   });
 
-  it('Quick Practice → overview → "Open Practice Session" navigates to the unchanged /session', () => {
+  it('Freestyle Practice → overview → "Open Practice Session" navigates to the unchanged /session', () => {
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-quick'));
     // Overview appears with the specialized hero + journey.

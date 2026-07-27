@@ -36,7 +36,7 @@ const EXPECTED = {
 // The three closed /practice surfaces (one route, distinguished by the active UI state).
 const PRACTICE_EXPECTED = {
   practice_home: { surface: 'practice_home', label: 'SpeakSharp Practice', journeyStep: 'chooser', areas: ['understanding_choices', 'navigation', 'visual_layout', 'other'] },
-  quick_practice_overview: { surface: 'quick_practice_overview', label: 'Quick Practice overview', journeyStep: 'quick_overview', areas: ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other'] },
+  quick_practice_overview: { surface: 'quick_practice_overview', label: 'Freestyle Practice help', journeyStep: 'quick_overview', areas: ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other'] },
   guided_rehearsal_unavailable: { surface: 'guided_rehearsal_unavailable', label: 'Guided Rehearsal', journeyStep: 'guided_unavailable', areas: ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other'] },
 } as const;
 const SESSION_AREAS = EXPECTED.session.areas;
@@ -202,7 +202,7 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     await expect(page.getByTestId('practice-root'), 'sign-in must land on the /practice default').toBeVisible({ timeout: 20000 });
     expect(new URL(page.url()).pathname, '/practice is the default authenticated entry').toBe('/practice');
     await expect(page.getByRole('heading', { name: /private practice\. public impact/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /^Quick Practice$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
     await submitReport(page, `${MARK} j-home`, PRACTICE_EXPECTED.practice_home);
 

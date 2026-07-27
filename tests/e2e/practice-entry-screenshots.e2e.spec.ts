@@ -108,7 +108,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await shot(page, `${DIR}/01-chooser-desktop.png`);
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
     // Both products render; Guided is clearly marked unavailable (text, not color alone).
-    await expect(page.getByRole('heading', { name: /^Quick Practice$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
     await expect(page.getByTestId('practice-card-guided')).toHaveText(/guided rehearsal/i);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
@@ -119,7 +119,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     // Final CTA reads exactly "Open Practice Session" (never "Start speaking").
     await expect(page.getByRole('button', { name: /open practice session/i }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /start speaking/i })).toHaveCount(0);
-    await assertReport(page, 'Quick Practice overview', AREAS.quick_practice_overview);
+    await assertReport(page, 'Freestyle Practice help', AREAS.quick_practice_overview);
     await shot(page, `${DIR}/03-quick-walkthrough-desktop.png`);
 
     // Back to chooser. BEFORE: the Guided card is at normal emphasis, CTA "Guided Rehearsal", enabled.
