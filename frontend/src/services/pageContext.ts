@@ -24,8 +24,8 @@ export type PageKey =
   | 'other';
 
 /**
- * Closed practice-surface contract. `/practice` is ONE route hosting three UI states; Report Issue must
- * distinguish them WITHOUT a route change and WITHOUT trusting arbitrary strings. Only these three tokens
+ * Closed practice-surface contract. `/practice` is ONE route hosting two UI states; Report Issue must
+ * distinguish them WITHOUT a route change and WITHOUT trusting arbitrary strings. Only these two tokens
  * are ever accepted; anything else fails closed to `practice_home`.
  */
 export type PracticeSurface = 'practice_home' | 'guided_rehearsal_unavailable';
@@ -49,7 +49,7 @@ export interface PageContext {
   journeyStep: string;
   /** Route TEMPLATE (ids collapsed to `:sessionId`/`:id`); never a concrete id, query, or hash. */
   canonicalRoute: string;
-  /** Set ONLY on `/practice` — which of the three closed surfaces was active when the report opened. */
+  /** Set ONLY on `/practice` — which of the two closed surfaces was active when the report opened. */
   practiceSurface?: PracticeSurface;
 }
 
@@ -163,7 +163,7 @@ const AREAS: Record<PageKey, IssueAreaOption[]> = {
   ],
 };
 
-// Surface-specific issue areas for the three /practice states. Each ends with `other`.
+// Surface-specific issue areas for the two /practice states. Each ends with `other`.
 const PRACTICE_SURFACE_AREAS: Record<PracticeSurface, IssueAreaOption[]> = {
   practice_home: [
     { value: 'understanding_choices', label: 'Understanding the choices' },

@@ -255,7 +255,7 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     const rows = (data ?? []) as StoredReport[];
     const bySuffix = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
 
-    // The three /practice surfaces: one canonical route, distinguished by the surface token; no session id.
+    // The two /practice surfaces: one canonical route, distinguished by the surface token; no session id.
     for (const [suffix, exp] of [['j-home', PRACTICE_EXPECTED.practice_home], ['j-guided', PRACTICE_EXPECTED.guided_rehearsal_unavailable]] as const) {
       const row = bySuffix(suffix);
       expect(row, `stored report ${suffix}`).toBeTruthy();

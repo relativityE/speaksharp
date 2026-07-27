@@ -154,8 +154,8 @@ export default function PracticePage() {
     trackPracticeEntryViewed(returning.current);
   }, []);
 
-  // Publish the active surface to the global Report Issue dialog (typed token only). Quick overview wins;
-  // a Guided (unavailable) selection marks `guided_rehearsal_unavailable`; otherwise the chooser is home.
+  // Publish the active surface to the global Report Issue dialog (typed token only): a Guided (unavailable)
+  // selection marks `guided_rehearsal_unavailable`; otherwise the chooser is home.
   React.useEffect(() => {
     const surface: PracticeSurface = guidedSelected ? 'guided_rehearsal_unavailable' : 'practice_home';
     setSurface(surface);
