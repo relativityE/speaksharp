@@ -60,49 +60,23 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     // The CTA is a real <button> (keyboard-operable), not a card-as-button wrapping headings.
     const quickCta = screen.getByTestId('practice-card-quick');
     expect(quickCta.tagName).toBe('BUTTON');
-    expect(quickCta).toHaveAccessibleName(/explore freestyle practice/i);
+    expect(quickCta).toHaveAccessibleName(/start freestyle practice/i);
     // Headings live in the article, never inside the button.
     expect(within(cards[0]).getByRole('heading', { name: /freestyle practice/i })).toBeInTheDocument();
     expect(quickCta.querySelector('h1,h2,h3,h4')).toBeNull();
   });
 
-  it('Freestyle Practice → overview → "Open Practice Session" navigates to the unchanged /session', () => {
+  it('#1042 PR3: the Freestyle card navigates DIRECTLY to /session (no overview) and never auto-records', () => {
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-quick'));
-    // Overview appears with the specialized hero + journey.
-    expect(within(root()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
-    expect(within(root()).getByText(/choose an available transcription mode|choose your transcription mode/i)).toBeInTheDocument();
-    // The final CTA reads EXACTLY "Open Practice Session" — never "Start speaking".
-    expect(within(root()).getAllByRole('button', { name: /open practice session/i }).length).toBeGreaterThanOrEqual(1);
-    expect(within(root()).queryByRole('button', { name: /start speaking/i })).not.toBeInTheDocument();
-    // Primary action hands off to /session — and nothing else.
-    fireEvent.click(screen.getByTestId('practice-quick-start'));
+    // Direct handoff to the working Session page — no intermediate overview view is rendered.
     expect(navigateSpy).toHaveBeenCalledTimes(1);
     expect(navigateSpy).toHaveBeenCalledWith('/session');
-  });
-
-  it('Quick Overview → top Back returns to the chooser WITHOUT navigating to /session', () => {
-    render(<PracticePage />);
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    expect(within(root()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
-    // The scoped top Back control returns to the chooser — no navigation happens.
-    fireEvent.click(screen.getByTestId('practice-back-top'));
-    expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
+    // The legacy full-page overview is gone: no "Open Practice Session" CTA, no journey hero, no Back path.
     expect(within(root()).queryByRole('heading', { name: /speak freely\. see how you.re progressing/i })).not.toBeInTheDocument();
-    expect(navigateSpy).not.toHaveBeenCalled();
-    // And from the returned chooser, Guided shows the contextual notice (no navigation, no preview).
-    fireEvent.click(screen.getByTestId('practice-card-guided'));
-    expect(screen.getByTestId('guided-unavailable-notice')).toHaveTextContent('Product not available at this time');
-    expect(within(root()).queryByText(/preview · coming soon/i)).not.toBeInTheDocument();
-    expect(navigateSpy).not.toHaveBeenCalled();
-  });
-
-  it('Quick Overview → bottom Back also returns to the chooser without navigating', () => {
-    render(<PracticePage />);
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    fireEvent.click(screen.getByTestId('practice-back-bottom'));
-    expect(within(root()).getByRole('heading', { name: /private practice\. public impact/i })).toBeInTheDocument();
-    expect(navigateSpy).not.toHaveBeenCalled();
+    expect(within(root()).queryByRole('button', { name: /open practice session/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('practice-quick-start')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('practice-back-top')).not.toBeInTheDocument();
   });
 
   it('Guided card copy is exactly the approved marker + benefit (no preview/soon/future language)', () => {
@@ -206,26 +180,12 @@ describe('PracticePage — orientation entry (Quick → /session; Guided stays i
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
-  it('Quick remains fully operable after Guided is disabled', () => {
+  it('Quick remains fully operable after Guided is disabled — navigates directly to /session', () => {
     render(<PracticePage />);
     fireEvent.click(screen.getByTestId('practice-card-guided'));
-    // Quick still opens its overview and its final CTA still navigates to /session.
+    // Freestyle still navigates directly to /session (#1042 PR3; no overview).
     fireEvent.click(screen.getByTestId('practice-card-quick'));
-    expect(within(root()).getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('practice-quick-start'));
     expect(navigateSpy).toHaveBeenCalledWith('/session');
-  });
-
-  it('the disabled Guided state survives a Quick → back round-trip within the visit', () => {
-    render(<PracticePage />);
-    fireEvent.click(screen.getByTestId('practice-card-guided')); // acknowledge → disabled
-    expect(screen.getByTestId('practice-card-guided')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('practice-card-quick'));
-    fireEvent.click(screen.getByTestId('practice-back-top'));
-    // Guided remains disabled (local state retained); telemetry stayed at one.
-    expect(screen.getByTestId('practice-card-guided')).toBeDisabled();
-    expect(screen.getByTestId('practice-card-guided')).toHaveTextContent('Unavailable');
-    expect(guidedTelemetry).toHaveBeenCalledTimes(1);
   });
 
   it('a fresh mount (reload) restores Guided to its initial selectable state', () => {

@@ -33,10 +33,10 @@ const EXPECTED = {
   other: { label: 'Other page', areas: ['navigation', 'visual_layout', 'other'] },
 } as const;
 
-// The three closed /practice surfaces (one route, distinguished by the active UI state).
+// The two closed /practice surfaces (one route, distinguished by the active UI state) — #1042 PR3 removed
+// the overview surface.
 const PRACTICE_EXPECTED = {
   practice_home: { surface: 'practice_home', label: 'SpeakSharp Practice', journeyStep: 'chooser', areas: ['understanding_choices', 'navigation', 'visual_layout', 'other'] },
-  quick_practice_overview: { surface: 'quick_practice_overview', label: 'Freestyle Practice help', journeyStep: 'quick_overview', areas: ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other'] },
   guided_rehearsal_unavailable: { surface: 'guided_rehearsal_unavailable', label: 'Guided Rehearsal', journeyStep: 'guided_unavailable', areas: ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other'] },
 } as const;
 const SESSION_AREAS = EXPECTED.session.areas;
@@ -194,8 +194,8 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
 
   // Production RELEASE proof: /practice is the DEFAULT authenticated landing for every authenticated user.
   // Sign-in naturally lands on /practice — absence of /practice is a release failure, never a skip. Then the
-  // full journey: Quick → Open Practice Session → /session; Guided → the exact unavailable toast; surface-
-  // aware Report Issue on all four surfaces, verified server-side.
+  // full journey: Freestyle card → DIRECT /session (#1042 PR3, no overview); Guided → the exact unavailable
+  // toast; surface-aware Report Issue on the three journey surfaces (home, session, guided), verified server-side.
   test('default landing + full production journey (Quick → /session, Guided unavailable, report attribution)', async ({ page }) => {
     // ── A. AUTHENTICATION → natural landing on /practice (no manual navigation) ──
     await signIn(page);
@@ -206,19 +206,13 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
     await submitReport(page, `${MARK} j-home`, PRACTICE_EXPECTED.practice_home);
 
-    // ── B. QUICK PRACTICE → overview (stays on /practice) → Open Practice Session → /session ──
+    // ── B. FREESTYLE PRACTICE → DIRECT /session (#1042 PR3: no intermediate overview) ──
     await page.getByTestId('practice-card-quick').click();
-    await expect(page.getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe('/practice');
-    await expect(page.getByRole('button', { name: /open practice session/i }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /start speaking/i })).toHaveCount(0);
-    await submitReport(page, `${MARK} j-quick`, PRACTICE_EXPECTED.quick_practice_overview);
-    await page.getByTestId('practice-quick-start').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
-    // Recording does NOT auto-start: the start/stop control is present and in its start (not-recording) state.
+    // Recording does NOT auto-start: the start/stop control is present and not recording.
     const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     await expect(startStop).toBeVisible({ timeout: 20000 });
-    await expect(startStop).toHaveAccessibleName(/start/i);
+    await expect(startStop).toHaveAttribute('data-recording', 'false');
     await submitReport(page, `${MARK} j-session`, EXPECTED.session);
 
     // ── C. GUIDED REHEARSAL → return to /practice via normal nav → unavailable toast, no preview ──
@@ -253,7 +247,7 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     await expect.poll(async () => {
       const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK} j-%`);
       return data?.length ?? 0;
-    }, { timeout: 20000, message: 'all four journey reports persisted' }).toBe(4);
+    }, { timeout: 20000, message: 'all three journey reports persisted' }).toBe(3);
 
     const { data } = await admin
       .from('user_issue_reports').select('title, session_id, page_url, metadata')
@@ -262,7 +256,7 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
     const bySuffix = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
 
     // The three /practice surfaces: one canonical route, distinguished by the surface token; no session id.
-    for (const [suffix, exp] of [['j-home', PRACTICE_EXPECTED.practice_home], ['j-quick', PRACTICE_EXPECTED.quick_practice_overview], ['j-guided', PRACTICE_EXPECTED.guided_rehearsal_unavailable]] as const) {
+    for (const [suffix, exp] of [['j-home', PRACTICE_EXPECTED.practice_home], ['j-guided', PRACTICE_EXPECTED.guided_rehearsal_unavailable]] as const) {
       const row = bySuffix(suffix);
       expect(row, `stored report ${suffix}`).toBeTruthy();
       expect(row.page_url).toBe('/practice');

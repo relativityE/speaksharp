@@ -1,18 +1,19 @@
 import { test, expect, type Page } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { TEST_IDS } from '../constants';
 
 /**
  * Pre-merge VISUAL + CDP + NAVIGATION proof for the authenticated `/practice` landing (flag-free release).
  * No production deployment: authenticates via the E2E mock/synthetic path and drives the REAL user journey.
  *
  * Proves, with real clicks (no force, no direct-navigation substitute for a control):
- *  - /practice renders as the authenticated default landing;
- *  - Quick Practice → overview → "Open Practice Session" → the unchanged /session (no auto-record);
+ *  - /practice renders as the authenticated default landing (two-product chooser);
+ *  - #1042 PR3: the Freestyle card CTA ("Start Freestyle Practice") navigates DIRECTLY to the unchanged
+ *    /session (no intermediate overview) and never auto-starts recording;
  *  - Guided Rehearsal → exactly one CONTEXTUAL notice "Product not available at this time" anchored to the
  *    Guided card (not a global toast); then the Guided card alone becomes disabled; no preview/correction loop;
- *  - Report Issue is globally available and surface-aware on the landing, Quick overview, Guided-unavailable
- *    selection, and /session;
- *  - the Back controls (top + bottom) work through normal clicks below the fixed nav.
+ *  - Report Issue is globally available and surface-aware on the landing, the Guided-unavailable selection,
+ *    and /session (the removed `quick_practice_overview` surface no longer exists).
  *
  * CDP: asserts zero console/page errors and no third-party tracking requests. Screenshots → test-results/
  * practice-entry/ (uploaded as ux-review-screenshots-*).
@@ -24,10 +25,10 @@ const MOBILE = { width: 390, height: 844 };
 const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-analytics.com', 'googletagmanager.com', 'doubleclick.net'];
 const GUIDED_NOTICE = 'Product not available at this time';
 
-// Surface-specific issue-area option values (mirrors services/pageContext).
+// Surface-specific issue-area option values (mirrors services/pageContext). #1042 PR3 removed the
+// quick_practice_overview surface, so /practice now has two surfaces.
 const AREAS = {
   practice_home: ['understanding_choices', 'navigation', 'visual_layout', 'other'],
-  quick_practice_overview: ['walkthrough', 'open_practice_session', 'navigation', 'visual_layout', 'other'],
   guided_rehearsal_unavailable: ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other'],
   session: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'],
 };
@@ -54,23 +55,6 @@ async function expectOnChooser(page: Page) {
   expect(new URL(page.url()).pathname).toBe('/practice');
 }
 
-async function openQuickOverview(page: Page) {
-  await page.getByTestId('practice-card-quick').click();
-  await expect(page.getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toBeVisible();
-}
-
-// Click a Back control the way a tester does — normal click, no force. Playwright's actionability check
-// proves the fixed nav does not intercept it. Then verify we are back on the chooser at /practice.
-async function clickBackToChooser(page: Page, testid: string) {
-  const back = page.getByTestId(testid);
-  await back.scrollIntoViewIfNeeded();
-  await expect(back).toBeVisible();
-  await expect(back).toBeEnabled();
-  await back.click();
-  await expectOnChooser(page);
-  await expect(page.getByRole('heading', { name: /speak freely\. see how you.re progressing/i })).toHaveCount(0);
-}
-
 // Open the GLOBAL Report Issue dialog, assert the visible page label + surface issue areas, then close it
 // WITHOUT submitting (Escape).
 async function assertReport(page: Page, expectedLabel: string | RegExp, expectedAreas: readonly string[]) {
@@ -85,7 +69,7 @@ async function assertReport(page: Page, expectedLabel: string | RegExp, expected
 }
 
 test.describe('Practice landing — default entry, Guided unavailable, surface-aware Report Issue', () => {
-  test('Quick → Open Practice Session → /session; Guided → contextual notice + disabled; Report Issue on every surface', async ({ page }) => {
+  test('Freestyle card → direct /session (no auto-record); Guided → contextual notice + disabled; Report Issue per surface', async ({ page }) => {
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     const trackingRequests: string[] = [];
@@ -110,24 +94,16 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     // Both products render; Guided is clearly marked unavailable (text, not color alone).
     await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
-    await expect(page.getByTestId('practice-card-guided')).toHaveText(/guided rehearsal/i);
+    // #1042 PR3: Freestyle CTA is "Start Freestyle Practice"; the legacy overview CTAs are gone.
+    await expect(page.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
+    await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
-    // === QUICK OVERVIEW ===
-    await openQuickOverview(page);
-    await shot(page, `${DIR}/02-quick-overview-desktop.png`);
-    // Final CTA reads exactly "Open Practice Session" (never "Start speaking").
-    await expect(page.getByRole('button', { name: /open practice session/i }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /start speaking/i })).toHaveCount(0);
-    await assertReport(page, 'Freestyle Practice help', AREAS.quick_practice_overview);
-    await shot(page, `${DIR}/03-quick-walkthrough-desktop.png`);
-
-    // Back to chooser. BEFORE: the Guided card is at normal emphasis, CTA "Guided Rehearsal", enabled.
-    await clickBackToChooser(page, 'practice-back-top');
+    // === GUIDED UNAVAILABLE (directly on the chooser) ===
     const guidedCta = page.getByTestId('practice-card-guided');
     await expect(guidedCta).toHaveText(/guided rehearsal/i);
     await expect(guidedCta).toBeEnabled();
-    await shot(page, `${DIR}/04a-guided-before-desktop.png`);
+    await shot(page, `${DIR}/02a-guided-before-desktop.png`);
 
     await guidedCta.click();
     // Exactly ONE contextual notice, anchored INSIDE the Guided card (role=status) — not a global toast.
@@ -137,40 +113,28 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     expect(new URL(page.url()).pathname).toBe('/practice');
     await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
     await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
-    // AFTER: the Guided card ALONE is disabled — CTA "Unavailable", natively disabled; Quick stays enabled.
+    // AFTER: the Guided card ALONE is disabled — CTA "Unavailable", natively disabled; Freestyle stays enabled.
     await expect(guidedCta).toHaveText(/unavailable/i);
     await expect(guidedCta).toBeDisabled();
     await expect(guidedCta).toHaveAccessibleName(/guided rehearsal — unavailable/i);
     await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
-    await shot(page, `${DIR}/04b-guided-after-disabled-desktop.png`);
+    await shot(page, `${DIR}/02b-guided-after-disabled-desktop.png`);
     // Visible Report Issue label is EXACTLY "Guided Rehearsal" (never "(unavailable)").
-    await page.getByTestId('nav-report-issue-button').click();
-    await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByTestId('issue-report-page-context')).toContainText('Guided Rehearsal');
-    await expect(page.getByTestId('issue-report-page-context')).not.toContainText(/unavailable/i);
-    const guidedAreas = await page.getByTestId('issue-report-area').locator('option')
-      .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
-    expect(guidedAreas).toEqual(AREAS.guided_rehearsal_unavailable);
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('issue-report-title')).toHaveCount(0);
+    await assertReport(page, 'Guided Rehearsal', AREAS.guided_rehearsal_unavailable);
 
-    // Bottom Back journey.
-    await openQuickOverview(page);
-    await clickBackToChooser(page, 'practice-back-bottom');
-
-    // Keyboard focus on the Quick CTA.
+    // Keyboard focus on the Freestyle CTA.
     const quickCta = page.getByTestId('practice-card-quick');
     await quickCta.focus();
     await expect(quickCta).toBeFocused();
-    await page.screenshot({ path: `${DIR}/05-keyboard-focus-desktop.png` });
+    await page.screenshot({ path: `${DIR}/03-keyboard-focus-desktop.png` });
 
     // === MOBILE === (fresh page instance → Guided starts enabled again; capture before/after at MOBILE).
     await page.setViewportSize(MOBILE);
     await enterPractice(page);
-    await shot(page, `${DIR}/06-chooser-mobile.png`);
+    await shot(page, `${DIR}/04-chooser-mobile.png`);
     const guidedMobile = page.getByTestId('practice-card-guided');
     await expect(guidedMobile).toBeEnabled();
-    await shot(page, `${DIR}/07a-guided-before-mobile.png`);
+    await shot(page, `${DIR}/05a-guided-before-mobile.png`);
     await guidedMobile.click();
     const mobileNotice = page.getByTestId('guided-unavailable-notice');
     await expect(mobileNotice).toHaveText(GUIDED_NOTICE);
@@ -178,8 +142,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await expect(guidedMobile).toBeDisabled();
     await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
     // The fixed mobile BOTTOM nav must not OBSCURE the contextual notice: scrolled into view, the point at
-    // the notice's centre must hit the notice itself (or a child), not the overlaying nav bar. Proves the
-    // bottom safe-area padding keeps the notice reachable and fully legible above the nav.
+    // the notice's centre must hit the notice itself (or a child), not the overlaying nav bar.
     await mobileNotice.scrollIntoViewIfNeeded();
     const noticeReachable = await mobileNotice.evaluate((el) => {
       const r = el.getBoundingClientRect();
@@ -187,19 +150,18 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
       return !!hit && (hit === el || el.contains(hit));
     });
     expect(noticeReachable, 'mobile bottom nav must not obscure the Guided notice').toBe(true);
-    await shot(page, `${DIR}/07b-guided-after-disabled-mobile.png`);
-    await openQuickOverview(page);
-    await clickBackToChooser(page, 'practice-back-top');
+    await shot(page, `${DIR}/05b-guided-after-disabled-mobile.png`);
 
-    // Up to here NOTHING navigated to /session (Quick opens an overview, Guided shows a toast).
-    expect(sessionNavs, `unexpected /session navigations before Open Practice Session: ${sessionNavs.join(' | ')}`).toEqual([]);
+    // Up to here NOTHING navigated to /session (Guided shows a toast; Freestyle not yet clicked).
+    expect(sessionNavs, `unexpected /session navigations before the Freestyle handoff: ${sessionNavs.join(' | ')}`).toEqual([]);
 
-    // === OPEN PRACTICE SESSION → /session === the INTENTIONAL handoff (no auto-record).
+    // === FREESTYLE CARD → /session === the INTENTIONAL, direct handoff (no overview, no auto-record).
     await page.setViewportSize(DESKTOP);
     await enterPractice(page);
-    await openQuickOverview(page);
-    await page.getByTestId('practice-quick-start').click();
+    await page.getByTestId('practice-card-quick').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
+    // Must NOT auto-start recording — the Session start control is present and not recording.
+    await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'false', { timeout: 20000 });
     await assertReport(page, 'Session · Speaking', AREAS.session);
 
     // CDP assertions: clean, self-contained page throughout.

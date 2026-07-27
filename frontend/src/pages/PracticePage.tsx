@@ -2,9 +2,10 @@
  * PracticePage — the authenticated `/practice` landing (orientation before recording controls). This is
  * the default authenticated entry.
  *
- * Quick Practice is the only working product: card → its overview → "Open Practice Session" navigates to
- * the UNCHANGED /session (a pure navigation handoff — this page imports/changes nothing in the session
- * runtime and never auto-starts recording). Guided Rehearsal is future direction and NOT available:
+ * Freestyle Practice is the only working product: its card ("Start Freestyle Practice") navigates DIRECTLY
+ * to the UNCHANGED /session (#1042 PR3 — a pure navigation handoff; this page imports/changes nothing in the
+ * session runtime and never auto-starts recording). The "How Freestyle Practice works" guide now lives as a
+ * Session-page overlay (#1042 PR2), not a full-page overview. Guided Rehearsal is future direction and NOT available:
  * selecting it stays on /practice and shows exactly one toast ("Product not available at this time") — no
  * preview, no microphone, AI, DB, network, or persistence. Report Issue stays in the global authenticated
  * Navigation and is surface-aware via the active practice surface. Warm Theme A visuals are scoped under
@@ -14,8 +15,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, Check, Clock, Info, Play, ChevronDown, Shield, ArrowLeft,
-  Settings2, Mic, FileText, LineChart, Target, AudioLines, ListChecks, Repeat,
+  ArrowRight, Check, Clock, Info,
+  LineChart, Target, AudioLines, ListChecks, Repeat,
   type LucideIcon,
 } from 'lucide-react';
 import '@/styles/practice.css';
@@ -23,7 +24,7 @@ import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/componen
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
-  trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
+  trackPracticeEntryViewed, trackPracticeModeSelected,
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
 
@@ -69,88 +70,6 @@ const GUIDED_BULLETS: Bullet[] = [
   { text: 'Track covered and missed points', Icon: Target },
   { text: 'Rehearse corrections before the real moment', Icon: Repeat },
 ];
-
-interface Step { title: string; result: string; detail: string; Icon: LucideIcon }
-
-const QUICK_STEPS: Step[] = [
-  { title: 'Choose an available transcription mode', result: 'Shown before each session — you choose.', detail: 'Pick how your speech is transcribed. SpeakSharp shows which mode is active before you start — it is never hidden.', Icon: Settings2 },
-  { title: 'Enter the practice session', result: 'Orientation first, then the session.', detail: 'Opening the practice session takes you to the working Session page. It does not start recording on its own.', Icon: Play },
-  { title: 'Start recording when you’re ready', result: 'You control when to begin.', detail: 'Begin recording on the Session page whenever you’re ready — SpeakSharp transcribes as you speak.', Icon: Mic },
-  { title: 'Review live transcription and delivery evidence', result: 'See exactly what you said.', detail: 'Watch your live transcript during the session alongside focused delivery signals such as pace and filler words.', Icon: FileText },
-  { title: 'Review progress against your prior sessions', result: 'Progress vs your own baseline.', detail: 'See how this session moves relative to your earlier practice — measured against you, never a public grade.', Icon: LineChart },
-  { title: 'Choose a useful next improvement focus', result: 'One clear next focus.', detail: 'Pick a single thing to work on next time, so practice compounds instead of scattering.', Icon: Target },
-];
-
-const DISCLOSURE = 'Your available transcription options and how speech is processed are shown before each session. “Private” here means private preparation — you decide when your work is ready to share.';
-
-function JourneyStep({ step, index, open, onToggle }: { step: Step; index: number; open: boolean; onToggle: () => void }) {
-  const id = `pstep-${index}`;
-  return (
-    <li className={`overflow-hidden rounded-lg transition-colors ${open ? 'bg-[color:var(--ss-card-soft)] ring-1 ring-[color:var(--ss-card)]' : 'bg-[color:var(--ss-surface)] ring-1 ring-[color:var(--ss-border)]'}`}>
-      <button type="button" aria-expanded={open} aria-controls={id} onClick={onToggle} className="ss-ring flex w-full items-center gap-4 px-4 py-3.5 text-left">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--ss-card-soft)', color: 'var(--ss-card-btn)' }}><step.Icon size={19} aria-hidden /></span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white" style={{ background: 'var(--ss-card-btn)' }}>{index + 1}</span>
-            <span className="text-sm font-semibold text-[color:var(--ss-text)]">{step.title}</span>
-          </span>
-          <span className="mt-0.5 block pl-7 text-[13px] text-[color:var(--ss-text-secondary)]">{step.result}</span>
-        </span>
-        <ChevronDown size={16} aria-hidden style={{ color: 'var(--ss-card-btn)' }} className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open ? <p id={id} className="ss-fade-up px-4 pb-4 pl-[4.5rem] text-sm text-[color:var(--ss-text-secondary)]">{step.detail}</p> : null}
-    </li>
-  );
-}
-
-function Disclosure() {
-  return (
-    <p className="mt-6 inline-flex items-start gap-2 text-xs text-[color:var(--ss-neutral)]">
-      <Shield size={14} aria-hidden className="mt-0.5 shrink-0" /><span>{DISCLOSURE}</span>
-    </p>
-  );
-}
-
-/** Quick Practice overview (model B): its own view with the 5-step journey; primary → /session. */
-function QuickOverview({ onStart, onBack }: { onStart: () => void; onBack: () => void }) {
-  const [open, setOpen] = React.useState<number | null>(null);
-  const journeyRef = React.useRef<HTMLDivElement>(null);
-  return (
-    <div style={QUICK_VARS}>
-      <section className="ss-overview-hero">
-        {/* pt-24 clears the fixed global <nav> (h-16 / z-40): its interactive top control (the Back button)
-            must sit BELOW the nav, or the nav intercepts the click. scroll-mt-24 keeps it clear of the nav
-            when scrolled to. */}
-        <div className="mx-auto max-w-5xl px-5 pb-10 pt-24 sm:px-8">
-          <button onClick={onBack} data-testid="practice-back-top" className="ss-ring scroll-mt-24 inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]"><ArrowLeft size={15} aria-hidden /> Back to practice choices</button>
-          <div className="mt-4 grid items-center gap-6 md:grid-cols-2">
-            <div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--ss-card-soft)] px-3 py-1 text-xs font-bold uppercase tracking-wide text-[color:var(--ss-card-btn)]">No agenda required.</span>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[color:var(--ss-text)]">Speak freely. See how you’re progressing.</h2>
-              <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[color:var(--ss-text-secondary)]">Start immediately without preparing an agenda. SpeakSharp captures your words and helps you review focused delivery evidence.</p>
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button onClick={onStart} data-testid="practice-quick-start" className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Open Practice Session</button>
-                <button onClick={() => journeyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="ss-accent-outline ss-ring inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold">See how it works</button>
-              </div>
-            </div>
-            <div className="ss-card-panel h-40 overflow-hidden rounded-xl ring-1 ring-[color:var(--ss-border)]"><div className="h-full w-full px-6 py-5"><QuickPracticeArt emphasis /></div></div>
-          </div>
-          <Disclosure />
-        </div>
-      </section>
-      <div ref={journeyRef} className="mx-auto max-w-3xl px-5 py-9 sm:px-8">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-[color:var(--ss-neutral)]">How it works</h3>
-        <ol className="mt-4 space-y-2.5">
-          {QUICK_STEPS.map((s, i) => <JourneyStep key={s.title} step={s} index={i} open={open === i} onToggle={() => setOpen((o) => (o === i ? null : i))} />)}
-        </ol>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <button onClick={onStart} className="ss-accent-btn ss-ring inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm"><Play size={16} aria-hidden /> Open Practice Session</button>
-          <button onClick={onBack} data-testid="practice-back-bottom" className="ss-ring scroll-mt-24 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-[color:var(--ss-text-secondary)] hover:text-[color:var(--ss-card-btn)]">Back to practice choices</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface Bullet { text: string; Icon: LucideIcon }
 
@@ -214,7 +133,6 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
 export default function PracticePage() {
   const navigate = useNavigate();
   const { setSurface } = usePracticeSurface();
-  const [view, setView] = React.useState<'landing' | 'quick-overview'>('landing');
   // Guided is not a working product: selecting it shows an unavailable toast and marks the reporting
   // surface (it does NOT open a page/preview). `guidedSelected` only affects Report Issue attribution.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
@@ -239,17 +157,18 @@ export default function PracticePage() {
   // Publish the active surface to the global Report Issue dialog (typed token only). Quick overview wins;
   // a Guided (unavailable) selection marks `guided_rehearsal_unavailable`; otherwise the chooser is home.
   React.useEffect(() => {
-    const surface: PracticeSurface = view === 'quick-overview'
-      ? 'quick_practice_overview'
-      : guidedSelected ? 'guided_rehearsal_unavailable' : 'practice_home';
+    const surface: PracticeSurface = guidedSelected ? 'guided_rehearsal_unavailable' : 'practice_home';
     setSurface(surface);
-  }, [view, guidedSelected, setSurface]);
+  }, [guidedSelected, setSurface]);
 
   // Reset the override when leaving /practice so a report elsewhere never inherits a stale surface, and
   // clear the notice timer on unmount.
   React.useEffect(() => () => { setSurface(null); if (noticeTimer.current) clearTimeout(noticeTimer.current); }, [setSurface]);
 
-  const openQuick = () => { setGuidedSelected(false); trackPracticeModeSelected('quick', 'landing_card'); trackPracticeOverviewExpanded('quick'); setView('quick-overview'); };
+  // #1042 PR3: the Freestyle card navigates DIRECTLY to the working Session page — no intermediate
+  // overview. It never auto-starts recording (SessionPage owns the mic). Truthful entry source is
+  // 'landing_card' (never the removed 'quick_overview').
+  const startFreestyle = () => { setGuidedSelected(false); trackPracticeModeSelected('quick', 'landing_card'); trackQuickPracticeStarted('landing_card'); navigate('/session'); };
   // Guided selected while UNAVAILABLE: stay on /practice, mark the reporting surface, and (ONCE) emit
   // content-free telemetry + show ONE contextual notice anchored to the Guided card, then disable the card.
   // No nav, no preview, no mic/AI/network/persistence, and NO global toast. The CTA becomes natively
@@ -264,7 +183,6 @@ export default function PracticePage() {
     trackPracticeModeSelected('guided', 'landing_card');
     trackGuidedRehearsalUnavailable();
   };
-  const startQuick = () => { trackQuickPracticeStarted('quick_overview'); navigate('/session'); };
 
   return (
     // NOTE: no <main> / #main-content here — App.tsx owns the single page <main id="main-content">
@@ -272,10 +190,7 @@ export default function PracticePage() {
     // skip-link target and assistive-tech landmark navigation. This is a plain content container.
     <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
       <div className="practice-content">
-        {view === 'quick-overview' ? (
-          <QuickOverview onStart={startQuick} onBack={() => setView('landing')} />
-        ) : (
-          <>
+        <>
             <div className="ss-theme-hero">
               {/* pt-24 keeps the chooser's content clear of the fixed global <nav> (h-16 / z-40). */}
               <div className="mx-auto max-w-5xl px-5 pb-14 pt-24 sm:px-8">
@@ -309,7 +224,7 @@ export default function PracticePage() {
               <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
                 <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
                   bullets={QUICK_BULLETS}
-                  marker="Available now" ctaLabel="Explore Freestyle Practice" ctaAria="Explore Freestyle Practice" ctaSolid onClick={openQuick} testid="practice-card-quick" />
+                  marker="Available now" ctaLabel="Start Freestyle Practice" ctaAria="Start Freestyle Practice" ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
                 <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
                   bullets={GUIDED_BULLETS}
                   marker="Planned — not available yet" markerIcon={Clock} ctaLabel="Guided Rehearsal" ctaAria="Guided Rehearsal — not available yet"
@@ -320,8 +235,7 @@ export default function PracticePage() {
 
               <p className="mt-6 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Freestyle Practice</span> is available now — Guided Rehearsal is coming later.</p>
             </div>
-          </>
-        )}
+        </>
       </div>
     </div>
   );
