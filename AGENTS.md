@@ -216,7 +216,10 @@ Evidence sufficiency and stopping rules:
 - Prefer one strong end-to-end proof over several overlapping text-only checks.
 - Do not add evidence merely because another test, screenshot, or live run is possible.
 - Reuse still-valid evidence when later commits do not affect the behavior or visual output
-  it proves; record the evidence's exact provenance.
+  it proves; record the evidence's exact provenance. This general allowance does NOT relax the
+  stricter release-candidate rule: for RC gate artifacts, apply the Artifact Freshness Rule in
+  [product_release/RC_GATES.md](product_release/RC_GATES.md) — any change to a gate item's
+  dependency surface makes its artifact stale, even a behavior-neutral one, and it must be rerun.
 - After the acceptance criteria are proven, focused checks pass, required exact-head CI is
   green, and review threads are resolved, stop expanding the PR and return it for the
   Product Owner's decision.
