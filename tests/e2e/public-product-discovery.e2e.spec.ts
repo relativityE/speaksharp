@@ -54,8 +54,8 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('freestyle-trial-strip')).toBeVisible();
     await expect(page.getByTestId('freestyle-trial-strip')).toContainText(/free trial/i);
     await expect(page.getByTestId('support-freestyle-explain')).toHaveCount(0);
-    // Guided is "Coming Soon!" (never "Planned"); no authenticated continuity for anon.
-    await expect(page.getByText('Coming Soon!').first()).toBeVisible();
+    // Guided status is the header "SOON" pill on the marketing surface (never "Planned"); no continuity for anon.
+    await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('practice-continuity')).toHaveCount(0);
     await settle(page);

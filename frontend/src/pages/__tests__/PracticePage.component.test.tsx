@@ -115,9 +115,11 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       // Freestyle FREE TRIAL strip (the four support cards + connectors are removed).
       const strip = screen.getByTestId('freestyle-trial-strip');
       expect(strip).toHaveTextContent(/free trial/i);
-      expect(strip).toHaveTextContent(/try private for 5 minutes—no credit card required\./i);
+      expect(strip).toHaveTextContent(/try a 5-minute private session — no card, no script\./i);
       expect(screen.queryByTestId('support-freestyle-explain')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('practice-group-freestyle')).not.toBeInTheDocument();
+      // Guided status is carried by the header "SOON" pill on the marketing surface; no "Planned" anywhere.
+      expect(screen.getByTestId('guided-soon-badge')).toHaveTextContent(/soon/i);
+      expect(screen.queryByText(/Planned/)).toBeNull();
       // Product cards own their actions (anon shows CTAs, same as authed).
       expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
       expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);

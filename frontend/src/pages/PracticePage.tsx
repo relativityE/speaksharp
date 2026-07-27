@@ -26,7 +26,6 @@ import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext
 import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
-import { Button } from '@/components/ui/button';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
@@ -58,37 +57,44 @@ const GUIDED_BULLETS: Bullet[] = [
 
 interface Bullet { text: string; Icon: LucideIcon }
 
-function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid, hideCta }: {
+function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid, hideMarker, cornerBadge }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
   marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; ctaSolid?: boolean; onClick: () => void; testid: string;
-  // #1061: on the anonymous landing the supporting CTA card owns the action, so the product card renders
-  // WITHOUT a duplicate button (one clear primary action per product group).
-  hideCta?: boolean;
+  // #1061: hide the in-body status chip when a header cornerBadge already carries status (e.g. Guided "SOON").
+  hideMarker?: boolean;
+  // A small status pill absolutely positioned top-right on the art band (e.g. Guided "SOON").
+  cornerBadge?: React.ReactNode;
 }) {
   const MarkerIcon = markerIcon ?? Check;
-  const ctaClass = `ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
+  // Full-width CTA pinned to the bottom (mt-auto) so both product cards' buttons bottom-align.
+  const ctaClass = `ss-ring mt-auto flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-3 text-sm font-bold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
   return (
     <article style={vars} data-testid={`${testid}-card`}
-      className="group ss-mode-card flex h-full flex-col overflow-hidden rounded-[10px] bg-[color:var(--ss-surface)] transition-all duration-200 shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-2 ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]">
+      className="group ss-mode-card flex h-full flex-col overflow-hidden rounded-[16px] bg-[color:var(--ss-surface)] transition-all duration-200 shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-[1.5px] ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]">
       <div className="flex flex-1 flex-col">
-        <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]"><div className="absolute inset-0 px-5 py-3">{art}</div></div>
+        <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]">
+          <div className="absolute inset-0 px-5 py-3">{art}</div>
+          {cornerBadge ? <div className="absolute right-3 top-3">{cornerBadge}</div> : null}
+        </div>
         <div className="flex flex-1 flex-col p-5">
-          <h3 className="text-lg font-bold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
-          <p className="mt-0.5 text-sm font-semibold text-[color:var(--ss-card-btn)]">{promise}</p>
-          <ul className="mt-3 space-y-2">
+          <h3 className="text-[21px] font-extrabold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
+          <p className="mt-1 text-[15px] font-bold text-[color:var(--ss-card-btn)]">{promise}</p>
+          <ul className="mt-3.5 space-y-2.5">
             {bullets.map((b) => (
-              <li key={b.text} className="flex items-start gap-2 text-sm text-[color:var(--ss-text)]">
-                <span aria-hidden className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-[5px] bg-[color:var(--ss-card-soft)] text-[color:var(--ss-card-btn)]"><b.Icon size={13} /></span>
+              <li key={b.text} className="flex items-start gap-2.5 text-[15px] text-[color:var(--ss-body-slate,#3d4757)]">
+                <span aria-hidden className="mt-px grid h-6 w-6 shrink-0 place-items-center rounded-[6px] bg-[color:var(--ss-card-soft)] text-[color:var(--ss-card-btn)]"><b.Icon size={14} /></span>
                 <span>{b.text}</span>
               </li>
             ))}
           </ul>
-          <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
-          {hideCta ? null : (
+          {hideMarker ? <div className="mt-3.5" /> : (
+            <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
+          )}
+          <div className="mt-4 flex flex-1 flex-col justify-end pt-1">
             <button type="button" onClick={onClick} data-testid={testid} aria-label={ctaAria} className={ctaClass}>
               {ctaLabel}<ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
             </button>
-          )}
+          </div>
         </div>
       </div>
     </article>
@@ -101,22 +107,26 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
  * routes to Freestyle (account access → /session, never auto-recording) and does not imply Private is
  * already active — it is a trial offer. */
 function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
+  // DARK SLATE — deliberately NOT teal/violet: a neutral, system-level offer that gives the page its third
+  // value step and (with the -mt overlap) kills the hard hero/page seam. Orange CTA uses near-black text
+  // (never white on orange). The private-trial offer belongs to Freestyle; the CTA routes to Freestyle.
   return (
     <div
       data-testid="freestyle-trial-strip"
-      className="flex flex-col items-start gap-3 rounded-[12px] p-4 shadow-[0_6px_18px_rgba(15,23,42,0.12)] sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5"
-      style={{ background: 'var(--ss-session-panel)' }}
+      className="flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 shadow-[0_16px_34px_-18px_rgba(31,39,51,0.65)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
+      style={{ background: '#1f2733' }}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="rounded-full bg-white/25 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white">Free trial</span>
-        <span className="text-[15px] font-semibold text-white">Try Private for 5 minutes—no credit card required.</span>
+        <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
+        <span className="text-[17px] font-bold text-white">Try a 5-minute private session — no card, no script.</span>
       </div>
       <button
         type="button"
         onClick={onStart}
         data-testid="freestyle-trial-start"
         aria-label="Start Freestyle Practice with a 5-minute Private trial"
-        className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[color:var(--ss-session-btn,#08746F)] shadow-sm"
+        className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
+        style={{ background: '#d98a1f', color: '#241503' }}
       >
         Start Freestyle<ArrowRight size={15} aria-hidden />
       </button>
@@ -171,14 +181,21 @@ export default function PracticePage() {
     setNotifyOpen(true);
   };
 
+  const soonBadge = (
+    <span data-testid="guided-soon-badge" className="rounded-full bg-white/95 px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-[color:var(--ss-exec-accent)]">Soon</span>
+  );
   const freestyleCard = (
-    <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
-      bullets={QUICK_BULLETS} marker="Available now" ctaLabel="Start Freestyle Practice" ctaAria="Start Freestyle Practice"
+    <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice"
+      promise={isAuthed ? 'Speak freely. See how you’re progressing.' : 'No script. No pressure. Just practice.'}
+      bullets={QUICK_BULLETS} marker="Available now" hideMarker={!isAuthed}
+      ctaLabel={isAuthed ? 'Start Freestyle Practice' : 'Start Freestyle'} ctaAria="Start Freestyle Practice"
       ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
   );
   const guidedCard = (
-    <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
-      bullets={GUIDED_BULLETS} marker="Coming Soon!" markerIcon={Clock} ctaLabel="Notify me" ctaAria="Notify me about Guided Rehearsal"
+    <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal"
+      promise={isAuthed ? 'Prepare what matters. Rehearse until it lands.' : 'Prepare the points that must land.'}
+      bullets={GUIDED_BULLETS} marker="Coming Soon!" markerIcon={Clock} hideMarker={!isAuthed} cornerBadge={!isAuthed ? soonBadge : undefined}
+      ctaLabel={isAuthed ? 'Notify me' : 'Notify me at launch'} ctaAria="Notify me about Guided Rehearsal"
       onClick={openNotify} testid="practice-card-guided" />
   );
   const productGrid = (
@@ -214,9 +231,16 @@ export default function PracticePage() {
                   <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
                   <p className="mt-4 max-w-xl text-[20px] font-medium leading-[1.5] text-[color:var(--ss-body-slate)] md:text-[22px]">Practice important speaking moments in private.<br />Get focused feedback and track your improvement before the moment matters.</p>
                   <div className="mt-6">
-                    <Button size="lg" className="h-13 px-6 text-base" onClick={() => navigate('/auth/signup')} data-testid="practice-hero-start-free">
-                      Start free<ArrowRight className="ml-2 size-5" aria-hidden />
-                    </Button>
+                    {/* Teal CTA on the orange field — complementary contrast (Rule 2). White text on teal. */}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/auth/signup')}
+                      data-testid="practice-hero-start-free"
+                      className="ss-ring inline-flex items-center gap-2 rounded-[11px] px-7 py-3.5 text-[17px] font-bold text-white shadow-[0_14px_28px_-12px_rgba(10,95,88,0.85)]"
+                      style={{ background: '#0a5f58' }}
+                    >
+                      Start free<ArrowRight className="size-5" aria-hidden />
+                    </button>
                   </div>
                 </div>
                 <div className="mx-auto mt-5 w-[248px] rounded-[10px] border border-[color:var(--ss-border)] bg-white/75 p-3 shadow-[0_4px_16px_rgba(15,23,42,0.08)] md:mx-0 md:mt-0 md:w-full">
@@ -246,9 +270,10 @@ export default function PracticePage() {
                + action. No four-card support section. */
             <>
               <FreestyleTrialStrip onStart={startFreestyle} />
-              <div className="mb-6 mt-8 text-center" data-testid="practice-support-heading">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-[color:var(--ss-card-btn,#08746F)]">How it helps</span>
-                <h2 className="mt-1 text-2xl font-bold tracking-tight text-[color:var(--ss-text)] sm:text-3xl">Choose the support your moment needs.</h2>
+              <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
+                {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
+                <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>
+                <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[32px]">Choose the support your moment needs.</h2>
               </div>
               {productGrid}
             </>
