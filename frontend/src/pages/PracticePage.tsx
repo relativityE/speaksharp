@@ -215,7 +215,7 @@ export default function PracticePage() {
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
                 <span className="text-[13px] font-extrabold uppercase tracking-[0.1em] text-[color:var(--ss-teal-title)]">Welcome back</span>
-                <h1 className="mt-1 text-[30px] font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[38px]">What do you want to work on?</h1>
+                <h1 className="mt-1 text-[30px] font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[38px]">What would you like to practice?</h1>
               </div>
               <PracticeContinuity
                 variant="inline"

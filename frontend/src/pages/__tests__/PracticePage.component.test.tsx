@@ -68,7 +68,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       } as unknown as HistoryReturn);
       render(<PracticePage />);
       expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/welcome back/i);
-      expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/what do you want to work on\?/i);
+      expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/what would you like to practice\?/i);
       expect(screen.getByTestId('practice-continuity')).toBeInTheDocument();
       // No anonymous marketing support section after login.
       expect(screen.queryByTestId('practice-support')).not.toBeInTheDocument();

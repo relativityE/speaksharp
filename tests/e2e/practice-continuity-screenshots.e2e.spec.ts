@@ -6,7 +6,7 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
  * (returning state). #1061 folded continuity into the authenticated greeting ROW — the compact `inline`
  * variant renders the same TRUTHFUL summary (date + duration only, never WPM) + the same two actions
  * ("Review last session" → /analytics/:id, "View analytics" → /analytics), but the standalone "Ready for
- * your next practice?" heading is gone; the greeting "What do you want to work on?" is now the header.
+ * your next practice?" heading is gone; the greeting "What would you like to practice?" is now the header.
  * Authenticates via the E2E mock path with a RETURNING session history (the default).
  *
  * DESKTOP: full-page shot (no fixed bottom nav to obscure content).
@@ -88,7 +88,7 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     // so neither overlays the card (scrolling to 'start' would tuck the summary under the top header).
     await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     // #1061 inline layout: the block's top line is the summary (no standalone heading); the greeting row
-    // "What do you want to work on?" is the page header.
+    // "What would you like to practice?" is the page header.
     const summary = page.getByTestId('practice-continuity-summary');
     const review = page.getByTestId('practice-continuity-review');
     const analytics = page.getByTestId('practice-continuity-analytics');
