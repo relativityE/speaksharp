@@ -1143,15 +1143,20 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // #893: subscribing to an already-TERMINATED service during the login→/session transition must not
     // throw ENGINE_ALREADY_TERMINATED (which surfaced as a GLOBAL UNHANDLED REJECTION). It must skip the
     // subscribe, drop the stale ref, and resolve cleanly.
-    it('#893: syncServiceSubscription skips + drops a terminated service (no subscribe, no throw)', async () => {
+    it('#893: syncServiceSubscription skips + drops a terminated service AND invalidates cached readiness', async () => {
         useSessionStore.setState({ isBooting: false } as never);
         const subscribe = vi.fn(() => () => {});
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => true, subscribe };
         (controller as unknown as { serviceUnsubscribe: unknown }).serviceUnsubscribe = null;
+        // Seed the stale, already-resolved readyPromise the terminated service left behind. If the guard drops
+        // the service WITHOUT clearing this, a later warmUp()/ensureReady() short-circuits and reports readiness
+        // with no live service. The guard must null it so the next readiness path rebuilds a fresh service.
+        (controller as unknown as { readyPromise: unknown }).readyPromise = Promise.resolve();
         // Must resolve (not reject) — the bug was an unhandled rejection from assertAlive().
         await expect(controller.syncServiceSubscription()).resolves.toBeUndefined();
         expect(subscribe).not.toHaveBeenCalled();                 // never subscribed to the terminated service
         expect((controller as unknown as { service: unknown }).service).toBeNull(); // stale ref dropped
+        expect((controller as unknown as { readyPromise: unknown }).readyPromise).toBeNull(); // readiness invalidated → forces rebuild
     });
 
     // Guard scope: a LIVE service still subscribes normally (the #893 guard must not break the happy path).
