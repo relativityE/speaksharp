@@ -64,7 +64,7 @@ Each capability has exactly one owning component, so behavior cannot silently di
 
 - **Private STT audio never leaves the browser.** Private transcription runs on-device (Transformers.js, same-origin worker/model assets); raw audio is not uploaded.
 - **Final transcript text MAY be persisted** as part of the finalized session snapshot (the `sessions` row) so returning-user coaching, AI-feedback caching, PDF regeneration, WER-ready validation, and session comparison have a stable source of truth. Transcripts are **append-only and monotonic** — segments are ordered by absolute timestamp and never overwritten by late partials.
-- **Retention ADR (authoritative):** persisted session snapshots and issue reports are retained durably in Supabase under RLS; on-device Private audio is transient and never persisted server-side; CI UX screenshots are ephemeral (`retention-days: 1`). Any change to what is persisted, or to retention duration, is an architectural decision recorded here and requires Product Owner approval.
+- **Retention boundary (ADR-2):** persisted session snapshots and issue reports are stored in Supabase under RLS; on-device Private audio is transient and never persisted server-side; CI UX screenshots are ephemeral (`retention-days: 1`). This does **not** approve indefinite transcript retention or set a deletion SLA — **retention duration, user deletion, and account-deletion policy remain unresolved** and require Product Owner approval (→ the enterprise/operations contracts). Any change to what is persisted is an architectural decision recorded here.
 
 ## 6. Identity & session lifecycle
 
@@ -123,13 +123,24 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
 
 ## 14. Authority ADRs
 
-- **ADR-1 — Entitlement authoritative source.** The authoritative paid signal is the server-side entitlement: the Postgres subscription state + `check-usage-limit` RPC, backed by a real Stripe subscription id. `subscription_status = 'pro'` alone is NOT sufficient; a confirmed paid Pro requires the Stripe evidence. The frontend selector (`getEffectiveSubscriptionStatus` / `hasPaidProEntitlement`) prefers the server signal over the profile and is advisory for UI only. Centralizing the client decision into one selector is the implementation refactor #1036; this ADR fixes the *authority*, not the refactor.
-- **ADR-2 — Retention boundary.** See §5: transcripts persist in `sessions` (durable, RLS); Private audio stays on-device (never persisted); CI UX screenshots are 1-day ephemeral. Changes require Product Owner approval.
+- **ADR-1 — Entitlement authority.** Server-side state is authoritative, but **payment status and product capabilities are distinct**:
+  - Verified paid-Pro requires **real Stripe subscription evidence**.
+  - `canUsePrivate` and `canUseCloud` are **server-derived capability entitlements** and MAY include explicitly approved **comped or legacy grants** — they are not equivalent to payment status.
+  - A profile field such as `subscription_status = 'pro'` and any frontend-derived booleans are **advisory** and are never sufficient authority by themselves.
+  - `check-usage-limit` enforces server-side **quota policy**; it is **not itself proof of payment**.
+  - Exact quotas, pricing, packaging, and comped-access policy remain owned by **#1053** (`ENTITLEMENTS_AND_BILLING.md`).
+  - **#1036** will centralize the client selector **without changing these authority boundaries**.
+- **ADR-2 — Storage & retention boundary.**
+  - Final transcript / session data MAY persist in `sessions` under RLS (see §5).
+  - Raw Private audio remains on-device and is **never uploaded or persisted server-side**.
+  - CI UX screenshots remain ephemeral (1-day retention).
+  - This ADR does **not** approve indefinite transcript retention or establish a deletion SLA. **Retention duration, user deletion, and account-deletion requirements remain unresolved policy** for the appropriate enterprise/operations contracts and require Product Owner approval.
 - **ADR-3 — Persistence vs observability.** Supabase is the sole persistence truth; PostHog/Sentry are never a durable-write guarantee (§3).
 - **ADR-4 — No silent STT fallback.** Cloud is never entered implicitly; engine provenance is truthful (§8).
 
 ## 15. Current limitations & open ADRs
 
-- **Entitlement selector not yet centralized** — the entitlement decision is currently read by multiple callers; unifying it behind one selector is **open** (#1036). Until then, ADR-1 fixes the authoritative source but the code path is not yet single-sourced.
+- **Entitlement selector not yet centralized** — the entitlement decision is currently read by multiple callers; unifying it behind one selector is **open** (#1036). Until then, ADR-1 fixes the authority boundaries (payment vs capability) but the code path is not yet single-sourced. Exact quotas/pricing/packaging/comped-access policy is owned by #1053.
+- **Retention duration & deletion — unresolved policy.** ADR-2 fixes *where* data lives and that Private audio never persists, but retention duration, user deletion, and account-deletion (SLA/erasure) are **not decided here**; they belong to the enterprise/operations contracts and require Product Owner approval.
 - **Durable telemetry/alert outbox + provenance registry** — DRAFT design only (#1006), **NOT shipped / NOT activated**. The persistence-vs-observability invariants above stand unchanged; do not cite the outbox as current behavior.
 - **Native Browser STT verification** — a browser-dependent convenience path; non-Chrome browsers require browser-specific proof before being marketed as verified (→ `STT.md`).
