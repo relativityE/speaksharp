@@ -54,9 +54,9 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('freestyle-trial-strip')).toBeVisible();
     await expect(page.getByTestId('freestyle-trial-strip')).toContainText(/free trial/i);
     await expect(page.getByTestId('support-freestyle-explain')).toHaveCount(0);
-    // Guided status is the "Coming Soon!" marker (no duplicate SOON badge), never "Planned"; no continuity for anon.
-    await expect(page.getByTestId('practice-card-guided-card').getByText('Coming Soon!')).toBeVisible();
-    await expect(page.getByTestId('guided-soon-badge')).toHaveCount(0);
+    // Guided status is the SOON header badge + the "Notify me at launch" CTA, never "Planned"; no continuity for anon.
+    await expect(page.getByTestId('practice-card-guided-card').getByTestId('guided-soon-badge')).toBeVisible();
+    await expect(page.getByRole('button', { name: /notify me about guided rehearsal/i })).toContainText(/notify me at launch/i);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('practice-continuity')).toHaveCount(0);
     await settle(page);
@@ -99,7 +99,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('practice-continuity-summary')).toBeVisible();
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);
-    await expect(page.getByText('Coming Soon!').first()).toBeVisible();
+    await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
 
     await page.setViewportSize(DESKTOP);
     await settle(page);

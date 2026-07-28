@@ -103,8 +103,8 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     // === GUIDED "COMING SOON!" + NOTIFY ME (#1061) — Guided card opens the gated coming-soon dialog (waitlist OFF) ===
     const guidedCta = page.getByTestId('practice-card-guided');
     await expect(guidedCta).toHaveAccessibleName(/notify me about guided rehearsal/i);
-    // Guided status is exactly "Coming Soon!" (never "Planned").
-    await expect(page.getByText('Coming Soon!').first()).toBeVisible();
+    // Guided status is the SOON header badge (never "Planned").
+    await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await shot(page, `${DIR}/02a-guided-before-desktop.png`);
 

@@ -81,10 +81,10 @@ export function GuidedNotifyDialog({
         {!enabled ? (
           /* #1061 activation gate OFF — honest coming-soon acknowledgement; NO capture form, NO backend call. */
           <div data-testid="guided-notify-comingsoon">
-            <DialogTitle>Guided Rehearsal is coming soon</DialogTitle>
-            <DialogDescription>It isn’t available yet.</DialogDescription>
+            <DialogTitle>Guided Rehearsal is coming soon!</DialogTitle>
+            <DialogDescription>We’re getting Guided Rehearsal ready.</DialogDescription>
             <p role="status" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
-              We’ll announce Guided Rehearsal right here the moment it’s ready — thanks for your interest.
+              We’ll announce it here when it’s ready.
             </p>
             <div className="mt-5 flex justify-end">
               <Button type="button" data-testid="guided-notify-close" onClick={() => onOpenChange(false)}>Got it</Button>

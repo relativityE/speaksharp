@@ -31,8 +31,9 @@
      warm-peach hero WASH (~10-20% orange tint), not a saturated orange block. Orange stays the brand
      signature through ACCENTS (underline, waveform, illustration nodes, notice edge); navy + teal carry
      the headline hierarchy. NOT pale yellow, NOT gray, NOT intense orange. */
-  --ss-landing-canvas: #E7ECF6;
-  --ss-hero-gradient: linear-gradient(155deg, #F8B980 0%, #FBD3B0 44%, #FDECDC 100%);
+  --ss-landing-canvas: #eef1f6;
+  /* #1061 rectification: fade diagonally straight from warm orange to the page grey — NO white waypoint. */
+  --ss-hero-gradient: linear-gradient(102deg, #f2a13a 0%, #f6b761 22%, #f9d3a4 46%, #f2e4d6 70%, #eef1f6 100%);
   --ss-hero-glow: radial-gradient(120% 90% at 10% -6%, rgba(222,116,28,0.26) 0%, rgba(222,116,28,0) 54%);
   --ss-amber: #C96608;   /* full-strength warm orange, reserved for accents (underline/waveform/notice) */
   --ss-amber-surface: #FFF4E6;  /* light warm opaque surface for the contextual Guided notice */

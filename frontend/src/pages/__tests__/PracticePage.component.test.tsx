@@ -48,16 +48,14 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
     expect(container.querySelector('#main-content')).toBeNull();
   });
 
-  it('shows both product identities with truthful markers', () => {
+  it('shows both product identities; Guided carries the SOON header badge + launch CTA', () => {
     render(<PracticePage />);
     expect(within(root()).getByRole('heading', { name: /^Freestyle Practice$/i })).toBeInTheDocument();
     expect(within(root()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
-    // Guided is "Coming Soon!" (text + clock icon, not color alone); Freestyle "Available now".
-    const guidedCard = within(root()).getAllByRole('article')[1];
-    const marker = within(guidedCard).getByText('Coming Soon!').closest('span');
-    expect(marker?.querySelector('.lucide-clock')).toBeTruthy();
-    expect(marker?.querySelector('.lucide-check')).toBeNull();
-    expect(within(root()).getByText('Available now')).toBeInTheDocument();
+    // Guided "coming soon" is conveyed by the SOON header badge + the "Notify me at launch" CTA.
+    const badge = screen.getByTestId('guided-soon-badge');
+    expect(badge).toHaveTextContent('SOON');
+    expect(within(root()).getByText(/notify me at launch/i)).toBeInTheDocument();
     // No user-facing "Planned" anywhere.
     expect(root().textContent ?? '').not.toMatch(/Planned/);
   });
@@ -120,9 +118,8 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(strip).toHaveTextContent(/free trial/i);
       expect(strip).toHaveTextContent(/try a 5-minute private session — no card, no script\./i);
       expect(screen.queryByTestId('support-freestyle-explain')).not.toBeInTheDocument();
-      // Guided status is the "Coming Soon!" marker (no duplicate SOON badge); no "Planned" anywhere.
-      expect(within(screen.getByTestId('practice-card-guided-card')).getByText('Coming Soon!')).toBeInTheDocument();
-      expect(screen.queryByTestId('guided-soon-badge')).toBeNull();
+      // Guided status is the SOON header badge (never "Planned").
+      expect(within(screen.getByTestId('practice-card-guided-card')).getByTestId('guided-soon-badge')).toHaveTextContent('SOON');
       expect(screen.queryByText(/Planned/)).toBeNull();
       // Product cards own their actions (anon shows CTAs, same as authed).
       expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);

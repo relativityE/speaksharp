@@ -15,7 +15,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, Check, Clock,
+  ArrowRight, Check,
   LineChart, Target, AudioLines, ListChecks, Repeat,
   type LucideIcon,
 } from 'lucide-react';
@@ -62,11 +62,11 @@ const GUIDED_BULLETS: Bullet[] = [
 
 interface Bullet { text: string; Icon: LucideIcon }
 
-function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid }: {
+function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSolid, ctaNote, onClick, testid, cornerBadge }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
-  marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; ctaSolid?: boolean; onClick: () => void; testid: string;
+  ctaLabel: string; ctaAria: string; ctaSolid?: boolean; ctaNote?: boolean; onClick: () => void; testid: string;
+  cornerBadge?: string;
 }) {
-  const MarkerIcon = markerIcon ?? Check;
   // Full-width CTA pinned to the bottom so both product cards' buttons bottom-align.
   const ctaClass = `ss-ring flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-3 text-sm font-bold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
   return (
@@ -75,6 +75,12 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
       <div className="flex flex-1 flex-col">
         <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]">
           <div className="absolute inset-0 px-5 py-3">{art}</div>
+          {cornerBadge && (
+            <span
+              data-testid="guided-soon-badge"
+              style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.94)', color: '#6a4fd0', fontSize: 11, fontWeight: 800, padding: '5px 11px', borderRadius: 999, letterSpacing: '0.05em' }}
+            >{cornerBadge}</span>
+          )}
         </div>
         <div className="flex flex-1 flex-col p-5">
           <h3 className="text-[21px] font-extrabold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
@@ -87,10 +93,11 @@ function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaL
               </li>
             ))}
           </ul>
-          <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
           <div className="mt-4 flex flex-1 flex-col justify-end pt-1">
             <button type="button" onClick={onClick} data-testid={testid} aria-label={ctaAria} className={ctaClass}>
-              {ctaLabel}<ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
+              {ctaLabel}{ctaNote
+                ? <span aria-hidden className="text-base leading-none">♪</span>
+                : <ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />}
             </button>
           </div>
         </div>
@@ -111,8 +118,8 @@ function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
   return (
     <div
       data-testid="freestyle-trial-strip"
-      className="flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 shadow-[0_16px_34px_-18px_rgba(13,125,116,0.5)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
-      style={{ background: 'linear-gradient(135deg, #0d7d74 0%, #17a99b 100%)' }}
+      className="relative z-10 -mt-[26px] flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
+      style={{ background: '#1d4a45', boxShadow: '0 16px 34px -18px rgba(29,74,69,0.6)' }}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
@@ -182,15 +189,15 @@ export default function PracticePage() {
   const freestyleCard = (
     <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice"
       promise={isAuthed ? 'Speak freely. See how you’re progressing.' : 'No script. No pressure. Just practice.'}
-      bullets={QUICK_BULLETS} marker="Available now"
+      bullets={QUICK_BULLETS}
       ctaLabel={isAuthed ? 'Start Freestyle Practice' : 'Start Freestyle'} ctaAria="Start Freestyle Practice"
       ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
   );
   const guidedCard = (
     <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal"
       promise={isAuthed ? 'Prepare what matters. Rehearse until it lands.' : 'Prepare the points that must land.'}
-      bullets={GUIDED_BULLETS} marker="Coming Soon!" markerIcon={Clock}
-      ctaLabel="Notify me" ctaAria="Notify me about Guided Rehearsal"
+      bullets={GUIDED_BULLETS} cornerBadge="SOON"
+      ctaLabel="Notify me at launch" ctaNote ctaAria="Notify me about Guided Rehearsal"
       onClick={openNotify} testid="practice-card-guided" />
   );
   const productGrid = (
@@ -226,13 +233,13 @@ export default function PracticePage() {
             <div className="mx-auto max-w-5xl px-5 pb-10 pt-24 sm:px-8">
               <div className="mt-1 grid items-start gap-8 md:grid-cols-[1fr_22rem]">
                 <div>
-                  <h1 className="font-extrabold leading-[1.05] tracking-tight" style={{ fontSize: 'clamp(44px, 6.2vw, 88px)' }}>
+                  <h1 className="font-extrabold" style={{ fontSize: 'clamp(38px, 8.5vw, 54px)', lineHeight: 1.02, fontWeight: 800, letterSpacing: '-0.035em' }}>
                     <span className="text-[color:var(--ss-text)]">Private Practice.</span>
                     <br />
-                    <span className="text-[color:var(--ss-teal-title)]">Public Impact!</span>
+                    <span style={{ color: '#0a5f58' }}>Public Impact.</span>
                   </h1>
                   <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                  <p className="mt-4 max-w-xl text-[19px] font-semibold leading-[1.5]" style={{ color: '#14181f' }}>Practice important speaking moments in private.<br />Get focused feedback and track your improvement before the moment matters.</p>
+                  <p className="mt-4 text-[19px] font-semibold leading-[1.5]" style={{ color: '#14181f', maxWidth: '470px' }}>Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
                   <div className="mt-6">
                     {/* Teal CTA on the orange field — complementary contrast (Rule 2). White text on teal. */}
                     <button
@@ -254,7 +261,7 @@ export default function PracticePage() {
           </div>
         )}
 
-        <div className={`mx-auto max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8 ${isAuthed ? 'mt-4' : '-mt-6'}`}>
+        <div className={`mx-auto max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-10 ${isAuthed ? 'mt-4' : 'mt-0'}`}>
           {isAuthed ? (
             /* AUTHENTICATED: the two product cards (each owns its action). Continuity is in the greeting row. */
             productGrid
