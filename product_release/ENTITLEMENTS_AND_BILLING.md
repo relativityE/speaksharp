@@ -42,19 +42,19 @@ Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are dist
 - **`check-usage-limit`** enforces server-side **quota** policy; it is **not** proof of payment.
 - The client selector (`getEffectiveSubscriptionStatus` / `hasPaidProEntitlement`) is advisory for UI; centralizing it is **#1036** (which must not change these boundaries).
 
-## 4. Quota — the daily/monthly limit, by provenance (NOT asserted as blanket policy)
+## 4. Quota — the daily/monthly limits are provisional configuration, NOT policy
 
-> The quota is the canonical example of category separation. Do **not** read "1h Free / 2h Pro" as blanket approved policy — read the categories.
+> The current numeric limits are **observed implementation values only** — provisional development configuration, **subject to change**, and **not customer commitments or approved policy**. Preserving current behavior (the prior direction) is *not* the same as approving these values. The current implementation is numerically limited (not unlimited); that is a fact about the code, not a commercial policy.
 
 | Provenance | Free daily | Pro daily | Pro monthly | Source |
 | :--- | :--- | :--- | :--- | :--- |
-| **(1) Observed code** | `3600s` (1h) | `7200s` (2h) | — | `frontend/src/constants/subscriptionTiers.ts` — `TIER_LIMITS.pro.dailySeconds = 7200`, `free = 3600`. The historical `Infinity` special-case was **removed (PR #769)** and a consistency test now rejects `Infinity`; the code no longer disagrees with the DB. |
-| **(2) DB config** (migration-seeded) | `3600s` (1h) | `7200s` (2h) | `180000s` (50h) | `tier_configs` per `20260309000000_phase2_integration.sql`; enforced by `check_usage_limit()` RPC via the `check-usage-limit` edge fn; `useUsageLimit.ts` reflects the DB. **Prod-equality to the latest migration is NOT yet verified — it requires a read-only prod DB query** (`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`). |
-| **(3) Marketing** | — | (was "unlimited") | — | older "Want unlimited sessions?" upsell — **corrected** to "Need more recording time?" (PR #769). |
-| **(4) PO-approved policy** | — | **2h/day** | **50h/month** | **Release-owner decision (recorded, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` Finding 1):** for this release Pro = 2h/day, 50h/month; **DB `tier_configs` is the source of truth**; do **not** raise the DB to unlimited. |
-| **(5) Unresolved → ROADMAP** | Free-quota ratification | — | — | Whether to raise Pro to unlimited (or re-tier Free) is a **separate post-release pricing/packaging decision** — `OPEN_GAP` → `ROADMAP.md`. |
+| **(1) Observed code** | `3600s` (1h) | `7200s` (2h) | — | `frontend/src/constants/subscriptionTiers.ts` — `TIER_LIMITS.pro.dailySeconds = 7200`, `free = 3600`; the historical `Infinity` special-case was removed (PR #769) and a consistency test rejects `Infinity`. **Provisional dev config.** |
+| **(2) Migration-seeded DB** | `3600s` (1h) | `7200s` (2h) | `180000s` (50h) | `tier_configs` per `20260309000000_phase2_integration.sql`; enforced by `check_usage_limit()` RPC via the `check-usage-limit` edge fn; `useUsageLimit.ts` reflects the DB. **Prod-equality to the latest migration is unverified** — a read-only ops query (`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`): **evidence about deployed state, not policy approval.** |
+| **(3) Marketing** | — | (was "unlimited") | — | older "Want unlimited sessions?" upsell — corrected to "Need more recording time?" (PR #769). |
+| **(4) PO-approved policy** | **none** | **none** | **none** | **No quota is approved as policy.** The prior "leave the configuration unchanged" direction preserved current dev behavior; it did **not** approve these values as policy or customer commitments, and did **not** adopt "not unlimited" as future positioning. |
+| **(5) Unresolved → ROADMAP** | final Free quota | final Pro quota | final Pro quota | Final quotas, pricing, packaging, **unlimited positioning**, and comped-access rules are **unresolved product decisions** — `OPEN_GAP` → `ROADMAP.md`, to be decided in **later product/pricing work informed by product readiness and usage evidence**. |
 
-**Net observed effect:** code and the seeded migration now **agree** — Pro is capped at **2h/day, 50h/month** (the `Infinity` special-case was removed, PR #769). **Whether the live prod `tier_configs` equals the latest migration is not yet confirmed** — a read-only ops query remains outstanding (`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`).
+**Net (facts only):** the current code and the seeded migration are numerically limited to 1h/day (Free) and 2h/day + 50h/month (Pro); the `Infinity` special-case was removed. These are **provisional implementation values, not approved policy or customer commitments.** Whether live prod `tier_configs` equals the latest migration is unverified (ops query outstanding).
 
 ## 5. Billing fail-closed contract
 
@@ -76,6 +76,5 @@ Enabling paid billing is a **deliberate activation sequence**, **not a key swap*
 
 ## 8. Open gaps (→ ROADMAP)
 
-- **Pro-unlimited vs capped** — future pricing/packaging decision; DB stays the truth at 2h/day, 50h/month for this release (`OPEN_GAP`).
-- **Exact quotas, pricing, packaging, comped-access policy** — owned here as the *questions*; the Product Owner records the *decisions*. Enterprise packaging → `#1048`.
-- **Prod-DB-vs-latest-migration entitlement confirmation** — evidence item (→ `EVIDENCE_INDEX.md` / `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`).
+- **Final quotas, pricing, packaging, unlimited positioning, and comped-access rules — all UNRESOLVED product decisions.** The current numeric limits are provisional development configuration, not policy or customer commitments. **Decision timing:** later product/pricing work, informed by product readiness and usage evidence. Enterprise packaging → `#1048`.
+- **Prod-DB-vs-latest-migration entitlement equality** — a read-only **evidence** item about deployed state (→ `EVIDENCE_INDEX.md` / `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`), **not** a policy approval.

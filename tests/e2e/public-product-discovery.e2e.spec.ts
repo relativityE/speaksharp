@@ -95,7 +95,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/what do you want to work on/i);
+    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/what would you like to practice/i);
     await expect(page.getByTestId('practice-continuity-summary')).toBeVisible();
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);

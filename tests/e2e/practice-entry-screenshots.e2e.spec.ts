@@ -52,7 +52,7 @@ async function expectOnChooser(page: Page) {
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
   // #1061 authenticated state: the brand line "Private Practice. Public Impact!" is a compact <p> welcome
   // (not the large marketing <h1>), so match the text rather than the heading role.
-  await expect(page.getByText(/what do you want to work on/i)).toBeVisible();
+  await expect(page.getByText(/what would you like to practice/i)).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/practice');
 }
 
