@@ -1140,6 +1140,31 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
     });
 
+    // #893: subscribing to an already-TERMINATED service during the login→/session transition must not
+    // throw ENGINE_ALREADY_TERMINATED (which surfaced as a GLOBAL UNHANDLED REJECTION). It must skip the
+    // subscribe, drop the stale ref, and resolve cleanly.
+    it('#893: syncServiceSubscription skips + drops a terminated service (no subscribe, no throw)', async () => {
+        useSessionStore.setState({ isBooting: false } as never);
+        const subscribe = vi.fn(() => () => {});
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => true, subscribe };
+        (controller as unknown as { serviceUnsubscribe: unknown }).serviceUnsubscribe = null;
+        // Must resolve (not reject) — the bug was an unhandled rejection from assertAlive().
+        await expect(controller.syncServiceSubscription()).resolves.toBeUndefined();
+        expect(subscribe).not.toHaveBeenCalled();                 // never subscribed to the terminated service
+        expect((controller as unknown as { service: unknown }).service).toBeNull(); // stale ref dropped
+    });
+
+    // Guard scope: a LIVE service still subscribes normally (the #893 guard must not break the happy path).
+    it('#893: syncServiceSubscription still subscribes to a LIVE service', async () => {
+        useSessionStore.setState({ isBooting: false } as never);
+        const unsub = vi.fn();
+        const subscribe = vi.fn(() => unsub);
+        (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, subscribe };
+        (controller as unknown as { serviceUnsubscribe: unknown }).serviceUnsubscribe = null;
+        await controller.syncServiceSubscription();
+        expect(subscribe).toHaveBeenCalledWith(expect.anything(), 'SpeechRuntimeController');
+    });
+
     // (2) Duplicate/concurrent mismatched callbacks must reuse ONE teardown — no second stop/transition/DB op.
     it('#1033 (2-final): concurrent + post-completion duplicate mismatch callbacks perform exactly ONE teardown', async () => {
         clearDraft(); resetLifecycle();
