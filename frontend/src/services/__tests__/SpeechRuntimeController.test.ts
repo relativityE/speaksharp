@@ -681,6 +681,31 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
     });
 
+    // #1036: PROOF that the four buildPolicyForUser callers' divergences are inert. The tier-only writers
+    // (provider via updatePolicy, hook via warm config) can store a policy that DENIES Private to a
+    // free-user-with-sample; the capability (lifecycle) writer supplies the record policy via startRecording.
+    // startRecording assigns `this.policy = policy` SYNCHRONOUSLY, so the tier-only policy is overwritten and
+    // the capability policy is the record-time authority. If startRecording ever stopped overwriting, or a
+    // tier-only writer became the record authority, this fails — which is exactly the regression #1036 guards.
+    it('#1036: record-time authority — startRecording overwrites a stored tier-only policy with the capability policy', async () => {
+        setLock(false, 'IDLE', null);
+        // Provider/hook path stored first: TIER-ONLY policy for a free-user-with-sample → DENIES Private.
+        const tierOnlyPolicy = buildPolicyForUser(false, 'private', { allowCloud: false });
+        controller.updatePolicy(tierOnlyPolicy);
+        expect((controller as unknown as { policy: TranscriptionPolicy | null }).policy?.allowPrivate).toBe(false);
+
+        // Lifecycle path: the CAPABILITY (sample-aware) policy GRANTS Private and is what startRecording receives.
+        const capabilityPolicy = buildPolicyForUser(true, 'private', { allowCloud: false });
+        const p = controller.startRecording(capabilityPolicy); // not awaited — this.policy is assigned synchronously
+        const stored = (controller as unknown as { policy: TranscriptionPolicy | null }).policy;
+        expect(stored).toBe(capabilityPolicy);        // tier-only policy overwritten at record time
+        expect(stored?.allowPrivate).toBe(true);      // the record authority GRANTS Private to the sample user
+
+        await controller.whenStable().catch(() => undefined);
+        await p.catch(() => undefined);
+        setLock(false, 'IDLE', null);
+    });
+
     it.each(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'] as const)(
         '#1033: switchToNative is rejected in locked lifecycle state %s (no engine change)',
         async (st) => {
