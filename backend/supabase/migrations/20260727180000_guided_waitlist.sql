@@ -18,7 +18,10 @@
 -- Product Owner step (checkpoint 2). The Edge Function confirm flow, rate limiting, and confirmation-email
 -- dispatch are checkpoint 3/4; nothing here sends email or writes rows.
 
-create table if not exists public.guided_waitlist (
+-- This is a one-time versioned migration. We deliberately DO NOT use `if not exists`: if a
+-- `guided_waitlist` table (or index) already exists, that is an unexpected/conflicting state and the
+-- migration MUST fail loudly rather than silently adopt a possibly-malformed pre-existing table.
+create table public.guided_waitlist (
     id                        uuid primary key default gen_random_uuid(),
     -- Product identifier (stable internal token, NOT the user-facing label). Only Guided Rehearsal today.
     product                   text not null,
@@ -47,9 +50,25 @@ create table if not exists public.guided_waitlist (
 
     -- Product is constrained to the single supported token (extend via a future migration, not free-text).
     constraint guided_waitlist_product_valid check (product = 'guided_rehearsal'),
-    -- Server-normalized email: lower-cased + @-shaped.
-    constraint guided_waitlist_email_shape check (position('@' in email_normalized) > 1),
-    constraint guided_waitlist_email_lower check (email_normalized = lower(email_normalized)),
+    -- Acquisition provenance is a closed set of stable tokens — never free-text / PII (extend via a
+    -- reviewed migration). Guards the "no free-text PII" claim at the DB boundary.
+    constraint guided_waitlist_acquisition_source_valid
+        check (acquisition_source in ('anonymous_landing', 'authenticated_practice')),
+    -- Server-normalized email. The dedup key relies on canonicalization, so enforce it at the DB boundary:
+    --  * lower-cased,
+    --  * trimmed (no leading/trailing whitespace — a ' x@y ' variant must not bypass dedup),
+    --  * bounded length (RFC 5321 max is 254),
+    --  * non-empty local AND domain (the '@' is neither first nor last char).
+    -- The Edge Function remains responsible for stronger RFC validation; this is the canonical-form floor.
+    constraint guided_waitlist_email_lower   check (email_normalized = lower(email_normalized)),
+    -- "At minimum" btrim of spaces; we trim the full ASCII whitespace set (space/tab/newline/CR) so no
+    -- whitespace variant can bypass (product, email_normalized) dedup.
+    constraint guided_waitlist_email_trimmed check (email_normalized = btrim(email_normalized, E' \t\n\r')),
+    constraint guided_waitlist_email_length  check (length(email_normalized) between 3 and 254),
+    constraint guided_waitlist_email_shape   check (
+        position('@' in email_normalized) > 1
+        and position('@' in email_normalized) < length(email_normalized)
+    ),
     -- A stored submission PROVES the checkbox was asserted — no default-false rows.
     constraint guided_waitlist_self_asserted_consent check (self_asserted_consent is true),
     -- Closed status domain.
@@ -63,6 +82,13 @@ create table if not exists public.guided_waitlist (
         confirmation_expires_at is null
         or confirmation_sent_at is null
         or confirmation_expires_at > confirmation_sent_at
+    ),
+    -- Confirmation chronology: a confirmation cannot happen before the token was sent, nor after it
+    -- expired. Guards against a service-role bug confirming an unsent or expired token. (When confirmed_at
+    -- is set, the lifecycle shape guarantees sent/expiry are non-null.)
+    constraint guided_waitlist_confirmed_chronology check (
+        confirmed_at is null
+        or (confirmed_at >= confirmation_sent_at and confirmed_at <= confirmation_expires_at)
     ),
     -- Exactly the three valid lifecycle shapes. This is the DB-level single-use guarantee: token metadata
     -- is all-or-nothing while pending, and a confirmed row has cleared its token hash (cannot be replayed),
@@ -96,11 +122,12 @@ create table if not exists public.guided_waitlist (
 );
 
 -- Dedup key: one durable interest row per (product, normalized email). Enables idempotent upserts.
-create unique index if not exists guided_waitlist_product_email_uidx
+-- No `if not exists` (see table note): a pre-existing index means an unexpected state → fail loudly.
+create unique index guided_waitlist_product_email_uidx
     on public.guided_waitlist (product, email_normalized);
 
 -- An outstanding (non-null) confirmation token hash is globally unique — no two pending rows share a hash.
-create unique index if not exists guided_waitlist_token_hash_uidx
+create unique index guided_waitlist_token_hash_uidx
     on public.guided_waitlist (confirmation_token_hash)
     where confirmation_token_hash is not null;
 

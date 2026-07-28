@@ -259,4 +259,84 @@ describe('#1061 guided_waitlist migration — real DB-row constraint behavior (P
     expect(idx).toContain('guided_waitlist_product_email_uidx');
     expect(idx).toContain('guided_waitlist_token_hash_uidx');
   });
+
+  // ─── Batch 2: confirmation chronology, email canonicalization, acquisition provenance, fail-loud ───
+
+  it('13. a confirmation BEFORE the token was sent is rejected (confirmed_at < confirmation_sent_at)', async () => {
+    const sent = new Date();
+    const expiry = new Date(sent.getTime() + 3600e3);
+    const beforeSent = new Date(sent.getTime() - 60_000);
+    await expect(insert({
+      email_normalized: 'confirm-before-sent@example.com',
+      status: 'confirmed',
+      confirmation_token_hash: null,       // cleared on confirm
+      confirmation_sent_at: sent.toISOString(),
+      confirmation_expires_at: expiry.toISOString(),
+      confirmed_at: beforeSent.toISOString(),
+    })).rejects.toThrow();
+  });
+
+  it('14. a confirmation AFTER the token expired is rejected (confirmed_at > confirmation_expires_at)', async () => {
+    const sent = new Date(Date.now() - 2 * 3600e3);
+    const expiry = new Date(Date.now() - 3600e3); // expired an hour ago (still > sent)
+    const afterExpiry = new Date();               // now — past expiry
+    await expect(insert({
+      email_normalized: 'confirm-after-expiry@example.com',
+      status: 'confirmed',
+      confirmation_token_hash: null,
+      confirmation_sent_at: sent.toISOString(),
+      confirmation_expires_at: expiry.toISOString(),
+      confirmed_at: afterExpiry.toISOString(),
+    })).rejects.toThrow();
+  });
+
+  it('15. a within-window confirmation is accepted (confirmed_at between sent and expiry)', async () => {
+    const sent = new Date(Date.now() - 60_000);
+    const expiry = new Date(Date.now() + 3600e3);
+    const row = await insert({
+      email_normalized: 'confirm-inwindow@example.com',
+      status: 'confirmed',
+      confirmation_token_hash: null,
+      confirmation_sent_at: sent.toISOString(),
+      confirmation_expires_at: expiry.toISOString(),
+      confirmed_at: new Date().toISOString(),
+    });
+    expect(row.status).toBe('confirmed');
+    expect(row.confirmed_at).not.toBeNull();
+  });
+
+  it('16. leading/trailing-whitespace email variants are rejected (cannot bypass dedup)', async () => {
+    // The trimmed form already exists; the padded variant must NOT be storable as a distinct row.
+    await insert({ email_normalized: 'canon@example.com' });
+    await expect(insert({ email_normalized: ' canon@example.com' })).rejects.toThrow(); // leading space
+    await expect(insert({ email_normalized: 'canon@example.com ' })).rejects.toThrow(); // trailing space
+    await expect(insert({ email_normalized: '\tcanon@example.com' })).rejects.toThrow(); // leading tab
+  });
+
+  it('16b. empty local or domain, or an over-length email, is rejected', async () => {
+    await expect(insert({ email_normalized: '@example.com' })).rejects.toThrow(); // empty local
+    await expect(insert({ email_normalized: 'nolocaldomain@' })).rejects.toThrow(); // empty domain
+    await expect(insert({ email_normalized: `${'a'.repeat(250)}@b.co` })).rejects.toThrow(); // > 254
+  });
+
+  it('17. an unknown / free-text acquisition_source is rejected (closed provenance set)', async () => {
+    await expect(insert({
+      email_normalized: 'freetext-source@example.com',
+      acquisition_source: 'John Doe <john@x.com> via a friend', // free-text / PII shape
+    })).rejects.toThrow();
+    // the two supported tokens are accepted
+    for (const src of ['anonymous_landing', 'authenticated_practice']) {
+      const row = await insert({ email_normalized: `src-${src}@example.com`, acquisition_source: src });
+      expect(row.id).toBeTruthy();
+    }
+  });
+
+  it('18. the migration fails LOUDLY on a pre-existing table (no IF NOT EXISTS)', async () => {
+    // The table already exists (applied in beforeAll); re-running the one-time migration must throw
+    // rather than silently adopt a possibly-malformed table.
+    await expect(db.exec(MIGRATION_SQL)).rejects.toThrow();
+    // Source guard: the new-schema DDL uses no IF NOT EXISTS for the table or its indexes.
+    expect(MIGRATION_SQL).not.toMatch(/create table if not exists/i);
+    expect(MIGRATION_SQL).not.toMatch(/create unique index if not exists/i);
+  });
 });
