@@ -80,12 +80,14 @@ test.describe('#1061 one canonical auth-aware page', () => {
       .toHaveAttribute('data-recording', 'false', { timeout: 20000 });
   });
 
-  test('anonymous `/`: Guided "Notify me" opens the real interest dialog (no navigation)', async ({ page }) => {
+  test('anonymous `/`: Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF, no navigation)', async ({ page }) => {
     await bootAnonymous(page);
     await enterAnonLanding(page);
     await page.getByTestId('practice-card-guided').click();
     await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
-    await expect(page.getByText(/get notified about guided rehearsal/i)).toBeVisible();
+    // Activation flag OFF in the shipped build → honest coming-soon acknowledgement, NOT a capture form.
+    await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible();
+    await expect(page.getByTestId('guided-notify-email')).toHaveCount(0);
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
@@ -106,10 +108,11 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await settle(page);
     await page.screenshot({ path: `${DIR}/04-authenticated-practice-mobile.png`, fullPage: true });
 
-    // Guided "Notify me" opens the dialog; Freestyle goes directly to /session.
+    // Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF); Freestyle goes directly to /session.
     await page.setViewportSize(DESKTOP);
     await page.getByTestId('practice-card-guided').click();
     await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible();
     await page.keyboard.press('Escape');
     await page.getByTestId('practice-card-quick').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });

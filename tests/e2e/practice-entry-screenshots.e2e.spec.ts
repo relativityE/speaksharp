@@ -100,7 +100,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
-    // === GUIDED "COMING SOON!" + NOTIFY ME (#1061) — authenticated Guided card opens the real interest dialog ===
+    // === GUIDED "COMING SOON!" + NOTIFY ME (#1061) — Guided card opens the gated coming-soon dialog (waitlist OFF) ===
     const guidedCta = page.getByTestId('practice-card-guided');
     await expect(guidedCta).toHaveAccessibleName(/notify me about guided rehearsal/i);
     // Guided status is exactly "Coming Soon!" (never "Planned").
@@ -110,6 +110,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
 
     await guidedCta.click();
     await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible(); // activation OFF → no capture form
     expect(new URL(page.url()).pathname).toBe('/practice');
     await shot(page, `${DIR}/02b-guided-notify-desktop.png`);
     // Visible Report Issue label is EXACTLY "Guided Rehearsal" and the surface attributes to Guided.

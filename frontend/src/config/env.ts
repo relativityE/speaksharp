@@ -11,6 +11,11 @@ import type { UserGoals } from '../types/goal';
 const CLIENT_ENV = {
   VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL as string | undefined,
   VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
+  // #1061 activation gate for the Guided Rehearsal "Notify me" waitlist. OFF until the Edge Function is
+  // deployed AND a confirmation-email provider is wired — until then the CTA shows an honest "coming soon"
+  // acknowledgement and never calls the (undeployed) backend. Flip to 'true' as the separately-authorized
+  // activation step; no code change required.
+  VITE_GUIDED_WAITLIST_ENABLED: import.meta.env.VITE_GUIDED_WAITLIST_ENABLED as string | undefined,
 } as const;
 
 export type ClientEnvKey = keyof typeof CLIENT_ENV;
@@ -26,6 +31,8 @@ export const getEnvVar = (key: ClientEnvKey): string | undefined => {
 
 export const SUPABASE_URL = getEnvVar('VITE_SUPABASE_URL');
 export const SUPABASE_ANON_KEY = getEnvVar('VITE_SUPABASE_ANON_KEY');
+/** #1061: true only when the waitlist backend is deployed + a provider is wired (activation). Default OFF. */
+export const GUIDED_WAITLIST_ENABLED = getEnvVar('VITE_GUIDED_WAITLIST_ENABLED') === 'true';
 /** 
  * 🚨 FROZEN SHIM (Strangler Pattern)
  * 

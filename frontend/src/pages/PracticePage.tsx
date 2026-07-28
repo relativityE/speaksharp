@@ -25,6 +25,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
+import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
@@ -279,6 +280,7 @@ export default function PracticePage() {
         onOpenChange={setNotifyOpen}
         source={isAuthed ? 'authenticated_practice' : 'anonymous_landing'}
         defaultEmail={isAuthed ? accountEmail : ''}
+        enabled={GUIDED_WAITLIST_ENABLED}
       />
     </div>
   );

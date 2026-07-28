@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent, within } from '../../../tests/support/test-utils';
 import PracticePage from '../PracticePage';
 
 const navigateSpy = vi.fn();
@@ -85,11 +85,14 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/session');
     });
 
-    it('Guided "Notify me" opens the interest dialog (prefilled with the account email), no navigation', async () => {
+    it('Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-guided'));
       expect(await screen.findByTestId('guided-notify-dialog')).toBeInTheDocument();
-      expect(screen.getByTestId('guided-notify-email')).toHaveValue('me@example.com');
+      // Activation flag is OFF by default → honest coming-soon acknowledgement, NOT the capture form.
+      expect(screen.getByTestId('guided-notify-comingsoon')).toBeInTheDocument();
+      expect(screen.queryByTestId('guided-notify-email')).not.toBeInTheDocument();
+      expect(submitWaitlist).not.toHaveBeenCalled();
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
@@ -147,47 +150,16 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
     });
 
-    it('Guided product card opens the Notify-me dialog (empty email for anon), no navigation', async () => {
+    it('Guided product card opens the gated coming-soon dialog (waitlist OFF), no form, no navigation', async () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-guided'));
       expect(await screen.findByTestId('guided-notify-dialog')).toBeInTheDocument();
-      expect(screen.getByTestId('guided-notify-email')).toHaveValue('');
+      expect(screen.getByTestId('guided-notify-comingsoon')).toBeInTheDocument();
+      expect(screen.queryByTestId('guided-notify-email')).not.toBeInTheDocument();
+      expect(submitWaitlist).not.toHaveBeenCalled();
       expect(navigateSpy).not.toHaveBeenCalled();
     });
   });
-
-  describe('Guided Notify-me dialog', () => {
-    it('honest success: valid email + consent → success acknowledgement', async () => {
-      render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-guided'));
-      await screen.findByTestId('guided-notify-dialog');
-      fireEvent.change(screen.getByTestId('guided-notify-email'), { target: { value: 'new@example.com' } });
-      fireEvent.click(screen.getByTestId('guided-notify-consent'));
-      fireEvent.click(screen.getByTestId('guided-notify-submit'));
-      expect(await screen.findByTestId('guided-notify-success')).toHaveTextContent(/you’re on the list/i);
-      expect(submitWaitlist).toHaveBeenCalledWith({ email: 'new@example.com', consent: true, source: 'authenticated_practice' });
-    });
-
-    it('requires consent before submitting (no service call)', async () => {
-      render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-guided'));
-      await screen.findByTestId('guided-notify-dialog');
-      fireEvent.change(screen.getByTestId('guided-notify-email'), { target: { value: 'new@example.com' } });
-      fireEvent.click(screen.getByTestId('guided-notify-submit'));
-      expect(screen.getByTestId('guided-notify-field-error')).toBeInTheDocument();
-      expect(submitWaitlist).not.toHaveBeenCalled();
-    });
-
-    it('honest failure: a failed request shows an error, never a false success', async () => {
-      submitWaitlist.mockResolvedValue({ ok: false });
-      render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-guided'));
-      await screen.findByTestId('guided-notify-dialog');
-      fireEvent.change(screen.getByTestId('guided-notify-email'), { target: { value: 'new@example.com' } });
-      fireEvent.click(screen.getByTestId('guided-notify-consent'));
-      fireEvent.click(screen.getByTestId('guided-notify-submit'));
-      await waitFor(() => expect(screen.getByTestId('guided-notify-error')).toBeInTheDocument());
-      expect(screen.queryByTestId('guided-notify-success')).not.toBeInTheDocument();
-    });
-  });
+  // The ENABLED capture-form path (validation / honest success / honest failure) is covered directly in
+  // GuidedNotifyDialog.test.tsx with enabled={true}, independent of the page's activation flag.
 });

@@ -26,12 +26,19 @@ export function GuidedNotifyDialog({
   onOpenChange,
   source,
   defaultEmail = '',
+  enabled = true,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   source: GuidedWaitlistSource;
   /** Authenticated surface prefills the account email (the user confirms it before submitting). */
   defaultEmail?: string;
+  /**
+   * #1061 activation gate. When false (default OFF until the waitlist backend is deployed + a
+   * confirmation-email provider is wired), the dialog shows an HONEST coming-soon acknowledgement and
+   * NEVER renders the capture form or calls the backend. Flip on at the separately-authorized activation.
+   */
+  enabled?: boolean;
 }) {
   const [email, setEmail] = React.useState(defaultEmail);
   const [consent, setConsent] = React.useState(false);
@@ -71,6 +78,20 @@ export function GuidedNotifyDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" data-testid="guided-notify-dialog">
+        {!enabled ? (
+          /* #1061 activation gate OFF — honest coming-soon acknowledgement; NO capture form, NO backend call. */
+          <div data-testid="guided-notify-comingsoon">
+            <DialogTitle>Guided Rehearsal is coming soon</DialogTitle>
+            <DialogDescription>It isn’t available yet.</DialogDescription>
+            <p role="status" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
+              We’ll announce Guided Rehearsal right here the moment it’s ready — thanks for your interest.
+            </p>
+            <div className="mt-5 flex justify-end">
+              <Button type="button" data-testid="guided-notify-close" onClick={() => onOpenChange(false)}>Got it</Button>
+            </div>
+          </div>
+        ) : (
+        <>
         <DialogTitle>Get notified about Guided Rehearsal</DialogTitle>
         <DialogDescription>We’ll email you when Guided Rehearsal becomes available.</DialogDescription>
 
@@ -127,6 +148,8 @@ export function GuidedNotifyDialog({
               </Button>
             </div>
           </form>
+        )}
+        </>
         )}
       </DialogContent>
     </Dialog>
