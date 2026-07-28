@@ -56,7 +56,7 @@ vi.mock('@/components/session/LiveTranscriptPanel', () => ({
 vi.mock('@/components/session/FillerWordsCard', () => ({
     FillerWordsCard: ({ fillerCount, headerAction }: { fillerCount: number, headerAction: React.ReactNode }) => (
         <div data-testid="filler-words-card">
-            <span>Filler Words</span>
+            <span>Detected filler words</span>
             <span data-testid="filler-count-value">({fillerCount})</span>
             {headerAction}
         </div>
@@ -149,7 +149,7 @@ describe('SessionPage Rendering', () => {
 
     it('should render filler words as the bottom evidence band without legacy metric cards', () => {
         render(<SessionPage />);
-        expect(screen.getByText('Filler Words')).toBeInTheDocument();
+        expect(screen.getByText('Detected filler words')).toBeInTheDocument();
         expect(screen.queryByText('Clarity Score')).not.toBeInTheDocument();
         expect(screen.queryByText('Speaking Pace')).not.toBeInTheDocument();
         expect(screen.queryByTestId('pause-metrics-display')).not.toBeInTheDocument();

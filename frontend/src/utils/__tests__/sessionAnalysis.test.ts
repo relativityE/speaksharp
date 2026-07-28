@@ -3,8 +3,10 @@ import {
     calculateCoreSessionMetrics,
     getWpmLabel,
     getSessionAnalysisMetrics,
+    getFillerExplanation,
     isUsableFillerCounts,
     normalizeFillerCounts,
+    FILLER_TRANSCRIPT_DISCLOSURE,
 } from '../sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
@@ -21,6 +23,25 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.fillerData.total.count).toBe(3);
         expect(metrics.fillerExplanation).toContain('This is likely noticeable; pause before restarting a thought');
         expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
+    });
+
+    // #894: every count-bearing filler explanation carries the transcript-derived disclosure, so the metric
+    // is presented as an honest lower bound (STT engines can omit a spoken filler upstream). It is NOT added
+    // to the "no transcript captured" / "too little speech" cases, where no count is presented.
+    describe('#894: transcript-derived disclosure on count-bearing explanations', () => {
+        it('appends the disclosure when a count IS presented (fillers detected)', () => {
+            expect(getFillerExplanation(3, 100)).toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('appends the disclosure to the honest zero ("none detected" may still be an under-count)', () => {
+            expect(getFillerExplanation(0, 100)).toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('does NOT append the disclosure when no transcript was captured', () => {
+            expect(getFillerExplanation(0, 0)).not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('does NOT append the disclosure when there is too little speech to verify', () => {
+            // wordCount < MIN_RELIABLE_SCORING_WORDS (3) → the "too little speech" branch, which presents no count.
+            expect(getFillerExplanation(0, 2)).not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
     });
 
     it('STT-P1: re-counts respelled fillers ("Umm") from the final transcript when no live fillerData is supplied', () => {

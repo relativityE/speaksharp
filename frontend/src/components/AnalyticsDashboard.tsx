@@ -481,7 +481,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                     <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Filler Words</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
                 </div>
                 <div className="text-center">
                     <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
@@ -819,7 +819,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         />
                         <StatCard
                             icon={<TrendingUp />}
-                            label="Filler Words"
+                            label="Detected filler words"
                             value={targetSessionMetrics.fillerCount}
                             description={targetSessionMetrics.fillerExplanation}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}

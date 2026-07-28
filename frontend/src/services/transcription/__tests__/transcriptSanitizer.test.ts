@@ -23,4 +23,23 @@ describe('sanitizeTranscriptText — asterisk metadata stripping (review F3)', (
   it('preserves normal text with no metadata', () => {
     expect(sanitizeTranscriptText('the quick brown fox')).toBe('the quick brown fox');
   });
+
+  // #894 INVARIANT LOCK: the sanitizer must NEVER drop a spoken filler that reached the transcript. It only
+  // strips STT metadata tokens ([MUSIC], *cough*, (applause)) — bare "um"/"uh"/"uhm" are speech, not metadata.
+  describe('#894: preserves a present filler (only metadata tokens are stripped)', () => {
+    it('keeps a leading "Um." while stripping an adjacent metadata token', () => {
+      expect(sanitizeTranscriptText('Um. [BLANK_AUDIO] basically we should wait.'))
+        .toBe('Um. basically we should wait.');
+    });
+
+    it('keeps an interjected ", um," untouched', () => {
+      expect(sanitizeTranscriptText('move forward without, um, fiddling'))
+        .toBe('move forward without, um, fiddling');
+    });
+
+    it('keeps "uh" and "uhm" while stripping a *cough* metadata tag', () => {
+      expect(sanitizeTranscriptText('I was, uh, *cough* thinking, uhm, about this'))
+        .toBe('I was, uh, thinking, uhm, about this');
+    });
+  });
 });
