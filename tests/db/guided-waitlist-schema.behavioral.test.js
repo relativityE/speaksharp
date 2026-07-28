@@ -109,6 +109,20 @@ describe('#1061 guided_waitlist migration — real DB-row constraint behavior (P
       .rejects.toThrow();
   });
 
+  it('4c. a CONFIRMED row without asserted consent is rejected (no launch-notifiable row lacks consent)', async () => {
+    // Even a fully-formed confirmed shape cannot persist if consent was not asserted — launch comms target
+    // confirmed rows, so this is the guarantee that a confirmed (notifiable) row always carries consent.
+    await expect(insert({
+      email_normalized: 'confirmed-noconsent@example.com',
+      self_asserted_consent: false,
+      status: 'confirmed',
+      confirmation_token_hash: null,
+      confirmation_sent_at: 'now()RAW',
+      confirmation_expires_at: new Date(Date.now() + 3600e3).toISOString(),
+      confirmed_at: new Date().toISOString(),
+    })).rejects.toThrow();
+  });
+
   it('5. status=confirmed WITHOUT confirmed_at is rejected (confirmation proof required)', async () => {
     await expect(insert({
       email_normalized: 'confirmed-noproof@example.com',
