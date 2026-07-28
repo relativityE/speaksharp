@@ -4,6 +4,7 @@
     "outputDirectory": "frontend/dist",
     "framework": "vite",
     "installCommand": "pnpm install --frozen-lockfile",
+    "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
     "rewrites": [
         {
             "source": "/api/(.*)",
