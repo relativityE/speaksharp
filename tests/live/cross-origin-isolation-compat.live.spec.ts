@@ -17,8 +17,11 @@ import { test, expect } from './helpers/deployedLiveTest';
  */
 
 const BASE_URL = process.env.BASE_URL;
-const EMAIL = process.env.LIVE_TEST_EMAIL;
-const PASSWORD = process.env.LIVE_TEST_PASSWORD;
+// rc-gates supplies PRO_/FREE_ credentials; LIVE_ is the local-run fallback. Prefer PRO so the
+// Billing Portal entry point (Pro-only) is actually reachable.
+const EMAIL = process.env.PRO_TEST_EMAIL || process.env.FREE_TEST_EMAIL || process.env.LIVE_TEST_EMAIL;
+const PASSWORD = process.env.PRO_TEST_PASSWORD || process.env.FREE_TEST_PASSWORD || process.env.LIVE_TEST_PASSWORD;
+const IS_PRO_ACCOUNT = Boolean(process.env.PRO_TEST_EMAIL && process.env.PRO_TEST_PASSWORD);
 
 /** Resources whose failure would mean the isolation headers broke a production dependency. */
 type NetFailure = { url: string; failure: string | null };
@@ -105,7 +108,7 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
   });
 
   test('authenticated surface + billing entry points survive isolation', async ({ page }) => {
-    test.skip(!EMAIL || !PASSWORD, 'LIVE_TEST_EMAIL/PASSWORD required for the auth + billing audit.');
+    test.skip(!EMAIL || !PASSWORD, 'PRO_/FREE_/LIVE_ TEST_EMAIL+PASSWORD required for the auth + billing audit.');
     test.setTimeout(300_000);
 
     const netFailures: NetFailure[] = [];
@@ -191,6 +194,23 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
       // NOTE: no purchase is completed and no card data is entered — only the redirect entry point is
       // exercised. Blocked Stripe requests would show up as failures here.
       expect(stripeCalls, 'Stripe-related requests blocked under isolation').toEqual([]);
+
+      // Billing Portal (Pro-only): clicking "Manage billing" invokes the stripe-billing-portal edge
+      // function and redirects to Stripe's hosted portal. We assert the call is not blocked by the
+      // isolation headers; we do NOT change any subscription.
+      const manageBilling = page.getByRole('button', { name: /manage billing/i });
+      const portalVisible = await manageBilling.isVisible().catch(() => false);
+      if (portalVisible) {
+        await manageBilling.click();
+        await page.waitForTimeout(8_000);
+        const portalBlocked = netFailures.filter((f) =>
+          /billing-portal|stripe/i.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED/i.test(f.failure ?? ''),
+        );
+        expect(portalBlocked, 'Billing Portal call blocked under isolation').toEqual([]);
+        checkout = { ...checkout, portalAttempted: true, portalLandedOnStripe: /stripe\.com/i.test(page.url()), portalBlocked };
+      } else {
+        checkout = { ...checkout, portalAttempted: false, portalReason: IS_PRO_ACCOUNT ? 'manage-billing button not visible for this Pro account' : 'non-Pro account: portal entry point not offered' };
+      }
     }
 
     const evidence = { capturedAt: new Date().toISOString(), ...observability, checkout };
