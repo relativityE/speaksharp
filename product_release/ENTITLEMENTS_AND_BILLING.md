@@ -37,7 +37,7 @@ Every quantitative claim below is tagged with exactly one provenance category. *
 
 Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are distinct**:
 
-- **Verified paid-Pro** requires **real Stripe subscription evidence**; `subscription_status = 'pro'` alone (and any frontend-derived boolean) is **advisory, never sufficient**.
+- **Verified paid-Pro** requires **real Stripe subscription evidence**; `subscription_status = 'pro'` alone (and any frontend-derived boolean) is **advisory, never sufficient**. The server function `effective_subscription_tier()` (migration `20260621120000`) returns Pro only when `subscription_status = 'pro'` **AND** a `stripe_subscription_id` is present; the legacy `subscription_id` argument is **deprecated and ignored**, and legacy trial timestamps do not grant Pro.
 - **`canUsePrivate` / `canUseCloud`** are **server-derived capability entitlements** and MAY include explicitly approved **comped or legacy grants** — capability ≠ payment.
 - **`check-usage-limit`** enforces server-side **quota** policy; it is **not** proof of payment.
 - The client selector (`getEffectiveSubscriptionStatus` / `hasPaidProEntitlement`) is advisory for UI; centralizing it is **#1036** (which must not change these boundaries).
@@ -48,13 +48,13 @@ Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are dist
 
 | Provenance | Free daily | Pro daily | Pro monthly | Source |
 | :--- | :--- | :--- | :--- | :--- |
-| **(1) Observed code** | — | `Infinity` (unlimited) | — | `frontend/src/constants/subscriptionTiers.ts` (`PRO.dailySeconds = Infinity`) — **dead config**: no `getTierLimits().dailySeconds` consumer for daily usage. |
-| **(2) Deployed DB** (live path) | `3600s` (1h) | `7200s` (2h) | `180000s` (50h) | `tier_configs` rows; enforced by `check_usage_limit()` RPC via the `check-usage-limit` edge fn (no Pro-unlimited special-case). `useUsageLimit.ts` reflects the DB, not the code constant. |
+| **(1) Observed code** | `3600s` (1h) | `7200s` (2h) | — | `frontend/src/constants/subscriptionTiers.ts` — `TIER_LIMITS.pro.dailySeconds = 7200`, `free = 3600`. The historical `Infinity` special-case was **removed (PR #769)** and a consistency test now rejects `Infinity`; the code no longer disagrees with the DB. |
+| **(2) DB config** (migration-seeded) | `3600s` (1h) | `7200s` (2h) | `180000s` (50h) | `tier_configs` per `20260309000000_phase2_integration.sql`; enforced by `check_usage_limit()` RPC via the `check-usage-limit` edge fn; `useUsageLimit.ts` reflects the DB. **Prod-equality to the latest migration is NOT yet verified — it requires a read-only prod DB query** (`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`). |
 | **(3) Marketing** | — | (was "unlimited") | — | older "Want unlimited sessions?" upsell — **corrected** to "Need more recording time?" (PR #769). |
 | **(4) PO-approved policy** | — | **2h/day** | **50h/month** | **Release-owner decision (recorded, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` Finding 1):** for this release Pro = 2h/day, 50h/month; **DB `tier_configs` is the source of truth**; do **not** raise the DB to unlimited. |
 | **(5) Unresolved → ROADMAP** | Free-quota ratification | — | — | Whether to raise Pro to unlimited (or re-tier Free) is a **separate post-release pricing/packaging decision** — `OPEN_GAP` → `ROADMAP.md`. |
 
-**Net observed effect:** paying Pro users are actually capped by the DB at **2h/day, 50h/month** (the `Infinity` code constant is dead). The live-vs-latest-migration prod DB confirmation remains an evidence item.
+**Net observed effect:** code and the seeded migration now **agree** — Pro is capped at **2h/day, 50h/month** (the `Infinity` special-case was removed, PR #769). **Whether the live prod `tier_configs` equals the latest migration is not yet confirmed** — a read-only ops query remains outstanding (`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`).
 
 ## 5. Billing fail-closed contract
 
@@ -68,7 +68,7 @@ Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are dist
 ## 6. Cloud eligibility & comped entitlement
 
 - **Cloud = paid-Pro only, and never a silent fallback.** Private STT MUST NOT auto-switch to Cloud (privacy + variable-cost change); Cloud is entered only by explicit user selection with the capability entitlement (`ARCHITECTURE.md` §7).
-- **Comped-DB-entitlement QA rule:** Pro QA during the no-billing beta uses a **comped DB entitlement** (a synthetic non-Stripe entitlement id), never a real live Stripe charge; live Stripe stays read-only.
+- **Comped / legacy grants — actual mechanism (no separate comped id).** There is **no separate "comped entitlement" table or id.** Per `effective_subscription_tier()` (§3), Pro requires `subscription_status = 'pro'` **AND** a `stripe_subscription_id`; the legacy `subscription_id` is deprecated/ignored. Comped or QA Pro is therefore granted by setting those DB profile fields directly (an **evidence/QA convention** using a synthetic test subscription id, **never a live Stripe charge**); live Stripe stays read-only. Whether a synthetic id qualifies as "real" is an implementation detail owned by the RPC / #1036.
 
 ## 7. Live-activation contract (future; separate PO authorization)
 
