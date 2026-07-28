@@ -40,15 +40,72 @@ type NetFailure = { url: string; failure: string | null };
 const blockedFailures = (fails: NetFailure[], re: RegExp) =>
   fails.filter((f) => re.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED/i.test(f.failure ?? ''));
 
-async function signIn(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/auth/signin', { waitUntil: 'load', timeout: 120_000 });
+
+/**
+ * #1043 two-lane control: record everything about the entitlement edge-function call so an isolated-lane
+ * failure can be classified against a non-isolated production lane. HEADER NAMES ONLY — never values,
+ * so no bearer token, cookie or bypass secret can reach logs or artifacts.
+ */
+type UsageLimitDiag = {
+  url: string;
+  method: string;
+  requestHeaderNames: string[];
+  previewOnlyHeaderLeak: string[];
+  status: number | null;
+  corsResponseHeaderNames: string[];
+  failure: string | null;
+};
+
+function recordUsageLimitDiagnostics(page: Page, sink: UsageLimitDiag[]): void {
+  const PREVIEW_ONLY = /^x-vercel-/i;
+  const isTarget = (u: string) => /check-usage-limit/i.test(u);
+  const entry = (u: string, m: string, names: string[]): UsageLimitDiag => ({
+    url: u, method: m, requestHeaderNames: names,
+    previewOnlyHeaderLeak: names.filter((n) => PREVIEW_ONLY.test(n)),
+    status: null, corsResponseHeaderNames: [], failure: null,
+  });
+  page.on('request', (r) => {
+    if (!isTarget(r.url())) return;
+    sink.push(entry(r.url(), r.method(), Object.keys(r.headers())));
+  });
+  page.on('response', (res) => {
+    if (!isTarget(res.url())) return;
+    const names = Object.keys(res.headers()).filter((n) => /^access-control-|^cross-origin-/i.test(n));
+    const last = [...sink].reverse().find((d) => d.url === res.url() && d.status === null);
+    if (last) { last.status = res.status(); last.corsResponseHeaderNames = names; }
+  });
+  page.on('requestfailed', (r) => {
+    if (!isTarget(r.url())) return;
+    const last = [...sink].reverse().find((d) => d.url === r.url() && d.failure === null && d.status === null);
+    if (last) last.failure = r.failure()?.errorText ?? 'unknown';
+  });
+}
+
+/** Navigation + isolation context for the lane being audited (host, release SHA, COOP/COEP). */
+async function laneContext(page: Page, navHeaders: Record<string, string>) {
+  const inPage = await page.evaluate(() => ({
+    crossOriginIsolated,
+    typeofSAB: typeof SharedArrayBuffer,
+    host: location.host,
+    releaseSha: (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null,
+  }));
+  return {
+    ...inPage,
+    navCOOP: navHeaders['cross-origin-opener-policy'] ?? null,
+    navCOEP: navHeaders['cross-origin-embedder-policy'] ?? null,
+  };
+}
+
+async function signIn(page: Page, email: string, password: string): Promise<Record<string, string>> {
+  const nav = await page.goto('/auth/signin', { waitUntil: 'load', timeout: 120_000 });
   // Fail fast with a clear message if the auth form never renders, instead of a 5-minute locator.fill
   // timeout that hides WHY (a wrong route previously cost ~10 minutes and reported only "locator.fill").
   await expect(page.getByTestId('auth-form'), 'sign-in form must render at /auth/signin').toBeVisible({ timeout: 45_000 });
   await page.getByTestId('email-input').fill(email);
   await page.getByTestId('password-input').fill(password);
   await page.getByTestId('sign-in-submit').click();
-  await expect(page, 'signed in under isolation').toHaveURL(/\/(session|practice|analytics)/, { timeout: 60_000 });
+  await expect(page, 'signed in').toHaveURL(/\/(session|practice|analytics)/, { timeout: 60_000 });
+  return nav?.headers() ?? {};
 }
 
 test.describe('#1043 cross-origin isolation compatibility @live', () => {
@@ -140,8 +197,11 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const requests: string[] = [];
     page.on('request', (r) => requests.push(r.url()));
     page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
+    const usageLimitDiag: UsageLimitDiag[] = [];
+    recordUsageLimitDiagnostics(page, usageLimitDiag);
 
-    await signIn(page, email, password);
+    const navHeaders = await signIn(page, email, password);
+    const lane = await laneContext(page, navHeaders);
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE session survives reload').toBeVisible({ timeout: 45_000 });
 
@@ -159,14 +219,15 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     expect(checkoutCalls, 'no stripe-checkout request may occur under the freeze').toEqual([]);
 
     const supabaseBlocked = blockedFailures(netFailures, /supabase|stripe/i);
-    expect(supabaseBlocked, `Supabase/Stripe calls blocked under isolation: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
 
-    await page.getByTestId('nav-sign-out-button').click();
-    await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
-
-    // Evidence records ACCOUNT CLASS ONLY — never credentials.
+    // ATTACH EVIDENCE BEFORE ASSERTING so a failing lane still yields the differential data.
     const ev = {
       accountClass: 'free',
+      lane,
+      usageLimitDiagnostics: usageLimitDiag,
+      usageLimitPreflightObserved: usageLimitDiag.some((d) => d.method === 'OPTIONS'),
+      usageLimitFailures: usageLimitDiag.filter((d) => d.failure).map((d) => d.failure),
+      previewOnlyHeaderLeakDetected: usageLimitDiag.some((d) => d.previewOnlyHeaderLeak.length > 0),
       paymentsEnabled: false,
       closedCheckoutStateRendered: true,
       checkoutCtaRendered: false,
@@ -177,6 +238,10 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     };
     await testInfo.attach('coi-free-closed-checkout.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_FREE_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
+
+    expect(supabaseBlocked, `Supabase/Stripe calls blocked: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
+    await page.getByTestId('nav-sign-out-button').click();
+    await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
   });
 
   test('PRO account under the Beta-50 billing freeze: login, reload, closed Portal state, logout', async ({ page }, testInfo) => {
@@ -187,8 +252,11 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const requests: string[] = [];
     page.on('request', (r) => requests.push(r.url()));
     page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
+    const usageLimitDiag: UsageLimitDiag[] = [];
+    recordUsageLimitDiagnostics(page, usageLimitDiag);
 
-    await signIn(page, email, password);
+    const navHeaders = await signIn(page, email, password);
+    const lane = await laneContext(page, navHeaders);
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO session survives reload').toBeVisible({ timeout: 45_000 });
 
@@ -205,13 +273,15 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     expect(portalCalls, 'no stripe-billing-portal request may occur under the freeze').toEqual([]);
 
     const supabaseBlocked = blockedFailures(netFailures, /supabase|stripe/i);
-    expect(supabaseBlocked, `Supabase/Stripe calls blocked under isolation: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
 
-    await page.getByTestId('nav-sign-out-button').click();
-    await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
-
+    // ATTACH EVIDENCE BEFORE ASSERTING so a failing lane still yields the differential data.
     const ev = {
       accountClass: 'pro',
+      lane,
+      usageLimitDiagnostics: usageLimitDiag,
+      usageLimitPreflightObserved: usageLimitDiag.some((d) => d.method === 'OPTIONS'),
+      usageLimitFailures: usageLimitDiag.filter((d) => d.failure).map((d) => d.failure),
+      previewOnlyHeaderLeakDetected: usageLimitDiag.some((d) => d.previewOnlyHeaderLeak.length > 0),
       paymentsEnabled: false,
       closedPortalStateRendered: true,
       portalCtaRendered: false,
@@ -222,5 +292,9 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     };
     await testInfo.attach('coi-pro-closed-portal.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_PRO_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
+
+    expect(supabaseBlocked, `Supabase/Stripe calls blocked: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
+    await page.getByTestId('nav-sign-out-button').click();
+    await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
   });
 });
