@@ -15,6 +15,7 @@ const README = read('README.md');
 const LEDGER = read('DOC_MIGRATION_LEDGER.md');
 const STATUS = read('RELEASE_STATUS.md');
 const PRODUCT_REQUIREMENTS = read('PRODUCT_REQUIREMENTS.md'); // canonical #2 (#1038)
+const ARCHITECTURE = read('ARCHITECTURE.md'); // canonical #4 (#1039)
 
 const CANONICAL_14 = [
   'README.md', 'PRODUCT_REQUIREMENTS.md', 'ROADMAP.md', 'ARCHITECTURE.md', 'STT.md',
@@ -248,7 +249,7 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('the 10 metadata fields appear within the document header (first 25 lines), not merely anywhere', () => {
-    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS]] as const) {
+    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ARCHITECTURE', ARCHITECTURE]] as const) {
       const header = md.split('\n').slice(0, 25).join('\n');
       const missing = METADATA_FIELDS.filter(f => !header.includes(f));
       expect(missing, `${label} header missing fields`).toEqual([]);
@@ -256,7 +257,7 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('relative links in the governed docs resolve', () => {
-    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS]] as const) {
+    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS], ['ARCHITECTURE.md', ARCHITECTURE]] as const) {
       for (const m of md.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
         expect(fs.existsSync(path.resolve(DOCS, m[1])), `${name}: broken link ${m[1]}`).toBe(true);
       }
