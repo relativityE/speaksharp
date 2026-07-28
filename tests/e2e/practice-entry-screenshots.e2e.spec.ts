@@ -23,7 +23,6 @@ const DIR = 'test-results/practice-entry';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-analytics.com', 'googletagmanager.com', 'doubleclick.net'];
-const GUIDED_NOTICE = 'Product not available at this time';
 
 // Surface-specific issue-area option values (mirrors services/pageContext). #1042 PR3 removed the
 // quick_practice_overview surface, so /practice now has two surfaces.
@@ -51,7 +50,9 @@ async function shot(page: Page, path: string) {
 
 async function expectOnChooser(page: Page) {
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByRole('heading', { name: /private practice\. public impact/i })).toBeVisible();
+  // #1061 authenticated state: the brand line "Private Practice. Public Impact!" is a compact <p> welcome
+  // (not the large marketing <h1>), so match the text rather than the heading role.
+  await expect(page.getByText(/what do you want to work on/i)).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/practice');
 }
 
@@ -99,27 +100,22 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
-    // === GUIDED UNAVAILABLE (directly on the chooser) ===
+    // === GUIDED "COMING SOON!" + NOTIFY ME (#1061) — Guided card opens the gated coming-soon dialog (waitlist OFF) ===
     const guidedCta = page.getByTestId('practice-card-guided');
-    await expect(guidedCta).toHaveText(/guided rehearsal/i);
-    await expect(guidedCta).toBeEnabled();
+    await expect(guidedCta).toHaveAccessibleName(/notify me about guided rehearsal/i);
+    // Guided status is the SOON header badge (never "Planned").
+    await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
+    await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await shot(page, `${DIR}/02a-guided-before-desktop.png`);
 
     await guidedCta.click();
-    // Exactly ONE contextual notice, anchored INSIDE the Guided card (role=status) — not a global toast.
-    const guidedArticle = page.locator('article', { has: page.getByTestId('practice-card-guided') });
-    await expect(guidedArticle.getByTestId('guided-unavailable-notice')).toHaveText(GUIDED_NOTICE);
-    await expect(page.getByTestId('guided-unavailable-notice')).toHaveCount(1);
+    await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible(); // activation OFF → no capture form
     expect(new URL(page.url()).pathname).toBe('/practice');
-    await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
-    await expect(page.getByText(/the correction loop/i)).toHaveCount(0);
-    // AFTER: the Guided card ALONE is disabled — CTA "Unavailable", natively disabled; Freestyle stays enabled.
-    await expect(guidedCta).toHaveText(/unavailable/i);
-    await expect(guidedCta).toBeDisabled();
-    await expect(guidedCta).toHaveAccessibleName(/guided rehearsal — unavailable/i);
-    await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
-    await shot(page, `${DIR}/02b-guided-after-disabled-desktop.png`);
-    // Visible Report Issue label is EXACTLY "Guided Rehearsal" (never "(unavailable)").
+    await shot(page, `${DIR}/02b-guided-notify-desktop.png`);
+    // Visible Report Issue label is EXACTLY "Guided Rehearsal" and the surface attributes to Guided.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('guided-notify-dialog')).toHaveCount(0);
     await assertReport(page, 'Guided Rehearsal', AREAS.guided_rehearsal_unavailable);
 
     // Keyboard focus on the Freestyle CTA.
@@ -128,31 +124,16 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await expect(quickCta).toBeFocused();
     await page.screenshot({ path: `${DIR}/03-keyboard-focus-desktop.png` });
 
-    // === MOBILE === (fresh page instance → Guided starts enabled again; capture before/after at MOBILE).
+    // === MOBILE ===
     await page.setViewportSize(MOBILE);
     await enterPractice(page);
     await shot(page, `${DIR}/04-chooser-mobile.png`);
-    const guidedMobile = page.getByTestId('practice-card-guided');
-    await expect(guidedMobile).toBeEnabled();
-    await shot(page, `${DIR}/05a-guided-before-mobile.png`);
-    await guidedMobile.click();
-    const mobileNotice = page.getByTestId('guided-unavailable-notice');
-    await expect(mobileNotice).toHaveText(GUIDED_NOTICE);
-    await expect(guidedMobile).toHaveText(/unavailable/i);
-    await expect(guidedMobile).toBeDisabled();
-    await expect(page.getByTestId('practice-card-quick')).toBeEnabled();
-    // The fixed mobile BOTTOM nav must not OBSCURE the contextual notice: scrolled into view, the point at
-    // the notice's centre must hit the notice itself (or a child), not the overlaying nav bar.
-    await mobileNotice.scrollIntoViewIfNeeded();
-    const noticeReachable = await mobileNotice.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === el || el.contains(hit));
-    });
-    expect(noticeReachable, 'mobile bottom nav must not obscure the Guided notice').toBe(true);
-    await shot(page, `${DIR}/05b-guided-after-disabled-mobile.png`);
+    await page.getByTestId('practice-card-guided').click();
+    await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await shot(page, `${DIR}/05-guided-notify-mobile.png`);
+    await page.keyboard.press('Escape');
 
-    // Up to here NOTHING navigated to /session (Guided shows a toast; Freestyle not yet clicked).
+    // Up to here NOTHING navigated to /session (Guided opens a dialog; Freestyle not yet clicked).
     expect(sessionNavs, `unexpected /session navigations before the Freestyle handoff: ${sessionNavs.join(' | ')}`).toEqual([]);
 
     // === FREESTYLE CARD → /session === the INTENTIONAL, direct handoff (no overview, no auto-record).

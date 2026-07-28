@@ -52,7 +52,6 @@ const RouteReadinessManager: React.FC = () => {
 };
 
 // Lazy load pages for better performance
-const Index = React.lazy(() => import('./pages/Index'));
 const PracticePage = React.lazy(() => import('./pages/PracticePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
@@ -353,8 +352,9 @@ const App: React.FC = () => {
               <StaleChunkBootClear />
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
-                  {/* Auth-aware home: authenticated → /practice; anonymous → the public Index. */}
-                  <Route path="/" element={<AuthAwareRoot><PageTransition><Index /></PageTransition></AuthAwareRoot>} />
+                  {/* #1061: ONE canonical auth-aware page. Authenticated → redirect to /practice; anonymous
+                      → render the SAME PracticePage (marketing + product choices, no session history). */}
+                  <Route path="/" element={<AuthAwareRoot><PageTransition><PracticePage /></PageTransition></AuthAwareRoot>} />
                   <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
                   <Route path="/terms" element={<PageTransition><TermsPage /></PageTransition>} />
                   <Route path="/privacy" element={<PageTransition><PrivacyPage /></PageTransition>} />

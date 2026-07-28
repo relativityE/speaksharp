@@ -1,28 +1,31 @@
 /**
- * PracticePage — the authenticated `/practice` landing (orientation before recording controls). This is
- * the default authenticated entry.
+ * PracticePage — the ONE canonical, auth-aware Marketing + Product + Practice-Choices page (#1061).
  *
- * Freestyle Practice is the only working product: its card ("Start Freestyle Practice") navigates DIRECTLY
- * to the UNCHANGED /session (#1042 PR3 — a pure navigation handoff; this page imports/changes nothing in the
- * session runtime and never auto-starts recording). The "How Freestyle Practice works" guide now lives as a
- * Session-page overlay (#1042 PR2), not a full-page overview. Guided Rehearsal is future direction and NOT available:
- * selecting it stays on /practice and shows exactly one toast ("Product not available at this time") — no
- * preview, no microphone, AI, DB, network, or persistence. Report Issue stays in the global authenticated
- * Navigation and is surface-aware via the active practice surface. Warm Theme A visuals are scoped under
- * `.practice-root` (see styles/practice.css).
+ * Rendered at `/` for ANONYMOUS visitors (marketing state: large hero, a "how it helps" support section with
+ * four cards + curved connectors, then the two product cards) and at `/practice` for AUTHENTICATED users
+ * (product state: compact welcome, recent-practice continuity, then the two product cards). Both states share
+ * ONE page/component, the same visual tokens, the same product-card implementation, and the same Freestyle
+ * (teal) / Guided (purple) identities. Authentication changes the intro, supporting content, and actions.
+ *
+ * Freestyle Practice is the only working product; its action navigates to the unchanged /session (authed) or
+ * through account access preserving /session intent (anonymous), and never auto-starts recording. Guided
+ * Rehearsal is "Coming Soon!" with a real "Notify me" pre-launch interest capture (GuidedNotifyDialog).
  */
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, Check, Clock, Info,
+  ArrowRight, Check,
   LineChart, Target, AudioLines, ListChecks, Repeat,
   type LucideIcon,
 } from 'lucide-react';
 import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
+import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
+import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
@@ -30,38 +33,22 @@ import {
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
 
-/** The ONLY Guided message shown in this release — as a CONTEXTUAL notice anchored to the Guided card. */
-export const GUIDED_UNAVAILABLE_MESSAGE = 'Product not available at this time';
-
-/**
- * Informational (not destructive) notice anchored beneath the Guided CTA; announced via role="status".
- * CRITICAL: this renders OUTSIDE the Guided card's dimmed subtree, so it stays at full opacity even while
- * the card is muted. Warm opaque surface, navy text, a bold 3px ORANGE edge + icon (brand color, not red).
- */
-function GuidedUnavailableNotice() {
-  return (
-    <p role="status" data-testid="guided-unavailable-notice"
-      className="ss-slide-in mt-3 inline-flex max-w-xs items-start gap-2 rounded-md border border-[color:var(--ss-amber-border)] border-l-[3px] border-l-[color:var(--ss-amber)] bg-[color:var(--ss-amber-surface)] px-3 py-2 text-sm font-semibold text-[color:var(--ss-text)] opacity-100 shadow-[0_2px_8px_rgba(15,23,42,0.12)]">
-      <Info size={15} aria-hidden className="mt-0.5 shrink-0 text-[color:var(--ss-amber)]" />
-      <span>{GUIDED_UNAVAILABLE_MESSAGE}</span>
-    </p>
-  );
-}
-
+// Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
+// the two-stop 135° gradient #0d7d74→#17a99b (blue-leaning, NOT emerald/mint and NOT the dark CTA teal
+// #0a5f58); icon/pill tint #e6f4f2. The waveform/transcript art reads WHITE on the dark teal band.
 const QUICK_VARS: React.CSSProperties = {
-  ['--ss-card' as string]: 'var(--ss-session-accent)', ['--ss-card-btn' as string]: 'var(--ss-session-btn)',
-  ['--ss-card-soft' as string]: 'var(--ss-session-soft)', ['--ss-card-panel' as string]: 'var(--ss-session-panel)',
-  ['--ss-card-border' as string]: 'var(--ss-session-border)', ['--ss-card-warm' as string]: 'var(--ss-sun)',
-  // Deep teal INK for the illustration so the waveform/transcript read clearly on the LIGHT teal band.
-  ['--ss-art-ink' as string]: '#065E5A',
+  ['--ss-card' as string]: '#0d7d74', ['--ss-card-btn' as string]: '#0d7d74',
+  ['--ss-card-soft' as string]: '#e6f4f2', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #0d7d74 0%, #17a99b 100%)',
+  ['--ss-card-border' as string]: '#0d7d74', ['--ss-card-warm' as string]: '#f4c77b',
+  ['--ss-art-ink' as string]: 'rgba(255,255,255,0.9)',
 };
+// Guided violet — same 135° angle + light/dark relationship, violet tokens.
 const GUIDED_VARS: React.CSSProperties = {
-  ['--ss-card' as string]: 'var(--ss-exec-accent)', ['--ss-card-btn' as string]: 'var(--ss-exec-btn)',
-  ['--ss-card-soft' as string]: 'var(--ss-exec-soft)', ['--ss-card-panel' as string]: 'var(--ss-exec-panel)',
-  ['--ss-card-border' as string]: 'var(--ss-exec-border)', ['--ss-card-warm' as string]: 'var(--ss-coral)',
+  ['--ss-card' as string]: '#7b5ce0', ['--ss-card-btn' as string]: '#6a4fd0',
+  ['--ss-card-soft' as string]: '#f0ecfb', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #7b5ce0 0%, #9d7cf0 100%)',
+  ['--ss-card-border' as string]: '#ded8f5', ['--ss-card-warm' as string]: 'var(--ss-coral)',
 };
 
-// Short visual product lists — three concise, scannable capabilities per card (no dense paragraph).
 const QUICK_BULLETS: Bullet[] = [
   { text: 'No agenda or setup', Icon: Check },
   { text: 'Speak and see your live transcript', Icon: AudioLines },
@@ -75,82 +62,95 @@ const GUIDED_BULLETS: Bullet[] = [
 
 interface Bullet { text: string; Icon: LucideIcon }
 
-function ModeCard({ vars, art, title, promise, bullets, marker, markerIcon, ctaLabel, ctaAria, ctaSolid, onClick, testid, disabled, ctaLabelDisabled, ctaAriaDisabled, notice }: {
+function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSolid, ctaNote, onClick, testid, cornerBadge }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
-  marker: string; markerIcon?: LucideIcon; ctaLabel: string; ctaAria: string; ctaSolid?: boolean; onClick: () => void; testid: string;
-  disabled?: boolean; ctaLabelDisabled?: string; ctaAriaDisabled?: string; notice?: React.ReactNode;
+  ctaLabel: string; ctaAria: string; ctaSolid?: boolean; ctaNote?: boolean; onClick: () => void; testid: string;
+  cornerBadge?: string;
 }) {
-  // The marker icon reinforces status WITHOUT relying on color: a check for an available product, a clock
-  // for a planned/unavailable one. A checkmark on an unavailable product would wrongly imply "ready".
-  const MarkerIcon = markerIcon ?? Check;
-  const isDisabled = !!disabled;
-  // Disabled treatment (this card ONLY): the semantic state is carried by the CTA text change + native
-  // disabled + the Clock/marker text — never opacity/color alone. Title/bullets stay readable.
-  const label = isDisabled ? (ctaLabelDisabled ?? ctaLabel) : ctaLabel;
-  const aria = isDisabled ? (ctaAriaDisabled ?? ctaAria) : ctaAria;
-  // CTA style: a SOLID accent button is the strongest action (Quick's primary); an OUTLINE button reads as
-  // secondary (Guided). When disabled, drop the accent entirely for a neutral, muted control. Sharp 8px.
-  const ctaClass = isDisabled
-    ? 'mt-4 inline-flex w-fit cursor-not-allowed items-center gap-1.5 rounded-lg border border-[color:var(--ss-border)] bg-[color:var(--ss-neutral-soft)] px-4 py-2 text-sm font-semibold text-[color:var(--ss-neutral-text)]'
-    : `ss-ring mt-4 inline-flex w-fit items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
-  // Semantic card: an <article> with a real heading and a single, keyboard-operable CTA <button>. The card
-  // is NOT itself a button (an interactive element must not contain headings/lists — invalid HTML + bad
-  // for AT). The product reads from the heading, benefit, a short visual list, and marker (text, never
-  // color alone); the button carries the action. Sharp geometry (10px card / crisp tinted border) so the
-  // two modes read as distinct and confident. The card itself is NEVER opacity-dimmed — the dimming is
-  // scoped to the inner content subtree ONLY, so the contextual notice below can stay fully legible.
+  // Full-width CTA pinned to the bottom so both product cards' buttons bottom-align.
+  const ctaClass = `ss-ring flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-3 text-sm font-bold ${ctaSolid ? 'ss-accent-btn shadow-sm' : 'ss-accent-outline'}`;
   return (
-    <article style={vars} data-disabled={isDisabled || undefined}
-      className={`group ss-mode-card flex flex-col overflow-hidden rounded-[10px] bg-[color:var(--ss-surface)] transition-all duration-200 ${isDisabled
-        ? 'shadow-[0_2px_10px_rgba(15,23,42,0.07)] ring-1 ring-[color:var(--ss-border)]'
-        : 'shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-2 ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]'}`}>
-      {/* Dimmed subtree = everything EXCEPT the notice. Muting the art + content here (not the <article>)
-          keeps the sibling notice at full opacity. data-dimmed marks it so tests can prove the notice is
-          rendered OUTSIDE this subtree. */}
-      <div data-dimmed={isDisabled || undefined} className={`flex flex-1 flex-col ${isDisabled ? 'opacity-[0.6]' : ''}`}>
-        <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]"><div className={`absolute inset-0 px-5 py-3 ${isDisabled ? 'grayscale-[0.75] saturate-[0.35]' : ''}`}>{art}</div></div>
+    <article style={vars} data-testid={`${testid}-card`}
+      className="group ss-mode-card flex h-full flex-col overflow-hidden rounded-[16px] bg-[color:var(--ss-surface)] transition-all duration-200 shadow-[0_6px_20px_rgba(15,23,42,0.10)] ring-[1.5px] ring-[color:var(--ss-card-border)] hover:-translate-y-0.5 hover:shadow-[0_10px_26px_rgba(15,23,42,0.14)] hover:ring-[color:var(--ss-card)]">
+      <div className="flex flex-1 flex-col">
+        <div className="ss-card-panel relative h-[4.75rem] border-b-2 border-[color:var(--ss-card-border)]">
+          <div className="absolute inset-0 px-5 py-3">{art}</div>
+          {cornerBadge && (
+            <span
+              data-testid="guided-soon-badge"
+              style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.94)', color: '#6a4fd0', fontSize: 11, fontWeight: 800, padding: '5px 11px', borderRadius: 999, letterSpacing: '0.05em' }}
+            >{cornerBadge}</span>
+          )}
+        </div>
         <div className="flex flex-1 flex-col p-5">
-          <h3 className="text-lg font-bold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
-          <p className="mt-0.5 text-sm font-semibold text-[color:var(--ss-card-btn)]">{promise}</p>
-          <ul className="mt-3 space-y-2">
+          <h3 className="text-[21px] font-extrabold tracking-tight text-[color:var(--ss-text)]">{title}</h3>
+          <p className="mt-1 text-[15px] font-bold text-[color:var(--ss-card-btn)]">{promise}</p>
+          <ul className="mt-3.5 space-y-2.5">
             {bullets.map((b) => (
-              <li key={b.text} className="flex items-start gap-2 text-sm text-[color:var(--ss-text)]">
-                <span aria-hidden className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-[5px] bg-[color:var(--ss-card-soft)] text-[color:var(--ss-card-btn)]"><b.Icon size={13} /></span>
+              <li key={b.text} className="flex items-start gap-2.5 text-[15px] text-[color:var(--ss-body-slate,#3d4757)]">
+                <span aria-hidden className="mt-px grid h-6 w-6 shrink-0 place-items-center rounded-[6px] bg-[color:var(--ss-card-soft)] text-[color:var(--ss-card-btn)]"><b.Icon size={14} /></span>
                 <span>{b.text}</span>
               </li>
             ))}
           </ul>
-          <span className="mt-3.5 inline-flex w-fit items-center gap-1.5 rounded-md bg-[color:var(--ss-card-soft)] px-2.5 py-1 text-xs font-semibold text-[color:var(--ss-card-btn)]"><MarkerIcon size={13} aria-hidden /> {marker}</span>
-          <button type="button" onClick={isDisabled ? undefined : onClick} disabled={isDisabled} data-testid={testid} aria-label={aria} className={ctaClass}>
-            {label}{isDisabled ? null : <ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />}
-          </button>
+          <div className="mt-4 flex flex-1 flex-col justify-end pt-1">
+            <button type="button" onClick={onClick} data-testid={testid} aria-label={ctaAria} className={ctaClass}>
+              {ctaLabel}{ctaNote
+                ? <span aria-hidden className="text-base leading-none">♪</span>
+                : <ArrowRight size={15} aria-hidden className="transition-transform group-hover:translate-x-0.5" />}
+            </button>
+          </div>
         </div>
       </div>
-      {/* Contextual notice — OUTSIDE the dimmed subtree, so full opacity, still inside the card + below CTA. */}
-      {notice ? <div className="px-5 pb-5">{notice}</div> : null}
     </article>
+  );
+}
+
+/** Freestyle FREE TRIAL strip (anonymous only) — a compact promo above the product cards. It reuses the
+ * SHARED Freestyle teal token (`--ss-session-panel`) so the repeated color communicates that the trial
+ * belongs to Freestyle; it is deliberately smaller than the product card (promo vs. decision). The CTA
+ * routes to Freestyle (account access → /session, never auto-recording) and does not imply Private is
+ * already active — it is a trial offer. */
+function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
+  // DARK SLATE — deliberately NOT teal/violet: a neutral, system-level offer that gives the page its third
+  // value step and (with the -mt overlap) kills the hard hero/page seam. Orange CTA uses near-black text
+  // (never white on orange). The private-trial offer belongs to Freestyle; the CTA routes to Freestyle.
+  return (
+    <div
+      data-testid="freestyle-trial-strip"
+      className="relative z-10 -mt-[26px] flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
+      style={{ background: '#1d4a45', boxShadow: '0 16px 34px -18px rgba(29,74,69,0.6)' }}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
+        <span className="text-[17px] font-bold text-white">Try a 5-minute private session — no card, no script.</span>
+      </div>
+      <button
+        type="button"
+        onClick={onStart}
+        data-testid="freestyle-trial-start"
+        aria-label="Start Freestyle Practice with a 5-minute Private trial"
+        className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
+        style={{ background: '#d98a1f', color: '#241503' }}
+      >
+        Start Freestyle<ArrowRight size={15} aria-hidden />
+      </button>
+    </div>
   );
 }
 
 export default function PracticePage() {
   const navigate = useNavigate();
+  const { user } = useAuthProvider();
+  const isAuthed = !!user;
+  const accountEmail = (user as { email?: string } | null | undefined)?.email ?? '';
   const { setSurface } = usePracticeSurface();
-  // #1042 PR4: Practice Home continuity — a NARROW read of the most-recent reviewable session (id /
-  // created_at / duration / status only). Truthful empty state for new users; honest error state on
-  // failure. Never fetches transcript, scores, or full history.
+  // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
   const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
-  // Guided is not a working product: selecting it shows an unavailable toast and marks the reporting
-  // surface (it does NOT open a page/preview). `guidedSelected` only affects Report Issue attribution.
+  // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
-  // Once the user has acknowledged the unavailable Guided (first click), the Guided card renders in a
-  // disabled state. LOCAL PAGE STATE ONLY: it survives a Quick→back round-trip within this /practice visit,
-  // but a full reload / later visit resets it (showing the notice again). No storage/DB/profile.
-  const [guidedAcknowledged, setGuidedAcknowledged] = React.useState(false);
-  // The contextual notice shows on that first click and auto-hides after a few seconds; the disabled card
-  // treatment remains regardless.
-  const [guidedNoticeVisible, setGuidedNoticeVisible] = React.useState(false);
-  const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [notifyOpen, setNotifyOpen] = React.useState(false);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -161,98 +161,134 @@ export default function PracticePage() {
     trackPracticeEntryViewed(returning.current);
   }, []);
 
-  // Publish the active surface to the global Report Issue dialog (typed token only): a Guided (unavailable)
-  // selection marks `guided_rehearsal_unavailable`; otherwise the chooser is home.
   React.useEffect(() => {
     const surface: PracticeSurface = guidedSelected ? 'guided_rehearsal_unavailable' : 'practice_home';
     setSurface(surface);
   }, [guidedSelected, setSurface]);
 
-  // Reset the override when leaving /practice so a report elsewhere never inherits a stale surface, and
-  // clear the notice timer on unmount.
-  React.useEffect(() => () => { setSurface(null); if (noticeTimer.current) clearTimeout(noticeTimer.current); }, [setSurface]);
+  React.useEffect(() => () => { setSurface(null); }, [setSurface]);
 
-  // #1042 PR3: the Freestyle card navigates DIRECTLY to the working Session page — no intermediate
-  // overview. It never auto-starts recording (SessionPage owns the mic). Truthful entry source is
-  // 'landing_card' (never the removed 'quick_overview').
-  const startFreestyle = () => { setGuidedSelected(false); trackPracticeModeSelected('quick', 'landing_card'); trackQuickPracticeStarted('landing_card'); navigate('/session'); };
-  // Guided selected while UNAVAILABLE: stay on /practice, mark the reporting surface, and (ONCE) emit
-  // content-free telemetry + show ONE contextual notice anchored to the Guided card, then disable the card.
-  // No nav, no preview, no mic/AI/network/persistence, and NO global toast. The CTA becomes natively
-  // disabled, so a repeat click cannot fire — the guard is a defensive belt against programmatic re-entry.
-  const selectGuided = () => {
-    setGuidedSelected(true);
-    if (guidedAcknowledged) return;
-    setGuidedAcknowledged(true);
-    setGuidedNoticeVisible(true);
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setGuidedNoticeVisible(false), 6000);
-    trackPracticeModeSelected('guided', 'landing_card');
-    trackGuidedRehearsalUnavailable();
+  // Freestyle: authed → /session directly; anonymous → account access preserving the /session intent via
+  // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.
+  const startFreestyle = () => {
+    setGuidedSelected(false);
+    trackPracticeModeSelected('quick', 'landing_card');
+    trackQuickPracticeStarted('landing_card');
+    if (isAuthed) navigate('/session');
+    else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
   };
 
+  // Guided "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
+  const openNotify = () => {
+    setGuidedSelected(true);
+    trackPracticeModeSelected('guided', 'landing_card');
+    trackGuidedRehearsalUnavailable();
+    setNotifyOpen(true);
+  };
+
+  const freestyleCard = (
+    <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice"
+      promise={isAuthed ? 'Speak freely. See how you’re progressing.' : 'No script. No pressure. Just practice.'}
+      bullets={QUICK_BULLETS}
+      ctaLabel={isAuthed ? 'Start Freestyle Practice' : 'Start Freestyle'} ctaAria="Start Freestyle Practice"
+      ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
+  );
+  const guidedCard = (
+    <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal"
+      promise={isAuthed ? 'Prepare what matters. Rehearse until it lands.' : 'Prepare the points that must land.'}
+      bullets={GUIDED_BULLETS} cornerBadge="SOON"
+      ctaLabel="Notify me at launch" ctaNote ctaAria="Notify me about Guided Rehearsal"
+      onClick={openNotify} testid="practice-card-guided" />
+  );
+  const productGrid = (
+    <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">{freestyleCard}{guidedCard}</div>
+  );
+
   return (
-    // NOTE: no <main> / #main-content here — App.tsx owns the single page <main id="main-content">
-    // landmark. Rendering another would create nested <main> elements and a duplicate id, breaking the
-    // skip-link target and assistive-tech landmark navigation. This is a plain content container.
+    // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
     <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
       <div className="practice-content">
-        <>
-            <div className="ss-theme-hero">
-              {/* pt-24 keeps the chooser's content clear of the fixed global <nav> (h-16 / z-40). */}
-              <div className="mx-auto max-w-5xl px-5 pb-14 pt-24 sm:px-8">
-                <div className="mt-1 grid items-center gap-8 md:grid-cols-[1fr_22rem]">
-                  <div>
-                    {/* Split-color tagline: one phrase, two semantic spans — navy "Private Practice." +
-                        saturated teal "Public Impact!" (same family/weight). Wraps naturally on mobile. */}
-                    <h1 className="text-3xl font-extrabold tracking-tight sm:text-[2.6rem] sm:leading-[1.1]">
-                      <span className="text-[color:var(--ss-text)]">Private Practice.</span>{' '}
-                      <span className="text-[color:var(--ss-teal-title)]">Public Impact!</span>
-                    </h1>
-                    <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
-                    {/* Prominent orientation copy: weight-500 deep slate-blue, 20px mobile / 22px desktop,
-                        with an intentional sentence break after "private." (kept as one paragraph for AT). */}
-                    <p className="mt-4 max-w-xl text-[20px] font-medium leading-[1.5] text-[color:var(--ss-body-slate)] md:text-[22px]">Practice important speaking moments in private.<br />Get focused feedback and track your improvement before the moment matters.</p>
-                    <p className="mt-5 inline-flex items-center gap-2 text-[17px] font-semibold text-[color:var(--ss-text)]"><span aria-hidden className="h-4 w-1 rounded-full" style={{ background: 'var(--ss-amber)' }} />Choose how you want to practice:</p>
-                  </div>
-                  {/* Enlarged hero graphic in a near-white panel (crisp border + controlled shadow, 10px radius)
-                      so it reads as a meaningful product explanation. Desktop ~35-40% of hero width; mobile
-                      ~240px, centered under the hero text (never a tiny floating icon). */}
-                  <div className="mx-auto mt-5 w-[248px] rounded-[10px] border border-[color:var(--ss-border)] bg-white/75 p-3 shadow-[0_4px_16px_rgba(15,23,42,0.08)] md:mx-0 md:mt-0 md:w-full">
-                    <div className="h-36 w-full md:h-56"><LandingHeroArt /></div>
-                  </div>
-                </div>
+        {isAuthed ? (
+          /* AUTHENTICATED product state — a greeting ROW (visibly logged-in), NO marketing peach band: the
+             product choices lead the page. Recent-practice continuity sits inline on the right. */
+          <div className="mx-auto max-w-5xl px-5 pb-3 pt-24 sm:px-8" data-testid="practice-welcome-authed">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <span className="text-[13px] font-extrabold uppercase tracking-[0.1em] text-[color:var(--ss-teal-title)]">Welcome back</span>
+                <h1 className="mt-1 text-[30px] font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[38px]">What do you want to work on?</h1>
               </div>
-            </div>
-
-            {/* pb-28 below md clears the fixed mobile BOTTOM nav (Navigation.tsx: md:hidden fixed bottom-0,
-                ~80px) plus safe-area, so the Guided CTA + contextual notice are never obscured. */}
-            <div className="mx-auto -mt-6 max-w-5xl px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-8">
-              {/* #1042 PR4: continuity for returning users (recent-session summary + Review/Analytics),
-                  truthful empty state for new users. Sits above the two-product chooser. */}
               <PracticeContinuity
+                variant="inline"
                 loading={recentLoading}
                 error={Boolean(recentError)}
                 lastSession={lastSession}
                 onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
                 onViewAnalytics={() => navigate('/analytics')}
               />
-              <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">
-                <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice" promise="Speak freely. See how you’re progressing."
-                  bullets={QUICK_BULLETS}
-                  marker="Available now" ctaLabel="Start Freestyle Practice" ctaAria="Start Freestyle Practice" ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
-                <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal" promise="Prepare what matters. Rehearse until it lands."
-                  bullets={GUIDED_BULLETS}
-                  marker="Planned — not available yet" markerIcon={Clock} ctaLabel="Guided Rehearsal" ctaAria="Guided Rehearsal — not available yet"
-                  disabled={guidedAcknowledged} ctaLabelDisabled="Unavailable" ctaAriaDisabled="Guided Rehearsal — unavailable"
-                  notice={guidedNoticeVisible ? <GuidedUnavailableNotice /> : null}
-                  onClick={selectGuided} testid="practice-card-guided" />
-              </div>
-
-              <p className="mt-6 text-center text-sm text-[color:var(--ss-text-secondary)]"><span className="font-semibold text-[color:var(--ss-text)]">Freestyle Practice</span> is available now — Guided Rehearsal is coming later.</p>
             </div>
-        </>
+          </div>
+        ) : (
+          /* ANONYMOUS marketing state — large sales hero. */
+          <div className="ss-theme-hero">
+            <div className="mx-auto max-w-5xl px-5 pb-10 pt-24 sm:px-8">
+              <div className="mt-1 grid items-start gap-8 md:grid-cols-[1fr_22rem]">
+                <div>
+                  <h1 className="font-extrabold" style={{ fontSize: 'clamp(38px, 8.5vw, 54px)', lineHeight: 1.02, fontWeight: 800, letterSpacing: '-0.035em' }}>
+                    <span className="text-[color:var(--ss-text)]">Private Practice.</span>
+                    <br />
+                    <span style={{ color: '#0a5f58' }}>Public Impact.</span>
+                  </h1>
+                  <span aria-hidden className="mt-3 block h-1.5 w-20 rounded-full" style={{ background: 'var(--ss-amber)' }} />
+                  <p className="mt-4 text-[19px] font-semibold leading-[1.5]" style={{ color: '#14181f', maxWidth: '470px' }}>Practice important speaking moments in private. Get focused feedback and track your improvement before the moment matters.</p>
+                  <div className="mt-6">
+                    {/* Teal CTA on the orange field — complementary contrast (Rule 2). White text on teal. */}
+                    <button
+                      type="button"
+                      onClick={() => navigate('/auth/signup')}
+                      data-testid="practice-hero-start-free"
+                      className="ss-ring inline-flex items-center gap-2 rounded-[11px] px-7 py-3.5 text-[17px] font-bold text-white shadow-[0_14px_28px_-12px_rgba(10,95,88,0.85)]"
+                      style={{ background: '#0a5f58' }}
+                    >
+                      Start free<ArrowRight className="size-5" aria-hidden />
+                    </button>
+                  </div>
+                </div>
+                <div className="mx-auto mt-5 w-[248px] rounded-[10px] border border-[color:var(--ss-border)] bg-white/75 p-3 shadow-[0_4px_16px_rgba(15,23,42,0.08)] md:mx-0 md:mt-0 md:w-full">
+                  <div className="h-36 w-full md:h-56"><LandingHeroArt /></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className={`mx-auto max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-10 ${isAuthed ? 'mt-4' : 'mt-0'}`}>
+          {isAuthed ? (
+            /* AUTHENTICATED: the two product cards (each owns its action). Continuity is in the greeting row. */
+            productGrid
+          ) : (
+            /* ANONYMOUS: a compact Freestyle FREE TRIAL strip (shared Freestyle teal token) directly above
+               the two product cards. The strip carries the trial promo; each product card owns its decision
+               + action. No four-card support section. */
+            <>
+              <FreestyleTrialStrip onStart={startFreestyle} />
+              <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
+                {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
+                <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>
+                <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[32px]">Choose the support your moment needs.</h2>
+              </div>
+              {productGrid}
+            </>
+          )}
+        </div>
       </div>
+
+      <GuidedNotifyDialog
+        open={notifyOpen}
+        onOpenChange={setNotifyOpen}
+        source={isAuthed ? 'authenticated_practice' : 'anonymous_landing'}
+        defaultEmail={isAuthed ? accountEmail : ''}
+        enabled={GUIDED_WAITLIST_ENABLED}
+      />
     </div>
   );
 }

@@ -373,6 +373,7 @@ jobs:
             test-results/practice-entry
             test-results/freestyle-help
             test-results/practice-continuity
+            test-results/product-discovery
           retention-days: 1
           if-no-files-found: ignore
 

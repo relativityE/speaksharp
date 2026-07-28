@@ -39,6 +39,7 @@ export function PracticeContinuity({
     lastSession,
     onReviewLast,
     onViewAnalytics,
+    variant = 'block',
 }: {
     loading: boolean;
     /** True when the history query FAILED — must NOT be shown as the empty "no sessions" state. */
@@ -46,7 +47,11 @@ export function PracticeContinuity({
     lastSession: RecentSession | null;
     onReviewLast: () => void;
     onViewAnalytics: () => void;
+    /** #1061: 'inline' renders the compact greeting-row cluster (no "Ready for your next practice?" heading,
+     *  right-aligned) used in the authenticated header; 'block' is the original standalone card. */
+    variant?: 'block' | 'inline';
 }) {
+    const inline = variant === 'inline';
     if (loading) {
         return (
             <div
@@ -99,6 +104,27 @@ export function PracticeContinuity({
         durationText,
     ].filter(Boolean);
 
+    const actions = (
+        <>
+            <Button type="button" variant="outline" size="sm" className="inline-flex items-center gap-1.5" onClick={onReviewLast} data-testid="practice-continuity-review">
+                <FileText size={15} aria-hidden /> Review last session
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="inline-flex items-center gap-1.5" onClick={onViewAnalytics} data-testid="practice-continuity-analytics">
+                <BarChart3 size={15} aria-hidden /> View analytics
+            </Button>
+        </>
+    );
+
+    if (inline) {
+        // Compact greeting-row cluster: label + date/duration, then the two actions (right-aligned on md+).
+        return (
+            <div data-testid="practice-continuity" aria-label="Your recent practice" className="flex flex-col gap-2 sm:items-end">
+                <p className="text-sm text-[color:var(--ss-text-secondary)]" data-testid="practice-continuity-summary">{parts.join(' · ')}</p>
+                <div className="flex flex-wrap items-center gap-2">{actions}</div>
+            </div>
+        );
+    }
+
     return (
         <section
             data-testid="practice-continuity"
@@ -109,28 +135,7 @@ export function PracticeContinuity({
             <p className="mt-1 text-sm text-[color:var(--ss-text-secondary)]" data-testid="practice-continuity-summary">
                 {parts.join(' · ')}
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="inline-flex items-center gap-1.5"
-                    onClick={onReviewLast}
-                    data-testid="practice-continuity-review"
-                >
-                    <FileText size={15} aria-hidden /> Review last session
-                </Button>
-                <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="inline-flex items-center gap-1.5"
-                    onClick={onViewAnalytics}
-                    data-testid="practice-continuity-analytics"
-                >
-                    <BarChart3 size={15} aria-hidden /> View analytics
-                </Button>
-            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">{actions}</div>
         </section>
     );
 }

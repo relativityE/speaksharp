@@ -4,18 +4,19 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { Loader2 } from 'lucide-react';
 
 interface AuthAwareRootProps {
-  /** The public marketing landing, rendered ONLY for anonymous visitors. */
+  /** The shared canonical page (PracticePage), rendered here ONLY for anonymous visitors. */
   children: React.ReactNode;
 }
 
 /**
- * Root route `/` — auth-aware home.
+ * Root route `/` — auth-aware home (#1061: ONE canonical page for both states).
  *
  *  - while auth is still resolving  → the same centered loader used for protected routes (never flash
- *    the public Index and never redirect prematurely, so there is no redirect loop);
+ *    the page and never redirect prematurely, so there is no redirect loop);
  *  - authenticated session          → the authenticated home is `/practice` (replace: a Back press
  *    should not bounce the user between `/` and `/practice`);
- *  - no authenticated session       → render the existing public `<Index />` unchanged.
+ *  - no authenticated session       → render the SHARED PracticePage in its anonymous state (same hero +
+ *    product choices; Freestyle routes through account access; no session history/account actions).
  *
  * The decision is made ONLY from the resolved auth session — never from PostHog or any feature flag.
  * This does not affect other protected routes: `/session`, `/analytics`, `/analytics/:sessionId`

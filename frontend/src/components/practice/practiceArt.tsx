@@ -14,33 +14,28 @@ import React from 'react';
 export function LandingHeroArt() {
   return (
     <svg viewBox="0 0 320 200" aria-hidden className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-      {/* Orange voice waveform — the brand source. Bolder bars, full-strength brand orange. */}
-      {[30, 52, 40, 68, 46, 34].map((h, i) => (
-        <rect key={i} x={12 + i * 12} y={100 - h / 2} width={7.5} height={h} rx={3.75} fill="var(--ss-amber)" opacity={0.6 + (i % 3) * 0.2} />
+      {/* Straight voice bars — alternating orange / teal (the brand source signal). */}
+      {[38, 74, 104, 62, 88, 46].map((h, i) => (
+        <rect key={i} x={12 + i * 12} y={85 - h / 2} width={6} height={h} rx={3} fill={i % 2 === 0 ? '#d98a1f' : '#0d7d74'} />
       ))}
-      <circle cx={96} cy={100} r={10} fill="var(--ss-amber)" />
-      <circle cx={96} cy={100} r={10} fill="none" stroke="var(--ss-amber)" strokeWidth="3" strokeOpacity="0.25" />
-
-      {/* Teal branch → Quick Practice (transcript lines + a completed check). */}
-      <path d="M106 100 C 148 100, 158 52, 200 52" fill="none" stroke="var(--ss-session-accent)" strokeWidth="4" strokeOpacity="0.85" strokeLinecap="round" />
-      {[150, 120, 138].map((w, i) => (
-        <rect key={`q${i}`} x={216} y={38 + i * 14} width={w * 0.52} height={8} rx={4} fill="var(--ss-session-accent)" opacity={i === 0 ? 0.7 : 0.4} />
-      ))}
-      <circle cx={204} cy={38} r={10} fill="var(--ss-session-accent)" />
-      <path d="M198.5 38 l3.6 3.6 l7 -7.6" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-
-      {/* Violet branch → Guided Rehearsal (agenda outcomes: covered / partial / open). */}
-      <path d="M106 100 C 148 100, 158 150, 200 150" fill="none" stroke="var(--ss-exec-accent)" strokeWidth="4" strokeOpacity="0.85" strokeLinecap="round" />
+      {/* Junction dot with a soft ring. */}
+      <circle cx={100} cy={85} r={13.5} fill="rgba(217,138,31,0.16)" />
+      <circle cx={100} cy={85} r={7.5} fill="#d98a1f" />
+      {/* Three flat result rows: covered (teal + check) / in-progress (violet) / open (orange). */}
       {[
-        { c: 'var(--ss-success)', y: 132 },
-        { c: 'var(--ss-exec-accent)', y: 152 },
-        { c: 'var(--ss-partial)', y: 172 },
-      ].map((r, i) => (
-        <g key={`g${i}`}>
-          <circle cx={204} cy={r.y} r={8} fill={r.c} />
-          <rect x={220} y={r.y - 4} width={78 - i * 14} height={8} rx={4} fill={r.c} opacity={0.42} />
-        </g>
-      ))}
+        { c: '#0d7d74', check: true },
+        { c: '#7b5ce0', check: false },
+        { c: '#d98a1f', check: false },
+      ].map((r, i) => {
+        const y = 49 + i * 36;
+        return (
+          <g key={`r${i}`}>
+            <circle cx={144} cy={y} r={8} fill={r.c} />
+            {r.check && <path d={`M139.5 ${y} l3 3 l6 -6.5`} fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />}
+            <rect x={162} y={y - 4} width={118 - i * 20} height={8} rx={4} fill={r.c} opacity={0.5} />
+          </g>
+        );
+      })}
     </svg>
   );
 }

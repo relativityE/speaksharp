@@ -138,12 +138,17 @@ const Navigation = () => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-40 bg-background/85 backdrop-blur-md border-b border-border">
+      <nav className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-[#e3e8f0]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo → authenticated home is /practice; anonymous logo stays the public Index. */}
             <Link to={session ? "/practice" : "/"} className="flex items-center space-x-2" aria-label="SpeakSharp Home">
-              <Mic className="h-5 w-5 text-primary" aria-hidden="true" />
+              {/* Brand mark: four ascending orange bars (not a mic glyph). */}
+              <span aria-hidden="true" className="flex items-end" style={{ height: 19, gap: 2 }}>
+                {[7, 14, 19, 11].map((h, i) => (
+                  <span key={i} style={{ width: 3, height: h, background: '#d98a1f', borderRadius: 1 }} />
+                ))}
+              </span>
               <span className="text-lg font-bold text-foreground tracking-tight">SpeakSharp</span>
             </Link>
 
@@ -221,7 +226,7 @@ const Navigation = () => {
                   <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-5 h-9 rounded-xl cta-shadow" asChild>
+                  <Button size="sm" className="font-semibold px-5 h-9 rounded-xl cta-shadow hover:brightness-95" style={{ background: '#d98a1f', color: '#241503' }} asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </>
