@@ -19,6 +19,10 @@
  *   - only collaborators who can push repository branches can trigger a preview
  *
  * Reads ONLY the two documented system env vars. No PR titles, labels, remote APIs, or secrets.
+ *
+ * SCOPE BOUNDARY: a `preview/*` build is EVIDENCE-ONLY. The cross-origin-isolation headers in
+ * vercel.json are gated to preview hostnames, so building a preview here does NOT enable
+ * multi-threaded WASM for production testers. Production activation is a separate authorization.
  */
 
 export const PREVIEW_BRANCH_PREFIX = 'preview/';
