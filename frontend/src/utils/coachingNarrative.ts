@@ -87,6 +87,9 @@ export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
     const wpm = num(stats.avgWpm);
     const pace = decodePace(stats.avgWpm);
     const pauses = decodePauseRhythm(stats.avgPausesPerMin);
+    // #894/#1045: filler metrics are TRANSCRIPT-DERIVED and DIRECTIONAL — STT engines can omit a spoken
+    // filler upstream, so avgFillerWordsPerMin is a lower bound, not an exact rate. Future personal-progress
+    // (#1045) calculations must treat filler-based trends as directional, never as a precise measurement.
     const fillers = decodeFillers(stats.avgFillerWordsPerMin);
     const clarity = decodeClarity(stats.avgClarity);
 

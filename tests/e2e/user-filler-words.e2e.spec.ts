@@ -15,8 +15,8 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         await userPage.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 5000 });
 
-        // 3. Wait for and scroll to Filler Words card
-        const fillerCard = userPage.getByText('Filler Words', { exact: true }).first();
+        // 3. Wait for and scroll to the Detected filler words card (#894: honest transcript-derived label)
+        const fillerCard = userPage.getByText('Detected filler words', { exact: true }).first();
         await expect(fillerCard).toBeVisible({ timeout: 10000 });
         await fillerCard.scrollIntoViewIfNeeded();
 

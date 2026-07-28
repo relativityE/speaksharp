@@ -32,4 +32,35 @@ describe('fillerWordUtils', () => {
         expect(counts.so.count).toBe(1);
         expect(counts.total.count).toBe(2);
     });
+
+    // #894 INVARIANT LOCK: the under-count reported in #894 is UPSTREAM (STT engines omit a spoken filler
+    // from the transcript). The counting path itself must always count um/uh/uhm/interjected fillers WHEN
+    // PRESENT in the text. These lock that guarantee so a future regression in countFillerWords cannot be
+    // mistaken for (or hidden behind) the known engine-recall limitation.
+    describe('#894: counts fillers whenever they are present in the transcript text', () => {
+        it('counts a sentence-leading "Um."', () => {
+            const counts = countFillerWords('Um. Basically, we should wait.');
+            expect(counts.um.count).toBe(1);
+        });
+
+        it('counts an interjected mid-sentence ", um,"', () => {
+            const counts = countFillerWords('so we can move forward without, um, fiddling with settings');
+            expect(counts.um.count).toBe(1);
+        });
+
+        it('counts the "uhm" spelling as an um filler', () => {
+            const counts = countFillerWords('Uhm, basically, we should literally like, wait.');
+            expect(counts.um.count).toBe(1);
+        });
+
+        it('counts "uh"/"er" as uh fillers when present', () => {
+            const counts = countFillerWords('I was, uh, thinking, er, about this.');
+            expect(counts.uh.count).toBe(2);
+        });
+
+        it('is case-insensitive across um variants', () => {
+            const counts = countFillerWords('UM umm Ummm uhm');
+            expect(counts.um.count).toBe(4);
+        });
+    });
 });

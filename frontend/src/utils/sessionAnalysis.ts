@@ -173,6 +173,13 @@ export const getClarityLabel = (clarityScore: number): string =>
                 ? 'Good clarity'
                 : 'Keep practicing';
 
+// #894: filler counts are DERIVED FROM THE TRANSCRIPT. Speech-to-text engines can omit a spoken filler
+// upstream (it never reaches the transcript), so a "detected" count is a lower bound, not an exact tally.
+// This concise disclosure is appended to every explanation that presents a filler count — filler AND the
+// filler-dependent clarity branches — so the metric reads honestly everywhere it appears.
+// (Engine-recall accuracy is out of scope here; this is truthful labeling, not a recall fix.)
+export const FILLER_TRANSCRIPT_DISCLOSURE = 'Some spoken fillers may not appear in the transcript.';
+
 export const getClarityExplanation = ({
     wordCount,
     fillerCount,
@@ -194,7 +201,7 @@ export const getClarityExplanation = ({
         return 'Some speech was unclear enough to be marked as inaudible. Move closer to the mic or reduce background noise before judging delivery.';
     }
     if (fillerCount > 0) {
-        return `${fillerCount} filler ${fillerCount === 1 ? 'word is' : 'words are'} pulling attention away from the message. Replace the next one with a brief pause.`;
+        return `${fillerCount} filler ${fillerCount === 1 ? 'word is' : 'words are'} pulling attention away from the message. Replace the next one with a brief pause. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
     }
     if (wordCount < 12) {
         return 'This sample is short; treat the score as a rough signal until more speech is captured.';
@@ -205,21 +212,21 @@ export const getClarityExplanation = ({
     if (wpm > 0 && wpm < ANALYTICS_THRESHOLDS.VERY_SLOW_WPM) {
         return 'Slow pacing is lowering the score because long gaps can make the delivery feel fragmented.';
     }
-    return 'No filler words or transcript errors were detected. Focus the next run on pacing and emphasis.';
+    return `No filler words or transcript errors were detected. Focus the next run on pacing and emphasis. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
 };
 
 export const getFillerExplanation = (fillerCount: number, wordCount: number): string => {
     if (wordCount <= 0) return 'No transcript was captured, so filler words cannot be verified yet.';
     if (wordCount < MIN_RELIABLE_SCORING_WORDS) return 'There is too little captured speech to verify filler words reliably.';
-    if (fillerCount === 0) return 'No filler words were detected. Keep using silence as your reset instead of filling the space.';
+    if (fillerCount === 0) return `No filler words were detected. Keep using silence as your reset instead of filling the space. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
     const rate = (fillerCount / Math.max(1, wordCount)) * 100;
     if (rate >= ANALYTICS_THRESHOLDS.HIGH_FILLER_RATE_PERCENT) {
-        return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words. This is likely noticeable; pause before restarting a thought.`;
+        return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words. This is likely noticeable; pause before restarting a thought. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
     }
     if (rate >= ANALYTICS_THRESHOLDS.NOTICEABLE_FILLER_RATE_PERCENT) {
-        return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words. Pick one repeat filler to replace with silence next time.`;
+        return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words. Pick one repeat filler to replace with silence next time. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
     }
-    return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words. Light usage; watch for repeats during transitions.`;
+    return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words. Light usage; watch for repeats during transitions. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
 };
 
 export const calculateCoreSessionMetrics = ({

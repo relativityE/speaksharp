@@ -97,7 +97,8 @@ describe('AnalyticsDashboard', () => {
         // New product vocabulary on the saved-session row (matches the stat cards + PDF generator;
         // getAllByText because the same vocabulary intentionally appears on the stat cards too).
         expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0);
-        expect(screen.getAllByText('Filler Words').length).toBeGreaterThan(0);
+        // #894: the filler metric label is now "Detected filler words" (transcript-derived, honest lower bound).
+        expect(screen.getAllByText('Detected filler words').length).toBeGreaterThan(0);
         expect(screen.getAllByText('Clear Delivery').length).toBeGreaterThan(0);
         // The stale bare card labels are gone. "WPM" survives ONLY as the unit beside the value,
         // never as a standalone label element.
