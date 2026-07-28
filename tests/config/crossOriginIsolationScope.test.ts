@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { computeWasmThreadCount, MAX_WASM_THREADS } from '../../frontend/src/services/transcription/utils/wasmThreads';
+
+// This repo is ESM (`type: module`), so the CommonJS `__dirname` global is not guaranteed to exist.
+// Derive it from import.meta.url so module initialization can never throw ReferenceError.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * #1043: the cross-origin-isolation headers (which unlock multi-threaded WASM for Private-v2) must be
@@ -9,7 +14,7 @@ import { computeWasmThreadCount, MAX_WASM_THREADS } from '../../frontend/src/ser
  * separately approved. This locks the scoping so an accidental edit cannot switch production to isolated.
  */
 const vercelConfig = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf8'),
+    fs.readFileSync(path.resolve(HERE, '../../vercel.json'), 'utf8'),
 ) as {
     headers: Array<{
         source: string;

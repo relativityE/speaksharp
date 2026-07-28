@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+// This repo is ESM (`type: module`): derive the dir from import.meta.url, never the CJS __dirname global.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
 // @ts-expect-error — plain .mjs script, intentionally dependency-free for the Vercel build step.
 import { decideExitCode, PREVIEW_BRANCH_PREFIX, EXIT_BUILD, EXIT_SKIP } from '../../scripts/vercel-ignore-build.mjs';
 
@@ -49,7 +53,7 @@ describe('#1043 vercel ignore-build contract (exit 1 = BUILD, exit 0 = SKIP)', (
     });
 
     it('vercel.json wires the version-controlled ignoreCommand (not a dashboard-only rule)', () => {
-        const cfg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf8')) as {
+        const cfg = JSON.parse(fs.readFileSync(path.resolve(HERE, '../../vercel.json'), 'utf8')) as {
             ignoreCommand?: string;
         };
         expect(cfg.ignoreCommand).toBe('node scripts/vercel-ignore-build.mjs');
