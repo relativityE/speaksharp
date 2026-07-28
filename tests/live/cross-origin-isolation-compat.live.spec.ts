@@ -36,9 +36,25 @@ function requireCredentials(kind: 'FREE' | 'PRO'): { email: string; password: st
   return { email, password };
 }
 
-type NetFailure = { url: string; failure: string | null };
+type NetFailure = { url: string; failure: string | null; at: number };
 const blockedFailures = (fails: NetFailure[], re: RegExp) =>
-  fails.filter((f) => re.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED/i.test(f.failure ?? ''));
+  fails.filter((f) => re.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED|ERR_ABORTED/i.test(f.failure ?? ''));
+
+/**
+ * #1043 classification: a cancelled request is benign ONLY when a deliberate main-frame navigation
+ * happened just before it. The gate is NOT weakened by globally ignoring ERR_FAILED/ERR_ABORTED —
+ * every such failure must be demonstrably navigation-induced, or it counts against the gate.
+ */
+const NAV_CANCEL_WINDOW_MS = 5_000;
+function classifyFailures(fails: NetFailure[], navAtMs: number[]) {
+  const benign: NetFailure[] = [];
+  const real: NetFailure[] = [];
+  for (const f of fails) {
+    const navJustBefore = navAtMs.some((n) => f.at >= n && f.at - n <= NAV_CANCEL_WINDOW_MS);
+    (navJustBefore ? benign : real).push(f);
+  }
+  return { benign, real };
+}
 
 
 /**
@@ -82,6 +98,11 @@ function recordUsageLimitDiagnostics(page: Page, sink: UsageLimitDiag[]): void {
 }
 
 /** Navigation + isolation context for the lane being audited (host, release SHA, COOP/COEP). */
+/** Timestamps of deliberate main-frame navigations, used to justify benign cancellations. */
+function recordNavigations(page: Page, sink: number[]): void {
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) sink.push(Date.now()); });
+}
+
 async function laneContext(page: Page, navHeaders: Record<string, string>) {
   const inPage = await page.evaluate(() => ({
     crossOriginIsolated,
@@ -119,7 +140,7 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const requests: string[] = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
     page.on('request', (r) => requests.push(r.url()));
-    page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
+    page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null, at: Date.now() }));
 
     // (1) Headers must be on the ACTUAL navigation response (not a later fetch).
     const resp = await page.goto('/', { waitUntil: 'load', timeout: 120_000 });
@@ -196,12 +217,33 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const netFailures: NetFailure[] = [];
     const requests: string[] = [];
     page.on('request', (r) => requests.push(r.url()));
-    page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
+    page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null, at: Date.now() }));
     const usageLimitDiag: UsageLimitDiag[] = [];
     recordUsageLimitDiagnostics(page, usageLimitDiag);
+    const navAtMs: number[] = [];
+    recordNavigations(page, navAtMs);
 
+    // WAIT-FOR-SETTLE: install the waiter BEFORE the action that triggers check-usage-limit, and let the
+    // response settle BEFORE any reload/navigation/logout. Otherwise the test's own navigation cancels the
+    // in-flight call and the cancellation is indistinguishable from a COEP/CORS block.
+    const usageSettled = page.waitForResponse(
+      (r) => /check-usage-limit/i.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 90_000 },
+    );
     const navHeaders = await signIn(page, email, password);
     const lane = await laneContext(page, navHeaders);
+    const usageResponse = await usageSettled;
+    const usageStatus = usageResponse.status();
+    const usageCorsHeaderNames = Object.keys(usageResponse.headers())
+      .filter((n) => /^access-control-|^cross-origin-/i.test(n));
+    const settledAtMs = Date.now();
+    // The settled entitlement call must genuinely SUCCEED — 'request started' is not success.
+    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeGreaterThanOrEqual(200);
+    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeLessThan(300);
+    // Nothing may have been blocked BEFORE the settle point (no navigation has occurred since sign-in).
+    const preSettleBlocked = blockedFailures(netFailures.filter((f) => f.at <= settledAtMs), /supabase|stripe/i);
+    expect(preSettleBlocked, `blocked before settle: ${JSON.stringify(preSettleBlocked)}`).toEqual([]);
+
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE session survives reload').toBeVisible({ timeout: 45_000 });
 
@@ -218,12 +260,20 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const checkoutCalls = requests.filter((u) => /stripe-checkout/i.test(u));
     expect(checkoutCalls, 'no stripe-checkout request may occur under the freeze').toEqual([]);
 
-    const supabaseBlocked = blockedFailures(netFailures, /supabase|stripe/i);
+    // Post-settle failures are classified: benign ONLY when a deliberate navigation immediately preceded
+    // them. Anything else still counts against the gate.
+    const postSettle = blockedFailures(netFailures.filter((f) => f.at > settledAtMs), /supabase|stripe/i);
+    const { benign: navCancelled, real: supabaseBlocked } = classifyFailures(postSettle, navAtMs);
 
     // ATTACH EVIDENCE BEFORE ASSERTING so a failing lane still yields the differential data.
     const ev = {
       accountClass: 'free',
       lane,
+      usageLimitSettledStatus: usageStatus,
+      usageLimitCorsResponseHeaderNames: usageCorsHeaderNames,
+      preSettleBlockedCount: preSettleBlocked.length,
+      postSettleBenignNavCancelled: navCancelled.length,
+      postSettleRealFailures: supabaseBlocked,
       usageLimitDiagnostics: usageLimitDiag,
       usageLimitPreflightObserved: usageLimitDiag.some((d) => d.method === 'OPTIONS'),
       usageLimitFailures: usageLimitDiag.filter((d) => d.failure).map((d) => d.failure),
@@ -251,12 +301,33 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const netFailures: NetFailure[] = [];
     const requests: string[] = [];
     page.on('request', (r) => requests.push(r.url()));
-    page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
+    page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null, at: Date.now() }));
     const usageLimitDiag: UsageLimitDiag[] = [];
     recordUsageLimitDiagnostics(page, usageLimitDiag);
+    const navAtMs: number[] = [];
+    recordNavigations(page, navAtMs);
 
+    // WAIT-FOR-SETTLE: install the waiter BEFORE the action that triggers check-usage-limit, and let the
+    // response settle BEFORE any reload/navigation/logout. Otherwise the test's own navigation cancels the
+    // in-flight call and the cancellation is indistinguishable from a COEP/CORS block.
+    const usageSettled = page.waitForResponse(
+      (r) => /check-usage-limit/i.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 90_000 },
+    );
     const navHeaders = await signIn(page, email, password);
     const lane = await laneContext(page, navHeaders);
+    const usageResponse = await usageSettled;
+    const usageStatus = usageResponse.status();
+    const usageCorsHeaderNames = Object.keys(usageResponse.headers())
+      .filter((n) => /^access-control-|^cross-origin-/i.test(n));
+    const settledAtMs = Date.now();
+    // The settled entitlement call must genuinely SUCCEED — 'request started' is not success.
+    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeGreaterThanOrEqual(200);
+    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeLessThan(300);
+    // Nothing may have been blocked BEFORE the settle point (no navigation has occurred since sign-in).
+    const preSettleBlocked = blockedFailures(netFailures.filter((f) => f.at <= settledAtMs), /supabase|stripe/i);
+    expect(preSettleBlocked, `blocked before settle: ${JSON.stringify(preSettleBlocked)}`).toEqual([]);
+
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO session survives reload').toBeVisible({ timeout: 45_000 });
 
@@ -272,12 +343,20 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const portalCalls = requests.filter((u) => /stripe-billing-portal/i.test(u));
     expect(portalCalls, 'no stripe-billing-portal request may occur under the freeze').toEqual([]);
 
-    const supabaseBlocked = blockedFailures(netFailures, /supabase|stripe/i);
+    // Post-settle failures are classified: benign ONLY when a deliberate navigation immediately preceded
+    // them. Anything else still counts against the gate.
+    const postSettle = blockedFailures(netFailures.filter((f) => f.at > settledAtMs), /supabase|stripe/i);
+    const { benign: navCancelled, real: supabaseBlocked } = classifyFailures(postSettle, navAtMs);
 
     // ATTACH EVIDENCE BEFORE ASSERTING so a failing lane still yields the differential data.
     const ev = {
       accountClass: 'pro',
       lane,
+      usageLimitSettledStatus: usageStatus,
+      usageLimitCorsResponseHeaderNames: usageCorsHeaderNames,
+      preSettleBlockedCount: preSettleBlocked.length,
+      postSettleBenignNavCancelled: navCancelled.length,
+      postSettleRealFailures: supabaseBlocked,
       usageLimitDiagnostics: usageLimitDiag,
       usageLimitPreflightObserved: usageLimitDiag.some((d) => d.method === 'OPTIONS'),
       usageLimitFailures: usageLimitDiag.filter((d) => d.failure).map((d) => d.failure),
