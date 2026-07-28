@@ -41,7 +41,10 @@ const blockedFailures = (fails: NetFailure[], re: RegExp) =>
   fails.filter((f) => re.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED/i.test(f.failure ?? ''));
 
 async function signIn(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/signin', { waitUntil: 'load', timeout: 120_000 });
+  await page.goto('/auth/signin', { waitUntil: 'load', timeout: 120_000 });
+  // Fail fast with a clear message if the auth form never renders, instead of a 5-minute locator.fill
+  // timeout that hides WHY (a wrong route previously cost ~10 minutes and reported only "locator.fill").
+  await expect(page.getByTestId('auth-form'), 'sign-in form must render at /auth/signin').toBeVisible({ timeout: 45_000 });
   await page.getByTestId('email-input').fill(email);
   await page.getByTestId('password-input').fill(password);
   await page.getByTestId('sign-in-submit').click();
