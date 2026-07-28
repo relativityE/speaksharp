@@ -132,94 +132,95 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     expect(blocked, `resources blocked by COEP/CORP under isolation: ${JSON.stringify(blocked)}`).toEqual([]);
   });
 
-  test('FREE account: login, reload persistence, Checkout redirect + safe return, logout', async ({ page }, testInfo) => {
+  test('FREE account under the Beta-50 billing freeze: login, reload, closed Checkout state, logout', async ({ page }, testInfo) => {
     test.setTimeout(300_000);
     const { email, password } = requireCredentials('FREE');
 
     const netFailures: NetFailure[] = [];
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
     page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
 
     await signIn(page, email, password);
-
-    // Session must survive a reload (no cookie/storage breakage under credentialless).
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE session survives reload').toBeVisible({ timeout: 45_000 });
 
-    // Checkout entry point: click the upgrade CTA; the app calls the stripe-checkout edge function and
-    // performs a TOP-LEVEL redirect to Stripe's hosted Checkout. NO purchase is completed and NO card
-    // data is entered — we only prove the redirect happens and the app is safe to return to.
+    // Beta-50 CONTRACT: payments are intentionally disabled (arePaymentsEnabled() === false), so the Pro
+    // card renders the non-clickable beta-unavailable panel INSTEAD of a Checkout CTA. We prove that the
+    // intentionally-closed billing UI still renders correctly under cross-origin isolation.
     await page.goto('/pricing', { waitUntil: 'load', timeout: 60_000 });
-    const upgrade = page.getByRole('button', { name: /upgrade|go pro|start pro|subscribe/i }).first();
-    await expect(upgrade, 'FREE account is offered a Checkout CTA').toBeVisible({ timeout: 45_000 });
-    // Visiting /pricing is NOT proof. Require the stripe-checkout EDGE FUNCTION request to be observed,
-    // triggered by clicking the real control; only then is checkoutAttempted true.
-    const checkoutCall = page.waitForRequest((r) => /stripe-checkout/i.test(r.url()), { timeout: 60_000 });
-    await upgrade.click();
-    const checkoutRequest = await checkoutCall;
-    const checkoutAttempted = Boolean(checkoutRequest);
-    expect(checkoutAttempted, 'stripe-checkout edge function must be invoked by the Checkout control').toBe(true);
-    // Stripe hosted checkout is a cross-origin top-level navigation.
-    await page.waitForURL(/checkout\.stripe\.com|stripe\.com/i, { timeout: 90_000 });
-    const reachedStripe = /stripe\.com/i.test(page.url());
-    expect(reachedStripe, `Checkout must redirect to Stripe (got ${page.url()})`).toBe(true);
+    await expect(page.getByTestId('pricing-pro-beta-unavailable'), 'closed-Checkout beta state renders under isolation')
+      .toBeVisible({ timeout: 45_000 });
+    // No Checkout CTA may be offered while payments are disabled.
+    await expect(page.getByRole('button', { name: /upgrade to pro|starting checkout/i }), 'no Checkout CTA under the freeze')
+      .toHaveCount(0);
+    // And no checkout call may occur.
+    const checkoutCalls = requests.filter((u) => /stripe-checkout/i.test(u));
+    expect(checkoutCalls, 'no stripe-checkout request may occur under the freeze').toEqual([]);
 
-    // SAFE RETURN: navigate back to the app and confirm it still loads and the session is intact.
-    await page.goto('/', { waitUntil: 'load', timeout: 90_000 });
-    await expect(page.getByTestId('nav-sign-out-button'), 'session intact after returning from Stripe').toBeVisible({ timeout: 45_000 });
+    const supabaseBlocked = blockedFailures(netFailures, /supabase|stripe/i);
+    expect(supabaseBlocked, `Supabase/Stripe calls blocked under isolation: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
 
-    const stripeBlocked = blockedFailures(netFailures, /stripe|supabase/i);
-    expect(stripeBlocked, `Checkout/Supabase calls blocked under isolation: ${JSON.stringify(stripeBlocked)}`).toEqual([]);
-
-    // Logout must work.
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
 
-    // Evidence records ACCOUNT CLASS ONLY — never the email/password.
-    const ev = { accountClass: 'free', checkoutAttempted, reachedStripe, purchaseCompleted: false, blocked: stripeBlocked, capturedAt: new Date().toISOString() };
-    await testInfo.attach('coi-free-checkout.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
-    console.log(`COI_FREE_CHECKOUT_EVIDENCE ${JSON.stringify(ev)}`);
+    // Evidence records ACCOUNT CLASS ONLY — never credentials.
+    const ev = {
+      accountClass: 'free',
+      paymentsEnabled: false,
+      closedCheckoutStateRendered: true,
+      checkoutCtaRendered: false,
+      stripeCheckoutRequests: checkoutCalls.length,
+      checkoutRedirectUnderIsolation: 'UNVERIFIED_BY_DESIGN: payments disabled (Beta-50 freeze); re-audit via paid_launch=true Gate 3',
+      blocked: supabaseBlocked,
+      capturedAt: new Date().toISOString(),
+    };
+    await testInfo.attach('coi-free-closed-checkout.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
+    console.log(`COI_FREE_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
   });
 
-  test('PRO account: login, reload persistence, Billing Portal redirect + safe return, logout', async ({ page }, testInfo) => {
+  test('PRO account under the Beta-50 billing freeze: login, reload, closed Portal state, logout', async ({ page }, testInfo) => {
     test.setTimeout(300_000);
     const { email, password } = requireCredentials('PRO');
 
     const netFailures: NetFailure[] = [];
+    const requests: string[] = [];
+    page.on('request', (r) => requests.push(r.url()));
     page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
 
     await signIn(page, email, password);
-
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO session survives reload').toBeVisible({ timeout: 45_000 });
 
-    // Billing Portal: invokes the stripe-billing-portal edge function and redirects to Stripe's hosted
-    // portal. NO subscription is changed — we only prove the redirect happens and return is safe.
+    // Beta-50 CONTRACT: canOpenPortal = arePaymentsEnabled() && isPaidPro. With payments disabled the
+    // Billing Portal CTA is intentionally absent and the explanatory state renders instead.
     await page.goto('/pricing', { waitUntil: 'load', timeout: 60_000 });
-    const manageBilling = page.getByRole('button', { name: /manage billing/i });
-    // Absent CTA is a FAILURE for the designated Pro account — never an optional unattempted path.
-    await expect(manageBilling, 'PRO account must be offered the Billing Portal CTA').toBeVisible({ timeout: 45_000 });
-    const portalCall = page.waitForRequest((r) => /stripe-billing-portal/i.test(r.url()), { timeout: 60_000 });
-    await manageBilling.click();
-    const portalRequest = await portalCall;
-    const portalAttempted = Boolean(portalRequest);
-    expect(portalAttempted, 'stripe-billing-portal edge function must be invoked by Manage billing').toBe(true);
-    await page.waitForURL(/billing\.stripe\.com|stripe\.com/i, { timeout: 90_000 });
-    const reachedPortal = /stripe\.com/i.test(page.url());
-    expect(reachedPortal, `Billing Portal must redirect to Stripe (got ${page.url()})`).toBe(true);
+    await expect(
+      page.getByText(/Billing management appears here for paid Pro accounts after Stripe confirms the subscription/i),
+      'closed-Portal explanatory state renders under isolation',
+    ).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByRole('button', { name: /manage billing|opening billing/i }), 'no Portal CTA under the freeze')
+      .toHaveCount(0);
+    const portalCalls = requests.filter((u) => /stripe-billing-portal/i.test(u));
+    expect(portalCalls, 'no stripe-billing-portal request may occur under the freeze').toEqual([]);
 
-    // SAFE RETURN.
-    await page.goto('/', { waitUntil: 'load', timeout: 90_000 });
-    await expect(page.getByTestId('nav-sign-out-button'), 'session intact after returning from Portal').toBeVisible({ timeout: 45_000 });
-
-    const portalBlocked = blockedFailures(netFailures, /stripe|billing-portal|supabase/i);
-    expect(portalBlocked, `Portal/Supabase calls blocked under isolation: ${JSON.stringify(portalBlocked)}`).toEqual([]);
+    const supabaseBlocked = blockedFailures(netFailures, /supabase|stripe/i);
+    expect(supabaseBlocked, `Supabase/Stripe calls blocked under isolation: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
 
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
 
-    // Evidence records ACCOUNT CLASS ONLY — never the email/password.
-    const ev = { accountClass: 'pro', portalAttempted, reachedPortal, subscriptionChanged: false, blocked: portalBlocked, capturedAt: new Date().toISOString() };
-    await testInfo.attach('coi-pro-portal.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
-    console.log(`COI_PRO_PORTAL_EVIDENCE ${JSON.stringify(ev)}`);
+    const ev = {
+      accountClass: 'pro',
+      paymentsEnabled: false,
+      closedPortalStateRendered: true,
+      portalCtaRendered: false,
+      stripeBillingPortalRequests: portalCalls.length,
+      portalRedirectUnderIsolation: 'UNVERIFIED_BY_DESIGN: payments disabled (Beta-50 freeze) and the test account lacks the required live subscription state; re-audit via paid_launch=true Gate 3',
+      blocked: supabaseBlocked,
+      capturedAt: new Date().toISOString(),
+    };
+    await testInfo.attach('coi-pro-closed-portal.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
+    console.log(`COI_PRO_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
   });
 });
