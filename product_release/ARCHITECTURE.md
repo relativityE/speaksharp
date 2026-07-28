@@ -1,9 +1,9 @@
 **Status:** Authoritative (SSOT for system structure, boundaries, persistence & retention, and authority ADRs)
-**Owner:** Product Owner (relativityE)
+**Owner:** Engineering (relativityE)
 **Last Reviewed:** 2026-07-28
 **Last Verified:** 2026-07-28 — consolidated from approved sources (`ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`) and cross-checked against the cited `frontend/` and `backend/` code paths. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
 **Applies To:** The SpeakSharp beta platform — the React/Vite SPA, the Supabase persistence + Edge Function layer, and the CI/release machinery that ships them.
-**Class:** Architecture & authority.
+**Class:** Architecture invariant / ADR.
 **Authority:** The source for system context, component boundaries and ownership, trust/data-flow, persistence & retention boundaries, identity & session lifecycle, the engine identity/provenance contract, requested-mode vs normalized-capability separation, failure/fail-closed boundaries, the release-identity mechanism, and the authoritative-source ADRs (entitlement, retention).
 **Not Authoritative For:** user-visible product guarantees & the feature contract (→ `PRODUCT_REQUIREMENTS.md`); tier / entitlement / quota / billing *mechanics* and pricing (→ `ENTITLEMENTS_AND_BILLING.md`); the Session Progress / scoring model (→ `COACHING_SCORE.md`); STT runtime/data contracts, baselines, accuracy & SLOs (→ `STT.md`); deferred / future sequencing (→ `ROADMAP.md`); current deployment posture, run IDs & SHAs (→ `RELEASE_STATUS.md`); the entitlement *implementation* refactor (tracked separately as issue #1036).
 **Supersedes:** `ARCHITECTURE.operational.md` and `CODEBASE_MAP.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).

@@ -577,8 +577,8 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 ## 6. Known gaps & open decisions
 
 1. **Canonical set is Product Owner-approved** (`README.md` §2). New-file names fixed.
-2. **PRODUCT_REQUIREMENTS (PRD v1) — WRITTEN (#1038).** `product_release/PRODUCT_REQUIREMENTS.md` is the canonical requirements authority, consolidating the interim `PRD.operational.md` + `PRODUCT_FEATURES.operational.md` (both banner-marked stale; archived at closeout). `RELEASE_STATUS.md` remains authoritative for current release status, and `ARCHITECTURE.operational.md` for structure until `ARCHITECTURE.md` lands.
-3. **ARCHITECTURE + STT ADRs pending.**
+2. **PRODUCT_REQUIREMENTS (PRD v1) — WRITTEN (#1038).** `product_release/PRODUCT_REQUIREMENTS.md` is the canonical requirements authority, consolidating the interim `PRD.operational.md` + `PRODUCT_FEATURES.operational.md` (both banner-marked stale; archived at closeout). `RELEASE_STATUS.md` remains authoritative for current release status.
+3. **ARCHITECTURE (v1) — WRITTEN (#1039).** `product_release/ARCHITECTURE.md` is the canonical structure & authority-ADR document, consolidating the interim `ARCHITECTURE.operational.md` + `CODEBASE_MAP.md` (both EXTRACTED; archived at closeout). The entitlement authoritative-source ADR and the retention-boundary ADR are recorded there. **STT ADRs pending (#1040).**
 4. **Entitlement-policy divergence (deferred)** → ROADMAP.
 5. **Private v2 ≈90s finalize** = accepted RC limitation, **not** a measured p95 — STT.md must state it so.
 6. **`ENTITLEMENT_PRO_LIMIT_EVIDENCE` open item** overlaps BACKLOG P1.3 → ROADMAP.
