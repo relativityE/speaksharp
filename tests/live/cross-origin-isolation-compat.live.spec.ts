@@ -21,25 +21,24 @@ import { test, expect } from './helpers/deployedLiveTest';
  */
 
 const BASE_URL = process.env.BASE_URL;
-const FREE_EMAIL = process.env.FREE_TEST_EMAIL;
-const FREE_PASSWORD = process.env.FREE_TEST_PASSWORD;
-const PRO_EMAIL = process.env.PRO_TEST_EMAIL;
-const PRO_PASSWORD = process.env.PRO_TEST_PASSWORD;
+/**
+ * Strict per-account-class credentials. NO fallback between FREE/PRO/BASIC/LIVE: one account cannot
+ * stand in for another, or whichever billing entry point it is not offered would never be exercised.
+ * Values are NEVER logged, attached, or echoed — only the account CLASS ('free' | 'pro') is reported.
+ */
+function requireCredentials(kind: 'FREE' | 'PRO'): { email: string; password: string } {
+  const email = process.env[`${kind}_TEST_EMAIL`];
+  const password = process.env[`${kind}_TEST_PASSWORD`];
+  if (!email || !password) {
+    // Names only — never values.
+    throw new Error(`${kind}_TEST_EMAIL and ${kind}_TEST_PASSWORD are required for this audit`);
+  }
+  return { email, password };
+}
 
 type NetFailure = { url: string; failure: string | null };
 const blockedFailures = (fails: NetFailure[], re: RegExp) =>
   fails.filter((f) => re.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED/i.test(f.failure ?? ''));
-
-/** Required credential — throws (does NOT skip) so a missing secret can never masquerade as coverage. */
-function requireCredential(value: string | undefined, name: string): string {
-  if (!value) {
-    throw new Error(
-      `#1043 audit: ${name} is required and must not be empty. This check FAILS rather than skips, ` +
-      `because a silent skip previously reported a green run with no auth/billing coverage.`,
-    );
-  }
-  return value;
-}
 
 async function signIn(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/signin', { waitUntil: 'load', timeout: 120_000 });
@@ -132,8 +131,7 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
 
   test('FREE account: login, reload persistence, Checkout redirect + safe return, logout', async ({ page }, testInfo) => {
     test.setTimeout(300_000);
-    const email = requireCredential(FREE_EMAIL, 'FREE_TEST_EMAIL');
-    const password = requireCredential(FREE_PASSWORD, 'FREE_TEST_PASSWORD');
+    const { email, password } = requireCredentials('FREE');
 
     const netFailures: NetFailure[] = [];
     page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
@@ -150,7 +148,13 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     await page.goto('/pricing', { waitUntil: 'load', timeout: 60_000 });
     const upgrade = page.getByRole('button', { name: /upgrade|go pro|start pro|subscribe/i }).first();
     await expect(upgrade, 'FREE account is offered a Checkout CTA').toBeVisible({ timeout: 45_000 });
+    // Visiting /pricing is NOT proof. Require the stripe-checkout EDGE FUNCTION request to be observed,
+    // triggered by clicking the real control; only then is checkoutAttempted true.
+    const checkoutCall = page.waitForRequest((r) => /stripe-checkout/i.test(r.url()), { timeout: 60_000 });
     await upgrade.click();
+    const checkoutRequest = await checkoutCall;
+    const checkoutAttempted = Boolean(checkoutRequest);
+    expect(checkoutAttempted, 'stripe-checkout edge function must be invoked by the Checkout control').toBe(true);
     // Stripe hosted checkout is a cross-origin top-level navigation.
     await page.waitForURL(/checkout\.stripe\.com|stripe\.com/i, { timeout: 90_000 });
     const reachedStripe = /stripe\.com/i.test(page.url());
@@ -167,15 +171,15 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
 
-    const ev = { account: 'free', reachedStripe, blocked: stripeBlocked, capturedAt: new Date().toISOString() };
+    // Evidence records ACCOUNT CLASS ONLY — never the email/password.
+    const ev = { accountClass: 'free', checkoutAttempted, reachedStripe, purchaseCompleted: false, blocked: stripeBlocked, capturedAt: new Date().toISOString() };
     await testInfo.attach('coi-free-checkout.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_FREE_CHECKOUT_EVIDENCE ${JSON.stringify(ev)}`);
   });
 
   test('PRO account: login, reload persistence, Billing Portal redirect + safe return, logout', async ({ page }, testInfo) => {
     test.setTimeout(300_000);
-    const email = requireCredential(PRO_EMAIL, 'PRO_TEST_EMAIL');
-    const password = requireCredential(PRO_PASSWORD, 'PRO_TEST_PASSWORD');
+    const { email, password } = requireCredentials('PRO');
 
     const netFailures: NetFailure[] = [];
     page.on('requestfailed', (r) => netFailures.push({ url: r.url(), failure: r.failure()?.errorText ?? null }));
@@ -189,8 +193,13 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     // portal. NO subscription is changed — we only prove the redirect happens and return is safe.
     await page.goto('/pricing', { waitUntil: 'load', timeout: 60_000 });
     const manageBilling = page.getByRole('button', { name: /manage billing/i });
-    await expect(manageBilling, 'PRO account is offered the Billing Portal CTA').toBeVisible({ timeout: 45_000 });
+    // Absent CTA is a FAILURE for the designated Pro account — never an optional unattempted path.
+    await expect(manageBilling, 'PRO account must be offered the Billing Portal CTA').toBeVisible({ timeout: 45_000 });
+    const portalCall = page.waitForRequest((r) => /stripe-billing-portal/i.test(r.url()), { timeout: 60_000 });
     await manageBilling.click();
+    const portalRequest = await portalCall;
+    const portalAttempted = Boolean(portalRequest);
+    expect(portalAttempted, 'stripe-billing-portal edge function must be invoked by Manage billing').toBe(true);
     await page.waitForURL(/billing\.stripe\.com|stripe\.com/i, { timeout: 90_000 });
     const reachedPortal = /stripe\.com/i.test(page.url());
     expect(reachedPortal, `Billing Portal must redirect to Stripe (got ${page.url()})`).toBe(true);
@@ -205,7 +214,8 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
 
-    const ev = { account: 'pro', reachedPortal, blocked: portalBlocked, capturedAt: new Date().toISOString() };
+    // Evidence records ACCOUNT CLASS ONLY — never the email/password.
+    const ev = { accountClass: 'pro', portalAttempted, reachedPortal, subscriptionChanged: false, blocked: portalBlocked, capturedAt: new Date().toISOString() };
     await testInfo.attach('coi-pro-portal.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_PRO_PORTAL_EVIDENCE ${JSON.stringify(ev)}`);
   });
