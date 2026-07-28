@@ -9,9 +9,13 @@
 //    `confirmed` (a subscription) ONLY after a successful confirmation within the token's validity window.
 //  * Confirmation tokens are cryptographically random, single-use, and expiring. We store ONLY a SHA-256
 //    HASH of the token — never the raw token — and CLEAR the hash on confirmation (single use).
+//  * A token is issued via a COMPARE-AND-SWAP (unique insert / conditional reissue) so under concurrency
+//    exactly one request "owns" and delivers a given token; delivery happens AFTER the durable write and
+//    reverts the row to the unsent state if delivery fails (no false "sent" provenance).
 //  * Account/existence is NEVER revealed: submit + confirm return generic responses.
-//  * NO PII in logs / responses: only product / source / outcome are logged. Never the email, raw token,
-//    or token hash. The response body is `{ ok }` (+ a coarse machine error code) only.
+//  * NO PII in logs / responses: only fixed rejection metadata + fn/outcome are logged. Never the email,
+//    raw token, token hash, or any user-controlled payload value. The response body is `{ ok }` (+ a coarse
+//    machine error code) only.
 //  * Provider-INDEPENDENT confirmation transport: delivery is an injected seam. The default is a NO-OP
 //    (no provider is configured, no email is sent). Wiring a transactional provider — and adding this
 //    function to the deploy allowlist — are SEPARATELY authorized steps. This function is NOT deployed.
@@ -32,7 +36,7 @@ const MAX_EMAIL_LENGTH = 254;      // RFC 5321 / DB CHECK
 const MIN_EMAIL_LENGTH = 3;        // a@b — DB CHECK
 export const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;       // confirmation link valid for 24h
 export const RESEND_COOLDOWN_MS = 60 * 1000;           // don't rotate a still-valid token within 60s (idempotent)
-export const RATE_LIMIT_MAX = 5;                       // max submits per window per client key
+export const RATE_LIMIT_MAX = 5;                       // max requests per window per client key
 export const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 // ── Types ───────────────────────────────────────────────────────────────────────────────────────────
@@ -51,13 +55,23 @@ export interface WaitlistRow {
 export interface WaitlistStore {
   findByProductEmail(product: string, emailNormalized: string): Promise<WaitlistRow | null>;
   findByTokenHash(tokenHash: string): Promise<WaitlistRow | null>;
-  /** Insert a fresh pending row already carrying an issued token (pending-sent shape). */
+  /**
+   * Insert a fresh pending row already carrying an issued token (pending-sent shape). Returns the new id
+   * on success, or `conflict:true` if the unique (product,email) key already exists (another request won).
+   * MUST throw on any other/unexpected error so the caller fails closed before delivery.
+   */
   insertPendingWithToken(row: {
     product: string; email_normalized: string; consent_source: string; acquisition_source: string;
     confirmation_token_hash: string; confirmation_sent_at: string; confirmation_expires_at: string;
-  }): Promise<{ inserted: boolean; conflict: boolean }>;
-  /** Rotate the token on an existing pending row (stays pending-sent). */
-  reissueToken(id: string, tokenHash: string, sentAt: string, expiresAt: string): Promise<void>;
+  }): Promise<{ inserted: boolean; conflict: boolean; id: string | null }>;
+  /**
+   * Compare-and-swap reissue on an existing pending row: rotate the token ONLY if the row's current hash
+   * still equals `prevTokenHash` (the value we read). Returns true iff exactly one row was updated — i.e.
+   * this request won the race and may deliver. A loser (false) must NOT deliver.
+   */
+  reissueToken(id: string, prevTokenHash: string | null, tokenHash: string, sentAt: string, expiresAt: string): Promise<boolean>;
+  /** Revert a pending row to the unsent state (clear token/sent/expiry) after a delivery failure. */
+  clearIssuedToken(id: string): Promise<void>;
   /** Atomically confirm a still-pending row: set confirmed_at + status, CLEAR the hash. Returns whether it applied. */
   confirm(id: string, confirmedAt: string): Promise<boolean>;
 }
@@ -173,6 +187,14 @@ export async function handler(req: Request, deps: WaitlistDeps): Promise<Respons
   }
   const store = deps.createStore(supabaseUrl, serviceRoleKey);
 
+  // Rate limit EVERY unauthenticated call (submit AND confirm) before any DB work — bounds service-role
+  // traffic/cost even against random-token confirm probes.
+  const key = await clientKey(req, deps.hashToken);
+  if (!deps.rateLimiter.check(key)) {
+    console.warn(JSON.stringify({ fn: 'guided-waitlist', outcome: 'rate_limited' }));
+    return json({ ok: false, error: 'rate_limited' }, 429, req);
+  }
+
   // ── CONFIRM path (token present) ── generic responses; no existence disclosure ──
   if (token) {
     try {
@@ -201,14 +223,9 @@ export async function handler(req: Request, deps: WaitlistDeps): Promise<Respons
 
   const { valid, emailNormalized, product, source } = normalizeAndValidate(body);
   if (!valid) {
-    console.warn(JSON.stringify({ fn: 'guided-waitlist', outcome: 'validation_rejected', product, source }));
-    return json({ ok: false, error: 'validation_failed' }, 400, req); // no PII echoed
-  }
-
-  // Rate limit (best-effort per hashed client key).
-  if (!deps.rateLimiter.check(await clientKey(req, deps.hashToken))) {
-    console.warn(JSON.stringify({ fn: 'guided-waitlist', outcome: 'rate_limited', product, source }));
-    return json({ ok: false, error: 'rate_limited' }, 429, req);
+    // Log FIXED metadata only — never the raw (unvalidated, attacker-controlled) product/source/email.
+    console.warn(JSON.stringify({ fn: 'guided-waitlist', outcome: 'validation_rejected' }));
+    return json({ ok: false, error: 'validation_failed' }, 400, req);
   }
 
   try {
@@ -223,36 +240,52 @@ export async function handler(req: Request, deps: WaitlistDeps): Promise<Respons
 
     // Pending with a still-valid token issued within the cooldown → idempotent no-op (don't rotate/spam).
     if (existing && existing.status === 'pending' && existing.confirmation_expires_at && existing.confirmation_sent_at) {
-      const valid = t <= Date.parse(existing.confirmation_expires_at);
+      const stillValid = t <= Date.parse(existing.confirmation_expires_at);
       const fresh = t - Date.parse(existing.confirmation_sent_at) < RESEND_COOLDOWN_MS;
-      if (valid && fresh) {
+      if (stillValid && fresh) {
         console.info(JSON.stringify({ fn: 'guided-waitlist', outcome: 'submit_noop_pending', product, source }));
         return json({ ok: true }, 200, req);
       }
     }
 
-    // Issue (or rotate) a single-use expiring token; store the HASH only.
+    // Issue (or rotate) a single-use expiring token; store the HASH only. Compare-and-swap so exactly one
+    // concurrent request "owns" (and delivers) the token.
     const rawToken = deps.randomToken();
     const tokenHash = await deps.hashToken(rawToken);
     const sentAt = new Date(t).toISOString();
     const expiresAt = new Date(t + TOKEN_TTL_MS).toISOString();
 
+    let ownedId: string;
     if (!existing) {
       const res = await store.insertPendingWithToken({
         product, email_normalized: emailNormalized, consent_source: source, acquisition_source: source,
         confirmation_token_hash: tokenHash, confirmation_sent_at: sentAt, confirmation_expires_at: expiresAt,
       });
-      // On a race (unique conflict), another request already created the row — treat as idempotent success.
-      if (!res.inserted && res.conflict) {
+      if (res.conflict || !res.inserted || !res.id) {
+        // Another request created the row first → idempotent success; our token is discarded (never sent).
         console.info(JSON.stringify({ fn: 'guided-waitlist', outcome: 'submit_conflict_idempotent', product, source }));
         return json({ ok: true }, 200, req);
       }
+      ownedId = res.id;
     } else {
-      await store.reissueToken(existing.id, tokenHash, sentAt, expiresAt);
+      const won = await store.reissueToken(existing.id, existing.confirmation_token_hash, tokenHash, sentAt, expiresAt);
+      if (!won) {
+        // Lost the reissue race → another request already rotated + will deliver. Do NOT deliver.
+        console.info(JSON.stringify({ fn: 'guided-waitlist', outcome: 'submit_reissue_lost', product, source }));
+        return json({ ok: true }, 200, req);
+      }
+      ownedId = existing.id;
     }
 
-    // Provider-independent delivery seam (default NO-OP: no provider, no email sent). Never logs the token.
-    await deps.deliverConfirmation(emailNormalized, rawToken);
+    // Deliver AFTER the durable write, and only as the token's owner. On failure revert to the unsent state
+    // so the row never falsely claims a confirmation was sent. (Delivery is a NO-OP until a provider is wired.)
+    try {
+      await deps.deliverConfirmation(emailNormalized, rawToken);
+    } catch {
+      await store.clearIssuedToken(ownedId).catch(() => { /* best-effort revert */ });
+      console.error(JSON.stringify({ fn: 'guided-waitlist', outcome: 'delivery_failed', product, source }));
+      return json({ ok: false, error: 'server_error' }, 500, req);
+    }
 
     console.info(JSON.stringify({ fn: 'guided-waitlist', outcome: 'submit_issued', product, source }));
     return json({ ok: true }, 200, req); // generic — new or existing, never disclosed
@@ -276,7 +309,7 @@ function supabaseStore(url: string, serviceRoleKey: string): WaitlistStore {
       return (data as WaitlistRow | null) ?? null;
     },
     async insertPendingWithToken(row) {
-      const { error } = await admin.from(table).insert({
+      const { data, error } = await admin.from(table).insert({
         product: row.product,
         email_normalized: row.email_normalized,
         self_asserted_consent: true,
@@ -287,18 +320,29 @@ function supabaseStore(url: string, serviceRoleKey: string): WaitlistStore {
         confirmation_token_hash: row.confirmation_token_hash,
         confirmation_sent_at: row.confirmation_sent_at,
         confirmation_expires_at: row.confirmation_expires_at,
-      });
-      if (error) return { inserted: false, conflict: (error as { code?: string }).code === '23505' };
-      return { inserted: true, conflict: false };
+      }).select('id').maybeSingle();
+      if (error) {
+        if ((error as { code?: string }).code === '23505') return { inserted: false, conflict: true, id: null };
+        throw new Error('insert_failed'); // fail closed — never fall through to delivery
+      }
+      return { inserted: true, conflict: false, id: (data as { id: string } | null)?.id ?? null };
     },
-    async reissueToken(id, tokenHash, sentAt, expiresAt) {
-      await admin.from(table).update({
+    async reissueToken(id, prevTokenHash, tokenHash, sentAt, expiresAt) {
+      let q = admin.from(table).update({
         confirmation_token_hash: tokenHash, confirmation_sent_at: sentAt, confirmation_expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      }).eq('id', id).eq('status', 'pending');
+      q = prevTokenHash === null ? q.is('confirmation_token_hash', null) : q.eq('confirmation_token_hash', prevTokenHash);
+      const { data } = await q.select('id');
+      return Array.isArray(data) && data.length === 1;
+    },
+    async clearIssuedToken(id) {
+      await admin.from(table).update({
+        confirmation_token_hash: null, confirmation_sent_at: null, confirmation_expires_at: null,
         updated_at: new Date().toISOString(),
       }).eq('id', id).eq('status', 'pending');
     },
     async confirm(id, confirmedAt) {
-      // Guarded on status='pending' so a concurrent double-confirm applies once.
       const { data } = await admin.from(table).update({
         status: 'confirmed', confirmed_at: confirmedAt, confirmation_token_hash: null,
         updated_at: new Date().toISOString(),
@@ -308,13 +352,16 @@ function supabaseStore(url: string, serviceRoleKey: string): WaitlistStore {
   };
 }
 
-serve((req: Request) => handler(req, {
-  getEnv: (k) => Deno.env.get(k),
-  createStore: supabaseStore,
-  now: () => Date.now(),
-  randomToken: generateRawToken,
-  hashToken: sha256Hex,
-  rateLimiter: createInMemoryRateLimiter(),
-  // NO-OP delivery: no transactional provider is configured. Wiring one is a separately-authorized step.
-  deliverConfirmation: async () => { /* intentionally does nothing — no email is sent */ },
-}));
+// Guard the production listener so importing this module from tests does NOT open a real socket.
+if (import.meta.main) {
+  serve((req: Request) => handler(req, {
+    getEnv: (k) => Deno.env.get(k),
+    createStore: supabaseStore,
+    now: () => Date.now(),
+    randomToken: generateRawToken,
+    hashToken: sha256Hex,
+    rateLimiter: createInMemoryRateLimiter(),
+    // NO-OP delivery: no transactional provider is configured. Wiring one is a separately-authorized step.
+    deliverConfirmation: () => Promise.resolve(),
+  }));
+}

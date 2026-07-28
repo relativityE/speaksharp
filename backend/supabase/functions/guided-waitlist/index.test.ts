@@ -12,8 +12,8 @@ import {
 const GOOD_ENV = (k: string) =>
   k === 'SUPABASE_URL' ? 'https://x.supabase.co' : k === 'SUPABASE_SERVICE_ROLE_KEY' ? 'svc-role' : undefined;
 
-// In-memory store honoring the DB's uniqueness + lifecycle semantics.
-function makeStore(): WaitlistStore & { rows: WaitlistRow[] } {
+// In-memory store honoring the DB's uniqueness + lifecycle + compare-and-swap semantics.
+function makeStore(opts: { failInsert?: boolean; reissueReturns?: boolean } = {}): WaitlistStore & { rows: WaitlistRow[] } {
   const rows: WaitlistRow[] = [];
   let idc = 0;
   return {
@@ -21,19 +21,29 @@ function makeStore(): WaitlistStore & { rows: WaitlistRow[] } {
     findByProductEmail: (p, e) => Promise.resolve(rows.find((r) => r.product === p && r.email_normalized === e) ?? null),
     findByTokenHash: (h) => Promise.resolve(rows.find((r) => r.confirmation_token_hash === h) ?? null),
     insertPendingWithToken: (row) => {
+      if (opts.failInsert) throw new Error('insert_failed'); // simulate a non-conflict DB error
       if (rows.some((r) => r.product === row.product && r.email_normalized === row.email_normalized)) {
-        return Promise.resolve({ inserted: false, conflict: true });
+        return Promise.resolve({ inserted: false, conflict: true, id: null });
       }
+      const id = `id-${++idc}`;
       rows.push({
-        id: `id-${++idc}`, product: row.product, email_normalized: row.email_normalized, status: 'pending',
+        id, product: row.product, email_normalized: row.email_normalized, status: 'pending',
         confirmation_token_hash: row.confirmation_token_hash, confirmation_sent_at: row.confirmation_sent_at,
         confirmation_expires_at: row.confirmation_expires_at, confirmed_at: null,
       });
-      return Promise.resolve({ inserted: true, conflict: false });
+      return Promise.resolve({ inserted: true, conflict: false, id });
     },
-    reissueToken: (id, h, s, e) => {
+    reissueToken: (id, prevHash, h, s, e) => {
+      if (opts.reissueReturns === false) return Promise.resolve(false); // simulate losing the CAS race
       const r = rows.find((x) => x.id === id);
-      if (r && r.status === 'pending') { r.confirmation_token_hash = h; r.confirmation_sent_at = s; r.confirmation_expires_at = e; }
+      if (r && r.status === 'pending' && r.confirmation_token_hash === prevHash) {
+        r.confirmation_token_hash = h; r.confirmation_sent_at = s; r.confirmation_expires_at = e; return Promise.resolve(true);
+      }
+      return Promise.resolve(false);
+    },
+    clearIssuedToken: (id) => {
+      const r = rows.find((x) => x.id === id);
+      if (r && r.status === 'pending') { r.confirmation_token_hash = null; r.confirmation_sent_at = null; r.confirmation_expires_at = null; }
       return Promise.resolve();
     },
     confirm: (id, ca) => {
@@ -46,7 +56,7 @@ function makeStore(): WaitlistStore & { rows: WaitlistRow[] } {
 
 function makeDeps(opts: Partial<{
   store: WaitlistStore & { rows: WaitlistRow[] }; getEnv: (k: string) => string | undefined;
-  rateLimiter: RateLimiter; startTime: number;
+  rateLimiter: RateLimiter; startTime: number; deliver: (email: string, token: string) => Promise<void>;
 }> = {}) {
   const store = opts.store ?? makeStore();
   const captured: Array<{ email: string; token: string }> = [];
@@ -58,7 +68,7 @@ function makeDeps(opts: Partial<{
     randomToken: generateRawToken,
     hashToken: sha256Hex,
     rateLimiter: opts.rateLimiter ?? { check: () => true },
-    deliverConfirmation: (email, token) => { captured.push({ email, token }); return Promise.resolve(); },
+    deliverConfirmation: opts.deliver ?? ((email, token) => { captured.push({ email, token }); return Promise.resolve(); }),
   };
   return { deps, store, captured, advance: (ms: number) => { clock += ms; }, setClock: (v: number) => { clock = v; } };
 }
@@ -93,7 +103,7 @@ Deno.test('valid submit → generic {ok:true}; one PENDING row storing the token
   assertEquals(row.email_normalized, 'me@example.com');
   assertEquals(row.confirmed_at, null);
   assert(/^[0-9a-f]{64}$/.test(row.confirmation_token_hash!));  // a hash, not a raw token
-  assertEquals(captured.length, 1);                             // token handed to the transport seam
+  assertEquals(captured.length, 1);                             // token handed to the transport seam (after persist)
   assert(captured[0].token !== row.confirmation_token_hash);    // raw token != stored hash
   assertEquals(await sha256Hex(captured[0].token), row.confirmation_token_hash); // hash IS of the delivered token
 });
@@ -175,7 +185,7 @@ Deno.test('unknown token → confirm rejected generically (no existence disclosu
   assertEquals(await res.json(), { ok: false });
 });
 
-Deno.test('rate limit → over-limit submit returns 429, no row written', async () => {
+Deno.test('rate limit applies to BOTH submit and confirm; over-limit returns 429, no row written', async () => {
   let n = 0;
   const limiter: RateLimiter = { check: () => (++n) <= 1 };   // allow the 1st, deny the rest
   const { deps, store } = makeDeps({ rateLimiter: limiter });
@@ -185,6 +195,14 @@ Deno.test('rate limit → over-limit submit returns 429, no row written', async 
   assertEquals(second.status, 429);
   assertEquals(await second.json(), { ok: false, error: 'rate_limited' });
   assertEquals(store.rows.length, 1);                    // the rate-limited submit wrote nothing
+});
+
+Deno.test('confirm path is rate-limited BEFORE any token lookup', async () => {
+  const limiter: RateLimiter = { check: () => false };   // deny everything
+  const { deps } = makeDeps({ rateLimiter: limiter });
+  const res = await handler(confirm('a'.repeat(64)), deps);
+  assertEquals(res.status, 429);
+  assertEquals(await res.json(), { ok: false, error: 'rate_limited' });
 });
 
 Deno.test('in-memory rate limiter admits up to max per window, then blocks, then recovers', () => {
@@ -198,6 +216,43 @@ Deno.test('in-memory rate limiter admits up to max per window, then blocks, then
   assertEquals(rl.check('other'), true); // independent key
 });
 
+Deno.test('insert FAILURE (non-conflict) → 500 fail-closed BEFORE delivery (no token delivered)', async () => {
+  const store = makeStore({ failInsert: true });
+  const { deps, captured } = makeDeps({ store });
+  const res = await handler(submit(VALID), deps);
+  assertEquals(res.status, 500);                 // failed closed
+  assertEquals(store.rows.length, 0);            // nothing persisted
+  assertEquals(captured.length, 0);              // and crucially, NO token was delivered
+});
+
+Deno.test('delivery FAILURE → 500 and the row is reverted to the unsent state (no false "sent")', async () => {
+  const store = makeStore();
+  const { deps } = makeDeps({ store, deliver: () => Promise.reject(new Error('provider down')) });
+  const res = await handler(submit(VALID), deps);
+  assertEquals(res.status, 500);
+  assertEquals(store.rows.length, 1);            // the row exists...
+  const row = store.rows[0];
+  assertEquals(row.status, 'pending');
+  assertEquals(row.confirmation_token_hash, null);   // ...but reverted: no token
+  assertEquals(row.confirmation_sent_at, null);      // ...and no false "sent" provenance
+  assertEquals(row.confirmation_expires_at, null);
+});
+
+Deno.test('LOST reissue race (CAS returns false) → generic success, NO duplicate delivery', async () => {
+  const store = makeStore({ reissueReturns: false });
+  // Seed an existing EXPIRED pending row so the submit takes the reissue path.
+  store.rows.push({
+    id: 'seed', product: 'guided_rehearsal', email_normalized: 'me@example.com', status: 'pending',
+    confirmation_token_hash: 'c'.repeat(64), confirmation_sent_at: new Date(0).toISOString(),
+    confirmation_expires_at: new Date(1).toISOString(), confirmed_at: null,
+  });
+  const { deps, captured } = makeDeps({ store });
+  const res = await handler(submit(VALID), deps);
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { ok: true });   // generic success
+  assertEquals(captured.length, 0);               // we lost the CAS → did NOT deliver a second token
+});
+
 Deno.test('missing service-role config → 500 fail-closed, no write, no delivery', async () => {
   const { deps, store, captured } = makeDeps({ getEnv: () => undefined });
   const res = await handler(submit(VALID), deps);
@@ -207,12 +262,10 @@ Deno.test('missing service-role config → 500 fail-closed, no write, no deliver
 });
 
 Deno.test('consent + provenance are written server-side with the pinned consent version', async () => {
-  // Prove the function writes the fixed CONSENT_VERSION (the row is self-asserted-consent=true by insert).
   const { deps, store } = makeDeps();
   await handler(submit(VALID), deps);
   assertEquals(store.rows.length, 1);
-  // The store fake only tracks lifecycle columns; assert the constant the production insert pins.
-  assertEquals(CONSENT_VERSION, 'guided_waitlist_v1');
+  assertEquals(CONSENT_VERSION, 'guided_waitlist_v1'); // the constant the production insert pins
 });
 
 Deno.test('unsupported method → 405', async () => {
