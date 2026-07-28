@@ -4,6 +4,7 @@ import {
     getWpmLabel,
     getSessionAnalysisMetrics,
     getFillerExplanation,
+    getClarityExplanation,
     isUsableFillerCounts,
     normalizeFillerCounts,
     FILLER_TRANSCRIPT_DISCLOSURE,
@@ -41,6 +42,22 @@ describe('sessionAnalysis metric truth', () => {
         it('does NOT append the disclosure when there is too little speech to verify', () => {
             // wordCount < MIN_RELIABLE_SCORING_WORDS (3) → the "too little speech" branch, which presents no count.
             expect(getFillerExplanation(0, 2)).not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+
+        // The adjacent Clear Delivery card renders getClarityExplanation, which ALSO cites the filler count in
+        // its filler-dependent branches. Those must carry the same disclosure so the count is never presented
+        // as exact on one card while caveated on the other.
+        it('clarity: appends the disclosure when the explanation cites a non-zero filler count', () => {
+            expect(getClarityExplanation({ wordCount: 100, fillerCount: 3, errorCount: 0, wpm: 130 }))
+                .toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('clarity: appends the disclosure to the "no filler words detected" branch', () => {
+            expect(getClarityExplanation({ wordCount: 100, fillerCount: 0, errorCount: 0, wpm: 130 }))
+                .toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('clarity: does NOT append the disclosure to non-filler branches (inaudible speech)', () => {
+            expect(getClarityExplanation({ wordCount: 100, fillerCount: 0, errorCount: 2, wpm: 130 }))
+                .not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
         });
     });
 

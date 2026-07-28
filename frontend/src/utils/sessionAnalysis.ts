@@ -173,6 +173,13 @@ export const getClarityLabel = (clarityScore: number): string =>
                 ? 'Good clarity'
                 : 'Keep practicing';
 
+// #894: filler counts are DERIVED FROM THE TRANSCRIPT. Speech-to-text engines can omit a spoken filler
+// upstream (it never reaches the transcript), so a "detected" count is a lower bound, not an exact tally.
+// This concise disclosure is appended to every explanation that presents a filler count — filler AND the
+// filler-dependent clarity branches — so the metric reads honestly everywhere it appears.
+// (Engine-recall accuracy is out of scope here; this is truthful labeling, not a recall fix.)
+export const FILLER_TRANSCRIPT_DISCLOSURE = 'Some spoken fillers may not appear in the transcript.';
+
 export const getClarityExplanation = ({
     wordCount,
     fillerCount,
@@ -194,7 +201,7 @@ export const getClarityExplanation = ({
         return 'Some speech was unclear enough to be marked as inaudible. Move closer to the mic or reduce background noise before judging delivery.';
     }
     if (fillerCount > 0) {
-        return `${fillerCount} filler ${fillerCount === 1 ? 'word is' : 'words are'} pulling attention away from the message. Replace the next one with a brief pause.`;
+        return `${fillerCount} filler ${fillerCount === 1 ? 'word is' : 'words are'} pulling attention away from the message. Replace the next one with a brief pause. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
     }
     if (wordCount < 12) {
         return 'This sample is short; treat the score as a rough signal until more speech is captured.';
@@ -205,14 +212,8 @@ export const getClarityExplanation = ({
     if (wpm > 0 && wpm < ANALYTICS_THRESHOLDS.VERY_SLOW_WPM) {
         return 'Slow pacing is lowering the score because long gaps can make the delivery feel fragmented.';
     }
-    return 'No filler words or transcript errors were detected. Focus the next run on pacing and emphasis.';
+    return `No filler words or transcript errors were detected. Focus the next run on pacing and emphasis. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
 };
-
-// #894: filler counts are DERIVED FROM THE TRANSCRIPT. Speech-to-text engines can omit a spoken filler
-// upstream (it never reaches the transcript), so a "detected" count is a lower bound, not an exact tally.
-// This concise disclosure is appended to every count-bearing explanation so the metric reads honestly.
-// (Engine-recall accuracy is out of scope here; this is truthful labeling, not a recall fix.)
-export const FILLER_TRANSCRIPT_DISCLOSURE = 'Some spoken fillers may not appear in the transcript.';
 
 export const getFillerExplanation = (fillerCount: number, wordCount: number): string => {
     if (wordCount <= 0) return 'No transcript was captured, so filler words cannot be verified yet.';
