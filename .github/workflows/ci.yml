@@ -280,39 +280,32 @@ jobs:
           path: frontend/dist
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
 
+  # Thin health GATE (no checkout / pnpm install / apt / browser download). The browser-infra health probe
+  # itself now runs once inside e2e-shard-1 (which already has Playwright + the build), writing a
+  # HEALTH_PASSED sentinel on success into the `health-check-report` artifact. This gate downloads that
+  # artifact and passes ONLY if the sentinel is present — so the health result is reported INDEPENDENTLY of
+  # later E2E test failures. The exact job name `health-check` is retained so `full-evidence` and `report`
+  # gate on it unchanged. `if: always()` so it still evaluates when the E2E matrix has failures.
   health-check:
     name: health-check
-    needs: [scope, build]
-    if: needs.scope.outputs.full_required == 'true'
+    needs: [scope, e2e]
+    if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Download Build Artifacts
+      - name: Download Health Check Report
         uses: actions/download-artifact@v7
         with:
-          name: build-artifacts
-          path: frontend/dist
-
-      - name: Run Health Check Once
-        env:
-          STT_ENGINE: mock
-        run: pnpm ci:health-check
-
-      - name: Upload Health Check Report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
           name: health-check-report
-          path: test-results/playwright-infra
-          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: error
+          path: health-report
+
+      - name: Verify Browser Infrastructure Health Passed
+        run: |
+          if [ -f health-report/HEALTH_PASSED ]; then
+            echo "✅ Browser infrastructure health check passed (sentinel present)."
+          else
+            echo "::error::Browser infrastructure health check did not pass — HEALTH_PASSED sentinel missing."
+            exit 1
+          fi
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
@@ -339,6 +332,30 @@ jobs:
         with:
           name: build-artifacts
           path: frontend/dist
+
+      # CI-PERF: the browser-infra health probe runs HERE on shard 1 (which has already installed Playwright
+      # + downloaded the build), instead of a separate job that re-installs browsers (a 10-min+ apt/download
+      # tail for a ~14s probe). It stays independent in evidence: it runs exactly once, writes a HEALTH_PASSED
+      # sentinel only on success, and its report is uploaded as `health-check-report`. The thin `health-check`
+      # gate below downloads that report and fails unless the sentinel exists — so the health result is
+      # reported independently of later E2E test failures.
+      - name: Run Browser Infrastructure Health Check
+        if: matrix.shard == 1
+        env:
+          STT_ENGINE: mock
+        run: |
+          mkdir -p test-results/playwright-infra
+          pnpm ci:health-check
+          touch test-results/playwright-infra/HEALTH_PASSED
+
+      - name: Upload Health Check Report
+        if: always() && matrix.shard == 1
+        uses: actions/upload-artifact@v6
+        with:
+          name: health-check-report
+          path: test-results/playwright-infra
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          if-no-files-found: error
 
       - name: Run E2E Test Shard
         env:
