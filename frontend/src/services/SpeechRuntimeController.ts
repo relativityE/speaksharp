@@ -1117,6 +1117,25 @@ export class SpeechRuntimeController {
                     return;
                 }
 
+                // #893: never subscribe to an already-terminated service. During the login→/session
+                // transition an enqueued sync can run against a service that was terminated in between;
+                // subscribe() would throw ENGINE_ALREADY_TERMINATED (a benign transition race) and surface
+                // as a GLOBAL UNHANDLED REJECTION. Skip + drop the stale ref so the next init recreates a
+                // fresh service (mirrors the isServiceDestroyed() guard already used on the init paths).
+                if (this.service.isServiceDestroyed()) {
+                    pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'service_destroyed' });
+                    // #893: invalidate the cached STT readiness BEFORE dropping the dead reference. Otherwise
+                    // the terminated service's already-resolved `readyPromise` survives, and a subsequent
+                    // warmUp()/ensureReady() would short-circuit (`if (!this.readyPromise)` false), find
+                    // `this.service` null, and resolve WITHOUT creating/warming a replacement — leaving the
+                    // session reporting readiness with no live service. Clearing it (mirrors the teardown
+                    // pattern) forces the next readiness path back through initInternal to rebuild a fresh one.
+                    this.readyPromise = null;
+                    this.resetEphemeralState('service_destroyed_in_sync');
+                    this.service = null;
+                    return;
+                }
+
                 if (this.serviceUnsubscribe) {
                     pushE2EEvent('SYNC_SUBSCRIPTION_CLEANUP', { source: 'SpeechRuntimeController' });
                     this.serviceUnsubscribe();
