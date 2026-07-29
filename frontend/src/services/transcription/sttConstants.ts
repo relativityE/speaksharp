@@ -86,6 +86,15 @@ export const PRIV_STT = {
   // a user who believes they are still recording is worse than a longer finalize wait.
   MAX_PRIVATE_RECORDING_SECONDS: 600,
   PRIVATE_RECORDING_CAP_WARNING_SECONDS: 20,
+  // #1089 HARD CEILING on post-Stop finalization. Finalizing… now disables the record control for its
+  // whole duration, so a decode that never returns would strand the user with no way out but a reload.
+  // Bound it instead: on expiry the stop fails into the EXISTING recovery path (FAILED + recovery-draft
+  // status), which re-enables the control and keeps the captured transcript.
+  //
+  // Sizing: measured RTF ~0.128 on production multi-threaded WASM, so the worst legitimate take (the
+  // 600s cap) finalizes in ~77s. 240s is ~3x that headroom — high enough that a slow-but-working
+  // device is never cut off mid-decode, low enough that a genuine hang surfaces in a bounded time.
+  FINALIZE_HARD_TIMEOUT_MS: 240_000,
   PROCESSING_INTERVAL_MS: 250,
   MAX_RETRY_SECONDS: 12,
   WHISPER_WINDOW_SECONDS: STT_PROVIDER_REQUIREMENTS.PRIVATE_TRANSFORMERS_WHISPER.MODEL_CONTEXT_WINDOW_SECONDS,

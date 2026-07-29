@@ -150,6 +150,8 @@ export const useSessionLifecycle = () => {
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
     const captureLimitReached = useSessionStore(state => state.captureLimitReached);
     const setCaptureLimitReached = useSessionStore(state => state.setCaptureLimitReached);
+    const setCompletedSessionDuration = useSessionStore(state => state.setCompletedSessionDuration);
+    const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const history = useSessionStore(state => state.history);
     // First-use trust fix (Option A): do NOT auto-promote a fresh Native default to
     // Private. Private is now an explicit user choice, so a new user is never pushed
@@ -181,6 +183,9 @@ export const useSessionLifecycle = () => {
         chunks: chunks as unknown as Array<{ transcript: string; timestamp: number }>, // Cast to structural match to avoid strict Chunk mismatch
         fillerData: fillerData as FillerCounts,
         elapsedTime,
+        // #1089: after a stop the live timer resets to 00:00 for the next take, but the take under
+        // review must keep dividing by its own spoken length. Null while recording (they are the same).
+        scoringDurationSeconds: completedSessionDurationSeconds ?? undefined,
         userWords: userFillerWords, // accepted for compat; live filler count is canonical (no recount source-routing)
     });
 
@@ -315,7 +320,7 @@ export const useSessionLifecycle = () => {
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
             } finally {
                 hasAutoStoppedRef.current = false;
-            setCaptureLimitReached(null); // #1089: the backstop signal is per-recording
+                setCaptureLimitReached(null); // #1089: the backstop signal is per-recording
                 hasVADStoppedRef.current = false;
                 isProcessingRef.current = false;
             }
@@ -323,6 +328,9 @@ export const useSessionLifecycle = () => {
             // ✅ Starting: Reset guards FIRST (Robust synchronous reset)
             hasAutoStoppedRef.current = false;
             setCaptureLimitReached(null); // #1089: the backstop signal is per-recording
+            // #1089: the PREVIOUS take's duration snapshot stops being current the moment a new
+            // recording begins. Cleared here (start), never on stop — the post-save review needs it.
+            setCompletedSessionDuration(null);
             hasVADStoppedRef.current = false;
             lastActivityTimeRef.current = Date.now();
 
@@ -464,6 +472,7 @@ export const useSessionLifecycle = () => {
         isListening,
         elapsedTime,
         setCaptureLimitReached,
+        setCompletedSessionDuration,
         updateStreak,
         queryClient,
         isProUser,
@@ -601,13 +610,24 @@ export const useSessionLifecycle = () => {
     // guard, and we tell the user plainly rather than pretending the recording continued.
     useEffect(() => {
         if (!captureLimitReached) return;
+        // handleStartStop is a TOGGLE. A backstop event that arrives when nothing is recording — a late
+        // frame during teardown, or any future producer — would fall into its START branch and create
+        // exactly the stray recording this issue exists to eliminate. A system-generated stop must only
+        // ever stop: if there is no live recording the event is stale, so clear it and do nothing.
+        const live = useSessionStore.getState();
+        const isRecordingNow = live.isListening || live.runtimeState === 'RECORDING';
+        if (!isRecordingNow) {
+            logger.warn(captureLimitReached, '[useSessionLifecycle] Stale capture-backstop event while not recording — cleared, no toggle');
+            setCaptureLimitReached(null);
+            return;
+        }
         if (hasAutoStoppedRef.current) return;
         hasAutoStoppedRef.current = true;
         logger.warn(captureLimitReached, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: capture backstop reached');
         void handleStartStopRef.current?.({
             stopReason: 'We reached the maximum recording length and stopped. Everything recorded up to that point was saved.',
         });
-    }, [captureLimitReached]);
+    }, [captureLimitReached, setCaptureLimitReached]);
 
     // #891 beta recording length: a single Private take may run the full cap
     // (MAX_PRIVATE_RECORDING_SECONDS, now 600s = 10 min). This fires on WALL-CLOCK elapsedTime (not the sample count), so it cannot

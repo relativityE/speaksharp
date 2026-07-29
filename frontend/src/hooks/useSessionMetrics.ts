@@ -7,7 +7,16 @@ interface UseSessionMetricsProps {
     transcript: string;
     chunks: Chunk[];
     fillerData: FillerCounts;
+    /** LIVE timer for the NEXT recording. Drives `formattedTime` only — the visible MM:SS. */
     elapsedTime: number;
+    /**
+     * #1089: the SCORING duration — the spoken length of the session currently under review. Defaults
+     * to `elapsedTime` (they are the same while recording). After a stop the live timer resets to 0 so
+     * the Ready surface can honestly show 00:00, but WPM, pace and clarity must keep dividing by the
+     * completed take's real length; passing the store's `completedSessionDurationSeconds` here keeps
+     * those two jobs from fighting over one number.
+     */
+    scoringDurationSeconds?: number;
     /** Accepted for call-site compatibility; NOT used to route the canonical filler source. */
     userWords?: string[];
 }
@@ -37,8 +46,11 @@ export const useSessionMetrics = ({
     chunks,
     fillerData,
     elapsedTime,
+    scoringDurationSeconds,
 }: UseSessionMetricsProps): SessionMetrics => {
     return useMemo(() => {
+        // The visible timer and the scoring denominator are deliberately separate (#1089).
+        const scoringSeconds = scoringDurationSeconds ?? elapsedTime;
         // Format elapsed time as MM:SS
         const minutes = Math.floor(elapsedTime / 60);
         const seconds = elapsedTime % 60;
@@ -50,7 +62,7 @@ export const useSessionMetrics = ({
         // readers, never here. Always pass the live `fillerData`; never `fillerData: undefined`.
         const coreMetrics = calculateCoreSessionMetrics({
             transcript,
-            durationSeconds: elapsedTime,
+            durationSeconds: scoringSeconds,
             fillerData,
             userWords: [],
         });
@@ -62,7 +74,7 @@ export const useSessionMetrics = ({
         const recentWordCount = recentChunks.reduce((acc, c) => acc + c.transcript.split(/\s+/).filter(w => w.length > 0).length, 0);
 
         // Effective time is the smaller of the window or elapsed time
-        const effectiveWindowSec = Math.min(elapsedTime, rollingWindowMs / 1000);
+        const effectiveWindowSec = Math.min(scoringSeconds, rollingWindowMs / 1000);
         const rollingWpm = calculateWpm(recentWordCount, effectiveWindowSec);
 
         return {
@@ -81,5 +93,5 @@ export const useSessionMetrics = ({
             fillerExplanation: coreMetrics.fillerExplanation,
             wordCount: coreMetrics.wordCount,
         };
-    }, [transcript, chunks, fillerData, elapsedTime]);
+    }, [transcript, chunks, fillerData, elapsedTime, scoringDurationSeconds]);
 };
