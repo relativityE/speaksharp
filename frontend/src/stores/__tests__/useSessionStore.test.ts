@@ -281,4 +281,62 @@ describe('useSessionStore', () => {
             expect(state.chunks).toHaveLength(0);
         });
     });
+
+    /**
+     * #1089 REGRESSION — "Ready to record" displayed alongside a stale 00:09 timer.
+     *
+     * The visible timer was only ever cleared inside setSTTMode, and that reset is skipped once
+     * sessionSaved is true (#772 keeps a just-saved transcript visible). So a previous take's elapsed
+     * value survived into the Ready surface. Ready asserts no recording is in progress, so a non-zero
+     * timer next to it is a contradiction the user reads as "I am still recording".
+     */
+    describe('#1089 Ready implies a zeroed timer', () => {
+        beforeEach(() => {
+            useSessionStore.getState().resetSession();
+        });
+
+        it('clears a stale elapsed timer when the status becomes Ready', () => {
+            useSessionStore.setState({
+                elapsedTime: 9,
+                startTime: Date.now() - 9000,
+                sessionSaved: true,
+                runtimeState: 'READY',
+                sttStatus: { type: 'info', message: 'Saving…' },
+            });
+
+            useSessionStore.getState().setSTTStatus({ type: 'ready', message: 'Ready to record' });
+
+            const state = useSessionStore.getState();
+            expect(state.sttStatus.message).toBe('Ready to record');
+            expect(state.elapsedTime).toBe(0);
+            expect(state.startTime).toBeNull();
+        });
+
+        it('clears the timer on the idle route into Ready as well', () => {
+            useSessionStore.setState({
+                elapsedTime: 42,
+                startTime: Date.now() - 42000,
+                runtimeState: 'IDLE',
+                sttStatus: { type: 'info', message: 'Saving…' },
+            });
+
+            useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Idle' });
+
+            expect(useSessionStore.getState().elapsedTime).toBe(0);
+        });
+
+        it('NEVER zeroes the timer of a live recording', () => {
+            useSessionStore.setState({
+                elapsedTime: 130,
+                startTime: Date.now() - 130000,
+                runtimeState: 'RECORDING',
+                sttStatus: { type: 'recording', message: 'Speak now' },
+            });
+
+            // The pre-existing recording guard rejects this outright; the timer must survive either way.
+            useSessionStore.getState().setSTTStatus({ type: 'ready', message: 'Ready to record' });
+
+            expect(useSessionStore.getState().elapsedTime).toBe(130);
+        });
+    });
 });

@@ -684,6 +684,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   public onReady?: () => void;
   private onAudioData?: (data: Float32Array) => void;
   private onStatusChange?: (status: SttStatus) => void;
+  /** #1089: one-shot signal that the capture backstop was hit (see TranscriptionModeOptions). */
+  private onCaptureLimitReached?: (info: { bufferedSeconds: number; limitSeconds: number }) => void;
+  /** #1089: guarantees the backstop signal fires exactly once per recording. */
+  private captureLimitSignalled = false;
   // #891 immediate-start readiness gate. Fires once, when the mic delivers stable clean frames,
   // to flip the UI cue from "Starting…" to "Speak now". Capture-from-start buffers underneath.
   private micReadinessGate: MicReadinessGate | null = null;
@@ -845,6 +849,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.onReady = options.onReady;
     this.onAudioData = options.onAudioData;
     this.onStatusChange = options.onStatusChange;
+    this.onCaptureLimitReached = options.onCaptureLimitReached;
 
     // Set base properties manually for immediate construction logging
     // init() will override these based on callbacks, but constructor runs first
@@ -856,6 +861,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.captureLimitSignalled = false; // #1089: one signal per recording
     this.lastDecodedUtteranceSampleCount = 0;
     this.retainedPreonsetSpeechChunks = [];
     this.retainedPreonsetSpeechSamples = 0;
@@ -980,6 +986,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.captureLimitSignalled = false; // #1089: one signal per recording
     this.lastDecodedUtteranceSampleCount = 0;
     this.retainedPreonsetSpeechChunks = [];
     this.retainedPreonsetSpeechSamples = 0;
@@ -2240,7 +2247,33 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // (the genuine trailing tail / h1_6 chatter) is trimmed when the buffer is decoded.
     // #891 capture-from-start: bound the ungated final buffer. On overflow keep the BEGINNING (the
     // opening) and stop appending, rather than rolling the buffer forward and losing the opener.
-    if (this.utteranceSampleCount >= PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES) return;
+    if (this.utteranceSampleCount >= PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES) {
+      // #1089 DATA INTEGRITY: previously this returned silently — the engine stopped accepting audio
+      // while the UI kept showing "Recording", so everything the user said past the guard was discarded
+      // with no error. Now we signal ONCE so the app performs a controlled stop and finalizes what was
+      // captured. Audio recorded BEFORE the guard is untouched and still finalizes normally.
+      if (!this.captureLimitSignalled) {
+        this.captureLimitSignalled = true;
+        const bufferedSeconds = samplesToSeconds(this.utteranceSampleCount, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+        // Non-PII diagnostics: why the guard fired + the ACTUAL buffered duration.
+        pushPrivateTimeline('capture_limit_reached', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          bufferedSeconds: Number(bufferedSeconds.toFixed(2)),
+          limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
+        });
+        this.onStatusChange?.({
+          type: 'info',
+          message: 'Maximum recording length reached. Saving what you recorded…',
+          detail: 'We stopped the recording so nothing you already said is lost.',
+        });
+        this.onCaptureLimitReached?.({
+          bufferedSeconds: Number(bufferedSeconds.toFixed(2)),
+          limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
+        });
+      }
+      return;
+    }
     this.appendUtteranceAudio([frame]);
     // First non-pure-silence frame anchors the conservative leading-silence trim (under-trim bias:
     // LEADING_SILENCE_TRIM_RMS is far below soft speech, so opening words are never the trim anchor).

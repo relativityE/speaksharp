@@ -362,6 +362,93 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         }, { timeout: 2000 });
     });
 
+    /**
+     * #1089 REGRESSION — the observed stray 9-second session.
+     *
+     * A Private take auto-stopped at the cap. The runtime FSM returned to READY while the
+     * whole-utterance decode was still running, so the record control was live and labelled "Start".
+     * The user reached for Stop and instead began a SECOND recording, which they then stopped —
+     * producing a stray 9-second session and a "Ready to record" surface showing 00:09.
+     *
+     * Finalization is the authoritative gate: while it runs, no new recording may begin.
+     */
+    it('#1089: does NOT start a new recording while the previous take is still finalizing (stray-session repro)', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,
+            runtimeState: 'READY',            // FSM already back to READY...
+            isTranscriptFinalizing: true,     // ...while the decode is still running
+            elapsedTime: 0,
+            startTime: null,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        // The control must be non-interactive for the WHOLE finalization window, not just STOPPING.
+        expect(result.current.isButtonDisabled).toBe(true);
+
+        // Defence in depth: even a direct invocation (UI bypass) must not start a recording.
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+        expect(mockStartListening).not.toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+    });
+
+    /**
+     * #1089 — the hard capture backstop. Reaching it means the engine has STOPPED accepting audio.
+     * The old behaviour returned silently and kept showing "Recording" while the audio was discarded.
+     * The app must instead perform a controlled stop so everything captured before the guard is
+     * finalized and saved.
+     */
+    it('#1089: performs a controlled stop when the engine reports the capture backstop', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: true,
+            runtimeState: 'RECORDING',
+            elapsedTime: 120,                 // well under the 600s cap — only the backstop can fire
+            startTime: Date.now() - 120000,
+            captureLimitReached: { bufferedSeconds: 900, limitSeconds: 900 },
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await waitFor(() => {
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        }, { timeout: 2000 });
+    });
+
     it('should NOT trigger stop when time remains', () => {
         const mockStore = createTestSessionStore({
             elapsedTime: 25,

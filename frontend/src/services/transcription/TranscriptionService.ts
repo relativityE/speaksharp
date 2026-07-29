@@ -150,6 +150,8 @@ export interface TranscriptionServiceOptions {
   mockMic?: MicStream;
   onModeChange?: (mode: TranscriptionMode | null) => void;
   onStatusChange?: (status: SttStatus) => void;
+  /** #1089: capture backstop hit — the app must stop and finalize (see TranscriptionModeOptions). */
+  onCaptureLimitReached?: (info: { bufferedSeconds: number; limitSeconds: number }) => void;
   onAudioData?: (data: Float32Array) => void;
   onError?: (error: Error) => void;
   watchdogIntervalMs?: number;
@@ -655,6 +657,10 @@ export default class TranscriptionService {
             else if (status.type === 'recording') this.privateMicReadyToSpeak = true;
           }
           this.strategyCallbacks.onStatusChange?.(status);
+        },
+        onCaptureLimitReached: (info) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.options.onCaptureLimitReached?.(info);
         },
         onAudioData: (data) => {
           if (this.activeStrategyId !== tempId) return;

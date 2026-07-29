@@ -166,13 +166,14 @@ const createControllerOwnedServiceCallbacks = (
         | 'onModeChange'
         | 'onStatusChange'
         | 'onError'
-    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate'>
+    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate' | 'onCaptureLimitReached'>
 ): Partial<TranscriptionServiceOptions> => ({
     ...callbacks,
     onTranscriptUpdate: handlers.onTranscriptUpdate,
     onHistoryUpdate: handlers.onHistoryUpdate,
     onError: handlers.onError,
     onStatusChange: handlers.onStatusChange,
+    onCaptureLimitReached: handlers.onCaptureLimitReached,
     onModelLoadProgress: handlers.onModelLoadProgress,
     onReady: handlers.onReady,
     onAudioData: handlers.onAudioData,
@@ -368,6 +369,14 @@ export class SpeechRuntimeController {
         this.serviceCallbacks = {
             onTranscriptUpdate: this.handleTranscriptUpdate.bind(this),
             onStatusChange: this.handleStatusChange.bind(this),
+            // #1089: the engine hit its hard capture backstop and has stopped accepting audio. Publish it
+            // so the session layer performs a CONTROLLED stop (preserving + finalizing everything captured
+            // before the guard) instead of the old behaviour: silently discarding audio while the UI still
+            // said "Recording". Durations only — no transcript, no audio, no identity.
+            onCaptureLimitReached: (info) => {
+                logger.warn(info, '[Controller] ⚠️ Capture backstop reached — stopping and finalizing');
+                useSessionStore.getState().setCaptureLimitReached(info);
+            },
             onModelLoadProgress: this.handleModelLoadProgress.bind(this),
             onReady: this.handleReady.bind(this),
             onHistoryUpdate: this.handleHistoryUpdate.bind(this),

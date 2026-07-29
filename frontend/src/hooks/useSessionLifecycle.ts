@@ -145,6 +145,11 @@ export const useSessionLifecycle = () => {
     }), [userFillerWords, session, profile]);
 
     const isListening = useSessionStore(state => state.isListening);
+    // #1089: post-Stop finalization is authoritative and OUTLIVES runtimeState leaving STOPPING.
+    // The record control must stay non-interactive for its whole duration (see isButtonDisabled).
+    const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
+    const captureLimitReached = useSessionStore(state => state.captureLimitReached);
+    const setCaptureLimitReached = useSessionStore(state => state.setCaptureLimitReached);
     const history = useSessionStore(state => state.history);
     // First-use trust fix (Option A): do NOT auto-promote a fresh Native default to
     // Private. Private is now an explicit user choice, so a new user is never pushed
@@ -185,6 +190,15 @@ export const useSessionLifecycle = () => {
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
 
         if (isProcessingRef.current && !shouldStop) return;
+        // #1089 STRAY RECORDING: after an automatic stop the runtime FSM returns to READY while the
+        // whole-utterance decode is still running, so the record control was briefly live and labelled
+        // "Start". A user reaching for Stop then began a SECOND recording (the observed stray 9-second
+        // session). Finalization is the authoritative gate: refuse to start a new recording until it
+        // completes. This is a guard, not UI polish — never rely on the disabled button alone.
+        if (!shouldStop && useSessionStore.getState().isTranscriptFinalizing) {
+            logger.warn('[useSessionLifecycle] ⛔ Start ignored: previous recording is still finalizing');
+            return;
+        }
         isProcessingRef.current = true;
 
         if (shouldStop) {
@@ -301,12 +315,14 @@ export const useSessionLifecycle = () => {
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
             } finally {
                 hasAutoStoppedRef.current = false;
+            setCaptureLimitReached(null); // #1089: the backstop signal is per-recording
                 hasVADStoppedRef.current = false;
                 isProcessingRef.current = false;
             }
         } else {
             // ✅ Starting: Reset guards FIRST (Robust synchronous reset)
             hasAutoStoppedRef.current = false;
+            setCaptureLimitReached(null); // #1089: the backstop signal is per-recording
             hasVADStoppedRef.current = false;
             lastActivityTimeRef.current = Date.now();
 
@@ -447,6 +463,7 @@ export const useSessionLifecycle = () => {
     }, [
         isListening,
         elapsedTime,
+        setCaptureLimitReached,
         updateStreak,
         queryClient,
         isProUser,
@@ -575,6 +592,22 @@ export const useSessionLifecycle = () => {
             }
         }
     }, [elapsedTime, effectiveMode, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
+
+    // #1089 CAPTURE BACKSTOP (data integrity). MAX_UTTERANCE_SECONDS is a hard memory ceiling that sits
+    // STRICTLY ABOVE the recording cap, so a normal take never reaches it. If it IS reached — clock drift,
+    // pause/resume, or a cap regression — the engine has already stopped accepting audio. Previously it
+    // did so silently and the UI kept showing "Recording" while everything spoken past the guard was
+    // discarded. Now we stop immediately, which finalizes and saves every sample captured BEFORE the
+    // guard, and we tell the user plainly rather than pretending the recording continued.
+    useEffect(() => {
+        if (!captureLimitReached) return;
+        if (hasAutoStoppedRef.current) return;
+        hasAutoStoppedRef.current = true;
+        logger.warn(captureLimitReached, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: capture backstop reached');
+        void handleStartStopRef.current?.({
+            stopReason: 'We reached the maximum recording length and stopped. Everything recorded up to that point was saved.',
+        });
+    }, [captureLimitReached]);
 
     // #891 beta recording length: a single Private take may run the full cap
     // (MAX_PRIVATE_RECORDING_SECONDS, now 600s = 10 min). This fires on WALL-CLOCK elapsedTime (not the sample count), so it cannot
@@ -773,7 +806,11 @@ export const useSessionLifecycle = () => {
         canUsePrivateStt,
         canUseCloudStt,
         activeEngine,
+        // #1089: runtimeState alone is NOT sufficient — it returns to READY while finalization is still
+        // running, which is exactly the window that produced the stray recording. Ready means genuinely
+        // ready, so finalization keeps the control non-interactive.
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState)
+            || isTranscriptFinalizing
             || isPrivateStartBlockedByModelState,
         usageLimit,
         history,

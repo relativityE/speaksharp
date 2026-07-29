@@ -68,6 +68,12 @@ export interface SessionState {
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
     frozenTranscriptAtStop: string | null;
     isTranscriptFinalizing: boolean;
+    /**
+     * #1089: set once when the engine's hard capture backstop is reached. Non-null means the engine has
+     * stopped accepting audio, so the app MUST perform a controlled stop and finalize what was captured.
+     * Carries only durations — no transcript, no audio, no identity.
+     */
+    captureLimitReached: { bufferedSeconds: number; limitSeconds: number } | null;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
@@ -102,6 +108,7 @@ interface SessionActions {
     setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
     freezeTranscriptAtStop: (transcript: string | null) => void;
     setTranscriptFinalizing: (finalizing: boolean) => void;
+    setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
@@ -137,6 +144,7 @@ const initialState: SessionState = {
     chunks: [],
     frozenTranscriptAtStop: null,
     isTranscriptFinalizing: false,
+    captureLimitReached: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -274,6 +282,19 @@ export const useSessionStore = create<SessionStore>((set) => {
                 logger.warn({ status, currentState: state.sttStatus.type }, '[Store] ⚠️ Attempted to overwrite recording state');
                 return state;
             }
+            // #1089 STALE TIMER: "Ready to record" with a non-zero elapsed timer is a contradiction —
+            // Ready asserts that no recording is in progress. The visible timer was only ever reset
+            // inside setSTTMode, which skips the reset once sessionSaved is true, so a prior take's
+            // elapsed value survived into the Ready surface (the observed 00:09 while Ready). Clearing
+            // it here makes the invariant hold on EVERY route into Ready/Idle, not just a mode change.
+            // Guarded on runtimeState so a live recording is never zeroed out from under itself.
+            if (
+                (status.type === 'ready' || status.type === 'idle') &&
+                state.runtimeState !== 'RECORDING' &&
+                (state.elapsedTime !== 0 || state.startTime !== null)
+            ) {
+                return { sttStatus: status, elapsedTime: 0, startTime: null };
+            }
             return { sttStatus: status };
         });
     },
@@ -388,6 +409,8 @@ export const useSessionStore = create<SessionStore>((set) => {
         set({
             frozenTranscriptAtStop,
         }),
+
+    setCaptureLimitReached: (captureLimitReached) => set({ captureLimitReached }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>
         set({
