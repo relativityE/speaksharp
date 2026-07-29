@@ -150,7 +150,15 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     // Only the two at-rest states are demoted: a tinted pale wash, a hairline border, dark-green
     // 14px/700 text and NO shadow. Every attention-worthy state (warming/recording/downloading/
     // warning/error/init-failed) keeps its existing prominence untouched.
-    const isQuiet = status.type === 'ready' || status.type === 'idle';
+    //
+    // CRITICAL CARVE-OUT: this same bar is ALSO the single post-save surface — SessionPage emits
+    // `{ type: 'ready', message: reconciliationCopy }` once a session finalizes, and hangs the
+    // reconciliation copy, the Private CTA and the Analytics action off it. That is the most
+    // consequential thing on the page at that moment, and demoting it by status TYPE alone would have
+    // buried it in the ambient wash. The presence of either action is the reliable signal that this is
+    // the post-save bar rather than idle chrome, so it keeps full prominence.
+    const carriesPostSaveActions = Boolean(analyticsAction || privateCta);
+    const isQuiet = (status.type === 'ready' || status.type === 'idle') && !carriesPostSaveActions;
 
     // Secondary status follows the caller-filtered status so inactive private setup
     // progress does not leak into Free/Native Browser views.
@@ -246,7 +254,10 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border mb-[26px] transition-all duration-300 ${
+            // Spacing is the CALLER's business: `className` is concatenated, not twMerge'd, so a margin
+            // baked in here could not be overridden and silently inserted 26px before whatever the page
+            // renders next (the unresolved-recovery banner, in SessionPage's case).
+            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border transition-all duration-300 ${
                 isQuiet
                     ? 'rounded-[10px] px-[18px] py-[12px] bg-[hsl(var(--session-green-soft))] border-[hsl(var(--session-green-soft-border))]'
                     : `rounded-xl px-4 ${isProminent ? 'py-4' : 'py-3'} ${config.bgClass}`

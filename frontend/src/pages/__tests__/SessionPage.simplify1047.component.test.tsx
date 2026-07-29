@@ -33,6 +33,8 @@ vi.mock('@/components/session/MobileActionBar', () => ({
 import { render, screen, cleanup } from '../../../tests/support/test-utils';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 
 vi.mock('@/hooks/useSessionLifecycle', () => ({
     useSessionLifecycle: vi.fn(),
@@ -126,17 +128,115 @@ describe('SessionPage — #1047 simplification', () => {
             .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     });
 
-    it('shows the collapsed filler row with EXACTLY ONE empty message', () => {
+    it('shows the collapsed pre-recording filler row with EXACTLY ONE empty message', () => {
         render(<SessionPage />);
 
-        expect(screen.getByTestId('filler-words-card')).toHaveAttribute('data-filler-collapsed', 'true');
-        expect(screen.getByTestId('filler-tracking-summary'))
-            .toHaveTextContent('Tracking 13 filler words — counts appear here once you speak.');
+        expect(screen.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'before-recording');
+        expect(screen.getByTestId('filler-tracking-summary')).toHaveTextContent('Tracking 13 filler words');
+        expect(screen.getByTestId('filler-support-text')).toHaveTextContent('Counts appear here as you speak.');
 
         // Neither of the two contradictory messages survives, and there are no zero chips.
         expect(screen.queryByText(/No filler words detected yet/i)).toBeNull();
         expect(screen.queryByText(/cannot be verified yet/i)).toBeNull();
         expect(screen.queryByTestId('filler-words-list')).toBeNull();
+    });
+
+    it('after a completed take with zero fillers, states the zero honestly and keeps the #894 disclosure', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...idleLifecycle,
+            transcriptContent: 'a clean run with no fillers at all in it',
+            metrics: { ...idleLifecycle.metrics, wordCount: 40 },
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'zero-detected');
+        expect(screen.queryByText(/as you speak/i)).toBeNull();
+        expect(screen.getByTestId('filler-measured-zero'))
+            .toHaveTextContent('No detected filler words in this transcript.');
+        expect(screen.getByTestId('filler-explanation'))
+            .toHaveTextContent('Some spoken fillers may not appear in the transcript.');
+    });
+
+    it('never claims a filler result while the transcript is still finalizing', () => {
+        useSessionStore.setState({ isTranscriptFinalizing: true });
+        mockUseSessionLifecycle.mockReturnValue({
+            ...idleLifecycle,
+            transcriptContent: 'a take that has stopped and is still decoding',
+            metrics: { ...idleLifecycle.metrics, wordCount: 40 },
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'finalizing');
+        expect(screen.getByTestId('filler-finalizing-summary'))
+            .toHaveTextContent('Checking your transcript for filler words');
+        expect(screen.queryByText(/No detected filler words/i)).toBeNull();
+
+        useSessionStore.setState({ isTranscriptFinalizing: false });
+    });
+
+    it('distinguishes "could not verify" from a verified zero after a take captured nothing', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...idleLifecycle,
+            metrics: { ...idleLifecycle.metrics, wordCount: 0 },
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        useSessionStore.setState({ completedSessionDurationSeconds: 12 });
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('filler-words-card'))
+            .toHaveAttribute('data-filler-state', 'insufficient-transcript');
+        expect(screen.getByTestId('filler-unverified'))
+            .toHaveTextContent('Not enough transcript to verify filler words.');
+        expect(screen.queryByText(/No detected filler words/i)).toBeNull();
+
+        useSessionStore.setState({ completedSessionDurationSeconds: null });
+    });
+
+    it('keeps the post-save bar prominent — it is never demoted to the ambient wash', () => {
+        // The post-save bar is emitted as type 'ready', the same type as idle chrome. It must stay
+        // prominent because it carries the reconciliation copy and the Analytics action.
+        // Built with the real reconciler rather than a hand-rolled literal, so this fixture cannot
+        // drift from the shape the page actually consumes.
+        const finalized = {
+            sessionId: 'sess-1',
+            mode: 'native',
+            reconciliation: reconcileFinalizedFillers('a clean finished take', {}),
+            persistedTotal: 0,
+        };
+        useSessionStore.setState({ finalizedAnalysis: finalized });
+        mockUseSessionLifecycle.mockReturnValue({
+            ...idleLifecycle,
+            showAnalyticsPrompt: true,
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        const statusBar = screen.getByTestId('live-session-header');
+        expect(screen.getByTestId('post-save-review-session-link')).toBeInTheDocument();
+        expect(statusBar).toHaveAttribute('data-quiet', 'false');
+        expect(statusBar).toHaveClass('surface-shadow');
+
+        useSessionStore.setState({ finalizedAnalysis: null });
+    });
+
+    it('gives the live transcript an explicit floor AND ceiling so it scrolls instead of growing', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...idleLifecycle,
+            isListening: true,
+            transcriptContent: 'words arriving during a long take',
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        const container = screen.getByTestId('transcript-container');
+        // The column no longer has a definite height, so `flex-1` cannot supply either bound.
+        expect(container.className).toContain('min-h-[340px]');
+        expect(container.className).toContain('max-h-[26rem]');
+        expect(container.className).toContain('overflow-y-auto');
+        expect(container.className).not.toContain('min-h-[160px]');
+        expect(container).toHaveAttribute('data-autoscroll-transcript', 'true');
     });
 
     it('trims the transcript void to a dashed placeholder that says what goes there', () => {

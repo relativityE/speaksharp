@@ -3,7 +3,6 @@ import { Target, TrendingUp } from 'lucide-react';
 import { HelpPopover } from './HelpPopover';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { calculateSpeakingScore } from '@/utils/speakingScore';
-import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
 import type { SessionCoachingAssignment } from '@/services/sessionCoachingExperiment';
 import {
     trackSessionCoachingCardViewed,
@@ -70,18 +69,20 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
         : result.confidence === 'directional'
             ? 'bg-amber-50 text-amber-900 border border-amber-300'
             : 'bg-muted text-foreground/70 border border-border';
-    // #1047: EVIDENCE GATE. `calculateSpeakingScore` falls back to generic openers ("Start with one
-    // complete thought.") when there are too few words to say anything about THIS session. That is
-    // invented advice dressed as feedback, so it must not be numbered and presented as guidance. Below
-    // the reliable-scoring floor we show an explicit neutral first-session state instead; the numbered
-    // list appears only once the session itself supports it.
-    const hasGuidanceEvidence = wordCount >= ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WORDS;
     // #1047: at 'warming-up' the card stated "no data" THREE times at once — a `--` value, a
     // "SCORE SOON" sublabel, and a "Speak a little more to get a useful score" headline (plus a
     // "Confidence: Building" chip and an empty progress bar). One statement is enough. This collapses
     // ONLY the genuinely-empty state; 'directional' still carries real information ("Early signal",
     // "Confidence: Directional") and is left exactly as it was.
     const isEmptySignal = result.confidence === 'warming-up';
+    // EVIDENCE, and where the protection actually comes from. `calculateSpeakingScore` falls back to
+    // generic openers ("Start with one complete thought.") below MIN_RELIABLE_SCORING_WORDS (3) — advice
+    // invented from nothing, which must never be numbered and presented as if it were about this take.
+    // An explicit `wordCount >= 3` gate here would be DEAD CODE: guidance only renders in the
+    // `!isEmptySignal` branch, and leaving 'warming-up' already requires MIN_WORDS_FOR_DIRECTIONAL (25),
+    // which subsumes 3. So the empty-signal collapse above IS the guarantee — the generic openers are
+    // unreachable on screen at every word count. Asserted directly in the tests rather than restated as
+    // a redundant condition here.
     const formatBreakdown = (value: number) => `${Math.round(value * 10)}%`;
     const trackedCardKeyRef = React.useRef<string | null>(null);
     const trackedNumericKeyRef = React.useRef<string | null>(null);
@@ -126,13 +127,16 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                             too — it implied a disclaimer with nowhere to read it. */}
                         <h2 className="text-xl font-extrabold text-foreground">Session feedback</h2>
                         <HelpPopover
-                            label="About the SpeakSharp Score"
+                            // Named for the card it explains. The help used to be labelled "About the
+                            // SpeakSharp Score" while the card no longer shows that name anywhere, which
+                            // left the term orphaned; the body below now introduces it explicitly instead.
+                            label="About session feedback"
                             testId="score-help"
                             panelClassName="w-72"
                         >
                             <div className="space-y-2" data-testid="score-help-body">
                                 <p>
-                                    The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact.
+                                    The visible tools roll up into one coaching score — the SpeakSharp Score you will also see in Analytics: structure, pace/fillers/pauses, clarity, and audience impact.
                                 </p>
                                 <p>
                                     Improve the ingredients, then come back and try to lift the score.
@@ -219,8 +223,14 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     <div className="mt-1 text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
                         --
                     </div>
+                    {/* The hint names NO duration. Leaving this state depends on WORD COUNT
+                        (MIN_WORDS_FOR_DIRECTIONAL = 25), not elapsed time: 30 seconds of slow speech
+                        still shows nothing, and 25 words in 10 seconds shows the panel. The earlier
+                        "~30s" was `MIN_SECONDS_FOR_USABLE` — a different gate, for a different state,
+                        that additionally needs 75 words and a trusted transcript — so any time estimate
+                        here is fabricated. It also said "progress", which this card must not promise. */}
                     <p className="mt-2 text-sm font-semibold text-foreground/70" data-testid="live-score-empty-hint">
-                        Speak ~30s to see progress
+                        Speak a little more for session feedback.
                     </p>
                 </div>
             ) : (
@@ -240,30 +250,24 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     </div>
 
                     {/* #1047: guidance is NUMBERED (amber numerals) so the steps read as an ordered plan
-                        rather than an undifferentiated bullet dump — and it renders ONLY when this
-                        session produced enough speech to justify it. With no evidence we say so plainly
-                        instead of emitting generic openers that were never about the user's take. */}
-                    {hasGuidanceEvidence ? (
-                        <div>
-                            <h3 className="mb-2 text-sm font-bold text-foreground">
-                                Try this now
-                            </h3>
-                            <ol className="space-y-1.5" data-testid="live-coaching-actions">
-                                {result.actions.map((action, index) => (
-                                    <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
-                                        <span className="mt-px shrink-0 text-sm font-black tabular-nums text-primary" aria-hidden="true">
-                                            {index + 1}.
-                                        </span>
-                                        <span>{action}</span>
-                                    </li>
-                                ))}
-                            </ol>
-                        </div>
-                    ) : (
-                        <p className="text-sm font-semibold leading-snug text-foreground/70" data-testid="live-coaching-no-evidence">
-                            No guidance yet — it appears here once this session has enough speech to base it on.
-                        </p>
-                    )}
+                        rather than an undifferentiated bullet dump. Reaching this branch at all already
+                        means the session cleared the 25-word directional floor, so these actions are
+                        derived from real signals — never the generic openers (see the note above). */}
+                    <div>
+                        <h3 className="mb-2 text-sm font-bold text-foreground">
+                            Try this now
+                        </h3>
+                        <ol className="space-y-1.5" data-testid="live-coaching-actions">
+                            {result.actions.map((action, index) => (
+                                <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
+                                    <span className="mt-px shrink-0 text-sm font-black tabular-nums text-primary" aria-hidden="true">
+                                        {index + 1}.
+                                    </span>
+                                    <span>{action}</span>
+                                </li>
+                            ))}
+                        </ol>
+                    </div>
                 </div>
             )}
         </section>

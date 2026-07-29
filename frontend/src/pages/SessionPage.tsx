@@ -256,6 +256,8 @@ export const SessionPage: React.FC = () => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
                 <StatusNotificationBar
+                    // #1047: the page owns the gap below the status bar, not the shared component.
+                    className="mb-[26px]"
                     status={displayStatus}
                     analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
                     privateCta={
@@ -406,6 +408,16 @@ export const SessionPage: React.FC = () => {
                                 fillerCount={metrics.fillerCount}
                                 fillerData={metrics.fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
+                                // #1047: the card's six states are resolved from signals that ALREADY
+                                // exist — no new lifecycle state. `hasSpoken` separates "nothing has
+                                // happened yet" from a real result, and is derived from a captured
+                                // transcript or #1089/#1090's completed-take snapshot. `isFinalizing`
+                                // is the same #891 post-stop decode flag the transcript panel uses, so
+                                // the card cannot claim a count while one is still being computed.
+                                wordCount={metrics.wordCount}
+                                isListening={isListening}
+                                isFinalizing={isTranscriptFinalizing}
+                                hasSpoken={metrics.wordCount > 0 || completedSessionDurationSeconds !== null}
                                 className="min-h-0"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
@@ -429,7 +441,16 @@ export const SessionPage: React.FC = () => {
                                             </Button>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
-                                            <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                                            {/* #1047: the popover STAYS OPEN after a word is added. It used
+                                                to close immediately, which was survivable only because the
+                                                card below listed all 13 tracked words as chips — closing
+                                                revealed the new word there. With the pre-session grid
+                                                collapsed, closing would leave the user with no confirmation
+                                                at all that their word was accepted (the summary count going
+                                                13→14 never names the word). Staying open confirms the add in
+                                                the very list the user is looking at, and lets them add
+                                                several words without reopening. */}
+                                            <UserFillerWordsManager />
                                         </PopoverContent>
                                     </Popover>
                                 }

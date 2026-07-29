@@ -105,7 +105,12 @@ describe('LiveCoachingScoreCard', () => {
         // ONE panel carries the whole message: label, `--`, one hint.
         expect(screen.getByTestId('live-score-empty-panel')).toBeInTheDocument();
         expect(screen.getAllByText('--')).toHaveLength(1);
-        expect(screen.getByTestId('live-score-empty-hint')).toHaveTextContent('Speak ~30s to see progress');
+        // The hint names no duration (the real gate is word count, so any time figure is fabricated)
+        // and never says "progress", which would promise a feature that does not exist.
+        expect(screen.getByTestId('live-score-empty-hint'))
+            .toHaveTextContent('Speak a little more for session feedback.');
+        expect(screen.queryByText(/progress/i)).toBeNull();
+        expect(screen.queryByText(/\d+\s*s(ec|econds)?\b/i)).toBeNull();
 
         // The three other simultaneous "no data" statements are gone.
         expect(screen.queryByText(/score soon/i)).toBeNull();
@@ -113,28 +118,49 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.queryByTestId('live-score-confidence')).toBeNull();
     });
 
-    it('#1047: shows NO numbered guidance when no evidence supports it', () => {
-        render(
-            <LiveCoachingScoreCard
-                transcript=""
-                wordCount={0}
-                wpm={0}
-                clarityScore={0}
-                fillerCount={0}
-                elapsedSeconds={0}
-                pauseMetrics={emptyPauseMetrics}
-                engine="native"
-                isListening={false}
-                experimentAssignment={assignment}
-            />
-        );
+    // The generic openers (`calculateSpeakingScore` emits these below MIN_RELIABLE_SCORING_WORDS = 3)
+    // are advice invented from nothing. They must be unreachable on screen at EVERY word count — which
+    // the empty-signal collapse guarantees, since leaving 'warming-up' needs 25 words. Swept across the
+    // whole range rather than probed at one convenient value: an earlier version of this test used
+    // wordCount 0, which hit the empty panel and passed without ever exercising the guarantee.
+    const renderAtWordCount = (wordCount: number) => render(
+        <LiveCoachingScoreCard
+            transcript={Array(wordCount).fill('word').join(' ')}
+            wordCount={wordCount}
+            wpm={120}
+            clarityScore={80}
+            fillerCount={0}
+            elapsedSeconds={40}
+            pauseMetrics={emptyPauseMetrics}
+            engine="native"
+            isListening={false}
+            experimentAssignment={assignment}
+        />
+    );
 
-        expect(screen.queryByTestId('live-coaching-actions')).toBeNull();
-        expect(screen.queryByText('Try this now')).toBeNull();
-        // …and specifically none of the generic openers the score module falls back to.
-        expect(screen.queryByText(/Start with one complete thought/i)).toBeNull();
-        expect(screen.queryByText(/Say the main point before the context/i)).toBeNull();
-    });
+    // Below the 25-word directional floor the whole guidance block is collapsed away, which is what
+    // makes the generic openers unreachable — there is no separate evidence gate doing that work.
+    it.each([0, 1, 2, 3, 4, 10, 24])(
+        '#1047: collapses guidance entirely below the directional floor (wordCount %i)',
+        (wordCount) => {
+            renderAtWordCount(wordCount);
+
+            expect(screen.queryByText(/Start with one complete thought/i)).toBeNull();
+            expect(screen.queryByTestId('live-coaching-actions')).toBeNull();
+            expect(screen.queryByText('Try this now')).toBeNull();
+            expect(screen.getByTestId('live-score-empty-panel')).toBeInTheDocument();
+        }
+    );
+
+    it.each([25, 40, 90])(
+        '#1047: shows guidance derived from real signals above the floor (wordCount %i)',
+        (wordCount) => {
+            renderAtWordCount(wordCount);
+
+            expect(screen.getByTestId('live-coaching-actions')).toBeInTheDocument();
+            expect(screen.queryByText(/Start with one complete thought/i)).toBeNull();
+        }
+    );
 
     it('#1047: renders guidance as a NUMBERED list once evidence exists', () => {
         render(
@@ -157,28 +183,9 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.queryByTestId('live-coaching-no-evidence')).toBeNull();
     });
 
-    it('#1047: the card sizes to its content and never stretches to the neighbouring column', () => {
-        render(
-            <LiveCoachingScoreCard
-                transcript=""
-                wordCount={0}
-                wpm={0}
-                clarityScore={0}
-                fillerCount={0}
-                elapsedSeconds={0}
-                pauseMetrics={emptyPauseMetrics}
-                engine="native"
-                isListening={false}
-                experimentAssignment={assignment}
-                className="self-start"
-            />
-        );
-
-        const card = screen.getByTestId('live-coaching-score-card');
-        expect(card).toHaveClass('self-start');
-        expect(card).not.toHaveClass('self-stretch');
-        expect(card).not.toHaveClass('h-full');
-    });
+    // NOTE: whether the card stretches is decided by what SessionPage passes, so asserting it here —
+    // against a className this test itself supplies — would prove nothing. It is covered where the
+    // contract actually lives, in SessionPage.simplify1047.component.test.tsx.
 
     it('does not show a precise numeric score while the signal is only directional', () => {
         render(

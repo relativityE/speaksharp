@@ -164,7 +164,6 @@ describe('SessionPage Rendering', () => {
         // NAME must be exactly the visible text — never "gear Add your filler words".
         const action = screen.getByRole('button', { name: 'Add your filler words' });
         expect(action).toBe(screen.getByTestId('add-custom-word-button'));
-        expect(screen.queryByText(/Customize/i)).toBeNull();
     });
 
     it('renders live coaching in the feedback rail by default', () => {

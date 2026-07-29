@@ -368,7 +368,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
+                    {/* The wrapper must NOT be `shrink-0`: the mode-select trigger inside is `w-full
+                        sm:w-auto`, so on mobile it needs a wrapper that can take the remaining row width,
+                        or `w-full` would resolve against a content-sized box and collapse the control. */}
+                    <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex-none">
                     {/* Mode help now sits WITH the mode selector rather than beside the card label. */}
                     <HelpPopover
                         label="About transcription modes"

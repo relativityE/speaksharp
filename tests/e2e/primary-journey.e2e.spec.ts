@@ -18,7 +18,7 @@ import {
   programmaticLoginWithRoutes,
 } from './helpers';
 import { TEST_IDS } from '../constants';
-import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
+import { MOCK_TRANSCRIPTS_WITH_FILLERS } from './fixtures/mockData';
 
 const SCENARIOS = [
   {
@@ -92,13 +92,19 @@ test.describe('Primary User Journey Matrix', () => {
       await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
 
       // 5. Simulate Speech using the central file transcript fixture
-      await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
+      // #1047: this fixture carries real tracked fillers. The assertion below is that the evidence
+      // band EXPANDS because the user produced filler evidence — previously it passed against a grid
+      // of thirteen `0` chips, which proved only that the grid rendered, not that anything was
+      // detected. Driving a real count makes the proof mean what it claims.
+      await mockLiveTranscript(page, MOCK_TRANSCRIPTS_WITH_FILLERS as unknown as string[]);
 
       // Verify the session page story is live: transcript plus the current
       // evidence band, rather than the legacy standalone metric cards.
       await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
       await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
+      await expect(page.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'counts', { timeout: 15000 });
       await expect(page.getByTestId('filler-words-list')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).not.toHaveText('', { timeout: 15000 });
 
       // The product intentionally refuses to persist sub-5-second sessions.
       // Keep this proof aligned with the user-facing save contract instead of

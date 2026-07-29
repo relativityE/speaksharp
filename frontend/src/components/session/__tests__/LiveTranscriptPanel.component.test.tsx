@@ -137,8 +137,14 @@ describe('LiveTranscriptPanel', () => {
         expect(transcriptContainer).toHaveAttribute('data-scrollable-transcript', 'true');
         expect(transcriptContainer).toHaveClass('overflow-y-auto');
         expect(transcriptContainer).toHaveClass('live-transcript-scroll');
-        expect(transcriptContainer).toHaveClass('flex-1');
-        expect(transcriptContainer).toHaveClass('min-h-[160px]');
+        // #1047: the live viewport states its own floor AND ceiling instead of inheriting them from a
+        // stretched grid row. It previously relied on `flex-1` resolving against a definite column
+        // height; once the column sizes to its content that resolves to content height, which would
+        // have dropped the floor to 160px and let the panel grow without bound — leaving
+        // `overflow-y-auto` nothing to scroll and silently killing autoscroll on a long take.
+        expect(transcriptContainer).toHaveClass('min-h-[340px]');
+        expect(transcriptContainer).toHaveClass('max-h-[26rem]');
+        expect(transcriptContainer).not.toHaveClass('min-h-[160px]');
     });
 
     it('returns the finalized transcript to the top and releases the fixed live viewport height', async () => {
