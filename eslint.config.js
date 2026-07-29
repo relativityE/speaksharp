@@ -93,9 +93,9 @@ export default tseslint.config(
     },
   },
 
-  // Config for scripts
+  // Config for scripts (.mjs included: build/CI helpers such as vercel-ignore-build.mjs are Node ESM)
   {
-    files: ['scripts/**/*.js'],
+    files: ['scripts/**/*.{js,mjs}'],
     languageOptions: {
       globals: {
         ...globals.node,

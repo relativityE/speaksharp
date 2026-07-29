@@ -4,6 +4,7 @@
     "outputDirectory": "frontend/dist",
     "framework": "vite",
     "installCommand": "pnpm install --frozen-lockfile",
+    "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
     "rewrites": [
         {
             "source": "/api/(.*)",
@@ -21,6 +22,19 @@
                 {
                     "key": "Cache-Control",
                     "value": "no-cache"
+                }
+            ]
+        },
+        {
+            "source": "/(.*)",
+            "headers": [
+                {
+                    "key": "Cross-Origin-Opener-Policy",
+                    "value": "same-origin"
+                },
+                {
+                    "key": "Cross-Origin-Embedder-Policy",
+                    "value": "credentialless"
                 }
             ]
         }
