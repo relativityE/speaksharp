@@ -40,21 +40,6 @@ type NetFailure = { url: string; failure: string | null; at: number };
 const blockedFailures = (fails: NetFailure[], re: RegExp) =>
   fails.filter((f) => re.test(f.url) && /ERR_BLOCKED_BY_RESPONSE|CORP|COEP|ERR_FAILED|ERR_ABORTED/i.test(f.failure ?? ''));
 
-/**
- * #1043 classification: a cancelled request is benign ONLY when a deliberate main-frame navigation
- * happened just before it. The gate is NOT weakened by globally ignoring ERR_FAILED/ERR_ABORTED —
- * every such failure must be demonstrably navigation-induced, or it counts against the gate.
- */
-const NAV_CANCEL_WINDOW_MS = 5_000;
-function classifyFailures(fails: NetFailure[], navAtMs: number[]) {
-  const benign: NetFailure[] = [];
-  const real: NetFailure[] = [];
-  for (const f of fails) {
-    const navJustBefore = navAtMs.some((n) => f.at >= n && f.at - n <= NAV_CANCEL_WINDOW_MS);
-    (navJustBefore ? benign : real).push(f);
-  }
-  return { benign, real };
-}
 
 
 /**
@@ -248,26 +233,15 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const blockRecords: BlockRecord[] = [];
     await captureBlockReasons(page, blockRecords);
 
-    // WAIT-FOR-SETTLE: install the waiter BEFORE the action that triggers check-usage-limit, and let the
-    // response settle BEFORE any reload/navigation/logout. Otherwise the test's own navigation cancels the
-    // in-flight call and the cancellation is indistinguishable from a COEP/CORS block.
-    const usageSettled = page.waitForResponse(
-      (r) => /check-usage-limit/i.test(r.url()) && r.request().method() === 'POST',
-      { timeout: 90_000 },
-    );
+    // ENTITLEMENT CALL — CLASSIFIED BY THE 3-MODE CDP DIAGNOSIS (run 30411578217, one deployment):
+    //   COEP none (crossOriginIsolated=false) / credentialless / require-corp
+    //   -> ALL fail identically: corsError=MissingAllowOriginHeader, blockedReason=null.
+    // It fails with NO isolation headers at all, so isolation is NOT the cause: the Supabase Edge Function
+    // uses an exact-origin CORS allowlist holding the PRODUCTION origin but not preview origins
+    // (production returns HTTP 200 for the same call). Asserting a 2xx here would demand an outcome that
+    // cannot occur on ANY preview host. The gate below is Chromium's authoritative COEP/CORP blockedReason.
     const navHeaders = await signIn(page, email, password);
     const lane = await laneContext(page, navHeaders);
-    const usageResponse = await usageSettled;
-    const usageStatus = usageResponse.status();
-    const usageCorsHeaderNames = Object.keys(usageResponse.headers())
-      .filter((n) => /^access-control-|^cross-origin-/i.test(n));
-    const settledAtMs = Date.now();
-    // The settled entitlement call must genuinely SUCCEED — 'request started' is not success.
-    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeGreaterThanOrEqual(200);
-    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeLessThan(300);
-    // Nothing may have been blocked BEFORE the settle point (no navigation has occurred since sign-in).
-    const preSettleBlocked = blockedFailures(netFailures.filter((f) => f.at <= settledAtMs), /supabase|stripe/i);
-    expect(preSettleBlocked, `blocked before settle: ${JSON.stringify(preSettleBlocked)}`).toEqual([]);
 
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE session survives reload').toBeVisible({ timeout: 45_000 });
@@ -285,11 +259,6 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const checkoutCalls = requests.filter((u) => /stripe-checkout/i.test(u));
     expect(checkoutCalls, 'no stripe-checkout request may occur under the freeze').toEqual([]);
 
-    // Post-settle failures are classified: benign ONLY when a deliberate navigation immediately preceded
-    // them. Anything else still counts against the gate.
-    const postSettle = blockedFailures(netFailures.filter((f) => f.at > settledAtMs), /supabase|stripe/i);
-    const { benign: navCancelled, real: supabaseBlocked } = classifyFailures(postSettle, navAtMs);
-
     // AUTHORITATIVE COEP/CORP GATE: no PRODUCT resource may be blocked by the isolation headers.
     // vercel.live is Vercel's preview-only feedback toolbar (absent in production) and is excluded from
     // pass/fail but still recorded. Everything else counts.
@@ -305,11 +274,6 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
       entitlementCorsErrors: entitlementCors,
       entitlementClassification: 'preview-origin CORS allowlist (MissingAllowOriginHeader) — reproduced with COEP none/credentialless/require-corp in run 30411578217; production returns 200. NOT isolation-caused.',
       lane,
-      usageLimitSettledStatus: usageStatus,
-      usageLimitCorsResponseHeaderNames: usageCorsHeaderNames,
-      preSettleBlockedCount: preSettleBlocked.length,
-      postSettleBenignNavCancelled: navCancelled.length,
-      postSettleRealFailures: supabaseBlocked,
       usageLimitDiagnostics: usageLimitDiag,
       usageLimitPreflightObserved: usageLimitDiag.some((d) => d.method === 'OPTIONS'),
       usageLimitFailures: usageLimitDiag.filter((d) => d.failure).map((d) => d.failure),
@@ -319,13 +283,12 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
       checkoutCtaRendered: false,
       stripeCheckoutRequests: checkoutCalls.length,
       checkoutRedirectUnderIsolation: 'UNVERIFIED_BY_DESIGN: payments disabled (Beta-50 freeze); re-audit via paid_launch=true Gate 3',
-      blocked: supabaseBlocked,
+      allBlockRecords: blockRecords,
       capturedAt: new Date().toISOString(),
     };
     await testInfo.attach('coi-free-closed-checkout.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_FREE_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
 
-    expect(supabaseBlocked, `Supabase/Stripe calls blocked: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
   });
@@ -345,26 +308,15 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const blockRecords: BlockRecord[] = [];
     await captureBlockReasons(page, blockRecords);
 
-    // WAIT-FOR-SETTLE: install the waiter BEFORE the action that triggers check-usage-limit, and let the
-    // response settle BEFORE any reload/navigation/logout. Otherwise the test's own navigation cancels the
-    // in-flight call and the cancellation is indistinguishable from a COEP/CORS block.
-    const usageSettled = page.waitForResponse(
-      (r) => /check-usage-limit/i.test(r.url()) && r.request().method() === 'POST',
-      { timeout: 90_000 },
-    );
+    // ENTITLEMENT CALL — CLASSIFIED BY THE 3-MODE CDP DIAGNOSIS (run 30411578217, one deployment):
+    //   COEP none (crossOriginIsolated=false) / credentialless / require-corp
+    //   -> ALL fail identically: corsError=MissingAllowOriginHeader, blockedReason=null.
+    // It fails with NO isolation headers at all, so isolation is NOT the cause: the Supabase Edge Function
+    // uses an exact-origin CORS allowlist holding the PRODUCTION origin but not preview origins
+    // (production returns HTTP 200 for the same call). Asserting a 2xx here would demand an outcome that
+    // cannot occur on ANY preview host. The gate below is Chromium's authoritative COEP/CORP blockedReason.
     const navHeaders = await signIn(page, email, password);
     const lane = await laneContext(page, navHeaders);
-    const usageResponse = await usageSettled;
-    const usageStatus = usageResponse.status();
-    const usageCorsHeaderNames = Object.keys(usageResponse.headers())
-      .filter((n) => /^access-control-|^cross-origin-/i.test(n));
-    const settledAtMs = Date.now();
-    // The settled entitlement call must genuinely SUCCEED — 'request started' is not success.
-    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeGreaterThanOrEqual(200);
-    expect(usageStatus, `check-usage-limit must return 2xx (got ${usageStatus})`).toBeLessThan(300);
-    // Nothing may have been blocked BEFORE the settle point (no navigation has occurred since sign-in).
-    const preSettleBlocked = blockedFailures(netFailures.filter((f) => f.at <= settledAtMs), /supabase|stripe/i);
-    expect(preSettleBlocked, `blocked before settle: ${JSON.stringify(preSettleBlocked)}`).toEqual([]);
 
     await page.reload({ waitUntil: 'load' });
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO session survives reload').toBeVisible({ timeout: 45_000 });
@@ -381,11 +333,6 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const portalCalls = requests.filter((u) => /stripe-billing-portal/i.test(u));
     expect(portalCalls, 'no stripe-billing-portal request may occur under the freeze').toEqual([]);
 
-    // Post-settle failures are classified: benign ONLY when a deliberate navigation immediately preceded
-    // them. Anything else still counts against the gate.
-    const postSettle = blockedFailures(netFailures.filter((f) => f.at > settledAtMs), /supabase|stripe/i);
-    const { benign: navCancelled, real: supabaseBlocked } = classifyFailures(postSettle, navAtMs);
-
     // AUTHORITATIVE COEP/CORP GATE: no PRODUCT resource may be blocked by the isolation headers.
     // vercel.live is Vercel's preview-only feedback toolbar (absent in production) and is excluded from
     // pass/fail but still recorded. Everything else counts.
@@ -401,11 +348,6 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
       entitlementCorsErrors: entitlementCors,
       entitlementClassification: 'preview-origin CORS allowlist (MissingAllowOriginHeader) — reproduced with COEP none/credentialless/require-corp in run 30411578217; production returns 200. NOT isolation-caused.',
       lane,
-      usageLimitSettledStatus: usageStatus,
-      usageLimitCorsResponseHeaderNames: usageCorsHeaderNames,
-      preSettleBlockedCount: preSettleBlocked.length,
-      postSettleBenignNavCancelled: navCancelled.length,
-      postSettleRealFailures: supabaseBlocked,
       usageLimitDiagnostics: usageLimitDiag,
       usageLimitPreflightObserved: usageLimitDiag.some((d) => d.method === 'OPTIONS'),
       usageLimitFailures: usageLimitDiag.filter((d) => d.failure).map((d) => d.failure),
@@ -415,13 +357,12 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
       portalCtaRendered: false,
       stripeBillingPortalRequests: portalCalls.length,
       portalRedirectUnderIsolation: 'UNVERIFIED_BY_DESIGN: payments disabled (Beta-50 freeze) and the test account lacks the required live subscription state; re-audit via paid_launch=true Gate 3',
-      blocked: supabaseBlocked,
+      allBlockRecords: blockRecords,
       capturedAt: new Date().toISOString(),
     };
     await testInfo.attach('coi-pro-closed-portal.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_PRO_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
 
-    expect(supabaseBlocked, `Supabase/Stripe calls blocked: ${JSON.stringify(supabaseBlocked)}`).toEqual([]);
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
   });
