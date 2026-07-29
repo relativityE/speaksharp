@@ -12,13 +12,11 @@
 name: '#1087 Tester cohort audit (read-only)'
 
 on:
-  # Same-repo pull_request runs DO receive repository secrets (only fork PRs are restricted), so the
-  # audit can execute from its own branch without first merging a new workflow_dispatch file to the
-  # default branch. Path-scoped so it never runs on unrelated PRs.
-  pull_request:
-    paths:
-      - 'scripts/tester-cohort-audit.mjs'
-      - '.github/workflows/tester-cohort-audit.yml'
+  # TRUSTED EXECUTION ONLY. This job runs with SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS. A
+  # `pull_request` trigger would run the PR author's version of tester-cohort-audit.mjs with that
+  # secret in scope — a contributor could edit the script in their own PR to exfiltrate it. So the
+  # audit is `workflow_dispatch` ONLY: it runs the code on a ref a maintainer explicitly chooses,
+  # never PR-author-controlled code. (This is why the earlier evidence run was a manual dispatch.)
   workflow_dispatch:
     inputs:
       invite_cutoff:

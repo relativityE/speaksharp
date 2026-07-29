@@ -60,11 +60,23 @@ const AUTOMATED_LOCAL_PREFIXES = [
 function parseInternal() {
     const raw = process.env.AUDIT_EXCLUDED_EMAILS_JSON;
     if (!raw) return new Set();
+    // FAIL CLOSED on a malformed manifest. Silently returning an empty set (the old behaviour) would
+    // treat every internal owner/dev/QA account as NON-excluded, misclassifying them as human-likely
+    // testers — the exact over-count this manifest exists to prevent. A manifest that was supplied but
+    // cannot be parsed is an operator error, not "no exclusions": abort rather than emit a wrong cohort.
+    let parsed;
     try {
-        const parsed = JSON.parse(raw);
-        const list = Array.isArray(parsed) ? parsed : Object.values(parsed).flat();
-        return new Set(list.filter((x) => typeof x === 'string').map((s) => s.trim().toLowerCase()));
-    } catch { return new Set(); }
+        parsed = JSON.parse(raw);
+    } catch (e) {
+        console.error(`[cohort] AUDIT_EXCLUDED_EMAILS_JSON is set but not valid JSON. FAILING CLOSED. (${e.message})`);
+        process.exit(1);
+    }
+    const list = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? Object.values(parsed).flat() : null);
+    if (!Array.isArray(list)) {
+        console.error('[cohort] AUDIT_EXCLUDED_EMAILS_JSON parsed but is not an array or object of arrays. FAILING CLOSED.');
+        process.exit(1);
+    }
+    return new Set(list.filter((x) => typeof x === 'string').map((s) => s.trim().toLowerCase()));
 }
 
 /**
@@ -142,6 +154,9 @@ const byUser = new Map();
 for (const u of users) {
     byUser.set(u.id, {
         pseudonym: pseudo(u.id),
+        // email is retained ONLY to populate the restricted PO artifact below; it is NEVER written to
+        // the sanitized artifact or printed to the console.
+        email: u.email ?? null,
         cohort: classify(u.email, internalSet),
         created_at: u.created_at ?? null,
         last_sign_in_at: u.last_sign_in_at ?? null,
@@ -252,7 +267,9 @@ const restricted = {
     generated_at: new Date().toISOString(),
     warning: 'RESTRICTED — contains identity mapping. Short retention. Product Owner review only.',
     mapping: all.filter((a) => a.cohort === 'human-likely' || a.reports > 0)
-        .map((a) => ({ pseudonym: a.pseudonym, cohort: a.cohort, reports: a.reports, report_titles: a.report_titles })),
+        // The restricted artifact is the ONE place an actual identity appears — that is its purpose:
+        // the PO cannot follow up with a tester from a pseudonym alone. Short retention, PO-only.
+        .map((a) => ({ pseudonym: a.pseudonym, email: a.email, cohort: a.cohort, reports: a.reports, report_titles: a.report_titles })),
 };
 
 fs.writeFileSync(SANITIZED_OUT, JSON.stringify(sanitized, null, 2));
