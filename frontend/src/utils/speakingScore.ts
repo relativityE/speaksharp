@@ -346,7 +346,7 @@ export const calculateSpeakingScore = ({
         engine
     );
     const confidence = getConfidence(wordCount, elapsedSeconds, qualitySignals.trusted);
-    // #1047: `headline` is rendered ONLY by the Session card, which is now called "Session feedback"
+    // #1047: `headline` is rendered ONLY by the Session card, which is now called "Progress"
     // and must not name a Score. The directional line in particular renders on screen, so it said
     // "the score" on a card whose heading says otherwise. Analytics and the PDF do not consume this
     // field, so the wording change is contained to the Session surface.

@@ -70,7 +70,11 @@ test.describe('#1047 filler card states', () => {
     // A RESULT, not a promise of one — and never the pre-recording copy.
     await expect(page.getByTestId('filler-measured-zero'))
       .toContainText('No detected filler words in this transcript.');
-    await expect(page.getByText(/as you speak/i)).toHaveCount(0);
+    // Scoped to the FILLER CARD. A page-wide query also matches the coaching card's
+    // "Coaching updates as you speak." footer, which is unrelated and correct. The contract here is
+    // that the filler card stops promising future counts once a take has completed — the user HAS
+    // spoken, so "counts appear here as you speak" would be untrue.
+    await expect(card.getByText(/as you speak/i)).toHaveCount(0);
     await expect(page.getByTestId('filler-tracking-summary')).toHaveCount(0);
 
     // #894: an unqualified zero is exactly what a user over-trusts, so the caveat ships with it.

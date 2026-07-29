@@ -190,7 +190,9 @@ describe('SessionPage Rendering', () => {
 
         expect(screen.getByTestId('live-coaching-score-card')).toBeInTheDocument();
         expect(screen.getByTestId('filler-words-card')).toBeInTheDocument();
-        expect(screen.getByText('Session feedback')).toBeInTheDocument();
+        // #1047 NAMING (settled): the surface is "Progress", carried ONCE by the inner panel label —
+        // there is deliberately no heading stacking a second copy of the name above that panel.
+        expect(screen.getByTestId('live-score-panel-label')).toHaveTextContent('PROGRESS');
     });
 
 });
