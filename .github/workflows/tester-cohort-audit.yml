@@ -41,6 +41,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # FAIL CLOSED unless dispatched against the reviewed default branch. workflow_dispatch can target
+      # any ref, so without this a maintainer could be induced to run a MODIFIED tester-cohort-audit.mjs
+      # from a feature branch with the RLS-bypassing service-role secret in scope. This guard runs first,
+      # before checkout and before any secret is referenced, and aborts on a non-main ref.
+      - name: Trusted-ref guard (main only)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Refusing to run the service-role audit on ${{ github.ref }} — only refs/heads/main is trusted."
+          exit 1
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4

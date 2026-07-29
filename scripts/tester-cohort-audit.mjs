@@ -14,9 +14,9 @@
  *
  * PRIVACY (hard rules):
  *   - NEVER prints an email address, raw user id, JWT, transcript, audio detail or report body.
- *   - Each account is identified ONLY by a stable pseudonym: t_<10 hex> = HMAC(user_id, run salt-free
- *     project-scoped key) — stable within a run so rows can be discussed, never reversible to identity
- *     without the restricted mapping.
+ *   - Each account is identified ONLY by a stable pseudonym: t_<10 hex> = HMAC-SHA256(key=salt,
+ *     msg=user_id) via node:crypto createHmac — stable within a run so rows can be discussed, never
+ *     reversible to identity without the salt and the restricted mapping.
  *   - The restricted identity mapping (pseudonym -> email) is written to a SEPARATE file that is only
  *     uploaded as the restricted, short-retention Product Owner artifact.
  *
@@ -24,7 +24,7 @@
  * mutation of any kind.
  */
 import { createClient } from '@supabase/supabase-js';
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -44,7 +44,9 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 /** Stable, non-reversible pseudonym for an account. Never derived from the email. */
 const PSEUDO_SALT = process.env.COHORT_PSEUDONYM_SALT || '';
 if (!PSEUDO_SALT) { console.error('[cohort] COHORT_PSEUDONYM_SALT required (secret-salted pseudonyms). FAILING CLOSED.'); process.exit(1); }
-const pseudo = (userId) => 't_' + createHash('sha256').update(PSEUDO_SALT + '|' + String(userId)).digest('hex').slice(0, 10);
+// Real HMAC-SHA256 keyed by the salt — not a salt||id concatenation fed to a plain hash. Keyed HMAC
+// is the correct construction for a non-reversible, salt-bound pseudonym.
+const pseudo = (userId) => 't_' + createHmac('sha256', PSEUDO_SALT).update(String(userId)).digest('hex').slice(0, 10);
 
 /**
  * Automated accounts created by the test suite / CI. These are NOT testers and must never appear in
