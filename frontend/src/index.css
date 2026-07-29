@@ -72,9 +72,14 @@ All colors MUST be HSL.
      * Primary-nav active-page tint. Deliberately NOT the solid brand teal (--accent):
      * a solid teal pill competes with the page's primary CTA. This is a quiet tint with
      * a dark-teal label.
+     *
+     * Darkened deliberately: at 92% lightness the tint was ~1.14:1 against the white header
+     * and the two label colours differed by ~1.19:1, so the state read as hue alone — weak
+     * for deuteranopia/protanopia and on dim or sunlit displays. The tint is now ~1.5:1
+     * against white and the labels ~1.6:1 apart, while active text keeps ~7:1 on the pill.
      */
-    --nav-active-bg: 176 45% 92%;
-    --nav-active-fg: 176 77% 22%;
+    --nav-active-bg: 176 42% 78%;
+    --nav-active-fg: 176 80% 16%;
     --nav-item-fg: 217 19% 40%;
     --nav-item-fg-hover: 222 47% 11%;
 

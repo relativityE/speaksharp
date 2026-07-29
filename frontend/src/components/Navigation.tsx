@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { LogOut, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
-import { NAV_SECTIONS, navItemClassName, resolveNavSectionId } from "@/config/navSections";
+import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
@@ -78,8 +78,15 @@ const Navigation = () => {
   // (/session and /session/abc are Session; /session-other is not).
   const activeSectionId = resolveNavSectionId(location.pathname);
 
+  // Each bar is its own navigation landmark and each owns its own aria-current. Only one of
+  // the two is ever displayed (the desktop bar is `hidden md:flex`, i.e. display:none below
+  // md, which removes it from the accessibility tree entirely), so a screen reader never sees
+  // two current pages — while the bar the user can actually see always announces one.
   const MobileNav = () => (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 border-t border-border surface-shadow z-40 p-2 backdrop-blur-xl">
+    <nav
+      aria-label="Primary mobile"
+      className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 border-t border-border surface-shadow z-40 p-2 backdrop-blur-xl"
+    >
       <div className="flex justify-around items-center">
         {NAV_SECTIONS.map((item) => {
           const isActive = activeSectionId === item.id;
@@ -91,12 +98,8 @@ const Navigation = () => {
               asChild
               className="flex flex-col h-16"
             >
-              {/*
-                * No aria-current here on purpose: the mobile bar and the desktop bar are both in
-                * the DOM at once (only a CSS media query hides one), so duplicating aria-current
-                * would announce two current pages. The desktop primary nav is its sole owner.
-                */}
-              <Link to={item.path}>
+              {/* Colour alone is not an accessible current-page indicator on mobile either. */}
+              <Link to={item.path} aria-current={isActive ? "page" : undefined}>
                 <item.icon className="h-5 w-5 mb-1" aria-hidden="true" />
                 <span className="text-xs">{item.label}</span>
               </Link>
@@ -104,18 +107,22 @@ const Navigation = () => {
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 
 
   const isFreeUser = Boolean(session && !isEffectiveProUser);
+  // These route checks used raw pathname comparisons, which disagreed with the router:
+  // react-router matches `/session/` and `/Session` to the `/session` route, so the CTA
+  // rendered (and the bottom bar covered the recording UI) on URLs that ARE the session
+  // page. They now go through the one shared resolver.
   const showNavUpgrade = Boolean(
     arePaymentsEnabled() &&
     profile &&
     isFreeUser &&
-    location.pathname !== '/session' &&
-    location.pathname !== '/pricing' &&
-    !location.pathname.startsWith('/analytics')
+    activeSectionId !== 'session' &&
+    activeSectionId !== 'analytics' &&
+    normalizeNavPath(location.pathname) !== '/pricing'
   );
 
   useEffect(() => {
@@ -126,7 +133,8 @@ const Navigation = () => {
 
   return (
     <>
-      {/* The bar itself is the page header; the primary nav landmark is the labelled <nav> inside. */}
+      {/* The bar itself is the page header (banner landmark); the nav landmarks are the
+          labelled <nav> elements inside it. */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-[#e3e8f0]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -213,14 +221,16 @@ const Navigation = () => {
                   </Button>
                 </>
               ) : (
-                <>
+                // Signed-out visitors have no primary nav; these are their only nav links, so
+                // they get their own landmark rather than sitting loose in the header.
+                <nav aria-label="Account" className="flex items-center gap-2 sm:gap-4">
                   <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
                   <Button size="sm" className="font-semibold px-5 h-9 rounded-xl cta-shadow hover:brightness-95" style={{ background: '#d98a1f', color: '#241503' }} asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
-                </>
+                </nav>
               )}
             </div>
           </div>
@@ -228,7 +238,9 @@ const Navigation = () => {
       </header>
 
       {/* Mobile Navigation */}
-      {session && location.pathname !== '/session' && <MobileNav />}
+      {/* The fixed bottom bar must never cover the live recording UI — including on /session/
+          and /Session, which the router resolves to the very same session page. */}
+      {session && activeSectionId !== 'session' && <MobileNav />}
     </>
   );
 };

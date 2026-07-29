@@ -61,12 +61,19 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     },
 ] as const;
 
-/** Collapses trailing slashes and guarantees a leading slash: `/session/` -> `/session`. */
+/**
+ * Collapses trailing slashes, guarantees a leading slash, and lowercases.
+ *
+ * Lowercasing is not cosmetic: react-router matches case-insensitively by default (only
+ * `/admin/ops-status` opts into `caseSensitive`), so `/Session` and `/ANALYTICS` really
+ * do render those pages. A case-sensitive resolver would leave those routes with nothing
+ * highlighted.
+ */
 export const normalizeNavPath = (pathname: string | null | undefined): string => {
     if (!pathname) return '/';
     const withLeadingSlash = pathname.startsWith('/') ? pathname : `/${pathname}`;
     const trimmed = withLeadingSlash.replace(/\/+$/, '');
-    return trimmed === '' ? '/' : trimmed;
+    return (trimmed === '' ? '/' : trimmed).toLowerCase();
 };
 
 /**

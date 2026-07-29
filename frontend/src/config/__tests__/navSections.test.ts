@@ -54,6 +54,19 @@ describe('navSections — route -> active section resolution', () => {
         expect(normalizeNavPath(undefined)).toBe('/');
     });
 
+    it('matches case-insensitively, because react-router does', () => {
+        // /Session, /Practice and /ANALYTICS really do render those pages (only
+        // /admin/ops-status opts into caseSensitive), so they must highlight too.
+        expect(resolveNavSectionId('/Session')).toBe('session');
+        expect(resolveNavSectionId('/SESSION/ABC123')).toBe('session');
+        expect(resolveNavSectionId('/Practice')).toBe('home');
+        expect(resolveNavSectionId('/ANALYTICS')).toBe('analytics');
+        expect(resolveNavSectionId('/Analytics/Session-42')).toBe('analytics');
+        expect(normalizeNavPath('/Session/')).toBe('/session');
+        // Case-insensitivity must not weaken the boundary rule.
+        expect(resolveNavSectionId('/Session-Other')).toBeNull();
+    });
+
     it('never matches two sections for the same route', () => {
         const mapped = ['/', '/practice', '/practice/warmup', '/session', '/session/abc123', '/analytics', '/analytics/42'];
         for (const route of mapped) {

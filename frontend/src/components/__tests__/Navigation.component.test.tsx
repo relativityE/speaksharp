@@ -329,28 +329,68 @@ describe('Navigation', () => {
         } as unknown as AuthProvider.AuthContextType);
 
         const primaryNav = () => screen.getByRole('navigation', { name: 'Primary' });
+        const mobileNav = () => screen.queryByRole('navigation', { name: 'Primary mobile' });
 
-        it('exposes a labelled primary navigation landmark', () => {
+        it('exposes a labelled navigation landmark for each bar', () => {
             authed();
             renderNavigation('/practice');
             expect(primaryNav()).toBeInTheDocument();
+            expect(mobileNav()).toBeInTheDocument();
+        });
+
+        it('gives signed-out visitors a navigation landmark for their only nav links', () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: null,
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+
+            renderNavigation('/');
+            const accountNav = screen.getByRole('navigation', { name: 'Account' });
+            expect(accountNav).toContainElement(screen.getByText('Sign In'));
+            expect(accountNav).toContainElement(screen.getByText('Get Started'));
         });
 
         it.each([
             ['/', 'nav-home-link'],
             ['/practice', 'nav-home-link'],
+            ['/Practice', 'nav-home-link'],
+            ['/practice/', 'nav-home-link'],
             ['/session', 'nav-session-link'],
             ['/session/abc123', 'nav-session-link'],
             ['/analytics', 'nav-analytics-link'],
             ['/analytics/session-42', 'nav-analytics-link'],
-        ])('marks exactly one item current on %s', (route, expectedTestId) => {
+            ['/ANALYTICS', 'nav-analytics-link'],
+            ['/analytics/', 'nav-analytics-link'],
+        ])('marks exactly one item current in the desktop nav on %s', (route, expectedTestId) => {
             authed();
             renderNavigation(route);
 
-            const current = document.querySelectorAll('[aria-current="page"]');
-            expect(current).toHaveLength(1);
-            expect(current[0]).toBe(screen.getByTestId(expectedTestId));
-            expect(current[0].className).toContain(NAV_ITEM_ACTIVE_CLASS);
+            // Asserted PER LANDMARK, not per document: both bars are in the DOM, each owns its
+            // own aria-current, and only one of them is ever displayed.
+            const desktopCurrent = primaryNav().querySelectorAll('[aria-current="page"]');
+            expect(desktopCurrent).toHaveLength(1);
+            expect(desktopCurrent[0]).toBe(screen.getByTestId(expectedTestId));
+            expect(desktopCurrent[0].className).toContain(NAV_ITEM_ACTIVE_CLASS);
+        });
+
+        it.each([
+            ['/', 'Home'],
+            ['/practice', 'Home'],
+            ['/Practice', 'Home'],
+            ['/analytics', 'Analytics'],
+            ['/ANALYTICS', 'Analytics'],
+            ['/analytics/session-42', 'Analytics'],
+        ])('marks exactly one item current in the mobile nav on %s', (route, expectedLabel) => {
+            // The mobile bar is the ONLY bar a mobile screen reader sees: the desktop nav is
+            // `hidden md:flex`, i.e. display:none there, which drops it from the a11y tree.
+            // (The session routes are excluded because the bottom bar is suppressed there.)
+            authed();
+            renderNavigation(route);
+
+            const mobile = screen.getByRole('navigation', { name: 'Primary mobile' });
+            const mobileCurrent = mobile.querySelectorAll('[aria-current="page"]');
+            expect(mobileCurrent).toHaveLength(1);
+            expect(mobileCurrent[0]).toHaveTextContent(expectedLabel);
         });
 
         it.each([
@@ -410,15 +450,24 @@ describe('Navigation', () => {
             // jsdom applies no stylesheet, so the focus affordance is proven against the
             // stylesheet that ships with the class the element carries.
             expect(sessionLink.className).toContain(NAV_ITEM_BASE_CLASS);
+            // Must be a REAL outline: `outline: none` would satisfy a bare /outline:/ match.
             const focusBlock = navCss.match(/\.nav-item:focus-visible\s*\{([^}]*)\}/);
-            expect(focusBlock?.[1]).toMatch(/outline:/);
+            expect(focusBlock?.[1]).toMatch(/outline:\s*\d+px\s+solid\s+\S+/);
+            expect(focusBlock?.[1]).not.toMatch(/outline:\s*(none|0)\b/);
+            expect(focusBlock?.[1]).toMatch(/outline-offset:/);
         });
 
-        it('does not render the duplicate mobile nav on the session page', () => {
-            authed();
-            renderNavigation('/session');
-            expect(screen.getAllByText('Session')).toHaveLength(1);
-        });
+        it.each(['/session', '/session/', '/Session', '/session/abc123'])(
+            'suppresses the fixed bottom bar on %s so it cannot cover the recording UI',
+            (route) => {
+                authed();
+                renderNavigation(route);
+                // react-router resolves all of these to the session page, so the raw
+                // `pathname !== '/session'` check used to let the bar cover live recording.
+                expect(mobileNav()).not.toBeInTheDocument();
+                expect(screen.getAllByText('Session')).toHaveLength(1);
+            },
+        );
 
         it('decorative nav icons are hidden from assistive tech', () => {
             authed();
@@ -464,6 +513,28 @@ describe('Navigation', () => {
 
             expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+        });
+
+        it.each(['/session', '/session/', '/Session', '/session/abc123', '/analytics', '/ANALYTICS', '/analytics/42', '/pricing'])(
+            'hides the upgrade CTA on %s (route checks go through the shared resolver)',
+            (route) => {
+                mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+                mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+                renderNavigation(route);
+
+                expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
+            },
+        );
+
+        it('still shows the upgrade CTA on the prefix-sharing sibling /session-other', () => {
+            // Proof the suppression is boundary-aware and not a blunt prefix match.
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+            renderNavigation('/session-other');
+
+            expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
         });
 
         it('treats a "pro" status without Stripe evidence as not-yet-paid (CTA still shows)', () => {

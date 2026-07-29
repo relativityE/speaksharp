@@ -40,8 +40,11 @@ export class AuthPage {
   }
 
   async waitForPostAuth() {
-    const navElement = this.page.locator('nav');
-    await expect(navElement).toBeVisible({ timeout: 15000 });
+    // Scope to the app header, not `nav`: the header bar is always visible once the app has
+    // booted, whereas the desktop primary `nav` is `hidden md:flex` (invisible at mobile
+    // viewports) and the account `nav` only exists while signed out.
+    const appHeader = this.page.locator('header').first();
+    await expect(appHeader).toBeVisible({ timeout: 15000 });
     const startSpeakingButton = this.page.getByTestId('start-speaking-button');
     await expect(startSpeakingButton).toBeVisible({ timeout: 15000 });
   }
