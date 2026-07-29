@@ -47,7 +47,15 @@ CREATE OR REPLACE FUNCTION public.get_analytics_summary(p_user_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+-- 2b. SAFE SEARCH PATH. `SET search_path = public` alone omits pg_temp, and PostgreSQL then searches
+--     the TEMPORARY schema FIRST for any unqualified object. A caller who can create temp objects
+--     could define pg_temp.sessions and have this SECURITY DEFINER body read that instead of
+--     public.sessions. Naming pg_temp explicitly and LAST removes the precedence. This is standard
+--     SECURITY DEFINER hardening applied because we are already reissuing this function — it is not a
+--     claim that the unsafe form was practically exploitable here, which was deliberately not
+--     investigated further. The same pattern elsewhere in the migration tree is recorded in one
+--     follow-up security issue rather than fixed piecemeal.
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_overall_stats JSONB;
