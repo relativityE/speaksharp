@@ -233,11 +233,19 @@ export const SessionPage: React.FC = () => {
             data-testid="session-page" 
             className="min-h-screen bg-background pt-20"
         >
-            {/* Page Header */}
-            <div className="py-4 px-6 max-w-7xl mx-auto">
-                <div className="text-center">
-                    <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
-                    <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
+            {/* Page Header.
+                #1047: the "How Freestyle Practice works" guide now lives INSIDE this title block, centered
+                directly beneath the subhead, as its own dark-green island. It used to sit 12px above the
+                Mic-ready status bar as a white outlined button — two same-width white rounded rectangles
+                stacked, which read as a second status row instead of an action. Up here it is
+                unambiguously an entry point into the page, and the status bar below it is free to recede. */}
+            <div className="px-6 pt-4 max-w-7xl mx-auto">
+                <div className="flex flex-col items-center gap-[22px] text-center mb-[34px]" data-testid="session-title-block">
+                    <div>
+                        <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
+                        <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
+                    </div>
+                    <FreestyleHelpOverlay available={helpOverlayAvailable} />
                 </div>
             </div>
 
@@ -246,9 +254,7 @@ export const SessionPage: React.FC = () => {
                 (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                {/* #1042 PR2: help affordance directly above the Mic-ready status surface, left-aligned with
-                    the primary recording column. Informational only — never navigates, never records. */}
-                <FreestyleHelpOverlay available={helpOverlayAvailable} />
+                {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
                 <StatusNotificationBar
                     status={displayStatus}
                     analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
@@ -308,9 +314,13 @@ export const SessionPage: React.FC = () => {
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
-                <div className="pt-6">
-                    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-                        <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
+                {/* #1047: columns size to their CONTENT. `items-stretch` forced both columns to the height
+                    of the taller one, which is what let the coaching card's `margin-top:auto` footer open
+                    ~116px of blank space in the middle of that card, and what kept the empty transcript
+                    inflated to a full-height void. */}
+                <div>
+                    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+                        <div className="flex flex-col gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode || 'native'}
@@ -362,7 +372,8 @@ export const SessionPage: React.FC = () => {
                                     isFinalizing={isTranscriptFinalizing}
                                     recordingDurationSeconds={scoringDurationSeconds}
                                     nativeFormatting={nativeFormatting}
-                                    className="min-h-[340px] h-full"
+                                    // No forced 340px floor: the panel now sizes to its content and grows
+                                    // as words arrive (#1047).
                                 />
                               </LocalErrorBoundary>
                             </div>
@@ -382,7 +393,9 @@ export const SessionPage: React.FC = () => {
                                 engine={mode || 'native'}
                                 isListening={isListening}
                                 experimentAssignment={coachingAssignment}
-                                className="h-full min-h-0 self-stretch"
+                                // #1047: sizes to content, never stretched to match the recorder+transcript
+                                // column (see the grid comment above).
+                                className="min-h-0 self-start"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -397,14 +410,22 @@ export const SessionPage: React.FC = () => {
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
+                                            {/* #1047: teal secondary action, and the ONLY action on the
+                                                collapsed pre-session row. Named for the OUTCOME, not the
+                                                mechanism: "Customize" describes machinery and leaves the
+                                                user guessing, whereas this card's whole job is to say what
+                                                will be tracked — so the action says what you get. Same
+                                                popover, same custom-filler-word manager as before; label
+                                                only. The gear is decorative so the accessible name is
+                                                exactly the visible text. */}
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
+                                                className="text-accent underline-offset-4 hover:bg-accent/10 hover:text-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                 data-testid="add-custom-word-button"
                                             >
-                                                <Settings className="h-4 w-4" />
-                                                Custom
+                                                <Settings className="h-4 w-4" aria-hidden="true" />
+                                                Add your filler words
                                             </Button>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">

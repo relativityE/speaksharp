@@ -87,6 +87,24 @@ All colors MUST be HSL.
     --bottom-nav-height: 5rem;
     --toast-offset-top: calc(var(--header-height) + 0.75rem);
     --toast-offset-bottom: 1.5rem;
+
+    /* #1047 Practice Session surface tokens. The Session page uses the shadcn system (index.css),
+       NOT the `.practice-root` warm palette in practice.css — so these live here with the rest of the
+       app-shell tokens and are consumed as hsl(var(--…)); components carry no raw hex. */
+    /* Brand dark green — the filled "How Freestyle Practice works" island. It must NOT be another
+       white rounded rectangle: as a white ghost button above a white status bar it read as a second
+       status row rather than as an action. */
+    --session-green-deep: 164 74% 17%;
+    --session-green-deep-hover: 164 74% 13%;
+    --session-green-deep-foreground: 0 0% 100%;
+    /* Receding ambient-status tint for the demoted "Mic ready" bar. */
+    --session-green-soft: 160 44% 94%;
+    --session-green-soft-border: 160 32% 74%;
+    --session-green-soft-text: 164 74% 17%;
+    /* Warm tile behind the collapsed filler row's glyph (warm = evidence, matching the filler chips). */
+    --session-warm-tile: 36 88% 92%;
+    --session-warm-tile-text: 30 84% 30%;
+    --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
   .dark {
@@ -139,10 +157,23 @@ All colors MUST be HSL.
     --chart-4: 220 9% 46%;
     --chart-5: 0 72% 51%;
 
+    /* #1092 nav active-state (dark theme) */
     --nav-active-bg: 176 40% 20%;
     --nav-active-fg: 176 55% 80%;
     --nav-item-fg: 215 18% 72%;
     --nav-item-fg-hover: 210 35% 96%;
+
+    /* #1047 dark-theme counterparts. The deep green lightens so white text stays legible on it, and
+       the "soft" ambient tint becomes a low-luminance wash rather than a pale card. */
+    --session-green-deep: 164 60% 26%;
+    --session-green-deep-hover: 164 60% 31%;
+    --session-green-deep-foreground: 0 0% 100%;
+    --session-green-soft: 164 30% 15%;
+    --session-green-soft-border: 164 26% 30%;
+    --session-green-soft-text: 160 55% 78%;
+    --session-warm-tile: 32 40% 20%;
+    --session-warm-tile-text: 36 85% 72%;
+    --shadow-session-help: 0 6px 16px -6px hsl(164 60% 26% / 0.55), 0 2px 5px -2px hsl(164 60% 26% / 0.4);
   }
 }
 
@@ -208,6 +239,11 @@ All colors MUST be HSL.
 
 .cta-shadow {
   box-shadow: var(--shadow-cta);
+}
+
+/* #1047: the soft dark-green lift under the "How Freestyle Practice works" island. */
+.session-help-shadow {
+  box-shadow: var(--shadow-session-help);
 }
 
 .text-gradient-brand {

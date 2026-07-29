@@ -3,6 +3,7 @@ import { Target, TrendingUp } from 'lucide-react';
 import { HelpPopover } from './HelpPopover';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { calculateSpeakingScore } from '@/utils/speakingScore';
+import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
 import type { SessionCoachingAssignment } from '@/services/sessionCoachingExperiment';
 import {
     trackSessionCoachingCardViewed,
@@ -69,6 +70,18 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
         : result.confidence === 'directional'
             ? 'bg-amber-50 text-amber-900 border border-amber-300'
             : 'bg-muted text-foreground/70 border border-border';
+    // #1047: EVIDENCE GATE. `calculateSpeakingScore` falls back to generic openers ("Start with one
+    // complete thought.") when there are too few words to say anything about THIS session. That is
+    // invented advice dressed as feedback, so it must not be numbered and presented as guidance. Below
+    // the reliable-scoring floor we show an explicit neutral first-session state instead; the numbered
+    // list appears only once the session itself supports it.
+    const hasGuidanceEvidence = wordCount >= ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WORDS;
+    // #1047: at 'warming-up' the card stated "no data" THREE times at once — a `--` value, a
+    // "SCORE SOON" sublabel, and a "Speak a little more to get a useful score" headline (plus a
+    // "Confidence: Building" chip and an empty progress bar). One statement is enough. This collapses
+    // ONLY the genuinely-empty state; 'directional' still carries real information ("Early signal",
+    // "Confidence: Directional") and is left exactly as it was.
+    const isEmptySignal = result.confidence === 'warming-up';
     const formatBreakdown = (value: number) => `${Math.round(value * 10)}%`;
     const trackedCardKeyRef = React.useRef<string | null>(null);
     const trackedNumericKeyRef = React.useRef<string | null>(null);
@@ -107,7 +120,11 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                         Live Coaching
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score*</h2>
+                        {/* #1047 LABEL RULE: NOT "SpeakSharp Progress". Progress does not exist yet, and a
+                            label must not promise a feature that is not there. "Session feedback" is the
+                            neutral, truthful name for what this card actually shows. The asterisk is gone
+                            too — it implied a disclaimer with nowhere to read it. */}
+                        <h2 className="text-xl font-extrabold text-foreground">Session feedback</h2>
                         <HelpPopover
                             label="About the SpeakSharp Score"
                             testId="score-help"
@@ -156,64 +173,99 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                     </p>
                                 )}
                                 <p className="border-t border-border pt-2 text-[11px] leading-snug text-foreground/60">
-                                    *SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
+                                    SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
                                 </p>
                             </div>
                         </HelpPopover>
                     </div>
-                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75" data-testid="live-score-headline">
-                        {result.headline}
+                    {/* The headline is suppressed in the empty state — it was the third simultaneous way
+                        of saying "no data yet". */}
+                    {!isEmptySignal && (
+                        <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75" data-testid="live-score-headline">
+                            {result.headline}
+                        </p>
+                    )}
+                </div>
+
+                {!isEmptySignal && (
+                    <div className="min-w-[120px] rounded-lg border border-[hsl(var(--border-strong))] bg-white px-4 py-3 text-center surface-shadow">
+                        <div className="text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
+                            {showNumericScore ? result.score.toFixed(1) : '--'}
+                        </div>
+                        <div className="mt-1 text-xs font-bold uppercase tracking-wider text-foreground/70">
+                            {showNumericScore ? 'out of 10' : 'score soon'}
+                        </div>
+                        <div
+                            className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${confidenceChipClass}`}
+                            data-testid="live-score-confidence"
+                            data-score-confidence={result.confidence}
+                            data-transcript-trusted={result.qualitySignals.trusted ? 'true' : 'false'}
+                            title="Transcript quality affects how confidently the score is shown."
+                        >
+                            {confidenceText}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* The SINGLE no-score-yet panel: one label, one `--`, one hint. Nothing else in the card
+                repeats the fact that there is no data. */}
+            {isEmptySignal ? (
+                <div className={`${SESSION_INSET_SURFACE_CLASS} p-3 text-center`} data-testid="live-score-empty-panel">
+                    {/* The panel's own label. Deliberately NOT a second "Session feedback" — the card
+                        heading already says that, and repeating it would reintroduce the duplication
+                        this collapse exists to remove. */}
+                    <div className="text-xs font-bold uppercase tracking-wider text-foreground/70">Score</div>
+                    <div className="mt-1 text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
+                        --
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-foreground/70" data-testid="live-score-empty-hint">
+                        Speak ~30s to see progress
                     </p>
                 </div>
-
-                <div className="min-w-[120px] rounded-lg border border-[hsl(var(--border-strong))] bg-white px-4 py-3 text-center surface-shadow">
-                    <div className="text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
-                        {showNumericScore ? result.score.toFixed(1) : '--'}
+            ) : (
+                <div className={`${SESSION_INSET_SURFACE_CLASS} p-3`}>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-sm font-bold text-foreground">{result.label}</span>
+                        <span className="flex items-center gap-1 text-xs font-bold text-foreground/70">
+                            <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
+                            {showNumericScore ? result.target.label : confidenceLabel}
+                        </span>
                     </div>
-                    <div className="mt-1 text-xs font-bold uppercase tracking-wider text-foreground/70">
-                        {showNumericScore ? 'out of 10' : 'score soon'}
+                    <div className="mb-3 h-2.5 overflow-hidden rounded-full bg-white border border-border">
+                        <div
+                            className="h-full rounded-full bg-primary transition-all duration-300"
+                            style={{ width: `${showNumericScore ? scorePercent : 0}%` }}
+                        />
                     </div>
-                    <div
-                        className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${confidenceChipClass}`}
-                        data-testid="live-score-confidence"
-                        data-score-confidence={result.confidence}
-                        data-transcript-trusted={result.qualitySignals.trusted ? 'true' : 'false'}
-                        title="Transcript quality affects how confidently the score is shown."
-                    >
-                        {confidenceText}
-                    </div>
-                </div>
-            </div>
 
-            <div className={`${SESSION_INSET_SURFACE_CLASS} flex-1 p-3`}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="text-sm font-bold text-foreground">{result.label}</span>
-                    <span className="flex items-center gap-1 text-xs font-bold text-foreground/70">
-                        <TrendingUp className="h-3.5 w-3.5" />
-                        {showNumericScore ? result.target.label : confidenceLabel}
-                    </span>
+                    {/* #1047: guidance is NUMBERED (amber numerals) so the steps read as an ordered plan
+                        rather than an undifferentiated bullet dump — and it renders ONLY when this
+                        session produced enough speech to justify it. With no evidence we say so plainly
+                        instead of emitting generic openers that were never about the user's take. */}
+                    {hasGuidanceEvidence ? (
+                        <div>
+                            <h3 className="mb-2 text-sm font-bold text-foreground">
+                                Try this now
+                            </h3>
+                            <ol className="space-y-1.5" data-testid="live-coaching-actions">
+                                {result.actions.map((action, index) => (
+                                    <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
+                                        <span className="mt-px shrink-0 text-sm font-black tabular-nums text-primary" aria-hidden="true">
+                                            {index + 1}.
+                                        </span>
+                                        <span>{action}</span>
+                                    </li>
+                                ))}
+                            </ol>
+                        </div>
+                    ) : (
+                        <p className="text-sm font-semibold leading-snug text-foreground/70" data-testid="live-coaching-no-evidence">
+                            No guidance yet — it appears here once this session has enough speech to base it on.
+                        </p>
+                    )}
                 </div>
-                <div className="mb-3 h-2.5 overflow-hidden rounded-full bg-white border border-border">
-                    <div
-                        className="h-full rounded-full bg-primary transition-all duration-300"
-                        style={{ width: `${showNumericScore ? scorePercent : 0}%` }}
-                    />
-                </div>
-
-                <div>
-                    <h3 className="mb-2 text-sm font-bold text-foreground">
-                        Try this now
-                    </h3>
-                    <ul className="space-y-1.5" data-testid="live-coaching-actions">
-                        {result.actions.map((action) => (
-                            <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
-                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                                <span>{action}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            </div>
+            )}
         </section>
     );
 };

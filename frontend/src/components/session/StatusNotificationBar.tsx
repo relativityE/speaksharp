@@ -144,6 +144,13 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const Icon = config.icon;
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
     const isProminent = status.type === 'download-required' || status.type === 'downloading' || status.type === 'init-failed' || status.type === 'error';
+    // #1047: AMBIENT status must RECEDE. At rest this bar said "Mic ready" as a full-width white card
+    // with a shadow — identical surface treatment to the recorder card itself, so a passive
+    // acknowledgement carried the same visual weight as the thing you actually came here to use.
+    // Only the two at-rest states are demoted: a tinted pale wash, a hairline border, dark-green
+    // 14px/700 text and NO shadow. Every attention-worthy state (warming/recording/downloading/
+    // warning/error/init-failed) keeps its existing prominence untouched.
+    const isQuiet = status.type === 'ready' || status.type === 'idle';
 
     // Secondary status follows the caller-filtered status so inactive private setup
     // progress does not leak into Free/Native Browser views.
@@ -239,11 +246,16 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full px-4 ${isProminent ? 'py-4' : 'py-3'} rounded-xl border ${config.bgClass} ${className} transition-all duration-300`}
+            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border mb-[26px] transition-all duration-300 ${
+                isQuiet
+                    ? 'rounded-[10px] px-[18px] py-[12px] bg-[hsl(var(--session-green-soft))] border-[hsl(var(--session-green-soft-border))]'
+                    : `rounded-xl px-4 ${isProminent ? 'py-4' : 'py-3'} ${config.bgClass}`
+            } ${className}`}
             role="status"
             aria-live="polite"
             data-testid="live-session-header"
             data-state={status.type}
+            data-quiet={isQuiet ? 'true' : 'false'}
             data-recording={isListening}
             data-engine={activeEngine || 'none'}
             data-session-saved={displayMessage?.includes('✓') || status.message?.includes('✓')}
@@ -253,6 +265,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 <div className="relative mt-0.5 shrink-0">
                     {emoji ? (
                         <span className="text-xl leading-none" role="img" aria-label="status-icon">{emoji}</span>
+                    ) : isQuiet ? (
+                        // Small circular check — a quiet acknowledgement, not an alert.
+                        <CheckCircle2 className="h-4 w-4 text-[hsl(var(--session-green-soft-text))]" aria-hidden="true" />
                     ) : (
                         <Icon className={`h-5 w-5 ${config.iconClass} ${isAnimated ? 'animate-spin' : ''}`} />
                     )}
@@ -265,7 +280,10 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     )}
                 </div>
                 <div className="flex min-w-0 flex-col">
-                    <span className={`${isProminent ? 'text-sm' : 'text-[13px]'} font-semibold leading-snug ${config.textClass}`} data-testid="status-message-text">
+                    <span className={isQuiet
+                        ? 'text-[14px] font-bold leading-snug text-[hsl(var(--session-green-soft-text))]'
+                        : `${isProminent ? 'text-sm' : 'text-[13px]'} font-semibold leading-snug ${config.textClass}`
+                    } data-testid="status-message-text">
                         {displayMessage}
                     </span>
                     {displayDetail && (

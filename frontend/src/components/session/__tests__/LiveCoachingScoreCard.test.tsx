@@ -23,11 +23,13 @@ describe('LiveCoachingScoreCard', () => {
         render(
             <LiveCoachingScoreCard
                 transcript="Today I want to make one clear point because the team needs a simple plan with one concrete example."
-                wordCount={20}
+                // Past the warming-up floor on purpose: this test is about help-vs-default visibility,
+                // and #1047 collapses the genuinely-empty state down to a single panel (covered below).
+                wordCount={30}
                 wpm={145}
                 clarityScore={88}
                 fillerCount={1}
-                elapsedSeconds={25}
+                elapsedSeconds={45}
                 pauseMetrics={{
                     totalPauses: 2,
                     pausesPerMinute: 4,
@@ -44,7 +46,11 @@ describe('LiveCoachingScoreCard', () => {
         );
 
         // Visible by default: heading, score value, confidence chip, and the "Try this now" actions.
-        expect(screen.getByText('SpeakSharp Score*')).toBeInTheDocument();
+        // #1047: the card is labelled "Session feedback" — never "SpeakSharp Progress" (Progress does
+        // not exist yet and the label must not promise it) and never with the orphaned asterisk.
+        expect(screen.getByText('Session feedback')).toBeInTheDocument();
+        expect(screen.queryByText(/SpeakSharp Progress/i)).toBeNull();
+        expect(screen.queryByText('SpeakSharp Score*')).toBeNull();
         expect(screen.getByTestId('live-session-score')).toBeInTheDocument();
         expect(screen.getByTestId('live-score-confidence')).toBeInTheDocument();
         expect(screen.getByText('Try this now')).toBeInTheDocument();
@@ -72,6 +78,106 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Audience Impact');
         expect(screen.getByText(/not a black box/i)).toBeInTheDocument();
         expect(screen.getByText(/SpeakSharp Score is a directional practice signal/i)).toBeInTheDocument();
+    });
+
+    // #1047 focused coverage.
+    const emptyPauseMetrics = {
+        totalPauses: 0, pausesPerMinute: 0, averagePauseDuration: 0,
+        longestPause: 0, silencePercentage: 0, transitionPauses: 0, extendedPauses: 0,
+    };
+
+    it('#1047: states "no score yet" exactly ONCE before there is a signal', () => {
+        render(
+            <LiveCoachingScoreCard
+                transcript=""
+                wordCount={0}
+                wpm={0}
+                clarityScore={0}
+                fillerCount={0}
+                elapsedSeconds={0}
+                pauseMetrics={emptyPauseMetrics}
+                engine="native"
+                isListening={false}
+                experimentAssignment={assignment}
+            />
+        );
+
+        // ONE panel carries the whole message: label, `--`, one hint.
+        expect(screen.getByTestId('live-score-empty-panel')).toBeInTheDocument();
+        expect(screen.getAllByText('--')).toHaveLength(1);
+        expect(screen.getByTestId('live-score-empty-hint')).toHaveTextContent('Speak ~30s to see progress');
+
+        // The three other simultaneous "no data" statements are gone.
+        expect(screen.queryByText(/score soon/i)).toBeNull();
+        expect(screen.queryByTestId('live-score-headline')).toBeNull();
+        expect(screen.queryByTestId('live-score-confidence')).toBeNull();
+    });
+
+    it('#1047: shows NO numbered guidance when no evidence supports it', () => {
+        render(
+            <LiveCoachingScoreCard
+                transcript=""
+                wordCount={0}
+                wpm={0}
+                clarityScore={0}
+                fillerCount={0}
+                elapsedSeconds={0}
+                pauseMetrics={emptyPauseMetrics}
+                engine="native"
+                isListening={false}
+                experimentAssignment={assignment}
+            />
+        );
+
+        expect(screen.queryByTestId('live-coaching-actions')).toBeNull();
+        expect(screen.queryByText('Try this now')).toBeNull();
+        // …and specifically none of the generic openers the score module falls back to.
+        expect(screen.queryByText(/Start with one complete thought/i)).toBeNull();
+        expect(screen.queryByText(/Say the main point before the context/i)).toBeNull();
+    });
+
+    it('#1047: renders guidance as a NUMBERED list once evidence exists', () => {
+        render(
+            <LiveCoachingScoreCard
+                transcript="The point is simple. First, practice privately because it builds confidence. For example, one focused rehearsal makes the next meeting easier."
+                wordCount={90}
+                wpm={200}
+                clarityScore={70}
+                fillerCount={12}
+                elapsedSeconds={60}
+                pauseMetrics={emptyPauseMetrics}
+                engine="cloud"
+                isListening
+                experimentAssignment={assignment}
+            />
+        );
+
+        const actions = screen.getByTestId('live-coaching-actions');
+        expect(actions.tagName).toBe('OL');
+        expect(screen.queryByTestId('live-coaching-no-evidence')).toBeNull();
+    });
+
+    it('#1047: the card sizes to its content and never stretches to the neighbouring column', () => {
+        render(
+            <LiveCoachingScoreCard
+                transcript=""
+                wordCount={0}
+                wpm={0}
+                clarityScore={0}
+                fillerCount={0}
+                elapsedSeconds={0}
+                pauseMetrics={emptyPauseMetrics}
+                engine="native"
+                isListening={false}
+                experimentAssignment={assignment}
+                className="self-start"
+            />
+        );
+
+        const card = screen.getByTestId('live-coaching-score-card');
+        expect(card).toHaveClass('self-start');
+        expect(card).not.toHaveClass('self-stretch');
+        expect(card).not.toHaveClass('h-full');
     });
 
     it('does not show a precise numeric score while the signal is only directional', () => {

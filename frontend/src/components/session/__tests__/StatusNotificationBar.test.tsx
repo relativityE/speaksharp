@@ -58,7 +58,7 @@ describe('StatusNotificationBar', () => {
         expect(screen.queryByTitle(/Private transcription: on-device processing/i)).toBeNull();
     });
 
-    it('uses neutral styling for ready state instead of a full green alert band', () => {
+    it('demotes the at-rest ready bar to a receding tint with no shadow, never a green alert band', () => {
         vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
             const state = {
                 activeEngine: 'native',
@@ -71,8 +71,27 @@ describe('StatusNotificationBar', () => {
         render(<StatusNotificationBar status={{ type: 'ready', message: 'Mic ready' }} />);
 
         const statusBar = screen.getByTestId('live-session-header');
-        expect(statusBar).toHaveClass('bg-card', 'border-[hsl(var(--border-strong))]');
+        // #1047: ambient status recedes. It is a pale tinted wash with a hairline border and NO shadow —
+        // it must never again share the recorder card's own white+shadow surface treatment, and it must
+        // still never be the loud success alert band the original guard was written against.
+        expect(statusBar).toHaveAttribute('data-quiet', 'true');
+        expect(statusBar).toHaveClass('bg-[hsl(var(--session-green-soft))]');
+        expect(statusBar).not.toHaveClass('surface-shadow');
+        expect(statusBar).not.toHaveClass('bg-card');
         expect(statusBar).not.toHaveClass('bg-emerald-50', 'border-emerald-200');
+    });
+
+    it('keeps attention-worthy states prominent (only the at-rest states are demoted)', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = { activeEngine: 'native', isListening: false, modelLoadingProgress: null };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'error', message: 'Something went wrong' }} />);
+
+        const statusBar = screen.getByTestId('live-session-header');
+        expect(statusBar).toHaveAttribute('data-quiet', 'false');
+        expect(statusBar).toHaveClass('surface-shadow');
     });
 
     it('replaces generic error copy with actionable recording recovery copy', () => {

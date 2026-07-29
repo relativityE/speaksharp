@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -48,11 +49,17 @@ export function FreestyleHelpOverlay({ available, className = '' }: { available:
     }, [disabled]);
 
     return (
-        <div className={`mb-2 ${className}`}>
+        <div className={className}>
             <Button
                 ref={triggerRef}
                 type="button"
-                variant="outline"
+                // #1047: an ISLAND, not a ghost button. Previously this was a white outlined button 12px
+                // above the white status bar, which made the page open with two same-width white rounded
+                // rectangles stacked on top of each other — so the guide read as a SECOND STATUS ROW
+                // rather than as something you can do. Filling it with the brand dark green (token, never
+                // an inline hex) and giving it a leading play glyph makes it unmistakably an action and
+                // visually disjoint from the ambient status surface beneath it.
+                variant="ghost"
                 size="sm"
                 // aria-disabled (NOT native `disabled`) keeps the control focusable so the persistent
                 // explanation below is reachable by assistive tech; activation is blocked in onClick.
@@ -60,9 +67,15 @@ export function FreestyleHelpOverlay({ available, className = '' }: { available:
                 aria-describedby={disabled ? 'freestyle-help-disabled-reason' : undefined}
                 data-disabled={disabled ? 'true' : 'false'}
                 data-testid="freestyle-help-button"
-                className={disabled ? 'opacity-50' : ''}
+                // `whitespace-normal` + `max-w-full` override the shared Button's `whitespace-nowrap`:
+                // at a 320px viewport the label is wider than the content box, and a nowrap island would
+                // push the page into horizontal scroll.
+                className={`session-help-shadow inline-flex h-auto max-w-full items-center gap-[8px] whitespace-normal rounded-[10px] bg-[hsl(var(--session-green-deep))] px-[22px] py-[13px] text-center text-[15px] font-bold leading-tight text-[hsl(var(--session-green-deep-foreground))] hover:bg-[hsl(var(--session-green-deep-hover))] hover:text-[hsl(var(--session-green-deep-foreground))] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${disabled ? 'opacity-50' : ''}`}
                 onClick={() => { if (!disabled) setOpen(true); }}
             >
+                {/* Decorative ▷ cue — a lucide glyph, never a Unicode character, and hidden from AT so the
+                    accessible name stays exactly the guide's title. */}
+                <Play className="h-4 w-4 fill-current" aria-hidden="true" />
                 {HELP_TITLE}
             </Button>
             {/* Persistent accessible explanation while disabled — meaning is carried by text, not styling. */}
