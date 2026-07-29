@@ -9,9 +9,17 @@ import { computeWasmThreadCount, MAX_WASM_THREADS } from '../../frontend/src/ser
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * #1043: the cross-origin-isolation headers (which unlock multi-threaded WASM for Private-v2) must be
- * scoped to PREVIEW deployments only. Production must keep sending NO COOP/COEP until that rollout is
- * separately approved. This locks the scoping so an accidental edit cannot switch production to isolated.
+ * #1043: the cross-origin-isolation headers unlock multi-threaded WASM for Private-v2. They now apply to
+ * ALL hosts, including production — this PR IS the production activation, so merging it makes testers
+ * faster rather than landing an inactive preview-only configuration.
+ *
+ * Compatibility was proven on the PRODUCTION origin while genuinely isolated (CDP control run
+ * 30412189758): crossOriginIsolated=true, SharedArrayBuffer available, authenticated check-usage-limit
+ * HTTP 200 with full CORS headers, and ZERO COEP/CORP/CORS blocks — under both credentialless and
+ * require-corp. credentialless is the shipped mode (the narrower of the two).
+ *
+ * These tests lock the exact header contract so an accidental edit cannot silently change the isolation
+ * mode or drop the headers (which would silently revert every user to single-threaded decode).
  */
 const vercelConfig = JSON.parse(
     fs.readFileSync(path.resolve(HERE, '../../vercel.json'), 'utf8'),
@@ -27,7 +35,7 @@ const isolationEntries = vercelConfig.headers.filter((entry) =>
     entry.headers.some((h) => h.key.toLowerCase() === 'cross-origin-embedder-policy'),
 );
 
-describe('#1043 cross-origin isolation is preview-scoped, never global production', () => {
+describe('#1043 cross-origin isolation ships to production (this PR is the activation)', () => {
     it('declares exactly one isolation header entry', () => {
         expect(isolationEntries).toHaveLength(1);
     });
@@ -38,21 +46,16 @@ describe('#1043 cross-origin isolation is preview-scoped, never global productio
         expect(kv['cross-origin-embedder-policy']).toBe('credentialless');
     });
 
-    it('is GATED by a host condition — never unconditional', () => {
-        const has = isolationEntries[0].has ?? [];
-        expect(has.length).toBeGreaterThan(0);
-        expect(has.some((c) => c.type === 'host')).toBe(true);
+    it('applies to EVERY host — production included, so merging actually activates it', () => {
+        // A host condition here would mean production silently stays single-threaded: the exact
+        // preview-only outcome this PR must not ship.
+        expect(isolationEntries[0].has).toBeUndefined();
+        expect(isolationEntries[0].source).toBe('/(.*)');
     });
 
-    it('production hosts do NOT match; branch-preview hosts DO', () => {
-        const hostRule = (isolationEntries[0].has ?? []).find((c) => c.type === 'host');
-        const re = new RegExp(`^${hostRule!.value}$`);
-        // Production must stay non-isolated until separately approved.
-        expect(re.test('speaksharp-public.vercel.app')).toBe(false);
-        expect(re.test('speaksharp.app')).toBe(false);
-        expect(re.test('www.speaksharp.app')).toBe(false);
-        // Branch previews receive the headers so the isolated proof can run production-equivalently.
-        expect(re.test('speaksharp-public-git-perf-1043-team.vercel.app')).toBe(true);
+    it('ships credentialless, not require-corp (both proven; credentialless is the narrower choice)', () => {
+        const kv = Object.fromEntries(isolationEntries[0].headers.map((h) => [h.key.toLowerCase(), h.value]));
+        expect(kv['cross-origin-embedder-policy']).not.toBe('require-corp');
     });
 });
 
