@@ -20,9 +20,10 @@
  *
  * Reads ONLY the two documented system env vars. No PR titles, labels, remote APIs, or secrets.
  *
- * SCOPE BOUNDARY: a `preview/*` build is EVIDENCE-ONLY. The cross-origin-isolation headers in
- * vercel.json are gated to preview hostnames, so building a preview here does NOT enable
- * multi-threaded WASM for production testers. Production activation is a separate authorization.
+ * SCOPE BOUNDARY: this script only decides WHETHER a build runs; it does not scope any header.
+ * NOTE: vercel.json's cross-origin-isolation headers apply to EVERY host, production included — they are
+ * no longer preview-gated. A `preview/*` build therefore reproduces the production isolation posture
+ * rather than a preview-only one, and deploying production DOES enable multi-threaded WASM for testers.
  */
 
 export const PREVIEW_BRANCH_PREFIX = 'preview/';

@@ -289,6 +289,11 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     await testInfo.attach('coi-free-closed-checkout.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_FREE_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
 
+    // GATE (not merely recorded): no PRODUCT resource may be blocked by the isolation headers on the
+    // authenticated surface. Authenticated-only dependencies are exercised ONLY here, so omitting this
+    // assertion would let a blocked authenticated dependency green-light the universal production headers.
+    expect(coepBlocked, `product resources blocked by COEP/CORP: ${JSON.stringify(coepBlocked)}`).toEqual([]);
+
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'FREE signed out').toBeHidden({ timeout: 45_000 });
   });
@@ -362,6 +367,11 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     };
     await testInfo.attach('coi-pro-closed-portal.json', { body: JSON.stringify(ev, null, 2), contentType: 'application/json' });
     console.log(`COI_PRO_CLOSED_EVIDENCE ${JSON.stringify(ev)}`);
+
+    // GATE (not merely recorded): no PRODUCT resource may be blocked by the isolation headers on the
+    // authenticated surface. Authenticated-only dependencies are exercised ONLY here, so omitting this
+    // assertion would let a blocked authenticated dependency green-light the universal production headers.
+    expect(coepBlocked, `product resources blocked by COEP/CORP: ${JSON.stringify(coepBlocked)}`).toEqual([]);
 
     await page.getByTestId('nav-sign-out-button').click();
     await expect(page.getByTestId('nav-sign-out-button'), 'PRO signed out').toBeHidden({ timeout: 45_000 });
