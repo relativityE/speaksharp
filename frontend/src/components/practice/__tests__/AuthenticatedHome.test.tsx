@@ -13,7 +13,9 @@ import * as React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '../../../../tests/support/test-utils';
 import { AuthenticatedHome } from '../AuthenticatedHome';
-import { lastSessionSummary, streakLabel, type RecentSession } from '../homeEvidence';
+import { lastSessionView, streakLabel, type RecentSession } from '../homeEvidence';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const SESSION: RecentSession = {
     id: 'sess-1',
@@ -25,6 +27,7 @@ const SESSION: RecentSession = {
 function renderHome(overrides: Partial<React.ComponentProps<typeof AuthenticatedHome>> = {}) {
     const props = {
         lastSession: SESSION,
+        recentLoading: false,
         recentFailed: false,
         streakCount: 4,
         onStartFreestyle: vi.fn(),
@@ -129,34 +132,97 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         expect(screen.getByTestId('practice-card-guided-tiles').children).toHaveLength(3);
     });
 
-    it('streak: a persisted count is shown; a persisted 0 is real evidence; anything else is an em-dash', () => {
+    /*
+     * `streak_count` is declared on the check-usage-limit response but nothing in the backend
+     * produces it (the RPC returns no such key; only the MSW/E2E fixtures inject one). A chip that
+     * can never show a number is decoration, so it must be ABSENT rather than permanently blank.
+     */
+    it('streak chip: rendered only with real evidence, omitted otherwise — never a blank chip', () => {
         expect(streakLabel(4)).toBe('4-day streak');
-        expect(streakLabel(0)).toBe('0-day streak');
-        expect(streakLabel(undefined)).toBe('— day streak');
-        expect(streakLabel(null)).toBe('— day streak');
-        expect(streakLabel(Number.NaN)).toBe('— day streak');
+        expect(streakLabel(0)).toBe('0-day streak'); // a persisted zero IS evidence
+        expect(streakLabel(undefined)).toBeNull();
+        expect(streakLabel(null)).toBeNull();
+        expect(streakLabel(Number.NaN)).toBeNull();
 
         renderHome({ streakCount: undefined });
-        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('— day streak');
-        expect(screen.getByTestId('home-streak-chip').textContent ?? '').not.toMatch(/\b0\b/);
+        expect(screen.queryByTestId('home-streak-chip')).not.toBeInTheDocument();
     });
 
-    it('last session: composed from persisted columns only; missing/failed/invalid all give an em-dash', () => {
-        expect(lastSessionSummary(SESSION, false)).toMatch(/5:05$/);
-        expect(lastSessionSummary(null, false)).toBe('—');
-        expect(lastSessionSummary(SESSION, true)).toBe('—');
-        // A null duration must not become "0:00".
-        expect(lastSessionSummary({ ...SESSION, duration: null } as unknown as RecentSession, false)).not.toMatch(/0:00/);
-        // An unparseable timestamp with no duration leaves nothing truthful to say.
-        expect(lastSessionSummary({ id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession, false)).toBe('—');
+    it('streak chip appears when the persisted count is a real number', () => {
+        renderHome({ streakCount: 4 });
+        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('4-day streak');
     });
 
-    it('a FAILED history read is not shown as "no sessions" with a live link', () => {
-        const { props } = renderHome({ recentFailed: true });
-        expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('—');
+    it('last session: composed from persisted columns only; a null duration never becomes 0:00', () => {
+        const ok = lastSessionView(SESSION, { loading: false, failed: false });
+        expect(ok.state).toBe('present');
+        expect(ok.text).toMatch(/5:05$/);
+
+        const noDuration = lastSessionView({ ...SESSION, duration: null } as unknown as RecentSession, { loading: false, failed: false });
+        expect(noDuration.text).not.toMatch(/0:00/);
+        expect(noDuration.text).not.toMatch(/\b0\b/);
+
+        // A corrupt timestamp with no duration: the session exists and is reviewable, but cannot
+        // describe itself — the ONLY case that legitimately renders the compact em-dash.
+        const undescribable = lastSessionView({ id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession, { loading: false, failed: false });
+        expect(undescribable).toMatchObject({ state: 'present', text: '—', compact: true, canReview: true });
+    });
+
+    /*
+     * The regression this replaces: failure and emptiness both returned an em-dash with a disabled
+     * button, so `recentFailed` was behaviourally dead and the old test would have passed with the
+     * prop deleted. These assert the four states are mutually DISTINGUISHABLE.
+     */
+    it('loading / failed / empty / present are four distinct renderings', () => {
+        const read = () => ({
+            text: screen.getByTestId('home-last-session-secondary').textContent,
+            state: screen.getByTestId('home-last-session').getAttribute('data-state'),
+        });
+
+        const { unmount: u1 } = renderHome({ recentLoading: true, lastSession: null });
+        const loading = read();
+        u1();
+        const { unmount: u2 } = renderHome({ recentFailed: true, lastSession: null });
+        const failed = read();
+        u2();
+        const { unmount: u3 } = renderHome({ lastSession: null });
+        const empty = read();
+        u3();
+        renderHome();
+        const present = read();
+
+        const seen = [loading, failed, empty, present];
+        expect(new Set(seen.map((s) => s.state)).size).toBe(4);
+        expect(new Set(seen.map((s) => s.text)).size).toBe(4);
+        // Specifically: mid-flight and failure must not claim an absence.
+        expect(loading.text).not.toContain('—');
+        expect(failed.text).not.toContain('—');
+        expect(empty.text).not.toContain('—');
+    });
+
+    it('a FAILED read gets its own honest region and never masquerades as "no sessions"', () => {
+        const { props, unmount } = renderHome({ recentFailed: true, lastSession: null });
+        const err = screen.getByTestId('home-history-error');
+        expect(err).toHaveTextContent(/couldn.t load your recent practice/i);
+        expect(err).toHaveAttribute('role', 'status');
+        // The first-run guidance must NOT appear: we do not know that they have no sessions.
+        expect(screen.queryByTestId('home-first-run')).not.toBeInTheDocument();
         expect(screen.getByTestId('home-last-session')).toBeDisabled();
         fireEvent.click(screen.getByTestId('home-last-session'));
         expect(props.onReviewLastSession).not.toHaveBeenCalled();
+        unmount();
+
+        // And the converse: a genuine empty result explains itself and shows no error.
+        renderHome({ lastSession: null });
+        expect(screen.getByTestId('home-first-run')).toHaveTextContent(/start your first practice/i);
+        expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
+    });
+
+    it('while the read is in flight, nothing claims an absence', () => {
+        renderHome({ recentLoading: true, lastSession: null });
+        expect(screen.getByTestId('home-last-session')).toHaveAttribute('aria-busy', 'true');
+        expect(screen.queryByTestId('home-first-run')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
     });
 });
 
@@ -172,22 +238,69 @@ describe('AuthenticatedHome — accessibility & layout', () => {
         }
     });
 
-    it('an em-dash is announced as missing data rather than read as a stray dash', () => {
-        renderHome();
-        const tile = screen.getByTestId('practice-card-guided-tile-0');
-        expect(within(tile).getByText('Not enough data yet')).toBeInTheDocument();
+    it('every em-dash is announced as missing data rather than read as a stray dash', () => {
+        const { unmount } = renderHome();
+        expect(within(screen.getByTestId('practice-card-guided-tile-0')).getByText('Not enough data')).toBeInTheDocument();
+        unmount();
+
+        // The one last-session case that legitimately shows a dash carries the same sentence, so a
+        // screen reader never hears "Last session, dash".
+        renderHome({ lastSession: { id: 'x', created_at: 'nope', duration: null } as unknown as RecentSession });
+        expect(within(screen.getByTestId('home-last-session-secondary')).getByText('Not enough data')).toBeInTheDocument();
     });
 
-    it('the card grid is single-column by default and only splits at a wide breakpoint', () => {
+    /*
+     * Tile labels are the only meaning-carrier when the value is an em-dash, so a clipped
+     * "Vs. last t…" over a dash is unreadable. jsdom applies no CSS, so this asserts the class
+     * CONTRACT rather than measured geometry; the rendered narrow-viewport proof is the e2e spec.
+     */
+    it('outcome-tile labels are allowed to wrap — never truncated', () => {
         const { container } = renderHome();
-        // Layout is owned by the central `.ss-home-grid` token class (practice.css), not inline styles,
-        // so the responsive rule lives in one place.
-        expect(container.querySelector('.ss-home-grid')).not.toBeNull();
+        const labels = Array.from(container.querySelectorAll('[data-testid$="-tiles"] > div > span:last-child'));
+        expect(labels.length).toBe(6);
+        for (const label of labels) {
+            expect(label.className).not.toMatch(/truncate/);
+            expect(label.className).not.toMatch(/whitespace-nowrap/);
+        }
+    });
+});
+
+/*
+ * jsdom applies no stylesheet, so asserting "the grid is single-column" against the DOM proves
+ * nothing — the previous versions of these two tests passed whether or not the rules existed. The
+ * rules live in ONE central file, so read that file and assert the declarations themselves.
+ */
+describe('AuthenticatedHome — the layout rules actually exist in practice.css', () => {
+    const css = readFileSync(resolve(__dirname, '../../../styles/practice.css'), 'utf8');
+
+    it('the card grid is single-column by default and splits only at a wide breakpoint', () => {
+        expect(css).toMatch(/\.ss-home-grid\s*\{[^}]*grid-template-columns:\s*1fr;/);
+        expect(css).toMatch(/@media \(min-width: 900px\)\s*\{[\s\S]{0,200}?\.ss-home-grid\s*\{\s*grid-template-columns:\s*1fr 1fr;/);
     });
 
-    it('both CTAs bottom-align via margin-top:auto rather than per-card padding', () => {
-        const { container } = renderHome();
-        const ctas = container.querySelectorAll('.ss-home-cta');
-        expect(ctas).toHaveLength(2);
+    it('CTAs bottom-align via margin-top:auto on the shared class', () => {
+        expect(css).toMatch(/\.ss-home-cta\s*\{[^}]*margin-top:\s*auto;/);
+    });
+
+    it('the surface clears the FIXED header from the shared --header-height token, not a magic number', () => {
+        expect(css).toMatch(/\.ss-home-surface\s*\{[^}]*padding-top:\s*calc\(var\(--header-height/);
+        expect(css).toMatch(/\.ss-home-anchor\s*\{[^}]*scroll-margin-top:\s*calc\(var\(--header-height/);
+    });
+
+    it('both band gradients use stops that clear AA against white eyebrow text', () => {
+        // The bands carry 11px bold WHITE eyebrows, so BOTH stops must clear 4.5:1 against white.
+        // The rejected light stops were #17a99b (2.89:1) and #9d7cf0 (3.19:1); the shipped ramps end
+        // on #0d7d74 (4.99:1) and #7b5ce0 (4.71:1). Assert the declarations, not the whole file —
+        // the rejected values still appear in the explanatory comment and in the ANONYMOUS card vars.
+        const teal = css.match(/--ss-home-teal-band:\s*([^;]+);/);
+        const violet = css.match(/--ss-home-violet-band:\s*([^;]+);/);
+        expect(teal?.[1]).toBe('linear-gradient(135deg, #0a5f58 0%, #0d7d74 100%)');
+        expect(violet?.[1]).toBe('linear-gradient(135deg, #5c3fc4 0%, #7b5ce0 100%)');
+    });
+
+    it('the amber eyebrow uses the AA-corrected token, not the decorative amber', () => {
+        // #C96608 is 3.88:1 on white and stays for non-text use (rule, waveform bar); text uses
+        // #B25A05 at 4.82:1.
+        expect(css).toMatch(/--ss-home-amber-eyebrow:\s*#B25A05;/i);
     });
 });

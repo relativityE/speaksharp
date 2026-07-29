@@ -19,6 +19,7 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 const DIR = 'test-results/practice-continuity';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
+const NARROW = { width: 320, height: 720 };
 const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-analytics.com', 'googletagmanager.com', 'doubleclick.net'];
 
 // Fail CLOSED: the page-transition (framer-motion) opacity MUST settle to 1 before we capture. A settle
@@ -83,9 +84,12 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     // continuity SECTION (not full-page, which would let the fixed nav bisect the card).
     await page.setViewportSize(MOBILE);
     await enterReturningPractice(page);
-    const block = page.getByTestId('practice-welcome-authed');
-    // Centre the section in the safe area — clear of BOTH the fixed top header and the fixed bottom nav —
-    // so neither overlays the card (scrolling to 'start' would tuck the summary under the top header).
+    // Scroll/capture the CONTINUITY CLUSTER, not the whole authenticated surface. The surface is over
+    // a viewport tall (greeting row + both product cards), so centring IT puts its top far above the
+    // fold and tucks the summary under the fixed header — which is exactly what failed CI. The cluster
+    // is a small element, so centring it clears both fixed bars, and `.ss-home-anchor` gives it
+    // scroll-margin derived from --header-height for the non-centred cases.
+    const block = page.getByTestId('home-continuity-cluster');
     await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     // #1047 greeting row: the question is the header; continuity is the right-hand cluster.
     const summary = page.getByTestId('home-last-session-secondary');
@@ -106,5 +110,38 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
     expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
     expect(trackingRequests, `unexpected tracking requests: ${trackingRequests.join(' | ')}`).toEqual([]);
+  });
+
+  /*
+   * #1047: the outcome-tile LABEL is the only meaning-carrier whenever the value is an em-dash, so a
+   * clipped "Vs. last t…" over a dash is unreadable. At 320px each of the three tiles is ~75px wide.
+   * jsdom cannot measure this, so the rendered proof lives here: no label may be horizontally clipped,
+   * and the page itself must not scroll sideways.
+   */
+  test('narrowest supported viewport: tile labels are never clipped and the page never scrolls sideways', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
+    await page.setViewportSize(NARROW);
+    await enterReturningPractice(page);
+    await settle(page);
+
+    const labels = page.locator('[data-testid$="-tiles"] > div > span:last-child');
+    await expect(labels).toHaveCount(6);
+    for (let i = 0; i < 6; i += 1) {
+      const clipped = await labels.nth(i).evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+      const text = await labels.nth(i).innerText();
+      expect(clipped, `tile label "${text}" is clipped at ${NARROW.width}px`).toBe(false);
+    }
+
+    const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(overflows, 'the page must not scroll horizontally at 320px').toBe(false);
+
+    // The nav bar must not overflow either (the account avatar replaced the full email for this reason).
+    const navOverflows = await page.evaluate(() => {
+      const header = document.querySelector('header');
+      return header ? header.scrollWidth > header.clientWidth + 1 : false;
+    });
+    expect(navOverflows, 'the fixed header must not overflow at 320px').toBe(false);
+
+    await page.screenshot({ path: `${DIR}/03-home-narrow-320.png`, fullPage: true });
   });
 });

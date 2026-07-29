@@ -150,11 +150,14 @@ export default function PracticePage() {
   const accountEmail = (user as { email?: string } | null | undefined)?.email ?? '';
   const { setSurface } = usePracticeSurface();
   // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
-  const { data: recentSessions, error: recentError } = useRecentPracticeSummary();
+  const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
   // #1047: the ONLY accepted streak evidence is the persisted check-usage-limit value. This is the
   // same cached query the nav already runs — no new request is issued for Home.
-  const { data: usageLimit } = useUsageLimit();
+  // isError matters: React Query KEEPS the previous `data` when a background refetch fails, so a
+  // last-known streak would otherwise be presented as current with no signal. On failure we withhold
+  // the value entirely, which drops the chip rather than asserting a stale fact.
+  const { data: usageLimit, isError: usageLimitFailed } = useUsageLimit();
   // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
   const [notifyOpen, setNotifyOpen] = React.useState(false);
@@ -216,8 +219,9 @@ export default function PracticePage() {
   const authenticatedHome = (
     <AuthenticatedHome
       lastSession={lastSession}
+      recentLoading={recentLoading}
       recentFailed={Boolean(recentError)}
-      streakCount={usageLimit?.streak_count}
+      streakCount={usageLimitFailed ? undefined : usageLimit?.streak_count}
       onStartFreestyle={startFreestyle}
       onNotifyGuided={openNotify}
       onReviewLastSession={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}

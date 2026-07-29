@@ -111,13 +111,24 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/analytics');
     });
 
-    it('no persisted session: Last session shows an em-dash and leads nowhere (never a fabricated 0:00)', () => {
+    it('first run: the empty state explains itself and leads nowhere (never a fabricated 0:00)', () => {
       mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
       render(<PracticePage />);
-      expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('—');
+      // A successful read that genuinely returned nothing says so, and offers first-run guidance —
+      // it is not the em-dash placeholder, which would be a claim we had looked and found nothing
+      // displayable, and not the failure state.
+      expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('No sessions yet');
+      expect(screen.getByTestId('home-first-run')).toHaveTextContent(/start your first practice/i);
+      expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
       expect(screen.getByTestId('home-last-session')).toBeDisabled();
       fireEvent.click(screen.getByTestId('home-last-session'));
       expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('the streak chip is absent — nothing in the backend produces streak_count', () => {
+      mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+      render(<PracticePage />);
+      expect(screen.queryByTestId('home-streak-chip')).not.toBeInTheDocument();
     });
   });
 

@@ -63,24 +63,49 @@
    * ---------------------------------------------------------------------------------------- */
   --ss-home-teal: #0d7d74;
   --ss-home-teal-deep: #0a5f58;
-  --ss-home-teal-band: linear-gradient(135deg, #0d7d74 0%, #17a99b 100%);
+  /* Band gradients carry WHITE 11px bold eyebrows, so BOTH stops must clear 4.5:1 against white.
+     The original light stops did not (#17a99b = 2.89:1, #9d7cf0 = 3.19:1) — even at full opacity,
+     and even for the 22px title. Each ramp now runs from its deep stop to its brand stop, which
+     keeps a visible gradient while the WORST point still passes AA:
+       teal   #0a5f58 (7.62:1) -> #0d7d74 (4.99:1)
+       violet #5c3fc4 (7.09:1) -> #7b5ce0 (4.71:1)  */
+  --ss-home-teal-band: linear-gradient(135deg, #0a5f58 0%, #0d7d74 100%);
   --ss-home-teal-tint: #e6f4f2;
   --ss-home-teal-border: #cfe7e4;
 
   --ss-home-violet: #7b5ce0;
   --ss-home-violet-deep: #6a4fd0;
-  --ss-home-violet-band: linear-gradient(135deg, #7b5ce0 0%, #9d7cf0 100%);
+  --ss-home-violet-band: linear-gradient(135deg, #5c3fc4 0%, #7b5ce0 100%);
   --ss-home-violet-tint: #f0ecfb;
   --ss-home-violet-border: #ded8f5;
 
   /* The warm through-line. `-ink` is deliberately dark brown — NEVER white text on orange. */
-  --ss-home-amber: #C96608;
-  --ss-home-amber-ink: #6b3f08;
+  --ss-home-amber: #C96608;          /* decorative only (rule, waveform bar) — not a text colour */
+  --ss-home-amber-eyebrow: #B25A05;  /* 11px bold TEXT on white: 4.82:1 (#C96608 was 3.88:1) */
+  --ss-home-amber-ink: #6b3f08;      /* on --ss-home-amber-tint: 7.99:1 */
   --ss-home-amber-tint: #fdf0dc;
   --ss-home-amber-rule: #f0c088;
   --ss-home-amber-bar: #f4c77b;
 
+  /* Honest-failure surface — distinct from both the teal "first run" note and the amber streak chip. */
+  --ss-home-warn-tint: #fdecea;
+  --ss-home-warn-ink: #8f2018;       /* on --ss-home-warn-tint: 7.3:1 */
+
   --ss-home-card-border: #e2e8f4;
+}
+
+/*
+ * The app header is FIXED, so anything scrolled to inside this surface can be tucked underneath it.
+ * The offset is declared ONCE here, derived from the shared --header-height token, instead of being
+ * sprinkled as a magic number on whichever element a test happened to catch.
+ */
+.practice-root .ss-home-surface {
+  padding-top: calc(var(--header-height, 4rem) + 2rem);
+  scroll-padding-top: calc(var(--header-height, 4rem) + 1rem);
+}
+.practice-root .ss-home-anchor {
+  scroll-margin-top: calc(var(--header-height, 4rem) + 1rem);
+  scroll-margin-bottom: calc(var(--bottom-nav-height, 5rem) + 1rem);
 }
 
 /* Product card shell: 16px radius, clipped so the coloured header band bleeds to the edges. */
@@ -104,6 +129,10 @@
 @media (min-width: 900px) {
   .practice-root .ss-home-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* Accent-matched card edges, so the border belongs to the same identity as the header band. */
+.practice-root .ss-home-card--teal { border-color: var(--ss-home-teal-border); }
+.practice-root .ss-home-card--violet { border-color: var(--ss-home-violet-border); }
 
 .practice-root .ss-home-band-teal { background: var(--ss-home-teal-band); }
 .practice-root .ss-home-band-violet { background: var(--ss-home-violet-band); }

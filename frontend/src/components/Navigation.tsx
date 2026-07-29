@@ -226,7 +226,7 @@ const Navigation = () => {
                     role="img"
                     aria-label={`Signed in as ${session.user?.email ?? 'your account'}`}
                     data-testid="nav-account-avatar"
-                    className="hidden md:grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-active-bg))] text-[hsl(var(--nav-active-fg))] text-sm font-bold"
+                    className="hidden md:grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-avatar-bg))] text-[hsl(var(--nav-avatar-fg))] text-sm font-bold"
                   >
                     <span aria-hidden="true">
                       {(session.user?.email ?? '?').trim().charAt(0).toUpperCase() || '?'}
