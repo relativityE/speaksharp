@@ -46,10 +46,10 @@ describe('LiveCoachingScoreCard', () => {
         );
 
         // Visible by default: heading, score value, confidence chip, and the "Try this now" actions.
-        // #1047: the card is labelled "Session feedback" — never "SpeakSharp Progress" (Progress does
+        // #1047 NAMING (settled): the surface is "Progress" — carried ONCE by the panel label, never
         // not exist yet and the label must not promise it) and never with the orphaned asterisk.
-        expect(screen.getByText('Session feedback')).toBeInTheDocument();
-        expect(screen.queryByText(/SpeakSharp Progress/i)).toBeNull();
+        expect(screen.getByTestId('live-score-panel-label')).toHaveTextContent('PROGRESS');
+        expect(screen.queryByText(/SpeakSharp/i)).toBeNull();
         expect(screen.queryByText('SpeakSharp Score*')).toBeNull();
         expect(screen.getByTestId('live-session-score')).toBeInTheDocument();
         expect(screen.getByTestId('live-score-confidence')).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('LiveCoachingScoreCard', () => {
 
         // The explanation and breakdown are NOT default-visible.
         expect(screen.queryByText(/Pace, detected fillers, delivery signals/i)).toBeNull();
-        expect(screen.queryByText(/Session feedback is directional/i)).toBeNull();
+        expect(screen.queryByText(/Progress is directional/i)).toBeNull();
         expect(screen.queryByText('What this is based on')).toBeNull();
         expect(screen.queryByText(/not a black box/i)).toBeNull();
         // Canonical naming: Audience Impact, never Listener Takeaway.
@@ -65,12 +65,12 @@ describe('LiveCoachingScoreCard', () => {
 
         // ...but they remain available through the accessible help affordance.
         const helpTrigger = screen.getByTestId('score-help');
-        expect(helpTrigger).toHaveAccessibleName('About session feedback');
+        expect(helpTrigger).toHaveAccessibleName('About progress');
         fireEvent.click(helpTrigger);
 
         // #1047: the help TEACHES session feedback, in the approved neutral wording.
-        expect(screen.getByText('Pace, detected fillers, delivery signals, and transcript quality support your session feedback.')).toBeInTheDocument();
-        expect(screen.getByText('Session feedback is directional and uses only the practice evidence available for this session.')).toBeInTheDocument();
+        expect(screen.getByText('Pace, detected fillers, delivery signals, and transcript quality support your progress.')).toBeInTheDocument();
+        expect(screen.getByText('Progress is directional and uses only the practice evidence available for this session.')).toBeInTheDocument();
         expect(screen.getByText('What this is based on')).toBeInTheDocument();
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Structure from transcript');
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Pace, fillers, pauses');
@@ -112,12 +112,13 @@ describe('LiveCoachingScoreCard', () => {
         // ONE panel carries the whole message: label, `--`, one hint.
         expect(screen.getByTestId('live-score-empty-panel')).toBeInTheDocument();
         expect(screen.getAllByText('--')).toHaveLength(1);
-        // The hint names no duration (the real gate is word count, so any time figure is fabricated)
-        // and never says "progress", which would promise a feature that does not exist.
+        // The hint names NO duration — the real gate is word count (MIN_WORDS_FOR_DIRECTIONAL = 25), so
+        // any time figure would be fabricated. "Progress" IS now the settled surface name, so the hint
+        // may use it; what it may not do is invent a threshold.
         expect(screen.getByTestId('live-score-empty-hint'))
-            .toHaveTextContent('Speak a little more for session feedback.');
-        expect(screen.queryByText(/progress/i)).toBeNull();
+            .toHaveTextContent('Speak a little more to see progress.');
         expect(screen.queryByText(/\d+\s*s(ec|econds)?\b/i)).toBeNull();
+        expect(screen.queryByText(/SpeakSharp/i)).toBeNull();
 
         // The three other simultaneous "no data" statements are gone.
         expect(screen.queryByText(/score soon/i)).toBeNull();
@@ -145,16 +146,26 @@ describe('LiveCoachingScoreCard', () => {
         />
     );
 
-    // Below the 25-word directional floor the whole guidance block is collapsed away, which is what
-    // makes the generic openers unreachable — there is no separate evidence gate doing that work.
+    // Below the 25-word directional floor the guidance BLOCK still renders — header, and footer — because
+    // the Product Owner's spec requires the card to have that structure rather than being a bare `--`.
+    // What is gated is the CONTENT: `calculateSpeakingScore` falls back to generic openers below the
+    // floor ("Start with one complete thought."), and advice invented from nothing must never be
+    // numbered and presented as if it were about this take. So the slot carries an honest
+    // insufficient-evidence line instead.
     it.each([0, 1, 2, 3, 4, 10, 24])(
-        '#1047: collapses guidance entirely below the directional floor (wordCount %i)',
+        '#1047: renders the guidance block but NO invented advice below the directional floor (wordCount %i)',
         (wordCount) => {
             renderAtWordCount(wordCount);
 
+            // The generic openers never reach the user.
             expect(screen.queryByText(/Start with one complete thought/i)).toBeNull();
             expect(screen.queryByTestId('live-coaching-actions')).toBeNull();
-            expect(screen.queryByText('Try this now')).toBeNull();
+
+            // The block itself is present, with the honest state in the slot.
+            expect(screen.getByText('Try this now')).toBeInTheDocument();
+            expect(screen.getByTestId('live-coaching-no-evidence')).toHaveTextContent(
+                'Coaching appears here once you have spoken enough for it to be based on this session.'
+            );
             expect(screen.getByTestId('live-score-empty-panel')).toBeInTheDocument();
         }
     );
@@ -282,7 +293,7 @@ describe('LiveCoachingScoreCard', () => {
         fireEvent.click(screen.getByTestId('score-help'));
 
         const help = screen.getByTestId('score-help-content');
-        expect(help.textContent).toMatch(/transcript quality support your session feedback/i);
+        expect(help.textContent).toMatch(/transcript quality support your progress/i);
         expect(help.textContent).toMatch(/directional and uses only the practice evidence available for this session/i);
         // …and it says so without reviving the retired product name.
         expect(help.textContent).not.toMatch(/SpeakSharp Score/i);

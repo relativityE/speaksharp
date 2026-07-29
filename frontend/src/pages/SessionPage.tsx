@@ -217,7 +217,15 @@ export const SessionPage: React.FC = () => {
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
             ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
         : undefined;
-    const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
+    // #1047: the sample-cap sentence used to render on every idle/ready frame, so the demoted status
+    // bar carried a permanent second line — ambient status growing back into two rows of chrome, which
+    // is exactly what demoting it was meant to stop. It is shown only while a Private sample is
+    // ACTUALLY in flight (Private selected AND recording), which is when the cap is about to affect
+    // the user. The entitlement/upgrade variant is likewise not permanent chrome: it belongs to the
+    // mode selector's own copy, which already states it.
+    const isPrivateSampleActive = mode === 'private' && isListening && privateSampleSecondsRemaining > 0;
+    const shouldShowPrivateSampleDetail = isPrivateSampleActive
+        && ['recording', 'info'].includes(baseStatus.type);
 
     const visibleModelLoadingProgress =
         canUsePrivateStt && mode === 'private' ? modelLoadingProgress : null;

@@ -346,10 +346,14 @@ export const calculateSpeakingScore = ({
         engine
     );
     const confidence = getConfidence(wordCount, elapsedSeconds, qualitySignals.trusted);
+    // #1047: `headline` is rendered ONLY by the Session card, which is now called "Session feedback"
+    // and must not name a Score. The directional line in particular renders on screen, so it said
+    // "the score" on a card whose heading says otherwise. Analytics and the PDF do not consume this
+    // field, so the wording change is contained to the Session surface.
     const headline = confidence === 'warming-up'
-        ? 'Speak a little more to get a useful score.'
+        ? 'Speak a little more for a useful read.'
         : confidence === 'directional'
-            ? 'Early signal. Keep going before treating the score as final.'
+            ? 'Early signal. Keep going before treating this feedback as final.'
         : score >= 7
             ? 'Your delivery is landing. Keep tightening the message.'
             : score >= 5

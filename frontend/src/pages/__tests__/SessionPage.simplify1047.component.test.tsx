@@ -31,6 +31,7 @@ vi.mock('@/components/session/MobileActionBar', () => ({
 }));
 
 import { render, screen, cleanup } from '../../../tests/support/test-utils';
+import { within } from '@testing-library/react';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -151,7 +152,11 @@ describe('SessionPage — #1047 simplification', () => {
         render(<SessionPage />);
 
         expect(screen.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'zero-detected');
-        expect(screen.queryByText(/as you speak/i)).toBeNull();
+        // Scoped to the FILLER CARD. A page-wide query also catches the coaching card's
+        // "Coaching updates as you speak." footer, which is unrelated and correct. The contract here is
+        // that the filler card stops saying "counts appear here as you speak" once a take has completed —
+        // the user HAS spoken, so that copy would be untrue.
+        expect(within(screen.getByTestId('filler-words-card')).queryByText(/as you speak/i)).toBeNull();
         expect(screen.getByTestId('filler-measured-zero'))
             .toHaveTextContent('No detected filler words in this transcript.');
         expect(screen.getByTestId('filler-explanation'))
@@ -254,7 +259,7 @@ describe('SessionPage — #1047 simplification', () => {
         render(<SessionPage />);
 
         expect(screen.getAllByTestId('live-score-empty-panel')).toHaveLength(1);
-        expect(screen.getByText('Session feedback')).toBeInTheDocument();
+        expect(screen.getByTestId('live-score-panel-label')).toHaveTextContent('PROGRESS');
         // The label must NOT promise a Progress feature that does not exist.
         expect(screen.queryByText(/SpeakSharp Progress/i)).toBeNull();
         expect(screen.queryByText(/score soon/i)).toBeNull();
@@ -285,11 +290,11 @@ describe('SessionPage — #1047 simplification', () => {
         expect(fillerAction.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     });
 
-    // The card is called "Session feedback", so its help must TEACH session feedback. An earlier pass
+    // The card is called "Progress", so its help must TEACH progress. An earlier pass
     // renamed only the label and shipped a body that still explained "SpeakSharp Score" — the card
     // said one thing and its own help said another. Asserting the heading alone cleared that bar, so
     // this test OPENS the help and reads what a user would actually be shown.
-    it('the Session help teaches session feedback — the retired name is absent from the OPENED panel', async () => {
+    it('the Session help teaches progress — the retired name is absent from the OPENED panel', async () => {
         const { fireEvent } = await import('@testing-library/react');
         render(<SessionPage />);
 
@@ -297,18 +302,18 @@ describe('SessionPage — #1047 simplification', () => {
         expect(document.body.textContent).not.toMatch(/SpeakSharp Score/i);
 
         // Screen readers hear the same name sighted users read.
-        expect(screen.getByRole('region', { name: 'Session feedback' })).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Progress' })).toBeInTheDocument();
 
         const helpTrigger = screen.getByTestId('score-help');
-        expect(helpTrigger).toHaveAccessibleName('About session feedback');
+        expect(helpTrigger).toHaveAccessibleName('About progress');
         fireEvent.click(helpTrigger);
 
         const help = screen.getByTestId('score-help-content');
         expect(help.textContent).toContain(
-            'Pace, detected fillers, delivery signals, and transcript quality support your session feedback.'
+            'Pace, detected fillers, delivery signals, and transcript quality support your progress.'
         );
         expect(help.textContent).toContain(
-            'Session feedback is directional and uses only the practice evidence available for this session.'
+            'Progress is directional and uses only the practice evidence available for this session.'
         );
 
         // The retired name, the "one coaching score" promise, and the claim that the same score
@@ -317,6 +322,50 @@ describe('SessionPage — #1047 simplification', () => {
         expect(help.textContent).not.toMatch(/one coaching score/i);
         expect(help.textContent).not.toMatch(/Analytics/i);
         expect(document.body.textContent).not.toMatch(/SpeakSharp Score/i);
+    });
+
+    // THE LESSON: an absence-assertion for one exact phrase does not prove the identity is gone. The
+    // previous batch asserted `SpeakSharp Score` was absent and passed — while the card's own inner
+    // panel still rendered a bare `SCORE` label under a heading that said "Progress". So this
+    // asserts on the RENDERED CARD: no score token survives anywhere in its text or its accessible
+    // names, however it is spelled.
+    it('renders NO score token anywhere on the Progress card', () => {
+        render(<SessionPage />);
+
+        const card = screen.getByTestId('live-coaching-score-card');
+
+        // Visible text — catches `SCORE`, `Score`, `score soon`, `the score`, and the retired name.
+        expect(card.textContent).not.toMatch(/score/i);
+
+        // Accessible names and tooltips are rendered text too, and are just as user-facing.
+        expect(card.getAttribute('aria-label')).toBe('Progress');
+        for (const el of Array.from(card.querySelectorAll('[aria-label],[title]'))) {
+            expect(el.getAttribute('aria-label') ?? '').not.toMatch(/score/i);
+            expect(el.getAttribute('title') ?? '').not.toMatch(/score/i);
+        }
+
+        // The card still identifies itself — the token was removed, not the identity.
+        expect(screen.getByRole('region', { name: 'Progress' })).toBeInTheDocument();
+        expect(screen.getByTestId('live-score-panel-label')).toHaveTextContent('PROGRESS');
+    });
+
+    it('renders no score token on the card once a real signal exists either', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...idleLifecycle,
+            isListening: true,
+            transcriptContent: 'The point is simple. First, practice privately because it builds confidence. For example, one focused rehearsal makes the next meeting easier.',
+            metrics: { ...idleLifecycle.metrics, wordCount: 90, wpm: 140, clarityScore: 90 },
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        useSessionStore.setState({ completedSessionDurationSeconds: 45 });
+
+        render(<SessionPage />);
+
+        const card = screen.getByTestId('live-coaching-score-card');
+        // Exercises the populated path: headline, sublabel, confidence chip tooltip, guidance list.
+        expect(card.textContent).not.toMatch(/score/i);
+        expect(card.textContent).toMatch(/Try this now/);
+
+        useSessionStore.setState({ completedSessionDurationSeconds: null });
     });
 
     it('does not stretch the coaching card to the recorder column', () => {

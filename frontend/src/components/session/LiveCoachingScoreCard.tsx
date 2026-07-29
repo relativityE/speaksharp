@@ -24,6 +24,12 @@ interface LiveCoachingScoreCardProps {
     className?: string;
 }
 
+/**
+ * #1047: the settled name for this surface, rendered as the inner panel's label. 13px/800 with a
+ * .06em track, muted — it names the panel without competing with the value inside it.
+ */
+const PANEL_LABEL_CLASS = 'text-[13px] font-extrabold tracking-[0.06em] text-muted-foreground';
+
 export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
     transcript,
     wordCount,
@@ -112,33 +118,27 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
             className={`${SESSION_SURFACE_CLASS} flex flex-col p-4 ${className}`}
             data-testid="live-coaching-score-card"
             data-experiment="session-live-coaching-score"
-            // The announced region name must match the visible heading. It was "Live Coaching Score",
-            // so a screen-reader user was told this card was a score while sighted users read
-            // "Session feedback" — the same card-says-one-thing defect as the help body, in the
+            // The announced region name matches what the card calls itself. It was "Live Coaching
+            // Score", so a screen-reader user was told this card was a score while sighted users read
+            // something else entirely — the same card-says-one-thing defect as the help body, in the
             // accessibility layer.
-            aria-label="Session feedback"
+            aria-label="Progress"
         >
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
+                    {/* #1047 NAMING (settled): the surface is "Progress" — never "SpeakSharp Progress"
+                        ("SpeakSharp" is redundant here), never "SpeakSharp Score", never a bare "SCORE",
+                        and no asterisk. The name is carried ONCE, by the inner panel label below; there
+                        is deliberately no <h2> stacking a second copy of it directly above that panel. */}
                     <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
-                        <Target className="h-4 w-4" />
+                        <Target className="h-4 w-4" aria-hidden="true" />
                         Live Coaching
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        {/* #1047 LABEL RULE: NOT "SpeakSharp Progress". Progress does not exist yet, and a
-                            label must not promise a feature that is not there. "Session feedback" is the
-                            neutral, truthful name for what this card actually shows. The asterisk is gone
-                            too — it implied a disclaimer with nowhere to read it. */}
-                        <h2 className="text-xl font-extrabold text-foreground">Session feedback</h2>
                         <HelpPopover
-                            // #1047: the card is called "Session feedback", so its help must TEACH
-                            // "session feedback". An earlier pass renamed only this label and left the
-                            // body still explaining "SpeakSharp Score" — which meant the card said one
-                            // thing and its own help said another, and a reader who opened the help was
-                            // handed a product name that appears nowhere on the surface. The retired
-                            // name is gone from every customer-facing string reachable from here, and
-                            // an explicit test OPENS this panel to keep it gone.
-                            label="About session feedback"
+                            // The help title tracks the surface name. An earlier pass renamed only this
+                            // label and left the body still explaining "SpeakSharp Score" — the card
+                            // said one thing and its own help said another. The body copy stays neutral:
+                            // it describes the evidence and does not need to name a score at all.
+                            label="About progress"
                             testId="score-help"
                             panelClassName="w-72"
                         >
@@ -146,10 +146,10 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                 {/* Neutral by construction: names the evidence, claims no portable
                                     score, and does not promise that anything reappears in Analytics. */}
                                 <p>
-                                    Pace, detected fillers, delivery signals, and transcript quality support your session feedback.
+                                    Pace, detected fillers, delivery signals, and transcript quality support your progress.
                                 </p>
                                 <p>
-                                    Session feedback is directional and uses only the practice evidence available for this session.
+                                    Progress is directional and uses only the practice evidence available for this session.
                                 </p>
                                 <div className="rounded-md border border-border bg-white p-2.5">
                                     <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-foreground/70">
@@ -208,14 +208,15 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                             {showNumericScore ? result.score.toFixed(1) : '--'}
                         </div>
                         <div className="mt-1 text-xs font-bold uppercase tracking-wider text-foreground/70">
-                            {showNumericScore ? 'out of 10' : 'score soon'}
+                            {/* "score soon" was the retired identity again, in the sublabel. */}
+                            {showNumericScore ? 'out of 10' : 'not yet'}
                         </div>
                         <div
                             className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${confidenceChipClass}`}
                             data-testid="live-score-confidence"
                             data-score-confidence={result.confidence}
                             data-transcript-trusted={result.qualitySignals.trusted ? 'true' : 'false'}
-                            title="Transcript quality affects how confidently the score is shown."
+                            title="Transcript quality affects how confidently this feedback is shown."
                         >
                             {confidenceText}
                         </div>
@@ -227,25 +228,24 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                 repeats the fact that there is no data. */}
             {isEmptySignal ? (
                 <div className={`${SESSION_INSET_SURFACE_CLASS} p-3 text-center`} data-testid="live-score-empty-panel">
-                    {/* The panel's own label. Deliberately NOT a second "Session feedback" — the card
-                        heading already says that, and repeating it would reintroduce the duplication
-                        this collapse exists to remove. */}
-                    <div className="text-xs font-bold uppercase tracking-wider text-foreground/70">Score</div>
+                    <div className={PANEL_LABEL_CLASS} data-testid="live-score-panel-label">PROGRESS</div>
                     <div className="mt-1 text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
                         --
                     </div>
                     {/* The hint names NO duration. Leaving this state depends on WORD COUNT
                         (MIN_WORDS_FOR_DIRECTIONAL = 25), not elapsed time: 30 seconds of slow speech
-                        still shows nothing, and 25 words in 10 seconds shows the panel. The earlier
+                        still shows nothing, and 25 words in 10 seconds shows the panel. The spec's
                         "~30s" was `MIN_SECONDS_FOR_USABLE` — a different gate, for a different state,
-                        that additionally needs 75 words and a trusted transcript — so any time estimate
-                        here is fabricated. It also said "progress", which this card must not promise. */}
+                        that additionally needs 75 words and a trusted transcript — so translating the
+                        word gate into a duration would be an invented threshold. */}
                     <p className="mt-2 text-sm font-semibold text-foreground/70" data-testid="live-score-empty-hint">
-                        Speak a little more for session feedback.
+                        Speak a little more to see progress.
                     </p>
                 </div>
             ) : (
                 <div className={`${SESSION_INSET_SURFACE_CLASS} p-3`}>
+                    {/* Same label, same slot, in both panel states — the surface names itself once. */}
+                    <div className={`mb-1 ${PANEL_LABEL_CLASS}`} data-testid="live-score-panel-label">PROGRESS</div>
                     <div className="mb-2 flex items-center justify-between gap-3">
                         <span className="text-sm font-bold text-foreground">{result.label}</span>
                         <span className="flex items-center gap-1 text-xs font-bold text-foreground/70">
@@ -259,28 +259,44 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                             style={{ width: `${showNumericScore ? scorePercent : 0}%` }}
                         />
                     </div>
-
-                    {/* #1047: guidance is NUMBERED (amber numerals) so the steps read as an ordered plan
-                        rather than an undifferentiated bullet dump. Reaching this branch at all already
-                        means the session cleared the 25-word directional floor, so these actions are
-                        derived from real signals — never the generic openers (see the note above). */}
-                    <div>
-                        <h3 className="mb-2 text-sm font-bold text-foreground">
-                            Try this now
-                        </h3>
-                        <ol className="space-y-1.5" data-testid="live-coaching-actions">
-                            {result.actions.map((action, index) => (
-                                <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
-                                    <span className="mt-px shrink-0 text-sm font-black tabular-nums text-primary" aria-hidden="true">
-                                        {index + 1}.
-                                    </span>
-                                    <span>{action}</span>
-                                </li>
-                            ))}
-                        </ol>
-                    </div>
                 </div>
             )}
+
+            {/* #1047 item 8 — the coaching block is LAYOUT: header, numbered items with amber numerals,
+                and a footer, present in every state so the card is never a bare `--`.
+                Its CONTENT is evidence-gated. `calculateSpeakingScore` falls back to generic openers
+                ("Start with one complete thought.") below the reliable-scoring floor — advice invented
+                from nothing, which must never be numbered and presented as if it were about this take.
+                Reaching `!isEmptySignal` already means the session cleared the 25-word directional
+                floor, so the actions rendered there are derived from real signals. With no evidence yet
+                we say exactly that, rather than filling the slot with generic advice. */}
+            <div className="mt-3" data-testid="live-coaching-guidance">
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground/70">
+                    Try this now
+                </h3>
+                {isEmptySignal ? (
+                    <p
+                        className="text-sm font-semibold leading-snug text-foreground/70"
+                        data-testid="live-coaching-no-evidence"
+                    >
+                        Coaching appears here once you have spoken enough for it to be based on this session.
+                    </p>
+                ) : (
+                    <ol className="space-y-1.5" data-testid="live-coaching-actions">
+                        {result.actions.map((action, index) => (
+                            <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
+                                <span className="mt-px shrink-0 text-sm font-black tabular-nums text-primary" aria-hidden="true">
+                                    {index + 1}.
+                                </span>
+                                <span>{action}</span>
+                            </li>
+                        ))}
+                    </ol>
+                )}
+                <p className="mt-3 border-t border-border pt-2 text-xs font-medium text-foreground/60" data-testid="live-coaching-footer">
+                    Coaching updates as you speak.
+                </p>
+            </div>
         </section>
     );
 };
