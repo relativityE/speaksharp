@@ -215,6 +215,61 @@ describe('AISuggestions Integration', () => {
         });
     });
 
+    describe('Gemini disclosure persistence', () => {
+        // Count-neutral by design: the edge function currently asks Gemini for four
+        // suggestions, so the disclosure must not promise a specific number.
+        const DISCLOSURE = /sends this session's transcript to google gemini to create ai coaching\. audio is never sent\./i;
+
+        it('shows the Gemini disclosure in the empty state', () => {
+            render(<AISuggestions transcript="Hello world" />);
+
+            expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
+        });
+
+        it('keeps the Gemini disclosure visible when suggestions are prefilled', () => {
+            const initialSuggestions = {
+                summary: "Initial summary",
+                suggestions: [{ title: "Initial title", description: "Initial description" }],
+            };
+            render(<AISuggestions transcript="Hello world" initialSuggestions={initialSuggestions} />);
+
+            expect(screen.getByText("Initial title")).toBeInTheDocument();
+            expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
+        });
+
+        it('keeps the Gemini disclosure visible after suggestions are generated', async () => {
+            const user = userEvent.setup();
+
+            mockSupabaseClient.functions.invoke.mockResolvedValue({
+                data: {
+                    suggestions: {
+                        summary: "Good speech overall",
+                        suggestions: [
+                            { title: "Reduce Filler Words", description: "Fewer ums" },
+                            { title: "Improve Pacing", description: "Slow down" },
+                        ],
+                    },
+                },
+                error: null,
+            });
+
+            render(<AISuggestions transcript="Hello world" />);
+
+            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+
+            await waitFor(() => {
+                expect(screen.getByText("Reduce Filler Words")).toBeInTheDocument();
+            });
+            expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
+        });
+
+        it('does not generate suggestions without an explicit click', () => {
+            render(<AISuggestions transcript="Hello world" />);
+
+            expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
+        });
+    });
+
     describe('Button State Management', () => {
         it('disables button while loading', async () => {
             const user = userEvent.setup();
