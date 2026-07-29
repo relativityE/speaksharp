@@ -16,12 +16,26 @@
 export const NOT_ENOUGH_DATA = 'Not enough data';
 
 /**
+ * The COMPACT register of the same statement, for surfaces where a full sentence does not fit —
+ * a tile value, a chip, an inline slot. Same meaning as NOT_ENOUGH_DATA; kept here so adjacent
+ * surfaces cannot fork into different idioms for "we do not have this". Always pair it with an
+ * `sr-only` NOT_ENOUGH_DATA (or equivalent) — a bare dash announces as "dash".
+ */
+export const NOT_ENOUGH_DATA_COMPACT = '—';
+
+/**
  * A metric may be displayed only when it is a real, finite number. `null`/`undefined` mean the
  * aggregate refused to compute (no valid contributing sessions); `NaN`/`Infinity` mean a division by
  * a zero or missing denominator escaped upstream.
  */
 export const isValidMetric = (value: number | string | null | undefined): value is number | string => {
     if (value === null || value === undefined) return false;
+    if (typeof value === 'string') {
+        // `Number('')` and `Number('   ')` are 0, so a blank string would otherwise pass as the
+        // finite value zero — a fabricated zero entering through the one gate that exists to stop
+        // them. Reachable wherever unvalidated server JSON is cast rather than parsed.
+        if (value.trim() === '') return false;
+    }
     const n = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(n);
 };

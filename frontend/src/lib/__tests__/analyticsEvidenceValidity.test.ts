@@ -143,6 +143,17 @@ describe('#1045 metric validity predicate', () => {
         expect(isValidMetric(NaN)).toBe(false);
         expect(isValidMetric(Infinity)).toBe(false);
     });
+
+    it('rejects a blank string — Number("") is 0, which would be a fabricated zero', () => {
+        // The one gate that exists to stop fabricated zeros must not be the thing that creates one.
+        // Reachable wherever unvalidated server JSON is cast rather than parsed.
+        expect(isValidMetric('')).toBe(false);
+        expect(isValidMetric('   ')).toBe(false);
+        expect(isValidMetric('not a number')).toBe(false);
+        // A real zero, in either representation, is still valid evidence.
+        expect(isValidMetric('0')).toBe(true);
+        expect(isValidMetric(0)).toBe(true);
+    });
 });
 
 /**
