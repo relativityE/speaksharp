@@ -8,8 +8,14 @@ export interface FillerWordTrends {
 export interface ChartDataPoint {
   date: string;
   'FW/min': string | number;
-  clarity: number;
-  [key: string]: string | number;
+  /**
+   * #1091: `null` means this session carries no scorable clarity evidence — an OMITTED point, which
+   * Recharts renders as a gap in the line. It is never `0` and never `100`: the previous server series
+   * fabricated a perfect 100 for an unmeasured session, and the client series fabricated a 0. A chart
+   * point must not assert a score the session never produced.
+   */
+  clarity: number | null;
+  [key: string]: string | number | null;
 }
 
 export interface OverallStats {

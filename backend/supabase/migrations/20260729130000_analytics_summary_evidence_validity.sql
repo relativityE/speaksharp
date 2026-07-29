@@ -11,7 +11,9 @@
 -- exactly the users who have enough history to care — including the Product Owner account with 59
 -- sessions that reported "Clear Delivery 0%".
 --
--- The v3 function (20260213000000_analytics_rpc.sql) computed:
+-- The function currently in effect is the one re-issued by 20260522110000_cleanup_stale_schema_lint.sql
+-- (NOT 20260213000000_analytics_rpc.sql, which it supersedes). Both carry the identical defect, and this
+-- migration replaces the 20260522110000 definition. It computed:
 --
 --     coalesce(sum(coalesce(clarity_score, accuracy * 100, 0)), 0) / v_total_sessions
 --
@@ -28,20 +30,27 @@
 -- `avgFillerWordsPerMin` (a rate over elapsed time that has no transcribed-word requirement, so a
 -- wordless take reports a confident, flattering "0.0"). All three are fixed here; none is left behind.
 --
--- CANONICAL CLIENT RULE BEING MIRRORED
--- ------------------------------------
+-- CANONICAL CLIENT RULE BEING MIRRORED — THE CLARITY CONTRIBUTOR RULE
+-- -------------------------------------------------------------------
+-- NAMING, precisely: what this migration mirrors is the existing CLARITY CONTRIBUTOR RULE
+-- (`isClarityScorable`) — the rule deciding whether a session carries enough transcribed speech for its
+-- clarity score to mean anything. It is NOT the #1045 session-eligibility contract, which is a separate
+-- and ADDITIONAL gate excluding accidental/insufficient takes from Progress and from both takeaways.
+-- That contract is owned by #1045 and is NOT settled, implemented, or approximated here. Do not describe
+-- this migration as implementing session eligibility.
+--
 -- frontend/src/utils/sessionAnalysis.ts:
 --     isClarityScorable = wordCount >= ANALYTICS_THRESHOLDS.MIN_RELIABLE_SCORING_WORDS   (= 3)
 -- frontend/src/lib/analyticsUtils.ts (calculateOverallStats):
 --     a session contributes to the clarity average ONLY when `sessionMetrics.isClarityScorable`;
 --     the average is totalClarity / clarityContributors, and is `null` when there are no contributors.
 --     Delivery clarity is `clarity_score` ONLY — the STT `accuracy` column is a transcription-quality
---     measure, is NOT clarity, and the client never substitutes it. The v3 `accuracy * 100` fallback is
---     removed here for the same reason.
+--     measure, is NOT clarity, and the client never substitutes it. The previous `accuracy * 100`
+--     fallback is removed here for the same reason.
 --     averageWPM   = round(totalWords / totalMinutes), null unless BOTH words > 0 and minutes > 0.
 --     fillerRate   = fillers / minutes,                null unless BOTH words > 0 and duration > 0.
 --
--- Server-side mirror, using the columns this function can actually see:
+-- Server-side mirror of the clarity contributor rule, using the columns this function can see:
 --     clarity contributor  <=>  clarity_score IS NOT NULL AND coalesce(total_words, 0) >= 3
 --
 -- Two deliberate, documented divergences from the client, both erring toward EXCLUDING evidence
@@ -67,13 +76,26 @@
 -- evidence", AND let it detect a database on which this migration has not been applied (the keys are
 -- simply absent) so it can degrade to "Not enough data" instead of trusting a contaminated number.
 --
--- NO-EVIDENCE VALUES: the v3 `ELSE '0.0'` / `ELSE 0` fallbacks are part of the defect and are replaced
--- with SQL NULL (JSON null). Zero is a measurement; absence is not.
+-- NO-EVIDENCE VALUES: the previous `ELSE '0.0'` / `ELSE 0` fallbacks are part of the defect and are
+-- replaced with SQL NULL (JSON null). Zero is a measurement; absence is not.
 --
--- Rollback: re-run 20260213000000_analytics_rpc.sql to restore the v3 body. This migration changes only
--- a function definition — no table, column, index, or row is touched, and no data can be lost by it.
+-- THE TWO SERIES ARE FIXED TOO — no fabricated point survives anywhere in this function:
+--   chartData.clarity     Previously fabricated a PERFECT 100 for a session with no clarity and no
+--                         duration, and derived clarity from filler rate alone when duration > 0. Now
+--                         NULL (an omitted
+--                         point) unless the session satisfies the same clarity contributor rule as the
+--                         aggregate — never 0, never 100, and no substitute formula. Series DESIGN
+--                         remains owned by TEMP-PR-06; this only removes fabrication.
+--   accuracyData.accuracy Previously served `coalesce(clarity_score, accuracy * 100)` under a key named
+--                         `accuracy`, i.e. delivery clarity presented as transcription accuracy — the
+--                         mirror image of the clarity fallback removed above. Now the real `accuracy`
+--                         measurement only; sessions lacking it are omitted from the series.
+--
+-- Rollback: re-run 20260522110000_cleanup_stale_schema_lint.sql to restore the previous (defective)
+-- body. This migration changes only a function definition — no table, column, index, or row is touched,
+-- and no data can be lost by it.
 
-CREATE OR REPLACE FUNCTION get_analytics_summary(p_user_id UUID)
+CREATE OR REPLACE FUNCTION public.get_analytics_summary(p_user_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -196,21 +218,38 @@ BEGIN
         LIMIT 2
     ) d;
 
-    -- Chart Data (last 10 sessions) — UNCHANGED from v3 on purpose. This is a per-point series, not an
-    -- aggregate, and its `coalesce(clarity_score, ... , 100)` fabricates a per-session value rather than
-    -- contaminating an average. It is a separate defect and is tracked separately; changing the series
-    -- shape here would expand this fix beyond the aggregate contract it is scoped to.
+    -- Chart Data (last 10 sessions).
+    --
+    -- The superseded series did:
+    --     coalesce(clarity_score, CASE WHEN duration > 0 THEN 100 - (fw_rate * 2) ELSE 100 END)
+    -- so a session with no clarity measurement and no duration was charted as a PERFECT 100. Every other
+    -- defect in this migration fabricates a zero — visible, and it makes the speaker look worse than they
+    -- are. This one fabricated the MAXIMUM: invisible, flattering, and it would have silently contradicted
+    -- the corrected aggregate on the very same sessions (a chart of 100s above a "Not enough data" card).
+    -- The duration>0 branch was no better: deriving clarity from filler rate alone is not the clarity
+    -- formula, it is a different number wearing the same label.
+    --
+    -- Missing clarity now yields SQL NULL — an omitted point. No substitute formula is invented to fill
+    -- the gap. Eligibility is the same CLARITY CONTRIBUTOR RULE used by the aggregate above, so a session
+    -- can never be plotted as scorable while being excluded from the average, or vice versa.
+    -- The final comparable-session chart DESIGN is owned by TEMP-PR-06; this only removes fabrication.
     SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_chart_data
     FROM (
         SELECT
             to_char(created_at, 'MM/DD/YYYY') as date,
             CASE WHEN duration > 0 THEN (fw_count / (duration / 60.0))::numeric(10,2)::text ELSE '0.00' END as "FW/min",
-            coalesce(clarity_score, CASE WHEN duration > 0 THEN 100 - ((fw_count / (duration / 60.0)) * 2) ELSE 100 END) as clarity
+            CASE
+                WHEN clarity_score IS NOT NULL
+                 AND coalesce(total_words, 0) >= c_min_reliable_scoring_words
+                    THEN clarity_score
+                ELSE NULL
+            END as clarity
         FROM (
             SELECT
                 s.created_at,
                 s.duration,
                 s.clarity_score,
+                s.total_words,
                 coalesce((SELECT sum((v.value->>'count')::int) FROM jsonb_each(s.filler_words) AS v(key, value) WHERE v.key != 'total'), 0) as fw_count
             FROM sessions s
             WHERE s.user_id = p_user_id
@@ -220,17 +259,25 @@ BEGIN
         ORDER BY created_at ASC
     ) d;
 
-    -- Accuracy Data (last 10 sessions with engine)
+    -- Accuracy Data (last 10 sessions with engine).
+    --
+    -- Same defect class, opposite direction. It returned `coalesce(clarity_score, accuracy * 100)` under a
+    -- key named `accuracy`, so a delivery-clarity score was served to the STT-accuracy chart whenever the
+    -- real accuracy measurement was missing — the mirror image of the `accuracy * 100` clarity fallback
+    -- removed from the aggregate above. Two different quantities were being swapped for each other in both
+    -- directions, and the client (`calculateAccuracyData`, which derives accuracy from ground-truth WER)
+    -- never did this. This series now reports ONLY the real STT accuracy measurement; sessions without one
+    -- are omitted from the series rather than filled in with clarity.
     SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_accuracy_data
     FROM (
         SELECT
             to_char(created_at, 'MM/DD/YYYY') as date,
-            coalesce(clarity_score, accuracy * 100) as accuracy,
+            accuracy * 100 as accuracy,
             engine
         FROM sessions
         WHERE user_id = p_user_id
           AND engine IS NOT NULL
-          AND (clarity_score IS NOT NULL OR accuracy IS NOT NULL)
+          AND accuracy IS NOT NULL
         ORDER BY created_at DESC
         LIMIT 10
     ) d;
@@ -293,6 +340,6 @@ BEGIN
 END;
 $$;
 
--- Grant permissions (idempotent; unchanged from v3).
-GRANT EXECUTE ON FUNCTION get_analytics_summary(UUID) TO authenticated;
-GRANT EXECUTE ON FUNCTION get_analytics_summary(UUID) TO service_role;
+-- Grant permissions (idempotent; unchanged).
+GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO service_role;

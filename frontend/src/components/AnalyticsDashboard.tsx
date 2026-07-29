@@ -764,7 +764,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             return {
                 date: formatDate(s.created_at),
                 wpm: metrics.wpm,
-                clarity: metrics.clarityScore,
+                // #1091: gate on the clarity contributor rule. `clarityScore` is 0 for an unscorable
+                // session by design, so charting it unconditionally drew a fabricated zero next to a
+                // corrected "Not enough data" card. null = omitted point (Recharts renders a gap).
+                clarity: metrics.isClarityScorable ? metrics.clarityScore : null,
                 fillers: metrics.fillerCount,
                 pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
             };

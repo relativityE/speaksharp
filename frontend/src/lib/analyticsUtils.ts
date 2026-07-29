@@ -140,7 +140,11 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         return {
             date: new Date(s.created_at).toLocaleDateString(),
             'FW/min': calculateRatePerMinute(totalFillerCount, duration, 2),
-            clarity: sessionMetrics.clarityScore
+            // #1091: an unscorable session's `clarityScore` is 0 BY DESIGN — plotting it charted a
+            // fabricated zero, the same defect the aggregate above was fixed for. Gate the point on the
+            // clarity contributor rule so a session can never be plotted as scorable while being excluded
+            // from the average. `null` is an omitted point; Recharts renders it as a gap.
+            clarity: sessionMetrics.isClarityScorable ? sessionMetrics.clarityScore : null
         };
     }).reverse();
 
