@@ -39,14 +39,18 @@ export const getSessionPauseCount = (session: PracticeSession): number => {
 export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // P1 FIX: Early exit for empty data
     if (!sessionHistory || sessionHistory.length === 0) {
+        // #1045: no sessions means no evidence. `0` here was indistinguishable from a genuine zero
+        // and produced "0%" / "0.0/min" / "0 mins" cards for users who had never recorded.
         return {
             totalSessions: 0,
             totalPracticeTime: 0,
-            averageSessionLength: 0,
-            averageWPM: 0,
-            avgFillerWordsPerMin: "0.0",
-            avgClarity: "0.0",
-            avgPausesPerMin: "0.0",
+            totalPracticeTimeSeconds: 0,
+            averageSessionLength: null,
+            averageSessionLengthSeconds: null,
+            averageWPM: null,
+            avgFillerWordsPerMin: null,
+            avgClarity: null,
+            avgPausesPerMin: null,
             chartData: []
         };
     }
@@ -59,6 +63,13 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     let totalFillerWords = 0;
     let totalClarity = 0;
     let totalPauses = 0;
+    // #1045 evidence counters. An unscorable session (below MIN_RELIABLE_SCORING_WORDS) contributes
+    // clarityScore 0 by design, and a session with no pause_metrics contributes 0 pauses. Summing
+    // those into an average over ALL sessions is what produced "Clear Delivery 0%" on an account
+    // whose individual saved sessions had real, non-zero scores. Count contributors separately and
+    // average over the sessions that actually carry the evidence.
+    let clarityContributors = 0;
+    let pauseContributors = 0;
 
     for (const s of sessionHistory) {
         const duration = s.duration || 0;
@@ -68,29 +79,50 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         totalWords += sessionMetrics.wordCount;
 
         totalFillerWords += sessionMetrics.fillerCount;
-        totalPauses += getSessionPauseCount(s);
+        if (s.pause_metrics) {
+            totalPauses += getSessionPauseCount(s);
+            pauseContributors += 1;
+        }
         // Single source of truth: aggregate the SAME per-session delivery-clarity used by session
         // detail, PDF, Goals, and the clarity chart. The unrelated STT `accuracy` field is NOT
         // clarity; mixing it made the aggregate card read 0% while individual sessions read nonzero.
-        totalClarity += sessionMetrics.clarityScore;
+        if (sessionMetrics.isClarityScorable) {
+            totalClarity += sessionMetrics.clarityScore;
+            clarityContributors += 1;
+        }
     }
 
     // totalPracticeTime: rounded for display (e.g., "1 min")
     const totalPracticeTime = calculateRoundedMinutes(totalDurationSeconds);
     const averageSessionLength = calculateAverageSessionLengthMinutes(totalDurationSeconds, totalSessions);
+    // #1045: exact seconds so the display layer can say "<1 min" instead of rounding a real 25-second
+    // average down to the flatly false "0 mins".
+    const averageSessionLengthSeconds = totalSessions > 0 ? totalDurationSeconds / totalSessions : null;
     // totalPracticeTimeMinutes: precise for rate calculations (industry standard)
     const totalPracticeTimeMinutes = totalDurationSeconds / 60;
 
     // Speaking-rate standard: aggregate words over aggregate speaking time.
     // Averaging per-session WPM lets very short sessions distort the result.
-    const averageWPM = totalPracticeTimeMinutes > 0
+    // #1045: pace needs both a denominator (speaking time) and a numerator (words). Wordless takes
+    // give neither, and "0 WPM" reads as "you spoke impossibly slowly" rather than "we heard nothing".
+    const averageWPM = totalPracticeTimeMinutes > 0 && totalWords > 0
         ? Math.round(totalWords / totalPracticeTimeMinutes)
-        : 0;
+        : null;
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
-    const avgFillerWordsPerMin = calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1);
-    const avgClarity = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
+    // A rate with no time denominator is not zero, it is unknown. A genuine zero-filler minute of
+    // speech still reports 0.0 — that is real evidence and stays.
+    const avgFillerWordsPerMin = totalDurationSeconds > 0
+        ? calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1)
+        : null;
+    const avgClarity = clarityContributors > 0
+        ? (totalClarity / clarityContributors).toFixed(1)
+        : null;
     // Pause Rhythm: pauses over aggregate speaking time (same rate basis as the filler metric).
-    const avgPausesPerMin = calculateRatePerMinute(totalPauses, totalDurationSeconds, 1);
+    // Pause rhythm requires sessions that actually recorded pause_metrics; without them the count is
+    // absent, not zero, and "Sparse" would be a judgment invented from missing data.
+    const avgPausesPerMin = pauseContributors > 0 && totalDurationSeconds > 0
+        ? calculateRatePerMinute(totalPauses, totalDurationSeconds, 1)
+        : null;
 
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
@@ -104,7 +136,18 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         };
     }).reverse();
 
-    return { totalSessions, totalPracticeTime, averageSessionLength, averageWPM, avgFillerWordsPerMin, avgClarity, avgPausesPerMin, chartData };
+    return {
+        totalSessions,
+        totalPracticeTime,
+        totalPracticeTimeSeconds: totalDurationSeconds,
+        averageSessionLength,
+        averageSessionLengthSeconds,
+        averageWPM,
+        avgFillerWordsPerMin,
+        avgClarity,
+        avgPausesPerMin,
+        chartData,
+    };
 };
 
 export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {

@@ -6,6 +6,7 @@
  * number secondary. Thresholds are grounded in ANALYTICS_THRESHOLDS where one exists; the pause/
  * filler per-minute cutoffs are explicit, documented heuristics that Product can tune in one place.
  */
+import { isValidMetric, NOT_ENOUGH_DATA } from './metricValidity';
 import { ANALYTICS_THRESHOLDS } from './sessionAnalysis';
 
 /** good = on target, watch = drifting, off = needs attention. Drives label copy + UI tone. */
@@ -13,7 +14,16 @@ export type CoachingTone = 'good' | 'watch' | 'off';
 export interface CoachingMetric {
     label: string;
     tone: CoachingTone;
+    /**
+     * #1045: true when there was no valid evidence to decode. The card must then suppress the number
+     * and the unit too — a judgment label like "Sparse" or "Needs focus" derived from a missing value
+     * is a false claim about the user's speaking, not a neutral default.
+     */
+    isEvidenceMissing?: boolean;
 }
+
+/** #1045: the honest state for a metric we cannot support with evidence. */
+const NO_EVIDENCE: CoachingMetric = { label: NOT_ENOUGH_DATA, tone: 'watch', isEvidenceMissing: true };
 
 // Pause Rhythm cutoffs (pauses/min). CHOPPY mirrors the score's `pausesPerMinute > 12` penalty;
 // SPARSE is the "too few pauses / rushing" floor.
@@ -29,7 +39,8 @@ export const CLARITY_DEVELOPING = 60;
 const num = (value: string | number): number => (typeof value === 'number' ? value : Number(value) || 0);
 
 /** Speaking Pace: Fast / Steady / Slow (Not measured). Grounded in TARGET_WPM_MIN/MAX (130–150). */
-export const decodePace = (avgWpm: string | number): CoachingMetric => {
+export const decodePace = (avgWpm: string | number | null | undefined): CoachingMetric => {
+    if (!isValidMetric(avgWpm)) return NO_EVIDENCE;
     const wpm = num(avgWpm);
     if (wpm <= 0) return { label: 'Not measured', tone: 'watch' };
     if (wpm > ANALYTICS_THRESHOLDS.TARGET_WPM_MAX) return { label: 'Fast', tone: 'off' };
@@ -41,7 +52,8 @@ export const decodePace = (avgWpm: string | number): CoachingMetric => {
 };
 
 /** Pause Rhythm: Smooth / Sparse / Choppy. */
-export const decodePauseRhythm = (pausesPerMin: string | number): CoachingMetric => {
+export const decodePauseRhythm = (pausesPerMin: string | number | null | undefined): CoachingMetric => {
+    if (!isValidMetric(pausesPerMin)) return NO_EVIDENCE;
     const rate = num(pausesPerMin);
     if (rate > PAUSE_RHYTHM_CHOPPY_PER_MIN) return { label: 'Choppy', tone: 'off' };
     if (rate < PAUSE_RHYTHM_SPARSE_PER_MIN) return { label: 'Sparse', tone: 'watch' };
@@ -49,7 +61,8 @@ export const decodePauseRhythm = (pausesPerMin: string | number): CoachingMetric
 };
 
 /** Filler Words: Low / Noticeable / High. */
-export const decodeFillers = (fillersPerMin: string | number): CoachingMetric => {
+export const decodeFillers = (fillersPerMin: string | number | null | undefined): CoachingMetric => {
+    if (!isValidMetric(fillersPerMin)) return NO_EVIDENCE;
     const rate = num(fillersPerMin);
     if (rate >= FILLER_HIGH_PER_MIN) return { label: 'High', tone: 'off' };
     if (rate >= FILLER_NOTICEABLE_PER_MIN) return { label: 'Noticeable', tone: 'watch' };
@@ -57,7 +70,8 @@ export const decodeFillers = (fillersPerMin: string | number): CoachingMetric =>
 };
 
 /** Clear Delivery: Strong / Developing / Needs focus. */
-export const decodeClarity = (clarityPct: string | number): CoachingMetric => {
+export const decodeClarity = (clarityPct: string | number | null | undefined): CoachingMetric => {
+    if (!isValidMetric(clarityPct)) return NO_EVIDENCE;
     const pct = num(clarityPct);
     if (pct >= CLARITY_STRONG) return { label: 'Strong', tone: 'good' };
     if (pct >= CLARITY_DEVELOPING) return { label: 'Developing', tone: 'watch' };
@@ -65,10 +79,10 @@ export const decodeClarity = (clarityPct: string | number): CoachingMetric => {
 };
 
 export interface DeliveryAggregates {
-    avgWpm: string | number;
-    avgPausesPerMin: string | number;
-    avgFillerWordsPerMin: string | number;
-    avgClarity: string | number;
+    avgWpm: string | number | null;
+    avgPausesPerMin: string | number | null;
+    avgFillerWordsPerMin: string | number | null;
+    avgClarity: string | number | null;
 }
 
 export interface TryThisNext {
@@ -84,7 +98,7 @@ export interface TryThisNext {
  * over a merely `watch` one. Action copy mirrors calculateSpeakingScore's actions for consistency.
  */
 export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
-    const wpm = num(stats.avgWpm);
+    const wpm = isValidMetric(stats.avgWpm) ? num(stats.avgWpm) : null;
     const pace = decodePace(stats.avgWpm);
     const pauses = decodePauseRhythm(stats.avgPausesPerMin);
     // #894/#1045: filler metrics are TRANSCRIPT-DERIVED and DIRECTIONAL — STT engines can omit a spoken
@@ -93,7 +107,7 @@ export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
     const fillers = decodeFillers(stats.avgFillerWordsPerMin);
     const clarity = decodeClarity(stats.avgClarity);
 
-    const paceAction = wpm > ANALYTICS_THRESHOLDS.FAST_WPM
+    const paceAction = wpm !== null && wpm > ANALYTICS_THRESHOLDS.FAST_WPM
         ? 'Give the next key idea a beat of silence.'
         : pace.label === 'Fast'
             ? 'Ease the pace at sentence endings.'

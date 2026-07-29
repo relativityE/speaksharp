@@ -45,7 +45,9 @@ const mockStats = {
     averageWPM: 120,
     avgFillerWordsPerMin: 5,
     totalPracticeTime: 300,
+    totalPracticeTimeSeconds: 18000,
     averageSessionLength: 30,
+    averageSessionLengthSeconds: 1800,
     avgClarity: 85,
     avgPausesPerMin: 8,
     chartData: [
@@ -379,7 +381,8 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('clarity-score-value')).toHaveTextContent('--');
+        // #1045: unified vocabulary — the unscorable session says "Not enough data", not a bare "--".
+        expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/not enough data/i);
         expect(screen.getByTestId('clarity-score-value-explanation')).toHaveTextContent(/cannot be scored/i);
     });
 

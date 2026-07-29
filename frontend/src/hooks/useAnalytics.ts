@@ -76,6 +76,15 @@ export const useAnalytics = () => {
         return sessionsToUse;
     }, [sessionId, sessionsToUse, specificSession]);
 
+/** #1045: first argument that is a real finite number, else null (never a fabricated 0). */
+const firstFiniteOrNull = (...candidates: unknown[]): number | null => {
+    for (const c of candidates) {
+        const n = typeof c === 'number' ? c : Number(c);
+        if (c !== null && c !== undefined && c !== '' && Number.isFinite(n)) return n;
+    }
+    return null;
+};
+
     const analyticsData = useMemo(() => {
         // Use pre-computed summary from RPC if available and appropriate
         if (shouldUseRPC && summaryData) {
@@ -85,10 +94,19 @@ export const useAnalytics = () => {
                 ...summaryData,
                 overallStats: {
                     ...summaryData.overallStats,
-                    averageSessionLength: (rpcOverallStats.averageSessionLength as number)
-                        || (rpcOverallStats.avgSessionLength as number)
-                        || 0,
-                    averageWPM: rpcOverallStats.avgWpm as number || 0
+                    // #1045: `|| 0` turned a MISSING RPC field into a confident zero. A metric the
+                    // server did not return is unknown, not zero — null makes the display layer say
+                    // "Not enough data" instead of inventing a number.
+                    averageSessionLength: firstFiniteOrNull(
+                        rpcOverallStats.averageSessionLength,
+                        rpcOverallStats.avgSessionLength,
+                    ),
+                    averageSessionLengthSeconds: firstFiniteOrNull(
+                        rpcOverallStats.averageSessionLengthSeconds,
+                        rpcOverallStats.avgSessionLengthSeconds,
+                    ),
+                    totalPracticeTimeSeconds: firstFiniteOrNull(rpcOverallStats.totalPracticeTimeSeconds) ?? 0,
+                    averageWPM: firstFiniteOrNull(rpcOverallStats.avgWpm),
                 }
             };
         }
@@ -98,13 +116,17 @@ export const useAnalytics = () => {
             logger.debug('[useAnalytics] No sessions - returning empty analytics data');
             return {
                 overallStats: {
+                    // #1045: a user with no sessions has produced no evidence. Zeros here rendered as
+                    // "0%" / "0.0/min" / "0 mins" — confident statements about speaking that never happened.
                     totalSessions: 0,
                     totalPracticeTime: 0,
-                    averageSessionLength: 0,
-                    averageWPM: 0,
-                    avgFillerWordsPerMin: "0.0",
-                    avgClarity: "0.0",
-                    avgPausesPerMin: "0.0",
+                    totalPracticeTimeSeconds: 0,
+                    averageSessionLength: null,
+                    averageSessionLengthSeconds: null,
+                    averageWPM: null,
+                    avgFillerWordsPerMin: null,
+                    avgClarity: null,
+                    avgPausesPerMin: null,
                     chartData: []
                 },
                 fillerWordTrends: {},
