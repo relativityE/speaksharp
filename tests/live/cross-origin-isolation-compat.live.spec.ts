@@ -117,6 +117,29 @@ async function laneContext(page: Page, navHeaders: Record<string, string>) {
   };
 }
 
+/**
+ * CDP capture of Chromium's authoritative failure classification. blockedReason is the ONLY reliable
+ * COEP/CORP signal; errorText collapses COEP blocks, CORS rejections and cancellations into ERR_FAILED.
+ */
+type BlockRecord = { url: string; blockedReason: string | null; corsError: string | null };
+async function captureBlockReasons(page: Page, sink: BlockRecord[]): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');
+  const byId = new Map<string, string>();
+  cdp.on('Network.requestWillBeSent', (e) => {
+    const ev = e as unknown as { requestId: string; request: { url: string } };
+    byId.set(ev.requestId, ev.request.url);
+  });
+  cdp.on('Network.loadingFailed', (e) => {
+    const ev = e as unknown as { requestId: string; blockedReason?: string; corsErrorStatus?: { corsError?: string } };
+    sink.push({
+      url: byId.get(ev.requestId) ?? '(unknown)',
+      blockedReason: ev.blockedReason ?? null,
+      corsError: ev.corsErrorStatus?.corsError ?? null,
+    });
+  });
+}
+
 async function signIn(page: Page, email: string, password: string): Promise<Record<string, string>> {
   const nav = await page.goto('/auth/signin', { waitUntil: 'load', timeout: 120_000 });
   // Fail fast with a clear message if the auth form never renders, instead of a 5-minute locator.fill
@@ -222,6 +245,8 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     recordUsageLimitDiagnostics(page, usageLimitDiag);
     const navAtMs: number[] = [];
     recordNavigations(page, navAtMs);
+    const blockRecords: BlockRecord[] = [];
+    await captureBlockReasons(page, blockRecords);
 
     // WAIT-FOR-SETTLE: install the waiter BEFORE the action that triggers check-usage-limit, and let the
     // response settle BEFORE any reload/navigation/logout. Otherwise the test's own navigation cancels the
@@ -265,9 +290,20 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const postSettle = blockedFailures(netFailures.filter((f) => f.at > settledAtMs), /supabase|stripe/i);
     const { benign: navCancelled, real: supabaseBlocked } = classifyFailures(postSettle, navAtMs);
 
+    // AUTHORITATIVE COEP/CORP GATE: no PRODUCT resource may be blocked by the isolation headers.
+    // vercel.live is Vercel's preview-only feedback toolbar (absent in production) and is excluded from
+    // pass/fail but still recorded. Everything else counts.
+    const coepBlocked = blockRecords.filter(
+      (b) => /coep|corp/i.test(b.blockedReason ?? '') && !/^https:\/\/vercel\.live\//.test(b.url),
+    );
+    const entitlementCors = blockRecords.filter((b) => /check-usage-limit/i.test(b.url)).map((b) => b.corsError);
+
     // ATTACH EVIDENCE BEFORE ASSERTING so a failing lane still yields the differential data.
     const ev = {
       accountClass: 'free',
+      coepBlockedProductResources: coepBlocked,
+      entitlementCorsErrors: entitlementCors,
+      entitlementClassification: 'preview-origin CORS allowlist (MissingAllowOriginHeader) — reproduced with COEP none/credentialless/require-corp in run 30411578217; production returns 200. NOT isolation-caused.',
       lane,
       usageLimitSettledStatus: usageStatus,
       usageLimitCorsResponseHeaderNames: usageCorsHeaderNames,
@@ -306,6 +342,8 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     recordUsageLimitDiagnostics(page, usageLimitDiag);
     const navAtMs: number[] = [];
     recordNavigations(page, navAtMs);
+    const blockRecords: BlockRecord[] = [];
+    await captureBlockReasons(page, blockRecords);
 
     // WAIT-FOR-SETTLE: install the waiter BEFORE the action that triggers check-usage-limit, and let the
     // response settle BEFORE any reload/navigation/logout. Otherwise the test's own navigation cancels the
@@ -348,9 +386,20 @@ test.describe('#1043 cross-origin isolation compatibility @live', () => {
     const postSettle = blockedFailures(netFailures.filter((f) => f.at > settledAtMs), /supabase|stripe/i);
     const { benign: navCancelled, real: supabaseBlocked } = classifyFailures(postSettle, navAtMs);
 
+    // AUTHORITATIVE COEP/CORP GATE: no PRODUCT resource may be blocked by the isolation headers.
+    // vercel.live is Vercel's preview-only feedback toolbar (absent in production) and is excluded from
+    // pass/fail but still recorded. Everything else counts.
+    const coepBlocked = blockRecords.filter(
+      (b) => /coep|corp/i.test(b.blockedReason ?? '') && !/^https:\/\/vercel\.live\//.test(b.url),
+    );
+    const entitlementCors = blockRecords.filter((b) => /check-usage-limit/i.test(b.url)).map((b) => b.corsError);
+
     // ATTACH EVIDENCE BEFORE ASSERTING so a failing lane still yields the differential data.
     const ev = {
       accountClass: 'pro',
+      coepBlockedProductResources: coepBlocked,
+      entitlementCorsErrors: entitlementCors,
+      entitlementClassification: 'preview-origin CORS allowlist (MissingAllowOriginHeader) — reproduced with COEP none/credentialless/require-corp in run 30411578217; production returns 200. NOT isolation-caused.',
       lane,
       usageLimitSettledStatus: usageStatus,
       usageLimitCorsResponseHeaderNames: usageCorsHeaderNames,
