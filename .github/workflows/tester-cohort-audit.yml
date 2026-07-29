@@ -1,0 +1,82 @@
+# #1087 — per-account tester cohort audit (READ-ONLY).
+#
+# Complements tester-evidence-audit.yml, which reports COHORT AGGREGATES only. This one answers
+# "which humans tried SpeakSharp, what did they do, and did they report anything" — including testers
+# with ZERO activity and ZERO reports.
+#
+# secrets: SUPABASE_SERVICE_ROLE_KEY, AUDIT_EXCLUDED_EMAILS_JSON (internal humans; never printed)
+# vars:    SUPABASE_URL
+#
+# Read-only: Auth Admin listUsers + PostgREST selects. No insert/update/delete/RPC. Never mutates
+# production. Console output is COUNTS ONLY — no emails, ids, transcripts or report bodies.
+name: '#1087 Tester cohort audit (read-only)'
+
+on:
+  # Same-repo pull_request runs DO receive repository secrets (only fork PRs are restricted), so the
+  # audit can execute from its own branch without first merging a new workflow_dispatch file to the
+  # default branch. Path-scoped so it never runs on unrelated PRs.
+  pull_request:
+    paths:
+      - 'scripts/tester-cohort-audit.mjs'
+      - '.github/workflows/tester-cohort-audit.yml'
+  workflow_dispatch:
+    inputs:
+      invite_cutoff:
+        description: 'UTC invitation cutoff. Default is the finalized beta invitation date (#993/#994).'
+        required: false
+        default: '2026-07-18T00:00:00Z'
+      short_session_seconds:
+        description: 'Sessions shorter than this count as short/junk (cannot support a precise judgement).'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tester-cohort-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only per-account cohort audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run cohort audit
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUDIT_EXCLUDED_EMAILS_JSON: ${{ secrets.AUDIT_EXCLUDED_EMAILS_JSON }}
+          INVITE_CUTOFF: ${{ github.event.inputs.invite_cutoff || '2026-07-18T00:00:00Z' }}
+          SHORT_SESSION_SECONDS: ${{ github.event.inputs.short_session_seconds || '20' }}
+          COHORT_PSEUDONYM_SALT: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COHORT_SANITIZED_FILE: cohort-sanitized.json
+          COHORT_RESTRICTED_FILE: cohort-restricted.json
+        run: node scripts/tester-cohort-audit.mjs
+
+      # Sanitized: pseudonymous identifiers only, safe for engineering review.
+      - name: Upload sanitized engineering artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cohort-sanitized
+          path: cohort-sanitized.json
+          retention-days: 7
+
+      # Restricted: contains the pseudonym -> cohort/report-title mapping. Short retention, PO review only.
+      - name: Upload RESTRICTED Product Owner artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cohort-restricted-po-only
+          path: cohort-restricted.json
+          retention-days: 1
