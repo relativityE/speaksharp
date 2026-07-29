@@ -263,13 +263,13 @@ export default class TranscriptionService {
       state.setModelLoadingProgress(100);
       state.setSTTStatus({
         type: 'ready',
-        message: 'Private ready. Nothing leaves your browser.',
+        message: 'Private ready. Audio stays on this device; your transcript is saved with the session.',
         detail: 'On-device transcription is initialized for this browser tab.',
         progress: 100
       });
     }
 
-    toast.success('Private is ready. Nothing leaves your browser.', {
+    toast.success('Private ready. Audio stays on this device; your transcript is saved with the session.', {
       id: 'private-model-ready',
       duration: 5000,
     });

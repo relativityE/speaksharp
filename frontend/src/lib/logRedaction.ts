@@ -3,8 +3,8 @@
  *
  * `logger` is pino -> browser console, and Sentry's default Breadcrumbs integration
  * captures `console.*` into breadcrumbs that ship with error events. So any transcript
- * text passed to `logger.*` can leave the browser to Sentry on error — which would make
- * the Private "nothing leaves your browser" promise technically false.
+ * text passed to `logger.*` can leave the browser to Sentry on error — which would leak
+ * transcript content to a third party the user never opted into.
  *
  * Two layers of defense (do not rely on one):
  *  1. SOURCE: never log raw transcript text — log only safe diagnostics

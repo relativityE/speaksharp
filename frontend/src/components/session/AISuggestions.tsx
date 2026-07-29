@@ -134,9 +134,6 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         {!suggestions && !isLoading && !error && (
           <div className="py-4 text-center font-medium text-foreground/70">
             <p>Click the button to request AI coaching on your speech.</p>
-            <p className="mt-2 text-xs">
-              Your transcript is securely processed by our AI feedback provider only when you request suggestions.
-            </p>
           </div>
         )}
 
@@ -155,6 +152,18 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
             </div>
           </div>
         )}
+
+        {/*
+          Persistent provider disclosure: it must stay visible before AND after
+          generation (including when suggestions are prefilled), so the user can
+          always see where this session's transcript goes.
+        */}
+        <p
+          className="mt-4 text-xs font-medium text-foreground/70"
+          data-testid="ai-suggestions-disclosure"
+        >
+          Sends this session's transcript to Google Gemini to create two personalized takeaways. Audio is never sent.
+        </p>
       </CardContent>
     </Card>
   );

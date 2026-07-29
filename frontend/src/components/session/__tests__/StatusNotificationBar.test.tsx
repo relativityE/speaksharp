@@ -149,7 +149,7 @@ describe('StatusNotificationBar', () => {
             return typeof selector === 'function' ? selector(state) : state;
         });
 
-        render(<StatusNotificationBar status={{ type: 'ready', message: 'Private ready. Nothing leaves your browser.', progress: 100 }} />);
+        render(<StatusNotificationBar status={{ type: 'ready', message: 'Private ready. Audio stays on this device; your transcript is saved with the session.', progress: 100 }} />);
 
         expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private ready/i);
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Complete');
