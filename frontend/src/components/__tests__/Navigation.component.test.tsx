@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NAV_ITEM_ACTIVE_CLASS, NAV_ITEM_BASE_CLASS } from '@/config/navSections';
 import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
@@ -46,6 +50,13 @@ vi.mock('react-router-dom', async () => {
 });
 
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
+
+// jsdom does not apply the app stylesheet, so the no-reflow / focus-visible guarantees are
+// asserted against the shipped CSS that backs the classes the elements carry.
+const navCss = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../index.css'),
+    'utf8',
+);
 
 describe('Navigation', () => {
     const mockSignOut = vi.fn();
@@ -312,36 +323,109 @@ describe('Navigation', () => {
     });
 
     describe('Active Link Highlighting', () => {
-        it('highlights the Home link as active when on /practice (the authenticated home)', () => {
-            mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } },
-                signOut: mockSignOut,
-            } as unknown as AuthProvider.AuthContextType);
+        const authed = () => mockUseAuthProvider.mockReturnValue({
+            session: { user: { id: 'test-user' } },
+            signOut: mockSignOut,
+        } as unknown as AuthProvider.AuthContextType);
 
+        const primaryNav = () => screen.getByRole('navigation', { name: 'Primary' });
+
+        it('exposes a labelled primary navigation landmark', () => {
+            authed();
             renderNavigation('/practice');
-            expect(screen.getAllByText('Home')).toHaveLength(2); // desktop + mobile
-            // The active desktop Home link carries the active-state class (asChild merges it onto the Link).
-            expect(screen.getByTestId('nav-home-link').className).toContain('bg-muted');
+            expect(primaryNav()).toBeInTheDocument();
         });
 
-        it('should highlight Session link when on session page without rendering duplicate mobile nav', () => {
-            mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } },
-                signOut: mockSignOut,
-            } as unknown as AuthProvider.AuthContextType);
+        it.each([
+            ['/', 'nav-home-link'],
+            ['/practice', 'nav-home-link'],
+            ['/session', 'nav-session-link'],
+            ['/session/abc123', 'nav-session-link'],
+            ['/analytics', 'nav-analytics-link'],
+            ['/analytics/session-42', 'nav-analytics-link'],
+        ])('marks exactly one item current on %s', (route, expectedTestId) => {
+            authed();
+            renderNavigation(route);
 
+            const current = document.querySelectorAll('[aria-current="page"]');
+            expect(current).toHaveLength(1);
+            expect(current[0]).toBe(screen.getByTestId(expectedTestId));
+            expect(current[0].className).toContain(NAV_ITEM_ACTIVE_CLASS);
+        });
+
+        it.each([
+            ['/session-other'],
+            ['/pricing'],
+            ['/definitely-not-a-page'],
+        ])('marks no item current on the unmapped route %s', (route) => {
+            authed();
+            renderNavigation(route);
+
+            // Boundary rule: /session-other must NOT activate Session.
+            expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+            expect(screen.getByTestId('nav-session-link').className).not.toContain(NAV_ITEM_ACTIVE_CLASS);
+        });
+
+        it('gives active and inactive items identical geometry classes (no reflow on navigation)', () => {
+            authed();
+            renderNavigation('/session');
+
+            const active = screen.getByTestId('nav-session-link');
+            const inactive = screen.getByTestId('nav-home-link');
+
+            const activeClasses = active.className.split(/\s+/).filter(Boolean);
+            const inactiveClasses = inactive.className.split(/\s+/).filter(Boolean);
+
+            // The ONLY difference between the two states is the colour-only modifier class.
+            expect(activeClasses.filter((c) => c !== NAV_ITEM_ACTIVE_CLASS)).toEqual(inactiveClasses);
+            expect(inactiveClasses).toContain(NAV_ITEM_BASE_CLASS);
+            expect(activeClasses).toContain(NAV_ITEM_ACTIVE_CLASS);
+
+            // …and that modifier declares nothing but background-color and color, so padding /
+            // font-weight / font-size / radius cannot change between states.
+            const modifierBlocks = [...navCss.matchAll(/\.nav-item--active[^{]*\{([^}]*)\}/g)];
+            expect(modifierBlocks.length).toBeGreaterThan(0);
+            for (const [, body] of modifierBlocks) {
+                const properties = body
+                    .split(';')
+                    .map((decl) => decl.split(':')[0].trim())
+                    .filter(Boolean);
+                expect(properties.sort()).toEqual(['background-color', 'color']);
+            }
+        });
+
+        it('keeps every item on a single line in both states', () => {
+            const baseBlock = navCss.match(/\.nav-item\s*\{([^}]*)\}/);
+            expect(baseBlock?.[1]).toContain('white-space: nowrap');
+        });
+
+        it('renders a visible keyboard focus style and focuses nav items', () => {
+            authed();
+            renderNavigation('/practice');
+
+            const sessionLink = screen.getByTestId('nav-session-link');
+            sessionLink.focus();
+            expect(document.activeElement).toBe(sessionLink);
+
+            // jsdom applies no stylesheet, so the focus affordance is proven against the
+            // stylesheet that ships with the class the element carries.
+            expect(sessionLink.className).toContain(NAV_ITEM_BASE_CLASS);
+            const focusBlock = navCss.match(/\.nav-item:focus-visible\s*\{([^}]*)\}/);
+            expect(focusBlock?.[1]).toMatch(/outline:/);
+        });
+
+        it('does not render the duplicate mobile nav on the session page', () => {
+            authed();
             renderNavigation('/session');
             expect(screen.getAllByText('Session')).toHaveLength(1);
         });
 
-        it('should highlight Analytics link when on analytics page', () => {
-            mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } },
-                signOut: mockSignOut,
-            } as unknown as AuthProvider.AuthContextType);
-
+        it('decorative nav icons are hidden from assistive tech', () => {
+            authed();
             renderNavigation('/analytics');
-            expect(screen.getAllByText('Analytics')).toHaveLength(2);
+            const icons = primaryNav().querySelectorAll('svg');
+            expect(icons.length).toBe(3);
+            icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
         });
     });
 

@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mic, BarChart3, Home, LogOut, Zap } from "lucide-react";
+import { LogOut, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
+import { NAV_SECTIONS, navItemClassName, resolveNavSectionId } from "@/config/navSections";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
@@ -72,42 +73,29 @@ const Navigation = () => {
     }
   };
 
-  // The nav items render ONLY for an authenticated session (see the `{session && …}` gates below), so
-  // the authenticated HOME destination is the authenticated home: /practice (not the public Index).
-  const navItems = [
-    {
-      path: "/practice",
-      icon: Home,
-      label: "Home",
-      testId: TEST_IDS.NAV_HOME_LINK
-    },
-    {
-      path: "/session",
-      icon: Mic,
-      label: "Session",
-      testId: TEST_IDS.NAV_SESSION_LINK
-    },
-    {
-      path: "/analytics",
-      icon: BarChart3,
-      label: "Analytics",
-      testId: TEST_IDS.NAV_ANALYTICS_LINK
-    },
-  ];
+  // Route -> active nav section is resolved centrally (see @/config/navSections) so no page
+  // file ever carries its own active styling, and so the match respects a segment boundary
+  // (/session and /session/abc are Session; /session-other is not).
+  const activeSectionId = resolveNavSectionId(location.pathname);
 
   const MobileNav = () => (
     <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 border-t border-border surface-shadow z-40 p-2 backdrop-blur-xl">
       <div className="flex justify-around items-center">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+        {NAV_SECTIONS.map((item) => {
+          const isActive = activeSectionId === item.id;
           return (
             <Button
-              key={item.path}
+              key={item.id}
               variant={isActive ? "secondary" : "ghost"}
               size="sm"
               asChild
               className="flex flex-col h-16"
             >
+              {/*
+                * No aria-current here on purpose: the mobile bar and the desktop bar are both in
+                * the DOM at once (only a CSS media query hides one), so duplicating aria-current
+                * would announce two current pages. The desktop primary nav is its sole owner.
+                */}
               <Link to={item.path}>
                 <item.icon className="h-5 w-5 mb-1" aria-hidden="true" />
                 <span className="text-xs">{item.label}</span>
@@ -138,7 +126,8 @@ const Navigation = () => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-[#e3e8f0]">
+      {/* The bar itself is the page header; the primary nav landmark is the labelled <nav> inside. */}
+      <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-[#e3e8f0]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo → authenticated home is /practice; anonymous logo stays the public Index. */}
@@ -154,25 +143,27 @@ const Navigation = () => {
 
             {/* Navigation Items */}
             {session && (
-              <div className="hidden md:flex items-center space-x-1">
-                {navItems.map((item) => {
-                  const isActive = location.pathname === item.path;
+              <nav aria-label="Primary" className="hidden md:flex items-center space-x-1">
+                {NAV_SECTIONS.map((item) => {
+                  const isActive = activeSectionId === item.id;
                   return (
-                    <Button
-                      key={item.path}
-                      variant={isActive ? "default" : "ghost"}
-                      size="sm"
-                      asChild
-                      className={isActive ? "bg-muted text-foreground shadow-none" : ""}
+                    <Link
+                      key={item.id}
+                      to={item.path}
+                      data-testid={item.testId}
+                      // Colour alone is not an accessible indicator; aria-current is the
+                      // programmatic signal for the current page.
+                      aria-current={isActive ? "page" : undefined}
+                      // Active adds ONE extra class that changes only background + text colour.
+                      // Geometry lives in .nav-item, so the bar cannot reflow on navigation.
+                      className={navItemClassName(isActive)}
                     >
-                      <Link to={item.path} className="flex items-center space-x-2" data-testid={item.testId}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.label}</span>
-                      </Link>
-                    </Button>
+                      <item.icon className="h-4 w-4" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </Link>
                   );
                 })}
-              </div>
+              </nav>
             )}
 
             {/* User Actions */}
@@ -234,7 +225,7 @@ const Navigation = () => {
             </div>
           </div>
         </div>
-      </nav>
+      </header>
 
       {/* Mobile Navigation */}
       {session && location.pathname !== '/session' && <MobileNav />}
