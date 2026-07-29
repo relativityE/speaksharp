@@ -51,7 +51,85 @@
   --ss-session-panel: linear-gradient(145deg, #84BAB7 0%, #B5D5D4 100%); --ss-session-border: #4C9E99;
   --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE;
   --ss-exec-panel: linear-gradient(145deg, #5E43E0 0%, #7C61EE 100%); --ss-exec-border: #5A46E0;
+
+  /* ------------------------------------------------------------------------------------------
+   * #1047 authenticated Home. Declared HERE (the one place practice-surface tokens live) rather
+   * than inline in the component, so the two product identities and the single warm through-line
+   * can be re-tuned without touching TSX.
+   *
+   * Freestyle = teal, Guided = violet, and ONE amber thread crosses both cards (the "what to
+   * expect" eyebrow and Freestyle's middle tile). Amber is never a text background for white
+   * type: `--ss-home-amber-ink` is the dark brown/amber ink used on every warm surface.
+   * ---------------------------------------------------------------------------------------- */
+  --ss-home-teal: #0d7d74;
+  --ss-home-teal-deep: #0a5f58;
+  --ss-home-teal-band: linear-gradient(135deg, #0d7d74 0%, #17a99b 100%);
+  --ss-home-teal-tint: #e6f4f2;
+  --ss-home-teal-border: #cfe7e4;
+
+  --ss-home-violet: #7b5ce0;
+  --ss-home-violet-deep: #6a4fd0;
+  --ss-home-violet-band: linear-gradient(135deg, #7b5ce0 0%, #9d7cf0 100%);
+  --ss-home-violet-tint: #f0ecfb;
+  --ss-home-violet-border: #ded8f5;
+
+  /* The warm through-line. `-ink` is deliberately dark brown — NEVER white text on orange. */
+  --ss-home-amber: #C96608;
+  --ss-home-amber-ink: #6b3f08;
+  --ss-home-amber-tint: #fdf0dc;
+  --ss-home-amber-rule: #f0c088;
+  --ss-home-amber-bar: #f4c77b;
+
+  --ss-home-card-border: #e2e8f4;
 }
+
+/* Product card shell: 16px radius, clipped so the coloured header band bleeds to the edges. */
+.practice-root .ss-home-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--ss-surface);
+  border: 1px solid var(--ss-home-card-border);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+/* Two equal columns; ONE column as soon as side-by-side stops being readable. */
+.practice-root .ss-home-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 30px;
+  align-items: stretch;
+}
+@media (min-width: 900px) {
+  .practice-root .ss-home-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.practice-root .ss-home-band-teal { background: var(--ss-home-teal-band); }
+.practice-root .ss-home-band-violet { background: var(--ss-home-violet-band); }
+
+/* CTAs are full-width and pinned to the bottom of the card so both buttons bottom-align
+   regardless of how much copy sits above them. */
+.practice-root .ss-home-cta {
+  margin-top: auto;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.practice-root .ss-home-cta-solid { background: var(--ss-home-teal); color: #fff; }
+.practice-root .ss-home-cta-solid:hover { filter: brightness(0.93); }
+.practice-root .ss-home-cta-outline {
+  background: var(--ss-surface);
+  color: var(--ss-home-violet-deep);
+  border: 1.5px solid var(--ss-home-violet);
+}
+.practice-root .ss-home-cta-outline:hover { background: var(--ss-home-violet-tint); }
 
 /* Same-element compound selector (the class sits ON .practice-root, not a descendant). */
 .practice-root.ss-landing-canvas { background: var(--ss-landing-canvas); }

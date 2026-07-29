@@ -2,12 +2,11 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 
 /**
- * #1042 PR4 (reconciled to #1061): VISUAL proof for the above-the-fold Practice Home continuity block
- * (returning state). #1061 folded continuity into the authenticated greeting ROW — the compact `inline`
- * variant renders the same TRUTHFUL summary (date + duration only, never WPM) + the same two actions
- * ("Review last session" → /analytics/:id, "View analytics" → /analytics), but the standalone "Ready for
- * your next practice?" heading is gone; the greeting "What would you like to practice?" is now the header.
- * Authenticates via the E2E mock path with a RETURNING session history (the default).
+ * #1042 PR4 → #1061 → #1047: VISUAL proof for the above-the-fold continuity cluster on authenticated Home.
+ * #1047 replaced the standalone continuity card with a greeting ROW: a streak chip, a "Last session"
+ * button carrying the TRUTHFUL summary (date + duration only, never WPM) and an "Analytics" button. The
+ * "Ready for your next practice?" heading is gone and the page header is now the question "What would you
+ * like to do?". Authenticates via the E2E mock path with a RETURNING session history (the default).
  *
  * DESKTOP: full-page shot (no fixed bottom nav to obscure content).
  * MOBILE: a SECTION-scoped shot of the continuity block, taken only after asserting both actions clear the
@@ -35,14 +34,15 @@ async function settle(page: Page) {
 async function enterReturningPractice(page: Page) {
   await navigateToRoute(page, '/practice');
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  // Returning state (a session exists): the continuity summary is present with date + duration, no WPM.
-  const summary = page.getByTestId('practice-continuity-summary');
+  // Returning state (a session exists): the last-session line carries date + duration, no WPM, and is
+  // NOT the em-dash placeholder that a missing/failed read would produce.
+  const summary = page.getByTestId('home-last-session-secondary');
   await expect(summary).toBeVisible({ timeout: 30000 });
-  await expect(summary).toContainText(/Last practice/i);
   await expect(summary).not.toContainText(/WPM/i);
+  await expect(summary).not.toHaveText('—');
   // Both actions exist above the fold; the two-product chooser still renders below.
-  await expect(page.getByTestId('practice-continuity-review')).toBeVisible();
-  await expect(page.getByTestId('practice-continuity-analytics')).toBeVisible();
+  await expect(page.getByTestId('home-last-session')).toBeVisible();
+  await expect(page.getByTestId('home-analytics')).toBeVisible();
   await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
 }
 
@@ -83,15 +83,14 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     // continuity SECTION (not full-page, which would let the fixed nav bisect the card).
     await page.setViewportSize(MOBILE);
     await enterReturningPractice(page);
-    const block = page.getByTestId('practice-continuity');
+    const block = page.getByTestId('practice-welcome-authed');
     // Centre the section in the safe area — clear of BOTH the fixed top header and the fixed bottom nav —
     // so neither overlays the card (scrolling to 'start' would tuck the summary under the top header).
     await block.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    // #1061 inline layout: the block's top line is the summary (no standalone heading); the greeting row
-    // "What would you like to practice?" is the page header.
-    const summary = page.getByTestId('practice-continuity-summary');
-    const review = page.getByTestId('practice-continuity-review');
-    const analytics = page.getByTestId('practice-continuity-analytics');
+    // #1047 greeting row: the question is the header; continuity is the right-hand cluster.
+    const summary = page.getByTestId('home-last-session-secondary');
+    const review = page.getByTestId('home-last-session');
+    const analytics = page.getByTestId('home-analytics');
     // The complete block is visible: summary + both actions.
     await expect(summary).toBeVisible();
     await expect(review).toBeVisible();
@@ -99,8 +98,8 @@ test.describe('#1042 PR4 — Practice Home continuity (returning state)', () => 
     // Nothing in the block is obscured by a fixed bar — the summary clears the top header, and both actions
     // clear the bottom nav (toBeVisible alone does NOT detect occlusion, so hit-test each).
     expect(await isUnobscured(summary), 'Summary must clear the fixed top header').toBe(true);
-    expect(await isUnobscured(review), 'Review action must not intersect the fixed bottom nav').toBe(true);
-    expect(await isUnobscured(analytics), 'View analytics action must not intersect the fixed bottom nav').toBe(true);
+    expect(await isUnobscured(review), 'Last session action must not intersect the fixed bottom nav').toBe(true);
+    expect(await isUnobscured(analytics), 'Analytics action must not intersect the fixed bottom nav').toBe(true);
     await settle(page);
     await block.screenshot({ path: `${DIR}/02-continuity-returning-mobile.png` });
 

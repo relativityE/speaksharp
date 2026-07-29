@@ -118,6 +118,25 @@ describe('Navigation', () => {
             renderNavigation();
             expect(screen.getByTestId('nav-sign-out-button')).toBeInTheDocument();
         });
+
+        /*
+         * #1047: the header used to print the full email, which at realistic lengths pushed the
+         * action group into the nav links and overflowed the bar. The avatar has a fixed width — but
+         * an initial is not an accessible name, so the identity must still be announced.
+         */
+        it('shows an avatar with a real accessible name and keeps the email out of the visual header', () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user', email: 'averyveryverylongaddress@example.com' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+
+            renderNavigation();
+            const avatar = screen.getByTestId('nav-account-avatar');
+            expect(avatar).toHaveAccessibleName('Signed in as averyveryverylongaddress@example.com');
+            // Visible content is the initial only.
+            expect(avatar).toHaveTextContent('A');
+            expect(screen.queryByText('averyveryverylongaddress@example.com')).not.toBeInTheDocument();
+        });
     });
 
     describe('Authentication Actions', () => {

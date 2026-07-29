@@ -58,7 +58,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('practice-card-guided-card').getByTestId('guided-soon-badge')).toBeVisible();
     await expect(page.getByRole('button', { name: /notify me about guided rehearsal/i })).toContainText(/notify me at launch/i);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
-    await expect(page.getByTestId('practice-continuity')).toHaveCount(0);
+    await expect(page.getByTestId('home-last-session')).toHaveCount(0);
     await settle(page);
     await page.screenshot({ path: `${DIR}/01-anonymous-root-desktop.png`, fullPage: true });
 
@@ -91,12 +91,12 @@ test.describe('#1061 one canonical auth-aware page', () => {
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
-  test('authenticated `/practice`: compact welcome + continuity; Freestyle → /session; Guided Notify me', async ({ page }) => {
+  test('authenticated `/practice`: the choice question + continuity cluster; Freestyle → /session; Guided Notify me', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/what would you like to practice/i);
-    await expect(page.getByTestId('practice-continuity-summary')).toBeVisible();
+    await expect(page.getByTestId('practice-welcome-authed')).toContainText(/what would you like to do/i);
+    await expect(page.getByTestId('home-last-session-secondary')).toBeVisible();
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);
     await expect(page.getByTestId('guided-soon-badge')).toBeVisible();

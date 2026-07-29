@@ -50,9 +50,9 @@ async function shot(page: Page, path: string) {
 
 async function expectOnChooser(page: Page) {
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  // #1061 authenticated state: the brand line "Private Practice. Public Impact!" is a compact <p> welcome
-  // (not the large marketing <h1>), so match the text rather than the heading role.
-  await expect(page.getByText(/what would you like to practice/i)).toBeVisible();
+  // #1047 authenticated state: the page's job is to ASK, so the H1 is the question itself. No tagline,
+  // no marketing hero.
+  await expect(page.getByText(/what would you like to do/i)).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/practice');
 }
 

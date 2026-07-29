@@ -26,6 +26,10 @@ vi.mock('@/contexts/AuthProvider', async (orig) => {
   return { ...actual, useAuthProvider: () => ({ user: mockUser }) };
 });
 
+// #1047: Home reads the persisted streak from the SAME cached check-usage-limit query the nav already
+// runs. Mocked here (this suite renders the page without a QueryClientProvider); the default is "no
+// data yet", which is exactly the case that must render an em-dash rather than a fabricated 0.
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 const mockHistory = vi.mocked(useRecentPracticeSummary);
@@ -61,17 +65,18 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   });
 
   describe('authenticated state (`/practice`)', () => {
-    it('shows the compact welcome, continuity, and product-card CTAs', () => {
+    it('asks the choice question and shows both product-card CTAs — no marketing copy (#1047)', () => {
       mockHistory.mockReturnValue({
         data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
         isLoading: false,
       } as unknown as HistoryReturn);
       render(<PracticePage />);
       expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/welcome back/i);
-      expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/what would you like to practice\?/i);
-      expect(screen.getByTestId('practice-continuity')).toBeInTheDocument();
-      // No anonymous marketing support section after login.
-      expect(screen.queryByTestId('practice-support')).not.toBeInTheDocument();
+      expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/what would you like to do\?/i);
+      // No anonymous marketing support section, hero or tagline after login.
+      expect(screen.queryByTestId('practice-support-heading')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('practice-hero-start-free')).not.toBeInTheDocument();
+      expect(root().textContent ?? '').not.toMatch(/Public Impact/i);
       // Product cards own their actions.
       expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
       expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
@@ -94,16 +99,25 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('returning user: Review → /analytics/<id>, View analytics → /analytics', () => {
+    it('returning user: Last session → /analytics/<id>, Analytics → /analytics', () => {
       mockHistory.mockReturnValue({
         data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
         isLoading: false,
       } as unknown as HistoryReturn);
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-continuity-review'));
+      fireEvent.click(screen.getByTestId('home-last-session'));
       expect(navigateSpy).toHaveBeenCalledWith('/analytics/sess-9');
-      fireEvent.click(screen.getByTestId('practice-continuity-analytics'));
+      fireEvent.click(screen.getByTestId('home-analytics'));
       expect(navigateSpy).toHaveBeenCalledWith('/analytics');
+    });
+
+    it('no persisted session: Last session shows an em-dash and leads nowhere (never a fabricated 0:00)', () => {
+      mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+      render(<PracticePage />);
+      expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('—');
+      expect(screen.getByTestId('home-last-session')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('home-last-session'));
+      expect(navigateSpy).not.toHaveBeenCalled();
     });
   });
 

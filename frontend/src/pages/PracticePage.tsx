@@ -1,11 +1,14 @@
 /**
  * PracticePage — the ONE canonical, auth-aware Marketing + Product + Practice-Choices page (#1061).
  *
- * Rendered at `/` for ANONYMOUS visitors (marketing state: large hero, a "how it helps" support section with
- * four cards + curved connectors, then the two product cards) and at `/practice` for AUTHENTICATED users
- * (product state: compact welcome, recent-practice continuity, then the two product cards). Both states share
- * ONE page/component, the same visual tokens, the same product-card implementation, and the same Freestyle
- * (teal) / Guided (purple) identities. Authentication changes the intro, supporting content, and actions.
+ * Rendered at `/` for ANONYMOUS visitors (marketing state: large hero, a free-trial strip, then the two
+ * product cards) and at `/practice` for AUTHENTICATED users.
+ *
+ * #1047: the two states no longer share a layout. A visitor needs to be convinced; a signed-in user needs
+ * to choose. The authenticated surface is therefore its own component (`AuthenticatedHome`) with no hero,
+ * no tagline and no marketing bullets — see that file for why. This page keeps the shared identities
+ * (Freestyle teal / Guided violet), the routing, and the telemetry for BOTH states, so the two surfaces
+ * cannot drift apart on what the buttons actually do.
  *
  * Freestyle Practice is the only working product; its action navigates to the unchanged /session (authed) or
  * through account access preserving /session intent (anonymous), and never auto-starts recording. Guided
@@ -23,10 +26,11 @@ import '@/styles/practice.css';
 import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
-import { PracticeContinuity } from '@/components/practice/PracticeContinuity';
+import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
 import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
@@ -146,8 +150,11 @@ export default function PracticePage() {
   const accountEmail = (user as { email?: string } | null | undefined)?.email ?? '';
   const { setSurface } = usePracticeSurface();
   // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
-  const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
+  const { data: recentSessions, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
+  // #1047: the ONLY accepted streak evidence is the persisted check-usage-limit value. This is the
+  // same cached query the nav already runs — no new request is issued for Home.
+  const { data: usageLimit } = useUsageLimit();
   // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
   const [notifyOpen, setNotifyOpen] = React.useState(false);
@@ -188,14 +195,14 @@ export default function PracticePage() {
 
   const freestyleCard = (
     <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice"
-      promise={isAuthed ? 'Speak freely. See how you’re progressing.' : 'No script. No pressure. Just practice.'}
+      promise="No script. No pressure. Just practice."
       bullets={QUICK_BULLETS}
-      ctaLabel={isAuthed ? 'Start Freestyle Practice' : 'Start Freestyle'} ctaAria="Start Freestyle Practice"
+      ctaLabel="Start Freestyle" ctaAria="Start Freestyle Practice"
       ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
   );
   const guidedCard = (
     <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal"
-      promise={isAuthed ? 'Prepare what matters. Rehearse until it lands.' : 'Prepare the points that must land.'}
+      promise="Prepare the points that must land."
       bullets={GUIDED_BULLETS} cornerBadge="SOON"
       ctaLabel="Notify me at launch" ctaNote ctaAria="Notify me about Guided Rehearsal"
       onClick={openNotify} testid="practice-card-guided" />
@@ -204,32 +211,42 @@ export default function PracticePage() {
     <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">{freestyleCard}{guidedCard}</div>
   );
 
+  /* #1047 AUTHENTICATED product state — an entirely separate surface. The user has already converted,
+     so there is no hero, no tagline and no marketing copy: a question, and two answers. */
+  const authenticatedHome = (
+    <AuthenticatedHome
+      lastSession={lastSession}
+      recentFailed={Boolean(recentError)}
+      streakCount={usageLimit?.streak_count}
+      onStartFreestyle={startFreestyle}
+      onNotifyGuided={openNotify}
+      onReviewLastSession={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
+      onViewAnalytics={() => navigate('/analytics')}
+    />
+  );
+
+  if (isAuthed) {
+    return (
+      // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
+      <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
+        <div className="practice-content">{authenticatedHome}</div>
+        <GuidedNotifyDialog
+          open={notifyOpen}
+          onOpenChange={setNotifyOpen}
+          source="authenticated_practice"
+          defaultEmail={accountEmail}
+          enabled={GUIDED_WAITLIST_ENABLED}
+        />
+      </div>
+    );
+  }
+
   return (
     // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
     <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
       <div className="practice-content">
-        {isAuthed ? (
-          /* AUTHENTICATED product state — a greeting ROW (visibly logged-in), NO marketing peach band: the
-             product choices lead the page. Recent-practice continuity sits inline on the right. */
-          <div className="mx-auto max-w-5xl px-5 pb-3 pt-24 sm:px-8" data-testid="practice-welcome-authed">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <span className="text-[13px] font-extrabold uppercase tracking-[0.1em] text-[color:var(--ss-teal-title)]">Welcome back</span>
-                <h1 className="mt-1 text-[30px] font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[38px]">What would you like to practice?</h1>
-              </div>
-              <PracticeContinuity
-                variant="inline"
-                loading={recentLoading}
-                error={Boolean(recentError)}
-                lastSession={lastSession}
-                onReviewLast={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
-                onViewAnalytics={() => navigate('/analytics')}
-              />
-            </div>
-          </div>
-        ) : (
-          /* ANONYMOUS marketing state — large sales hero. */
-          <div className="ss-theme-hero">
+        {/* ANONYMOUS marketing state — large sales hero. */}
+        <div className="ss-theme-hero">
             <div className="mx-auto max-w-5xl px-5 pb-10 pt-24 sm:px-8">
               <div className="mt-1 grid items-start gap-8 md:grid-cols-[1fr_22rem]">
                 <div>
@@ -259,34 +276,26 @@ export default function PracticePage() {
               </div>
             </div>
           </div>
-        )}
 
-        <div className={`mx-auto max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] md:pb-12 md:[padding-bottom:3rem] sm:px-10 ${isAuthed ? 'mt-4' : 'mt-0'}`}>
-          {isAuthed ? (
-            /* AUTHENTICATED: the two product cards (each owns its action). Continuity is in the greeting row. */
-            productGrid
-          ) : (
-            /* ANONYMOUS: a compact Freestyle FREE TRIAL strip (shared Freestyle teal token) directly above
-               the two product cards. The strip carries the trial promo; each product card owns its decision
-               + action. No four-card support section. */
-            <>
-              <FreestyleTrialStrip onStart={startFreestyle} />
-              <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
-                {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
-                <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>
-                <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[32px]">Choose the support your moment needs.</h2>
-              </div>
-              {productGrid}
-            </>
-          )}
+        {/* ANONYMOUS: a compact Freestyle FREE TRIAL strip (shared Freestyle teal token) directly above
+            the two product cards. The strip carries the trial promo; each product card owns its decision
+            + action. No four-card support section. */}
+        <div className="mx-auto mt-0 max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-10 md:pb-12 md:[padding-bottom:3rem]">
+          <FreestyleTrialStrip onStart={startFreestyle} />
+          <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
+            {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
+            <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>
+            <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-[color:var(--ss-text)] sm:text-[32px]">Choose the support your moment needs.</h2>
+          </div>
+          {productGrid}
         </div>
       </div>
 
       <GuidedNotifyDialog
         open={notifyOpen}
         onOpenChange={setNotifyOpen}
-        source={isAuthed ? 'authenticated_practice' : 'anonymous_landing'}
-        defaultEmail={isAuthed ? accountEmail : ''}
+        source="anonymous_landing"
+        defaultEmail=""
         enabled={GUIDED_WAITLIST_ENABLED}
       />
     </div>
