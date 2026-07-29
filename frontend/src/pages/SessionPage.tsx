@@ -49,6 +49,9 @@ export const SessionPage: React.FC = () => {
     const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
+    // #1089: the duration of the session under review. Falls back to the live timer while recording
+    // (the snapshot is only published at stop); after a stop the live timer is 0 but this is not.
+    const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
 
@@ -120,6 +123,8 @@ export const SessionPage: React.FC = () => {
     // stopping, finalizing/saving, or an unresolved recovery. This is derived ENTIRELY from the existing
     // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
     // lock model. The controller's recording lifecycle is INITIATING/ENGINE_INITIALIZING/RECORDING/STOPPING.
+    const scoringDurationSeconds = completedSessionDurationSeconds ?? elapsedTime;
+
     const helpOverlayAvailable = !(
         // engineSelectionLocked is set synchronously on Start INTENT (before the FSM reaches INITIATING),
         // so it closes the start-intent window where runtimeState/isListening/sttStatus are still idle —
@@ -355,7 +360,7 @@ export const SessionPage: React.FC = () => {
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
                                     isFinalizing={isTranscriptFinalizing}
-                                    recordingDurationSeconds={elapsedTime}
+                                    recordingDurationSeconds={scoringDurationSeconds}
                                     nativeFormatting={nativeFormatting}
                                     className="min-h-[340px] h-full"
                                 />
@@ -370,7 +375,9 @@ export const SessionPage: React.FC = () => {
                                 wpm={metrics.wpm}
                                 clarityScore={metrics.clarityScore}
                                 fillerCount={metrics.fillerCount}
-                                elapsedSeconds={elapsedTime}
+                                // #1089: the score's usability gate (>= 30s) must judge the session under
+                                // review, not the live timer that resets to 0 for the next recording.
+                                elapsedSeconds={scoringDurationSeconds}
                                 pauseMetrics={pauseMetrics}
                                 engine={mode || 'native'}
                                 isListening={isListening}

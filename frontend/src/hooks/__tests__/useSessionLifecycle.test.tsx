@@ -296,8 +296,40 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         }, { timeout: 2000 });
     });
 
-    it('caps a Private recording at 5 minutes / 300s (auto-stops past the per-recording cap, independent of budget)', async () => {
-        // #891 beta recording length = 5 min. Generous usage budget so ONLY the 5-min cap can trigger the stop.
+    /**
+     * #1089 review finding: `handleStartStop` is a TOGGLE. A backstop event arriving when nothing is
+     * recording (a late frame during teardown) would fall into its START branch and create exactly the
+     * stray recording this issue exists to eliminate. A stale event must be cleared, never toggled.
+     */
+    it('#1089: a stale capture-backstop event while Ready is cleared and NEVER starts a recording', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,               // nothing is recording...
+            runtimeState: 'READY',
+            elapsedTime: 0,
+            startTime: null,
+            captureLimitReached: { bufferedSeconds: 900, limitSeconds: 900 }, // ...but the signal is set
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().captureLimitReached).toBeNull();
+        }, { timeout: 2000 });
+
+        expect(mockStartListening).not.toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
+    });
+
+    it('caps a Private recording at 10 minutes / 600s (auto-stops past the per-recording cap, independent of budget)', async () => {
+        // Beta recording length = 10 min (raised from 5; the old value assumed slow finalization, now measured
+        // false at ~38.7s for a 5-min take on MT-WASM). Generous usage budget so ONLY the cap can trigger the stop.
         const mockLimit: UsageLimitCheck = {
             daily_remaining: 99999,
             daily_limit: 99999,
@@ -312,8 +344,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: true,
-            elapsedTime: 301, // past the 300s (5-min) per-recording cap
-            startTime: Date.now() - 301000,
+            elapsedTime: 601, // past the 600s (10-min) per-recording cap
+            startTime: Date.now() - 601000,
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
@@ -359,6 +391,133 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         await waitFor(() => {
             expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
         }, { timeout: 2000 });
+    });
+
+    /**
+     * #1089 REGRESSION — the observed stray 9-second session.
+     *
+     * A Private take auto-stopped at the cap. The runtime FSM returned to READY while the
+     * whole-utterance decode was still running, so the record control was live and labelled "Start".
+     * The user reached for Stop and instead began a SECOND recording, which they then stopped —
+     * producing a stray 9-second session and a "Ready to record" surface showing 00:09.
+     *
+     * Finalization is the authoritative gate: while it runs, no new recording may begin.
+     */
+    it('#1089: does NOT start a new recording while the previous take is still finalizing (stray-session repro)', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,
+            runtimeState: 'READY',            // FSM already back to READY...
+            isTranscriptFinalizing: true,     // ...while the decode is still running
+            elapsedTime: 0,
+            startTime: null,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        // The control must be non-interactive for the WHOLE finalization window, not just STOPPING.
+        expect(result.current.isButtonDisabled).toBe(true);
+
+        // Defence in depth: even a direct invocation (UI bypass) must not start a recording.
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+        expect(mockStartListening).not.toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+    });
+
+    /**
+     * #1089 — the hard capture backstop. Reaching it means the engine has STOPPED accepting audio.
+     * The old behaviour returned silently and kept showing "Recording" while the audio was discarded.
+     * The app must instead perform a controlled stop so everything captured before the guard is
+     * finalized and saved.
+     */
+    it('#1089: performs a controlled stop when the engine reports the capture backstop', async () => {
+        // The file-level useUsageLimit default is remaining_seconds: 30, which would auto-stop at
+        // elapsedTime 120 all on its own — the assertion would then pass with the backstop feature
+        // deleted. Pin a generous budget so the ONLY reachable stop is the capture backstop.
+        const generousLimit: UsageLimitCheck = {
+            daily_remaining: 99999,
+            daily_limit: 99999,
+            monthly_remaining: 99999,
+            monthly_limit: 99999,
+            remaining_seconds: 99999,
+            can_start: true,
+            subscription_status: 'pro',
+            is_pro: true,
+            streak_count: 0,
+        };
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: generousLimit,
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: true,
+            runtimeState: 'RECORDING',
+            elapsedTime: 120,                 // well under the 600s cap — only the backstop can fire
+            startTime: Date.now() - 120000,
+            captureLimitReached: { bufferedSeconds: 900, limitSeconds: 900 },
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await waitFor(() => {
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        }, { timeout: 2000 });
+
+        // Provenance: the stop must be attributable to the CAPTURE BACKSTOP. Without this the test
+        // passes for any stop route (budget, cap, VAD) and proves nothing about the feature.
+        await waitFor(() => {
+            expect(mockStore.getState().setSTTStatus).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('maximum recording length'),
+                }),
+            );
+        }, { timeout: 2000 });
+        // One-shot: a single backstop signal must not produce repeated stops.
+        expect(speechRuntimeController.stopRecording).toHaveBeenCalledTimes(1);
+
+        // vitest has no mockReset here, so restore the file default rather than leaking this
+        // generous budget into later tests (which would silently disable their 30s-limit stops).
+        vi.mocked(useUsageLimit).mockReturnValue(
+            mockUsageLimitQuery as unknown as UseQueryResult<UsageLimitCheck, Error>,
+        );
     });
 
     it('should NOT trigger stop when time remains', () => {

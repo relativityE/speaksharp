@@ -24,6 +24,8 @@ const initialState: SessionState = {
     chunks: [],
     frozenTranscriptAtStop: null,
     isTranscriptFinalizing: false,
+    captureLimitReached: null,
+    completedSessionDurationSeconds: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -192,6 +194,8 @@ export function createTestSessionStore(
                 frozenTranscriptAtStop,
             })),
 
+        setCaptureLimitReached: vi.fn((captureLimitReached) => set({ captureLimitReached })),
+        setCompletedSessionDuration: vi.fn((completedSessionDurationSeconds) => set({ completedSessionDurationSeconds })),
         setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
             set({
                 isTranscriptFinalizing,

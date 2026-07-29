@@ -67,7 +67,12 @@ export const PRIV_STT = {
   // #891 capture-from-start: the final buffer accumulates from mic-start (not from speech-start
   // confirmation), so a hard cap bounds memory on a stuck/overlong recording. On overflow we keep
   // the BEGINNING (the opening) and stop appending, rather than rolling the buffer forward.
-  MAX_UTTERANCE_SECONDS: 600,
+  // HARD MEMORY BACKSTOP for the accumulated utterance buffer. It must stay STRICTLY ABOVE
+  // MAX_PRIVATE_RECORDING_SECONDS: on hitting it, PrivateWhisper stops ACCUMULATING audio
+  // (`utteranceSampleCount >= MAX_UTTERANCE_SAMPLES` -> return) WITHOUT stopping the recording, so if the
+  // two were equal a take could silently lose its tail. 900s ≈ 57.6MB at 16kHz float32 — the recording cap
+  // is the binding limit; this stays a true backstop that a normal take never reaches.
+  MAX_UTTERANCE_SECONDS: 900,
   // #891 beta recording length = the PRODUCT REQUIREMENT: a single Private take may run the full
   // 5 minutes (300s). The prior 90s value was a beta latency control (kept Stop→final under ~30s on
   // single-thread WASM); it was REJECTED as beta behavior. Segmented finalization was supposed to lift
@@ -75,8 +80,21 @@ export const PRIV_STT = {
   // the finalize wait HONEST instead (the Finalizing… state is shown for the full Stop→final decode,
   // which on WASM is ~0.27x realtime => ~80s for a 5-min take). WebGPU (v4) is the future accelerator,
   // NOT a prerequisite for correct capture. The 600s MAX_UTTERANCE_SECONDS hard memory guard stays.
-  MAX_PRIVATE_RECORDING_SECONDS: 300,
+  // 10 minutes. The prior 300s was set when finalization was ASSUMED slow; that assumption is now
+  // measured false. On production multi-threaded WASM (4 threads, #1043) a real 5:03 take finalized in
+  // 38.7s (RTF ~0.128), so a full 10-minute take costs ~77s of Finalizing… and ~19MB of buffer. Stopping
+  // a user who believes they are still recording is worse than a longer finalize wait.
+  MAX_PRIVATE_RECORDING_SECONDS: 600,
   PRIVATE_RECORDING_CAP_WARNING_SECONDS: 20,
+  // #1089 HARD CEILING on post-Stop finalization. Finalizing… now disables the record control for its
+  // whole duration, so a decode that never returns would strand the user with no way out but a reload.
+  // Bound it instead: on expiry the stop fails into the EXISTING recovery path (FAILED + recovery-draft
+  // status), which re-enables the control and keeps the captured transcript.
+  //
+  // Sizing: measured RTF ~0.128 on production multi-threaded WASM, so the worst legitimate take (the
+  // 600s cap) finalizes in ~77s. 240s is ~3x that headroom — high enough that a slow-but-working
+  // device is never cut off mid-decode, low enough that a genuine hang surfaces in a bounded time.
+  FINALIZE_HARD_TIMEOUT_MS: 240_000,
   PROCESSING_INTERVAL_MS: 250,
   MAX_RETRY_SECONDS: 12,
   WHISPER_WINDOW_SECONDS: STT_PROVIDER_REQUIREMENTS.PRIVATE_TRANSFORMERS_WHISPER.MODEL_CONTEXT_WINDOW_SECONDS,

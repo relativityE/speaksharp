@@ -23,6 +23,7 @@ import {
 import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
+import { PRIV_STT } from './transcription/sttConstants';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
@@ -166,13 +167,14 @@ const createControllerOwnedServiceCallbacks = (
         | 'onModeChange'
         | 'onStatusChange'
         | 'onError'
-    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate'>
+    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate' | 'onCaptureLimitReached'>
 ): Partial<TranscriptionServiceOptions> => ({
     ...callbacks,
     onTranscriptUpdate: handlers.onTranscriptUpdate,
     onHistoryUpdate: handlers.onHistoryUpdate,
     onError: handlers.onError,
     onStatusChange: handlers.onStatusChange,
+    onCaptureLimitReached: handlers.onCaptureLimitReached,
     onModelLoadProgress: handlers.onModelLoadProgress,
     onReady: handlers.onReady,
     onAudioData: handlers.onAudioData,
@@ -287,6 +289,21 @@ const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
  * Tests must use whenStable() — never vi.waitFor() for side-effects.
  * @see LifecycleToken
  */
+/**
+ * #1089: post-Stop finalization exceeded PRIV_STT.FINALIZE_HARD_TIMEOUT_MS. Distinct from a decode
+ * ERROR: the engine never answered at all, so the failure is a hang, and the user-facing recovery
+ * copy differs. Routed through the normal stop-error path so it reuses the existing FAILED +
+ * recovery-draft architecture rather than inventing a second one.
+ */
+export class FinalizationTimeoutError extends Error {
+    readonly timeoutMs: number;
+    constructor(timeoutMs: number) {
+        super(`Finalization exceeded ${timeoutMs}ms`);
+        this.name = 'FinalizationTimeoutError';
+        this.timeoutMs = timeoutMs;
+    }
+}
+
 export class SpeechRuntimeController {
     private static instance: SpeechRuntimeController | null = null;
     private readonly HEARTBEAT_THRESHOLD_MS =
@@ -368,6 +385,14 @@ export class SpeechRuntimeController {
         this.serviceCallbacks = {
             onTranscriptUpdate: this.handleTranscriptUpdate.bind(this),
             onStatusChange: this.handleStatusChange.bind(this),
+            // #1089: the engine hit its hard capture backstop and has stopped accepting audio. Publish it
+            // so the session layer performs a CONTROLLED stop (preserving + finalizing everything captured
+            // before the guard) instead of the old behaviour: silently discarding audio while the UI still
+            // said "Recording". Durations only — no transcript, no audio, no identity.
+            onCaptureLimitReached: (info) => {
+                logger.warn(info, '[Controller] ⚠️ Capture backstop reached — stopping and finalizing');
+                useSessionStore.getState().setCaptureLimitReached(info);
+            },
             onModelLoadProgress: this.handleModelLoadProgress.bind(this),
             onReady: this.handleReady.bind(this),
             onHistoryUpdate: this.handleHistoryUpdate.bind(this),
@@ -2721,7 +2746,16 @@ export class SpeechRuntimeController {
                 preview: frozenAtStop.slice(0, 80),
             });
             const wasRecording = this.state === 'RECORDING';
-            await this.transition('STOPPING', undefined, token);
+            // #1089: this sits OUTSIDE the try below, and setTranscriptFinalizing(true) has already run.
+            // A throw here would leave finalization latched true forever — and finalization now disables
+            // the record control, so that is an unrecoverable lockout rather than a cosmetic flag leak.
+            try {
+                await this.transition('STOPPING', undefined, token);
+            } catch (transitionError) {
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
+                throw transitionError;
+            }
             if (token.cancelled || token.version !== this.lifecycleVersion) {
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
@@ -2775,10 +2809,33 @@ export class SpeechRuntimeController {
                     // (telemetry / __PRIVATE_TIMING__ / proof) and is NOT a session-length input.
                     const recordingStoppedAt = Date.now();
                     const recordingDurationSeconds = startTime ? Math.max(0, (recordingStoppedAt - startTime) / 1000) : 0;
+                    // #1089: publish the SAME authoritative spoken length the DB receives, so every post-save
+                    // surface (WPM, pace, coaching score, the review header) has a durable denominator that
+                    // survives the live timer being reset to 00:00 for the next recording.
+                    useSessionStore.getState().setCompletedSessionDuration(Math.round(recordingDurationSeconds));
                     // #1033: snapshot the producing-engine identity from the LIVE engine, BEFORE
                     // stopTranscription() can mutate/destroy engine metadata. Used for durable attribution.
                     const finalizingIdentityPatch = this.captureFinalizingIdentity(service, service.getMode?.() ?? stopEntryMode);
-                    result = await service.stopTranscription();
+                    // #1089 BOUNDED FINALIZATION. stopTranscription() runs the whole-utterance decode and
+                    // has no internal ceiling; the watchdog was stopped just above. Because Finalizing…
+                    // now disables the record control, a hang here means the user cannot start, stop or
+                    // recover without reloading the page — and the 300s -> 600s cap doubled the exposure.
+                    // On expiry we throw into the EXISTING catch, which transitions to FAILED, clears the
+                    // finalizing latch and surfaces the recovery draft the user already spoke.
+                    let finalizeTimer: ReturnType<typeof setTimeout> | undefined;
+                    try {
+                        result = await Promise.race([
+                            service.stopTranscription(),
+                            new Promise<never>((_, reject) => {
+                                finalizeTimer = setTimeout(
+                                    () => reject(new FinalizationTimeoutError(PRIV_STT.FINALIZE_HARD_TIMEOUT_MS)),
+                                    PRIV_STT.FINALIZE_HARD_TIMEOUT_MS,
+                                );
+                            }),
+                        ]);
+                    } finally {
+                        if (finalizeTimer !== undefined) clearTimeout(finalizeTimer);
+                    }
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
@@ -3445,7 +3502,18 @@ export class SpeechRuntimeController {
                 await this.transition('FAILED', err as Error, token);
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
-                if (hasRecoveryDraftSignal) {
+                if (err instanceof FinalizationTimeoutError) {
+                    // #1089: name the real failure instead of hanging on Finalizing… forever. The control
+                    // is usable again (FAILED clears the finalizing latch), and the transcript captured up
+                    // to this point is kept as a recovery draft when there is one.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'error',
+                        message: 'We could not finish processing this recording.',
+                        detail: hasRecoveryDraftSignal
+                            ? 'What we transcribed so far was kept in this browser. You can record again.'
+                            : 'You can record again.',
+                    });
+                } else if (hasRecoveryDraftSignal) {
                     useSessionStore.getState().setSTTStatus({
                         type: 'warning',
                         message: 'Session was not saved yet.',
