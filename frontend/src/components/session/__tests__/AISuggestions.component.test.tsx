@@ -216,7 +216,9 @@ describe('AISuggestions Integration', () => {
     });
 
     describe('Gemini disclosure persistence', () => {
-        const DISCLOSURE = /sends this session's transcript to google gemini to create two personalized takeaways\. audio is never sent\./i;
+        // Count-neutral by design: the edge function currently asks Gemini for four
+        // suggestions, so the disclosure must not promise a specific number.
+        const DISCLOSURE = /sends this session's transcript to google gemini to create ai coaching\. audio is never sent\./i;
 
         it('shows the Gemini disclosure in the empty state', () => {
             render(<AISuggestions transcript="Hello world" />);

@@ -60,7 +60,7 @@ We track "um", "uh", "like", "so", and "you know". Our **Top 2 Filler Words** in
 ## ❓ Frequently Asked Questions
 
 **Q: Is my audio stored?**
-A: We take privacy seriously. If you use **Pro: On-Device Mode**, your audio never leaves your computer. For other modes, audio is processed in real-time and deleted immediately after transcription.
+A: We take privacy seriously. If you use **Private**, your audio never leaves your computer. For other modes, audio leaves your device for cloud transcription.
 
 **Q: Can I use SpeakSharp on my phone?**
 A: Yes! SpeakSharp is a responsive web app. For the best "on-the-go" experience, add it to your home screen!

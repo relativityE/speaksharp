@@ -162,7 +162,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
           className="mt-4 text-xs font-medium text-foreground/70"
           data-testid="ai-suggestions-disclosure"
         >
-          Sends this session's transcript to Google Gemini to create two personalized takeaways. Audio is never sent.
+          Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.
         </p>
       </CardContent>
     </Card>
