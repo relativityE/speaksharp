@@ -127,13 +127,24 @@ export const getTryThisNext = (stats: DeliveryAggregates): TryThisNext => {
         { metric: clarity, driver: 'clear delivery', action: 'Say the main point before the context.' },
     ];
 
+    // #1045 finding 2 (RELEASE BLOCKER for the product orientation): a metric with NO evidence must
+    // never become a user prescription. NO_EVIDENCE carries tone 'watch', so before this filter a
+    // wordless session — where every metric is unknown — produced a confident instruction such as
+    // "pick up the pace". We can only coach on signals we actually measured.
+    const supported = candidates.filter((c) => c.metric.isEvidenceMissing !== true);
+
     // Single pass: the first 'off' wins outright; otherwise the first 'watch'.
     let worst: (typeof candidates)[number] | undefined;
-    for (const c of candidates) {
+    for (const c of supported) {
         if (c.metric.tone === 'off') { worst = c; break; }
         if (!worst && c.metric.tone === 'watch') worst = c;
     }
 
+    if (supported.length === 0) {
+        // Nothing was measurable. Ask for the one thing that would make the next session usable,
+        // rather than inventing a judgment about speaking we never heard.
+        return { driver: null, action: 'Record a longer take so we can measure it.' };
+    }
     if (!worst) {
         return { driver: null, action: 'Keep the pace steady and land the takeaway.' };
     }

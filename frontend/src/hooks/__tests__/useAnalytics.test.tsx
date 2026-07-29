@@ -6,7 +6,7 @@ import { useSession } from '../useSession';
 import { useParams } from 'react-router-dom';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { getSessionCount } from '../../lib/storage';
+import { getAnalyticsSummary, getSessionCount } from '../../lib/storage';
 
 // Mock dependencies
 vi.mock('../usePracticeHistory');
@@ -122,4 +122,66 @@ describe('useAnalytics', () => {
         expect(result.current.sessionHistory[0].id).toBe('s1');
         expect(result.current.overallStats.totalSessions).toBe(1);
     });
+
+    /**
+     * #1045 correction batch, finding 3 — the RPC path (>20 sessions) must not lose valid duration.
+     *
+     * `get_analytics_summary` returns `totalPracticeTime` in ROUNDED MINUTES and `totalSessions`. It
+     * has never returned `averageSessionLength` or any seconds field, so the old `|| 0` fallback
+     * reported a confident "0 mins" for every history large enough to use this path — and naively
+     * switching that to null would have discarded duration the RPC genuinely provides. The adapter
+     * derives both canonical fields from the real contract.
+     */
+    describe('#1045 RPC summary path preserves valid duration', () => {
+        const rpcSummary = (over: Record<string, unknown> = {}) => ({
+            overallStats: {
+                totalSessions: 40,
+                totalPracticeTime: 200,      // rounded MINUTES, per the RPC contract
+                avgWpm: 145,
+                avgFillerWordsPerMin: '2.4',
+                avgAccuracy: '81.5',         // this key holds sum(clarity_score)/sessions
+                ...over,
+            },
+            fillerWordTrends: {},
+            topFillerWords: [],
+            chartData: [],
+        });
+
+        const renderWithRpc = async (summary: unknown) => {
+            (usePracticeHistory as Mock).mockReturnValue({ sessions: [], loading: false, error: null });
+            (getSessionCount as Mock).mockResolvedValue(40); // > 20 -> RPC path
+            (getAnalyticsSummary as Mock).mockResolvedValue(summary);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.overallStats.totalSessions).toBe(40));
+            return result;
+        };
+
+        it('derives duration in seconds from the minutes the RPC actually returns', async () => {
+            const result = await renderWithRpc(rpcSummary());
+            const stats = result.current.overallStats;
+            expect(stats.totalPracticeTimeSeconds).toBe(200 * 60);
+            expect(stats.averageSessionLengthSeconds).toBeCloseTo((200 * 60) / 40, 5);
+            expect(stats.averageSessionLength).toBeCloseTo(200 / 40, 5);
+        });
+
+        it('maps the RPC clarity field instead of dropping Clear Delivery on this path', async () => {
+            const result = await renderWithRpc(rpcSummary());
+            expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(81.5, 5);
+        });
+
+        it('reports duration as unknown — never 0 mins — when the RPC returns no usable duration', async () => {
+            const result = await renderWithRpc(rpcSummary({ totalPracticeTime: 0 }));
+            const stats = result.current.overallStats;
+            // Rounded minutes of 0 means the total is under 30s: real, but not expressible at this
+            // precision. Unknown is honest; "0 mins" would repeat the defect this PR fixes.
+            expect(stats.averageSessionLengthSeconds).toBeNull();
+            expect(stats.averageSessionLength).toBeNull();
+        });
+
+        it('reports pause rhythm as unknown because the RPC does not compute it', async () => {
+            const result = await renderWithRpc(rpcSummary());
+            expect(result.current.overallStats.avgPausesPerMin).toBeNull();
+        });
+    });
+
 });

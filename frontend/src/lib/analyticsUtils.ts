@@ -1,3 +1,4 @@
+import { hasValidPauseEvidence } from '@/utils/metricValidity';
 import type { PracticeSession } from '@/types/session';
 import { calculateWordErrorRate } from './wer';
 import {
@@ -79,7 +80,9 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         totalWords += sessionMetrics.wordCount;
 
         totalFillerWords += sessionMetrics.fillerCount;
-        if (s.pause_metrics) {
+        // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
+        // carries no measurement. Only a structurally complete snapshot contributes.
+        if (hasValidPauseEvidence(s.pause_metrics)) {
             totalPauses += getSessionPauseCount(s);
             pauseContributors += 1;
         }
@@ -111,7 +114,12 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
     // A rate with no time denominator is not zero, it is unknown. A genuine zero-filler minute of
     // speech still reports 0.0 — that is real evidence and stays.
-    const avgFillerWordsPerMin = totalDurationSeconds > 0
+    // #1045 correction batch: a filler RATE needs transcribed words, not merely elapsed time. A
+    // six-second wordless take has duration > 0, so the old condition reported a confident "0.0/min",
+    // which decodes to the POSITIVE label "Low" — i.e. silence was being praised as clean delivery
+    // and could become the user's "What worked". A genuine take with words and no fillers still
+    // reports 0.0; that is real evidence.
+    const avgFillerWordsPerMin = totalDurationSeconds > 0 && totalWords > 0
         ? calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1)
         : null;
     const avgClarity = clarityContributors > 0

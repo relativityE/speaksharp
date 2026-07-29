@@ -12,8 +12,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { calculateOverallStats } from '../analyticsUtils';
-import { formatDurationMinutes, isValidMetric, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
-import { decodeClarity, decodePauseRhythm, decodeFillers, decodePace } from '@/utils/coachingNarrative';
+import { formatDurationMinutes, hasValidPauseEvidence, isValidMetric, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
+import { decodeClarity, decodePauseRhythm, decodeFillers, decodePace, getTryThisNext } from '@/utils/coachingNarrative';
 import type { PracticeSession } from '@/types/session';
 
 const session = (over: Partial<PracticeSession> = {}): PracticeSession => ({
@@ -63,6 +63,13 @@ describe('#1045 aggregate evidence validity', () => {
         // judgment invented from nothing.
         const stats = calculateOverallStats([session(), session()]);
         expect(stats.avgPausesPerMin).toBeNull();
+    });
+
+    it('does not praise SILENCE as clean delivery — a filler rate needs words, not just time', () => {
+        // A 6-second wordless take has duration > 0. Reporting "0.0 fillers/min" decodes to the
+        // POSITIVE label "Low", so silence could become the user's "What worked".
+        const stats = calculateOverallStats([session({ duration: 6, total_words: 0, transcript: '' })]);
+        expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
     it('keeps a GENUINE zero when the evidence is real', () => {
@@ -135,5 +142,98 @@ describe('#1045 metric validity predicate', () => {
         expect(isValidMetric(undefined)).toBe(false);
         expect(isValidMetric(NaN)).toBe(false);
         expect(isValidMetric(Infinity)).toBe(false);
+    });
+});
+
+/**
+ * #1045 correction batch, finding 1 — pause evidence is validated STRUCTURALLY.
+ * An empty `{}` snapshot is a truthy object carrying no measurement; treating its presence as
+ * evidence reintroduces the exact false zero this PR removes.
+ */
+describe('#1045 pause evidence is structural, not truthiness', () => {
+    const complete = { silencePercentage: 12.5, transitionPauses: 4, extendedPauses: 1, longestPause: 2.3 };
+
+    it('rejects missing and empty snapshots', () => {
+        expect(hasValidPauseEvidence(undefined)).toBe(false);
+        expect(hasValidPauseEvidence(null)).toBe(false);
+        expect(hasValidPauseEvidence({})).toBe(false);
+    });
+
+    it('rejects malformed snapshots', () => {
+        expect(hasValidPauseEvidence({ ...complete, longestPause: undefined })).toBe(false);
+        expect(hasValidPauseEvidence({ ...complete, transitionPauses: 'lots' })).toBe(false);
+        expect(hasValidPauseEvidence({ ...complete, silencePercentage: NaN })).toBe(false);
+        expect(hasValidPauseEvidence([complete])).toBe(false);
+        expect(hasValidPauseEvidence('pauses')).toBe(false);
+    });
+
+    it('ACCEPTS a structurally valid measured zero — that is a real finding, not missing data', () => {
+        expect(hasValidPauseEvidence({
+            silencePercentage: 0, transitionPauses: 0, extendedPauses: 0, longestPause: 0,
+        })).toBe(true);
+    });
+
+    it('accepts a structurally valid non-zero snapshot', () => {
+        expect(hasValidPauseEvidence(complete)).toBe(true);
+    });
+
+    it('does not let an empty snapshot become a pause rate in the aggregate', () => {
+        const stats = calculateOverallStats([
+            session({ pause_metrics: {} as never }),
+            session({ pause_metrics: {} as never }),
+        ]);
+        expect(stats.avgPausesPerMin).toBeNull();
+    });
+
+    it('does count a structurally valid measured zero as evidence', () => {
+        const stats = calculateOverallStats([
+            session({ pause_metrics: { silencePercentage: 0, transitionPauses: 0, extendedPauses: 0, longestPause: 0 } }),
+        ]);
+        expect(stats.avgPausesPerMin).not.toBeNull();
+        expect(Number(stats.avgPausesPerMin)).toBe(0);
+    });
+});
+
+/**
+ * #1045 correction batch, finding 2 — RELEASE BLOCKER for the product orientation.
+ * The user gets exactly two prescriptions. Neither may ever be manufactured from a metric we did
+ * not measure.
+ */
+describe('#1045 missing evidence never becomes coaching', () => {
+    it('does not prescribe a pace/filler/pause/clarity action for a wordless session', () => {
+        const allUnknown = calculateOverallStats([
+            session({ duration: 6, total_words: 0, transcript: '' }),
+        ]);
+
+        const result = getTryThisNext({
+            avgWpm: allUnknown.averageWPM,
+            avgPausesPerMin: allUnknown.avgPausesPerMin,
+            avgFillerWordsPerMin: allUnknown.avgFillerWordsPerMin,
+            avgClarity: allUnknown.avgClarity,
+        });
+
+        expect(result.driver).toBeNull();
+        // The old ranking treated NO_EVIDENCE (tone 'watch') as a real weakness and returned a
+        // confident instruction about speech that was never measured.
+        expect(result.action).not.toMatch(/pick up the pace|ease the pace|beat of silence/i);
+        expect(result.action).toMatch(/record a longer take/i);
+    });
+
+    it('never names a driver whose evidence is unavailable', () => {
+        // Only pace is measurable; every other signal is unknown.
+        const result = getTryThisNext({
+            avgWpm: 205,               // genuinely too fast -> the only supportable prescription
+            avgPausesPerMin: null,
+            avgFillerWordsPerMin: null,
+            avgClarity: null,
+        });
+        expect(result.driver).toBe('pace');
+    });
+
+    it('still coaches normally when the evidence is there', () => {
+        const result = getTryThisNext({
+            avgWpm: 140, avgPausesPerMin: 20, avgFillerWordsPerMin: 1, avgClarity: 90,
+        });
+        expect(result.driver).toBe('pause rhythm'); // 20/min is Choppy
     });
 });

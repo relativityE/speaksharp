@@ -16,6 +16,42 @@ import type { PracticeSession } from '../types/session';
 import { DASHBOARD_PAGINATION_LIMIT } from '../config/env';
 import { useReadinessStore } from '../stores/useReadinessStore';
 
+/**
+ * #1045 finding 3: derive the canonical duration fields from what `get_analytics_summary` actually
+ * returns (`totalPracticeTime` in rounded minutes + `totalSessions`).
+ *
+ * Precision caveat, handled honestly: the RPC rounds to whole minutes, so a total under 30 seconds
+ * arrives as 0. Reporting that as "0 mins" would repeat the very defect this PR fixes, and inventing
+ * a sub-minute number would be false precision. In that one case the duration is reported as unknown
+ * — we know practice happened, but not to a precision this path can express.
+ */
+const adaptRpcDurations = (rpc: Record<string, unknown>): {
+totalPracticeTimeSeconds: number;
+averageSessionLength: number | null;
+averageSessionLengthSeconds: number | null;
+} => {
+const minutes = firstFiniteOrNull(rpc.totalPracticeTime);
+const sessions = firstFiniteOrNull(rpc.totalSessions);
+if (minutes === null || minutes <= 0 || sessions === null || sessions <= 0) {
+    return { totalPracticeTimeSeconds: 0, averageSessionLength: null, averageSessionLengthSeconds: null };
+}
+const totalSeconds = minutes * 60;
+return {
+    totalPracticeTimeSeconds: totalSeconds,
+    averageSessionLength: minutes / sessions,
+    averageSessionLengthSeconds: totalSeconds / sessions,
+};
+};
+
+/** #1045: first argument that is a real finite number, else null (never a fabricated 0). */
+const firstFiniteOrNull = (...candidates: unknown[]): number | null => {
+for (const c of candidates) {
+    const n = typeof c === 'number' ? c : Number(c);
+    if (c !== null && c !== undefined && c !== '' && Number.isFinite(n)) return n;
+}
+return null;
+};
+
 // Empty fallback array (defined outside hook to prevent re-creation)
 const EMPTY_SESSIONS: PracticeSession[] = [];
 
@@ -76,15 +112,6 @@ export const useAnalytics = () => {
         return sessionsToUse;
     }, [sessionId, sessionsToUse, specificSession]);
 
-/** #1045: first argument that is a real finite number, else null (never a fabricated 0). */
-const firstFiniteOrNull = (...candidates: unknown[]): number | null => {
-    for (const c of candidates) {
-        const n = typeof c === 'number' ? c : Number(c);
-        if (c !== null && c !== undefined && c !== '' && Number.isFinite(n)) return n;
-    }
-    return null;
-};
-
     const analyticsData = useMemo(() => {
         // Use pre-computed summary from RPC if available and appropriate
         if (shouldUseRPC && summaryData) {
@@ -94,19 +121,20 @@ const firstFiniteOrNull = (...candidates: unknown[]): number | null => {
                 ...summaryData,
                 overallStats: {
                     ...summaryData.overallStats,
-                    // #1045: `|| 0` turned a MISSING RPC field into a confident zero. A metric the
-                    // server did not return is unknown, not zero — null makes the display layer say
-                    // "Not enough data" instead of inventing a number.
-                    averageSessionLength: firstFiniteOrNull(
-                        rpcOverallStats.averageSessionLength,
-                        rpcOverallStats.avgSessionLength,
-                    ),
-                    averageSessionLengthSeconds: firstFiniteOrNull(
-                        rpcOverallStats.averageSessionLengthSeconds,
-                        rpcOverallStats.avgSessionLengthSeconds,
-                    ),
-                    totalPracticeTimeSeconds: firstFiniteOrNull(rpcOverallStats.totalPracticeTimeSeconds) ?? 0,
+                    // #1045 finding 3: `get_analytics_summary` never returned `averageSessionLength`
+                    // or any seconds field — the old `|| 0` therefore reported a confident "0 mins"
+                    // for every history large enough to use the RPC path, and naively switching that
+                    // to null would have thrown away duration the RPC DOES return. Adapt the real
+                    // contract instead of migrating it: the RPC gives `totalPracticeTime` in ROUNDED
+                    // MINUTES and `totalSessions`, which is enough to derive both fields.
+                    ...adaptRpcDurations(rpcOverallStats),
                     averageWPM: firstFiniteOrNull(rpcOverallStats.avgWpm),
+                    // The RPC's `avgAccuracy` key holds sum(clarity_score)/sessions — it is clarity,
+                    // not STT accuracy. Map it rather than dropping Clear Delivery on this path.
+                    avgClarity: firstFiniteOrNull(rpcOverallStats.avgClarity, rpcOverallStats.avgAccuracy),
+                    avgFillerWordsPerMin: firstFiniteOrNull(rpcOverallStats.avgFillerWordsPerMin),
+                    // The RPC does not compute pause rhythm at all — genuinely unknown on this path.
+                    avgPausesPerMin: firstFiniteOrNull(rpcOverallStats.avgPausesPerMin),
                 }
             };
         }

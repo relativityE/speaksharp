@@ -60,3 +60,30 @@ export const toDisplayableMetric = (
     if (!isValidMetric(value)) return { text: NOT_ENOUGH_DATA, hasEvidence: false };
     return { text: String(value), unit, hasEvidence: true };
 };
+
+/**
+ * #1045 finding 1 — pause evidence must be validated STRUCTURALLY, never by object truthiness.
+ *
+ * `pause_metrics: {}` is a truthy object carrying no measurement. Treating its presence as evidence
+ * let an empty snapshot contribute a 0 to the pause aggregate, which is the same false claim as the
+ * missing-data case it was meant to fix. A snapshot counts as evidence only when every measurement
+ * field is present and finite.
+ *
+ * A structurally valid measured ZERO is real evidence and must be kept — "you took no long pauses"
+ * is a finding. What is rejected is the absence of measurement, not the value zero.
+ */
+export const PAUSE_EVIDENCE_FIELDS = [
+    'silencePercentage',
+    'transitionPauses',
+    'extendedPauses',
+    'longestPause',
+] as const;
+
+export const hasValidPauseEvidence = (snapshot: unknown): boolean => {
+    if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false;
+    const record = snapshot as Record<string, unknown>;
+    return PAUSE_EVIDENCE_FIELDS.every((field) => {
+        const value = record[field];
+        return typeof value === 'number' && Number.isFinite(value);
+    });
+};
