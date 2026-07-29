@@ -139,7 +139,12 @@ describe('useAnalytics', () => {
                 totalPracticeTime: 200,      // rounded MINUTES, per the RPC contract
                 avgWpm: 145,
                 avgFillerWordsPerMin: '2.4',
-                avgAccuracy: '81.5',         // this key holds sum(clarity_score)/sessions
+                avgClarity: '81.5',
+                avgAccuracy: '81.5',         // legacy alias of the same clarity value
+                // #1091 v4 contract: how many sessions actually carried evidence for each aggregate.
+                clarityContributorCount: 36,
+                wpmContributorCount: 38,
+                fillerRateContributorCount: 38,
                 ...over,
             },
             fillerWordTrends: {},
@@ -181,6 +186,103 @@ describe('useAnalytics', () => {
         it('reports pause rhythm as unknown because the RPC does not compute it', async () => {
             const result = await renderWithRpc(rpcSummary());
             expect(result.current.overallStats.avgPausesPerMin).toBeNull();
+        });
+
+        /**
+         * #1091 blocker: users past the >20-session threshold never touch `calculateOverallStats`, so
+         * the client-side clarity fix does not reach them. The server aggregate is fixed in migration
+         * 20260729130000; these tests pin the CONTRACT the hook must hold up at that boundary.
+         */
+        describe('#1091 RPC evidence-validity contract', () => {
+            it('passes the real clarity average through when contributors exist', async () => {
+                const result = await renderWithRpc(rpcSummary());
+                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(81.5, 5);
+                expect(result.current.overallStats.averageWPM).toBe(145);
+                expect(Number(result.current.overallStats.avgFillerWordsPerMin)).toBeCloseTo(2.4, 5);
+            });
+
+            it('prefers the explicit avgClarity key over the legacy avgAccuracy alias', async () => {
+                const result = await renderWithRpc(
+                    rpcSummary({ avgClarity: '74.2', avgAccuracy: '81.5' }),
+                );
+                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(74.2, 5);
+            });
+
+            it('still reads clarity from avgAccuracy when only the alias is populated', async () => {
+                const result = await renderWithRpc(
+                    rpcSummary({ avgClarity: null, avgAccuracy: '77.0' }),
+                );
+                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(77, 5);
+            });
+
+            it('reports clarity as unknown — not 0.0 — when zero sessions carry clarity evidence', async () => {
+                // Every session lost its phase-2c metrics write: clarity_score is NULL everywhere.
+                // The v4 RPC reports null + a zero contributor count; anything numeric here would be
+                // the "Clear Delivery 0%" defect reappearing on the path that actually serves the user.
+                const result = await renderWithRpc(
+                    rpcSummary({ avgClarity: null, avgAccuracy: null, clarityContributorCount: 0 }),
+                );
+                expect(result.current.overallStats.avgClarity).toBeNull();
+                expect(result.current.overallStats.avgClarity).not.toBe('0.0');
+                expect(result.current.overallStats.avgClarity).not.toBe(0);
+            });
+
+            it('never resurrects a number from a stale value when the contributor count is 0', async () => {
+                // Defensive: even if a server somehow returns both a zero count AND a number, the count
+                // is the evidence of record. No contributors means no average.
+                const result = await renderWithRpc(
+                    rpcSummary({ avgClarity: '0.0', avgAccuracy: '0.0', clarityContributorCount: 0 }),
+                );
+                expect(result.current.overallStats.avgClarity).toBeNull();
+            });
+
+            it('degrades every guarded aggregate to unknown on a legacy/unmigrated RPC payload', async () => {
+                // No contributor keys at all = the v3 function is still installed. Its numbers averaged
+                // missing measurements in as zeros and cannot be repaired client-side, so the dashboard
+                // must show "Not enough data" rather than a number known to be wrong.
+                const legacy = {
+                    overallStats: {
+                        totalSessions: 40,
+                        totalPracticeTime: 200,
+                        avgWpm: 145,
+                        avgFillerWordsPerMin: '2.4',
+                        avgAccuracy: '31.2',
+                    },
+                    fillerWordTrends: {},
+                    topFillerWords: [],
+                    chartData: [],
+                };
+                const result = await renderWithRpc(legacy);
+                const stats = result.current.overallStats;
+                expect(stats.avgClarity).toBeNull();
+                expect(stats.averageWPM).toBeNull();
+                expect(stats.avgFillerWordsPerMin).toBeNull();
+                // Duration is NOT evidence-gated — the RPC has always returned it honestly.
+                expect(stats.totalPracticeTimeSeconds).toBe(200 * 60);
+            });
+
+            it('reports pace and filler rate as unknown when no session carries words and time', async () => {
+                const result = await renderWithRpc(
+                    rpcSummary({
+                        avgWpm: null,
+                        avgFillerWordsPerMin: null,
+                        wpmContributorCount: 0,
+                        fillerRateContributorCount: 0,
+                    }),
+                );
+                expect(result.current.overallStats.averageWPM).toBeNull();
+                expect(result.current.overallStats.avgFillerWordsPerMin).toBeNull();
+                // Clarity is gated independently and still passes through.
+                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(81.5, 5);
+            });
+
+            it('preserves a genuine zero filler rate — real evidence of clean delivery', async () => {
+                const result = await renderWithRpc(
+                    rpcSummary({ avgFillerWordsPerMin: '0.0', fillerRateContributorCount: 38 }),
+                );
+                expect(Number(result.current.overallStats.avgFillerWordsPerMin)).toBe(0);
+                expect(result.current.overallStats.avgFillerWordsPerMin).not.toBeNull();
+            });
         });
     });
 

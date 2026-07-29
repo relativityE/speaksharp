@@ -43,6 +43,35 @@ return {
 };
 };
 
+/**
+ * #1045 / #1091: read an RPC aggregate ONLY when the RPC also told us how many sessions actually
+ * contributed evidence to it.
+ *
+ * Two distinct failure modes are collapsed into one honest answer here:
+ *
+ *  1. Zero contributors. `get_analytics_summary` (v4) reports the aggregate as JSON null in this case,
+ *     but the count is what makes the distinction explicit: "the average is genuinely low" vs "there is
+ *     no evidence". With no contributors the metric is unknown, not zero.
+ *
+ *  2. A database on which the v4 migration has NOT been applied. Then the contributor key is simply
+ *     absent, and the legacy value on the wire is the CONTAMINATED one — v3 averaged clarity (and pace,
+ *     and filler rate) over every session while folding each missing measurement in as a hard zero.
+ *     That is precisely the "Clear Delivery 0%" defect. A client guard cannot repair it: the server has
+ *     already summed and divided by the wrong denominator, and a collapsed average cannot be
+ *     un-collapsed downstream. So we degrade to unknown — the dashboard renders "Not enough data" —
+ *     rather than render a number we know to be wrong.
+ *
+ * This is deliberately fail-closed: until the migration is applied, these cards say "Not enough data".
+ */
+const rpcAggregateWithEvidence = (
+    contributorCount: unknown,
+    ...valueCandidates: unknown[]
+): number | null => {
+    const contributors = firstFiniteOrNull(contributorCount);
+    if (contributors === null || contributors <= 0) return null;
+    return firstFiniteOrNull(...valueCandidates);
+};
+
 /** #1045: first argument that is a real finite number, else null (never a fabricated 0). */
 const firstFiniteOrNull = (...candidates: unknown[]): number | null => {
 for (const c of candidates) {
@@ -128,11 +157,25 @@ export const useAnalytics = () => {
                     // contract instead of migrating it: the RPC gives `totalPracticeTime` in ROUNDED
                     // MINUTES and `totalSessions`, which is enough to derive both fields.
                     ...adaptRpcDurations(rpcOverallStats),
-                    averageWPM: firstFiniteOrNull(rpcOverallStats.avgWpm),
-                    // The RPC's `avgAccuracy` key holds sum(clarity_score)/sessions — it is clarity,
-                    // not STT accuracy. Map it rather than dropping Clear Delivery on this path.
-                    avgClarity: firstFiniteOrNull(rpcOverallStats.avgClarity, rpcOverallStats.avgAccuracy),
-                    avgFillerWordsPerMin: firstFiniteOrNull(rpcOverallStats.avgFillerWordsPerMin),
+                    averageWPM: rpcAggregateWithEvidence(
+                        rpcOverallStats.wpmContributorCount,
+                        rpcOverallStats.avgWpm,
+                    ),
+                    // The RPC's legacy `avgAccuracy` key holds clarity, not STT accuracy — v4 adds an
+                    // explicit `avgClarity` and keeps `avgAccuracy` as a compatibility alias, so read
+                    // the explicit key first. Both are gated on `clarityContributorCount` because v3
+                    // averaged clarity over ALL sessions, scoring every phase-2c metrics-write failure
+                    // as a zero. Users past the >20-session RPC threshold — the ones who saw
+                    // "Clear Delivery 0%" — are served entirely by this branch.
+                    avgClarity: rpcAggregateWithEvidence(
+                        rpcOverallStats.clarityContributorCount,
+                        rpcOverallStats.avgClarity,
+                        rpcOverallStats.avgAccuracy,
+                    ),
+                    avgFillerWordsPerMin: rpcAggregateWithEvidence(
+                        rpcOverallStats.fillerRateContributorCount,
+                        rpcOverallStats.avgFillerWordsPerMin,
+                    ),
                     // The RPC does not compute pause rhythm at all — genuinely unknown on this path.
                     avgPausesPerMin: firstFiniteOrNull(rpcOverallStats.avgPausesPerMin),
                 }
