@@ -27,19 +27,30 @@
 --
 -- FIX
 --   This migration re-issues the CURRENTLY DEPLOYED function body from
---   20260522110000_cleanup_stale_schema_lint.sql byte-for-byte, with exactly two changes:
---     1. The authorization guard becomes null-safe (defence in depth).
---     2. EXECUTE is revoked from PUBLIC and from anon (the primary control), and re-granted only to
+--   20260522110000_cleanup_stale_schema_lint.sql byte-for-byte, with exactly THREE security changes:
+--     1. EXECUTE is revoked from PUBLIC and from anon (the primary control), and re-granted only to
 --        the roles with established legitimate callers.
+--     2. The authorization guard becomes null-safe:
+--          auth.uid() IS NULL OR p_user_id IS NULL OR p_user_id <> auth.uid()
+--        `x <> NULL` evaluates to NULL, not TRUE, so the previous guard never raised when
+--        auth.uid() was NULL.
+--     3. `pg_temp` is named explicitly and LAST in search_path (see SAFE SEARCH PATH below).
 --   No analytics calculation, no response key, and no returned shape is altered. The response
 --   contract is unchanged.
 --
--- ROLLBACK POLICY
---   Rolling back MUST NEVER restore anonymous execution. If the function body has to be reverted,
---   the REVOKEs below REMAIN IN PLACE. Revert the body only; never revert the REVOKEs.
+-- ROLLBACK POLICY — ALL THREE CONTROLS ARE PERMANENT
+--   Reverting the analytics BODY must retain every security control introduced here:
+--     * the PUBLIC and anon REVOKEs,
+--     * the null-safe authorization guard,
+--     * SET search_path = public, pg_temp.
+--   Never restore the previously deployed guard (`p_user_id != auth.uid()`), and never restore
+--   anonymous execution. Revert calculations only; the security posture does not roll back.
 
--- 1. Remove the default PUBLIC grant and any anon grant. Idempotent: REVOKE of a privilege that is
---    not held is a no-op, so this is safe to re-run and safe to run ahead of the CREATE OR REPLACE.
+-- 1. Remove the default PUBLIC grant and any anon grant.
+--    IDEMPOTENCY, precisely: REVOKE of a privilege that is NOT HELD is a no-op, so re-running this
+--    migration is safe. It is NOT universally idempotent — REVOKE requires the function to already
+--    EXIST and errors if it does not. That precondition is satisfied here by the preceding migration
+--    history and by the current production database, both of which define the function beforehand.
 REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM anon;
 
@@ -51,10 +62,16 @@ SECURITY DEFINER
 --     the TEMPORARY schema FIRST for any unqualified object. A caller who can create temp objects
 --     could define pg_temp.sessions and have this SECURITY DEFINER body read that instead of
 --     public.sessions. Naming pg_temp explicitly and LAST removes the precedence. This is standard
---     SECURITY DEFINER hardening applied because we are already reissuing this function — it is not a
---     claim that the unsafe form was practically exploitable here, which was deliberately not
---     investigated further. The same pattern elsewhere in the migration tree is recorded in one
---     follow-up security issue rather than fixed piecemeal.
+--     CLASSIFICATION, precisely. The hijack MECHANISM is DEMONSTRATED, not theoretical. In an
+--     ephemeral PostgreSQL 17.10 cluster, as `authenticated` holding database TEMP, with a poisoned
+--     pg_temp.sessions of 42 rows against 1 real row in public.sessions:
+--         search_path = public          -> returned 42  (read the caller's temp table)
+--         search_path = public, pg_temp -> returned 1   (read public.sessions)
+--     PRODUCTION APPLICABILITY REMAINS CONDITIONAL: it additionally requires that the production
+--     `authenticated` role effectively holds TEMP on the database. That was NOT established and
+--     production was deliberately not probed further. The accurate statement is "demonstrated
+--     mechanism, conditional production applicability" — neither "confirmed production exploit" nor
+--     "defence in depth". Other occurrences of this pattern are owned by #1097.
 SET search_path = public, pg_temp
 AS $$
 DECLARE
