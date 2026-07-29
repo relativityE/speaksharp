@@ -91,6 +91,39 @@
 --                         mirror image of the clarity fallback removed above. Now the real `accuracy`
 --                         measurement only; sessions lacking it are omitted from the series.
 --
+-- ===================================================================================================
+-- SECURITY — SEPARATE FINDING, SEPARATE AUTHORIZATION LINE.
+--
+-- This section is a distinct defect from the analytics-evidence work above. It is included in the same
+-- migration only because this migration REPLACES get_analytics_summary, and shipping a replacement that
+-- knowingly reinstated the defective guard would be incoherent. It must be reviewed, and authorized, on
+-- its own line — not absorbed into the analytics fix.
+--
+-- THE DEFECT — a null-unsafe authorization guard with confirmed anon reachability.
+--   1. `IF p_user_id != auth.uid() THEN RAISE` evaluates to NULL, not TRUE, when auth.uid() is NULL (no
+--      JWT, or a token carrying no `sub` claim). The RAISE therefore never fired.
+--   2. The function is SECURITY DEFINER, so its body is not constrained by the RLS policy on
+--      public.sessions. That guard was the ONLY barrier.
+--   3. EXECUTE was available to PUBLIC — never revoked — and `anon` holds USAGE on schema public.
+--
+-- EVIDENCE, and its limits. Anon-role EXECUTE against production is CONFIRMED: a request carrying only
+-- the browser-visible publishable key and NO user JWT returned HTTP 200 with an analytics payload. That
+-- probe used the nil UUID, which owns no rows, so CROSS-TENANT DATA DISCLOSURE IS NOT PROVEN against
+-- production and must not be described as a demonstrated exploit. What IS proven — in a disposable local
+-- PostgreSQL seeded with synthetic rows, against the superseded definition read verbatim from this repo —
+-- is the MECHANISM: an unidentified caller receives another user's aggregates
+-- (tests/db/analytics-summary-security.integration.test.ts). service_role is already a privileged
+-- credential; nothing it can do is characterised here as an ordinary-user exploit.
+--
+-- THE FIX — two independent barriers, neither relying on the other:
+--   a. the null-safe guard `auth.uid() IS NULL OR p_user_id IS DISTINCT FROM auth.uid()`; and
+--   b. REVOKE EXECUTE FROM PUBLIC and FROM anon, with EXECUTE granted only to `authenticated`
+--      (see the PRIVILEGES block at the foot of this file, including the service_role decision).
+--
+-- NOT FIXED HERE, REPORTED SEPARATELY: eight other SECURITY DEFINER functions in this migration tree have
+-- no REVOKE ... FROM PUBLIC. They are enumerated in the PR, deliberately NOT changed by this migration.
+-- ===================================================================================================
+--
 -- Rollback: re-run 20260522110000_cleanup_stale_schema_lint.sql to restore the previous (defective)
 -- body. This migration changes only a function definition — no table, column, index, or row is touched,
 -- and no data can be lost by it.
@@ -123,8 +156,12 @@ DECLARE
     -- Keep these two in sync; the client value is the source of truth.
     c_min_reliable_scoring_words CONSTANT INT := 3;
 BEGIN
-    -- SECURITY CHECK
-    IF p_user_id != auth.uid() THEN
+    -- SECURITY CHECK — FAIL-CLOSED. See the SECURITY section in the header.
+    -- `IS DISTINCT FROM` is the null-safe comparison: it yields TRUE when exactly one side is NULL, so a
+    -- NULL p_user_id is rejected without a separate branch. The explicit `auth.uid() IS NULL` test is what
+    -- closes the original defect — it also rejects the NULL-vs-NULL case, which IS DISTINCT FROM alone
+    -- would treat as a match and let through.
+    IF auth.uid() IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
         RAISE EXCEPTION 'Unauthorized: You can only access your own analytics.';
     END IF;
 
@@ -340,6 +377,29 @@ BEGIN
 END;
 $$;
 
--- Grant permissions (idempotent; unchanged).
+-- ---------------------------------------------------------------------------------------------------
+-- PRIVILEGES — least privilege. All statements are idempotent and safe to re-run.
+--
+-- PostgreSQL grants EXECUTE to PUBLIC by default when a function is created, and no migration has ever
+-- revoked it for this function. `anon` additionally holds USAGE on schema public
+-- (20251219150000_fix_service_role_permissions.sql), so the function has been reachable by an
+-- unauthenticated PostgREST caller. That reachability is CONFIRMED, not theorised — see the header.
+--
+-- The same codebase already applies this exact hardening to process_stripe_webhook_event,
+-- create_session_and_update_usage, check_usage_limit, update_user_usage, consume_formatter_quota,
+-- consume_ai_suggestion_quota, get_user_id_by_email and others. The pattern existed; this function was
+-- missed. The REVOKE below is the pattern, applied.
+--
+-- service_role: the EXECUTE grant is REMOVED. A repo-wide search found no service-role caller of this
+-- function anywhere — not in backend/supabase/functions, scripts, or workflows — so the grant was unused
+-- standing privilege. It would also be unusable now: a back-office caller has no auth.uid(), and the
+-- null-safe guard rejects that by design. If an administrative cross-user aggregation is ever needed it
+-- must get its OWN explicitly privileged, separately named interface. The customer-facing guard is not to
+-- be weakened to accommodate one.
+--
+-- Revoking a privilege that was never functionally used is reversible in one line:
+--   GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM service_role;
 GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO service_role;

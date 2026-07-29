@@ -72,6 +72,39 @@ describe('#1091 get_analytics_summary evidence-validity migration contract', () 
         expect(functionBody).toMatch(/SET search_path = public/);
     });
 
+    it('makes the authorization guard FAIL-CLOSED with the null-safe comparison', () => {
+        // `p_user_id != auth.uid()` is NULL when auth.uid() is NULL, so the old RAISE never fired and
+        // this SECURITY DEFINER function (which bypasses RLS) served data to an unidentified caller.
+        expect(functionBody).toMatch(
+            /IF auth\.uid\(\) IS NULL OR p_user_id IS DISTINCT FROM auth\.uid\(\) THEN/,
+        );
+        expect(functionBody).toMatch(/RAISE EXCEPTION 'Unauthorized/);
+        expect(functionCode).not.toMatch(/IF p_user_id != auth\.uid\(\) THEN/);
+        // The security work is a SEPARATE finding and must be flagged for its own review/authorization.
+        expect(migration).toMatch(/SECURITY — SEPARATE FINDING, SEPARATE AUTHORIZATION LINE/);
+        expect(migration).toMatch(/CROSS-TENANT DATA DISCLOSURE IS NOT PROVEN/);
+    });
+
+    it('closes the PUBLIC/anon execute gap the rest of the codebase already closes', () => {
+        expect(functionCode).toMatch(
+            /REVOKE EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) FROM PUBLIC;/,
+        );
+        expect(functionCode).toMatch(
+            /REVOKE EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) FROM anon;/,
+        );
+    });
+
+    it('removes the unused service_role grant rather than leaving standing privilege', () => {
+        expect(functionCode).toMatch(
+            /REVOKE EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) FROM service_role;/,
+        );
+        expect(functionCode).not.toMatch(
+            /GRANT EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) TO service_role;/,
+        );
+        // ...and the one-line reversal is documented for the reviewer.
+        expect(migration).toMatch(/GRANT EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) TO service_role;/);
+    });
+
     it('names the rule it mirrors as the CLARITY CONTRIBUTOR RULE, not session eligibility', () => {
         // #1045 separately owns a session-eligibility contract that excludes accidental/insufficient
         // takes from Progress and both takeaways. Conflating the two would let this PR appear to settle
