@@ -2,7 +2,7 @@ import React from 'react';
 import { HelpCircle } from 'lucide-react';
 
 interface HelpPopoverProps {
-    /** Accessible name for the trigger and the popover panel, e.g. "About the SpeakSharp Score". */
+    /** Accessible name for the trigger and the popover panel, e.g. "About session feedback". */
     label: string;
     /** Help content (kept out of the default-visible UI). */
     children: React.ReactNode;

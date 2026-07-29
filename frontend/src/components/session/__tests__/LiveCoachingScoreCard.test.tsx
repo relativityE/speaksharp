@@ -55,29 +55,36 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.getByTestId('live-score-confidence')).toBeInTheDocument();
         expect(screen.getByText('Try this now')).toBeInTheDocument();
 
-        // The wordy explanation, breakdown, and footnote are NOT default-visible.
-        expect(screen.queryByText(/visible tools roll up into one coaching score/i)).toBeNull();
-        expect(screen.queryByText(/Improve the ingredients/i)).toBeNull();
-        expect(screen.queryByText('Why this score moved')).toBeNull();
+        // The explanation and breakdown are NOT default-visible.
+        expect(screen.queryByText(/Pace, detected fillers, delivery signals/i)).toBeNull();
+        expect(screen.queryByText(/Session feedback is directional/i)).toBeNull();
+        expect(screen.queryByText('What this is based on')).toBeNull();
         expect(screen.queryByText(/not a black box/i)).toBeNull();
-        expect(screen.queryByText(/SpeakSharp Score is a directional practice signal/i)).toBeNull();
         // Canonical naming: Audience Impact, never Listener Takeaway.
         expect(screen.queryByText(/Listener Takeaway/i)).toBeNull();
 
         // ...but they remain available through the accessible help affordance.
         const helpTrigger = screen.getByTestId('score-help');
-        expect(helpTrigger).toBeInTheDocument();
+        expect(helpTrigger).toHaveAccessibleName('About session feedback');
         fireEvent.click(helpTrigger);
 
-        expect(screen.getByText(/visible tools roll up into one coaching score/i)).toBeInTheDocument();
-        expect(screen.getByText(/Improve the ingredients/i)).toBeInTheDocument();
-        expect(screen.getByText('Why this score moved')).toBeInTheDocument();
+        // #1047: the help TEACHES session feedback, in the approved neutral wording.
+        expect(screen.getByText('Pace, detected fillers, delivery signals, and transcript quality support your session feedback.')).toBeInTheDocument();
+        expect(screen.getByText('Session feedback is directional and uses only the practice evidence available for this session.')).toBeInTheDocument();
+        expect(screen.getByText('What this is based on')).toBeInTheDocument();
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Structure from transcript');
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Pace, fillers, pauses');
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Clarity signal');
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Audience Impact');
         expect(screen.getByText(/not a black box/i)).toBeInTheDocument();
-        expect(screen.getByText(/SpeakSharp Score is a directional practice signal/i)).toBeInTheDocument();
+
+        // The retired name is gone from the OPENED help, and so is the promise that one coaching
+        // score carries over into Analytics. An earlier pass renamed only the label and shipped a
+        // body that still taught "SpeakSharp Score" — asserting the heading alone cleared that bar.
+        expect(screen.queryByText(/SpeakSharp Score/i)).toBeNull();
+        expect(screen.queryByText(/one coaching score/i)).toBeNull();
+        expect(screen.queryByText(/Improve the ingredients/i)).toBeNull();
+        expect(screen.getByTestId('score-help-content').textContent).not.toMatch(/SpeakSharp Score/i);
     });
 
     // #1047 focused coverage.
@@ -250,7 +257,7 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.getByText('out of 10')).toBeInTheDocument();
     });
 
-    it('always states that transcript quality affects how confidently the score is shown', () => {
+    it('always states that transcript quality feeds the feedback, and that it is directional', () => {
         render(
             <LiveCoachingScoreCard
                 transcript="Today I want to make one clear point because the team needs a simple plan."
@@ -268,10 +275,17 @@ describe('LiveCoachingScoreCard', () => {
                 experimentAssignment={assignment}
             />
         );
-        // The trust caveat now lives in help (not a default-visible paragraph).
-        expect(screen.queryByText(/Transcript quality .* affects how confidently the score is shown/i)).toBeNull();
+        // The trust caveat lives in help (not a default-visible paragraph). #1047 restates it in the
+        // neutral wording: transcript quality is named as an input, and the feedback is called
+        // directional and scoped to this session's own evidence.
+        expect(screen.queryByText(/transcript quality/i)).toBeNull();
         fireEvent.click(screen.getByTestId('score-help'));
-        expect(screen.getByText(/Transcript quality .* affects how confidently the score is shown/i)).toBeInTheDocument();
+
+        const help = screen.getByTestId('score-help-content');
+        expect(help.textContent).toMatch(/transcript quality support your session feedback/i);
+        expect(help.textContent).toMatch(/directional and uses only the practice evidence available for this session/i);
+        // …and it says so without reviving the retired product name.
+        expect(help.textContent).not.toMatch(/SpeakSharp Score/i);
     });
 
     it('shows a transcript-quality caveat for a long Native sample (filler recall not trusted)', () => {

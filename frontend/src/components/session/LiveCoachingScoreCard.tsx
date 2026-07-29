@@ -112,7 +112,11 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
             className={`${SESSION_SURFACE_CLASS} flex flex-col p-4 ${className}`}
             data-testid="live-coaching-score-card"
             data-experiment="session-live-coaching-score"
-            aria-label="Live Coaching Score"
+            // The announced region name must match the visible heading. It was "Live Coaching Score",
+            // so a screen-reader user was told this card was a score while sighted users read
+            // "Session feedback" — the same card-says-one-thing defect as the help body, in the
+            // accessibility layer.
+            aria-label="Session feedback"
         >
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
@@ -127,23 +131,29 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                             too — it implied a disclaimer with nowhere to read it. */}
                         <h2 className="text-xl font-extrabold text-foreground">Session feedback</h2>
                         <HelpPopover
-                            // Named for the card it explains. The help used to be labelled "About the
-                            // SpeakSharp Score" while the card no longer shows that name anywhere, which
-                            // left the term orphaned; the body below now introduces it explicitly instead.
+                            // #1047: the card is called "Session feedback", so its help must TEACH
+                            // "session feedback". An earlier pass renamed only this label and left the
+                            // body still explaining "SpeakSharp Score" — which meant the card said one
+                            // thing and its own help said another, and a reader who opened the help was
+                            // handed a product name that appears nowhere on the surface. The retired
+                            // name is gone from every customer-facing string reachable from here, and
+                            // an explicit test OPENS this panel to keep it gone.
                             label="About session feedback"
                             testId="score-help"
                             panelClassName="w-72"
                         >
                             <div className="space-y-2" data-testid="score-help-body">
+                                {/* Neutral by construction: names the evidence, claims no portable
+                                    score, and does not promise that anything reappears in Analytics. */}
                                 <p>
-                                    The visible tools roll up into one coaching score — the SpeakSharp Score you will also see in Analytics: structure, pace/fillers/pauses, clarity, and audience impact.
+                                    Pace, detected fillers, delivery signals, and transcript quality support your session feedback.
                                 </p>
                                 <p>
-                                    Improve the ingredients, then come back and try to lift the score.
+                                    Session feedback is directional and uses only the practice evidence available for this session.
                                 </p>
                                 <div className="rounded-md border border-border bg-white p-2.5">
                                     <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-foreground/70">
-                                        Why this score moved
+                                        What this is based on
                                     </div>
                                     <div className="space-y-1" data-testid="live-score-evidence">
                                         <div className="flex justify-between gap-2">
@@ -164,7 +174,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                         </div>
                                     </div>
                                     <p className="mt-2 text-[11px] leading-snug text-foreground/60">
-                                        The score is not a black box; it is a transparent rollup of the live signals shown here.
+                                        This is not a black box; it is a transparent rollup of the live signals shown here.
                                     </p>
                                 </div>
                                 {result.qualityNote && (
@@ -176,9 +186,10 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                         {result.qualityNote}
                                     </p>
                                 )}
-                                <p className="border-t border-border pt-2 text-[11px] leading-snug text-foreground/60">
-                                    SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
-                                </p>
+                                {/* The old trailing footnote is deliberately gone rather than reworded.
+                                    It carried the retired name, promised "progress over time", and
+                                    restated the directional caveat that body line 2 above now makes
+                                    once — three problems in one sentence. */}
                             </div>
                         </HelpPopover>
                     </div>

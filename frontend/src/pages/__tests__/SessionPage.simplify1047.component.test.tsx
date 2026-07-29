@@ -285,6 +285,40 @@ describe('SessionPage — #1047 simplification', () => {
         expect(fillerAction.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     });
 
+    // The card is called "Session feedback", so its help must TEACH session feedback. An earlier pass
+    // renamed only the label and shipped a body that still explained "SpeakSharp Score" — the card
+    // said one thing and its own help said another. Asserting the heading alone cleared that bar, so
+    // this test OPENS the help and reads what a user would actually be shown.
+    it('the Session help teaches session feedback — the retired name is absent from the OPENED panel', async () => {
+        const { fireEvent } = await import('@testing-library/react');
+        render(<SessionPage />);
+
+        // Nothing on the closed Session surface carries the retired name.
+        expect(document.body.textContent).not.toMatch(/SpeakSharp Score/i);
+
+        // Screen readers hear the same name sighted users read.
+        expect(screen.getByRole('region', { name: 'Session feedback' })).toBeInTheDocument();
+
+        const helpTrigger = screen.getByTestId('score-help');
+        expect(helpTrigger).toHaveAccessibleName('About session feedback');
+        fireEvent.click(helpTrigger);
+
+        const help = screen.getByTestId('score-help-content');
+        expect(help.textContent).toContain(
+            'Pace, detected fillers, delivery signals, and transcript quality support your session feedback.'
+        );
+        expect(help.textContent).toContain(
+            'Session feedback is directional and uses only the practice evidence available for this session.'
+        );
+
+        // The retired name, the "one coaching score" promise, and the claim that the same score
+        // reappears in Analytics are all gone — from the opened panel and from the whole page.
+        expect(help.textContent).not.toMatch(/SpeakSharp Score/i);
+        expect(help.textContent).not.toMatch(/one coaching score/i);
+        expect(help.textContent).not.toMatch(/Analytics/i);
+        expect(document.body.textContent).not.toMatch(/SpeakSharp Score/i);
+    });
+
     it('does not stretch the coaching card to the recorder column', () => {
         render(<SessionPage />);
 
