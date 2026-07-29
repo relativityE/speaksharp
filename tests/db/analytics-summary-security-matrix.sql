@@ -1,4 +1,4 @@
--- #1091 SECURITY — portable seven-item authorization matrix for public.get_analytics_summary.
+-- #1091 SECURITY — portable eight-item authorization matrix for public.get_analytics_summary.
 --
 -- Pure SQL, no client library, runnable by `psql` against ANY PostgreSQL server. Its purpose is to
 -- verify the parts of the contract that depend on the SERVER — roles, GRANT/REVOKE, SECURITY DEFINER
@@ -35,7 +35,7 @@ GRANT authenticated TO CURRENT_USER;
 GRANT anon TO CURRENT_USER;
 GRANT service_role TO CURRENT_USER;
 
-\echo '=== effective EXECUTE grants (expect: authenticated only) ==='
+\echo '=== effective EXECUTE grants (expect: authenticated + service_role; NOT anon/PUBLIC) — #1096 ACL ==='
 SELECT grantee, privilege_type
 FROM information_schema.role_routine_grants
 WHERE routine_name = 'get_analytics_summary' AND privilege_type = 'EXECUTE'
@@ -47,7 +47,7 @@ SELECT
     has_function_privilege('anon',          'public.get_analytics_summary(uuid)', 'EXECUTE') AS anon_can_execute,
     has_function_privilege('service_role',  'public.get_analytics_summary(uuid)', 'EXECUTE') AS service_role_can_execute;
 
-\echo '=== running the seven-item matrix ==='
+\echo '=== running the eight-item matrix ==='
 DO $matrix$
 DECLARE
     v_victim   uuid := '11111111-1111-4111-8111-111111111111';
@@ -122,7 +122,7 @@ BEGIN
     RESET ROLE;
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 4: NULL p_user_id was NOT rejected'; END IF;
 
-    -- and NULL identity together with NULL p_user_id (IS DISTINCT FROM must not treat NULL=NULL as a match)
+    -- and NULL identity together with NULL p_user_id (the explicit p_user_id IS NULL check must catch this — NULL <> NULL is not TRUE)
     v_ok := false;
     BEGIN
         SET LOCAL ROLE authenticated;
@@ -151,23 +151,27 @@ BEGIN
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 5: anon was able to execute the function'; END IF;
     RAISE NOTICE 'PASS 5  anon cannot execute (privilege denied, not merely guard-rejected)';
 
-    -- ---- 6. service_role -> no EXECUTE grant (least privilege; no verified caller) -------------
-    IF has_function_privilege('service_role', 'public.get_analytics_summary(uuid)', 'EXECUTE') THEN
-        RAISE EXCEPTION 'FAIL 6: service_role still holds EXECUTE (expected: revoked, no caller exists)';
+    -- ---- 6. service_role -> RETAINS EXECUTE (per #1096's ACL) but is guard-rejected without an identity
+    -- #1096 owns the ACL and kept service_role's grant; #1091 consumes that decision, it does not re-make
+    -- it. The safety of keeping the grant rests on the null-safe guard: a service_role caller carries no
+    -- request.jwt.claim.sub, so auth.uid() IS NULL and the guard rejects the call. This item proves BOTH:
+    -- the grant is present (matches #1096, not narrowed) AND the guard makes it harmless.
+    IF NOT has_function_privilege('service_role', 'public.get_analytics_summary(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'FAIL 6: service_role lost EXECUTE — #1091 must not narrow #1096''s ACL';
     END IF;
     v_ok := false;
     BEGIN
         SET LOCAL ROLE service_role;
-        PERFORM set_config('request.jwt.claim.sub', '', true);
+        PERFORM set_config('request.jwt.claim.sub', '', true);   -- no identity -> auth.uid() IS NULL
         PERFORM public.get_analytics_summary(v_victim);
-    EXCEPTION WHEN insufficient_privilege OR raise_exception THEN
+    EXCEPTION WHEN raise_exception THEN
         v_ok := true;
     END;
     RESET ROLE;
     IF NOT v_ok THEN
         RAISE EXCEPTION 'FAIL 6: service_role read another user''s analytics through the customer RPC';
     END IF;
-    RAISE NOTICE 'PASS 6  service_role holds no EXECUTE grant and cannot use this function';
+    RAISE NOTICE 'PASS 6  service_role keeps EXECUTE (per #1096) but the null-safe guard rejects the keyless call';
 
     -- ---- 7. RLS / SECURITY DEFINER interaction ------------------------------------------------
     -- RLS blocks a DIRECT read of another user's rows...
@@ -182,7 +186,26 @@ BEGIN
     -- in-function guard has to be fail-closed. Item 2 above already proved the guard rejects this caller.
     RAISE NOTICE 'PASS 7  RLS blocks the direct read; the SECURITY DEFINER path is gated only by the guard';
 
-    RAISE NOTICE '=== ALL SEVEN MATRIX ITEMS PASSED ===';
+    -- ITEM 8 — the effective search_path MUST include pg_temp explicitly, and pg_temp must NOT be first.
+    -- Without this, an unqualified `sessions` reference resolves against the caller's temporary schema
+    -- first, letting an authenticated caller with TEMP shadow public.sessions (proven in #1096). This item
+    -- FAILS if the function is left on `SET search_path = public` — the exact regression where a later
+    -- migration silently reverts #1096's fix.
+    DECLARE
+        v_sp text;
+    BEGIN
+        SELECT array_to_string(proconfig, ',') INTO v_sp
+        FROM pg_proc WHERE proname = 'get_analytics_summary' LIMIT 1;
+        IF v_sp IS NULL OR position('search_path=public, pg_temp' in replace(v_sp, ' ', '')||'') = 0 THEN
+            -- normalise spaces before comparing so 'public, pg_temp' and 'public,pg_temp' both pass
+            IF position('search_path=public,pg_temp' in replace(v_sp, ' ', '')) = 0 THEN
+                RAISE EXCEPTION 'FAIL 8: search_path must be exactly "public, pg_temp" (got: %)', v_sp;
+            END IF;
+        END IF;
+        RAISE NOTICE 'PASS 8  search_path is public, pg_temp (pg_temp explicit and last)';
+    END;
+
+    RAISE NOTICE '=== ALL EIGHT MATRIX ITEMS PASSED ===';
 END
 $matrix$;
 

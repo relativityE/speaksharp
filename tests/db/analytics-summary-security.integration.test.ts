@@ -102,7 +102,7 @@ describe('#1091 SECURITY — get_analytics_summary authorization', () => {
         });
     });
 
-    describe('the seven-item matrix against the NEW definition', () => {
+    describe('the eight-item matrix against the NEW definition', () => {
         // 1
         it('1. an authenticated caller requesting its OWN analytics is allowed', async () => {
             const db = await baseDb(NEW_MIGRATION);
@@ -163,12 +163,11 @@ describe('#1091 SECURITY — get_analytics_summary authorization', () => {
         });
 
         // 6
-        it('6. service_role holds no EXECUTE grant — least privilege, no verified caller exists', async () => {
-            // The reachability inventory found no service-role caller of this function anywhere in the
-            // repo, and the null-safe guard would reject one anyway (a back-office caller has no
-            // auth.uid()). The grant is therefore removed rather than left as unused standing
-            // privilege. If an administrative cross-user aggregation is ever needed it must get its
-            // own explicitly privileged interface — the customer RPC guard is not to be weakened.
+        it('6. ACL matches #1096 verbatim — authenticated + service_role granted; anon + PUBLIC revoked', async () => {
+            // #1096 (20260729120000, already on main) is the SOLE owner of this function's authorization
+            // policy and it KEEPS service_role's grant. #1091 consumes that decision and must not narrow
+            // it. Keeping the service_role grant is safe because the null-safe guard rejects a keyless
+            // service_role call (proven in 6b) — the grant is not the barrier, the guard is.
             const db = await baseDb(NEW_MIGRATION);
             const grants = await db.query<{ grantee: string }>(
                 `SELECT grantee FROM information_schema.role_routine_grants
@@ -176,18 +175,19 @@ describe('#1091 SECURITY — get_analytics_summary authorization', () => {
             );
             const grantees = grants.rows.map(r => r.grantee);
             expect(grantees).toContain('authenticated');
-            expect(grantees).not.toContain('service_role');
+            expect(grantees).toContain('service_role');
             expect(grantees).not.toContain('anon');
             expect(grantees).not.toContain('PUBLIC');
         });
 
-        it('6b. even service_role cannot read another user\'s analytics through THIS function', async () => {
+        it('6b. even with its grant, service_role cannot read another user\'s analytics through THIS function', async () => {
             const db = await baseDb(NEW_MIGRATION);
             await db.exec('SET ROLE service_role');
             await actAs(db, null);
-            // Rejected on privilege now; and were the grant ever restored, the null-safe guard would
-            // still reject it. Two independent barriers, neither relying on the other.
-            await expect(call(db, VICTIM)).rejects.toThrow(/permission denied|Unauthorized/i);
+            // service_role holds EXECUTE (per #1096), so this passes the privilege check — and is then
+            // rejected by the null-safe guard, because a keyless back-office caller has no auth.uid().
+            // That guard, not the ACL, is what makes retaining the grant harmless.
+            await expect(call(db, VICTIM)).rejects.toThrow(/Unauthorized/i);
         });
 
         // 7
@@ -242,9 +242,11 @@ describe('#1091 SECURITY — get_analytics_summary authorization', () => {
             );
         });
 
-        it('uses the null-safe IS DISTINCT FROM guard form', () => {
+        it('uses #1096\'s null-safe guard form VERBATIM (explicit NULL checks, not IS DISTINCT FROM)', () => {
+            // #1096 owns the guard. It uses explicit NULL checks plus `<>` rather than IS DISTINCT FROM;
+            // #1091 must reproduce it character-for-character, never substitute an equivalent-looking form.
             expect(NEW_MIGRATION).toMatch(
-                /IF auth\.uid\(\) IS NULL OR p_user_id IS DISTINCT FROM auth\.uid\(\) THEN/,
+                /IF auth\.uid\(\) IS NULL OR p_user_id IS NULL OR p_user_id <> auth\.uid\(\) THEN/,
             );
         });
     });

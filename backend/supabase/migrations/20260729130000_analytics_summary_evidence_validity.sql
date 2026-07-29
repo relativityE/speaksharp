@@ -115,13 +115,16 @@
 -- (tests/db/analytics-summary-security.integration.test.ts). service_role is already a privileged
 -- credential; nothing it can do is characterised here as an ordinary-user exploit.
 --
--- THE FIX — two independent barriers, neither relying on the other:
---   a. the null-safe guard `auth.uid() IS NULL OR p_user_id IS DISTINCT FROM auth.uid()`; and
---   b. REVOKE EXECUTE FROM PUBLIC and FROM anon, with EXECUTE granted only to `authenticated`
---      (see the PRIVILEGES block at the foot of this file, including the service_role decision).
+-- THE CONTRACT IS OWNED BY #1096 (20260729120000). This migration is dated after it and reissues the
+-- same function, so it reproduces #1096's controls VERBATIM and adds only evidence-validity changes:
+--   a. null-safe guard `auth.uid() IS NULL OR p_user_id IS NULL OR p_user_id <> auth.uid()` (from #1096);
+--   b. REVOKE EXECUTE FROM PUBLIC and FROM anon, EXECUTE to `authenticated`/`service_role` (from #1096);
+--   c. `SET search_path = public, pg_temp` (from #1096) — critical, since this later migration would
+--      otherwise revert #1096's search_path fix.
+-- This PR does NOT re-decide any of the above; it consumes them.
 --
--- NOT FIXED HERE, REPORTED SEPARATELY: eight other SECURITY DEFINER functions in this migration tree have
--- no REVOKE ... FROM PUBLIC. They are enumerated in the PR, deliberately NOT changed by this migration.
+-- The other SECURITY DEFINER functions lacking a REVOKE ... FROM PUBLIC are owned by #1097 and are
+-- deliberately NOT touched here.
 -- ===================================================================================================
 --
 -- Rollback: re-run 20260522110000_cleanup_stale_schema_lint.sql to restore the previous (defective)
@@ -132,7 +135,7 @@ CREATE OR REPLACE FUNCTION public.get_analytics_summary(p_user_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_overall_stats JSONB;
@@ -156,12 +159,12 @@ DECLARE
     -- Keep these two in sync; the client value is the source of truth.
     c_min_reliable_scoring_words CONSTANT INT := 3;
 BEGIN
-    -- SECURITY CHECK — FAIL-CLOSED. See the SECURITY section in the header.
-    -- `IS DISTINCT FROM` is the null-safe comparison: it yields TRUE when exactly one side is NULL, so a
-    -- NULL p_user_id is rejected without a separate branch. The explicit `auth.uid() IS NULL` test is what
-    -- closes the original defect — it also rejects the NULL-vs-NULL case, which IS DISTINCT FROM alone
-    -- would treat as a match and let through.
-    IF auth.uid() IS NULL OR p_user_id IS DISTINCT FROM auth.uid() THEN
+    -- SECURITY CHECK — this migration CONSUMES the authorization + search_path contract owned by
+    -- #1096 (20260729120000). Because this file is dated after #1096, its body is what ends up live,
+    -- so it must reproduce #1096's controls VERBATIM — never re-decide or weaken them. Guard, REVOKEs
+    -- and `SET search_path = public, pg_temp` are copied from #1096 exactly; this PR adds only the
+    -- evidence-validity aggregate changes on top.
+    IF auth.uid() IS NULL OR p_user_id IS NULL OR p_user_id <> auth.uid() THEN
         RAISE EXCEPTION 'Unauthorized: You can only access your own analytics.';
     END IF;
 
@@ -390,16 +393,14 @@ $$;
 -- consume_ai_suggestion_quota, get_user_id_by_email and others. The pattern existed; this function was
 -- missed. The REVOKE below is the pattern, applied.
 --
--- service_role: the EXECUTE grant is REMOVED. A repo-wide search found no service-role caller of this
--- function anywhere — not in backend/supabase/functions, scripts, or workflows — so the grant was unused
--- standing privilege. It would also be unusable now: a back-office caller has no auth.uid(), and the
--- null-safe guard rejects that by design. If an administrative cross-user aggregation is ever needed it
--- must get its OWN explicitly privileged, separately named interface. The customer-facing guard is not to
--- be weakened to accommodate one.
---
--- Revoking a privilege that was never functionally used is reversible in one line:
---   GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO service_role;
+-- ACL: this migration REPRODUCES #1096's grant set VERBATIM — it does not re-decide it. #1096
+-- (20260729120000, already on main) is the sole owner of the authorization policy for this function:
+-- REVOKE from PUBLIC and anon, GRANT to authenticated and service_role. Re-issuing the identical set
+-- here (CREATE OR REPLACE does not reset privileges, but a later definition must not silently narrow
+-- them) keeps the two migrations convergent. Whether service_role should keep its grant is #1096's
+-- decision, not this migration's; #1096 kept it, and the null-safe guard already makes a keyless
+-- service_role call fail closed regardless.
 REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM anon;
-REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM service_role;
 GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO service_role;

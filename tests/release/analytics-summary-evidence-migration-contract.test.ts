@@ -69,19 +69,25 @@ describe('#1091 get_analytics_summary evidence-validity migration contract', () 
         expect(createIndex).toBeGreaterThan(-1);
         expect(functionBody).toMatch(/CREATE OR REPLACE FUNCTION public\.get_analytics_summary\(p_user_id UUID\)/);
         expect(functionBody).toMatch(/SECURITY DEFINER/);
-        expect(functionBody).toMatch(/SET search_path = public/);
+        // Must be `public, pg_temp` (pg_temp explicit and LAST), not bare `public`. #1096 fixed the
+        // search_path; because this migration is dated later it would silently REVERT that fix if it
+        // dropped pg_temp. Assert the full form so the regression cannot pass.
+        expect(functionBody).toMatch(/SET search_path = public, pg_temp/);
+        expect(functionBody).not.toMatch(/SET search_path = public\s*$/m);
     });
 
-    it('makes the authorization guard FAIL-CLOSED with the null-safe comparison', () => {
-        // `p_user_id != auth.uid()` is NULL when auth.uid() is NULL, so the old RAISE never fired and
-        // this SECURITY DEFINER function (which bypasses RLS) served data to an unidentified caller.
+    it('reproduces #1096\'s fail-closed null-safe guard VERBATIM', () => {
+        // #1096 (20260729120000, already on main) owns this guard. It uses explicit NULL checks plus
+        // `<>` — NOT IS DISTINCT FROM — so the old `p_user_id != auth.uid()` (NULL when auth.uid() is
+        // NULL, hence never firing) can no longer serve data to an unidentified caller. #1091 must
+        // reproduce it character-for-character, never substitute an equivalent-looking form.
         expect(functionBody).toMatch(
-            /IF auth\.uid\(\) IS NULL OR p_user_id IS DISTINCT FROM auth\.uid\(\) THEN/,
+            /IF auth\.uid\(\) IS NULL OR p_user_id IS NULL OR p_user_id <> auth\.uid\(\) THEN/,
         );
         expect(functionBody).toMatch(/RAISE EXCEPTION 'Unauthorized/);
         expect(functionCode).not.toMatch(/IF p_user_id != auth\.uid\(\) THEN/);
-        // The security work is a SEPARATE finding and must be flagged for its own review/authorization.
-        expect(migration).toMatch(/SECURITY — SEPARATE FINDING, SEPARATE AUTHORIZATION LINE/);
+        // #1091 consumes #1096's contract; it does not re-decide the security policy.
+        expect(migration).toMatch(/THE CONTRACT IS OWNED BY #1096/);
         expect(migration).toMatch(/CROSS-TENANT DATA DISCLOSURE IS NOT PROVEN/);
     });
 
@@ -94,15 +100,16 @@ describe('#1091 get_analytics_summary evidence-validity migration contract', () 
         );
     });
 
-    it('removes the unused service_role grant rather than leaving standing privilege', () => {
+    it('reproduces #1096\'s ACL verbatim — keeps the service_role grant, does not narrow it', () => {
+        // #1096 owns the ACL and KEEPS service_role's grant; #1091 consumes that decision. It must not
+        // silently narrow the grant set in a later-dated migration. Retaining the grant is safe because
+        // the null-safe guard rejects a keyless service_role call (auth.uid() IS NULL).
         expect(functionCode).toMatch(
-            /REVOKE EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) FROM service_role;/,
-        );
-        expect(functionCode).not.toMatch(
             /GRANT EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) TO service_role;/,
         );
-        // ...and the one-line reversal is documented for the reviewer.
-        expect(migration).toMatch(/GRANT EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) TO service_role;/);
+        expect(functionCode).not.toMatch(
+            /REVOKE EXECUTE ON FUNCTION public\.get_analytics_summary\(UUID\) FROM service_role;/,
+        );
     });
 
     it('names the rule it mirrors as the CLARITY CONTRIBUTOR RULE, not session eligibility', () => {

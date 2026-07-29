@@ -2,7 +2,7 @@ name: "Analytics RPC security matrix (disposable Postgres)"
 
 # #1091 — BOUNDED RELEASE ARTIFACT, not a permanent CI system.
 #
-# The seven-item authorization matrix for public.get_analytics_summary already runs in-process against
+# The eight-item authorization matrix for public.get_analytics_summary already runs in-process against
 # PGlite (real PostgreSQL, WASM) in the normal unit lane. That proves the SQL and the arithmetic. It
 # does NOT prove the security contract, which depends on server-side roles, GRANT/REVOKE, SECURITY
 # DEFINER ownership and RLS interaction on the PostgreSQL major version production actually runs.
@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   matrix:
-    name: "seven-item matrix (postgres:${{ matrix.pg }})"
+    name: "eight-item matrix (postgres:${{ matrix.pg }})"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -97,13 +97,13 @@ jobs:
           echo "\$ psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260729130000_analytics_summary_evidence_validity.sql"
           psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260729130000_analytics_summary_evidence_validity.sql
 
-      - name: Run the seven-item security matrix
+      - name: Run the eight-item security matrix
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f tests/db/analytics-summary-security-matrix.sql 2>&1 | tee matrix-output.txt
           # Every item RAISEs on failure and ON_ERROR_STOP makes that a non-zero exit, but assert the
           # completion banner too so a silently truncated run cannot read as a pass.
-          grep -q 'ALL SEVEN MATRIX ITEMS PASSED' matrix-output.txt
+          grep -q 'ALL EIGHT MATRIX ITEMS PASSED' matrix-output.txt
           grep -q 'SECURITY MATRIX COMPLETE' matrix-output.txt
 
       - name: FALSIFICATION — the matrix must REJECT the superseded definition
