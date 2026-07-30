@@ -17,6 +17,7 @@ import { ModeDescriptionFlyout, STT_FLYOUT_ID } from './ModeDescriptionFlyout';
 import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
 import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
+import { formatTrialAllotmentTitle, formatTrialRemainingTitle } from '@/utils/privateSampleDuration';
 
 
 export type RecordingMode = 'cloud' | 'native' | 'private' | 'mock';
@@ -29,6 +30,18 @@ interface LiveRecordingCardProps {
     canUsePrivate: boolean;
     isPaidProUser?: boolean;
     canUseCloudStt?: boolean;
+    /** #1047 conversion repair: the authenticated Free user has an AVAILABLE Private sample (server
+     *  `check-usage-limit`: not Pro, `private_sample_available`, remaining seconds > 0). Combined with
+     *  the card's own idle/Browser/unlocked state it gates the compact Free→Private trial nudge. */
+    privateTrialAvailable?: boolean;
+    /** True only when the sample is FULL and UNSTARTED — the sole case where the "N-minute trial
+     *  available" claim is truthful. A partially-consumed sample uses "Continue with Private" copy. */
+    privateTrialFresh?: boolean;
+    /** Server-reported remaining sample seconds — used for the truthful "X minutes remaining" copy. */
+    privateTrialRemainingSeconds?: number;
+    /** Server-reported total sample allotment (`private_sample_limit_seconds`) — the "N-minute" figure
+     *  is derived from THIS, never a hard-coded 5, so the duration claim matches the server. */
+    privateTrialLimitSeconds?: number;
     statusMessage?: string; // Optional message from the STT service
     formattedTime: string;
     elapsedSeconds: number; // Added for minimum session duration check
@@ -89,6 +102,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     canUsePrivate,
     isPaidProUser = canUsePrivate,
     canUseCloudStt = canUsePrivate,
+    privateTrialAvailable = false,
+    privateTrialFresh = false,
+    privateTrialRemainingSeconds = 0,
+    privateTrialLimitSeconds = 0,
     statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
@@ -121,6 +138,42 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // #1033 Part-2b: ONE source of truth for "may the user change engine right now?". `isListening` is
     // kept only as a fallback for callers that have not yet been migrated to the published lock.
     const selectionLocked = engineSelectionLocked || isListening;
+
+    // #1047 conversion repair: a compact idle nudge that restores the Free→Private path #1094 removed
+    // from the ambient status bar — WITHOUT re-adding permanent chrome. Offered when the eligible Free
+    // account (server-confirmed AVAILABLE sample — full OR partially used) is idle on Browser with
+    // engine selection unlocked. Gate on `canUsePrivate` too: never offer the trial when Private is
+    // unavailable in this runtime/browser (the switch would fail). Eligibility (Free + available) is
+    // server-authoritative via `privateTrialAvailable`; the card adds the runtime/UI conditions.
+    const eligibleForTrialNudge =
+        privateTrialAvailable && canUsePrivate && !isPaidProUser
+        && mode === 'native' && !isListening && !selectionLocked;
+    // Truthful nudge copy from the SERVER-reported allotment/remaining, via the shared conservative
+    // formatter (never a hard-coded 5, never a rounded-up overstatement): a FULL, unstarted sample
+    // offers the trial by its real whole-minute length; a partially-used sample invites the user to
+    // continue with the minutes that actually remain (floored). The partial formatter FAILS CLOSED
+    // (null) for a non-positive/non-finite remaining, so the nudge then shows nothing rather than a
+    // false "less than a minute" — the final visibility folds that in.
+    const privateTrialNudgeTitle = privateTrialFresh
+        ? formatTrialAllotmentTitle(privateTrialLimitSeconds)
+        : formatTrialRemainingTitle(privateTrialRemainingSeconds);
+    const showPrivateTrialNudge = eligibleForTrialNudge && privateTrialNudgeTitle !== null;
+    // NUDGE_VIEWED fires at most ONCE per mount — NOT per appearance — so toggling modes (hide/show)
+    // cannot inflate the top-of-funnel count. A genuine new view (fresh navigation) is a new mount.
+    const nudgeViewedRef = React.useRef(false);
+    React.useEffect(() => {
+        if (showPrivateTrialNudge && !nudgeViewedRef.current) {
+            nudgeViewedRef.current = true;
+            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
+        }
+    }, [showPrivateTrialNudge]);
+    // "Try Private" selects Private only — it does NOT start recording and does NOT download the model;
+    // the existing mic action stays responsible for first-time setup. NUDGE_SELECTED attributes the
+    // mode switch to the nudge; handleModeChange still emits SELECTED for the switch itself.
+    const handleTryPrivate = () => {
+        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
+        handleModeChange('private');
+    };
     // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
     // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
     const lockedReason =
@@ -524,6 +577,33 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         avoidSelector='[data-testid="live-coaching-score-card"]'
                     />
                 </div>
+
+                {/* #1047 conversion repair: the compact Free→Private trial nudge. This is the pre-save
+                    card CTA that #1094 removed — restored here (near the mode selector, NOT in the
+                    ambient status bar) per Product Owner direction, and gated so it only appears for an
+                    eligible, idle Free user on Browser. "Try Private" selects Private only; the mic still
+                    owns first-time setup. The post-Browser-save CTA remains the second conversion path. */}
+                {showPrivateTrialNudge && (
+                    <div
+                        data-testid="private-trial-nudge"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/[0.06] px-3 py-2"
+                    >
+                        <div className="min-w-0">
+                            <p className="text-[13px] font-bold leading-snug text-foreground" data-testid="private-trial-nudge-title">{privateTrialNudgeTitle}</p>
+                            <p className="text-[11px] font-medium leading-snug text-muted-foreground">Audio stays on this device.</p>
+                        </div>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="shrink-0"
+                            data-testid="private-trial-nudge-cta"
+                            onClick={handleTryPrivate}
+                        >
+                            Try Private
+                        </Button>
+                    </div>
+                )}
 
                 <div className="flex flex-col items-center justify-center gap-2 text-center">
                     <div className="flex flex-col items-center gap-2">

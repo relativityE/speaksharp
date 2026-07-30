@@ -26,6 +26,8 @@ import {
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
+import { formatSampleCapLine } from '@/utils/privateSampleDuration';
+import { useSearchParams } from 'react-router-dom';
 
 /**
  * ARCHITECTURE:
@@ -109,6 +111,37 @@ export const SessionPage: React.FC = () => {
             previousTranscriptScrollHeightRef.current = container.scrollHeight;
         }
     }, [transcriptContent, interimTranscript]);
+
+    // #1047 anonymous handoff: honour the `?trial=private` intent carried from the marketing trial band
+    // (through signup/login). PRESELECT Private only when the account is actually eligible — never a
+    // silent Browser fallback, and NEVER auto-record / auto-download (this only sets the mode; the mic
+    // still owns first-time setup). An ineligible account is told truthfully and stays on Browser. The
+    // intent is consumed once (guarded + URL cleaned) so a refresh/re-render can't re-apply it.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [trialUnavailableNotice, setTrialUnavailableNotice] = useState<string | null>(null);
+    const trialHandledRef = useRef(false);
+    useEffect(() => {
+        if (searchParams.get('trial') !== 'private' || trialHandledRef.current) return;
+        if (usageLimit === undefined) return; // entitlement still loading — decide only once resolved
+        if (canUsePrivateStt) {
+            // Eligible. DEFER (without consuming the intent) whenever the engine cannot be switched right
+            // now — that is the AUTHORITATIVE `engineSelectionLocked` lock, which is broader than
+            // `isListening`: during STOPPING / SAVING / retry / recovery `isListening` can already be
+            // false while the lock is still held. Acting then would consume the intent while
+            // `setMode('private')` is rejected — permanently losing the promised handoff. The effect
+            // re-runs when either flips (both are deps) and preselects Private once the lock clears.
+            if (isListening || engineSelectionLocked) return;
+            trialHandledRef.current = true;
+            setMode('private'); // preselect only; no recording, no model download
+        } else {
+            // Ineligible — tell the truth and stay on Browser (never a silent fallback).
+            trialHandledRef.current = true;
+            setTrialUnavailableNotice('Private isn’t available on your account right now — you can still practice with Browser transcription.');
+        }
+        const next = new URLSearchParams(searchParams);
+        next.delete('trial');
+        setSearchParams(next, { replace: true });
+    }, [searchParams, setSearchParams, usageLimit, canUsePrivateStt, isListening, engineSelectionLocked, setMode]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
@@ -212,8 +245,23 @@ export const SessionPage: React.FC = () => {
     const privateSampleSecondsRemaining = usageLimit?.private_sample_available
         ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
         : 0;
+    // #1047 conversion repair: server-authoritative eligibility for the Free→Private trial nudge —
+    // a Free (non-Pro) account whose Private sample is AVAILABLE with time remaining. Partially-used
+    // samples still convert (they get "Continue with Private" copy), so availability — not freshness —
+    // gates the nudge; freshness only chooses the truthful copy variant below. The card combines this
+    // with its own runtime/idle/Browser/unlocked state before showing it.
+    const sampleLimitSeconds = usageLimit?.private_sample_limit_seconds ?? 0;
+    const privateTrialAvailable = !!usageLimit && usageLimit.is_pro !== true
+        && usageLimit.private_sample_available === true
+        && privateSampleSecondsRemaining > 0;
+    // FRESH = full, unstarted allotment — the only state where "N-minute trial available" is truthful.
+    const privateTrialFresh = privateTrialAvailable
+        && (usageLimit?.private_sample_seconds_used ?? 0) === 0
+        && usageLimit?.private_sample_started_at == null
+        && sampleLimitSeconds > 0
+        && privateSampleSecondsRemaining === sampleLimitSeconds;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
-        ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
+        ? formatSampleCapLine(sampleLimitSeconds)
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
             ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
         : undefined;
@@ -329,6 +377,18 @@ export const SessionPage: React.FC = () => {
                     ~116px of blank space in the middle of that card, and what kept the empty transcript
                     inflated to a full-height void. */}
                 <div>
+                    {/* #1047 anonymous handoff: truthful notice when the Private-trial intent could NOT be
+                        honoured (account ineligible). We never silently fall back — we say so and leave the
+                        user on Browser transcription, which still works. */}
+                    {trialUnavailableNotice && (
+                        <div
+                            role="status"
+                            data-testid="private-trial-unavailable-notice"
+                            className="mb-4 rounded-lg border border-amber-300/40 bg-amber-50 px-4 py-2.5 text-[13px] font-medium text-amber-900"
+                        >
+                            {trialUnavailableNotice}
+                        </div>
+                    )}
                     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
                         <div className="flex flex-col gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
@@ -344,6 +404,10 @@ export const SessionPage: React.FC = () => {
                                     isFinalizing={isTranscriptFinalizing}
                                     canUsePrivate={canUsePrivateStt}
                                     isPaidProUser={usageLimit?.is_pro === true}
+                                    privateTrialAvailable={privateTrialAvailable}
+                                    privateTrialFresh={privateTrialFresh}
+                                    privateTrialRemainingSeconds={privateSampleSecondsRemaining}
+                                    privateTrialLimitSeconds={sampleLimitSeconds}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
                                     // Post-save, StatusNotificationBar owns the "Session saved" message. Suppress the
