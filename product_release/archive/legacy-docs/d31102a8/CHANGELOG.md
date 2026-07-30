@@ -2,6 +2,8 @@
 
 > ⚠️ **HISTORICAL / NON-AUTHORITATIVE.** Pinned copy of `docs/CHANGELOG.md` at commit `d31102a8` (2026-05-17). Read-only migration source for the doc-canonicalization effort — **not** current product truth. Current authority: `product_release/README.md`. Do not edit.
 
+> **Sanitization note (2026-07-30):** Local file-URI prefixes were replaced with commit-pinned GitHub URLs. Historical prose and the referenced commit remain unchanged; the original source remains recoverable from Git history.
+
 ---
 
 # Changelog
@@ -1025,16 +1027,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PDF Reporting & Identity:**
   - **Fallback Logic:** Implemented `user_id` fallback in `pdfGenerator.ts` for filename and headers, satisfying design requirements without needing to capture `full_name` during signup.
   - **Sanitization:** Updated filename generation to use a sanitized version of either the username or the user ID for reliability.
-  - **File:** [`pdfGenerator.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/pdfGenerator.ts)
+  - **File:** [`pdfGenerator.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/lib/pdfGenerator.ts)
 
 - **Type Synchronization:**
   - **UserProfile:** Purged obsolete `avatar_url` and `full_name` fields from the TypeScript interface and database synchronization plan to maintain a lean schema.
   - **PracticeSession:** Grounded `clarity_score`, `wpm`, `transcript`, and `engine` in the TypeScript interface to match the database.
-  - **Files:** [`user.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/types/user.ts), [`session.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/types/session.ts)
+  - **Files:** [`user.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/types/user.ts), [`session.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/types/session.ts)
 
 - **Analytics Consistency:**
   - Updated `calculateOverallStats` and `AnalyticsDashboard` to prefer database-backed metrics (`clarity_score`, `wpm`) while maintaining client-side fallbacks for legacy data.
-  - **Files:** [`analyticsUtils.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/analyticsUtils.ts), [`AnalyticsDashboard.tsx`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/AnalyticsDashboard.tsx)
+  - **Files:** [`analyticsUtils.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/lib/analyticsUtils.ts), [`AnalyticsDashboard.tsx`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/components/AnalyticsDashboard.tsx)
 
 ### Fixed (2025-12-18) - Private STT P1 Bug & E2E Tests
 
@@ -1042,7 +1044,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Problem:** After clicking Stop, the session button showed "Initializing..." instead of "Start".
   - **Root Cause:** `modelLoadingProgress` state was not reset when stopping/resetting session.
   - **Fix:** Added `setModelLoadingProgress(null)` in both `stopListening` and `reset` functions.
-  - **File:** [`useSpeechRecognition/index.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/index.ts)
+  - **File:** [`useSpeechRecognition/index.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/hooks/useSpeechRecognition/index.ts)
 
 - **New E2E Tests for Private Caching:**
   - **Mock-based test:** Tests UX flow with predictable timing (600ms mock load).
@@ -1052,7 +1054,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Model Update Checker Script:**
   - **Purpose:** Checks for newer versions of Whisper model files from CDN.
   - **Usage:** Run periodically, bump `MODEL_CACHE_NAME` in sw.js if updates found.
-  - **File:** [`scripts/check-whisper-update.sh`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/scripts/check-whisper-update.sh)
+  - **File:** [`scripts/check-whisper-update.sh`](https://github.com/relativityE/speaksharp/blob/d31102a8/scripts/check-whisper-update.sh)
 
 - **Documentation Updates:**
   - Updated ARCHITECTURE.md with two-layer caching diagram.
