@@ -26,6 +26,10 @@ vi.mock('@/contexts/AuthProvider', async (orig) => {
   return { ...actual, useAuthProvider: () => ({ user: mockUser }) };
 });
 
+// #1093: Home reads the server-authoritative streak via the get_practice_streak RPC (NOT the dead
+// check_usage_limit.streak_count). The chip renders ONLY for an active >=2-day streak; in this unit
+// context the RPC does not resolve, so the chip is hidden (no skeleton, no placeholder).
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 const mockHistory = vi.mocked(useRecentPracticeSummary);
@@ -61,17 +65,18 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   });
 
   describe('authenticated state (`/practice`)', () => {
-    it('shows the compact welcome, continuity, and product-card CTAs', () => {
+    it('asks the choice question and shows both product-card CTAs — no marketing copy (#1047)', () => {
       mockHistory.mockReturnValue({
         data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
         isLoading: false,
       } as unknown as HistoryReturn);
       render(<PracticePage />);
       expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/welcome back/i);
-      expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/what would you like to practice\?/i);
-      expect(screen.getByTestId('practice-continuity')).toBeInTheDocument();
-      // No anonymous marketing support section after login.
-      expect(screen.queryByTestId('practice-support')).not.toBeInTheDocument();
+      expect(screen.getByTestId('practice-welcome-authed')).toHaveTextContent(/what would you like to do\?/i);
+      // No anonymous marketing support section, hero or tagline after login.
+      expect(screen.queryByTestId('practice-support-heading')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('practice-hero-start-free')).not.toBeInTheDocument();
+      expect(root().textContent ?? '').not.toMatch(/Public Impact/i);
       // Product cards own their actions.
       expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
       expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
@@ -94,16 +99,42 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('returning user: Review → /analytics/<id>, View analytics → /analytics', () => {
+    it('returning user: Last session → /analytics/<id>, Analytics → /analytics', () => {
       mockHistory.mockReturnValue({
         data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
         isLoading: false,
       } as unknown as HistoryReturn);
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-continuity-review'));
+      fireEvent.click(screen.getByTestId('home-last-session'));
       expect(navigateSpy).toHaveBeenCalledWith('/analytics/sess-9');
-      fireEvent.click(screen.getByTestId('practice-continuity-analytics'));
+      fireEvent.click(screen.getByTestId('home-analytics'));
       expect(navigateSpy).toHaveBeenCalledWith('/analytics');
+    });
+
+    it('first run: the empty state explains itself and leads nowhere (never a fabricated 0:00)', () => {
+      mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+      render(<PracticePage />);
+      // A successful read that genuinely returned nothing says so, and offers first-run guidance —
+      // it is not the em-dash placeholder, which would be a claim we had looked and found nothing
+      // displayable, and not the failure state.
+      expect(screen.getByTestId('home-last-session-secondary')).toHaveTextContent('No sessions yet');
+      expect(screen.getByTestId('home-first-run')).toHaveTextContent(/start your first practice/i);
+      expect(screen.queryByTestId('home-history-error')).not.toBeInTheDocument();
+      expect(screen.getByTestId('home-last-session')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('home-last-session'));
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('the streak chip is backed by get_practice_streak, hidden until an active >=2-day streak resolves — never check_usage_limit.streak_count', () => {
+      mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
+      render(<PracticePage />);
+      // The server RPC does not resolve in this unit context, so the chip is HIDDEN (the contract shows
+      // it only for an active >=2-day streak). It is NOT synchronously derived from the dead
+      // check_usage_limit.streak_count — which would have rendered a chip here.
+      expect(screen.queryByTestId('home-streak-chip')).not.toBeInTheDocument();
+      // the rest of the continuity cluster still renders (it leads with Last session → Analytics).
+      expect(screen.getByTestId('home-last-session')).toBeInTheDocument();
+      expect(screen.getByTestId('home-analytics')).toBeInTheDocument();
     });
   });
 

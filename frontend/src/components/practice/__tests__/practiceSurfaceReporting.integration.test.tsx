@@ -18,6 +18,9 @@ vi.mock('@/services/practiceTelemetry', () => ({
 // #1042 PR4: PracticePage reads the most-recent session via useRecentPracticeSummary; mock it (new user /
 // no sessions) so this integration test needs no QueryClient/Auth provider and the surface flow is unchanged.
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: () => ({ data: [], isLoading: false }) }));
+// #1047: Home also reads the persisted streak from the cached check-usage-limit query; this suite
+// renders without a QueryClientProvider, and the streak is irrelevant to surface attribution.
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 // #1061: PracticePage is now auth-aware; this suite exercises the AUTHENTICATED /practice reporting surface
 // (Freestyle → /session directly), so mock an authenticated user.
 vi.mock('@/contexts/AuthProvider', async (orig) => {

@@ -212,8 +212,25 @@ const Navigation = () => {
                     sttMode={reportSttMode}
                     runtimeState={reportRuntimeState}
                   />
-                  <span className="hidden md:inline text-sm text-muted-foreground">
-                    {session.user?.email}
+                  {/*
+                    * Account identity. The full email used to be printed here; at realistic address
+                    * lengths it pushed the right-hand action group into the primary nav links and
+                    * overflowed the bar horizontally on narrow desktops. An avatar has a fixed width,
+                    * so the header geometry no longer depends on how long a user's address is.
+                    *
+                    * The initial alone is not an accessible name, and a `title` attribute is not a
+                    * reliable one, so the element is an image with an explicit aria-label: assistive
+                    * tech gets "Signed in as <email>" while the visual header shows only the letter.
+                    */}
+                  <span
+                    role="img"
+                    aria-label={`Signed in as ${session.user?.email ?? 'your account'}`}
+                    data-testid="nav-account-avatar"
+                    className="hidden md:grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-avatar-bg))] text-[hsl(var(--nav-avatar-fg))] text-sm font-bold"
+                  >
+                    <span aria-hidden="true">
+                      {(session.user?.email ?? '?').trim().charAt(0).toUpperCase() || '?'}
+                    </span>
                   </span>
                   <Button variant="ghost" size="sm" onClick={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON} aria-label="Sign Out" className="shrink-0 px-2 sm:px-3">
                     <LogOut className="h-4 w-4 sm:mr-2" />

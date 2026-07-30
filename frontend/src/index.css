@@ -83,6 +83,14 @@ All colors MUST be HSL.
     --nav-item-fg: 217 19% 40%;
     --nav-item-fg-hover: 222 47% 11%;
 
+    /*
+     * Account avatar. Deliberately NOT the active-nav tint: the avatar is permanently present, and
+     * painting it in the "you are here" colour would dilute the active-page signal to a colour that
+     * appears twice in the bar. A neutral slate chip instead — identity, not navigation state.
+     */
+    --nav-avatar-bg: 218 27% 92%;
+    --nav-avatar-fg: 222 32% 28%;
+
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
     --toast-offset-top: calc(var(--header-height) + 0.75rem);
@@ -174,6 +182,8 @@ All colors MUST be HSL.
     --session-warm-tile: 32 40% 20%;
     --session-warm-tile-text: 36 85% 72%;
     --shadow-session-help: 0 6px 16px -6px hsl(164 60% 26% / 0.55), 0 2px 5px -2px hsl(164 60% 26% / 0.4);
+    --nav-avatar-bg: 218 20% 26%;
+    --nav-avatar-fg: 214 30% 88%;
   }
 }
 

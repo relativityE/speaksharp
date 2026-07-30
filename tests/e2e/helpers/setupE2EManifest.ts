@@ -525,6 +525,20 @@ export async function setupE2EManifest(
         if (fn === 'heartbeat_session') {
           return { data: { success: true }, error: null };
         }
+        // #1093 server-authoritative streak. The setter is initialize-once; echo the requested zone.
+        if (fn === 'set_user_timezone') {
+          return { data: (args?.p_timezone as string) ?? 'UTC', error: null };
+        }
+        // A returning user (fixture has sessions) has an active 3-day streak, which is >=2 so the chip
+        // renders; an empty-session fixture reports 'none' (below threshold → chip hidden).
+        if (fn === 'get_practice_streak') {
+          return {
+            data: sessionState.sessions.length
+              ? { state: 'active', count: 3, lastQualifyingDate: nowIso().slice(0, 10), timezone: 'UTC' }
+              : { state: 'none', count: 0, lastQualifyingDate: null, timezone: 'UTC' },
+            error: null,
+          };
+        }
         if (fn === 'get_analytics_summary') {
           return {
             data: {
