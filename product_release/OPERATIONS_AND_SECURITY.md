@@ -59,6 +59,8 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only), read by `
 | `VITE_ENABLE_SENTRY_TRACING` / `_REPLAY` / `_CONSOLE_CAPTURE` | optional | A/B | Sentry feature flags. |
 | `VITE_ENABLE_FREE_PLAN_SUPPORT` / `VITE_AUTH_MODE` / `VITE_AUTH_TIMEOUT` | optional | A/B | Product / auth flags. |
 | `VITE_ENABLE_INTERNAL_ROUTES` | must be false/absent in prod | B/E | Dev/internal-routes gate. |
+| `VITE_GUIDED_WAITLIST_ENABLED` | optional | A/B | Activates the Guided "Notify me" waitlist backend call; `=== 'true'` gates `GUIDED_WAITLIST_ENABLED` (`frontend/src/config/env.ts`). Default off → the dialog shows the coming-soon acknowledgement, no capture/backend call (#1081). |
+| `VITE_EXECUTIVE_REHEARSAL_DISABLED` | optional | A/B | Build-time hard kill for Executive Rehearsal; `=== 'true'` disables the feature (`frontend/src/services/rehearsal/executiveRehearsalFlags.ts`). |
 
 **Dev/test-only `VITE_*` — MUST be unset/false in production** (Home E only; any reaching a prod build is a launch blocker): `VITE_TEST_MODE`, `VITE_E2E_MODE`, `VITE_USE_MOCK_AUTH`, `VITE_ALLOW_MOCK_AUTH_IN_TESTS`, `VITE_SKIP_MSW`, `VITE_USE_LIVE_DB`, `VITE_USE_REAL_DATABASE`. **Platform-provided (build time):** `VERCEL_GIT_COMMIT_SHA` (Home B, auto) → injected into `index.html` as the inline `window.__APP_RELEASE__` global → `window.__APP_RUNTIME_CONFIG__.release` + PostHog `release_sha` (PR #1027: not a `__BUILD_ID__` JS define — removed so the volatile SHA never rotates chunk hashes; Sentry release set at runtime from `window.__APP_RELEASE__`).
 
