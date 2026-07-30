@@ -123,10 +123,16 @@ export const SessionPage: React.FC = () => {
     useEffect(() => {
         if (searchParams.get('trial') !== 'private' || trialHandledRef.current) return;
         if (usageLimit === undefined) return; // entitlement still loading — decide only once resolved
-        trialHandledRef.current = true;
-        if (canUsePrivateStt && !isListening) {
+        if (canUsePrivateStt) {
+            // Eligible. If a recording is already in flight the engine is locked, so we canNOT switch
+            // now — DEFER without consuming the intent: this effect re-runs when `isListening` flips
+            // false (it is a dep) and preselects Private then. No mid-recording surprise, no lost intent.
+            if (isListening) return;
+            trialHandledRef.current = true;
             setMode('private'); // preselect only; no recording, no model download
-        } else if (!canUsePrivateStt) {
+        } else {
+            // Ineligible — tell the truth and stay on Browser (never a silent fallback).
+            trialHandledRef.current = true;
             setTrialUnavailableNotice('Private isn’t available on your account right now — you can still practice with Browser transcription.');
         }
         const next = new URLSearchParams(searchParams);
