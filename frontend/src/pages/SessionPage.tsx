@@ -213,10 +213,14 @@ export const SessionPage: React.FC = () => {
         ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
         : 0;
     // #1047 conversion repair: server-authoritative eligibility for the Free→Private trial nudge —
-    // a Free (non-Pro) account whose Private sample is available with time remaining. The card
-    // combines this with its own idle/Browser/unlocked state before showing the nudge.
+    // a Free (non-Pro) account with a FRESH, UNSTARTED Private sample. The "5-minute trial" copy must
+    // not overstate a partially-consumed sample, so require the full allotment: not started and none
+    // used. The card combines this with its own runtime/idle/Browser/unlocked state before showing it.
     const privateTrialAvailable = !!usageLimit && usageLimit.is_pro !== true
-        && usageLimit.private_sample_available === true && privateSampleSecondsRemaining > 0;
+        && usageLimit.private_sample_available === true
+        && privateSampleSecondsRemaining > 0
+        && (usageLimit.private_sample_seconds_used ?? 0) === 0
+        && usageLimit.private_sample_started_at == null;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
         ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at

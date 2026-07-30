@@ -130,16 +130,19 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // #1047 conversion repair: a compact idle nudge that restores the Free→Private path #1094 removed
     // from the ambient status bar — WITHOUT re-adding permanent chrome. Shown ONLY when the eligible
     // Free account (server-confirmed available sample) is idle on Browser with engine selection unlocked.
+    // Gate on `canUsePrivate` too: never offer the trial when Private is unavailable in this
+    // runtime/browser (the switch would fail). Eligibility (Free + available + FRESH sample) is
+    // server-authoritative via `privateTrialAvailable`; the card adds the runtime/UI conditions.
     const showPrivateTrialNudge =
-        privateTrialAvailable && !isPaidProUser && mode === 'native' && !isListening && !selectionLocked;
-    // NUDGE_VIEWED fires once per appearance (top of the conversion funnel: offer shown, not intent).
+        privateTrialAvailable && canUsePrivate && !isPaidProUser
+        && mode === 'native' && !isListening && !selectionLocked;
+    // NUDGE_VIEWED fires at most ONCE per mount — NOT per appearance — so toggling modes (hide/show)
+    // cannot inflate the top-of-funnel count. A genuine new view (fresh navigation) is a new mount.
     const nudgeViewedRef = React.useRef(false);
     React.useEffect(() => {
         if (showPrivateTrialNudge && !nudgeViewedRef.current) {
             nudgeViewedRef.current = true;
             emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
-        } else if (!showPrivateTrialNudge) {
-            nudgeViewedRef.current = false; // allow a fresh view event if it reappears later
         }
     }, [showPrivateTrialNudge]);
     // "Try Private" selects Private only — it does NOT start recording and does NOT download the model;

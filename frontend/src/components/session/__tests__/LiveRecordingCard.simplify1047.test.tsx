@@ -118,6 +118,7 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
     it.each([
         ['Pro user', { isPaidProUser: true }],
         ['sample unavailable', { privateTrialAvailable: false }],
+        ['Private unavailable in this runtime/browser', { canUsePrivate: false }],
         ['Private already selected', { mode: 'private' as const }],
         ['Cloud selected', { mode: 'cloud' as const }],
         ['recording', { isListening: true }],
@@ -126,6 +127,17 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
         render(<LiveRecordingCard {...eligibleProps} {...override} />);
         expect(screen.queryByTestId('private-trial-nudge')).toBeNull();
         expect(emit).not.toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
+    });
+
+    it('emits NUDGE_VIEWED at most once per mount even when the nudge hides and reappears', () => {
+        const { rerender } = render(<LiveRecordingCard {...eligibleProps} />);
+        const viewed = () => emit.mock.calls.filter((c) => c[0] === PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED).length;
+        expect(viewed()).toBe(1);
+        // hide (switch to recording), then reappear (back to idle Browser) — no second view event.
+        rerender(<LiveRecordingCard {...eligibleProps} isListening />);
+        rerender(<LiveRecordingCard {...eligibleProps} />);
+        expect(screen.getByTestId('private-trial-nudge')).toBeInTheDocument();
+        expect(viewed()).toBe(1); // NOT inflated by the hide/show cycle
     });
 
     it('"Try Private" selects Private only — no recording, no model download — and emits the funnel events', () => {
