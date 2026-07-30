@@ -186,6 +186,19 @@ export default function PracticePage() {
     else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
   };
 
+  // #1047 anonymous handoff: the "Try a 5-minute private session" band promises Private, so it must
+  // carry that intent to /session — surviving signup/login via `location.state.from.search`, which
+  // `resolvePostAuthPath` preserves. /session honours `?trial=private` by PRESELECTING Private only
+  // when the account is eligible (never a silent Browser fallback, never auto-record/auto-download);
+  // an ineligible account is told truthfully and stays on Browser.
+  const startPrivateTrial = () => {
+    setGuidedSelected(false);
+    trackPracticeModeSelected('quick', 'landing_card');
+    trackQuickPracticeStarted('landing_card');
+    if (isAuthed) navigate('/session?trial=private');
+    else navigate('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+  };
+
   // Guided "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
   const openNotify = () => {
     setGuidedSelected(true);
@@ -284,7 +297,7 @@ export default function PracticePage() {
             the two product cards. The strip carries the trial promo; each product card owns its decision
             + action. No four-card support section. */}
         <div className="mx-auto mt-0 max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-10 md:pb-12 md:[padding-bottom:3rem]">
-          <FreestyleTrialStrip onStart={startFreestyle} />
+          <FreestyleTrialStrip onStart={startPrivateTrial} />
           <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
             {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
             <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>

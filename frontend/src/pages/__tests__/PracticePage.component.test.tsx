@@ -166,10 +166,12 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
     });
 
-    it('Freestyle FREE TRIAL strip CTA → account access preserving /session intent (no auto-record)', () => {
+    it('Freestyle FREE TRIAL strip CTA → account access carrying the Private-trial intent (no auto-record)', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('freestyle-trial-start'));
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
+      // The band promises Private, so the intent rides through signup via from.search (resolvePostAuthPath
+      // preserves it) → /session?trial=private. NOT a bare /session that silently lands on Browser.
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
     });
 
     it('Freestyle product card CTA → account access preserving /session intent', () => {
