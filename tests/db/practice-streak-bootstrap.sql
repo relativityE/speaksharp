@@ -22,7 +22,10 @@ AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$
 GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon, service_role;
 
--- public.user_profiles (initial_schema shape; the migration adds the `timezone` column).
+-- public.user_profiles — reproduces the PRODUCTION shape after 20260522090000_harden_runtime_billing_
+-- invariants: RLS is SELECT-ONLY for authenticated (the original FOR ALL policy was removed precisely so
+-- users cannot directly write their profile / billing / entitlement fields). `subscription_status` is
+-- included as a representative entitlement field a caller must NOT be able to modify directly.
 CREATE TABLE IF NOT EXISTS public.user_profiles (
     id uuid PRIMARY KEY REFERENCES auth.users(id),
     subscription_status text DEFAULT 'basic',
@@ -30,14 +33,19 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
 );
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view own profile" ON public.user_profiles;
-CREATE POLICY "Users can view own profile" ON public.user_profiles
-    FOR ALL USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can select own profile" ON public.user_profiles;
+-- SELECT-only (matches production). No INSERT/UPDATE/DELETE policy exists, so authenticated cannot
+-- write user_profiles directly — the timezone is initialized ONLY via the SECURITY DEFINER setter.
+CREATE POLICY "Users can select own profile" ON public.user_profiles
+    FOR SELECT USING ((SELECT auth.uid()) = id);
 
--- public.sessions (only the columns the streak reads; RLS confines to the owner).
+-- public.sessions — includes `status` (20260309000000: active|completed|expired|failed, default active),
+-- which the streak now filters on. RLS FOR ALL confines to the owner, as in production.
 CREATE TABLE IF NOT EXISTS public.sessions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     total_words integer,
+    status text DEFAULT 'active',
     created_at timestamptz DEFAULT now()
 );
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
@@ -47,4 +55,5 @@ CREATE POLICY "Users can manage own sessions" ON public.sessions
 
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.sessions TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_profiles TO authenticated;
+-- Production grants authenticated SELECT on user_profiles; writes are blocked by the SELECT-only RLS.
+GRANT SELECT ON TABLE public.user_profiles TO authenticated;

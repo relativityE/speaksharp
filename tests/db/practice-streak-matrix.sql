@@ -31,11 +31,11 @@ ORDER BY 1, 2;
 -- Seed helper: one session for `who` at local NOON on local date `d` (DST-safe: noon never lands on a
 -- skipped/duplicated wall-clock hour), with `words` total_words. Called while role is the superuser, so
 -- inserts bypass RLS for setup only; every read below goes through authenticated + RLS.
-CREATE PROCEDURE pg_temp.seed(who uuid, d date, words int)
+CREATE PROCEDURE pg_temp.seed(who uuid, d date, words int, st text DEFAULT 'completed')
 LANGUAGE plpgsql AS $seed$
 BEGIN
-    INSERT INTO public.sessions (user_id, total_words, created_at)
-    VALUES (who, words, (d + time '12:00') AT TIME ZONE 'America/New_York');
+    INSERT INTO public.sessions (user_id, total_words, status, created_at)
+    VALUES (who, words, st, (d + time '12:00') AT TIME ZONE 'America/New_York');
 END;
 $seed$;
 
@@ -49,11 +49,13 @@ DECLARE
     v_today    date;
 BEGIN
     -- ---- 0. preconditions -----------------------------------------------------------------------
+    -- Reader is INVOKER (RLS confines reads to the caller); setter is DEFINER (must write under the
+    -- production SELECT-only profile policy, but tightly scoped — proven by item 15).
     IF (SELECT prosecdef FROM pg_proc WHERE proname = 'get_practice_streak') THEN
         RAISE EXCEPTION 'PRECONDITION: get_practice_streak must be SECURITY INVOKER, not DEFINER';
     END IF;
-    IF (SELECT prosecdef FROM pg_proc WHERE proname = 'set_user_timezone') THEN
-        RAISE EXCEPTION 'PRECONDITION: set_user_timezone must be SECURITY INVOKER, not DEFINER';
+    IF NOT (SELECT prosecdef FROM pg_proc WHERE proname = 'set_user_timezone') THEN
+        RAISE EXCEPTION 'PRECONDITION: set_user_timezone must be SECURITY DEFINER (writes under SELECT-only RLS)';
     END IF;
     IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.sessions'::regclass)
        OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.user_profiles'::regclass) THEN
@@ -274,7 +276,55 @@ BEGIN
     DELETE FROM public.sessions WHERE user_id = v_victim;
     RAISE NOTICE 'PASS 13  active result reports correct lastQualifyingDate + timezone';
 
-    RAISE NOTICE '=== ALL THIRTEEN STREAK MATRIX ITEMS PASSED ===';
+    -- ---- 14. ONLY status='completed' counts (active / failed / expired never build a streak) ------
+    DELETE FROM public.sessions WHERE user_id = v_victim;
+    CALL pg_temp.seed(v_victim, v_today,     30, 'active');
+    CALL pg_temp.seed(v_victim, v_today - 1, 30, 'failed');
+    CALL pg_temp.seed(v_victim, v_today - 2, 30, 'expired');
+    SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_victim::text, true);
+    IF public.get_practice_streak()->>'state' <> 'none' THEN
+        RAISE EXCEPTION 'FAIL 14: active/failed/expired sessions built a streak';
+    END IF;
+    RESET ROLE;
+    DELETE FROM public.sessions WHERE user_id = v_victim;
+    CALL pg_temp.seed(v_victim, v_today, 30, 'completed');
+    SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_victim::text, true);
+    IF public.get_practice_streak()->>'state' <> 'active' THEN
+        RAISE EXCEPTION 'FAIL 14: a completed session did not count';
+    END IF;
+    RESET ROLE;
+    DELETE FROM public.sessions WHERE user_id = v_victim;
+    RAISE NOTICE 'PASS 14  only completed sessions count (active/failed/expired excluded)';
+
+    -- ---- 15. production RLS: authenticated cannot write user_profiles directly; timezone ONLY via the
+    --         DEFINER setter, and no entitlement field is reachable. Proves the setter works under the
+    --         SELECT-only policy AND that it is not a write-anything escalation. --------------------
+    UPDATE public.user_profiles SET timezone = NULL, subscription_status = 'basic' WHERE id = v_other;
+    v_ok := false;
+    BEGIN
+        SET LOCAL ROLE authenticated;
+        PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
+        UPDATE public.user_profiles SET subscription_status = 'pro' WHERE id = v_other;  -- must be denied
+    EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+    END;
+    RESET ROLE;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 15: a direct profile UPDATE by authenticated was NOT denied'; END IF;
+    IF (SELECT subscription_status FROM public.user_profiles WHERE id = v_other) <> 'basic' THEN
+        RAISE EXCEPTION 'FAIL 15: an entitlement field was modified by a direct write';
+    END IF;
+    -- ...but the DEFINER setter can still initialize the caller's own timezone under that same policy.
+    SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
+    IF public.set_user_timezone('Europe/London') <> 'Europe/London' THEN
+        RAISE EXCEPTION 'FAIL 15: the setter could not initialize timezone under the SELECT-only policy';
+    END IF;
+    RESET ROLE;
+    IF (SELECT subscription_status FROM public.user_profiles WHERE id = v_other) <> 'basic' THEN
+        RAISE EXCEPTION 'FAIL 15: the setter touched an entitlement field';
+    END IF;
+    UPDATE public.user_profiles SET timezone = NULL WHERE id = v_other;
+    RAISE NOTICE 'PASS 15  authenticated cannot write the profile directly; timezone only via the scoped setter';
+
+    RAISE NOTICE '=== ALL FIFTEEN STREAK MATRIX ITEMS PASSED ===';
 END
 $matrix$;
 

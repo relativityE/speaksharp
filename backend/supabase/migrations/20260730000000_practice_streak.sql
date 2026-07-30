@@ -31,6 +31,11 @@
 -- below simply no-ops for them; it never fabricates a row.
 --
 -- NOT APPLIED TO PRODUCTION BY THIS PR. Requires separate Product Owner migration approval.
+--
+-- ROLLBACK: revoke + DROP the two functions. RETAIN the nullable `user_profiles.timezone` column and
+-- any timezone values users have populated — dropping it is data loss. The column is inert without the
+-- functions (nothing reads or writes it), so leaving it is safe. Only DROP the column BEFORE any user
+-- has written a timezone, and only with explicit proof it is empty and separate authorization.
 
 -- ---------------------------------------------------------------------------------------------------
 -- 1. Persisted account-level timezone (nullable; the only stored field).
@@ -43,33 +48,47 @@ COMMENT ON COLUMN public.user_profiles.timezone IS
 
 -- ---------------------------------------------------------------------------------------------------
 -- 2. Initialize-ONCE authenticated timezone setter.
---    SECURITY INVOKER: runs as the caller, so RLS on user_profiles confines the write to the caller's
---    own row. Identity comes from auth.uid() — there is NO caller-supplied user id. It writes only when
---    the stored timezone is still NULL, so it can never silently change an established value.
+--    SECURITY DEFINER — REQUIRED. Production (20260522090000_harden_runtime_billing_invariants) replaced
+--    the user_profiles `FOR ALL` policy with a SELECT-only policy so authenticated users can NOT update
+--    their own profile directly (that protects billing/entitlement fields). A SECURITY INVOKER setter
+--    would therefore update ZERO rows in production. This DEFINER function runs as the owner (which can
+--    write the row) but is tightly scoped so it is not a privilege escalation:
+--      * requires a non-null auth.uid() (no anonymous / null-identity write);
+--      * touches ONLY the caller's own row (`WHERE id = auth.uid()`) — never another user's;
+--      * sets ONLY the `timezone` column — never subscription_status or any entitlement/billing field;
+--      * writes ONLY while the stored value is NULL (initialize-once — never a silent change);
+--      * validates against pg_timezone_names; invalid/NULL is a no-op returning the current value;
+--      * SET search_path = public, pg_temp (pg_temp explicit + last, so a temp object cannot shadow it);
+--      * PUBLIC/anon EXECUTE revoked below.
+--    This is the SAME pattern the codebase already uses to mutate user_profiles safely (update_user_usage,
+--    process_stripe_webhook_event): a scoped DEFINER function, never a broad UPDATE policy.
 -- ---------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.set_user_timezone(p_timezone text)
 RETURNS text                    -- the effective stored timezone after the call (NULL if none/invalid)
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_uid uuid := auth.uid();
 BEGIN
-    IF auth.uid() IS NULL THEN
+    IF v_uid IS NULL THEN
         RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
     END IF;
 
     -- Invalid or NULL timezone: write nothing, report the current stored value (may be NULL).
     IF p_timezone IS NULL OR p_timezone NOT IN (SELECT name FROM pg_timezone_names) THEN
-        RETURN (SELECT timezone FROM public.user_profiles WHERE id = auth.uid());
+        RETURN (SELECT timezone FROM public.user_profiles WHERE id = v_uid);
     END IF;
 
-    -- Initialize ONCE. `timezone IS NULL` guarantees an established value is never overwritten here.
+    -- Own row only; timezone column only; initialize-once (`timezone IS NULL`) so an established value
+    -- is never overwritten. No other column can be reached through this function.
     UPDATE public.user_profiles
        SET timezone = p_timezone
-     WHERE id = auth.uid()
+     WHERE id = v_uid
        AND timezone IS NULL;
 
-    RETURN (SELECT timezone FROM public.user_profiles WHERE id = auth.uid());
+    RETURN (SELECT timezone FROM public.user_profiles WHERE id = v_uid);
 END;
 $$;
 
@@ -110,11 +129,15 @@ BEGIN
         SELECT DISTINCT ((created_at AT TIME ZONE v_tz)::date) AS d
         FROM public.sessions
         WHERE user_id = auth.uid()
+          -- Only FINISHED sessions count. `status` (20260309000000) is one of active/completed/expired/
+          -- failed; a streak must not be built from an in-progress ('active'), abandoned/expired, or
+          -- 'failed' recording. Only 'completed' is a durably finished session.
+          AND status = 'completed'
           AND COALESCE(total_words, 0) >= 25
-          -- Clamp to today's local date. `sessions` is user-writable (RLS is FOR ALL), so without this
-          -- a caller could post a future-dated row and anchor an "active" streak on a day that has not
-          -- happened. This is cross-device CONSISTENCY hardening, not anti-cheat: a determined user can
-          -- still forge past rows on their OWN streak (see header). It cannot affect any OTHER user.
+          -- Clamp to today's local date. `sessions` is user-writable (RLS FOR ALL), so without this a
+          -- caller could post a future-dated row and anchor an "active" streak on a day that has not
+          -- happened. Cross-device CONSISTENCY hardening, not anti-cheat: a user can still forge past
+          -- rows on their OWN streak (see header). It cannot affect any OTHER user.
           AND (created_at AT TIME ZONE v_tz)::date <= v_today
     ),
     islands AS (

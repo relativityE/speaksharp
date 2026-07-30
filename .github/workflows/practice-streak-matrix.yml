@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   matrix:
-    name: "thirteen-item streak matrix (postgres:${{ matrix.pg }})"
+    name: "fifteen-item streak matrix (postgres:${{ matrix.pg }})"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -60,11 +60,11 @@ jobs:
       - name: Apply the migration VERBATIM
         run: psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260730000000_practice_streak.sql
 
-      - name: Run the thirteen-item streak matrix
+      - name: Run the fifteen-item streak matrix
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f tests/db/practice-streak-matrix.sql 2>&1 | tee out.txt
-          grep -q 'ALL THIRTEEN STREAK MATRIX ITEMS PASSED' out.txt
+          grep -q 'ALL FIFTEEN STREAK MATRIX ITEMS PASSED' out.txt
           grep -q 'SECURITY MATRIX COMPLETE' out.txt
 
       - name: FALSIFICATION — without the migration the matrix must FAIL
