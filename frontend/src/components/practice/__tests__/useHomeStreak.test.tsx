@@ -29,6 +29,23 @@ describe('useHomeStreak (#1093 — account-keyed, stale-response protection)', (
         expect(storage.setUserTimezone).toHaveBeenCalledTimes(1); // initialize-once per mount
     });
 
+    it('timezone DISCOVERY failure: no UTC fallback, still fetches the streak, and always settles loading', async () => {
+        (storage.getPracticeStreak as ReturnType<typeof vi.fn>).mockResolvedValue(active(2));
+        const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+            throw new Error('timezone discovery blocked');
+        });
+        try {
+            const { result } = renderHook(({ id }) => useHomeStreak(id), { initialProps: { id: 'user-a' } });
+            expect(result.current.loading).toBe(true);
+            await waitFor(() => expect(result.current.loading).toBe(false)); // NEVER stuck loading
+            expect(storage.setUserTimezone).not.toHaveBeenCalled();          // no init (and NO UTC fallback)
+            expect(storage.getPracticeStreak).toHaveBeenCalledTimes(1);      // still fetched the server streak
+            expect(result.current.streak).toEqual(active(2));
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('on account switch: clears the prior result, shows loading, and IGNORES the prior account\'s stale response', async () => {
         // Account A: a response we control (does not resolve until we say so).
         let resolveA!: (v: PracticeStreak) => void;

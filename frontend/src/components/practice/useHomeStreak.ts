@@ -29,7 +29,15 @@ export function useHomeStreak(
         // Account change (or first mount): drop any prior result and show the skeleton.
         setState({ userId, streak: null, loading: true });
         void (async () => {
-            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            // Timezone DISCOVERY can throw in a hostile/locked-down environment. If it does, we do NOT
+            // fall back to UTC (a wrong tz would give a wrong local-day streak) — we skip initialization
+            // and still fetch the persisted server streak, so the chip always settles (never stuck loading).
+            let tz: string | null = null;
+            try {
+                tz = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+            } catch {
+                tz = null;
+            }
             if (tz) await setUserTimezone(tz); // initialize-once server-side; safe to call every load
             const next = await getPracticeStreak();
             if (!active) return; // this effect was superseded by an account change — ignore the response

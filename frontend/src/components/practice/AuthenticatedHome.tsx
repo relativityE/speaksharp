@@ -71,7 +71,7 @@ function StreakWaveform() {
     return (
         <span aria-hidden="true" className="flex items-end gap-[2px]">
             {[6, 11, 8, 13].map((h, i) => (
-                <span key={i} style={{ width: 3, height: h, borderRadius: 1.5, background: 'var(--ss-home-amber)' }} />
+                <span key={i} style={{ width: 3, height: h, borderRadius: 1.5, background: '#d98a1f' }} />
             ))}
         </span>
     );
@@ -348,15 +348,20 @@ export function AuthenticatedHome({
                         data-streak-state={streakLoading ? 'loading' : (streak?.state ?? 'unavailable')}
                         aria-busy={streakLoading || undefined}
                         className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-bold"
-                        style={{ background: 'var(--ss-home-amber-tint)', color: 'var(--ss-home-amber-ink)' }}
+                        style={{ background: '#fdf3e2', border: '1px solid #f0dcb8', color: '#8a5510' }}
                     >
                         <StreakWaveform />
                         {streakLoading ? (
-                            <span
-                                data-testid="home-streak-skeleton"
-                                aria-hidden="true"
-                                className="inline-block h-[13px] w-[92px] animate-pulse rounded bg-current opacity-30"
-                            />
+                            <>
+                                {/* The skeleton is decorative; the busy chip still needs an accessible
+                                    loading description for assistive tech. */}
+                                <span data-testid="home-streak-loading-label" className="sr-only">Checking streak</span>
+                                <span
+                                    data-testid="home-streak-skeleton"
+                                    aria-hidden="true"
+                                    className="inline-block h-[13px] w-[92px] animate-pulse rounded bg-current opacity-30"
+                                />
+                            </>
                         ) : (
                             streakText
                         )}

@@ -328,16 +328,21 @@ export const STREAK_UNAVAILABLE: PracticeStreak = {
 };
 
 /**
- * Structurally validate an RPC payload into a PracticeStreak. A malformed/unknown-shape response is
- * mapped to `unavailable` (never trusted blindly, never rendered as a number). Only a well-formed
- * object with a known `state` and a finite non-negative `count` is accepted.
+ * Structurally validate an RPC payload into a PracticeStreak, failing CLOSED. A malformed payload is
+ * never coerced into a plausible number — it maps to `STREAK_UNAVAILABLE`. Accepted ONLY when:
+ *   - `state` is a known value;
+ *   - `count` is an INTEGER (no fractional, negative, non-numeric, NaN);
+ *   - the state/count pair is CONSISTENT: `active` ⇒ count ≥ 1; `none`/`unavailable` ⇒ count exactly 0.
+ * Anything else (active-zero, none-with-positive-count, fractional/negative/non-numeric count) is rejected.
  */
 export function toPracticeStreak(raw: unknown): PracticeStreak {
   if (!raw || typeof raw !== 'object') return STREAK_UNAVAILABLE;
   const r = raw as Record<string, unknown>;
-  const state = r.state;
+  const { state, count } = r;
   if (state !== 'active' && state !== 'none' && state !== 'unavailable') return STREAK_UNAVAILABLE;
-  const count = typeof r.count === 'number' && Number.isFinite(r.count) && r.count >= 0 ? Math.floor(r.count) : 0;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return STREAK_UNAVAILABLE;
+  if (state === 'active' && count < 1) return STREAK_UNAVAILABLE;      // active MUST be >= 1
+  if ((state === 'none' || state === 'unavailable') && count !== 0) return STREAK_UNAVAILABLE; // MUST be 0
   const timezone = typeof r.timezone === 'string' ? r.timezone : null;
   const lastQualifyingDate = typeof r.lastQualifyingDate === 'string' ? r.lastQualifyingDate : null;
   return { state, count, lastQualifyingDate, timezone };

@@ -168,16 +168,32 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('Streak unavailable');
     });
 
-    it('streak chip: while loading shows a shape-preserving skeleton, not a premature label', () => {
+    it('streak chip: while loading shows a shape-preserving skeleton + accessible "Checking streak"', () => {
         renderHome({ streak: null, streakLoading: true });
         const chip = screen.getByTestId('home-streak-chip');
         expect(chip).toBeInTheDocument();                       // never hidden
         expect(chip).toHaveAttribute('data-streak-state', 'loading');
         expect(chip).toHaveAttribute('aria-busy', 'true');
         expect(screen.getByTestId('home-streak-skeleton')).toBeInTheDocument();
-        expect(chip).not.toHaveTextContent('Start your streak');
-        expect(chip).not.toHaveTextContent('Streak unavailable');
+        // the busy chip carries an accessible loading description (the skeleton is aria-hidden)
+        const loadingLabel = screen.getByTestId('home-streak-loading-label');
+        expect(loadingLabel).toHaveTextContent('Checking streak');
+        expect(loadingLabel.className).toContain('sr-only');
+        expect(chip).toHaveTextContent('Checking streak');      // accessible text present
         expect(chip).not.toHaveTextContent('0-day');
+    });
+
+    it('streak chip: exact settled visual contract — fill, 1px border, text, and waveform colors', () => {
+        renderHome({ streak: { state: 'active', count: 2, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
+        const chip = screen.getByTestId('home-streak-chip');
+        // jsdom serialises the inline-style hexes to rgb(); assert the exact resolved colours.
+        const style = chip.getAttribute('style') ?? '';
+        expect(style).toContain('rgb(253, 243, 226)');           // #fdf3e2 fill
+        expect(style).toMatch(/1px solid rgb\(240, 220, 184\)/); // #f0dcb8 actual 1px border
+        expect(style).toContain('rgb(138, 85, 16)');             // #8a5510 text
+        // waveform bars use the dedicated amber #d98a1f
+        const bar = chip.querySelector('span[style*="rgb(217, 138, 31)"]');
+        expect(bar).not.toBeNull();
     });
 
     it('last session: composed from persisted columns only; a null duration never becomes 0:00', () => {
