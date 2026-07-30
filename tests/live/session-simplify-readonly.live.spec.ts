@@ -76,9 +76,11 @@ test.describe('#1094 Session simplify — deployed-live authenticated READ-ONLY 
   test('"Progress" naming — never "SpeakSharp Progress"', async ({ page }) => {
     const card = page.getByTestId('live-coaching-score-card');
     await expect(card).toBeVisible();
+    // aria-label is the authoritative, exact naming check. The visible panel label is the
+    // uppercased "PROGRESS", so the visible-text check is case-insensitive on purpose.
     await expect(card).toHaveAttribute('aria-label', 'Progress');
-    await expect(card).toContainText('Progress');
-    await expect(card).not.toContainText('SpeakSharp Progress');
+    await expect(card).toContainText(/progress/i);
+    await expect(card).not.toContainText(/SpeakSharp Progress/i);
   });
 
   test('dark-green help island', async ({ page }) => {
