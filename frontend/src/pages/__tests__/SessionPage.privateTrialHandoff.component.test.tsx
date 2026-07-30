@@ -20,9 +20,18 @@ vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }))
 vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: vi.fn() }));
 
 import { render, screen, cleanup, waitFor } from '../../../tests/support/test-utils';
+import { useLocation } from 'react-router-dom';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
+
+// Observes the live router search so we can prove the ?trial=private lifecycle (retained while
+// loading/recording; removed after an eligible/ineligible decision). Rendered inside the same router.
+function LocationProbe() {
+    const { search } = useLocation();
+    return <div data-testid="loc-search">{search}</div>;
+}
+const searchNow = () => screen.getByTestId('loc-search').textContent ?? '';
 
 const mockLifecycle = vi.mocked(SessionLifecycleHook.useSessionLifecycle);
 const mockUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
@@ -66,50 +75,71 @@ const FREE_AVAILABLE = { is_pro: false, private_sample_available: true, private_
 const TRIAL_ROUTE = { pathname: '/session', search: '?trial=private' };
 const PLAIN_ROUTE = { pathname: '/session', search: '' };
 
+const withProbe = () => <><SessionPage /><LocationProbe /></>;
+
+// NOTE on "no auto-download": selecting Private (setMode('private')) triggers only a BACKGROUND
+// readiness probe — useSessionLifecycle's warm-up effect calls speechRuntimeController.warmUp(), which
+// updates the engine policy but never initiates a model byte-download. A missing model resolves to the
+// durable `download-required` status; the actual download is owned by the mic click (onDownloadModel →
+// initiateModelDownload). That behaviour is covered by the warm-up/model-status suites
+// (useSessionLifecycle.test.tsx download-required cases; LiveRecordingCard first-run/#957). Here the
+// lifecycle is mocked, so this suite proves only NO AUTO-RECORD (handleStartStop is never called) — it
+// does not, and should not claim to, re-prove the no-auto-download property.
 describe('SessionPage — #1047 anonymous Private-trial handoff (?trial=private)', () => {
     beforeEach(() => vi.clearAllMocks());
     afterEach(() => cleanup());
 
-    it('ELIGIBLE account → Private is preselected (setMode once); never auto-records; no notice', async () => {
+    it('ELIGIBLE account → Private preselected once; no auto-record; no notice; intent removed from URL', async () => {
         mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true }));
         mockUsageLimit.mockReturnValue(usage(FREE_AVAILABLE));
-        render(<SessionPage />, { route: TRIAL_ROUTE });
+        render(withProbe(), { route: TRIAL_ROUTE });
         await waitFor(() => expect(setMode).toHaveBeenCalledWith('private'));
-        expect(setMode).toHaveBeenCalledTimes(1);       // consumed once, not re-applied
-        expect(handleStartStop).not.toHaveBeenCalled();  // NEVER auto-records / auto-downloads
+        expect(setMode).toHaveBeenCalledTimes(1);        // preselected once, not re-applied
+        expect(handleStartStop).not.toHaveBeenCalled();   // NEVER auto-records (no-download is cited above)
         expect(screen.queryByTestId('private-trial-unavailable-notice')).toBeNull();
+        await waitFor(() => expect(searchNow()).not.toContain('trial=private')); // consumed after the decision
     });
 
-    it('INELIGIBLE account → stays on Browser with a truthful notice; Private is NOT selected', async () => {
+    it('INELIGIBLE account → Browser retained + truthful notice; Private NOT selected; intent removed', async () => {
         mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: false }));
         mockUsageLimit.mockReturnValue(usage({ ...FREE_AVAILABLE, private_sample_available: false }));
-        render(<SessionPage />, { route: TRIAL_ROUTE });
+        render(withProbe(), { route: TRIAL_ROUTE });
         await waitFor(() => expect(screen.getByTestId('private-trial-unavailable-notice')).toBeInTheDocument());
         expect(screen.getByTestId('private-trial-unavailable-notice')).toHaveTextContent(/Private isn’t available/i);
         expect(setMode).not.toHaveBeenCalledWith('private'); // no silent switch
         expect(handleStartStop).not.toHaveBeenCalled();
+        await waitFor(() => expect(searchNow()).not.toContain('trial=private')); // consumed after the decision
     });
 
-    it('entitlement STILL LOADING (usageLimit undefined) → decision WAITS (no preselect, no notice)', () => {
+    it('entitlement STILL LOADING → decision waits; intent RETAINED in the URL', () => {
         mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true }));
         mockUsageLimit.mockReturnValue(usage(undefined));
-        render(<SessionPage />, { route: TRIAL_ROUTE });
+        render(withProbe(), { route: TRIAL_ROUTE });
         expect(setMode).not.toHaveBeenCalled();
         expect(screen.queryByTestId('private-trial-unavailable-notice')).toBeNull();
+        expect(searchNow()).toContain('trial=private'); // NOT consumed while loading
     });
 
-    it('eligible but ALREADY RECORDING → DEFERS: no mid-recording switch, no notice', () => {
+    it('eligible but ALREADY RECORDING → defers with intent RETAINED, then preselects Private exactly once when idle', async () => {
         mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true, isListening: true }));
         mockUsageLimit.mockReturnValue(usage(FREE_AVAILABLE));
-        render(<SessionPage />, { route: TRIAL_ROUTE });
-        expect(setMode).not.toHaveBeenCalledWith('private'); // never switch the engine mid-recording
+        const { rerender } = render(withProbe(), { route: TRIAL_ROUTE });
+        // While recording: no switch, no notice, intent preserved for later.
+        expect(setMode).not.toHaveBeenCalledWith('private');
         expect(screen.queryByTestId('private-trial-unavailable-notice')).toBeNull();
+        expect(searchNow()).toContain('trial=private');
+        // Recording ends → the effect re-runs and applies the deferred intent, exactly once.
+        mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true, isListening: false }));
+        rerender(withProbe());
+        await waitFor(() => expect(setMode).toHaveBeenCalledWith('private'));
+        expect(setMode).toHaveBeenCalledTimes(1);
+        await waitFor(() => expect(searchNow()).not.toContain('trial=private')); // now consumed
     });
 
     it('no `?trial` param → the handoff is inert (no preselect, no notice)', () => {
         mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true }));
         mockUsageLimit.mockReturnValue(usage(FREE_AVAILABLE));
-        render(<SessionPage />, { route: PLAIN_ROUTE });
+        render(withProbe(), { route: PLAIN_ROUTE });
         expect(setMode).not.toHaveBeenCalled();
         expect(screen.queryByTestId('private-trial-unavailable-notice')).toBeNull();
     });
