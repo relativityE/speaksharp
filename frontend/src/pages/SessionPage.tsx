@@ -124,10 +124,13 @@ export const SessionPage: React.FC = () => {
         if (searchParams.get('trial') !== 'private' || trialHandledRef.current) return;
         if (usageLimit === undefined) return; // entitlement still loading — decide only once resolved
         if (canUsePrivateStt) {
-            // Eligible. If a recording is already in flight the engine is locked, so we canNOT switch
-            // now — DEFER without consuming the intent: this effect re-runs when `isListening` flips
-            // false (it is a dep) and preselects Private then. No mid-recording surprise, no lost intent.
-            if (isListening) return;
+            // Eligible. DEFER (without consuming the intent) whenever the engine cannot be switched right
+            // now — that is the AUTHORITATIVE `engineSelectionLocked` lock, which is broader than
+            // `isListening`: during STOPPING / SAVING / retry / recovery `isListening` can already be
+            // false while the lock is still held. Acting then would consume the intent while
+            // `setMode('private')` is rejected — permanently losing the promised handoff. The effect
+            // re-runs when either flips (both are deps) and preselects Private once the lock clears.
+            if (isListening || engineSelectionLocked) return;
             trialHandledRef.current = true;
             setMode('private'); // preselect only; no recording, no model download
         } else {
@@ -138,7 +141,7 @@ export const SessionPage: React.FC = () => {
         const next = new URLSearchParams(searchParams);
         next.delete('trial');
         setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, usageLimit, canUsePrivateStt, isListening, setMode]);
+    }, [searchParams, setSearchParams, usageLimit, canUsePrivateStt, isListening, engineSelectionLocked, setMode]);
 
     if (!metrics) return <SessionPageSkeleton />;
 

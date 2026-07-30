@@ -24,6 +24,7 @@ import { useLocation } from 'react-router-dom';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 // Observes the live router search so we can prove the ?trial=private lifecycle (retained while
 // loading/recording; removed after an eligible/ineligible decision). Rendered inside the same router.
@@ -86,8 +87,8 @@ const withProbe = () => <><SessionPage /><LocationProbe /></>;
 // lifecycle is mocked, so this suite proves only NO AUTO-RECORD (handleStartStop is never called) — it
 // does not, and should not claim to, re-prove the no-auto-download property.
 describe('SessionPage — #1047 anonymous Private-trial handoff (?trial=private)', () => {
-    beforeEach(() => vi.clearAllMocks());
-    afterEach(() => cleanup());
+    beforeEach(() => { vi.clearAllMocks(); useSessionStore.setState({ engineSelectionLocked: false }); });
+    afterEach(() => { cleanup(); useSessionStore.setState({ engineSelectionLocked: false }); });
 
     it('ELIGIBLE account → Private preselected once; no auto-record; no notice; intent removed from URL', async () => {
         mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true }));
@@ -134,6 +135,23 @@ describe('SessionPage — #1047 anonymous Private-trial handoff (?trial=private)
         await waitFor(() => expect(setMode).toHaveBeenCalledWith('private'));
         expect(setMode).toHaveBeenCalledTimes(1);
         await waitFor(() => expect(searchNow()).not.toContain('trial=private')); // now consumed
+    });
+
+    it('eligible but ENGINE SELECTION LOCKED (not listening: stopping/saving/recovery) → defers with intent RETAINED, applies once the lock clears', async () => {
+        // Regression for the P2: during STOPPING/SAVING/retry, isListening can be false while the
+        // authoritative engineSelectionLocked is still held; acting then would consume the intent while
+        // setMode is rejected, losing the handoff. The effect must defer on the LOCK, not just listening.
+        mockLifecycle.mockReturnValue(lifecycle({ canUsePrivateStt: true, isListening: false }));
+        mockUsageLimit.mockReturnValue(usage(FREE_AVAILABLE));
+        useSessionStore.setState({ engineSelectionLocked: true });
+        const { rerender } = render(withProbe(), { route: TRIAL_ROUTE });
+        expect(setMode).not.toHaveBeenCalledWith('private'); // locked → no rejected switch
+        expect(searchNow()).toContain('trial=private');       // intent preserved, not silently lost
+        // Lock clears → the deferred intent applies exactly once.
+        useSessionStore.setState({ engineSelectionLocked: false });
+        rerender(withProbe());
+        await waitFor(() => expect(setMode).toHaveBeenCalledWith('private'));
+        expect(setMode).toHaveBeenCalledTimes(1);
     });
 
     it('no `?trial` param → the handoff is inert (no preselect, no notice)', () => {
