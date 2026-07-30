@@ -23,9 +23,14 @@ export function formatTrialAllotmentTitle(limitSeconds: number): string {
     return m ? `${m}-minute Private trial available` : 'Private trial available';
 }
 
-/** Partial-sample nudge title. Floors conservatively; under a minute collapses. Never overstates. */
-export function formatTrialRemainingTitle(remainingSeconds: number): string {
-    if (!(remainingSeconds >= 60)) return 'Continue with Private — less than a minute remaining';
+/**
+ * Partial-sample nudge title. Floors conservatively; under a minute collapses. FAILS CLOSED: a
+ * non-finite or non-positive remaining is NOT a truthful "less than a minute" — it returns `null` so
+ * the caller shows no offer at all (there is genuinely no time to offer).
+ */
+export function formatTrialRemainingTitle(remainingSeconds: number): string | null {
+    if (!Number.isFinite(remainingSeconds) || remainingSeconds <= 0) return null;
+    if (remainingSeconds < 60) return 'Continue with Private — less than a minute remaining';
     const m = Math.floor(remainingSeconds / 60);
     return `Continue with Private — about ${m} ${m === 1 ? 'minute' : 'minutes'} remaining`;
 }

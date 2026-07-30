@@ -140,14 +140,24 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const selectionLocked = engineSelectionLocked || isListening;
 
     // #1047 conversion repair: a compact idle nudge that restores the Free→Private path #1094 removed
-    // from the ambient status bar — WITHOUT re-adding permanent chrome. Shown ONLY when the eligible
-    // Free account (server-confirmed available sample) is idle on Browser with engine selection unlocked.
-    // Gate on `canUsePrivate` too: never offer the trial when Private is unavailable in this
-    // runtime/browser (the switch would fail). Eligibility (Free + available + FRESH sample) is
+    // from the ambient status bar — WITHOUT re-adding permanent chrome. Offered when the eligible Free
+    // account (server-confirmed AVAILABLE sample — full OR partially used) is idle on Browser with
+    // engine selection unlocked. Gate on `canUsePrivate` too: never offer the trial when Private is
+    // unavailable in this runtime/browser (the switch would fail). Eligibility (Free + available) is
     // server-authoritative via `privateTrialAvailable`; the card adds the runtime/UI conditions.
-    const showPrivateTrialNudge =
+    const eligibleForTrialNudge =
         privateTrialAvailable && canUsePrivate && !isPaidProUser
         && mode === 'native' && !isListening && !selectionLocked;
+    // Truthful nudge copy from the SERVER-reported allotment/remaining, via the shared conservative
+    // formatter (never a hard-coded 5, never a rounded-up overstatement): a FULL, unstarted sample
+    // offers the trial by its real whole-minute length; a partially-used sample invites the user to
+    // continue with the minutes that actually remain (floored). The partial formatter FAILS CLOSED
+    // (null) for a non-positive/non-finite remaining, so the nudge then shows nothing rather than a
+    // false "less than a minute" — the final visibility folds that in.
+    const privateTrialNudgeTitle = privateTrialFresh
+        ? formatTrialAllotmentTitle(privateTrialLimitSeconds)
+        : formatTrialRemainingTitle(privateTrialRemainingSeconds);
+    const showPrivateTrialNudge = eligibleForTrialNudge && privateTrialNudgeTitle !== null;
     // NUDGE_VIEWED fires at most ONCE per mount — NOT per appearance — so toggling modes (hide/show)
     // cannot inflate the top-of-funnel count. A genuine new view (fresh navigation) is a new mount.
     const nudgeViewedRef = React.useRef(false);
@@ -164,13 +174,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
         handleModeChange('private');
     };
-    // Truthful nudge copy from the SERVER-reported allotment/remaining, via the shared conservative
-    // formatter (never a hard-coded 5, never a rounded-up overstatement): a FULL, unstarted sample
-    // offers the trial by its real whole-minute length; a partially-used sample invites the user to
-    // continue with the minutes that actually remain (floored).
-    const privateTrialNudgeTitle = privateTrialFresh
-        ? formatTrialAllotmentTitle(privateTrialLimitSeconds)
-        : formatTrialRemainingTitle(privateTrialRemainingSeconds);
     // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
     // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
     const lockedReason =

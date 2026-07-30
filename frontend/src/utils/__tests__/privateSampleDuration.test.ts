@@ -32,7 +32,13 @@ describe('privateSampleDuration — server-derived, never-overstating duration c
         expect(formatTrialRemainingTitle(60)).toBe('Continue with Private — about 1 minute remaining');
         expect(formatTrialRemainingTitle(59)).toBe('Continue with Private — less than a minute remaining');
         expect(formatTrialRemainingTitle(1)).toBe('Continue with Private — less than a minute remaining');
-        expect(formatTrialRemainingTitle(0)).toBe('Continue with Private — less than a minute remaining');
+    });
+
+    it('remaining title FAILS CLOSED (null) for non-positive / non-finite input — no false claim', () => {
+        expect(formatTrialRemainingTitle(0)).toBeNull();
+        expect(formatTrialRemainingTitle(-30)).toBeNull();
+        expect(formatTrialRemainingTitle(Number.NaN)).toBeNull();
+        expect(formatTrialRemainingTitle(Number.POSITIVE_INFINITY)).toBeNull();
     });
 
     it('recording cap line uses the SAME whole-minute source (no hard-coded 5)', () => {

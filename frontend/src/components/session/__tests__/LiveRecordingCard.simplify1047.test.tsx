@@ -141,6 +141,12 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
         expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — less than a minute remaining');
     });
 
+    it('FAILS CLOSED: a partial sample with no remaining time shows no nudge (never a false claim)', () => {
+        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={0} privateTrialLimitSeconds={300} />);
+        expect(screen.queryByTestId('private-trial-nudge')).toBeNull();
+        expect(emit).not.toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
+    });
+
     it.each([
         ['Pro user', { isPaidProUser: true }],
         ['sample unavailable', { privateTrialAvailable: false }],
