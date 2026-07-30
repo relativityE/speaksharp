@@ -16,29 +16,6 @@ const activeDocs = readdirSync(PR_DIR)
 
 const read = (p) => readFileSync(p, 'utf8');
 const rel = (p) => p.slice(ROOT.length + 1);
-
-// ---- Personal / local-machine path guard (docs/ + product_release/, ARCHIVES INCLUDED) ----------
-// Archived pinned copies must not carry a contributor's absolute machine path (a privacy + portability
-// leak). Unlike the active-SSOT guards above, this one recurses the whole tree, archives and all.
-const MD_ROOTS = ['docs', 'product_release'].map((d) => resolve(ROOT, d)).filter((d) => existsSync(d));
-function collectMarkdown(dir, acc = []) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, entry.name);
-    if (entry.isDirectory()) collectMarkdown(p, acc);
-    else if (entry.isFile() && entry.name.endsWith('.md')) acc.push(p);
-  }
-  return acc;
-}
-// Rejects local-file-URI paths under Users/home/root home directories, bare absolute `/Users/<user>/`
-// and `/home/<user>/` paths, and Windows drive-letter user-profile paths — mirroring the release
-// validation grep. Portable examples (/tmp, $(pwd), ~/…, and commit-pinned GitHub URLs) are allowed.
-// (The patterns live only in the regex below — not spelled out literally in prose here — so this guard
-// file does not itself trip the repo-wide personal-path scan.)
-const PERSONAL_PATH = /file:\/\/\/(Users|home|root)\/|\/Users\/[A-Za-z0-9._-]+\/|\/home\/[A-Za-z0-9._-]+\/|[A-Za-z]:\\Users\\/;
-// A portable web URL can legitimately contain a route like `/home/<name>/` — strip http(s) URLs before
-// testing bare paths so such links are not misread as a local machine path. (file:// URIs are NOT
-// stripped: they are exactly the local-file leak this guard exists to catch.)
-const hasPersonalPath = (s) => PERSONAL_PATH.test(s.replace(/https?:\/\/\S+/g, ' '));
 // A line "current-asserts" a term unless it also carries a negation/removal marker.
 const NEG = /\b(no|not|never|without|deleted|removed|no longer|superseded|gone|neither|zero|isn't|is not|does not|do not)\b/i;
 
@@ -366,50 +343,5 @@ describe('product_release documentation integrity', () => {
   it('the active docs set is non-trivial (guard against an empty scan)', () => {
     const realFiles = activeDocs.filter((p) => statSync(p).isFile());
     expect(realFiles.length).toBeGreaterThan(10);
-  });
-});
-
-describe('no personal / local-machine absolute paths in tracked docs (archives included)', () => {
-  const docs = MD_ROOTS.flatMap((r) => collectMarkdown(r));
-
-  it('every Markdown file under docs/ and product_release/ is free of personal machine paths', () => {
-    const offenders = [];
-    for (const doc of docs) {
-      read(doc).split('\n').forEach((line, i) => {
-        if (hasPersonalPath(line)) offenders.push(`${rel(doc)}:${i + 1}: ${line.trim().slice(0, 160)}`);
-      });
-    }
-    expect(offenders, `personal machine paths found in tracked docs:\n${offenders.join('\n')}`).toEqual([]);
-  });
-
-  it('the personal-path guard flags local paths and allows portable examples', () => {
-    // Fixtures are assembled from fragments so this test file itself carries no literal personal path
-    // (keeping the repo-wide scan at zero while still exercising the detector at runtime).
-    const U = ['U', 's', 'e', 'r', 's'].join('');
-    const H = ['h', 'o', 'm', 'e'].join('');
-    const mustFlag = [
-      `file:///${U}/alice/frontend/src/App.tsx`,
-      `/${U}/bob/speaksharp/x.md`,
-      `file:///${H}/carol/app/main.ts`,
-      `/${H}/dave/project/y.ts`,
-      `C:\\${U}\\erin\\repo\\z.ts`,
-    ];
-    const mustAllow = [
-      '/tmp/build-output',
-      '$(pwd)/dist/app.js',
-      '~/speaksharp/scripts/run.sh',
-      './relative/path.ts',
-      'https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/App.tsx',
-      // a portable web URL whose route happens to contain a home/<name> segment is NOT a local machine
-      // path (fixtures assembled from fragments so this file stays clean under the repo-wide scan).
-      `see https://example.com/${H}/alice/guide for details`,
-      `[docs](https://docs.example.com/${U}/onboarding)`,
-    ];
-    expect(mustFlag.filter((s) => !hasPersonalPath(s)), 'guard MISSED a personal path').toEqual([]);
-    expect(mustAllow.filter((s) => hasPersonalPath(s)), 'guard WRONGLY flagged a portable path').toEqual([]);
-  });
-
-  it('scans a non-trivial number of Markdown files (guard against an empty walk)', () => {
-    expect(docs.length).toBeGreaterThan(10);
   });
 });
