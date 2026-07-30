@@ -246,7 +246,35 @@ BEGIN
     DELETE FROM public.sessions WHERE user_id = v_victim;
     RAISE NOTICE 'PASS 11  DST spring-forward preserves distinct consecutive local dates';
 
-    RAISE NOTICE '=== ALL ELEVEN STREAK MATRIX ITEMS PASSED ===';
+    -- ---- 12. a FUTURE-dated session is clamped out (cannot anchor an active streak) --------------
+    DELETE FROM public.sessions WHERE user_id = v_victim;
+    CALL pg_temp.seed(v_victim, v_today, 30);        -- real: today
+    CALL pg_temp.seed(v_victim, v_today + 1, 30);     -- forged: tomorrow (local)
+    SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_victim::text, true);
+    v_res := public.get_practice_streak();
+    IF v_res->>'state' <> 'active' OR (v_res->>'count')::int <> 1
+       OR v_res->>'lastQualifyingDate' <> to_char(v_today, 'YYYY-MM-DD') THEN
+        RAISE EXCEPTION 'FAIL 12: a future-dated session was not clamped out (got %)', v_res;
+    END IF;
+    RESET ROLE;
+    RAISE NOTICE 'PASS 12  future-dated sessions are clamped out (no future anchor)';
+
+    -- ---- 13. active result reports the correct lastQualifyingDate AND timezone -------------------
+    DELETE FROM public.sessions WHERE user_id = v_victim;
+    CALL pg_temp.seed(v_victim, v_today, 30);
+    CALL pg_temp.seed(v_victim, v_today - 1, 30);
+    SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_victim::text, true);
+    v_res := public.get_practice_streak();
+    IF v_res->>'timezone' <> v_tz
+       OR v_res->>'lastQualifyingDate' <> to_char(v_today, 'YYYY-MM-DD')
+       OR (v_res->>'count')::int <> 2 THEN
+        RAISE EXCEPTION 'FAIL 13: active output fields wrong (got %)', v_res;
+    END IF;
+    RESET ROLE;
+    DELETE FROM public.sessions WHERE user_id = v_victim;
+    RAISE NOTICE 'PASS 13  active result reports correct lastQualifyingDate + timezone';
+
+    RAISE NOTICE '=== ALL THIRTEEN STREAK MATRIX ITEMS PASSED ===';
 END
 $matrix$;
 

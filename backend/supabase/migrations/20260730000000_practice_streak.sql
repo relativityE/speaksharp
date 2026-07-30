@@ -18,6 +18,18 @@
 -- one local day count ONCE. An active streak is anchored on today or yesterday (in the account tz),
 -- else it is lapsed. No 60-second speech threshold — the product measures recording, not speech.
 --
+-- SCOPE OF "server-authoritative": this buys ONE account, ONE streak, consistent across the user's
+-- devices — the count is computed on the server from durably saved sessions, not a per-device client
+-- guess. It is NOT anti-cheat: `public.sessions` is user-writable under its FOR ALL RLS policy, so a
+-- determined user can forge rows to inflate their OWN streak. That is an accepted, isolated risk — the
+-- functions can never read, mutate, or inflate ANY OTHER user's streak (SECURITY INVOKER + RLS + an
+-- explicit auth.uid() predicate on every access). Future-dated rows are clamped out (see the reader).
+--
+-- INVARIANT: every authenticated user has a user_profiles row (created at signup by the
+-- `on_auth_user_created_trial_profile` trigger, migration 20260521100000). A user without one — a
+-- pre-trigger legacy account — reads as `unavailable` (fail-safe: no leak, no crash), and the setter
+-- below simply no-ops for them; it never fabricates a row.
+--
 -- NOT APPLIED TO PRODUCTION BY THIS PR. Requires separate Product Owner migration approval.
 
 -- ---------------------------------------------------------------------------------------------------
@@ -99,6 +111,11 @@ BEGIN
         FROM public.sessions
         WHERE user_id = auth.uid()
           AND COALESCE(total_words, 0) >= 25
+          -- Clamp to today's local date. `sessions` is user-writable (RLS is FOR ALL), so without this
+          -- a caller could post a future-dated row and anchor an "active" streak on a day that has not
+          -- happened. This is cross-device CONSISTENCY hardening, not anti-cheat: a determined user can
+          -- still forge past rows on their OWN streak (see header). It cannot affect any OTHER user.
+          AND (created_at AT TIME ZONE v_tz)::date <= v_today
     ),
     islands AS (
         SELECT d, (d - ((row_number() OVER (ORDER BY d)) * INTERVAL '1 day'))::date AS grp
