@@ -29,6 +29,10 @@ interface LiveRecordingCardProps {
     canUsePrivate: boolean;
     isPaidProUser?: boolean;
     canUseCloudStt?: boolean;
+    /** #1047 conversion repair: the authenticated Free user has an AVAILABLE Private sample (server
+     *  `check-usage-limit`: not Pro, `private_sample_available`, remaining seconds > 0). Combined with
+     *  the card's own idle/Browser/unlocked state it gates the compact Free→Private trial nudge. */
+    privateTrialAvailable?: boolean;
     statusMessage?: string; // Optional message from the STT service
     formattedTime: string;
     elapsedSeconds: number; // Added for minimum session duration check
@@ -89,6 +93,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     canUsePrivate,
     isPaidProUser = canUsePrivate,
     canUseCloudStt = canUsePrivate,
+    privateTrialAvailable = false,
     statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
@@ -121,6 +126,29 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // #1033 Part-2b: ONE source of truth for "may the user change engine right now?". `isListening` is
     // kept only as a fallback for callers that have not yet been migrated to the published lock.
     const selectionLocked = engineSelectionLocked || isListening;
+
+    // #1047 conversion repair: a compact idle nudge that restores the Free→Private path #1094 removed
+    // from the ambient status bar — WITHOUT re-adding permanent chrome. Shown ONLY when the eligible
+    // Free account (server-confirmed available sample) is idle on Browser with engine selection unlocked.
+    const showPrivateTrialNudge =
+        privateTrialAvailable && !isPaidProUser && mode === 'native' && !isListening && !selectionLocked;
+    // NUDGE_VIEWED fires once per appearance (top of the conversion funnel: offer shown, not intent).
+    const nudgeViewedRef = React.useRef(false);
+    React.useEffect(() => {
+        if (showPrivateTrialNudge && !nudgeViewedRef.current) {
+            nudgeViewedRef.current = true;
+            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
+        } else if (!showPrivateTrialNudge) {
+            nudgeViewedRef.current = false; // allow a fresh view event if it reappears later
+        }
+    }, [showPrivateTrialNudge]);
+    // "Try Private" selects Private only — it does NOT start recording and does NOT download the model;
+    // the existing mic action stays responsible for first-time setup. NUDGE_SELECTED attributes the
+    // mode switch to the nudge; handleModeChange still emits SELECTED for the switch itself.
+    const handleTryPrivate = () => {
+        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
+        handleModeChange('private');
+    };
     // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
     // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
     const lockedReason =
@@ -524,6 +552,33 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         avoidSelector='[data-testid="live-coaching-score-card"]'
                     />
                 </div>
+
+                {/* #1047 conversion repair: the compact Free→Private trial nudge. This is the pre-save
+                    card CTA that #1094 removed — restored here (near the mode selector, NOT in the
+                    ambient status bar) per Product Owner direction, and gated so it only appears for an
+                    eligible, idle Free user on Browser. "Try Private" selects Private only; the mic still
+                    owns first-time setup. The post-Browser-save CTA remains the second conversion path. */}
+                {showPrivateTrialNudge && (
+                    <div
+                        data-testid="private-trial-nudge"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/[0.06] px-3 py-2"
+                    >
+                        <div className="min-w-0">
+                            <p className="text-[13px] font-bold leading-snug text-foreground">5-minute Private trial available</p>
+                            <p className="text-[11px] font-medium leading-snug text-muted-foreground">Audio stays on this device.</p>
+                        </div>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="shrink-0"
+                            data-testid="private-trial-nudge-cta"
+                            onClick={handleTryPrivate}
+                        >
+                            Try Private
+                        </Button>
+                    </div>
+                )}
 
                 <div className="flex flex-col items-center justify-center gap-2 text-center">
                     <div className="flex flex-col items-center gap-2">

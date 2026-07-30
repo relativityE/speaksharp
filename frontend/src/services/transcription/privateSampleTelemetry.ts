@@ -24,6 +24,12 @@ import { V4_FLAG_KEYS } from './privateV4Flags';
 
 /** The approved Private-sample event stream. Renames are costly once beta data flows. */
 export const PRIVATE_SAMPLE_EVENTS = {
+    /** The compact Free→Private trial nudge became visible in the recording card (render, not intent).
+     *  Distinct from SELECTED: this is the top of the conversion funnel (offer shown). */
+    NUDGE_VIEWED: 'private_sample_nudge_viewed',
+    /** The user clicked "Try Private" in the trial nudge (nudge-attributed intent). SELECTED still
+     *  fires for the mode switch itself; NUDGE_SELECTED attributes that switch to the nudge. */
+    NUDGE_SELECTED: 'private_sample_nudge_selected',
     /** Free user first SELECTS/opens Private mode with the sample available (intent, not render). */
     SELECTED: 'private_sample_selected',
     SETUP_STARTED: 'private_sample_setup_started',

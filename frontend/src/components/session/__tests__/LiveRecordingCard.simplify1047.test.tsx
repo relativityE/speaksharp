@@ -1,7 +1,14 @@
-import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, cleanup } from '../../../../tests/support/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LiveRecordingCard } from '../LiveRecordingCard';
 import { TEST_IDS } from '@/constants/testIds';
+import { emitPrivateSample, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
+
+// Mock ONLY the emitter (keep the real event enum) so the nudge funnel emissions are assertable.
+vi.mock('@/services/transcription/privateSampleTelemetry', async (orig) => {
+    const actual = await (orig() as Promise<Record<string, unknown>>);
+    return { ...actual, emitPrivateSample: vi.fn() };
+});
 
 /**
  * #1047 — Practice Session simplification, recorder card.
@@ -71,5 +78,66 @@ describe('LiveRecordingCard — #1047', () => {
         // The OUTLINED mic: the lucide mic plus the diagonal slash overlay, unchanged.
         expect(container.querySelector('.lucide-mic')).not.toBeNull();
         expect(record.querySelector('.-rotate-45')).not.toBeNull();
+    });
+});
+
+describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion repair)', () => {
+    const emit = vi.mocked(emitPrivateSample);
+    // An eligible Free user: Browser selected, idle, engine unlocked, sample available.
+    const eligibleProps = {
+        mode: 'native' as const,
+        isListening: false,
+        isReady: true,
+        canUsePrivate: true,
+        isPaidProUser: false,
+        privateTrialAvailable: true,
+        engineSelectionLocked: false,
+        formattedTime: '00:00',
+        elapsedSeconds: 0,
+        isButtonDisabled: false,
+        privateModelStatus: 'idle',
+        activeEngine: null as 'native' | 'cloud' | 'private' | 'none' | null,
+        onModeChange: vi.fn(),
+        onStartStop: vi.fn(),
+        onDownloadModel: vi.fn(),
+    };
+
+    beforeEach(() => { emit.mockClear(); });
+    afterEach(() => { cleanup(); });
+
+    it('shows the nudge with the approved copy and emits NUDGE_VIEWED once', () => {
+        render(<LiveRecordingCard {...eligibleProps} />);
+        const nudge = screen.getByTestId('private-trial-nudge');
+        expect(nudge).toHaveTextContent('5-minute Private trial available');
+        expect(nudge).toHaveTextContent('Audio stays on this device.');
+        expect(screen.getByTestId('private-trial-nudge-cta')).toHaveTextContent('Try Private');
+        expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
+        expect(emit.mock.calls.filter((c) => c[0] === PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED)).toHaveLength(1);
+    });
+
+    it.each([
+        ['Pro user', { isPaidProUser: true }],
+        ['sample unavailable', { privateTrialAvailable: false }],
+        ['Private already selected', { mode: 'private' as const }],
+        ['Cloud selected', { mode: 'cloud' as const }],
+        ['recording', { isListening: true }],
+        ['engine selection locked', { engineSelectionLocked: true }],
+    ])('hides the nudge when %s', (_label, override) => {
+        render(<LiveRecordingCard {...eligibleProps} {...override} />);
+        expect(screen.queryByTestId('private-trial-nudge')).toBeNull();
+        expect(emit).not.toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
+    });
+
+    it('"Try Private" selects Private only — no recording, no model download — and emits the funnel events', () => {
+        render(<LiveRecordingCard {...eligibleProps} />);
+        fireEvent.click(screen.getByTestId('private-trial-nudge-cta'));
+        // selects Private
+        expect(eligibleProps.onModeChange).toHaveBeenCalledWith('private');
+        // does NOT start recording and does NOT download the model
+        expect(eligibleProps.onStartStop).not.toHaveBeenCalled();
+        expect(eligibleProps.onDownloadModel).not.toHaveBeenCalled();
+        // nudge-attributed intent + the mode-switch SELECTED both fire
+        expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
+        expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.SELECTED);
     });
 });
