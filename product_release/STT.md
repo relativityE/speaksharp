@@ -65,7 +65,7 @@ STT targets in this document are **internal SLOs / quality targets on controlled
 - **Failure behavior.** On unavailable/failed recognition it fails visibly (no silent fallback to Private or Cloud); the recording is marked honestly.
 - **Evidence required for release.** A valid clean-input drop-in parity proof (human-style Chrome real-mic or a validated loopback with separated transcript states) + a journey proof (live → stop → save → history). Fresh human proof is still required before Browser can be called release-green. `UNPROVEN`: a numeric Browser accuracy target (none approved).
 
-## Cloud (`cloud`, AssemblyAI Universal-3)
+## Cloud (`cloud`, AssemblyAI Universal-Streaming / `universal-streaming-english`)
 
 - **Purpose & eligibility.** Highest-accuracy streaming transcription for entitled users. **Pro-entitled only** — where "Pro" is `subscription_status = 'pro'` **AND** a `stripe_subscription_id` (a real Stripe subscription, or a **comped/QA synthetic id** per `ENTITLEMENTS_AND_BILLING.md` §6; **never a live charge** in the beta). Not offered to un-entitled Free testers; entered only by explicit user selection, never as a silent fallback.
 - **Audio/data route & privacy.** Audio is streamed to **AssemblyAI** (third-party processor). Copy must state that audio leaves the device to the provider — it is **not** private/on-device.
@@ -75,7 +75,7 @@ STT targets in this document are **internal SLOs / quality targets on controlled
 - **Failure behavior.** **Never a silent fallback target** — no other engine's failure may quietly route to Cloud, and Cloud's own failure fails visibly. Provider/network errors surface honestly.
 - **Evidence required for release.** A fresh streaming A/B against the published benchmark **with a real `ASSEMBLYAI_API_KEY`** + a Pro-account app journey proof. Local mock credentials are not release evidence.
 
-## Private v2 (`private` / `private-v2`, Whisper base.en, on-device) — DEFAULT
+## Private v2 (`private` / persisted `private_v2`, Whisper base.en, on-device) — RECOMMENDED (entitlement-gated)
 
 - **Purpose & eligibility.** The **recommended** Private engine: local-first, privacy-preserving transcription. It is **entitlement-gated — available to Pro users OR a user with an active one-time Free Private sample** (`canUsePrivateStt = isPro || hasActivePrivateSample`, `useSessionLifecycle.ts`); it is **not** available to every authenticated user, and it is not the auto-start default (a new session starts on Browser until Private is selected). Multi-threaded WASM is enabled in production via cross-origin isolation (#1043).
 - **Audio/data route & privacy.** Runs **on-device in the browser** (WASM). **Practice audio stays on the device**; only the resulting transcript is saved with the session. This is the sole engine that may make the on-device/private claim.
