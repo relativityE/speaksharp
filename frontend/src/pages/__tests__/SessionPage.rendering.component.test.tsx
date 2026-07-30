@@ -158,9 +158,12 @@ describe('SessionPage Rendering', () => {
 
     it('should render Add User Word settings button', () => {
         render(<SessionPage />);
-        // The settings button is passed as headerAction to FillerWordsCard
+        // The settings button is passed as headerAction to FillerWordsCard.
         expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();
-        expect(screen.getByText('Custom')).toBeInTheDocument();
+        // #1047: named for the outcome, not the mechanism. The gear is decorative, so the ACCESSIBLE
+        // NAME must be exactly the visible text — never "gear Add your filler words".
+        const action = screen.getByRole('button', { name: 'Add your filler words' });
+        expect(action).toBe(screen.getByTestId('add-custom-word-button'));
     });
 
     it('renders live coaching in the feedback rail by default', () => {
@@ -187,7 +190,9 @@ describe('SessionPage Rendering', () => {
 
         expect(screen.getByTestId('live-coaching-score-card')).toBeInTheDocument();
         expect(screen.getByTestId('filler-words-card')).toBeInTheDocument();
-        expect(screen.getByText('SpeakSharp Score*')).toBeInTheDocument();
+        // #1047 NAMING (settled): the surface is "Progress", carried ONCE by the inner panel label —
+        // there is deliberately no heading stacking a second copy of the name above that panel.
+        expect(screen.getByTestId('live-score-panel-label')).toHaveTextContent('PROGRESS');
     });
 
 });

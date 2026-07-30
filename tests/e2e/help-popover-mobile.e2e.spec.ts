@@ -3,7 +3,7 @@ import { navigateToRoute, programmaticLoginWithRoutes } from './helpers';
 import { TEST_IDS } from '../constants';
 
 /**
- * The session ⓘ help popovers (selected-mode STT help + SpeakSharp Score help) must stay
+ * The session ⓘ help popovers (selected-mode STT help + session-feedback help) must stay
  * fully inside the viewport on a mobile width — no left/right clipping. The #952 desktop
  * dropdown hover tooltip must remain unchanged.
  */
@@ -28,7 +28,7 @@ test.describe('Help popover mobile readability', () => {
     await page.screenshot({ path: '/tmp/ss-mobile-stt-help.png' });
     await page.keyboard.press('Escape');
 
-    // SpeakSharp Score ⓘ — same component, also fully readable, no clip.
+    // Session-feedback ⓘ — same component, also fully readable, no clip.
     await page.getByTestId('score-help').click();
     await expect(page.getByTestId('score-help-content')).toBeVisible();
     await assertInViewport(await page.getByTestId('score-help-content').boundingBox(), 390);

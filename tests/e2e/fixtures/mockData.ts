@@ -68,6 +68,24 @@ export const MOCK_TRANSCRIPTS = [
   'We are simulating multiple lines arriving over time.',
 ] as const;
 
+/**
+ * #1047: MOCK_TRANSCRIPTS deliberately contains NONE of the tracked filler words, so it drives a
+ * filler count of zero. That was invisible while the filler card rendered a grid of `0` chips
+ * unconditionally; now that the card only expands once counts exist, any spec asserting the expanded
+ * evidence grid has to produce real evidence first.
+ *
+ * This variant keeps the same lines (including the "simulating multiple lines" text other assertions
+ * match on) and weaves in tracked fillers — `um`, `like`, `you know`, `basically`, `actually` — so the
+ * grid expands because the user genuinely produced fillers, not because the UI drew empty chips.
+ * Kept SEPARATE from MOCK_TRANSCRIPTS so the four other specs that share that fixture keep their
+ * existing zero-filler behaviour.
+ */
+export const MOCK_TRANSCRIPTS_WITH_FILLERS = [
+  'Um, welcome everyone to the session.',
+  'This is, like, a test of live transcript streaming, you know.',
+  'We are basically simulating multiple lines arriving over time, actually.',
+] as const;
+
 export const MOCK_JWT_PAYLOAD = {
   sub: MOCK_USER.id,
   email: MOCK_USER.email,

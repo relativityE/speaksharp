@@ -168,9 +168,25 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             setLastGoodLiveDraft('');
         }
     }, [isPrivateMode, isListening, isFinalizing, withholdLoopedLive, visibleTranscript]);
-    const transcriptViewportClass = uiState === 'final'
-        ? 'max-h-[18rem] sm:max-h-[20rem] lg:max-h-[22rem]'
-        : 'flex-1 min-h-[160px]';
+    // #1047: the at-rest transcript surface used to be a ~400px block of empty grey — the TALLEST
+    // element on the page was a void, and a solid filled panel with nothing in it reads as "something
+    // failed to load". At rest it is now a compact PALE, DASHED box: dashed says "content goes here",
+    // and it is sized to its one line of copy rather than reserving space it has not earned. It grows
+    // with content the moment there is any.
+    //
+    // The LIVE states keep an explicit floor AND an explicit ceiling. This panel used to sit in a
+    // stretched grid row (`items-stretch` + a 340px floor on the panel), so `flex-1` resolved against a
+    // definite column height. Sizing the column to its content removed that definite height, which left
+    // `flex-1` resolving to content height: the live surface would have started at the 160px floor
+    // instead of ~340px, and then grown without bound on a long take — so `overflow-y-auto` would never
+    // have had anything to scroll and the autoscroll-to-bottom behaviour would have silently died.
+    // The floor and ceiling are therefore stated on the scroll container itself rather than inherited.
+    const isEmptyAtRest = uiState === 'idle' && history.length === 0;
+    const transcriptViewportClass = isEmptyAtRest
+        ? 'rounded-[11px] border border-dashed border-[hsl(var(--border-strong))] bg-muted/50 px-5 py-[26px] text-center'
+        : uiState === 'final'
+            ? `max-h-[18rem] sm:max-h-[20rem] lg:max-h-[22rem] ${SESSION_INSET_SURFACE_CLASS} p-3 pr-5`
+            : `min-h-[340px] max-h-[26rem] ${SESSION_INSET_SURFACE_CLASS} p-3 pr-5`;
     const shouldAutoscrollTranscript = uiState !== 'final';
 
     // Threshold-only Native formatting notice: post-stop, the raw transcript is already
@@ -290,7 +306,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={transcriptContainerRef}
-                className={`live-transcript-scroll ${transcriptViewportClass} overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all`}
+                className={`live-transcript-scroll ${transcriptViewportClass} overflow-y-auto leading-relaxed transition-all`}
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
                 data-autoscroll-transcript={shouldAutoscrollTranscript ? 'true' : 'false'}
@@ -489,7 +505,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         )}
                     </div>
                 ) : (
-                    <p className="text-sm font-semibold text-foreground/75">Start recording and your words will appear here.</p>
+                    <p className="text-[15px] font-medium text-muted-foreground" data-testid="live-transcript-empty">
+                        Your words appear here as you speak.
+                    </p>
                 )}
             </div>
         </div>

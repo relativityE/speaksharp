@@ -242,9 +242,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         pillText = displayStatusMessage || 'Paused';
     } else if (isListening) {
         pillText = displayStatusMessage || (activeEngine && activeEngine !== 'none' ? 'Recording' : 'Listening');
+    } else if (sttStatusType === 'ready' || sttStatusType === 'idle') {
+        // #1047: at rest the pill speaks in the RECORDER's own voice. `statusMessage` carries the
+        // service's AMBIENT status text ("Mic ready"), which belongs on the status bar; piping it into
+        // the pill made the control under the timer describe the microphone instead of telling the
+        // user what they can do. This is a display mapping only — the service/store status text and
+        // #1090's setSTTStatus logic are untouched.
+        pillText = 'Ready to record';
     } else {
-        // Idle at rest. A not-ready Private state (init-failed/error/loading) supplies a real status
-        // message which wins here; otherwise the engine is idle+startable → "Ready to record".
+        // A not-ready Private state (init-failed/error/loading) supplies a real status message, which
+        // must still win here; otherwise fall back to the idle wording.
         pillText = displayStatusMessage || 'Ready to record';
     }
     const getModeLabel = (m: RecordingMode) => {
@@ -283,13 +290,18 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // Short, scannable STT cue shown by default; the explanatory detail lives behind the accessible
     // help affordance (hover/focus/click/tap), never as a large paragraph.
     const modelSizeMB = PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB;
+    // #1047: this label states DEVICE READINESS, not the engine name. It read "Browser" in native
+    // mode, which both duplicated the mode pill sitting a few pixels to its right and quietly replaced
+    // the demoted label the spec actually asked for. Cloud is the one case that must NOT say
+    // "on this device" — audio leaves the machine, and that distinction is the whole point of the
+    // label — so it keeps its own truthful wording.
     let sttCue: string;
     if (mode === 'cloud') {
         sttCue = 'External server';
-    } else if (mode === 'private') {
-        sttCue = isPrivateDownloadRequired ? 'Private on-device' : 'Ready on this device';
+    } else if (mode === 'private' && isPrivateDownloadRequired) {
+        sttCue = 'Private on-device';
     } else {
-        sttCue = 'Browser';
+        sttCue = 'Ready on this device';
     }
 
     // "About transcription modes" — a single, touch-friendly help surface that lists ALL THREE mode
@@ -342,19 +354,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         )}
                         <div>
                             <div className="flex items-center gap-1.5">
-                                <span className="text-sm font-bold leading-snug text-primary" data-testid="stt-mode-cue">
+                                {/* #1047: demoted to a quiet 13px/700 muted label. It used to be primary-orange
+                                    with a `?` icon beside it, which made a CARD LABEL compete with the card's
+                                    own content — and orange is reserved for meaningful accents (the record
+                                    button), not for naming things. The `?` moved off the label and next to the
+                                    mode selector, where mode help actually belongs; it is deliberately NOT
+                                    deleted, because it is the only touch-reachable way to read about a mode
+                                    without selecting it (#1041/#1064 accessibility). */}
+                                <span className="text-[13px] font-bold leading-snug text-muted-foreground" data-testid="stt-mode-cue">
                                     {sttCue}
                                 </span>
-                                <HelpPopover
-                                    label="About transcription modes"
-                                    testId="stt-mode-help"
-                                    panelClassName="w-72"
-                                    triggerSizeClass="h-11 w-11"
-                                    open={aboutOpen}
-                                    onOpenChange={(o) => { setAboutOpen(o); if (o) { setMenuOpen(false); setActiveMode(null); } }}
-                                >
-                                    {aboutModesHelp}
-                                </HelpPopover>
                             </div>
 
                             {/* P0.2: the single Browser→Private transition happens AFTER a Browser save
@@ -371,6 +380,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
                     </div>
+                    {/* #1047: the mode row is the PILL ALONE at the right — no `?` beside it. The wrapper
+                        must NOT be `shrink-0`: the mode-select trigger inside is `w-full sm:w-auto`, so on
+                        mobile it needs a wrapper that can take the remaining row width, or `w-full` would
+                        resolve against a content-sized box and collapse the control. */}
+                    <div className="flex min-w-0 flex-1 flex-col items-end gap-1 sm:flex-none">
                     <DropdownMenu open={menuOpen} onOpenChange={(o) => { setMenuOpen(o); if (o) setAboutOpen(false); if (!o) setActiveMode(null); }}>
                         <DropdownMenuTrigger asChild disabled={selectionLocked}>
                             <Button
@@ -483,6 +497,22 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <span id="stt-private-descriptor" className="sr-only">Stays local. Transcription runs on this device; audio is not uploaded.</span>
                         </DropdownMenuContent>
                     </DropdownMenu>
+                    {/* Mode help lives BELOW the pill, not on the row with it. It is deliberately not
+                        deleted: it is the only touch-reachable way to read about a mode WITHOUT
+                        selecting it, and ten existing #1041/#1064 assertions require the trigger to be
+                        mounted without first opening the dropdown (see the PR body for the list), so
+                        folding it into the menu would remove a real accessibility affordance. */}
+                    <HelpPopover
+                        label="About transcription modes"
+                        testId="stt-mode-help"
+                        panelClassName="w-72"
+                        triggerSizeClass="h-9 w-9"
+                        open={aboutOpen}
+                        onOpenChange={(o) => { setAboutOpen(o); if (o) { setMenuOpen(false); setActiveMode(null); } }}
+                    >
+                        {aboutModesHelp}
+                    </HelpPopover>
+                    </div>
                     {/* The ONE description surface. Disjoint from the menu, beside it, at most one at a time;
                         suppressed (falls back to the About panel) when no non-overlapping side fits. */}
                     <ModeDescriptionFlyout
@@ -540,9 +570,23 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
 
-                        {/* Timer (Matching Mic weight) */}
+                        {/* Timer.
+                            #1047 is PRESENTATION ONLY here. The value comes straight from `formattedTime`,
+                            which #1090 already made correct: `useSessionStore.setSTTStatus` zeroes the live
+                            timer on every route into Ready/Idle (so Ready can honestly read 00:00), and the
+                            completed take's real length lives separately in
+                            `completedSessionDurationSeconds`. Do NOT reimplement or second-guess that here —
+                            a duplicate timer rule is exactly the defect #1090 fixed.
+                            Idle reads grey and running reads dark ink, so the number only claims attention
+                            while it is actually counting. tabular-nums keeps digits from jittering. */}
                         <div className="flex flex-col items-center">
-                            <div className="text-3xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
+                            <div
+                                className={`text-[40px] font-mono font-extrabold leading-none tracking-tighter [font-variant-numeric:tabular-nums] transition-colors duration-300 ${
+                                    isListening || isPaused ? 'text-foreground' : 'text-muted-foreground'
+                                }`}
+                                data-testid="session-timer"
+                                data-timer-active={isListening || isPaused ? 'true' : 'false'}
+                            >
                                 {formattedTime}
                             </div>
                             {/* #891 state-colored status pill: the white card stays; ONLY this oval tints

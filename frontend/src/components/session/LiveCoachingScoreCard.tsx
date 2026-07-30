@@ -24,6 +24,12 @@ interface LiveCoachingScoreCardProps {
     className?: string;
 }
 
+/**
+ * #1047: the settled name for this surface, rendered as the inner panel's label. 13px/800 with a
+ * .06em track, muted — it names the panel without competing with the value inside it.
+ */
+const PANEL_LABEL_CLASS = 'text-[13px] font-extrabold tracking-[0.06em] text-muted-foreground';
+
 export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
     transcript,
     wordCount,
@@ -69,6 +75,20 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
         : result.confidence === 'directional'
             ? 'bg-amber-50 text-amber-900 border border-amber-300'
             : 'bg-muted text-foreground/70 border border-border';
+    // #1047: at 'warming-up' the card stated "no data" THREE times at once — a `--` value, a
+    // "SCORE SOON" sublabel, and a "Speak a little more to get a useful score" headline (plus a
+    // "Confidence: Building" chip and an empty progress bar). One statement is enough. This collapses
+    // ONLY the genuinely-empty state; 'directional' still carries real information ("Early signal",
+    // "Confidence: Directional") and is left exactly as it was.
+    const isEmptySignal = result.confidence === 'warming-up';
+    // EVIDENCE, and where the protection actually comes from. `calculateSpeakingScore` falls back to
+    // generic openers ("Start with one complete thought.") below MIN_RELIABLE_SCORING_WORDS (3) — advice
+    // invented from nothing, which must never be numbered and presented as if it were about this take.
+    // An explicit `wordCount >= 3` gate here would be DEAD CODE: guidance only renders in the
+    // `!isEmptySignal` branch, and leaving 'warming-up' already requires MIN_WORDS_FOR_DIRECTIONAL (25),
+    // which subsumes 3. So the empty-signal collapse above IS the guarantee — the generic openers are
+    // unreachable on screen at every word count. Asserted directly in the tests rather than restated as
+    // a redundant condition here.
     const formatBreakdown = (value: number) => `${Math.round(value * 10)}%`;
     const trackedCardKeyRef = React.useRef<string | null>(null);
     const trackedNumericKeyRef = React.useRef<string | null>(null);
@@ -98,31 +118,42 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
             className={`${SESSION_SURFACE_CLASS} flex flex-col p-4 ${className}`}
             data-testid="live-coaching-score-card"
             data-experiment="session-live-coaching-score"
-            aria-label="Live Coaching Score"
+            // The announced region name matches what the card calls itself. It was "Live Coaching
+            // Score", so a screen-reader user was told this card was a score while sighted users read
+            // something else entirely — the same card-says-one-thing defect as the help body, in the
+            // accessibility layer.
+            aria-label="Progress"
         >
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
+                    {/* #1047 NAMING (settled): the surface is "Progress" — never "SpeakSharp Progress"
+                        ("SpeakSharp" is redundant here), never "SpeakSharp Score", never a bare "SCORE",
+                        and no asterisk. The name is carried ONCE, by the inner panel label below; there
+                        is deliberately no <h2> stacking a second copy of it directly above that panel. */}
                     <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
-                        <Target className="h-4 w-4" />
+                        <Target className="h-4 w-4" aria-hidden="true" />
                         Live Coaching
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score*</h2>
                         <HelpPopover
-                            label="About the SpeakSharp Score"
+                            // The help title tracks the surface name. An earlier pass renamed only this
+                            // label and left the body still explaining "SpeakSharp Score" — the card
+                            // said one thing and its own help said another. The body copy stays neutral:
+                            // it describes the evidence and does not need to name a score at all.
+                            label="About progress"
                             testId="score-help"
                             panelClassName="w-72"
                         >
                             <div className="space-y-2" data-testid="score-help-body">
+                                {/* Neutral by construction: names the evidence, claims no portable
+                                    score, and does not promise that anything reappears in Analytics. */}
                                 <p>
-                                    The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact.
+                                    Pace, detected fillers, delivery signals, and transcript quality support your progress.
                                 </p>
                                 <p>
-                                    Improve the ingredients, then come back and try to lift the score.
+                                    Progress is directional and uses only the practice evidence available for this session.
                                 </p>
                                 <div className="rounded-md border border-border bg-white p-2.5">
                                     <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-foreground/70">
-                                        Why this score moved
+                                        What this is based on
                                     </div>
                                     <div className="space-y-1" data-testid="live-score-evidence">
                                         <div className="flex justify-between gap-2">
@@ -143,7 +174,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                         </div>
                                     </div>
                                     <p className="mt-2 text-[11px] leading-snug text-foreground/60">
-                                        The score is not a black box; it is a transparent rollup of the live signals shown here.
+                                        This is not a black box; it is a transparent rollup of the live signals shown here.
                                     </p>
                                 </div>
                                 {result.qualityNote && (
@@ -155,64 +186,116 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                                         {result.qualityNote}
                                     </p>
                                 )}
-                                <p className="border-t border-border pt-2 text-[11px] leading-snug text-foreground/60">
-                                    *SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
-                                </p>
+                                {/* The old trailing footnote is deliberately gone rather than reworded.
+                                    It carried the retired name, promised "progress over time", and
+                                    restated the directional caveat that body line 2 above now makes
+                                    once — three problems in one sentence. */}
                             </div>
                         </HelpPopover>
                     </div>
-                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75" data-testid="live-score-headline">
-                        {result.headline}
-                    </p>
+                    {/* The headline is suppressed in the empty state — it was the third simultaneous way
+                        of saying "no data yet". */}
+                    {!isEmptySignal && (
+                        <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75" data-testid="live-score-headline">
+                            {result.headline}
+                        </p>
+                    )}
                 </div>
 
-                <div className="min-w-[120px] rounded-lg border border-[hsl(var(--border-strong))] bg-white px-4 py-3 text-center surface-shadow">
-                    <div className="text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
-                        {showNumericScore ? result.score.toFixed(1) : '--'}
+                {!isEmptySignal && (
+                    <div className="min-w-[120px] rounded-lg border border-[hsl(var(--border-strong))] bg-white px-4 py-3 text-center surface-shadow">
+                        <div className="text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
+                            {showNumericScore ? result.score.toFixed(1) : '--'}
+                        </div>
+                        <div className="mt-1 text-xs font-bold uppercase tracking-wider text-foreground/70">
+                            {/* "score soon" was the retired identity again, in the sublabel. */}
+                            {showNumericScore ? 'out of 10' : 'not yet'}
+                        </div>
+                        <div
+                            className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${confidenceChipClass}`}
+                            data-testid="live-score-confidence"
+                            data-score-confidence={result.confidence}
+                            data-transcript-trusted={result.qualitySignals.trusted ? 'true' : 'false'}
+                            title="Transcript quality affects how confidently this feedback is shown."
+                        >
+                            {confidenceText}
+                        </div>
                     </div>
-                    <div className="mt-1 text-xs font-bold uppercase tracking-wider text-foreground/70">
-                        {showNumericScore ? 'out of 10' : 'score soon'}
-                    </div>
-                    <div
-                        className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${confidenceChipClass}`}
-                        data-testid="live-score-confidence"
-                        data-score-confidence={result.confidence}
-                        data-transcript-trusted={result.qualitySignals.trusted ? 'true' : 'false'}
-                        title="Transcript quality affects how confidently the score is shown."
-                    >
-                        {confidenceText}
-                    </div>
-                </div>
+                )}
             </div>
 
-            <div className={`${SESSION_INSET_SURFACE_CLASS} flex-1 p-3`}>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="text-sm font-bold text-foreground">{result.label}</span>
-                    <span className="flex items-center gap-1 text-xs font-bold text-foreground/70">
-                        <TrendingUp className="h-3.5 w-3.5" />
-                        {showNumericScore ? result.target.label : confidenceLabel}
-                    </span>
+            {/* The SINGLE no-score-yet panel: one label, one `--`, one hint. Nothing else in the card
+                repeats the fact that there is no data. */}
+            {isEmptySignal ? (
+                <div className={`${SESSION_INSET_SURFACE_CLASS} p-3 text-center`} data-testid="live-score-empty-panel">
+                    <div className={PANEL_LABEL_CLASS} data-testid="live-score-panel-label">PROGRESS</div>
+                    <div className="mt-1 text-4xl font-extrabold leading-none text-foreground" data-testid="live-session-score">
+                        --
+                    </div>
+                    {/* The hint names NO duration. Leaving this state depends on WORD COUNT
+                        (MIN_WORDS_FOR_DIRECTIONAL = 25), not elapsed time: 30 seconds of slow speech
+                        still shows nothing, and 25 words in 10 seconds shows the panel. The spec's
+                        "~30s" was `MIN_SECONDS_FOR_USABLE` — a different gate, for a different state,
+                        that additionally needs 75 words and a trusted transcript — so translating the
+                        word gate into a duration would be an invented threshold. */}
+                    <p className="mt-2 text-sm font-semibold text-foreground/70" data-testid="live-score-empty-hint">
+                        Speak a little more to see progress.
+                    </p>
                 </div>
-                <div className="mb-3 h-2.5 overflow-hidden rounded-full bg-white border border-border">
-                    <div
-                        className="h-full rounded-full bg-primary transition-all duration-300"
-                        style={{ width: `${showNumericScore ? scorePercent : 0}%` }}
-                    />
+            ) : (
+                <div className={`${SESSION_INSET_SURFACE_CLASS} p-3`}>
+                    {/* Same label, same slot, in both panel states — the surface names itself once. */}
+                    <div className={`mb-1 ${PANEL_LABEL_CLASS}`} data-testid="live-score-panel-label">PROGRESS</div>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-sm font-bold text-foreground">{result.label}</span>
+                        <span className="flex items-center gap-1 text-xs font-bold text-foreground/70">
+                            <TrendingUp className="h-3.5 w-3.5" aria-hidden="true" />
+                            {showNumericScore ? result.target.label : confidenceLabel}
+                        </span>
+                    </div>
+                    <div className="mb-3 h-2.5 overflow-hidden rounded-full bg-white border border-border">
+                        <div
+                            className="h-full rounded-full bg-primary transition-all duration-300"
+                            style={{ width: `${showNumericScore ? scorePercent : 0}%` }}
+                        />
+                    </div>
                 </div>
+            )}
 
-                <div>
-                    <h3 className="mb-2 text-sm font-bold text-foreground">
-                        Try this now
-                    </h3>
-                    <ul className="space-y-1.5" data-testid="live-coaching-actions">
-                        {result.actions.map((action) => (
+            {/* #1047 item 8 — the coaching block is LAYOUT: header, numbered items with amber numerals,
+                and a footer, present in every state so the card is never a bare `--`.
+                Its CONTENT is evidence-gated. `calculateSpeakingScore` falls back to generic openers
+                ("Start with one complete thought.") below the reliable-scoring floor — advice invented
+                from nothing, which must never be numbered and presented as if it were about this take.
+                Reaching `!isEmptySignal` already means the session cleared the 25-word directional
+                floor, so the actions rendered there are derived from real signals. With no evidence yet
+                we say exactly that, rather than filling the slot with generic advice. */}
+            <div className="mt-3" data-testid="live-coaching-guidance">
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-foreground/70">
+                    Try this now
+                </h3>
+                {isEmptySignal ? (
+                    <p
+                        className="text-sm font-semibold leading-snug text-foreground/70"
+                        data-testid="live-coaching-no-evidence"
+                    >
+                        Coaching appears here once you have spoken enough for it to be based on this session.
+                    </p>
+                ) : (
+                    <ol className="space-y-1.5" data-testid="live-coaching-actions">
+                        {result.actions.map((action, index) => (
                             <li key={action} className="flex gap-2 text-sm font-semibold leading-snug text-foreground/80">
-                                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                                <span className="mt-px shrink-0 text-sm font-black tabular-nums text-primary" aria-hidden="true">
+                                    {index + 1}.
+                                </span>
                                 <span>{action}</span>
                             </li>
                         ))}
-                    </ul>
-                </div>
+                    </ol>
+                )}
+                <p className="mt-3 border-t border-border pt-2 text-xs font-medium text-foreground/60" data-testid="live-coaching-footer">
+                    Coaching updates as you speak.
+                </p>
             </div>
         </section>
     );

@@ -270,9 +270,10 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT with a short cue and moves the explanation into help', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" canUsePrivate={true} canUseCloudStt={false} />);
 
-        // #1041: the short cue is "Browser" (the primary method name); "Quick preview" is a selector-row
-        // descriptor badge (retained), not the cue — so it does not appear in the cue text.
-        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Browser');
+        // #1047: the cue now states WHERE the audio is handled ("Ready on this device") rather than
+        // repeating the method name, per the Product Owner's Session spec. #1041's requirement that the
+        // active method stay identifiable is preserved by the mode trigger, asserted below.
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Ready on this device');
         expect(screen.getByTestId('stt-mode-cue')).not.toHaveTextContent(/quick preview/i);
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
