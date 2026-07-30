@@ -1,0 +1,83 @@
+name: Practice Streak Matrix (read-only)
+
+# Proves the practice-streak migration (20260730000000) against real PostgreSQL on the major versions
+# production runs. Applies the throwaway bootstrap + the migration VERBATIM, runs the portable matrix,
+# then falsifies (without the migration the matrix MUST fail, so the assertions are not vacuous).
+# Disposable containers only; no secrets, no hosted database, nothing applied anywhere.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260730000000_practice_streak.sql'
+      - 'tests/db/practice-streak-bootstrap.sql'
+      - 'tests/db/practice-streak-matrix.sql'
+      - '.github/workflows/practice-streak-matrix.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: "eleven-item streak matrix (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client && psql --version
+
+      - name: Apply bootstrap (throwaway)
+        run: psql -v ON_ERROR_STOP=1 -f tests/db/practice-streak-bootstrap.sql
+
+      - name: Apply the migration VERBATIM
+        run: psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260730000000_practice_streak.sql
+
+      - name: Run the eleven-item streak matrix
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/db/practice-streak-matrix.sql 2>&1 | tee out.txt
+          grep -q 'ALL ELEVEN STREAK MATRIX ITEMS PASSED' out.txt
+          grep -q 'SECURITY MATRIX COMPLETE' out.txt
+
+      - name: FALSIFICATION — without the migration the matrix must FAIL
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; DROP SCHEMA IF EXISTS auth CASCADE;'
+          psql -v ON_ERROR_STOP=1 -f tests/db/practice-streak-bootstrap.sql
+          if psql -v ON_ERROR_STOP=1 -f tests/db/practice-streak-matrix.sql > fals.txt 2>&1; then
+            echo "::error::VACUOUS — the matrix passed WITHOUT the migration"; cat fals.txt; exit 1
+          fi
+          echo "Matrix correctly rejected the absent contract:"; grep -E 'ERROR|PRECONDITION' fals.txt | head -2
+
+      - name: Publish evidence
+        if: always()
+        run: |
+          { echo "### Streak matrix (postgres:${{ matrix.pg }})"; echo '```'; cat out.txt 2>/dev/null || echo '(none)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
