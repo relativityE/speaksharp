@@ -69,6 +69,20 @@ test.describe('Production Smoke Canary @canary', () => {
     });
 
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {
+        // Capture the SERVER entitlement response (also recorded in the trace's network log) so the
+        // affordance assertion below matches the account's ACTUAL state — post-#1047 there is no fixed
+        // tier badge; a Free account's affordance depends on its live Private-sample state.
+        let usageBody: {
+            subscription_status?: string; is_pro?: boolean; can_start?: boolean;
+            private_sample_available?: boolean; private_sample_seconds_remaining?: number;
+            private_sample_limit_seconds?: number;
+        } | null = null;
+        page.on('response', async (r) => {
+            if (r.url().includes('check-usage-limit') && r.status() === 200) {
+                try { usageBody = await r.json(); } catch { /* ignore non-JSON */ }
+            }
+        });
+
         // 1. Real Login (modeled after soak test)
         await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
 
@@ -79,31 +93,46 @@ test.describe('Production Smoke Canary @canary', () => {
         // Verify that the profile loaded correctly and reflects the subscription status
         // This implicitly validates the 'user_profiles' table schema
         await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
-        const validReleaseTierAffordances = [
-            page.getByRole('button', { name: /upgrade to pro/i }),
-            page.getByTestId(TEST_IDS.PRO_BADGE),
-            page.getByTestId(TEST_IDS.PRIVATE_SAMPLE_SETUP_BUTTON),
-            page.getByText(/Private sample: up to 5 minutes/i),
-        ];
-        // We don't enforce WHICH release-valid access state is visible. Free users may
-        // see an upgrade prompt or a Private-sample affordance; Pro users see the Pro badge.
-        // This validates profile/usage hydration through behavior, without requiring
-        // production UI to preserve one exact tier phrase.
-        // Poll for the affordance (up to 15s, matching the start-button wait above) instead of a
-        // single synchronous snapshot. Profile/usage/entitlement hydration can finish a beat after
-        // the start button renders; an un-polled check raced that and failed intermittently on
-        // identical app builds. If NO affordance appears within the window, this still fails — so a
-        // genuine missing-affordance regression (e.g. effective-tier resolution) is NOT masked.
-        await expect(async () => {
-            const releaseTierAffordanceVisible = await Promise.all(
-                validReleaseTierAffordances.map(async (locator) => {
-                    if ((await locator.count()) === 0) return false;
-                    return locator.first().isVisible();
-                })
-            );
-            const isProfileValid = releaseTierAffordanceVisible.some(Boolean);
-            expect(isProfileValid, 'Schema Valid: Profile must reflect a known release tier/access state').toBe(true);
-        }).toPass({ timeout: 15000, intervals: [500, 1000, 2000, 3000] });
+
+        // 🔹 ENTITLEMENT + AFFORDANCE CHECK (post-#1047, replaces the stale tier-affordance selectors).
+        // The old check asserted PRIVATE_SAMPLE_SETUP_BUTTON / "Private sample: up to 5 minutes" — both
+        // removed/relocated by #1047/#1094, which is why the canary failed (#1100). We now read the live
+        // server entitlement and assert the affordance that MATCHES that account state.
+        await expect.poll(() => usageBody, {
+            message: 'check-usage-limit response never arrived',
+            timeout: 15000,
+            intervals: [500, 1000, 2000, 3000],
+        }).not.toBeNull();
+        const u = usageBody as NonNullable<typeof usageBody>;
+        // Attach the entitlement fields to the report/trace as first-class evidence (non-PII).
+        await test.info().attach('check-usage-limit-entitlement', {
+            contentType: 'application/json',
+            body: JSON.stringify({
+                subscription_status: u.subscription_status, is_pro: u.is_pro, can_start: u.can_start,
+                private_sample_available: u.private_sample_available,
+                private_sample_seconds_remaining: u.private_sample_seconds_remaining,
+                private_sample_limit_seconds: u.private_sample_limit_seconds,
+            }, null, 2),
+        });
+
+        const nudge = page.getByTestId('private-trial-nudge');
+        const remaining = u.private_sample_seconds_remaining ?? 0;
+        if (u.is_pro) {
+            // Pro → the Pro badge; the Free→Private trial nudge must NOT appear.
+            await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toBeVisible({ timeout: 15000 });
+            await expect(nudge).toHaveCount(0);
+        } else if (u.private_sample_available && remaining > 0) {
+            // Free with an AVAILABLE sample → the idle Browser session offers the Private trial nudge.
+            await expect(nudge).toBeVisible({ timeout: 15000 });
+            await expect(nudge).toContainText(/Private/i);
+        } else {
+            // Free with an EXHAUSTED / unavailable sample → NO trial nudge, and the session is still
+            // functional on Browser (the truthful "no fallback surprise" state). `can_start` stays true
+            // because Browser transcription is always available to a Free account.
+            await expect(nudge).toHaveCount(0);
+            expect(u.can_start, 'Free Browser recording must remain available when the sample is exhausted').toBe(true);
+            await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeEnabled();
+        }
 
         // 3. Configure for Native STT (Free/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
