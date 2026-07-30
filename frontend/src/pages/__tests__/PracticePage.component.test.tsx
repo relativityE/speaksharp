@@ -27,8 +27,8 @@ vi.mock('@/contexts/AuthProvider', async (orig) => {
 });
 
 // #1093: Home reads the server-authoritative streak via the get_practice_streak RPC (NOT the dead
-// check_usage_limit.streak_count). In this unit context the RPC does not resolve, so the always-visible
-// chip stays in its shape-preserving loading state.
+// check_usage_limit.streak_count). The chip renders ONLY for an active >=2-day streak; in this unit
+// context the RPC does not resolve, so the chip is hidden (no skeleton, no placeholder).
 vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
@@ -125,16 +125,16 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('the streak chip is ALWAYS present, backed by get_practice_streak — not check_usage_limit.streak_count', () => {
+    it('the streak chip is backed by get_practice_streak, hidden until an active >=2-day streak resolves — never check_usage_limit.streak_count', () => {
       mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
       render(<PracticePage />);
-      // Always visible (never hidden). The server RPC does not resolve in this unit context, so the
-      // chip sits in its shape-preserving loading state — proving it no longer depends on the dead
-      // check_usage_limit.streak_count value (which would have rendered/omitted synchronously).
-      const chip = screen.getByTestId('home-streak-chip');
-      expect(chip).toBeInTheDocument();
-      expect(chip).toHaveAttribute('data-streak-state', 'loading');
-      expect(screen.getByTestId('home-streak-skeleton')).toBeInTheDocument();
+      // The server RPC does not resolve in this unit context, so the chip is HIDDEN (the contract shows
+      // it only for an active >=2-day streak). It is NOT synchronously derived from the dead
+      // check_usage_limit.streak_count — which would have rendered a chip here.
+      expect(screen.queryByTestId('home-streak-chip')).not.toBeInTheDocument();
+      // the rest of the continuity cluster still renders (it leads with Last session → Analytics).
+      expect(screen.getByTestId('home-last-session')).toBeInTheDocument();
+      expect(screen.getByTestId('home-analytics')).toBeInTheDocument();
     });
   });
 

@@ -134,58 +134,57 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
     });
 
     /*
-     * The streak is server-authoritative (get_practice_streak, #1098). The chip is ALWAYS visible and
-     * shows exactly one settled label — never `0-day`, never a localStorage guess, never omitted.
+     * The streak is server-authoritative (get_practice_streak, #1098). The chip appears ONLY for an
+     * active streak of >=2 qualifying days; every other value renders NO chip (no skeleton, no
+     * placeholder). Never `0-day`, `1-day`, `Start your streak`, or `Streak unavailable`.
      */
-    it('streakLabel: the settled table — never 0-day, never null', () => {
+    it('streakLabel: shows text only at count>=2, otherwise null', () => {
         const mk = (state: PracticeStreak['state'], count: number): PracticeStreak =>
             ({ state, count, lastQualifyingDate: null, timezone: 'UTC' });
-        expect(streakLabel(mk('active', 1))).toBe('1-day streak');
-        expect(streakLabel(mk('active', 4))).toBe('4-day streak');
-        expect(streakLabel(mk('none', 0))).toBe('Start your streak');
-        expect(streakLabel(mk('unavailable', 0))).toBe('Streak unavailable');
-        // a resolved active-but-zero (defensive) and a null read both avoid "0-day"
-        expect(streakLabel(mk('active', 0))).toBe('Start your streak');
-        expect(streakLabel(null)).toBe('Streak unavailable');
-        expect(streakLabel(undefined)).toBe('Streak unavailable');
+        expect(streakLabel(mk('active', 2))).toBe('2-day streak');
+        expect(streakLabel(mk('active', 9))).toBe('9-day streak');
+        // everything below the threshold — and every non-active state — is null (chip hidden)
+        expect(streakLabel(mk('active', 1))).toBeNull();
+        expect(streakLabel(mk('active', 0))).toBeNull();
+        expect(streakLabel(mk('none', 0))).toBeNull();
+        expect(streakLabel(mk('unavailable', 0))).toBeNull();
+        expect(streakLabel(null)).toBeNull();
+        expect(streakLabel(undefined)).toBeNull();
+        // never a fabricated fractional/non-integer count
+        expect(streakLabel(mk('active', 2.5))).toBeNull();
     });
 
-    it('streak chip is ALWAYS visible and shows the resolved settled label (multi-day)', () => {
-        renderHome({ streak: { state: 'active', count: 4, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak, streakLoading: false });
-        const chip = screen.getByTestId('home-streak-chip');
-        expect(chip).toHaveTextContent('4-day streak');
-        expect(chip).toHaveAttribute('data-streak-state', 'active');
-    });
-
-    it('streak chip: one-day, none, and unavailable states', () => {
-        renderHome({ streak: { state: 'active', count: 1, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
-        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('1-day streak');
+    it('streak chip: rendered for an active >=2-day streak, hidden for every other state', () => {
+        // count 2 and count N both render exact text
+        renderHome({ streak: { state: 'active', count: 2, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
+        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('2-day streak');
         cleanup();
-        renderHome({ streak: { state: 'none', count: 0, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
-        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('Start your streak');
-        cleanup();
-        renderHome({ streak: null, streakLoading: false });
-        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('Streak unavailable');
+        renderHome({ streak: { state: 'active', count: 12, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
+        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('12-day streak');
+
+        // every hidden state — chip is ABSENT (not empty, not a placeholder)
+        const hidden: Array<Partial<React.ComponentProps<typeof AuthenticatedHome>>> = [
+            { streak: null, streakLoading: true },                                                                              // loading
+            { streak: null, streakLoading: false },                                                                            // null/unavailable read
+            { streak: { state: 'unavailable', count: 0, lastQualifyingDate: null, timezone: null } as PracticeStreak },        // unavailable
+            { streak: { state: 'none', count: 0, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak },              // none/zero
+            { streak: { state: 'active', count: 1, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak },            // one-day (below threshold)
+        ];
+        for (const override of hidden) {
+            cleanup();
+            renderHome(override);
+            expect(screen.queryByTestId('home-streak-chip')).toBeNull();
+            // nothing anywhere claims a lapsed/absent streak
+            expect(screen.queryByText(/Streak unavailable|Start your streak|0-day|1-day/)).toBeNull();
+            // and the continuity cluster still leads with Last session → Analytics
+            expect(screen.getByTestId('home-last-session')).toBeInTheDocument();
+        }
     });
 
-    it('streak chip: while loading shows a shape-preserving skeleton + accessible "Checking streak"', () => {
-        renderHome({ streak: null, streakLoading: true });
-        const chip = screen.getByTestId('home-streak-chip');
-        expect(chip).toBeInTheDocument();                       // never hidden
-        expect(chip).toHaveAttribute('data-streak-state', 'loading');
-        expect(chip).toHaveAttribute('aria-busy', 'true');
-        expect(screen.getByTestId('home-streak-skeleton')).toBeInTheDocument();
-        // the busy chip carries an accessible loading description (the skeleton is aria-hidden)
-        const loadingLabel = screen.getByTestId('home-streak-loading-label');
-        expect(loadingLabel).toHaveTextContent('Checking streak');
-        expect(loadingLabel.className).toContain('sr-only');
-        expect(chip).toHaveTextContent('Checking streak');      // accessible text present
-        expect(chip).not.toHaveTextContent('0-day');
-    });
-
-    it('streak chip: exact settled visual contract — fill, 1px border, text, and waveform colors', () => {
+    it('streak chip: when shown, exact visual contract — fill, 1px border, text, waveform colors', () => {
         renderHome({ streak: { state: 'active', count: 2, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
         const chip = screen.getByTestId('home-streak-chip');
+        expect(chip).toHaveAttribute('data-streak-state', 'active');
         // jsdom serialises the inline-style hexes to rgb(); assert the exact resolved colours.
         const style = chip.getAttribute('style') ?? '';
         expect(style).toContain('rgb(253, 243, 226)');           // #fdf3e2 fill
@@ -194,6 +193,19 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         // waveform bars use the dedicated amber #d98a1f
         const bar = chip.querySelector('span[style*="rgb(217, 138, 31)"]');
         expect(bar).not.toBeNull();
+    });
+
+    it('"Live" blends in: categorical STATUS typography, not the 27px metric value class', () => {
+        renderHome();
+        const live = screen.getByText('Live');
+        // the value carries the status kind, at the quiet 14px weight — NOT the large metric type
+        expect(live).toHaveAttribute('data-value-kind', 'status');
+        expect(live.className).toContain('text-[14px]');
+        expect(live.className).not.toContain('text-[27px]');
+        // a genuinely-missing value keeps the large metric slot (so an absent number reads as blank)
+        const missing = screen.getAllByText('—')[0];
+        expect(missing).toHaveAttribute('data-value-kind', 'missing');
+        expect(missing.className).toContain('text-[27px]');
     });
 
     it('last session: composed from persisted columns only; a null duration never becomes 0:00', () => {

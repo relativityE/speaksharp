@@ -41,6 +41,10 @@ async function enterReturningPractice(page: Page) {
   await expect(summary).toBeVisible({ timeout: 30000 });
   await expect(summary).not.toContainText(/WPM/i);
   await expect(summary).not.toHaveText('—');
+  // A returning user has an active 3-day streak (>=2), so the chip renders and leads the cluster.
+  const streakChip = page.getByTestId('home-streak-chip');
+  await expect(streakChip).toBeVisible();
+  await expect(streakChip).toHaveText(/3-day streak/);
   // Both actions exist above the fold; the two-product chooser still renders below.
   await expect(page.getByTestId('home-last-session')).toBeVisible();
   await expect(page.getByTestId('home-analytics')).toBeVisible();

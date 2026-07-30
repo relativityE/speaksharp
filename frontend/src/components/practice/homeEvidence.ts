@@ -86,19 +86,20 @@ export type { PracticeStreak } from '@/lib/storage';
 import type { PracticeStreak } from '@/lib/storage';
 
 /**
- * Streak chip text — the chip is ALWAYS visible (never hidden, never null). Settled label table:
- *   | active, count 1     | `1-day streak`     |
- *   | active, count >= 2  | `N-day streak`     |
- *   | none / lapsed       | `Start your streak`|
- *   | unavailable / read failure / null timezone | `Streak unavailable` |
- * NEVER `0-day streak`. A missing/failed read is surfaced honestly as "Streak unavailable", not hidden.
- * `null`/`undefined` here means the read has not resolved to a state yet or failed → "Streak unavailable"
- * is the fail-closed label (the component shows a loading affordance while the query is in flight).
+ * Streak chip text — the chip is shown ONLY for an earned, active streak of two or more qualifying
+ * days. Everything else renders no chip at all (the component hides it; it does not reserve width,
+ * show a skeleton, or print a placeholder):
+ *   | active, count >= 2                                   | `N-day streak` |
+ *   | active count 1 / none / lapsed / zero                | (no chip → null) |
+ *   | loading / unavailable / read failure / null timezone | (no chip → null) |
+ *   | invalid payload                                      | (fail closed → null) |
+ * NEVER `0-day streak`, `1-day streak`, `Start your streak`, or `Streak unavailable`. A failed or
+ * unavailable read is fetched and validated as before and may be logged diagnostically, but it is
+ * simply not surfaced — a two-plus-day streak is the only user-facing state.
  */
-export function streakLabel(streak: PracticeStreak | null | undefined): string {
-    if (!streak || streak.state === 'unavailable') return 'Streak unavailable';
-    if (streak.state === 'active' && streak.count >= 1) {
-        return streak.count === 1 ? '1-day streak' : `${streak.count}-day streak`;
+export function streakLabel(streak: PracticeStreak | null | undefined): string | null {
+    if (streak?.state !== 'active' || !Number.isInteger(streak.count) || streak.count < 2) {
+        return null;
     }
-    return 'Start your streak'; // 'none', lapsed, or a non-positive count
+    return `${streak.count}-day streak`;
 }

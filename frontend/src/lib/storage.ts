@@ -352,7 +352,8 @@ export function toPracticeStreak(raw: unknown): PracticeStreak {
  * Server-authoritative practice streak (#1093). Calls the `get_practice_streak` RPC: SECURITY INVOKER,
  * no caller-supplied id — identity is the caller's own `auth.uid()`. Returns a validated PracticeStreak;
  * a server error or a malformed response resolves to `STREAK_UNAVAILABLE` so the Home chip fails closed
- * to "Streak unavailable" (never hidden, never a guess). The raw error is logged for diagnostics.
+ * (an unavailable/invalid result renders NO chip — never a guessed or fabricated streak). The raw error
+ * is logged for diagnostics.
  */
 export const getPracticeStreak = async (): Promise<PracticeStreak> => {
   const supabase = getSupabaseClient();
@@ -373,8 +374,8 @@ export const getPracticeStreak = async (): Promise<PracticeStreak> => {
  * Initialize the account-level IANA timezone ONCE from the authenticated browser (#1093). Calls the
  * `set_user_timezone` RPC (scoped SECURITY DEFINER): it writes only while the stored value is NULL, so
  * calling it every load is safe and never changes an established timezone. There is NO UTC fallback —
- * an invalid/absent timezone is left NULL, which the streak reader surfaces as "Streak unavailable".
- * Returns the effective stored timezone (or null).
+ * an invalid/absent timezone is left NULL, so the server reports an unavailable streak and the reader
+ * hides the chip rather than showing a wrong-day count. Returns the effective stored timezone (or null).
  */
 export const setUserTimezone = async (timezone: string): Promise<string | null> => {
   const supabase = getSupabaseClient();

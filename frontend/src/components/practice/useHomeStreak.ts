@@ -7,13 +7,15 @@ type StreakState = { userId: string | null; streak: PracticeStreak | null; loadi
 /**
  * Home-only server-authoritative streak (#1093), keyed by the authenticated user id. On mount and on
  * every account change it:
- *   1. clears the previous account's result immediately and shows the loading skeleton;
+ *   1. clears the previous account's result immediately and enters the loading state (no chip shown);
  *   2. initializes the account IANA timezone ONCE from the browser (no UTC fallback — an invalid/absent
- *      zone is left NULL, which the reader surfaces as "Streak unavailable");
+ *      zone is left NULL; the reader then hides the chip rather than showing a wrong-day streak);
  *   3. fetches the server-authoritative streak (`get_practice_streak`);
  *   4. applies the result ONLY if the account has not changed since the request began — a stale response
  *      from a previous account is ignored.
- * No localStorage is ever read; the count is derived on the server from durably saved sessions.
+ * No localStorage is ever read; the count is derived on the server from durably saved sessions. The
+ * chip is surfaced ONLY for an active streak of >=2 qualifying days (see `streakLabel`); loading,
+ * unavailable, lapsed, zero and one-day results render no chip.
  */
 export function useHomeStreak(
     userId: string | null | undefined,

@@ -81,11 +81,23 @@ function StreakWaveform() {
 /* Outcome tile                                                                                   */
 /* -------------------------------------------------------------------------------------------- */
 
+/**
+ * How a tile's value should be typeset:
+ *   metric  — a genuine numeric measurement, set large (27px extrabold). Reserved for real numbers.
+ *   status  — a categorical word (e.g. `Live`): a quiet 13–14px bold that BLENDS into the tile and
+ *             never competes with a metric. It occupies the same value-row height so labels align.
+ *   missing — the em-dash placeholder for "not enough data", kept at metric size so an absent value
+ *             reads as a deliberately blank metric, not as body copy.
+ */
+export type OutcomeValueKind = 'metric' | 'status' | 'missing';
+
 export interface OutcomeTile {
     /** The artifact name. ONE line — the two cards' tile rows must align. Never repeats the value. */
     label: string;
-    /** The large value, or `NO_EVIDENCE` when there is no truthful source. */
+    /** The value text — a metric number, a categorical status word, or the em-dash placeholder. */
     value: string;
+    /** Chooses the value typography. The renderer keys off THIS, never the literal string. */
+    valueKind: OutcomeValueKind;
     Icon: LucideIcon;
     /** `warm` is reserved for Freestyle's MIDDLE tile — the amber thread to the marketing hero. */
     tone: Accent | 'warm';
@@ -98,9 +110,17 @@ const TONE_STYLE: Record<Accent | 'warm', { glyphBg: string; glyphInk: string; v
     warm: { glyphBg: 'var(--ss-home-amber-tint)', glyphInk: 'var(--ss-home-amber-ink)', valueInk: 'var(--ss-home-amber-ink)' },
 };
 
+// Value typography by kind. `status` is the quiet, blend-in treatment for a categorical word; it
+// keeps the value row at the metric's `min-h` so all three tile labels stay aligned.
+const VALUE_CLASS: Record<OutcomeValueKind, string> = {
+    metric: 'text-[27px] font-extrabold leading-none tracking-tight',
+    status: 'flex min-h-[27px] items-center text-[14px] font-bold leading-none',
+    missing: 'text-[27px] font-extrabold leading-none tracking-tight',
+};
+
 function OutcomeTileView({ tile, testid }: { tile: OutcomeTile; testid: string }) {
     const tone = TONE_STYLE[tile.tone];
-    const missing = tile.value === NOT_ENOUGH_DATA_COMPACT;
+    const missing = tile.valueKind === 'missing';
     return (
         <div data-testid={testid} data-evidence={missing ? 'none' : 'present'} className="flex min-w-0 flex-col gap-1.5">
             <span
@@ -111,7 +131,8 @@ function OutcomeTileView({ tile, testid }: { tile: OutcomeTile; testid: string }
                 <tile.Icon size={16} />
             </span>
             <span
-                className="text-[27px] font-extrabold leading-none tracking-tight"
+                data-value-kind={tile.valueKind}
+                className={VALUE_CLASS[tile.valueKind]}
                 style={{ color: missing ? 'var(--ss-text-secondary)' : tone.valueInk }}
                 // Screen readers should not spell out a bare dash; the label carries the meaning and
                 // the visually-hidden phrase says why the number is absent.
@@ -280,11 +301,12 @@ export interface AuthenticatedHomeProps {
     recentLoading: boolean;
     /** True when the recent-session read FAILED — must not masquerade as "no sessions". */
     recentFailed: boolean;
-    /** Server-authoritative streak from `get_practice_streak` (#1098). The chip is ALWAYS rendered;
-     *  `null` here + `streakLoading` false resolves to "Streak unavailable" (never hidden, never 0-day). */
+    /** Server-authoritative streak from `get_practice_streak` (#1098). The chip renders ONLY for an
+     *  active streak of >=2 qualifying days; every other value (null/unavailable/lapsed/zero/one-day)
+     *  renders no chip at all. Never `0-day`/`1-day`, never a localStorage guess. */
     streak: PracticeStreak | null;
     /** True while the streak read is IN FLIGHT (incl. immediately after an account change) — the chip
-     *  shows a shape-preserving skeleton, never a premature label. */
+     *  stays hidden until an active >=2-day streak resolves (no skeleton, no premature label). */
     streakLoading: boolean;
     onStartFreestyle: () => void;
     onNotifyGuided: () => void;
@@ -297,24 +319,28 @@ export function AuthenticatedHome({
     onStartFreestyle, onNotifyGuided, onReviewLastSession, onViewAnalytics,
 }: AuthenticatedHomeProps) {
     const last = lastSessionView(lastSession, { loading: recentLoading, failed: recentFailed });
-    const streakText = streakLabel(streak);
+    // The chip is shown ONLY for an active >=2-day streak. Loading, unavailable, lapsed, zero and
+    // one-day states all resolve to `null` and render no chip (no skeleton, no reserved width).
+    const streakText = streakLoading ? null : streakLabel(streak);
     // Freestyle tiles. "Live" is a capability of the shipped product, not a claim about this user.
     // The other two have no truthful source on Home today, so they say so.
     const freestyleTiles: OutcomeTile[] = [
-        { label: 'Transcript', value: 'Live', Icon: FileText, tone: 'teal' },
+        // `Live` is a categorical capability, not a measurement — a quiet `status` value that blends
+        // into the tile rather than the large `metric` typography reserved for real numbers.
+        { label: 'Transcript', value: 'Live', valueKind: 'status', Icon: FileText, tone: 'teal' },
         // No last-session filler count is available on Home (the recent-session read is deliberately
         // narrow: id/created_at/duration/status). A plausible number here would be a fabrication.
-        { label: 'Filler words', value: NOT_ENOUGH_DATA_COMPACT, Icon: MessageSquare, tone: 'warm' },
+        { label: 'Filler words', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: MessageSquare, tone: 'warm' },
         // Home must NOT invent its own comparison. Until SpeakSharp Progress ships there is no
         // defensible "vs. last time" figure, so none is shown.
-        { label: 'Vs. last time', value: NOT_ENOUGH_DATA_COMPACT, Icon: TrendingUp, tone: 'teal' },
+        { label: 'Vs. last time', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: TrendingUp, tone: 'teal' },
     ];
 
     // Guided has not launched: there are no results to report, and nothing here may look personalised.
     const guidedTiles: OutcomeTile[] = [
-        { label: 'Covered', value: NOT_ENOUGH_DATA_COMPACT, Icon: Check, tone: 'violet' },
-        { label: 'Missed', value: NOT_ENOUGH_DATA_COMPACT, Icon: Target, tone: 'violet' },
-        { label: 'Misses only', value: NOT_ENOUGH_DATA_COMPACT, Icon: Repeat, tone: 'violet' },
+        { label: 'Covered', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Check, tone: 'violet' },
+        { label: 'Missed', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Target, tone: 'violet' },
+        { label: 'Misses only', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Repeat, tone: 'violet' },
     ];
 
     return (
@@ -338,34 +364,22 @@ export function AuthenticatedHome({
                 {/* The continuity cluster is its own element so it can be scrolled to, hit-tested and
                     screenshotted independently of the (much taller) surface around it. */}
                 <div data-testid="home-continuity-cluster" className="ss-home-anchor flex flex-wrap items-center gap-2.5">
-                    {/* ALWAYS visible (first in the cluster: streak → Last session → Analytics). Backed by
-                        the server-authoritative `get_practice_streak` (#1098). While loading it shows a
-                        shape-preserving skeleton; once resolved it shows exactly one settled label —
-                        `Start your streak` / `1-day streak` / `N-day streak` / `Streak unavailable` —
-                        never `0-day`, never a localStorage guess, never omitted. */}
-                    <span
-                        data-testid="home-streak-chip"
-                        data-streak-state={streakLoading ? 'loading' : (streak?.state ?? 'unavailable')}
-                        aria-busy={streakLoading || undefined}
-                        className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-bold"
-                        style={{ background: '#fdf3e2', border: '1px solid #f0dcb8', color: '#8a5510' }}
-                    >
-                        <StreakWaveform />
-                        {streakLoading ? (
-                            <>
-                                {/* The skeleton is decorative; the busy chip still needs an accessible
-                                    loading description for assistive tech. */}
-                                <span data-testid="home-streak-loading-label" className="sr-only">Checking streak</span>
-                                <span
-                                    data-testid="home-streak-skeleton"
-                                    aria-hidden="true"
-                                    className="inline-block h-[13px] w-[92px] animate-pulse rounded bg-current opacity-30"
-                                />
-                            </>
-                        ) : (
-                            streakText
-                        )}
-                    </span>
+                    {/* Shown ONLY for an earned, active streak of two or more qualifying days (server-
+                        authoritative `get_practice_streak`, #1098). Loading, unavailable, lapsed, zero
+                        and one-day states render NOTHING here — no skeleton, no placeholder, no reserved
+                        width. When absent, the flex cluster naturally leads with Last session → Analytics;
+                        when present, streak → Last session → Analytics. Never `0-day`/`1-day`. */}
+                    {streakText !== null && (
+                        <span
+                            data-testid="home-streak-chip"
+                            data-streak-state={streak?.state ?? 'active'}
+                            className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-bold"
+                            style={{ background: '#fdf3e2', border: '1px solid #f0dcb8', color: '#8a5510' }}
+                        >
+                            <StreakWaveform />
+                            {streakText}
+                        </span>
+                    )}
                     <HeaderButton
                         label="Last session"
                         secondary={last.text}
