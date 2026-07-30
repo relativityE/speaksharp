@@ -47,6 +47,7 @@ DECLARE
     v_res      jsonb;
     v_ok       boolean;
     v_today    date;
+    v_rows     int;
 BEGIN
     -- ---- 0. preconditions -----------------------------------------------------------------------
     -- Reader is INVOKER (RLS confines reads to the caller); setter is DEFINER (must write under the
@@ -296,33 +297,50 @@ BEGIN
     DELETE FROM public.sessions WHERE user_id = v_victim;
     RAISE NOTICE 'PASS 14  only completed sessions count (active/failed/expired excluded)';
 
-    -- ---- 15. production RLS: authenticated cannot write user_profiles directly; timezone ONLY via the
-    --         DEFINER setter, and no entitlement field is reachable. Proves the setter works under the
-    --         SELECT-only policy AND that it is not a write-anything escalation. --------------------
-    UPDATE public.user_profiles SET timezone = NULL, subscription_status = 'basic' WHERE id = v_other;
-    v_ok := false;
-    BEGIN
-        SET LOCAL ROLE authenticated;
-        PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
-        UPDATE public.user_profiles SET subscription_status = 'pro' WHERE id = v_other;  -- must be denied
-    EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
-    END;
+    -- ---- 15. production-faithful RLS proof. authenticated HOLDS the table UPDATE privilege (as in prod)
+    --         but the SELECT-only policy means a direct UPDATE matches ZERO rows — the block is RLS, not a
+    --         missing grant. The timezone can be initialized ONLY through the scoped DEFINER setter, which
+    --         cannot reach another user or any entitlement field. --------------------------------------
+    UPDATE public.user_profiles SET timezone = NULL, subscription_status = 'basic' WHERE id IN (v_victim, v_other);
+
+    SET LOCAL ROLE authenticated;
+    PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
+    -- (1) direct entitlement update RUNS (privilege present) but RLS blocks the row -> 0 rows.
+    UPDATE public.user_profiles SET subscription_status = 'pro' WHERE id = v_other;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows <> 0 THEN RAISE EXCEPTION 'FAIL 15a: RLS did not block the entitlement UPDATE (% rows)', v_rows; END IF;
+    -- (3) direct timezone update is likewise RLS-blocked -> 0 rows.
+    UPDATE public.user_profiles SET timezone = 'Asia/Tokyo' WHERE id = v_other;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows <> 0 THEN RAISE EXCEPTION 'FAIL 15b: RLS did not block the direct timezone UPDATE (% rows)', v_rows; END IF;
     RESET ROLE;
-    IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 15: a direct profile UPDATE by authenticated was NOT denied'; END IF;
+    -- (2) subscription_status unchanged; timezone still NULL after the blocked direct writes.
     IF (SELECT subscription_status FROM public.user_profiles WHERE id = v_other) <> 'basic' THEN
-        RAISE EXCEPTION 'FAIL 15: an entitlement field was modified by a direct write';
+        RAISE EXCEPTION 'FAIL 15c: an entitlement field was modified by a direct write';
     END IF;
-    -- ...but the DEFINER setter can still initialize the caller's own timezone under that same policy.
+    IF (SELECT timezone FROM public.user_profiles WHERE id = v_other) IS NOT NULL THEN
+        RAISE EXCEPTION 'FAIL 15d: timezone was modified by a direct write';
+    END IF;
+    -- (4) the scoped DEFINER setter CAN initialize the caller's OWN timezone under that same policy.
     SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
     IF public.set_user_timezone('Europe/London') <> 'Europe/London' THEN
-        RAISE EXCEPTION 'FAIL 15: the setter could not initialize timezone under the SELECT-only policy';
+        RAISE EXCEPTION 'FAIL 15e: the setter could not initialize timezone under the SELECT-only policy';
     END IF;
     RESET ROLE;
     IF (SELECT subscription_status FROM public.user_profiles WHERE id = v_other) <> 'basic' THEN
-        RAISE EXCEPTION 'FAIL 15: the setter touched an entitlement field';
+        RAISE EXCEPTION 'FAIL 15f: the setter touched an entitlement field';
     END IF;
-    UPDATE public.user_profiles SET timezone = NULL WHERE id = v_other;
-    RAISE NOTICE 'PASS 15  authenticated cannot write the profile directly; timezone only via the scoped setter';
+    -- (5) the setter cannot reach ANOTHER user: as v_other it only writes its own row (WHERE id = auth.uid()),
+    -- so v_victim's timezone stays NULL.
+    UPDATE public.user_profiles SET timezone = NULL WHERE id IN (v_victim, v_other);
+    SET LOCAL ROLE authenticated; PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
+    PERFORM public.set_user_timezone('Pacific/Auckland');
+    RESET ROLE;
+    IF (SELECT timezone FROM public.user_profiles WHERE id = v_victim) IS NOT NULL THEN
+        RAISE EXCEPTION 'FAIL 15g: the setter as one user modified ANOTHER user''s timezone';
+    END IF;
+    UPDATE public.user_profiles SET timezone = NULL WHERE id IN (v_victim, v_other);
+    RAISE NOTICE 'PASS 15  RLS blocks direct profile writes (0 rows despite the UPDATE grant); setter initializes only the caller''s own timezone';
 
     RAISE NOTICE '=== ALL FIFTEEN STREAK MATRIX ITEMS PASSED ===';
 END

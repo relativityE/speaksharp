@@ -22,8 +22,12 @@
 -- devices — the count is computed on the server from durably saved sessions, not a per-device client
 -- guess. It is NOT anti-cheat: `public.sessions` is user-writable under its FOR ALL RLS policy, so a
 -- determined user can forge rows to inflate their OWN streak. That is an accepted, isolated risk — the
--- functions can never read, mutate, or inflate ANY OTHER user's streak (SECURITY INVOKER + RLS + an
--- explicit auth.uid() predicate on every access). Future-dated rows are clamped out (see the reader).
+-- functions can never read, mutate, or inflate ANY OTHER user's streak. The reader
+-- (get_practice_streak) is isolated by SECURITY INVOKER + RLS. The setter (set_user_timezone) is
+-- SECURITY DEFINER, so it is isolated NOT by RLS but by its own controls: a null-safe identity guard,
+-- an own-row-only predicate (WHERE id = auth.uid()), a single-column update (timezone only), the
+-- initialize-once rule, a safe search_path, and a PUBLIC/anon-revoked ACL. Future-dated rows are
+-- clamped out (see the reader).
 --
 -- INVARIANT: every authenticated user has a user_profiles row (created at signup by the
 -- `on_auth_user_created_trial_profile` trigger, migration 20260521100000). A user without one — a

@@ -55,5 +55,8 @@ CREATE POLICY "Users can manage own sessions" ON public.sessions
 
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.sessions TO authenticated;
--- Production grants authenticated SELECT on user_profiles; writes are blocked by the SELECT-only RLS.
-GRANT SELECT ON TABLE public.user_profiles TO authenticated;
+-- Production-faithful: 20260522090000 removed the UPDATE *policy* but did NOT revoke the underlying
+-- table privilege. So authenticated RETAINS table-level SELECT+UPDATE here; the write is blocked purely
+-- by RLS (no UPDATE/ALL policy exists → the UPDATE matches zero rows). Granting only SELECT would prove
+-- the block at the wrong (privilege) layer and mask whether RLS actually denies the row.
+GRANT SELECT, UPDATE ON TABLE public.user_profiles TO authenticated;
