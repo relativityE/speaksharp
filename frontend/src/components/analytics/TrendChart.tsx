@@ -7,7 +7,13 @@ import { useChartContainerReady } from './useChartContainerReady';
 interface TrendDataPoint {
     date: string;
     wpm: number;
-    clarity: number;
+    /**
+     * #1091: `null` = this session carries no scorable clarity evidence. An unscorable session's
+     * `clarityScore` is 0 BY DESIGN, so plotting it drew a fabricated zero on the trend line — the same
+     * evidence-integrity defect fixed in the aggregate and in the server chart series. `<Area>` leaves
+     * `connectNulls` at its default `false`, so a null renders as a GAP rather than a point.
+     */
+    clarity: number | null;
     fillers: number;
     pauses: number;
 }

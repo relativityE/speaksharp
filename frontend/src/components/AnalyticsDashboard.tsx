@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
@@ -70,7 +71,7 @@ interface AnalyticsDashboardProps {
 interface StatCardProps {
     icon: React.ReactNode;
     label: string;
-    value: string | number;
+    value: string | number | null;
     unit?: string;
     description?: string;
     microcopy?: string;
@@ -128,7 +129,7 @@ type StatCardConfig = {
     id: string;
     label: string;
     icon: React.ReactNode;
-    getValue: (stats: OverallStats) => string | number;
+    getValue: (stats: OverallStats) => string | number | null;
     unit?: string;
     description?: string;
     // Short supporting microcopy shown under the (now secondary) number on a decoded card.
@@ -170,8 +171,8 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'total_practice_time',
         label: 'Total Practice Time',
         icon: <Clock size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.totalPracticeTime,
-        unit: 'mins',
+        // #1045: formatted from exact seconds so a real but short total reads "<1 min", never "0 mins".
+        getValue: (stats) => formatDurationMinutes(stats.totalPracticeTimeSeconds),
         description: 'Total time spent practicing'
     },
     {
@@ -199,8 +200,8 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'avg_session_length',
         label: 'Avg. Session Length',
         icon: <Activity size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.averageSessionLength,
-        unit: 'mins',
+        // #1045: Math.round turned every sub-30s average into the flatly false "0 mins".
+        getValue: (stats) => formatDurationMinutes(stats.averageSessionLengthSeconds),
         description: 'Average duration per session'
     },
 ];
@@ -370,9 +371,18 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, microcopy, interpretation, className = '', testId }) => {
     const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
+    // #1045: a card may only show a number, a unit, or a judgment when the evidence supports it.
+    // `Not enough data` is itself a valid rendered value, so it must not be re-suppressed.
+    const evidenceMissing = interpretation?.isEvidenceMissing === true
+        || (value !== NOT_ENOUGH_DATA && !isValidMetric(value));
+    const displayValue = evidenceMissing ? NOT_ENOUGH_DATA : value;
+    // The unit goes with the number. A lone "%" or "/min" beside "Not enough data" is the same false
+    // precision in smaller type.
+    const displayUnit = evidenceMissing ? undefined : unit;
+
     // Narrative-first: when the value is decoded into a coaching label, the LABEL is the anchor and
     // the raw number drops to small supporting detail (action first, reason second, metrics third).
-    if (interpretation) {
+    if (interpretation && !evidenceMissing) {
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
                 <p
@@ -384,7 +394,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
                 <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
                 <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
                     {/* Cue first, number second: e.g. "Steady spacing helps ideas land · 8/min". */}
-                    {microcopy ? `${microcopy} · ` : ''}{value}{unit ? (unit === 'WPM' ? ` ${unit}` : unit) : ''}
+                    {microcopy ? `${microcopy} · ` : ''}{displayValue}{displayUnit ? (displayUnit === 'WPM' ? ` ${displayUnit}` : displayUnit) : ''}
                 </p>
             </Card>
         );
@@ -400,10 +410,15 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
         </div>
         <div>
             <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-bold text-foreground tracking-tight">
-                    {value}
+                <span
+                    className={evidenceMissing
+                        ? 'text-lg font-semibold text-foreground/55 tracking-tight'
+                        : 'text-3xl font-bold text-foreground tracking-tight'}
+                    data-evidence={evidenceMissing ? 'missing' : 'present'}
+                >
+                    {displayValue}
                 </span>
-                {unit && <span className="ml-1 text-sm font-semibold text-foreground/70">{unit}</span>}
+                {displayUnit && <span className="ml-1 text-sm font-semibold text-foreground/70">{displayUnit}</span>}
             </div>
             <p className="mt-1 text-sm font-semibold text-foreground/75">{label}</p>
             {description && (
@@ -749,7 +764,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             return {
                 date: formatDate(s.created_at),
                 wpm: metrics.wpm,
-                clarity: metrics.clarityScore,
+                // #1091: gate on the clarity contributor rule. `clarityScore` is 0 for an unscorable
+                // session by design, so charting it unconditionally drew a fabricated zero next to a
+                // corrected "Not enough data" card. null = omitted point (Recharts renders a gap).
+                clarity: metrics.isClarityScorable ? metrics.clarityScore : null,
                 fillers: metrics.fillerCount,
                 pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
             };
@@ -809,10 +827,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             description={targetSessionMetrics.wpmExplanation}
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
+                        {/* #1045: one vocabulary for absent evidence. A bare "--" reads as a rendering
+                            glitch; "Not enough data" states what is actually true about this session. */}
                         <StatCard
                             icon={<Target />}
                             label="Clear Delivery"
-                            value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : '--'}
+                            value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
                             unit={targetSessionMetrics.isClarityScorable ? '%' : undefined}
                             description={targetSessionMetrics.clarityExplanation}
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}

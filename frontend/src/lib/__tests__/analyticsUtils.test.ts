@@ -44,15 +44,18 @@ describe('analyticsUtils', () => {
             expect(stats.avgPausesPerMin).toBe('2.0');
         });
 
-        it('aggregates Pause Rhythm (pauses/min) from short + long pauses, and is 0 without pause data', () => {
+        it('aggregates Pause Rhythm (pauses/min) from short + long pauses, and is UNKNOWN without pause data', () => {
             // getSessionPauseCount = transitionPauses + extendedPauses.
             expect(getSessionPauseCount(mockSessionHistory[0])).toBe(10);
             expect(getSessionPauseCount(mockSessionHistory[1])).toBe(20);
-            // A session with no pause_metrics contributes 0 (no crash, no NaN).
+            // The per-session helper still contributes 0 for a missing block (no crash, no NaN)...
             expect(getSessionPauseCount({ id: 'x' } as PracticeSession)).toBe(0);
+            // ...but #1045: the AGGREGATE must not present that absence as the rate 0.0. No session
+            // carried pause_metrics, so the rhythm is unknown — reporting "0.0/min" (which the card
+            // then decoded to the judgment "Sparse") was a claim about speech we never measured.
             expect(calculateOverallStats([
                 { id: 'no-pauses', created_at: '2026-01-01T00:00:00.000Z', user_id: 'u', duration: 60, total_words: 60, filler_words: {}, transcript: 'word '.repeat(60) },
-            ] as PracticeSession[]).avgPausesPerMin).toBe('0.0');
+            ] as PracticeSession[]).avgPausesPerMin).toBeNull();
         });
 
         it('aggregates Clear Delivery (clarity) from clarity_score and ignores the unrelated STT accuracy field', () => {
