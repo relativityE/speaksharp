@@ -5,16 +5,29 @@
   "model": "whisper-base.en",
   "path": "production app path, multi-threaded WASM (cross-origin isolation, #1043/#1085)",
   "type": "human production-path recording",
-  "classification": "observed performance evidence — NOT p50, NOT p95, NOT an SLO, NOT an SLA",
+  "classification": "observed long-form performance AND journey evidence — NOT p50, p95, SLO, SLA, WER, or accuracy evidence",
   "sample_size": 1,
   "timing_seconds": {
     "recording_duration": 303.5,
+    "passed_five_minutes": true,
     "total_finalization": 39.1,
     "decode": 38.702,
     "finalize_wait": 0.35,
     "preparation": 0.02
   },
   "observed_real_time_factor": 0.128,
+  "journey": {
+    "bounded_recovery": "completed well within the 240s recovery cap",
+    "transcript_saved_exported": "confirmed"
+  },
+  "transcript_fidelity": {
+    "status": "UNRESOLVED",
+    "reason": "the exported PDF transcript did not reliably correspond to the supplied reading corpus",
+    "owned_by": [
+      "#1037 (STT evidence orchestrator — STT-evidence boundary)",
+      "#896 / TEMP-PR-08 (raw-session transcript / PDF parity)"
+    ]
+  },
   "accuracy": {
     "wer": null,
     "note": "No WER/accuracy claim. Exact spoken ground truth was not scored, so this run produces NO accuracy or WER figure and MUST NOT be used to derive one."
