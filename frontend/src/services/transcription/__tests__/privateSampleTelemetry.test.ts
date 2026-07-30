@@ -25,6 +25,9 @@ beforeEach(() => {
 describe('private sample telemetry — event contract', () => {
     it('emits exactly the approved event stream (no more, no fewer)', () => {
         expect(new Set(Object.values(PRIVATE_SAMPLE_EVENTS))).toEqual(new Set([
+            // #1047 conversion funnel — top of the Free→Private nudge funnel (offer shown / offer taken).
+            'private_sample_nudge_viewed',
+            'private_sample_nudge_selected',
             'private_sample_selected',
             'private_sample_setup_started',
             'private_sample_setup_succeeded',
