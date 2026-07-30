@@ -1,0 +1,89 @@
+# #1087 — per-account tester cohort audit (READ-ONLY).
+#
+# Complements tester-evidence-audit.yml, which reports COHORT AGGREGATES only. This one answers
+# "which humans tried SpeakSharp, what did they do, and did they report anything" — including testers
+# with ZERO activity and ZERO reports.
+#
+# secrets: SUPABASE_SERVICE_ROLE_KEY, AUDIT_EXCLUDED_EMAILS_JSON (internal humans; never printed)
+# vars:    SUPABASE_URL
+#
+# Read-only: Auth Admin listUsers + PostgREST selects. No insert/update/delete/RPC. Never mutates
+# production. Console output is COUNTS ONLY — no emails, ids, transcripts or report bodies.
+name: '#1087 Tester cohort audit (read-only)'
+
+on:
+  # TRUSTED EXECUTION ONLY. This job runs with SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS. A
+  # `pull_request` trigger would run the PR author's version of tester-cohort-audit.mjs with that
+  # secret in scope — a contributor could edit the script in their own PR to exfiltrate it. So the
+  # audit is `workflow_dispatch` ONLY: it runs the code on a ref a maintainer explicitly chooses,
+  # never PR-author-controlled code. (This is why the earlier evidence run was a manual dispatch.)
+  workflow_dispatch:
+    inputs:
+      invite_cutoff:
+        description: 'UTC invitation cutoff. Default is the finalized beta invitation date (#993/#994).'
+        required: false
+        default: '2026-07-18T00:00:00Z'
+      short_session_seconds:
+        description: 'Sessions shorter than this count as short/junk (cannot support a precise judgement).'
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tester-cohort-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only per-account cohort audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # FAIL CLOSED unless dispatched against the reviewed default branch. workflow_dispatch can target
+      # any ref, so without this a maintainer could be induced to run a MODIFIED tester-cohort-audit.mjs
+      # from a feature branch with the RLS-bypassing service-role secret in scope. This guard runs first,
+      # before checkout and before any secret is referenced, and aborts on a non-main ref.
+      - name: Trusted-ref guard (main only)
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Refusing to run the service-role audit on ${{ github.ref }} — only refs/heads/main is trusted."
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run cohort audit
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUDIT_EXCLUDED_EMAILS_JSON: ${{ secrets.AUDIT_EXCLUDED_EMAILS_JSON }}
+          INVITE_CUTOFF: ${{ github.event.inputs.invite_cutoff || '2026-07-18T00:00:00Z' }}
+          SHORT_SESSION_SECONDS: ${{ github.event.inputs.short_session_seconds || '20' }}
+          COHORT_PSEUDONYM_SALT: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          COHORT_SANITIZED_FILE: cohort-sanitized.json
+          COHORT_RESTRICTED_FILE: cohort-restricted.json
+        run: node scripts/tester-cohort-audit.mjs
+
+      # Sanitized: pseudonymous identifiers only, safe for engineering review.
+      - name: Upload sanitized engineering artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cohort-sanitized
+          path: cohort-sanitized.json
+          retention-days: 7
+
+      # Restricted: contains the pseudonym -> cohort/report-title mapping. Short retention, PO review only.
+      - name: Upload RESTRICTED Product Owner artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cohort-restricted-po-only
+          path: cohort-restricted.json
+          retention-days: 1
