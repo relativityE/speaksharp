@@ -1,0 +1,27 @@
+{
+  "id": "private_v2_mtwasm_human_2026-07-29",
+  "date": "2026-07-29",
+  "engine": "private_v2",
+  "model": "whisper-base.en",
+  "path": "production app path, multi-threaded WASM (cross-origin isolation, #1043/#1085)",
+  "type": "human production-path recording",
+  "classification": "observed performance evidence — NOT p50, NOT p95, NOT an SLO, NOT an SLA",
+  "sample_size": 1,
+  "timing_seconds": {
+    "recording_duration": 303.5,
+    "total_finalization": 39.1,
+    "decode": 38.702,
+    "finalize_wait": 0.35,
+    "preparation": 0.02
+  },
+  "observed_real_time_factor": 0.128,
+  "accuracy": {
+    "wer": null,
+    "note": "No WER/accuracy claim. Exact spoken ground truth was not scored, so this run produces NO accuracy or WER figure and MUST NOT be used to derive one."
+  },
+  "no_transcript_text": true,
+  "related": {
+    "controlled_mt_evidence": "#1085 controlled MT-WASM showed 1.7-2.2x faster decode with byte-identical transcripts (performance improved, WER unchanged)",
+    "supersedes_planning_budget": "the earlier pre-MT ~90s finalization planning budget (not a measured p95)"
+  }
+}
