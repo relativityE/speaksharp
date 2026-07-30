@@ -91,6 +91,9 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
         canUsePrivate: true,
         isPaidProUser: false,
         privateTrialAvailable: true,
+        privateTrialFresh: true,
+        privateTrialRemainingSeconds: 300,
+        privateTrialLimitSeconds: 300,
         engineSelectionLocked: false,
         formattedTime: '00:00',
         elapsedSeconds: 0,
@@ -105,7 +108,7 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
     beforeEach(() => { emit.mockClear(); });
     afterEach(() => { cleanup(); });
 
-    it('shows the nudge with the approved copy and emits NUDGE_VIEWED once', () => {
+    it('FRESH sample: shows the trial copy (derived from the server limit) and emits NUDGE_VIEWED once', () => {
         render(<LiveRecordingCard {...eligibleProps} />);
         const nudge = screen.getByTestId('private-trial-nudge');
         expect(nudge).toHaveTextContent('5-minute Private trial available');
@@ -113,6 +116,24 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
         expect(screen.getByTestId('private-trial-nudge-cta')).toHaveTextContent('Try Private');
         expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
         expect(emit.mock.calls.filter((c) => c[0] === PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED)).toHaveLength(1);
+    });
+
+    it('the "N-minute" figure comes from the SERVER limit, not a hard-coded 5', () => {
+        render(<LiveRecordingCard {...eligibleProps} privateTrialLimitSeconds={600} privateTrialRemainingSeconds={600} />);
+        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('10-minute Private trial available');
+    });
+
+    it('PARTIALLY-USED sample: converts with truthful "Continue with Private — X minutes remaining" copy', () => {
+        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={120} privateTrialLimitSeconds={300} />);
+        const nudge = screen.getByTestId('private-trial-nudge');
+        expect(nudge).toBeInTheDocument(); // still offered — a partial sample must not lose the conversion
+        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — 2 minutes remaining');
+        expect(nudge).not.toHaveTextContent('trial available'); // never overstate a full trial
+    });
+
+    it('partial with under a minute left rounds UP and stays singular-correct', () => {
+        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={40} privateTrialLimitSeconds={300} />);
+        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — 1 minute remaining');
     });
 
     it.each([

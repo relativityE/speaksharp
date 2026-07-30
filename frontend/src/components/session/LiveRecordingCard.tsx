@@ -33,6 +33,14 @@ interface LiveRecordingCardProps {
      *  `check-usage-limit`: not Pro, `private_sample_available`, remaining seconds > 0). Combined with
      *  the card's own idle/Browser/unlocked state it gates the compact Free→Private trial nudge. */
     privateTrialAvailable?: boolean;
+    /** True only when the sample is FULL and UNSTARTED — the sole case where the "N-minute trial
+     *  available" claim is truthful. A partially-consumed sample uses "Continue with Private" copy. */
+    privateTrialFresh?: boolean;
+    /** Server-reported remaining sample seconds — used for the truthful "X minutes remaining" copy. */
+    privateTrialRemainingSeconds?: number;
+    /** Server-reported total sample allotment (`private_sample_limit_seconds`) — the "N-minute" figure
+     *  is derived from THIS, never a hard-coded 5, so the duration claim matches the server. */
+    privateTrialLimitSeconds?: number;
     statusMessage?: string; // Optional message from the STT service
     formattedTime: string;
     elapsedSeconds: number; // Added for minimum session duration check
@@ -94,6 +102,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isPaidProUser = canUsePrivate,
     canUseCloudStt = canUsePrivate,
     privateTrialAvailable = false,
+    privateTrialFresh = false,
+    privateTrialRemainingSeconds = 0,
+    privateTrialLimitSeconds = 0,
     statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
@@ -152,6 +163,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
         handleModeChange('private');
     };
+    // Truthful nudge copy from the SERVER-reported allotment/remaining (never a hard-coded 5): a FULL,
+    // unstarted sample offers the trial by its REAL length; a partially-used sample invites the user to
+    // continue with the minutes that actually remain — so the duration claim is always accurate.
+    const trialMinutes = Math.max(1, Math.round(privateTrialLimitSeconds / 60));
+    const remainingMinutes = Math.max(1, Math.ceil(privateTrialRemainingSeconds / 60));
+    const privateTrialNudgeTitle = privateTrialFresh
+        ? `${trialMinutes}-minute Private trial available`
+        : `Continue with Private — ${remainingMinutes} ${remainingMinutes === 1 ? 'minute' : 'minutes'} remaining`;
     // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
     // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
     const lockedReason =
@@ -567,7 +586,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         className="flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/[0.06] px-3 py-2"
                     >
                         <div className="min-w-0">
-                            <p className="text-[13px] font-bold leading-snug text-foreground">5-minute Private trial available</p>
+                            <p className="text-[13px] font-bold leading-snug text-foreground" data-testid="private-trial-nudge-title">{privateTrialNudgeTitle}</p>
                             <p className="text-[11px] font-medium leading-snug text-muted-foreground">Audio stays on this device.</p>
                         </div>
                         <Button

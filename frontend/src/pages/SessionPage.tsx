@@ -213,14 +213,20 @@ export const SessionPage: React.FC = () => {
         ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
         : 0;
     // #1047 conversion repair: server-authoritative eligibility for the Free→Private trial nudge —
-    // a Free (non-Pro) account with a FRESH, UNSTARTED Private sample. The "5-minute trial" copy must
-    // not overstate a partially-consumed sample, so require the full allotment: not started and none
-    // used. The card combines this with its own runtime/idle/Browser/unlocked state before showing it.
+    // a Free (non-Pro) account whose Private sample is AVAILABLE with time remaining. Partially-used
+    // samples still convert (they get "Continue with Private" copy), so availability — not freshness —
+    // gates the nudge; freshness only chooses the truthful copy variant below. The card combines this
+    // with its own runtime/idle/Browser/unlocked state before showing it.
+    const sampleLimitSeconds = usageLimit?.private_sample_limit_seconds ?? 0;
     const privateTrialAvailable = !!usageLimit && usageLimit.is_pro !== true
         && usageLimit.private_sample_available === true
-        && privateSampleSecondsRemaining > 0
-        && (usageLimit.private_sample_seconds_used ?? 0) === 0
-        && usageLimit.private_sample_started_at == null;
+        && privateSampleSecondsRemaining > 0;
+    // FRESH = full, unstarted allotment — the only state where "N-minute trial available" is truthful.
+    const privateTrialFresh = privateTrialAvailable
+        && (usageLimit?.private_sample_seconds_used ?? 0) === 0
+        && usageLimit?.private_sample_started_at == null
+        && sampleLimitSeconds > 0
+        && privateSampleSecondsRemaining === sampleLimitSeconds;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
         ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
@@ -354,6 +360,9 @@ export const SessionPage: React.FC = () => {
                                     canUsePrivate={canUsePrivateStt}
                                     isPaidProUser={usageLimit?.is_pro === true}
                                     privateTrialAvailable={privateTrialAvailable}
+                                    privateTrialFresh={privateTrialFresh}
+                                    privateTrialRemainingSeconds={privateSampleSecondsRemaining}
+                                    privateTrialLimitSeconds={sampleLimitSeconds}
                                     canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
                                     // Post-save, StatusNotificationBar owns the "Session saved" message. Suppress the
