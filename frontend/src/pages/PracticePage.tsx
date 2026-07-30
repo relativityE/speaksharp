@@ -27,10 +27,10 @@ import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/componen
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
+import { useHomeStreak } from '@/components/practice/useHomeStreak';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
 import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
-import { useUsageLimit } from '@/hooks/useUsageLimit';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
@@ -152,12 +152,10 @@ export default function PracticePage() {
   // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
   const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
   const lastSession = recentSessions && recentSessions.length > 0 ? recentSessions[0] : null;
-  // #1047: the ONLY accepted streak evidence is the persisted check-usage-limit value. This is the
-  // same cached query the nav already runs — no new request is issued for Home.
-  // isError matters: React Query KEEPS the previous `data` when a background refetch fails, so a
-  // last-known streak would otherwise be presented as current with no signal. On failure we withhold
-  // the value entirely, which drops the chip rather than asserting a stale fact.
-  const { data: usageLimit, isError: usageLimitFailed } = useUsageLimit();
+  // #1093: the streak is now server-authoritative (get_practice_streak, #1098) — NOT the dead
+  // check-usage-limit.streak_count and NOT a localStorage guess. Keyed by user id with stale-response
+  // protection; the chip is always visible (loading → skeleton, else a settled label).
+  const { streak: homeStreak, loading: homeStreakLoading } = useHomeStreak(user?.id ?? null);
   // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
   const [notifyOpen, setNotifyOpen] = React.useState(false);
@@ -221,7 +219,8 @@ export default function PracticePage() {
       lastSession={lastSession}
       recentLoading={recentLoading}
       recentFailed={Boolean(recentError)}
-      streakCount={usageLimitFailed ? undefined : usageLimit?.streak_count}
+      streak={homeStreak}
+      streakLoading={homeStreakLoading}
       onStartFreestyle={startFreestyle}
       onNotifyGuided={openNotify}
       onReviewLastSession={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}

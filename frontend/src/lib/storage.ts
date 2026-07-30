@@ -310,6 +310,83 @@ export const getAnalyticsSummary = async (userId: string): Promise<AnalyticsSumm
 };
 
 /**
+ * Server-authoritative practice-streak DTO, returned by the `get_practice_streak` RPC
+ * (migration 20260730000000). This is the STORAGE/DOMAIN type — presentation (`homeEvidence.ts`)
+ * imports it from here, never the reverse. The COUNT is derived on read from durably saved sessions;
+ * it is never a stored counter and never a localStorage guess.
+ */
+export type PracticeStreak = {
+  state: 'active' | 'none' | 'unavailable';
+  count: number;
+  lastQualifyingDate: string | null;
+  timezone: string | null;
+};
+
+/** Fail-closed "unavailable" streak — the safe resolved value for a null/invalid tz or a bad response. */
+export const STREAK_UNAVAILABLE: PracticeStreak = {
+  state: 'unavailable', count: 0, lastQualifyingDate: null, timezone: null,
+};
+
+/**
+ * Structurally validate an RPC payload into a PracticeStreak. A malformed/unknown-shape response is
+ * mapped to `unavailable` (never trusted blindly, never rendered as a number). Only a well-formed
+ * object with a known `state` and a finite non-negative `count` is accepted.
+ */
+export function toPracticeStreak(raw: unknown): PracticeStreak {
+  if (!raw || typeof raw !== 'object') return STREAK_UNAVAILABLE;
+  const r = raw as Record<string, unknown>;
+  const state = r.state;
+  if (state !== 'active' && state !== 'none' && state !== 'unavailable') return STREAK_UNAVAILABLE;
+  const count = typeof r.count === 'number' && Number.isFinite(r.count) && r.count >= 0 ? Math.floor(r.count) : 0;
+  const timezone = typeof r.timezone === 'string' ? r.timezone : null;
+  const lastQualifyingDate = typeof r.lastQualifyingDate === 'string' ? r.lastQualifyingDate : null;
+  return { state, count, lastQualifyingDate, timezone };
+}
+
+/**
+ * Server-authoritative practice streak (#1093). Calls the `get_practice_streak` RPC: SECURITY INVOKER,
+ * no caller-supplied id — identity is the caller's own `auth.uid()`. Returns a validated PracticeStreak;
+ * a server error or a malformed response resolves to `STREAK_UNAVAILABLE` so the Home chip fails closed
+ * to "Streak unavailable" (never hidden, never a guess). The raw error is logged for diagnostics.
+ */
+export const getPracticeStreak = async (): Promise<PracticeStreak> => {
+  const supabase = getSupabaseClient();
+  try {
+    const { data, error } = await supabase.rpc('get_practice_streak');
+    if (error) {
+      logger.error({ error }, 'Error calling get_practice_streak:'); // preserved for diagnostics
+      return STREAK_UNAVAILABLE;
+    }
+    return toPracticeStreak(data);
+  } catch (err) {
+    logger.error({ err }, '[getPracticeStreak] Failed');
+    return STREAK_UNAVAILABLE;
+  }
+};
+
+/**
+ * Initialize the account-level IANA timezone ONCE from the authenticated browser (#1093). Calls the
+ * `set_user_timezone` RPC (scoped SECURITY DEFINER): it writes only while the stored value is NULL, so
+ * calling it every load is safe and never changes an established timezone. There is NO UTC fallback —
+ * an invalid/absent timezone is left NULL, which the streak reader surfaces as "Streak unavailable".
+ * Returns the effective stored timezone (or null).
+ */
+export const setUserTimezone = async (timezone: string): Promise<string | null> => {
+  const supabase = getSupabaseClient();
+  try {
+    const { data, error } = await supabase.rpc('set_user_timezone', { p_timezone: timezone });
+    if (error) {
+      logger.error({ error }, 'Error calling set_user_timezone:');
+      return null;
+    }
+    return (data as string) ?? null;
+  } catch (err) {
+    logger.error({ err }, '[setUserTimezone] Failed');
+    return null;
+  }
+};
+
+/**
  * Fetches the total count of sessions for a user.
  * @param {string} userId - The ID of the user.
  * @returns {Promise<number>}

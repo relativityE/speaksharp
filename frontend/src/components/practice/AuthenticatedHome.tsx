@@ -36,7 +36,7 @@ import {
     Check, Target, Repeat, type LucideIcon,
 } from 'lucide-react';
 import { NOT_ENOUGH_DATA, NOT_ENOUGH_DATA_COMPACT } from '@/utils/metricValidity';
-import { lastSessionView, streakLabel, type RecentSession } from './homeEvidence';
+import { lastSessionView, streakLabel, type RecentSession, type PracticeStreak } from './homeEvidence';
 
 export type { RecentSession };
 
@@ -280,8 +280,12 @@ export interface AuthenticatedHomeProps {
     recentLoading: boolean;
     /** True when the recent-session read FAILED — must not masquerade as "no sessions". */
     recentFailed: boolean;
-    /** Persisted streak from check-usage-limit. Absent/non-finite ⇒ the chip is not rendered at all. */
-    streakCount: number | null | undefined;
+    /** Server-authoritative streak from `get_practice_streak` (#1098). The chip is ALWAYS rendered;
+     *  `null` here + `streakLoading` false resolves to "Streak unavailable" (never hidden, never 0-day). */
+    streak: PracticeStreak | null;
+    /** True while the streak read is IN FLIGHT (incl. immediately after an account change) — the chip
+     *  shows a shape-preserving skeleton, never a premature label. */
+    streakLoading: boolean;
     onStartFreestyle: () => void;
     onNotifyGuided: () => void;
     onReviewLastSession: () => void;
@@ -289,11 +293,11 @@ export interface AuthenticatedHomeProps {
 }
 
 export function AuthenticatedHome({
-    lastSession, recentLoading, recentFailed, streakCount,
+    lastSession, recentLoading, recentFailed, streak, streakLoading,
     onStartFreestyle, onNotifyGuided, onReviewLastSession, onViewAnalytics,
 }: AuthenticatedHomeProps) {
     const last = lastSessionView(lastSession, { loading: recentLoading, failed: recentFailed });
-    const streak = streakLabel(streakCount);
+    const streakText = streakLabel(streak);
     // Freestyle tiles. "Live" is a capability of the shipped product, not a claim about this user.
     // The other two have no truthful source on Home today, so they say so.
     const freestyleTiles: OutcomeTile[] = [
@@ -334,19 +338,29 @@ export function AuthenticatedHome({
                 {/* The continuity cluster is its own element so it can be scrolled to, hit-tested and
                     screenshotted independently of the (much taller) surface around it. */}
                 <div data-testid="home-continuity-cluster" className="ss-home-anchor flex flex-wrap items-center gap-2.5">
-                    {/* Rendered ONLY when a real persisted streak exists. See streakLabel: nothing in
-                        the backend produces `streak_count`, so in production this chip is absent —
-                        which is the honest outcome, and better than a permanently blank chip. */}
-                    {streak && (
-                        <span
-                            data-testid="home-streak-chip"
-                            className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-bold"
-                            style={{ background: 'var(--ss-home-amber-tint)', color: 'var(--ss-home-amber-ink)' }}
-                        >
-                            <StreakWaveform />
-                            {streak}
-                        </span>
-                    )}
+                    {/* ALWAYS visible (first in the cluster: streak → Last session → Analytics). Backed by
+                        the server-authoritative `get_practice_streak` (#1098). While loading it shows a
+                        shape-preserving skeleton; once resolved it shows exactly one settled label —
+                        `Start your streak` / `1-day streak` / `N-day streak` / `Streak unavailable` —
+                        never `0-day`, never a localStorage guess, never omitted. */}
+                    <span
+                        data-testid="home-streak-chip"
+                        data-streak-state={streakLoading ? 'loading' : (streak?.state ?? 'unavailable')}
+                        aria-busy={streakLoading || undefined}
+                        className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-bold"
+                        style={{ background: 'var(--ss-home-amber-tint)', color: 'var(--ss-home-amber-ink)' }}
+                    >
+                        <StreakWaveform />
+                        {streakLoading ? (
+                            <span
+                                data-testid="home-streak-skeleton"
+                                aria-hidden="true"
+                                className="inline-block h-[13px] w-[92px] animate-pulse rounded bg-current opacity-30"
+                            />
+                        ) : (
+                            streakText
+                        )}
+                    </span>
                     <HeaderButton
                         label="Last session"
                         secondary={last.text}

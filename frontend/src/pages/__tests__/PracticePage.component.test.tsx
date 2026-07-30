@@ -26,9 +26,9 @@ vi.mock('@/contexts/AuthProvider', async (orig) => {
   return { ...actual, useAuthProvider: () => ({ user: mockUser }) };
 });
 
-// #1047: Home reads the persisted streak from the SAME cached check-usage-limit query the nav already
-// runs. Mocked here (this suite renders the page without a QueryClientProvider); the default is "no
-// data yet", which is exactly the case that must render an em-dash rather than a fabricated 0.
+// #1093: Home reads the server-authoritative streak via the get_practice_streak RPC (NOT the dead
+// check_usage_limit.streak_count). In this unit context the RPC does not resolve, so the always-visible
+// chip stays in its shape-preserving loading state.
 vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
@@ -125,10 +125,16 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('the streak chip is absent — nothing in the backend produces streak_count', () => {
+    it('the streak chip is ALWAYS present, backed by get_practice_streak — not check_usage_limit.streak_count', () => {
       mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
       render(<PracticePage />);
-      expect(screen.queryByTestId('home-streak-chip')).not.toBeInTheDocument();
+      // Always visible (never hidden). The server RPC does not resolve in this unit context, so the
+      // chip sits in its shape-preserving loading state — proving it no longer depends on the dead
+      // check_usage_limit.streak_count value (which would have rendered/omitted synchronously).
+      const chip = screen.getByTestId('home-streak-chip');
+      expect(chip).toBeInTheDocument();
+      expect(chip).toHaveAttribute('data-streak-state', 'loading');
+      expect(screen.getByTestId('home-streak-skeleton')).toBeInTheDocument();
     });
   });
 

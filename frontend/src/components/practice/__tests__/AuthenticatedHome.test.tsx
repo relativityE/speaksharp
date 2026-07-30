@@ -11,9 +11,9 @@
 
 import * as React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '../../../../tests/support/test-utils';
+import { render, screen, fireEvent, within, cleanup } from '../../../../tests/support/test-utils';
 import { AuthenticatedHome } from '../AuthenticatedHome';
-import { lastSessionView, streakLabel, type RecentSession } from '../homeEvidence';
+import { lastSessionView, streakLabel, type RecentSession, type PracticeStreak } from '../homeEvidence';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -29,7 +29,8 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof Authenticated
         lastSession: SESSION,
         recentLoading: false,
         recentFailed: false,
-        streakCount: 4,
+        streak: { state: 'active', count: 4, lastQualifyingDate: '2026-07-30', timezone: 'America/New_York' } as PracticeStreak,
+        streakLoading: false,
         onStartFreestyle: vi.fn(),
         onNotifyGuided: vi.fn(),
         onReviewLastSession: vi.fn(),
@@ -133,24 +134,50 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
     });
 
     /*
-     * `streak_count` is declared on the check-usage-limit response but nothing in the backend
-     * produces it (the RPC returns no such key; only the MSW/E2E fixtures inject one). A chip that
-     * can never show a number is decoration, so it must be ABSENT rather than permanently blank.
+     * The streak is server-authoritative (get_practice_streak, #1098). The chip is ALWAYS visible and
+     * shows exactly one settled label — never `0-day`, never a localStorage guess, never omitted.
      */
-    it('streak chip: rendered only with real evidence, omitted otherwise — never a blank chip', () => {
-        expect(streakLabel(4)).toBe('4-day streak');
-        expect(streakLabel(0)).toBe('0-day streak'); // a persisted zero IS evidence
-        expect(streakLabel(undefined)).toBeNull();
-        expect(streakLabel(null)).toBeNull();
-        expect(streakLabel(Number.NaN)).toBeNull();
-
-        renderHome({ streakCount: undefined });
-        expect(screen.queryByTestId('home-streak-chip')).not.toBeInTheDocument();
+    it('streakLabel: the settled table — never 0-day, never null', () => {
+        const mk = (state: PracticeStreak['state'], count: number): PracticeStreak =>
+            ({ state, count, lastQualifyingDate: null, timezone: 'UTC' });
+        expect(streakLabel(mk('active', 1))).toBe('1-day streak');
+        expect(streakLabel(mk('active', 4))).toBe('4-day streak');
+        expect(streakLabel(mk('none', 0))).toBe('Start your streak');
+        expect(streakLabel(mk('unavailable', 0))).toBe('Streak unavailable');
+        // a resolved active-but-zero (defensive) and a null read both avoid "0-day"
+        expect(streakLabel(mk('active', 0))).toBe('Start your streak');
+        expect(streakLabel(null)).toBe('Streak unavailable');
+        expect(streakLabel(undefined)).toBe('Streak unavailable');
     });
 
-    it('streak chip appears when the persisted count is a real number', () => {
-        renderHome({ streakCount: 4 });
-        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('4-day streak');
+    it('streak chip is ALWAYS visible and shows the resolved settled label (multi-day)', () => {
+        renderHome({ streak: { state: 'active', count: 4, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak, streakLoading: false });
+        const chip = screen.getByTestId('home-streak-chip');
+        expect(chip).toHaveTextContent('4-day streak');
+        expect(chip).toHaveAttribute('data-streak-state', 'active');
+    });
+
+    it('streak chip: one-day, none, and unavailable states', () => {
+        renderHome({ streak: { state: 'active', count: 1, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
+        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('1-day streak');
+        cleanup();
+        renderHome({ streak: { state: 'none', count: 0, lastQualifyingDate: null, timezone: 'UTC' } as PracticeStreak });
+        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('Start your streak');
+        cleanup();
+        renderHome({ streak: null, streakLoading: false });
+        expect(screen.getByTestId('home-streak-chip')).toHaveTextContent('Streak unavailable');
+    });
+
+    it('streak chip: while loading shows a shape-preserving skeleton, not a premature label', () => {
+        renderHome({ streak: null, streakLoading: true });
+        const chip = screen.getByTestId('home-streak-chip');
+        expect(chip).toBeInTheDocument();                       // never hidden
+        expect(chip).toHaveAttribute('data-streak-state', 'loading');
+        expect(chip).toHaveAttribute('aria-busy', 'true');
+        expect(screen.getByTestId('home-streak-skeleton')).toBeInTheDocument();
+        expect(chip).not.toHaveTextContent('Start your streak');
+        expect(chip).not.toHaveTextContent('Streak unavailable');
+        expect(chip).not.toHaveTextContent('0-day');
     });
 
     it('last session: composed from persisted columns only; a null duration never becomes 0:00', () => {

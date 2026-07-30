@@ -80,20 +80,25 @@ export function lastSessionView(
         : { state: 'present', text: NOT_ENOUGH_DATA_COMPACT, compact: true, canReview: true };
 }
 
+// The PracticeStreak RPC DTO lives in the storage/domain layer; presentation consumes it (never the
+// reverse). Re-exported so existing `homeEvidence` importers keep resolving the same type.
+export type { PracticeStreak } from '@/lib/storage';
+import type { PracticeStreak } from '@/lib/storage';
+
 /**
- * Streak text — or `null`, meaning "render nothing at all".
- *
- * `streak_count` is declared on the check-usage-limit response type but NOTHING produces it: the edge
- * function blind-casts the RPC result and `public.check_usage_limit` returns no streak key, so in
- * production the value is permanently absent. (`git grep -i streak backend/` finds only that dead
- * interface line; the MSW and E2E fixtures inject `streak_count: 0`, which is why it appears to work
- * in dev and in screenshots.) A chip that can never show a number is decoration, not an honest
- * placeholder, so it is omitted entirely rather than rendered as a permanent em-dash. The localStorage
- * streak in `useStreak` is a client-side guess and is deliberately NOT substituted here.
- *
- * A persisted `0` IS evidence ("no current streak") and is rendered. Server-side streak persistence is
- * a separate follow-up, not this PR.
+ * Streak chip text — the chip is ALWAYS visible (never hidden, never null). Settled label table:
+ *   | active, count 1     | `1-day streak`     |
+ *   | active, count >= 2  | `N-day streak`     |
+ *   | none / lapsed       | `Start your streak`|
+ *   | unavailable / read failure / null timezone | `Streak unavailable` |
+ * NEVER `0-day streak`. A missing/failed read is surfaced honestly as "Streak unavailable", not hidden.
+ * `null`/`undefined` here means the read has not resolved to a state yet or failed → "Streak unavailable"
+ * is the fail-closed label (the component shows a loading affordance while the query is in flight).
  */
-export function streakLabel(streakCount: number | null | undefined): string | null {
-    return isValidMetric(streakCount) ? `${Number(streakCount)}-day streak` : null;
+export function streakLabel(streak: PracticeStreak | null | undefined): string {
+    if (!streak || streak.state === 'unavailable') return 'Streak unavailable';
+    if (streak.state === 'active' && streak.count >= 1) {
+        return streak.count === 1 ? '1-day streak' : `${streak.count}-day streak`;
+    }
+    return 'Start your streak'; // 'none', lapsed, or a non-positive count
 }
