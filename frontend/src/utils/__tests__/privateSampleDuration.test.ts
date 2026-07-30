@@ -41,7 +41,8 @@ describe('privateSampleDuration — server-derived, never-overstating duration c
         expect(formatTrialRemainingTitle(Number.POSITIVE_INFINITY)).toBeNull();
     });
 
-    it('recording cap line uses the SAME whole-minute source (no hard-coded 5)', () => {
+    it('recording cap line uses the SAME whole-minute source (no hard-coded 5) with correct plurals', () => {
+        expect(formatSampleCapLine(60)).toBe('Private sample: up to 1 minute. We’ll stop and save when the sample ends.'); // singular, not "1 minutes"
         expect(formatSampleCapLine(300)).toBe('Private sample: up to 5 minutes. We’ll stop and save when the sample ends.');
         expect(formatSampleCapLine(600)).toBe('Private sample: up to 10 minutes. We’ll stop and save when the sample ends.');
         expect(formatSampleCapLine(330)).toBe('Private sample. We’ll stop and save when the sample ends.'); // no false number
