@@ -123,17 +123,22 @@ describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion rep
         expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('10-minute Private trial available');
     });
 
-    it('PARTIALLY-USED sample: converts with truthful "Continue with Private — X minutes remaining" copy', () => {
-        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={120} privateTrialLimitSeconds={300} />);
+    it('PARTIALLY-USED sample: converts with truthful, FLOORED "Continue with Private" copy', () => {
+        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={125} privateTrialLimitSeconds={300} />);
         const nudge = screen.getByTestId('private-trial-nudge');
         expect(nudge).toBeInTheDocument(); // still offered — a partial sample must not lose the conversion
-        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — 2 minutes remaining');
+        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — about 2 minutes remaining');
         expect(nudge).not.toHaveTextContent('trial available'); // never overstate a full trial
     });
 
-    it('partial with under a minute left rounds UP and stays singular-correct', () => {
+    it('partial time FLOORS (never overstates): 61s reads "about 1 minute", not "2 minutes"', () => {
+        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={61} privateTrialLimitSeconds={300} />);
+        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — about 1 minute remaining');
+    });
+
+    it('partial with under a minute left collapses to "less than a minute remaining"', () => {
         render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={40} privateTrialLimitSeconds={300} />);
-        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — 1 minute remaining');
+        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — less than a minute remaining');
     });
 
     it.each([

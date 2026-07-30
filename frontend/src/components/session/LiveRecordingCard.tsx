@@ -17,6 +17,7 @@ import { ModeDescriptionFlyout, STT_FLYOUT_ID } from './ModeDescriptionFlyout';
 import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
 import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
+import { formatTrialAllotmentTitle, formatTrialRemainingTitle } from '@/utils/privateSampleDuration';
 
 
 export type RecordingMode = 'cloud' | 'native' | 'private' | 'mock';
@@ -163,14 +164,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
         handleModeChange('private');
     };
-    // Truthful nudge copy from the SERVER-reported allotment/remaining (never a hard-coded 5): a FULL,
-    // unstarted sample offers the trial by its REAL length; a partially-used sample invites the user to
-    // continue with the minutes that actually remain — so the duration claim is always accurate.
-    const trialMinutes = Math.max(1, Math.round(privateTrialLimitSeconds / 60));
-    const remainingMinutes = Math.max(1, Math.ceil(privateTrialRemainingSeconds / 60));
+    // Truthful nudge copy from the SERVER-reported allotment/remaining, via the shared conservative
+    // formatter (never a hard-coded 5, never a rounded-up overstatement): a FULL, unstarted sample
+    // offers the trial by its real whole-minute length; a partially-used sample invites the user to
+    // continue with the minutes that actually remain (floored).
     const privateTrialNudgeTitle = privateTrialFresh
-        ? `${trialMinutes}-minute Private trial available`
-        : `Continue with Private — ${remainingMinutes} ${remainingMinutes === 1 ? 'minute' : 'minutes'} remaining`;
+        ? formatTrialAllotmentTitle(privateTrialLimitSeconds)
+        : formatTrialRemainingTitle(privateTrialRemainingSeconds);
     // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
     // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
     const lockedReason =

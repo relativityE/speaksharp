@@ -26,6 +26,7 @@ import {
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
+import { formatSampleCapLine } from '@/utils/privateSampleDuration';
 
 /**
  * ARCHITECTURE:
@@ -228,7 +229,7 @@ export const SessionPage: React.FC = () => {
         && sampleLimitSeconds > 0
         && privateSampleSecondsRemaining === sampleLimitSeconds;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
-        ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
+        ? formatSampleCapLine(sampleLimitSeconds)
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
             ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
         : undefined;
