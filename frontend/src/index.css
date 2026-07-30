@@ -68,6 +68,21 @@ All colors MUST be HSL.
     --shadow-card-primary: 0 2px 4px rgba(15, 23, 42, 0.08), 0 16px 40px rgba(15, 23, 42, 0.12);
     --shadow-cta: 0 4px 12px rgba(180, 92, 5, 0.26), 0 8px 18px rgba(180, 92, 5, 0.20);
 
+    /*
+     * Primary-nav active-page tint. Deliberately NOT the solid brand teal (--accent):
+     * a solid teal pill competes with the page's primary CTA. This is a quiet tint with
+     * a dark-teal label.
+     *
+     * Darkened deliberately: at 92% lightness the tint was ~1.14:1 against the white header
+     * and the two label colours differed by ~1.19:1, so the state read as hue alone — weak
+     * for deuteranopia/protanopia and on dim or sunlit displays. The tint is now ~1.5:1
+     * against white and the labels ~1.6:1 apart, while active text keeps ~7:1 on the pill.
+     */
+    --nav-active-bg: 176 42% 78%;
+    --nav-active-fg: 176 80% 16%;
+    --nav-item-fg: 217 19% 40%;
+    --nav-item-fg-hover: 222 47% 11%;
+
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
     --toast-offset-top: calc(var(--header-height) + 0.75rem);
@@ -123,7 +138,51 @@ All colors MUST be HSL.
     --chart-3: 160 84% 30%;
     --chart-4: 220 9% 46%;
     --chart-5: 0 72% 51%;
+
+    --nav-active-bg: 176 40% 20%;
+    --nav-active-fg: 176 55% 80%;
+    --nav-item-fg: 215 18% 72%;
+    --nav-item-fg-hover: 210 35% 96%;
   }
+}
+
+/*
+ * Primary navigation items.
+ *
+ * ONLY background-color and color may differ between the active and inactive states.
+ * Every geometry property (padding, radius, font-size, font-weight, gap) is declared
+ * once here, on the base class, so switching pages cannot reflow the nav bar.
+ */
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 9px 13px;
+  border-radius: 9px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background-color: transparent;
+  color: hsl(var(--nav-item-fg));
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* Hover on an inactive item darkens the label only — a hover background would read as active. */
+.nav-item:hover {
+  color: hsl(var(--nav-item-fg-hover));
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* One signal only: a quiet tinted pill. No underline / bottom border / bar indicator. */
+.nav-item--active,
+.nav-item--active:hover {
+  background-color: hsl(var(--nav-active-bg));
+  color: hsl(var(--nav-active-fg));
 }
 
 /* Utility classes for specific visual effects */
