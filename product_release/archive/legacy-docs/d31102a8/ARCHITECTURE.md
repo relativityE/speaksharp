@@ -2,6 +2,8 @@
 
 > ⚠️ **HISTORICAL / NON-AUTHORITATIVE.** Pinned copy of `docs/ARCHITECTURE.md` at commit `d31102a8` (2026-05-17). Read-only migration source for the doc-canonicalization effort — **not** current product truth. Current authority: `product_release/README.md`. Do not edit.
 
+> **Sanitization note (2026-07-30):** Local file-URI prefixes were replaced with commit-pinned GitHub URLs. Historical prose and the referenced commit remain unchanged; the original source remains recoverable from Git history.
+
 ---
 
 **Owner:** [unassigned]
@@ -301,11 +303,11 @@ The following critical features are fully implemented and production-ready:
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
-| **Sentry Error Tracking** | ✅ Complete | Full initialization with browser tracing, session replay (10% sampling), and 100% error replay | [`main.tsx:50-68`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L50-L68) |
-| **Console Logging Integration** | ✅ Complete | `consoleLoggingIntegration` captures `console.error`/`warn` → Sentry. Since Pino uses `pino-pretty`, all `logger.error()` calls are now sent to Sentry | [`main.tsx:57-61`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L57-L61) |
-| **React Error Boundary** | ✅ Complete | `Sentry.ErrorBoundary` wraps entire `<App/>` component with user-friendly fallback | [`main.tsx:111-113`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L111-L113) |
-| **Component Error Boundary** | ✅ Complete | `LocalErrorBoundary` wraps specific high-risk components (e.g. `LiveRecordingCard`) to prevent full app crashes | [`LocalErrorBoundary.tsx`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/LocalErrorBoundary.tsx) |
-| **E2E Test Isolation** | ✅ Complete | Sentry/PostHog disabled in `IS_TEST_ENVIRONMENT` to prevent test pollution | [`main.tsx:47, 83-85`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx#L47) |
+| **Sentry Error Tracking** | ✅ Complete | Full initialization with browser tracing, session replay (10% sampling), and 100% error replay | [`main.tsx:50-68`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/main.tsx#L50-L68) |
+| **Console Logging Integration** | ✅ Complete | `consoleLoggingIntegration` captures `console.error`/`warn` → Sentry. Since Pino uses `pino-pretty`, all `logger.error()` calls are now sent to Sentry | [`main.tsx:57-61`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/main.tsx#L57-L61) |
+| **React Error Boundary** | ✅ Complete | `Sentry.ErrorBoundary` wraps entire `<App/>` component with user-friendly fallback | [`main.tsx:111-113`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/main.tsx#L111-L113) |
+| **Component Error Boundary** | ✅ Complete | `LocalErrorBoundary` wraps specific high-risk components (e.g. `LiveRecordingCard`) to prevent full app crashes | [`LocalErrorBoundary.tsx`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/components/LocalErrorBoundary.tsx) |
+| **E2E Test Isolation** | ✅ Complete | Sentry/PostHog disabled in `IS_TEST_ENVIRONMENT` to prevent test pollution | [`main.tsx:47, 83-85`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/main.tsx#L47) |
 
 > **Error Boundary Implementation Details:**
 > The application uses `Sentry.ErrorBoundary` as the global error boundary, wrapping the entire React component tree. When any child component throws an error:
@@ -370,18 +372,18 @@ try {
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
-| **Exponential Backoff Reconnect** | ✅ Complete | Automatic reconnection with delays: 1s → 2s → 4s → 8s → max 30s | [`CloudAssemblyAI.ts:234-246`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L234-L246) |
-| **Max Retry Limit** | ✅ Complete | Stops after 5 failed attempts to prevent infinite loops | [`CloudAssemblyAI.ts:228-232`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L228-L232) |
-| **Heartbeat Monitoring** | ✅ Complete | 30-second interval health checks detect dead connections | [`CloudAssemblyAI.ts:252-269`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L252-L269) |
-| **Connection State Callback** | ✅ Complete | UI can subscribe to `'connected' | 'reconnecting' | 'disconnected' | 'error'` states | [`CloudAssemblyAI.ts:28, 275-278`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L28) |
-| **Manual Stop Detection** | ✅ Complete | `isManualStop` flag prevents unwanted reconnects on user-initiated stop | [`CloudAssemblyAI.ts:50, 180-181, 222-226`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L50) |
+| **Exponential Backoff Reconnect** | ✅ Complete | Automatic reconnection with delays: 1s → 2s → 4s → 8s → max 30s | [`CloudAssemblyAI.ts:234-246`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L234-L246) |
+| **Max Retry Limit** | ✅ Complete | Stops after 5 failed attempts to prevent infinite loops | [`CloudAssemblyAI.ts:228-232`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L228-L232) |
+| **Heartbeat Monitoring** | ✅ Complete | 30-second interval health checks detect dead connections | [`CloudAssemblyAI.ts:252-269`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L252-L269) |
+| **Connection State Callback** | ✅ Complete | UI can subscribe to `'connected' | 'reconnecting' | 'disconnected' | 'error'` states | [`CloudAssemblyAI.ts:28, 275-278`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L28) |
+| **Manual Stop Detection** | ✅ Complete | `isManualStop` flag prevents unwanted reconnects on user-initiated stop | [`CloudAssemblyAI.ts:50, 180-181, 222-226`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/modes/CloudAssemblyAI.ts#L50) |
 
 #### Supabase Profile Fetch Resilience
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
-| **fetchWithRetry Utility** | ✅ Complete | Generic retry wrapper with exponential backoff (100ms → 200ms → 400ms → 800ms → 1600ms) | [`utils/fetchWithRetry.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/utils/fetchWithRetry.ts) |
-| **AuthProvider Integration** | ✅ Complete | Profile fetch wrapped with 5 retries to handle cold starts | [`AuthProvider.tsx:65-92`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/contexts/AuthProvider.tsx#L65-L92) |
+| **fetchWithRetry Utility** | ✅ Complete | Generic retry wrapper with exponential backoff (100ms → 200ms → 400ms → 800ms → 1600ms) | [`utils/fetchWithRetry.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/utils/fetchWithRetry.ts) |
+| **AuthProvider Integration** | ✅ Complete | Profile fetch wrapped with 5 retries to handle cold starts | [`AuthProvider.tsx:65-92`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/contexts/AuthProvider.tsx#L65-L92) |
 
 ### 3. Testing Strategy & Governance
 
@@ -624,8 +626,8 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
-| **UsageLimitResponse** | ✅ Complete | Type-safe API contract for usage limit checks | [`_shared/types.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/backend/supabase/functions/_shared/types.ts) |
-| **Frontend Path Mapping** | ✅ Complete | `@shared/*` alias in tsconfig | [`tsconfig.json:24-26`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tsconfig.json#L24-L26) |
+| **UsageLimitResponse** | ✅ Complete | Type-safe API contract for usage limit checks | [`_shared/types.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/backend/supabase/functions/_shared/types.ts) |
+| **Frontend Path Mapping** | ✅ Complete | `@shared/*` alias in tsconfig | [`tsconfig.json:24-26`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/tsconfig.json#L24-L26) |
 
 > **Import Patterns:**
 > - **Frontend:** `import { UsageLimitResponse } from '@shared/types'`
@@ -635,7 +637,7 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 
 | Feature | Status | Implementation | Evidence |
 |---------|--------|----------------|----------|
-| **Price ID Fallback** | ✅ Complete | `?? "price_mock_default"` when env var missing | [`stripe-checkout/index.ts:71`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/backend/supabase/functions/stripe-checkout/index.ts#L71) |
+| **Price ID Fallback** | ✅ Complete | `?? "price_mock_default"` when env var missing | [`stripe-checkout/index.ts:71`](https://github.com/relativityE/speaksharp/blob/d31102a8/backend/supabase/functions/stripe-checkout/index.ts#L71) |
 
 > **Environment Resolution:**
 > | Environment | Source |
@@ -766,10 +768,10 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 | **L2** | IndexedDB | Compiled WASM module (device-specific) |
 
 **Related Files:**
-- [`PrivateSTT.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts) - Facade & Selector
-- [`WhisperTurboEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/WhisperTurboEngine.ts) - Fast Path Adapter
-- [`TransformersJSEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/TransformersJSEngine.ts) - Safe Path Adapter
-- [`MockEngine.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/MockEngine.ts) - Reliable Test Adapter
+- [`PrivateSTT.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/engines/PrivateSTT.ts) - Facade & Selector
+- [`WhisperTurboEngine.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/engines/WhisperTurboEngine.ts) - Fast Path Adapter
+- [`TransformersJSEngine.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/engines/TransformersJSEngine.ts) - Safe Path Adapter
+- [`MockEngine.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/engines/MockEngine.ts) - Reliable Test Adapter
 
 **Testing Note:**
 > WhisperTurbo requires COOP/COEP headers (`crossOriginIsolated === true`) and cannot be validated in dev E2E.  
@@ -954,7 +956,7 @@ Tests MUST wait for this signal via `window.micStream.state === 'ready'` before 
 
 |Scenario|Behavior|Implementation|
 |---|---|---|
-|**Initialization Failure**|Auto-fallback to Native Browser STT|[`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts)|
+|**Initialization Failure**|Auto-fallback to Native Browser STT|[`TranscriptionService.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/TranscriptionService.ts)|
 |**Model Load Timeout**|**Removed.** The service now waits for the full download/load cycle regardless of network speed, preventing "First Load" crashes. User sees progress updates during the wait.|`PrivateSTT.ts` / `WhisperTurboEngine.ts`|
 |**Silence Hallucination**|**Dropped via Adaptive Noise Floor.** Discards silent chunks (< 1% energy / RMS < 0.01) *before* they reach the model, eliminating `[inaudible]` or `[blank audio]` hallucinations. Threshold adapts to environmental noise levels.|`PauseDetector.ts`|
 |**Hardware Race Condition**|**Synchronous Release.** Microphone is stopped immediately during `destroy()`, preventing "Device Busy" errors on session restart.|`TranscriptionService.ts`|
@@ -1848,14 +1850,14 @@ http://localhost:5173/session?devBypass=true
 3. Provides full Pro-tier access to all features
 
 **Implementation:**
-- [`AuthProvider.tsx:59-77`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/contexts/AuthProvider.tsx#L59-L77) - Creates mock session
-- [`useUserProfile.ts:35-46`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useUserProfile.ts#L35-L46) - Returns mock profile, disables fetch
+- [`AuthProvider.tsx:59-77`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/contexts/AuthProvider.tsx#L59-L77) - Creates mock session
+- [`useUserProfile.ts:35-46`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/hooks/useUserProfile.ts#L35-L46) - Returns mock profile, disables fetch
 
 **Important:** Only works in development mode (`import.meta.env.DEV`).
 
 #### ⚠️ Landing Page Redirect Delay (2025-12-23)
 
-> **CONFIGURABLE:** `LANDING_PAGE_DISPLAY_MS` in [`Index.tsx`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/Index.tsx)
+> **CONFIGURABLE:** `LANDING_PAGE_DISPLAY_MS` in [`Index.tsx`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/pages/Index.tsx)
 
 When an **authenticated user** navigates to the **landing page** (`/`), the app displays the landing page for a configurable delay before auto-redirecting to `/session`.
 
@@ -1901,7 +1903,7 @@ stripe listen --forward-to localhost:5173/api/webhook
 
 #### Vercel Deployment Configuration
 
-The [`vercel.json`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/vercel.json) configures production deployment:
+The [`vercel.json`](https://github.com/relativityE/speaksharp/blob/d31102a8/vercel.json) configures production deployment:
 
 ```json
 {
@@ -2977,9 +2979,9 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 | `E2E_DETERMINISTIC_PRIVATE` | Private only | E2E tests (Whisper validation) |
 
 **Key Files:**
-- [`SpeechRuntimeController.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/SpeechRuntimeController.ts) - Central state mediator and command serializer.
-- [`TranscriptionPolicy.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionPolicy.ts) - Policy interface and helpers
-- [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) - Unified service layer
+- [`SpeechRuntimeController.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/SpeechRuntimeController.ts) - Central state mediator and command serializer.
+- [`TranscriptionPolicy.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/TranscriptionPolicy.ts) - Policy interface and helpers
+- [`TranscriptionService.ts`](https://github.com/relativityE/speaksharp/blob/d31102a8/frontend/src/services/transcription/TranscriptionService.ts) - Unified service layer
 
 *   **Modes:**
     *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
