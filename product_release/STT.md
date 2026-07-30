@@ -19,10 +19,10 @@ Canonical, per-engine statement of how each speech-to-text engine must behave: w
 
 | User-facing name | Internal engine token | Tier eligibility | Default? |
 |---|---|---|---|
-| **Browser** | `native` | Free convenience path (all authenticated users) | No — the free quick-start path |
-| **Cloud** | `cloud` (AssemblyAI Universal-3) | **Paid-Pro only**; never offered to Free testers in the no-billing beta | No |
-| **Private (v2)** | `private` / `private-v2` (Whisper base.en, on-device) | Recommended default; all authenticated users | **Yes — the recommended, default Private engine** |
-| **Private v4** | `private-v4` (Whisper WebGPU) | **OFF — research only** | No — hard-disabled |
+| **Browser** | `native` | All authenticated users (the free convenience path) | **Yes — the mode a new session starts on** (`defaultMode = 'native'`, `useSessionLifecycle.ts`), for zero-setup quick start |
+| **Cloud** | `cloud` (AssemblyAI Universal-Streaming) | **Pro-entitled only** (real Stripe subscription id, or a comped/QA synthetic id per `ENTITLEMENTS_AND_BILLING.md` §6); never live-charged in the beta; never offered to un-entitled Free testers | No |
+| **Private (v2)** | `private` / persisted `private_v2` (e.g. `private_v2:whisper-base.en`, Whisper base.en, on-device) | **Pro, OR an active one-time Free Private sample** (`canUsePrivateStt = isPro \|\| hasActivePrivateSample`, `useSessionLifecycle.ts`) — **not** all authenticated users | No auto-start — the **recommended** higher-quality engine, selected once entitled |
+| **Private v4** | `private_v4` (Whisper WebGPU) | **OFF — research only** | No — hard-disabled |
 
 Naming is a product decision owned by `PRODUCT_REQUIREMENTS.md`; the internal token / telemetry / DB value is stable and separate (e.g. Browser's DB value remains `native`).
 
@@ -57,7 +57,7 @@ STT targets in this document are **internal SLOs / quality targets on controlled
 
 ## Browser (`native`)
 
-- **Purpose & eligibility.** The free, zero-setup quick-start path — the browser's own speech recognition. Available to all authenticated users; it is the free convenience option, not the recommended-quality path.
+- **Purpose & eligibility.** The free, zero-setup quick-start path — the browser's own speech recognition. Available to all authenticated users, and it is the **default mode a new session starts on** (`defaultMode = 'native'`). It is the free convenience option, not the recommended-quality path (Private is recommended once the user is entitled).
 - **Audio/data route & privacy.** Uses the browser's built-in `SpeechRecognition`. Audio handling is the **browser vendor's**, not SpeakSharp's — depending on the browser this may send audio off-device to the vendor's servers. Copy must therefore **not** claim on-device/private for Browser (that is Private's guarantee). Approved description: *"Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended."*
 - **Lifecycle.** `continuous=true`, `interimResults=true`; interim results display live, a committed final replaces them on stop. A committed final plus a same/case/punctuation-variant pending interim must **not** be appended (duplicate-on-stop regression guard, `NativeBrowser.test.ts`).
 - **Supported conditions.** Chrome recommended; availability/accuracy vary by browser and OS. No offline guarantee.
@@ -67,9 +67,9 @@ STT targets in this document are **internal SLOs / quality targets on controlled
 
 ## Cloud (`cloud`, AssemblyAI Universal-3)
 
-- **Purpose & eligibility.** Highest-accuracy streaming transcription for paid users. **Paid-Pro only.** Not offered to Free testers during the no-billing beta (existing paid-Pro accounts retain access). Requires a real Stripe-backed Pro entitlement (see `ENTITLEMENTS_AND_BILLING.md`).
+- **Purpose & eligibility.** Highest-accuracy streaming transcription for entitled users. **Pro-entitled only** — where "Pro" is `subscription_status = 'pro'` **AND** a `stripe_subscription_id` (a real Stripe subscription, or a **comped/QA synthetic id** per `ENTITLEMENTS_AND_BILLING.md` §6; **never a live charge** in the beta). Not offered to un-entitled Free testers; entered only by explicit user selection, never as a silent fallback.
 - **Audio/data route & privacy.** Audio is streamed to **AssemblyAI** (third-party processor). Copy must state that audio leaves the device to the provider — it is **not** private/on-device.
-- **Lifecycle.** Follows the AssemblyAI v3 streaming sequence (prompt/keyterms, streaming partials, post-Terminate tail handling).
+- **Lifecycle.** Uses the AssemblyAI Universal-Streaming model — the production provider builds `speech_model=universal-streaming-english` — with streaming partials and post-Terminate tail handling. It **intentionally sends neither `prompt` nor `keyterms`** (those params are unproven for this route and are deliberately omitted, `CloudAssemblyAI.test.ts`).
 - **Supported conditions.** Requires network + a valid `ASSEMBLYAI_API_KEY` / Pro entitlement; unavailable offline.
 - **Metrics & validity.** Approved streaming target: **91.86% accuracy / 8.14% WER** (AssemblyAI published English streaming benchmark, cited; `tests/STT_BENCHMARKS.json`). SLO quality target: **Cloud STT WER < 8% on controlled fixtures** (`SERVICE_LEVELS.operational.md`). Pre-recorded/batch (e.g. 95%) is **stretch-only, `UNPROVEN`**. Provider/model/version must be recorded with any evidence.
 - **Failure behavior.** **Never a silent fallback target** — no other engine's failure may quietly route to Cloud, and Cloud's own failure fails visibly. Provider/network errors surface honestly.
@@ -77,7 +77,7 @@ STT targets in this document are **internal SLOs / quality targets on controlled
 
 ## Private v2 (`private` / `private-v2`, Whisper base.en, on-device) — DEFAULT
 
-- **Purpose & eligibility.** The **recommended default** Private engine: local-first, privacy-preserving transcription for all authenticated users. Multi-threaded WASM is enabled in production via cross-origin isolation (#1043).
+- **Purpose & eligibility.** The **recommended** Private engine: local-first, privacy-preserving transcription. It is **entitlement-gated — available to Pro users OR a user with an active one-time Free Private sample** (`canUsePrivateStt = isPro || hasActivePrivateSample`, `useSessionLifecycle.ts`); it is **not** available to every authenticated user, and it is not the auto-start default (a new session starts on Browser until Private is selected). Multi-threaded WASM is enabled in production via cross-origin isolation (#1043).
 - **Audio/data route & privacy.** Runs **on-device in the browser** (WASM). **Practice audio stays on the device**; only the resulting transcript is saved with the session. This is the sole engine that may make the on-device/private claim.
 - **Lifecycle.** Model loads locally (from `/models/`); provisional text streams during recording via chunk inference; on stop, a whole-utterance finalization produces the durable transcript. Live decode-window capping, silence-tail capping, and a warm-engine idle-reset guard bound live latency.
 - **Finalization latency (accepted planning risk — NOT a measured p95).** A ~5-minute Private recording may take on the order of **~90 seconds** to finalize after stop. This is an **accepted planning-budget risk, explicitly not a measured p95**; it must not be published as a performance guarantee. Real p95 finalization requires the STT evidence orchestrator (#1037) instrumentation, which is not yet built.
