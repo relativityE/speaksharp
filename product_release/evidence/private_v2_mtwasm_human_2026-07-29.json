@@ -35,6 +35,6 @@
   "no_transcript_text": true,
   "related": {
     "controlled_mt_evidence": "#1085 controlled MT-WASM showed 1.7-2.2x faster decode with byte-identical transcripts (performance improved, WER unchanged)",
-    "supersedes_planning_budget": "the earlier pre-MT ~90s finalization planning budget (not a measured p95)"
+    "contextualizes_planning_budget": "This n=1 MT-WASM observation is FASTER than the earlier pre-MT ~90s estimate but does NOT replace that conservative planning bound and does NOT establish a percentile (no p50/p95). It contextualizes the budget; it does not supersede it."
   }
 }
