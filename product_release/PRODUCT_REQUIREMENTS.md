@@ -5,7 +5,7 @@
 **Applies To:** The SpeakSharp beta product — individual speaking practice. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** The source for user-visible product guarantees, failure behavior, non-goals, and the feature contract.
-**Not Authoritative For:** tier / entitlement / quota / billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); the Session Progress / scoring model, its formulas and presentation (→ `COACHING_SCORE.md`); STT runtime and data contracts, baselines, accuracy, and SLOs (→ `STT.md`); structural design, persisted schema, and retention (→ `ARCHITECTURE.md`); deferred / future sequencing (→ `ROADMAP.md`); current release & deployment status (→ `RELEASE_STATUS.md`).
+**Not Authoritative For:** tier / entitlement / quota / billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); the Session Progress / scoring model, its formulas and presentation (→ `PROGRESS_AND_NEXT_ACTION.md`); STT runtime and data contracts, baselines, accuracy, and SLOs (→ `STT.md`); structural design, persisted schema, and retention (→ `ARCHITECTURE.md`); deferred / future sequencing (→ `ROADMAP.md`); current release & deployment status (→ `RELEASE_STATUS.md`).
 **Supersedes:** `PRD.operational.md` and `PRODUCT_FEATURES.operational.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §2 / §3.B extraction mapping; the `frontend/` and `backend/` code paths cited inline; freshness-labeled competitive references (Product Owner-cited, not independently verified by Engineering).
 
@@ -44,7 +44,7 @@ Requirements:
 - Progress is measured against the user's **own** baseline and self-selected/accepted targets — SpeakSharp must **not** grade the person against an unexplained universal standard.
 - Raw measurements and how they combine remain transparent to the user.
 
-The detailed Session Progress / Personal Progress model — including the staged retirement of the legacy 0–10 SpeakSharp Score — is owned by `COACHING_SCORE.md`. At the requirements level: the legacy 0–10 score is on a declared retirement path and must **not** be presented as the long-term experience, deepened, or rescaled to 0–100.
+The detailed Session Progress / Personal Progress model — including the staged retirement of the legacy 0–10 SpeakSharp Score — is owned by `PROGRESS_AND_NEXT_ACTION.md`. At the requirements level: the legacy 0–10 score is on a declared retirement path and must **not** be presented as the long-term experience, deepened, or rescaled to 0–100.
 
 ---
 
@@ -67,7 +67,7 @@ Requirement-level IA (the concrete public-marketing implementation is tracked in
 
 ### 4.1 Freestyle Practice & the Practice Session
 - Freestyle Practice is available now: the user starts a Practice Session directly and sees a live transcript plus live delivery cues (see §4.6).
-- Every finalized recording MUST persist the **user-owned evidence needed for later review and progress** — the saved session with its transcript, delivery measurements, and any generated feedback — so a returning user can review and compare their practice. The exact persisted schema, retention policy, and STT/attribution mechanics are specified in `ARCHITECTURE.md`, `STT.md`, and `COACHING_SCORE.md`, not here.
+- Every finalized recording MUST persist the **user-owned evidence needed for later review and progress** — the saved session with its transcript, delivery measurements, and any generated feedback — so a returning user can review and compare their practice. The exact persisted schema, retention policy, and STT/attribution mechanics are specified in `ARCHITECTURE.md`, `STT.md`, and `PROGRESS_AND_NEXT_ACTION.md`, not here.
 
 ### 4.2 Transcription methods (Private / Browser / Cloud)
 - **Private** is the on-device method: local transcription after a one-time model setup, announced with a durable **"Stays local"** privacy signal. **Private STT audio MUST NOT leave the user's browser.** After the initial model download/setup, Private transcription MUST function **without an internet connection**, subject to the platform limitations in §10. (`frontend/src/services/transcription/modes/PrivateWhisper.ts`.) *(Whether Private is additionally positioned as the "recommended" or "main" experience is a separate, explicit Product Owner decision — not asserted here, and not inferred from prior UI copy.)*
@@ -131,7 +131,7 @@ Product-level tier rules only. Exact quota limits, pricing, packaging, checkout,
 
 ## 8. Personal progress contract (requirement level)
 
-Requirement-level only; formulas, comparability rules, metric eligibility, and presentation are owned by `COACHING_SCORE.md`.
+Requirement-level only; formulas, comparability rules, metric eligibility, and presentation are owned by `PROGRESS_AND_NEXT_ACTION.md`.
 
 - The **first qualifying completed session establishes the user's baseline** and MUST NOT show an invented or fabricated percentage change.
 - **Later comparable sessions** show both the change from the **previous** comparable session and the cumulative change from **baseline**.
@@ -164,7 +164,7 @@ Competitive references (freshness-labeled; Product Owner-cited on 2026-07-24, **
 ## 11. Non-goals & explicit boundaries
 
 - **Testimonials stay hidden** until the Product Owner approves real, verified testimonial content. No placeholder, fabricated, synthetic, or unattributed testimonial may appear publicly.
-- **The legacy 0–10 SpeakSharp Score is not the long-term experience** — it is on a staged retirement path and must not be presented as validated assessment, deepened, or rescaled to 0–100 (model → `COACHING_SCORE.md`).
+- **The legacy 0–10 SpeakSharp Score is not the long-term experience** — it is on a staged retirement path and must not be presented as validated assessment, deepened, or rescaled to 0–100 (model → `PROGRESS_AND_NEXT_ACTION.md`).
 - **No avatars or body-language / facial / gesture / posture / video analysis.**
 - **No continuous or verbose live coaching**, no paragraphs of live advice, and no automatic intervention while the user is speaking in the first stage.
 - **Guided Rehearsal is future direction, not shipped.** Its initial live behavior, when built, is **passive** agenda tracking (not-addressed / partly / covered / recovered-after-guidance) with attributable evidence; correction is user-requested first; any automatic pause-aware cue is a later, separately-activated experiment. Delivery progress and agenda coverage stay separate.
@@ -177,4 +177,4 @@ Competitive references (freshness-labeled; Product Owner-cited on 2026-07-24, **
 
 ## 12. Traceability
 
-Every requirement above maps to an extracted row in `DOC_MIGRATION_LEDGER.md` §3.B for `PRD.operational.md` and `PRODUCT_FEATURES.operational.md`, or to the code path cited inline. Content that the ledger routes elsewhere is deferred to its owner: the Personal Progress / scoring model, formulas, and presentation → `COACHING_SCORE.md`; tier/quota/billing mechanics → `ENTITLEMENTS_AND_BILLING.md`; STT baselines, accuracy, and the attribution/runtime contract → `STT.md`; persisted schema and retention → `ARCHITECTURE.md`; accepted future candidates and timing → `ROADMAP.md`; current release posture → `RELEASE_STATUS.md`.
+Every requirement above maps to an extracted row in `DOC_MIGRATION_LEDGER.md` §3.B for `PRD.operational.md` and `PRODUCT_FEATURES.operational.md`, or to the code path cited inline. Content that the ledger routes elsewhere is deferred to its owner: the Personal Progress / scoring model, formulas, and presentation → `PROGRESS_AND_NEXT_ACTION.md`; tier/quota/billing mechanics → `ENTITLEMENTS_AND_BILLING.md`; STT baselines, accuracy, and the attribution/runtime contract → `STT.md`; persisted schema and retention → `ARCHITECTURE.md`; accepted future candidates and timing → `ROADMAP.md`; current release posture → `RELEASE_STATUS.md`.

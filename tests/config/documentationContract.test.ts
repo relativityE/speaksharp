@@ -23,10 +23,16 @@ const OPERATIONS_AND_SECURITY = read('OPERATIONS_AND_SECURITY.md'); // canonical
 const TESTER_GUIDE = read('TESTER_GUIDE.md'); // canonical #12 (#1050)
 const TESTER_OPERATIONS = read('TESTER_OPERATIONS.md'); // canonical #13 (#1050)
 const EVIDENCE_INDEX = read('EVIDENCE_INDEX.md'); // canonical #14 (#1050)
+const PROGRESS_AND_NEXT_ACTION = read('PROGRESS_AND_NEXT_ACTION.md'); // canonical #6 (#1045)
 
+// #1045: the canonical destination formerly PLANNED as `COACHING_SCORE.md` was never created and is
+// replaced by `PROGRESS_AND_NEXT_ACTION.md`. The product measures personal session-over-session progress
+// plus one next action — not an absolute score — so the canonical map must not carry the old name.
+// Archived/historical references are deliberately out of scope (provenance is preserved).
+const RETIRED_CANONICAL_NAME = 'COACHING_SCORE.md';
 const CANONICAL_14 = [
   'README.md', 'PRODUCT_REQUIREMENTS.md', 'ROADMAP.md', 'ARCHITECTURE.md', 'STT.md',
-  'COACHING_SCORE.md', 'ENTITLEMENTS_AND_BILLING.md', 'QUALITY.md', 'RELEASE_PROCESS.md',
+  'PROGRESS_AND_NEXT_ACTION.md', 'ENTITLEMENTS_AND_BILLING.md', 'QUALITY.md', 'RELEASE_PROCESS.md',
   'RELEASE_STATUS.md', 'OPERATIONS_AND_SECURITY.md', 'TESTER_GUIDE.md', 'TESTER_OPERATIONS.md',
   'EVIDENCE_INDEX.md',
 ];
@@ -255,8 +261,47 @@ describe('documentation contract — product_release/', () => {
     expect(tableLines.some(l => /\|\s*SUPERSEDED\s*\|/.test(l))).toBe(false);
   });
 
+  it('the canonical map carries PROGRESS_AND_NEXT_ACTION.md and NOT the retired COACHING_SCORE.md (#1045)', () => {
+    expect(CANONICAL_14).toContain('PROGRESS_AND_NEXT_ACTION.md');
+    expect(CANONICAL_14).not.toContain(RETIRED_CANONICAL_NAME);
+
+    // No CURRENT authority may still ROUTE to the retired name. Archived provenance is untouched and is
+    // deliberately not scanned — history keeps its original wording.
+    for (const name of [
+      'README.md', 'DOC_MIGRATION_LEDGER.md', 'PRODUCT_REQUIREMENTS.md', 'ARCHITECTURE.md', 'STT.md',
+    ]) {
+      expect(read(name), `${name} still references the retired ${RETIRED_CANONICAL_NAME}`)
+        .not.toContain(RETIRED_CANONICAL_NAME);
+    }
+
+    // The successor may name its predecessor EXACTLY ONCE, and only as `Supersedes:` provenance — that
+    // is an honest record of what it replaced, not a live route. Anywhere else would be a stale pointer.
+    const successor = PROGRESS_AND_NEXT_ACTION.split('\n');
+    const mentions = successor.filter(l => l.includes(RETIRED_CANONICAL_NAME));
+    expect(mentions, 'the successor must name the retired doc exactly once').toHaveLength(1);
+    expect(mentions[0].startsWith('**Supersedes:**'),
+      'the only mention of the retired name must be the Supersedes provenance line').toBe(true);
+  });
+
+  it('PROGRESS_AND_NEXT_ACTION.md prohibits absolute scores, grades and cross-user comparison (#1045)', () => {
+    const doc = read('PROGRESS_AND_NEXT_ACTION.md');
+    // The prohibitions are the contract's reason for existing — they must be stated, not implied.
+    for (const phrase of [
+      'No universal or absolute score',
+      'No grade',
+      'No cross-user comparison',
+      'overall speaking quality',
+      'evidence input',
+    ]) {
+      expect(doc, `PROGRESS_AND_NEXT_ACTION.md must state: ${phrase}`).toContain(phrase);
+    }
+    // clarity_score is named as a legacy internal input, never as the product model.
+    expect(doc).toContain('clarity_score');
+    expect(doc).toContain('legacy internal implementation names');
+  });
+
   it('the 10 metadata fields appear within the document header (first 25 lines), not merely anywhere', () => {
-    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ARCHITECTURE', ARCHITECTURE], ['ENTITLEMENTS', ENTITLEMENTS], ['QUALITY', QUALITY], ['RELEASE_PROCESS', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE', TESTER_GUIDE], ['TESTER_OPERATIONS', TESTER_OPERATIONS], ['EVIDENCE_INDEX', EVIDENCE_INDEX]] as const) {
+    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ARCHITECTURE', ARCHITECTURE], ['ENTITLEMENTS', ENTITLEMENTS], ['QUALITY', QUALITY], ['RELEASE_PROCESS', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE', TESTER_GUIDE], ['TESTER_OPERATIONS', TESTER_OPERATIONS], ['EVIDENCE_INDEX', EVIDENCE_INDEX], ['PROGRESS_AND_NEXT_ACTION', PROGRESS_AND_NEXT_ACTION]] as const) {
       const header = md.split('\n').slice(0, 25).join('\n');
       const missing = METADATA_FIELDS.filter(f => !header.includes(f));
       expect(missing, `${label} header missing fields`).toEqual([]);
@@ -264,7 +309,7 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('relative links in the governed docs resolve', () => {
-    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS], ['ARCHITECTURE.md', ARCHITECTURE], ['ENTITLEMENTS_AND_BILLING.md', ENTITLEMENTS], ['QUALITY.md', QUALITY], ['RELEASE_PROCESS.md', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY.md', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE.md', TESTER_GUIDE], ['TESTER_OPERATIONS.md', TESTER_OPERATIONS], ['EVIDENCE_INDEX.md', EVIDENCE_INDEX]] as const) {
+    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS], ['ARCHITECTURE.md', ARCHITECTURE], ['ENTITLEMENTS_AND_BILLING.md', ENTITLEMENTS], ['QUALITY.md', QUALITY], ['RELEASE_PROCESS.md', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY.md', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE.md', TESTER_GUIDE], ['TESTER_OPERATIONS.md', TESTER_OPERATIONS], ['EVIDENCE_INDEX.md', EVIDENCE_INDEX], ['PROGRESS_AND_NEXT_ACTION.md', PROGRESS_AND_NEXT_ACTION]] as const) {
       for (const m of md.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
         expect(fs.existsSync(path.resolve(DOCS, m[1])), `${name}: broken link ${m[1]}`).toBe(true);
       }
