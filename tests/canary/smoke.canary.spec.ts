@@ -2,6 +2,58 @@ import { test, expect, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
 
+/**
+ * #1106 — deploy-race gate. The canary is triggered on push to main, but Vercel's deploy is async, so a
+ * run can begin ~90s after merge and exercise the PREVIOUS production build (this is exactly what made the
+ * #1105 auto-canary fail on a build that never contained the new affordance). This gate makes the canary
+ * WAIT until the deployed release (`window.__APP_RELEASE__`) equals the SHA that triggered the run, and —
+ * critically — fails a not-yet-live deployment with a DISTINCT "deployment not live" diagnostic that can
+ * never be confused with a product-assertion failure. It records expected vs observed SHA as evidence.
+ *
+ * Scoped: only enforces against the real production host with a known EXPECTED_RELEASE_SHA. A local run,
+ * or any run without the env (BASE_URL not prod / SHA unset), skips the gate so it can never block dev.
+ */
+const EXPECTED_RELEASE_SHA = process.env.EXPECTED_RELEASE_SHA?.trim();
+const PROD_HOST = 'speaksharp-public.vercel.app';
+const DEPLOY_WAIT_MS = 5 * 60_000; // Vercel post-merge publish budget
+const DEPLOY_POLL_MS = 15_000;
+
+async function assertDeployedReleaseIsLive(page: Page) {
+    const base = process.env.BASE_URL ?? '';
+    if (!EXPECTED_RELEASE_SHA || !base.includes(PROD_HOST)) {
+        debugLog(`[CANARY] deploy-race gate SKIPPED (expected SHA ${EXPECTED_RELEASE_SHA ? 'set' : 'unset'}; base="${base}").`);
+        return;
+    }
+    const started = Date.now();
+    let observed: string | undefined;
+    // Poll the deployed release marker, reloading each cycle, until it matches or the budget elapses.
+    // (Date.now() is fine in a Playwright spec — this is a test, not a resumable workflow script.)
+    for (;;) {
+        await page.goto(base, { waitUntil: 'domcontentloaded' });
+        observed = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__);
+        if (observed && observed === EXPECTED_RELEASE_SHA) {
+            await test.info().attach('deployed-release', {
+                contentType: 'application/json',
+                body: JSON.stringify({ verdict: 'LIVE', expected: EXPECTED_RELEASE_SHA, observed, waitedMs: Date.now() - started }, null, 2),
+            });
+            debugLog(`[CANARY] deployed release matches ${EXPECTED_RELEASE_SHA} (waited ${Math.round((Date.now() - started) / 1000)}s).`);
+            return;
+        }
+        if (Date.now() - started > DEPLOY_WAIT_MS) break;
+        await page.waitForTimeout(DEPLOY_POLL_MS);
+    }
+    await test.info().attach('deployed-release', {
+        contentType: 'application/json',
+        body: JSON.stringify({ verdict: 'DEPLOYMENT_NOT_LIVE', expected: EXPECTED_RELEASE_SHA, observed: observed ?? null, waitedMs: Date.now() - started }, null, 2),
+    });
+    throw new Error(
+        `DEPLOYMENT NOT LIVE — deploy race, NOT a product regression. Production is serving ` +
+        `__APP_RELEASE__=${observed ?? 'undefined'} but this run expects ${EXPECTED_RELEASE_SHA} after ` +
+        `${Math.round((Date.now() - started) / 1000)}s. The product assertions were NOT run because the ` +
+        `new build is not deployed yet. Re-run the canary once Vercel finishes publishing this SHA.`,
+    );
+}
+
 async function selectNativeMode(page: Page) {
     const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
 
@@ -82,6 +134,11 @@ test.describe('Production Smoke Canary @canary', () => {
                 try { usageBody = await r.json(); } catch { /* ignore non-JSON */ }
             }
         });
+
+        // 0. #1106 DEPLOY-RACE GATE — confirm the deployed build is the one this run expects BEFORE any
+        // product assertion, so a not-yet-live deployment fails distinctly as "deployment not live" rather
+        // than misreporting a stale build as a product regression.
+        await assertDeployedReleaseIsLive(page);
 
         // 1. Real Login (modeled after soak test)
         await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);

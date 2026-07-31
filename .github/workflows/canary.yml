@@ -54,6 +54,12 @@ jobs:
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
           CANARY_EMAIL: canary@speaksharp.app
           BASE_URL: https://speaksharp-public.vercel.app/
+          # #1106 deploy-race gate: the commit this run was triggered from. The canary must confirm the
+          # deployed build (window.__APP_RELEASE__) equals this SHA BEFORE it asserts product behavior —
+          # otherwise a run that fires ~90s after merge (before Vercel finishes) tests the PREVIOUS build
+          # and misattributes a stale result to the new commit. On push=the pushed commit; on
+          # dispatch/schedule=main HEAD; on a re-run=the original commit (all are the SHA that should be live).
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
         run: pnpm test:deploy:prod
 
       # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of
