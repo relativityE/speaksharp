@@ -68,7 +68,7 @@ After migration, these — and only these — are the active canonical Markdown 
 | 3 | **ROADMAP.md** | Now / Next / Later / Declined — all unfinished & deferred work | Open gap / risk | `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, historical `docs/ROADMAP.md` |
 | 4 | **ARCHITECTURE.md** | Structural invariants, authoritative sources of truth, durable design decisions (ADRs), code map | Architecture invariant / ADR | `ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`, historical `docs/ARCHITECTURE.md` |
 | 5 | **STT.md** | STT baselines, contracts, accuracy/perf, STT-specific SLOs | Acceptance criterion / SLO | `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, `stt-perf-proof-protocol.md`, STT-specific SLOs from `SERVICE_LEVELS.operational.md` |
-| 6 | **COACHING_SCORE.md** | Session Progress / scoring model contract (Personal Progress direction + legacy score retirement) | Product requirement / decision | `SPEAKSHARP_SESSION_PROGRESS.operational.md`, scoring material in historical `docs/PRD.md` |
+| 6 | **PROGRESS_AND_NEXT_ACTION.md** | Personal progress and next-action contract (comparable-session direction + one measurable action; legacy score retired) | Product requirement / decision | `SPEAKSHARP_SESSION_PROGRESS.operational.md`, scoring material in historical `docs/PRD.md` |
 | 7 | **ENTITLEMENTS_AND_BILLING.md** | Tier/entitlement rules, quota limits, billing gating requirements | Product requirement | entitlement/billing requirements from `PRD.operational.md`; requirements distilled from `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` (evidence stays evidence) |
 | 8 | **QUALITY.md** | Quality-evidence taxonomy, general SLOs, engineering test protocol, RC test acceptance detail | Procedure / SLO | `SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, general `SERVICE_LEVELS.operational.md`, `RC_TEST_INVENTORY.md`, engineering parts of `INTERNAL_TEST_PROTOCOL.md` / `MANUAL_HARDWARE_VALIDATION.md` |
 | 9 | **RELEASE_PROCESS.md** | Release-gate definitions, release workflow, recovery/rollback | Acceptance criterion / procedure | `RC_GATES.md`, `RELEASE_RECOVERY.md`, release-workflow material |
@@ -84,7 +84,7 @@ Ownership is per-document by accountable role (Product Owner remains final appro
 
 | Role | Canonical documents |
 |---|---|
-| **Product Owner** | PRODUCT_REQUIREMENTS, ROADMAP, COACHING_SCORE, ENTITLEMENTS_AND_BILLING (product policy), TESTER_GUIDE |
+| **Product Owner** | PRODUCT_REQUIREMENTS, ROADMAP, PROGRESS_AND_NEXT_ACTION, ENTITLEMENTS_AND_BILLING (product policy), TESTER_GUIDE |
 | **Engineering** | ARCHITECTURE, STT (implementation contracts) |
 | **Engineering / Quality** | QUALITY, RELEASE_PROCESS |
 | **Operations / Security** | OPERATIONS_AND_SECURITY |
@@ -102,7 +102,7 @@ Ownership is per-document by accountable role (Product Owner remains final appro
 
 | Classification | Meaning | Canonical home |
 |---|---|---|
-| **Product requirement / decision** | A user-visible guarantee or product choice | PRODUCT_REQUIREMENTS / COACHING_SCORE / ENTITLEMENTS_AND_BILLING |
+| **Product requirement / decision** | A user-visible guarantee or product choice | PRODUCT_REQUIREMENTS / PROGRESS_AND_NEXT_ACTION / ENTITLEMENTS_AND_BILLING |
 | **Runtime fact** | Current, changing state | RELEASE_STATUS |
 | **Architecture invariant / ADR** | A structural rule or recorded design decision | ARCHITECTURE |
 | **Acceptance criterion / SLO** | A measurable pass/fail threshold or service target | STT / QUALITY / RELEASE_PROCESS |

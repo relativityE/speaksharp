@@ -33,7 +33,7 @@ Section-level inventory of every substantive documentation source in `product_re
 | # | Canonical | # | Canonical | # | Canonical | # | Canonical |
 |---|---|---|---|---|---|---|---|
 | 1 | README.md | 5 | STT.md | 9 | RELEASE_PROCESS.md | 13 | TESTER_OPERATIONS.md |
-| 2 | PRODUCT_REQUIREMENTS.md | 6 | COACHING_SCORE.md | 10 | RELEASE_STATUS.md | 14 | EVIDENCE_INDEX.md |
+| 2 | PRODUCT_REQUIREMENTS.md | 6 | PROGRESS_AND_NEXT_ACTION.md | 10 | RELEASE_STATUS.md | 14 | EVIDENCE_INDEX.md |
 | 3 | ROADMAP.md | 7 | ENTITLEMENTS_AND_BILLING.md | 11 | OPERATIONS_AND_SECURITY.md | | |
 | 4 | ARCHITECTURE.md | 8 | QUALITY.md | 12 | TESTER_GUIDE.md | | |
 
@@ -88,7 +88,7 @@ At migration closeout the root of `product_release/` contains **exactly 14** can
 - **Stay ACTIVE at root (2):** `README.md` (replaces `content_list.md`), `RELEASE_STATUS.md`.
 - **Consolidated then moved to `archive/` (ARCHIVE_AT_CLOSEOUT):** `PRECEDENCE.md`, `content_list.md`, `PRD.operational.md`, `PRODUCT_FEATURES.operational.md`, `SPEAKSHARP_SESSION_PROGRESS.operational.md`, `ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`, `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, `stt-perf-proof-protocol.md`, `SERVICE_LEVELS.operational.md`, `SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, `RC_GATES.md`, `RC_TEST_INVENTORY.md`, `INTERNAL_TEST_PROTOCOL.md`, `MANUAL_HARDWARE_VALIDATION.md`, `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`, `LAUNCH_ENV_CHECKLIST.md`, `ENV_INVENTORY.md`, `SECRET_ROTATION_RUNBOOK.md`, `PAID_OPS_HARDENING_RUNBOOK.md`, `RELEASE_RECOVERY.md`, `OPS_HEALTH_DASHBOARD.md`, `SCA_EXCEPTIONS.md`, `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, `attribution-sanitation-crosswalk.md`, `DOC_MIGRATION_LEDGER.md` (this file, archived last).
 - **Moved to `evidence/` (RETAINED_EVIDENCE):** `PUBLIC_LAUNCH_LEDGER.md`, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`.
-- **New canonical files created by consolidation (12):** `PRODUCT_REQUIREMENTS.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `STT.md`, `COACHING_SCORE.md`, `ENTITLEMENTS_AND_BILLING.md`, `QUALITY.md`, `RELEASE_PROCESS.md`, `OPERATIONS_AND_SECURITY.md`, `TESTER_GUIDE.md`, `TESTER_OPERATIONS.md`, `EVIDENCE_INDEX.md`.
+- **New canonical files created by consolidation (12):** `PRODUCT_REQUIREMENTS.md`, `ROADMAP.md`, `ARCHITECTURE.md`, `STT.md`, `PROGRESS_AND_NEXT_ACTION.md`, `ENTITLEMENTS_AND_BILLING.md`, `QUALITY.md`, `RELEASE_PROCESS.md`, `OPERATIONS_AND_SECURITY.md`, `TESTER_GUIDE.md`, `TESTER_OPERATIONS.md`, `EVIDENCE_INDEX.md`.
 
 Root at closeout = 2 retained + 12 new = **14**. No evidence file remains at the root.
 
@@ -194,7 +194,7 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 
 | Heading (H2) | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| Personal Progress & Executive Rehearsal Contract | Canonical progress/rehearsal direction | PR | cross-check SESSION_PROGRESS | COACHING_SCORE + PRODUCT_REQUIREMENTS | EXTRACTED |
+| Personal Progress & Executive Rehearsal Contract | Canonical progress direction (the Guided/Executive-Rehearsal half is owned by #1046, not by this contract) | PR | cross-check SESSION_PROGRESS | PROGRESS_AND_NEXT_ACTION + PRODUCT_REQUIREMENTS; rehearsal half → ROADMAP (#1046) | EXTRACTED |
 | Feature Group Taxonomy | Feature grouping | PR | N/A | PRODUCT_REQUIREMENTS | EXTRACTED |
 | Vetted Product Claim Register | Approved marketable claims | PR | verify each claim vs evidence | PRODUCT_REQUIREMENTS → Claims | EXTRACTED |
 | Product Surface Summary | Surfaces inventory | PR | cross-check routes | PRODUCT_REQUIREMENTS | EXTRACTED |
@@ -208,33 +208,33 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 
 | Heading | Atomic claim | Class | Verify method | Target → § | Content |
 |---|---|---|---|---|---|
-| A.0 Why the score is being retired | Score-retirement rationale | PR | N/A (decision) | COACHING_SCORE → A.0 | EXTRACTED |
-| A.1 Baseline: first session is a starting point | First session = baseline not grade | PR | N/A (decision) | COACHING_SCORE → A.1 | EXTRACTED |
-| A.2 Target source (priority order) | Source priority order | PR | verify vs code target resolution | COACHING_SCORE → A.2 | EXTRACTED |
-| A.3 Progress calculation (two views) | Two views never conflated | PR | verify vs calc code | COACHING_SCORE → A.3 | EXTRACTED |
-| A.4 What every percentage must expose | Transparency requirements | PR | verify vs UI | COACHING_SCORE → A.4 | EXTRACTED |
-| A.5 Worked examples (canonical) | Canonical examples | PR | recompute examples | COACHING_SCORE → A.5 | EXTRACTED |
-| A.6 Comparable-session contract | Comparability rules | PR | verify vs comparison code | COACHING_SCORE → A.6 | EXTRACTED |
-| A.7 Outcome Progress (agenda coverage) | Executive-Rehearsal agenda coverage | PR | verify vs rehearsal code | COACHING_SCORE → A.7 | EXTRACTED |
-| A.8 Summary language (initial) | Initial summary wording | PR | cross-check UI copy | COACHING_SCORE → A.8 | EXTRACTED |
-| A.9 Completion is not performance | Completion ≠ performance | PR | N/A (decision) | COACHING_SCORE → A.9 | EXTRACTED |
-| Reviewer Context | Decision provenance | PR | N/A | COACHING_SCORE → Provenance | EXTRACTED |
-| Source Of Truth | Which artifact is truth for the score | AI | N/A | COACHING_SCORE → Provenance | EXTRACTED |
-| Implementation Design | Legacy score impl design | AI | verify vs code | COACHING_SCORE → B (legacy) | EXTRACTED |
-| Signed-Off Architecture Boundary | Boundary of the score subsystem | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
-| What The Score Means | Score semantics (legacy) | PR | N/A | COACHING_SCORE → B | EXTRACTED |
-| Research Anchors | Cited research basis | EV | verify citations | COACHING_SCORE → Research; EVIDENCE_INDEX | EVIDENCE_ONLY |
-| Score Weights | Legacy weight table | AI | verify vs code constants | COACHING_SCORE → B | EXTRACTED |
-| Formula | Legacy score formula | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
-| Calibration And Bias Testing | Calibration/bias approach | AC | verify vs tests | COACHING_SCORE → B; QUALITY | EXTRACTED |
-| Score Labels | Legacy label bands | PR | cross-check UI | COACHING_SCORE → B | EXTRACTED |
-| Confidence Levels | Confidence bands | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
-| User Experience Rules | Score UX rules | PR | cross-check UI | COACHING_SCORE → B | EXTRACTED |
-| AI Role | AI's role in the legacy score | AI | verify vs code | COACHING_SCORE → B | EXTRACTED |
-| Number-To-Coaching Flow | Score→coaching mapping | PR | verify vs code | COACHING_SCORE → B | EXTRACTED |
+| A.0 Why the score is being retired | Score-retirement rationale | PR | N/A (decision) | PROGRESS_AND_NEXT_ACTION → §2 (prohibitions) | EXTRACTED |
+| A.1 Baseline: first session is a starting point | First session = baseline not grade | PR | N/A (decision) | PROGRESS_AND_NEXT_ACTION → §5 (baseline) | EXTRACTED |
+| A.2 Target source (priority order) | Source priority order | PR | verify vs code target resolution | ROADMAP — target-selection priority order is an OPEN decision for the #1045 implementation family; the v1 contract does not specify it | OPEN_GAP |
+| A.3 Progress calculation (two views) | Two views never conflated | PR | verify vs calc code | PROGRESS_AND_NEXT_ACTION → §5 (vs baseline AND vs previous comparable) | EXTRACTED |
+| A.4 What every percentage must expose | Transparency requirements — the unit is now points, not a percentage (#1045 decision) | PR | verify vs UI | PROGRESS_AND_NEXT_ACTION → §7a | EXTRACTED |
+| A.5 Worked examples (canonical) | Canonical examples | PR | recompute examples | PROGRESS_AND_NEXT_ACTION → §7b | EXTRACTED |
+| A.6 Comparable-session contract | Comparability rules | PR | verify vs comparison code | PROGRESS_AND_NEXT_ACTION → §4 (cohort) | EXTRACTED |
+| A.7 Outcome Progress (agenda coverage) | Executive-Rehearsal agenda coverage | PR | verify vs rehearsal code | ROADMAP — Guided-Rehearsal agenda coverage, owned by #1046; out of scope for the v1 Progress contract | OPEN_GAP |
+| A.8 Summary language (initial) | Initial summary wording | PR | cross-check UI copy | PROGRESS_AND_NEXT_ACTION → §6 (direction language) | EXTRACTED |
+| A.9 Completion is not performance | Completion ≠ performance | PR | N/A (decision) | PROGRESS_AND_NEXT_ACTION → §7c | EXTRACTED |
+| Reviewer Context | Decision provenance | PR | N/A | PROGRESS_AND_NEXT_ACTION → header metadata (Authority / Supersedes / Evidence Sources) | EXTRACTED |
+| Source Of Truth | Which artifact is truth for the score | AI | N/A | PROGRESS_AND_NEXT_ACTION → header metadata (Authority / Supersedes / Evidence Sources) | EXTRACTED |
+| Implementation Design | Legacy score impl design | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Signed-Off Architecture Boundary | Boundary of the score subsystem — the durable rule (one deterministic truth reused by Session review / Analytics / PDF) survives the score's retirement | AI | verify vs code | PROGRESS_AND_NEXT_ACTION → §8a (one deterministic truth, reused everywhere) | EXTRACTED |
+| What The Score Means | Score semantics (legacy) | PR | N/A | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Research Anchors | Cited research basis — not carried into the v1 contract | EV | verify citations | EVIDENCE_INDEX (dated research provenance) | EVIDENCE_ONLY |
+| Score Weights | Legacy weight table | AI | verify vs code constants | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Formula | Legacy score formula | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Calibration And Bias Testing | Calibration/bias approach for the retired legacy score; the testing approach itself remains owned by QUALITY | AC | verify vs tests | QUALITY (test approach); the legacy 0–10 score itself is retired by the #1045 decision and is not carried forward | EXTRACTED |
+| Score Labels | Legacy label bands | PR | cross-check UI | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Confidence Levels | Confidence bands | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| User Experience Rules | Score UX rules — the durable rules (concise actionable feedback; non-shaming filler language) survive the score's retirement | PR | cross-check UI | PROGRESS_AND_NEXT_ACTION → §8a (concise + actionable; non-shaming filler language) | EXTRACTED |
+| AI Role | AI's role in the legacy score | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Number-To-Coaching Flow | Score→coaching mapping — the durable rule (a number is never shown without an action) survives the score's retirement | PR | verify vs code | PROGRESS_AND_NEXT_ACTION → §8a (movement always paired with an action) | EXTRACTED |
 | Experiment Status | Score experiment status | GAP | triage vs ROADMAP | ROADMAP | OPEN_GAP |
 | Future Model Improvements | Planned score-model changes | GAP | triage | ROADMAP → Later | OPEN_GAP |
-| Release Guardrail | Score release guardrail | AC | verify vs gates | COACHING_SCORE → B | EXTRACTED |
+| Release Guardrail | Score release guardrail — the durable rule (never over-claim precision) survives the score's retirement | AC | verify vs gates | PROGRESS_AND_NEXT_ACTION → §8a (no over-claimed precision) | EXTRACTED |
 
 ### 3.C Architecture (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: ENG
 
