@@ -118,6 +118,7 @@ The minimum movement that counts as meaningful is a **product policy value**, se
 Each eligible session yields **exactly two takeaways**, and **exactly one of them is an action**. This is the same contract `#1047-A` (Session review) implements; the two authorities must not diverge.
 
 1. **What worked** — the strongest *valid* positive from the current session. **Maximum 6 words.** Not an action.
+   **Non-positive fallback (required).** A session can satisfy every §4 eligibility condition while having **no valid positive** — every measured metric declined or sat outside its healthy band. The three rules "exactly two takeaways", "strongest valid positive" and "never fabricate a positive" would otherwise be unsatisfiable together, so this case is resolved explicitly: the first takeaway falls back to a **neutral factual observation** about the current session (for example a steady measured value, or the honest evidence state), stated without praise and without implying improvement. **It is never omitted, and a positive is never invented.**
 2. **Practice this next** — the single next action. **Maximum 8 words.** Carries a **structured, measurable target** into the following session.
 
 No third takeaway. No opening verdict sentence. Both are tethered to the **current** saved session; history supplies comparison context separately and never becomes a takeaway.
@@ -128,6 +129,37 @@ The action is selected **deterministically** and:
 - The action is **measurable**: it names a metric, a direction, and a target value.
 - If evidence is insufficient, the honest evidence state plus one data-collection action is shown. **Never a fabricated positive.**
 - Wording is **deterministic** in v1. No AI generation participates in selection or phrasing (§9).
+
+---
+
+## 7a. What every displayed movement must expose
+
+A number is only trustworthy if the user can see what produced it. Every displayed movement must be able to expose, on request:
+
+- the **two sessions** being compared (the current session and the previous comparable session, or the baseline);
+- the **metric** that moved and its **unit** (points of clear delivery);
+- the **evidence inputs** behind that metric for both sessions (word count, canonical filler count, error-marker count, WPM);
+- the **cohort** (engine, engine version, model name, formula version) that made them comparable;
+- **why a comparison is unavailable**, when it is — the deterministic exclusion reason, never a blank or a zero.
+
+No displayed movement may depend on evidence the user cannot inspect.
+
+## 7b. Worked example (canonical)
+
+*Illustrative shape only — the numbers are an example, not measured data.*
+
+| Session | Eligible | Clear delivery (raw) | Shown |
+|---|---|---|---|
+| 1st eligible | yes | 71.4 | **"Baseline established"** — no movement claimed |
+| 2nd eligible, same cohort | yes | 75.2 | **"Clear delivery moved up 4 points since your baseline."** (75.2 − 71.4 = 3.8, rendered as 4) |
+| 3rd, 22 s long | **no** | — | No movement. Recorded `eligible=false`, `too_short`. Progress is unchanged — **not** reset, **not** zero |
+| 4th eligible, engine changed | yes | 80.1 | **"Not enough comparable data yet"** — new cohort; **no** cross-cohort difference is computed |
+
+Arithmetic uses stored unrounded values; only the displayed figure is rounded. An ineligible session never moves, resets, or dilutes Progress.
+
+## 7c. Completion is not performance
+
+Finishing a session, practising often, or maintaining a streak are **participation** facts. They must never be presented as evidence that delivery improved, and they must never contribute to the movement figure or to either takeaway. Encouraging repeat practice is legitimate; implying that repetition *is* improvement is not.
 
 ---
 
