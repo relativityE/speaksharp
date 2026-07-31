@@ -29,6 +29,34 @@ BEGIN
 END;
 $seed$;
 
+-- Extended seed: explicit transcript (drives server-derived error markers), explicit filler_words jsonb
+-- (NULL = ABSENT evidence), and explicit engine identity (blank = incomplete). Superuser setup only.
+CREATE OR REPLACE PROCEDURE pg_temp.seed_ex(
+    p_id uuid, p_user uuid, p_words int, p_dur int, p_wpm double precision,
+    p_filler_words jsonb, p_transcript text,
+    p_engine text DEFAULT 'private', p_ev text DEFAULT 'whisper-base.en@v2',
+    p_model text DEFAULT 'whisper-base.en', p_attr text DEFAULT 'verified', p_status text DEFAULT 'completed'
+) LANGUAGE plpgsql AS $seedx$
+BEGIN
+    INSERT INTO public.sessions (id, user_id, total_words, duration, wpm, filler_words, transcript,
+                                 engine, engine_version, model_name, attribution_status, status, created_at)
+    VALUES (p_id, p_user, p_words, p_dur, p_wpm, p_filler_words, p_transcript,
+            p_engine, p_ev, p_model, p_attr, p_status, now());
+END;
+$seedx$;
+
+-- The SAME clarity formula as frontend computeClarityRaw(), used for INDEPENDENT SQL↔TS parity oracles.
+CREATE OR REPLACE FUNCTION pg_temp.ts_clarity(p_words int, p_fillers int, p_errors int, p_wpm double precision)
+RETURNS double precision LANGUAGE sql IMMUTABLE AS $c$
+    SELECT GREATEST(0, LEAST(100,
+        100
+        - ((p_fillers::double precision / p_words) * 100 * 1.5)
+        - (p_errors * 3)
+        - CASE WHEN p_wpm > 170 THEN LEAST(20, (p_wpm - 170) / 3)
+               WHEN p_wpm > 0 AND p_wpm < 90 THEN LEAST(15, (90 - p_wpm) / 3)
+               ELSE 0 END));
+$c$;
+
 DO $matrix$
 DECLARE
     v_victim uuid := '11111111-1111-4111-8111-111111111111';
@@ -38,7 +66,7 @@ DECLARE
     s3 uuid := 'aaaaaaaa-0000-4000-8000-000000000003';
     sother uuid := 'bbbbbbbb-0000-4000-8000-000000000001';
     v_eval uuid; v_rec uuid; v_att uuid;
-    v_ok boolean; v_clar double precision; v_base uuid; v_prev uuid;
+    v_ok boolean; v_clar double precision; v_base uuid; v_prev uuid; v_err integer;
 BEGIN
     -- ---- 0. security posture ----------------------------------------------------------------------
     IF NOT (SELECT prosecdef FROM pg_proc WHERE proname = 'record_progress_evaluation') THEN
@@ -133,14 +161,19 @@ BEGIN
     -- other user's session has no evaluation for the victim -> rejected
     v_ok := false;
     BEGIN
-        PERFORM public.record_progress_recommendation(sother, 'filler_rate','decrease',3,'percent',5,'Pause instead of filling the gap');
+        PERFORM public.record_progress_recommendation(sother, 'filler_rate','decrease',3,'percent','Pause instead of filling the gap');
     EXCEPTION WHEN insufficient_privilege THEN v_ok := true; END;
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 6: recommendation created against a non-owned/uneligible session'; END IF;
-    -- own eligible session -> succeeds
-    v_rec := public.record_progress_recommendation(s1, 'filler_rate','decrease',3,'percent',2,'Pause instead of filling the gap');
+    -- own eligible session -> succeeds. NOTE: no source metric value is passed — the RPC DERIVES it.
+    v_rec := public.record_progress_recommendation(s1, 'filler_rate','decrease',3,'percent','Pause instead of filling the gap');
     RESET ROLE;
     IF v_rec IS NULL THEN RAISE EXCEPTION 'FAIL 6: recommendation not created for own eligible session'; END IF;
-    RAISE NOTICE 'PASS 6  recommendation requires an eligible evaluation of the own session';
+    -- DERIVED source metric: s1 has 6 fillers / 300 words -> 2.0% filler rate, taken from the EVALUATION.
+    SELECT source_metric_value INTO v_clar FROM public.progress_recommendations WHERE id = v_rec;
+    IF round(v_clar::numeric, 4) <> 2.0000 THEN
+        RAISE EXCEPTION 'FAIL 6: source_metric_value must be DERIVED from the evaluation (expected 2.0), got %', v_clar;
+    END IF;
+    RAISE NOTICE 'PASS 6  recommendation requires own eligible eval; source metric DERIVED server-side (= %)', v_clar;
 
     -- ---- 7. attempts: created via RPC; identity is immutable; resolution is terminal ---------------
     PERFORM set_config('request.jwt.claim.sub', v_victim::text, true);
@@ -176,6 +209,73 @@ BEGIN
     RESET ROLE;
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 8: another user advanced the victim''s attempt'; END IF;
     RAISE NOTICE 'PASS 8  another user cannot advance an attempt they do not own';
+
+    -- ---- 9. SQL↔TS clarity parity: NONZERO ERRORS derived from the transcript --------------------------
+    -- 300 words, 6 fillers (2%), TWO error markers in the transcript, in-range pace. Server must DERIVE the
+    -- error count (never hardcode 0): 100 - 2*1.5 - 2*3 = 91, matching the TS oracle.
+    CALL pg_temp.seed_ex('cccccccc-0000-4000-8000-000000000001', v_victim, 300, 120, 140,
+        jsonb_build_object('total', jsonb_build_object('count', 6)),
+        'hello [inaudible] world spoke clearly then [blank_audio] resumed');
+    PERFORM set_config('request.jwt.claim.sub', v_victim::text, true); SET ROLE authenticated;
+    PERFORM public.record_progress_evaluation('cccccccc-0000-4000-8000-000000000001'); RESET ROLE;
+    SELECT clarity_raw, error_marker_count INTO v_clar, v_err
+    FROM public.session_progress_evaluations WHERE session_id = 'cccccccc-0000-4000-8000-000000000001';
+    IF v_err <> 2 THEN RAISE EXCEPTION 'FAIL 9: error markers not derived from transcript (expected 2), got %', v_err; END IF;
+    IF round(v_clar::numeric,6) <> round(pg_temp.ts_clarity(300,6,2,140)::numeric,6) THEN
+        RAISE EXCEPTION 'FAIL 9: clarity with errors % <> TS oracle %', v_clar, pg_temp.ts_clarity(300,6,2,140);
+    END IF;
+    IF round(v_clar::numeric,4) <> 91.0000 THEN RAISE EXCEPTION 'FAIL 9: expected 91, got %', v_clar; END IF;
+    RAISE NOTICE 'PASS 9  nonzero error markers DERIVED; clarity % = TS oracle', v_clar;
+
+    -- ---- 10. SQL↔TS parity: CLAMP-to-0, SLOW and FAST pace penalties -----------------------------------
+    -- clamp: 100 words, 80 fillers -> 80% -> 120-pt penalty -> clamp 0 (a valid measured floor).
+    CALL pg_temp.seed_ex('cccccccc-0000-4000-8000-000000000010', v_victim, 100, 60, 140,
+        jsonb_build_object('total', jsonb_build_object('count', 80)), 'a dense transcript with many fillers');
+    -- slow: 200 words, 0 fillers, 60 wpm -> penalty min(15,(90-60)/3)=10 -> 90.
+    CALL pg_temp.seed_ex('cccccccc-0000-4000-8000-000000000011', v_victim, 200, 200, 60,
+        jsonb_build_object('total', jsonb_build_object('count', 0)), 'a steady but slow delivery of words');
+    -- fast: 200 words, 0 fillers, 230 wpm -> penalty min(20,(230-170)/3)=20 -> 80.
+    CALL pg_temp.seed_ex('cccccccc-0000-4000-8000-000000000012', v_victim, 200, 52, 230,
+        jsonb_build_object('total', jsonb_build_object('count', 0)), 'a very fast delivery of many words');
+    PERFORM set_config('request.jwt.claim.sub', v_victim::text, true); SET ROLE authenticated;
+    PERFORM public.record_progress_evaluation('cccccccc-0000-4000-8000-000000000010');
+    PERFORM public.record_progress_evaluation('cccccccc-0000-4000-8000-000000000011');
+    PERFORM public.record_progress_evaluation('cccccccc-0000-4000-8000-000000000012');
+    RESET ROLE;
+    SELECT clarity_raw INTO v_clar FROM public.session_progress_evaluations WHERE session_id = 'cccccccc-0000-4000-8000-000000000010';
+    IF round(v_clar::numeric,4) <> 0.0000 OR v_clar <> pg_temp.ts_clarity(100,80,0,140) THEN RAISE EXCEPTION 'FAIL 10: clamp expected 0, got %', v_clar; END IF;
+    SELECT clarity_raw INTO v_clar FROM public.session_progress_evaluations WHERE session_id = 'cccccccc-0000-4000-8000-000000000011';
+    IF round(v_clar::numeric,4) <> 90.0000 OR v_clar <> pg_temp.ts_clarity(200,0,0,60) THEN RAISE EXCEPTION 'FAIL 10: slow-pace expected 90, got %', v_clar; END IF;
+    SELECT clarity_raw INTO v_clar FROM public.session_progress_evaluations WHERE session_id = 'cccccccc-0000-4000-8000-000000000012';
+    IF round(v_clar::numeric,4) <> 80.0000 OR v_clar <> pg_temp.ts_clarity(200,0,0,230) THEN RAISE EXCEPTION 'FAIL 10: fast-pace expected 80, got %', v_clar; END IF;
+    RAISE NOTICE 'PASS 10 clamp-to-0, slow and fast pace penalties all match the TS oracle';
+
+    -- ---- 11. MISSING filler evidence is EXCLUDED, never imputed to zero fillers ------------------------
+    CALL pg_temp.seed_ex('dddddddd-0000-4000-8000-000000000001', v_victim, 300, 120, 140,
+        NULL, 'a transcript with absent filler evidence');
+    PERFORM set_config('request.jwt.claim.sub', v_victim::text, true); SET ROLE authenticated;
+    PERFORM public.record_progress_evaluation('dddddddd-0000-4000-8000-000000000001'); RESET ROLE;
+    SELECT eligible INTO v_ok FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001';
+    IF v_ok THEN RAISE EXCEPTION 'FAIL 11: a session with NULL filler_words was marked eligible (imputed zero)'; END IF;
+    IF NOT ('no_filler_evidence' = ANY(SELECT unnest(exclusion_reasons) FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001')) THEN
+        RAISE EXCEPTION 'FAIL 11: missing filler evidence did not record no_filler_evidence';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001' AND filler_count IS NOT NULL) THEN
+        RAISE EXCEPTION 'FAIL 11: excluded session stored a filler_count';
+    END IF;
+    RAISE NOTICE 'PASS 11 missing filler evidence excluded (no_filler_evidence), never imputed to zero';
+
+    -- ---- 12. BLANK engine identity is EXCLUDED as incomplete_engine_identity ---------------------------
+    CALL pg_temp.seed_ex('dddddddd-0000-4000-8000-000000000002', v_victim, 300, 120, 140,
+        jsonb_build_object('total', jsonb_build_object('count', 6)), 'a transcript', '   ', 'v2', 'm');
+    PERFORM set_config('request.jwt.claim.sub', v_victim::text, true); SET ROLE authenticated;
+    PERFORM public.record_progress_evaluation('dddddddd-0000-4000-8000-000000000002'); RESET ROLE;
+    SELECT eligible INTO v_ok FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000002';
+    IF v_ok THEN RAISE EXCEPTION 'FAIL 12: a blank-engine session was marked eligible'; END IF;
+    IF NOT ('incomplete_engine_identity' = ANY(SELECT unnest(exclusion_reasons) FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000002')) THEN
+        RAISE EXCEPTION 'FAIL 12: blank engine identity did not record incomplete_engine_identity';
+    END IF;
+    RAISE NOTICE 'PASS 12 blank engine identity excluded (incomplete_engine_identity)';
 
     RAISE NOTICE '=== ALL PROGRESS MATRIX CHECKS PASSED ===';
 END;

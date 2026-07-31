@@ -10,7 +10,8 @@
 -- `recommendation_id` or `accepted_at`. So:
 --   * both tables grant SELECT only;
 --   * `record_progress_recommendation()` creates the immutable recommendation, requiring an eligible
---     evaluation and a source metric value;
+--     evaluation and DERIVING the source metric value from THAT persisted evaluation (never caller input,
+--     so a later comparison is always against the number the evaluation actually recorded);
 --   * `record_recommendation_attempt()` creates one attempt (an acceptance);
 --   * `advance_recommendation_attempt()` performs ONLY validated lifecycle transitions (pending ->
 --     completed/not_comparable/abandoned) and can touch ONLY the funnel columns — never the identity.
@@ -29,8 +30,8 @@ CREATE TABLE IF NOT EXISTS public.progress_recommendations (
     target_direction     text    NOT NULL,
     target_value         double precision NOT NULL,
     target_units         text    NOT NULL,
-    -- REQUIRED: the source metric value the recommendation was derived from, so a later comparison is
-    -- made against what was actually shown, not a recomputed number.
+    -- DERIVED SERVER-SIDE from the eligible evaluation this recommendation is tied to (never caller
+    -- input), so a later comparison is made against what the evaluation actually recorded.
     source_metric_value  double precision NOT NULL,
     shown_text           text    NOT NULL,
     shown_at             timestamptz NOT NULL DEFAULT now(),
@@ -100,7 +101,6 @@ CREATE OR REPLACE FUNCTION public.record_progress_recommendation(
     p_target_direction  text,
     p_target_value      double precision,
     p_target_units      text,
-    p_source_metric_value double precision,
     p_shown_text        text
 ) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -108,17 +108,34 @@ AS $$
 DECLARE
     v_uid uuid := auth.uid();
     v_formula constant text := 'clarity_v1';
+    e         public.session_progress_evaluations%ROWTYPE;
+    v_source  double precision;
     v_id uuid;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+    IF p_target_metric NOT IN ('filler_rate', 'pace', 'clear_delivery') THEN
+        RAISE EXCEPTION 'invalid target metric %', p_target_metric USING ERRCODE = '22023';
+    END IF;
 
     -- The recommendation may only be tied to an ELIGIBLE evaluation of a session THIS user owns.
-    IF NOT EXISTS (
-        SELECT 1 FROM public.session_progress_evaluations e
-        WHERE e.session_id = p_source_session_id AND e.user_id = v_uid
-          AND e.eligible AND e.formula_version = v_formula
-    ) THEN
+    SELECT * INTO e FROM public.session_progress_evaluations
+    WHERE session_id = p_source_session_id AND user_id = v_uid
+      AND eligible AND formula_version = v_formula;
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'no eligible evaluation for this session and user' USING ERRCODE = '42501';
+    END IF;
+
+    -- SOURCE METRIC VALUE is DERIVED from the persisted evaluation for the chosen metric — never from the
+    -- caller — so a later attempt is compared against the number the evaluation actually recorded.
+    v_source := CASE p_target_metric
+        WHEN 'filler_rate'    THEN CASE WHEN e.word_count > 0
+                                        THEN (e.filler_count::double precision / e.word_count) * 100
+                                        ELSE 0 END
+        WHEN 'pace'           THEN e.wpm
+        WHEN 'clear_delivery' THEN e.clarity_raw
+    END;
+    IF v_source IS NULL THEN
+        RAISE EXCEPTION 'evaluation lacks the source metric for %', p_target_metric USING ERRCODE = '22023';
     END IF;
 
     INSERT INTO public.progress_recommendations (
@@ -126,7 +143,7 @@ BEGIN
         target_metric, target_direction, target_value, target_units, source_metric_value, shown_text
     ) VALUES (
         v_uid, p_source_session_id, v_formula,
-        p_target_metric, p_target_direction, p_target_value, p_target_units, p_source_metric_value, p_shown_text
+        p_target_metric, p_target_direction, p_target_value, p_target_units, v_source, p_shown_text
     )
     ON CONFLICT (source_session_id, formula_version) DO NOTHING
     RETURNING id INTO v_id;
@@ -206,9 +223,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, double precision, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.record_recommendation_attempt(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, double precision, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_recommendation_attempt(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid, text) TO authenticated;

@@ -12,6 +12,8 @@
  */
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
+import { PROGRESS_FORMULA_VERSION, type ProgressEvaluation } from './buildProgressEvaluation';
+import { buildTakeaways } from './progressPresentation';
 
 /** Record (or return the existing) Progress evaluation for a completed, metrics-persisted session. */
 export async function recordProgressEvaluation(sessionId: string): Promise<string | null> {
@@ -25,14 +27,17 @@ export async function recordProgressEvaluation(sessionId: string): Promise<strin
     return (data as string | null) ?? null;
 }
 
-/** Create the immutable recommendation tied to an eligible evaluation of the caller's own session. */
+/**
+ * Create the immutable recommendation tied to an eligible evaluation of the caller's own session. The
+ * source metric value is NOT passed — the RPC DERIVES it from the persisted evaluation, so a later
+ * comparison is always against the number the evaluation actually recorded (never a client value).
+ */
 export async function recordProgressRecommendation(args: {
     sourceSessionId: string;
     targetMetric: 'filler_rate' | 'pace' | 'clear_delivery';
     targetDirection: 'decrease' | 'increase' | 'maintain';
     targetValue: number;
     targetUnits: string;
-    sourceMetricValue: number;
     shownText: string;
 }): Promise<string | null> {
     const supabase = getSupabaseClient();
@@ -42,7 +47,6 @@ export async function recordProgressRecommendation(args: {
         p_target_direction: args.targetDirection,
         p_target_value: args.targetValue,
         p_target_units: args.targetUnits,
-        p_source_metric_value: args.sourceMetricValue,
         p_shown_text: args.shownText,
     });
     if (error) { logger.warn({ error }, '[progress] record_progress_recommendation failed'); return null; }
@@ -79,10 +83,81 @@ export async function advanceRecommendationAttempt(args: {
     return true;
 }
 
+/** #1033 attribution reaches a TERMINAL state at `verified` or `unverified` (`pending` is not terminal). */
+function isTerminalAttribution(status: string | null | undefined): boolean {
+    return status === 'verified' || status === 'unverified';
+}
+
 /**
- * The single deliberate wiring seam. Call this from the save flow ONLY once a completed session has its
- * delivery metrics persisted and `attribution_status = 'verified'`. It is intentionally guarded so it can
- * be invoked defensively without risking a premature, immutable ineligible record.
+ * Record the evaluation, retrying a NONFATAL failure a few times. Progress recording must never break the
+ * save journey, but a transient RPC error must not silently drop the record either. The RPC is idempotent
+ * per (session, formula_version), so a retry can never create a duplicate.
+ */
+async function recordProgressEvaluationWithRetry(sessionId: string, attempts = 3): Promise<string | null> {
+    for (let i = 0; i < attempts; i++) {
+        const id = await recordProgressEvaluation(sessionId);
+        if (id) return id;
+        if (i < attempts - 1) await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+    }
+    return null;
+}
+
+/**
+ * If the persisted evaluation is ELIGIBLE, derive the deterministic recommendation from it and record it.
+ * The action (metric + direction + target + copy) comes from the provisional policy in
+ * `buildTakeaways`; the SOURCE metric value is derived server-side by the RPC. No-op when the evaluation
+ * is missing or ineligible (an ineligible session has no comparison and no action to record).
+ */
+async function recordRecommendationForEvaluation(sessionId: string): Promise<void> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+        .from('session_progress_evaluations')
+        .select('eligible, word_count, filler_count, wpm, clarity_raw, cohort_key, engine, engine_version, model_name, attribution_status')
+        .eq('session_id', sessionId)
+        .eq('formula_version', PROGRESS_FORMULA_VERSION)
+        .maybeSingle();
+    if (error || !data || !data.eligible) return;
+
+    const current: ProgressEvaluation = {
+        sessionId,
+        userId: '',
+        formulaVersion: PROGRESS_FORMULA_VERSION,
+        snapshotOrigin: 'at_save',
+        durationSeconds: 0,
+        wordCount: data.word_count ?? 0,
+        clarityEvidenceAvailable: true,
+        engine: data.engine ?? null,
+        engineVersion: data.engine_version ?? null,
+        modelName: data.model_name ?? null,
+        attributionStatus: data.attribution_status ?? null,
+        eligible: true,
+        exclusionReasons: [],
+        clarityRaw: data.clarity_raw ?? null,
+        fillerCount: data.filler_count ?? null,
+        errorMarkerCount: null,
+        wpm: data.wpm ?? null,
+        cohortKey: data.cohort_key ?? null,
+    };
+
+    const { target, practiceThisNext } = buildTakeaways(current, null);
+    await recordProgressRecommendation({
+        sourceSessionId: sessionId,
+        targetMetric: target.metric,
+        targetDirection: target.direction,
+        targetValue: target.targetValue,
+        targetUnits: target.units,
+        shownText: practiceThisNext,
+    });
+}
+
+/**
+ * The single deliberate wiring seam into the completed-session save journey. Call this once the session's
+ * delivery metrics are persisted AND its attribution has reached a TERMINAL state (`verified` or
+ * `unverified`) — NOT while attribution is still `pending`, which would write a premature immutable row.
+ *
+ * Every completed future session then receives a record: an ELIGIBLE evaluation (verified) OR an
+ * AUDITABLE EXCLUSION (e.g. unverified → `unverified_attribution`). The RPC decides eligibility and is
+ * idempotent, so this may be invoked defensively (including from attribution-retry resolution).
  */
 export async function wireProgressEvaluationOnSave(ctx: {
     sessionId: string | null | undefined;
@@ -93,6 +168,8 @@ export async function wireProgressEvaluationOnSave(ctx: {
     if (!ctx.sessionId) return;
     if (ctx.status !== 'completed') return;
     if (!ctx.metricsPersisted) return;
-    if (ctx.attributionStatus !== 'verified') return; // an ineligible eval would be immutable — skip
-    await recordProgressEvaluation(ctx.sessionId);
+    if (!isTerminalAttribution(ctx.attributionStatus)) return; // still pending — defer, do not write early
+    const evalId = await recordProgressEvaluationWithRetry(ctx.sessionId);
+    if (!evalId) return;
+    await recordRecommendationForEvaluation(ctx.sessionId);
 }

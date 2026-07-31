@@ -181,3 +181,30 @@ describe('#1045 buildTakeaways — exactly two, one of them the action (§7)', (
         }
     });
 });
+
+describe('#1045 buildTakeaways — "clearer than last" clears the same gates as direction (review batch 2)', () => {
+    const cur = (clarityRaw: number, over: Partial<SessionEvidence> = {}) => withClarity(mk(over), clarityRaw);
+
+    it('a SUB-threshold gain over the previous session is NOT claimed as improvement', () => {
+        // +2 points, below the 3-point meaningful-movement policy.
+        const t = buildTakeaways(cur(92), cur(90, { sessionId: 's0' }));
+        expect(t.whatWorked).not.toBe('Clearer than your last session');
+    });
+
+    it('a threshold-meeting gain in the SAME cohort IS claimed', () => {
+        const t = buildTakeaways(cur(94, { fillerCount: 30 }), cur(90, { sessionId: 's0', fillerCount: 30 }));
+        expect(t.whatWorked).toBe('Clearer than your last session');
+    });
+
+    it('a large gain against a DIFFERENT cohort is NOT claimed (setup changed)', () => {
+        const previous = cur(80, { sessionId: 's0', modelName: 'other-model' });
+        const t = buildTakeaways(cur(95, { fillerCount: 30 }), previous);
+        expect(t.whatWorked).not.toBe('Clearer than your last session');
+    });
+
+    it('an INELIGIBLE previous session is never used as the comparison', () => {
+        const previous = { ...cur(80, { sessionId: 's0' }), eligible: false } as ProgressEvaluation;
+        const t = buildTakeaways(cur(95, { fillerCount: 30 }), previous);
+        expect(t.whatWorked).not.toBe('Clearer than your last session');
+    });
+});

@@ -132,7 +132,11 @@ const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
  * healthy band there is NO valid positive, so it falls back to a NEUTRAL factual observation rather than
  * inventing praise or omitting the takeaway (the §7 non-positive fallback).
  */
-export function buildTakeaways(current: ProgressEvaluation, previous: ProgressEvaluation | null): Takeaways {
+export function buildTakeaways(
+    current: ProgressEvaluation,
+    previous: ProgressEvaluation | null,
+    opts: { meaningfulPoints?: number } = {},
+): Takeaways {
     const fillerRate = current.wordCount > 0 && current.fillerCount !== null
         ? (current.fillerCount / current.wordCount) * 100
         : null;
@@ -159,8 +163,15 @@ export function buildTakeaways(current: ProgressEvaluation, previous: ProgressEv
     // ── Observation: a genuine positive when one exists, otherwise a NEUTRAL MEASURED fact. The fallback
     //    must never be participation/completion-based — §7c "completion is not performance". ──
     let whatWorked: string;
-    const improvedVsPrevious = previous?.clarityRaw != null && current.clarityRaw != null
-        && current.clarityRaw > previous.clarityRaw;
+    // "Clearer than your last session" is a COMPARISON claim, so it must clear the SAME two gates the
+    // direction statement does: the previous session must be eligible and in the SAME cohort, and the
+    // gain must reach the meaningful-movement threshold (§6). A sub-threshold or cross-cohort tick is not
+    // a claimable improvement — otherwise takeaways and direction could disagree.
+    const improvedVsPrevious =
+        previous != null && previous.eligible
+        && previous.clarityRaw != null && current.clarityRaw != null
+        && previous.cohortKey === current.cohortKey
+        && (current.clarityRaw - previous.clarityRaw) >= (opts.meaningfulPoints ?? MEANINGFUL_MOVEMENT_POINTS);
 
     if (improvedVsPrevious) {
         whatWorked = 'Clearer than your last session';

@@ -49,6 +49,7 @@ import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
 // #1033 (2): the controller deliberately imports ONLY the owner-scoped reader — the unscoped
 // getSessionRecoveryDraft() must never be reachable from a recovery path.
 import { clearSessionRecoveryDraft, getRecoverableDraftForUser, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
@@ -640,6 +641,14 @@ export class SpeechRuntimeController {
                 this.pendingAttributionRetry = null;
                 this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
             }
+            // #1045: attribution reached a terminal state on retry; the metrics were persisted inline at
+            // stop, so record the (now-recordable) Progress evaluation. Non-fatal, idempotent.
+            void wireProgressEvaluationOnSave({
+                sessionId: targetSessionId,
+                status: 'completed',
+                attributionStatus: (pending.patch as { attribution_status?: string })?.attribution_status,
+                metricsPersisted: true,
+            }).catch(() => { /* non-fatal */ });
             return true;
         } catch {
             return false;
@@ -698,6 +707,13 @@ export class SpeechRuntimeController {
                     this.pendingFullSaveRetry = null;
                     if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
                     this.markRecordingResolved();
+                    // #1045: full save + attribution now durable → record the Progress evaluation. Non-fatal.
+                    void wireProgressEvaluationOnSave({
+                        sessionId: targetSessionId,
+                        status: 'completed',
+                        attributionStatus: (fullSave.attributionPatch as { attribution_status?: string })?.attribution_status,
+                        metricsPersisted: true,
+                    }).catch(() => { /* non-fatal */ });
                 }
                 return true;
             } catch {
@@ -3271,9 +3287,14 @@ export class SpeechRuntimeController {
                             // On write failure the row simply stays 'pending' (transcript preserved), so a
                             // later retry can promote it to verified. Engine-specific evidence uses only
                             // attribution_status = 'verified' (no engine_version string heuristics).
+                            // #1045: the attribution_status actually persisted for this row once the write
+                            // below succeeds ('verified' or 'unverified'). Stays undefined (row is 'pending')
+                            // on failure, so the Progress seam defers rather than record a premature row.
+                            let attributionTerminalStatus: string | undefined;
                             try {
                                 const attrResult = await updateSession(sessionId, finalizingIdentityPatch as Parameters<typeof updateSession>[1]);
                                 if (attrResult && (attrResult as { success?: boolean }).success === false) throw new Error('attribution update returned success:false');
+                                attributionTerminalStatus = (finalizingIdentityPatch as { attribution_status?: string }).attribution_status;
                                 // Clear the pending-retry ONLY if it belongs to THIS recording — a later
                                 // recording must never clear an earlier session's unresolved pending retry (#1033).
                                 if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
@@ -3431,6 +3452,18 @@ export class SpeechRuntimeController {
                             metricsDone = true;
                             metricsOk = updateResult.success;
                             maybePublishFinalized();
+
+                            // #1045: record the immutable Progress evaluation for this completed session, now
+                            // that its metrics are persisted AND attribution has reached a terminal state. The
+                            // seam is guarded (no-op unless completed + metrics persisted + terminal attribution),
+                            // idempotent, and strictly non-fatal — Progress must never break the save journey.
+                            void wireProgressEvaluationOnSave({
+                                sessionId,
+                                status: 'completed',
+                                attributionStatus: attributionTerminalStatus,
+                                metricsPersisted: metricsOk,
+                            }).catch((progressErr) => logger.warn({ progressErr, sessionId }, '[controller] progress recording failed (non-fatal)'));
+
                             clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
