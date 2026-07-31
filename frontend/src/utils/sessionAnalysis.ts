@@ -151,8 +151,10 @@ export const calculateClarityScore = ({
  * #1045 — the UNROUNDED clear-delivery value, clamped to [0,100].
  *
  * `calculateClarityScore` rounds to an integer and that integer is what every existing surface displays
- * and what `sessions.clarity_score` persists. Progress needs full precision (a 0.4-point movement is
- * real), so the pre-round math lives here and `calculateClarityScore` is now exactly
+ * and what `sessions.clarity_score` persists. This function preserves the sub-point evidence that the
+ * rounded score discards; whether such a difference is SHOWN as movement is the meaningful-movement
+ * product policy, not a property of the number (a calculable difference is not automatically meaningful
+ * user progress). The pre-round math lives here and `calculateClarityScore` is now exactly
  * `Math.round(computeClarityRaw(...))` — display is byte-identical, proven by equivalence tests.
  *
  * Historical rows keep their rounded values and are NEVER rewritten; raw evidence is future-only, from

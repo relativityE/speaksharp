@@ -95,6 +95,8 @@ describe('#1045 clear-delivery refactor vs FROZEN legacy oracle', () => {
             { wordCount: 75, fillerCount: 9, errorCount: 4, wpm: 200 },
             { wordCount: 80, fillerCount: 1, errorCount: 0, wpm: 60 },
         ];
+        // Direct assertion in the test body (the helper's expects are not visible to vitest/expect-expect).
+        expect(cases.length).toBe(6);
         cases.forEach(expectMatchesLegacy);
     });
 
@@ -108,6 +110,12 @@ describe('#1045 clear-delivery refactor vs FROZEN legacy oracle', () => {
             ...around(T.FAST_WPM),
             300, 1000,
         ];
+        // Direct assertion in the test body, and a guard that the boundary set really is ±1 around each
+        // threshold rather than only their exact values.
+        expect(wpms).toEqual(expect.arrayContaining([
+            T.TARGET_WPM_MIN - 1, T.TARGET_WPM_MIN, T.TARGET_WPM_MIN + 1,
+            T.TARGET_WPM_MAX - 1, T.TARGET_WPM_MAX, T.TARGET_WPM_MAX + 1,
+        ]));
         for (const wpm of wpms) {
             for (const fillerCount of [0, 1, 7, 50]) {
                 for (const errorCount of [0, 1, 9]) {
