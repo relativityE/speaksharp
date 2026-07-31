@@ -56,7 +56,7 @@ export interface ProgressEvaluation {
     sessionId: string;
     userId: string;
     formulaVersion: string;
-    snapshotOrigin: 'at_save' | 'historical_backfill';
+    snapshotOrigin: 'at_save';
     durationSeconds: number;
     wordCount: number;
     clarityEvidenceAvailable: boolean;
@@ -98,7 +98,7 @@ function hasClarityEvidence(e: SessionEvidence): boolean {
  */
 export function buildProgressEvaluation(
     e: SessionEvidence,
-    opts: { snapshotOrigin?: 'at_save' | 'historical_backfill' } = {},
+    opts: { snapshotOrigin?: 'at_save' } = {},
 ): ProgressEvaluation {
     const reasons: ExclusionReason[] = [];
 

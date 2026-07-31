@@ -1,50 +1,34 @@
--- #1045 PR-B — immutable, versioned Progress evaluation records.
+-- #1045 — immutable, versioned Progress evaluation records, written ONLY through a guarded RPC.
 --
--- Implements `product_release/PROGRESS_AND_NEXT_ACTION.md` §8. Additive only: NO existing table is
--- altered and NO existing row is ever rewritten. In particular `public.sessions.clarity_score` keeps its
--- rounded historical values untouched — raw evidence is FUTURE-ONLY, from the first eligible session
--- evaluated after activation (§5 baseline policy).
+-- Implements `product_release/PROGRESS_AND_NEXT_ACTION.md` §4/§5/§8. Additive only: no existing table is
+-- altered and no existing row is ever rewritten. `public.sessions.clarity_score` keeps its rounded
+-- historical values — raw evidence is FUTURE-ONLY (§5). Historical backfill is NOT part of v1.
 --
--- ONE RECORD PER PERSISTED COMPLETED SESSION, eligible or not. §4 requires a deterministic exclusion
--- reason for every session that cannot influence Progress, and §8 requires that an exclusion be
--- auditable later from the record alone rather than recomputed from mutable state. A single table
--- carrying both outcomes is the only way those two rules stay consistent:
---   * ALWAYS recorded: session id, evidence availability, engine/version/model, attribution status,
---     duration, word count, formula version, evaluated_at, eligible, exclusion_reasons.
---   * ONLY when eligible: the unrounded clear-delivery value and its inputs, the cohort key, and the
---     baseline / previous-comparable references.
+-- ── WHY CLIENTS CANNOT INSERT ──
+-- An RLS `WITH CHECK (auth.uid() = user_id)` only proves the row CLAIMS the caller. It does NOT stop a
+-- caller from referencing ANOTHER user's session, nor from asserting `eligible = true` with a fabricated
+-- `clarity_raw`. Progress evidence would then be self-asserted rather than derived, and because the
+-- records are immutable a bad row could never be corrected.
 --
--- WHY unrounded: `calculateClarityScore()` rounds to an integer and that integer is what users see and
--- what `sessions.clarity_score` persists. `clarity_raw` stores the pre-round value so a comparison is
--- computed from full precision. Whether a sub-point difference is SHOWN as movement is the
--- meaningful-movement PRODUCT POLICY, not a property of the number.
+-- Therefore the table grants SELECT only, and every write goes through `record_progress_evaluation()`,
+-- which derives the owner from `auth.uid()`, verifies the session (and its baseline/previous references)
+-- belong to that owner, computes eligibility AND the unrounded clear-delivery value SERVER-SIDE from
+-- persisted columns, resolves baseline/previous by PERSISTED `created_at` (never caller ordering), and is
+-- idempotent per (session, formula_version).
 --
--- WHY model_name is in the cohort: `engine_version` is not proven to identify the producing model —
--- `sessions` stores the two independently — so version alone could silently mix two models.
---
--- ISOLATION: per-user RLS, matching `sessions`. A user may read and insert only their own evaluations.
--- There is deliberately NO update/delete policy: these records are IMMUTABLE. A corrected evaluation is
--- a new row with a new formula_version, never an edit — that is what makes a displayed number traceable
--- to the exact evidence and formula that produced it.
---
--- NOT APPLIED TO PRODUCTION BY THIS PR. Requires separate Product Owner migration approval.
---
--- ROLLBACK: `DROP TABLE public.session_progress_evaluations;`. The table is additive and nothing else
--- reads it until PR-C ships, so dropping it loses only Progress evidence — no session, transcript or
--- entitlement data is affected.
+-- NOT APPLIED TO PRODUCTION BY THIS MIGRATION. Requires separate Product Owner authorization.
+-- ROLLBACK: drop the function, then the table. Additive; nothing else reads them.
 
 CREATE TABLE IF NOT EXISTS public.session_progress_evaluations (
     id                             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id                        uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     session_id                     uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
 
-    -- ── Always recorded (needed to PROVE an eligibility decision or an exclusion afterwards) ──
+    -- Always recorded: the facts needed to PROVE an eligibility decision or an exclusion afterwards.
     formula_version                text        NOT NULL,
     evaluated_at                   timestamptz NOT NULL DEFAULT now(),
-    snapshot_origin                text        NOT NULL DEFAULT 'at_save',
     duration_seconds               numeric     NOT NULL,
     word_count                     integer     NOT NULL,
-    -- The FACT that clear-delivery evidence was present or absent — never the transcript itself.
     clarity_evidence_available     boolean     NOT NULL,
     engine                         text,
     engine_version                 text,
@@ -53,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.session_progress_evaluations (
     eligible                       boolean     NOT NULL,
     exclusion_reasons              text[]      NOT NULL DEFAULT '{}',
 
-    -- ── Only when eligible = true (§8) ──
+    -- Eligible-only.
     clarity_raw                    double precision,
     filler_count                   integer,
     error_marker_count             integer,
@@ -62,62 +46,184 @@ CREATE TABLE IF NOT EXISTS public.session_progress_evaluations (
     baseline_session_id            uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
     previous_comparable_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
 
-    -- One evaluation per session per formula version. A re-evaluation under a NEW version is a new row;
-    -- re-running the SAME version must not silently create a second, divergent record.
-    CONSTRAINT session_progress_evaluations_session_formula_key UNIQUE (session_id, formula_version),
+    CONSTRAINT spe_session_formula_key UNIQUE (session_id, formula_version),
 
-    CONSTRAINT session_progress_evaluations_origin_check
-        CHECK (snapshot_origin IN ('at_save', 'historical_backfill')),
+    CONSTRAINT spe_exclusion_consistency CHECK (
+        (eligible = true  AND cardinality(exclusion_reasons) = 0)
+        OR
+        (eligible = false AND cardinality(exclusion_reasons) > 0)
+    ),
 
-    -- An ineligible record MUST carry at least one reason; an eligible one must carry none. This is the
-    -- database-level guarantee that "why was this session not counted?" is always answerable.
-    CONSTRAINT session_progress_evaluations_exclusion_consistency
-        CHECK (
-            (eligible = true  AND cardinality(exclusion_reasons) = 0)
-            OR
-            (eligible = false AND cardinality(exclusion_reasons) > 0)
-        ),
+    -- An eligible row MUST carry complete evidence, a COMPLETE engine identity, and verified attribution;
+    -- an ineligible row must carry no comparison references or evidence it has not earned.
+    CONSTRAINT spe_eligible_payload CHECK (
+        (eligible = true
+            AND clarity_raw IS NOT NULL AND cohort_key IS NOT NULL
+            AND engine IS NOT NULL AND engine_version IS NOT NULL AND model_name IS NOT NULL
+            AND attribution_status = 'verified')
+        OR
+        (eligible = false
+            AND baseline_session_id IS NULL AND previous_comparable_session_id IS NULL
+            AND clarity_raw IS NULL AND cohort_key IS NULL)
+    ),
 
-    -- Eligible records must carry the evidence and cohort that make them comparable; ineligible records
-    -- must NOT carry baseline / previous-comparable references (§8: those are eligible-only).
-    CONSTRAINT session_progress_evaluations_eligible_payload
-        CHECK (
-            (eligible = true  AND clarity_raw IS NOT NULL AND cohort_key IS NOT NULL)
-            OR
-            (eligible = false AND baseline_session_id IS NULL AND previous_comparable_session_id IS NULL)
-        ),
+    CONSTRAINT spe_clarity_range CHECK (clarity_raw IS NULL OR (clarity_raw >= 0 AND clarity_raw <= 100)),
 
-    -- Clear delivery is a 0-100 measure; a value outside that range is a bug, not data.
-    CONSTRAINT session_progress_evaluations_clarity_range
-        CHECK (clarity_raw IS NULL OR (clarity_raw >= 0 AND clarity_raw <= 100))
+    CONSTRAINT spe_no_self_reference CHECK (
+        (baseline_session_id IS NULL OR baseline_session_id <> session_id)
+        AND (previous_comparable_session_id IS NULL OR previous_comparable_session_id <> session_id)
+    )
 );
 
 COMMENT ON TABLE public.session_progress_evaluations IS
-    '#1045 immutable, versioned Progress evaluation per persisted completed session. One row per '
-    '(session, formula_version). Ineligible rows record deterministic exclusion reasons; only eligible '
-    'rows carry unrounded evidence, cohort and baseline/previous-comparable references. Never updated.';
+    '#1045 immutable, versioned Progress evaluation per completed session. Written ONLY via '
+    'record_progress_evaluation(); clients have SELECT only. Ineligible rows carry deterministic '
+    'exclusion reasons; only eligible rows carry evidence, cohort and comparison references.';
 
--- Reading a user''s Progress means walking their own evaluations newest-first within a cohort.
 CREATE INDEX IF NOT EXISTS idx_spe_user_cohort_evaluated
     ON public.session_progress_evaluations (user_id, cohort_key, evaluated_at DESC)
     WHERE eligible = true;
-
-CREATE INDEX IF NOT EXISTS idx_spe_session
-    ON public.session_progress_evaluations (session_id);
+CREATE INDEX IF NOT EXISTS idx_spe_session ON public.session_progress_evaluations (session_id);
 
 ALTER TABLE public.session_progress_evaluations ENABLE ROW LEVEL SECURITY;
 
--- Per-user isolation, matching `sessions`. SELECT + INSERT only: no UPDATE and no DELETE policy exists,
--- so the records are immutable from the client. Deletion happens only by FK cascade when the owning
--- session or account is removed.
+-- READ-ONLY for clients. No INSERT/UPDATE/DELETE policy: writes happen only through the guarded RPC, and
+-- the records are immutable once written. Deletion happens only by FK cascade with the session/account.
 DROP POLICY IF EXISTS "spe_select_own" ON public.session_progress_evaluations;
 CREATE POLICY "spe_select_own" ON public.session_progress_evaluations
     FOR SELECT USING (auth.uid() = user_id);
 
-DROP POLICY IF EXISTS "spe_insert_own" ON public.session_progress_evaluations;
-CREATE POLICY "spe_insert_own" ON public.session_progress_evaluations
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
-
 REVOKE ALL ON public.session_progress_evaluations FROM PUBLIC;
 REVOKE ALL ON public.session_progress_evaluations FROM anon;
-GRANT SELECT, INSERT ON public.session_progress_evaluations TO authenticated;
+GRANT SELECT ON public.session_progress_evaluations TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────
+-- Guarded writer. SECURITY DEFINER so it can enforce what RLS cannot; pinned search_path; PUBLIC/anon
+-- revoked. Takes ONLY a session id — every other value is derived, so a caller can neither claim another
+-- user's session nor self-assert eligibility. Idempotent per (session, formula_version).
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.record_progress_evaluation(p_session_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_uid        uuid := auth.uid();
+    v_formula    constant text := 'clarity_v1';
+    v_min_secs   constant numeric := 30;    -- §4 STRUCTURAL eligibility gate (not product policy)
+    v_min_words  constant integer := 75;    -- §4 STRUCTURAL eligibility gate (not product policy)
+    s            public.sessions%ROWTYPE;
+    v_reasons    text[] := ARRAY[]::text[];
+    v_eligible   boolean;
+    v_words      integer;
+    v_fillers    integer;
+    v_errors     constant integer := 0;     -- error markers are transcript-derived; not persisted in v1
+    v_wpm        double precision;
+    v_has_clarity boolean;
+    v_clarity    double precision;
+    v_cohort     text;
+    v_baseline   uuid;
+    v_previous   uuid;
+    v_id         uuid;
+BEGIN
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501';
+    END IF;
+
+    -- OWNERSHIP: the session must belong to the caller. This is the check an RLS WITH CHECK cannot make.
+    SELECT * INTO s FROM public.sessions WHERE id = p_session_id AND user_id = v_uid;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'session not found for this user' USING ERRCODE = '42501';
+    END IF;
+
+    v_words := COALESCE(s.total_words, 0);
+    -- filler_words is {word: {count: N}} with a 'total' aggregate key; sum the real words only.
+    v_fillers := COALESCE((
+        SELECT SUM((v.value->>'count')::int)
+        FROM jsonb_each(COALESCE(s.filler_words, '{}'::jsonb)) AS v(key, value)
+        WHERE v.key <> 'total' AND jsonb_typeof(v.value) = 'object' AND v.value ? 'count'
+    ), 0);
+    v_wpm := s.wpm;
+
+    v_has_clarity := (s.transcript IS NOT NULL AND length(btrim(s.transcript)) > 0)
+                     AND v_words > 0 AND v_wpm IS NOT NULL;
+
+    -- §4 gates, evaluated SERVER-SIDE; deterministic reasons recorded for audit.
+    IF s.status IS DISTINCT FROM 'completed'            THEN v_reasons := array_append(v_reasons, 'not_completed'); END IF;
+    IF COALESCE(s.duration, 0) < v_min_secs             THEN v_reasons := array_append(v_reasons, 'too_short'); END IF;
+    IF v_words < v_min_words                            THEN v_reasons := array_append(v_reasons, 'too_few_words'); END IF;
+    IF s.transcript IS NULL OR length(btrim(s.transcript)) = 0
+                                                        THEN v_reasons := array_append(v_reasons, 'no_transcript'); END IF;
+    IF NOT v_has_clarity                                THEN v_reasons := array_append(v_reasons, 'no_clarity_evidence'); END IF;
+    IF s.attribution_status IS DISTINCT FROM 'verified' THEN v_reasons := array_append(v_reasons, 'unverified_attribution'); END IF;
+    IF s.engine IS NULL OR s.engine_version IS NULL OR s.model_name IS NULL
+                                                        THEN v_reasons := array_append(v_reasons, 'incomplete_engine_identity'); END IF;
+
+    SELECT ARRAY(SELECT DISTINCT unnest(v_reasons) ORDER BY 1) INTO v_reasons;
+    v_eligible := cardinality(v_reasons) = 0;
+
+    IF v_eligible THEN
+        -- Clear delivery, UNROUNDED, from persisted columns. Mirrors frontend computeClarityRaw();
+        -- a SQL↔TS parity test asserts they agree.
+        v_clarity := GREATEST(0, LEAST(100,
+            100
+            - ((v_fillers::double precision / v_words) * 100 * 1.5)
+            - (v_errors * 3)
+            - CASE
+                WHEN v_wpm > 170 THEN LEAST(20, (v_wpm - 170) / 3)
+                WHEN v_wpm > 0 AND v_wpm < 90 THEN LEAST(15, (90 - v_wpm) / 3)
+                ELSE 0
+              END
+        ));
+        v_cohort := concat_ws('|', s.engine, s.engine_version, s.model_name, v_formula);
+
+        -- Baseline / previous chosen by PERSISTED created_at within the CALLER'S OWN cohort. Cannot
+        -- reference another user's session (user_id = v_uid) and cannot be caller-ordered.
+        SELECT e.session_id INTO v_baseline
+        FROM public.session_progress_evaluations e
+        JOIN public.sessions cs ON cs.id = e.session_id
+        WHERE e.user_id = v_uid AND e.eligible AND e.cohort_key = v_cohort AND e.session_id <> p_session_id
+        ORDER BY cs.created_at ASC
+        LIMIT 1;
+
+        SELECT e.session_id INTO v_previous
+        FROM public.session_progress_evaluations e
+        JOIN public.sessions cs ON cs.id = e.session_id
+        WHERE e.user_id = v_uid AND e.eligible AND e.cohort_key = v_cohort AND e.session_id <> p_session_id
+        ORDER BY cs.created_at DESC
+        LIMIT 1;
+    END IF;
+
+    INSERT INTO public.session_progress_evaluations (
+        user_id, session_id, formula_version, duration_seconds, word_count,
+        clarity_evidence_available, engine, engine_version, model_name, attribution_status,
+        eligible, exclusion_reasons,
+        clarity_raw, filler_count, error_marker_count, wpm, cohort_key,
+        baseline_session_id, previous_comparable_session_id
+    ) VALUES (
+        v_uid, p_session_id, v_formula, COALESCE(s.duration, 0), v_words,
+        v_has_clarity, s.engine, s.engine_version, s.model_name, s.attribution_status,
+        v_eligible, v_reasons,
+        CASE WHEN v_eligible THEN v_clarity END,
+        CASE WHEN v_eligible THEN v_fillers END,
+        CASE WHEN v_eligible THEN v_errors END,
+        CASE WHEN v_eligible THEN v_wpm END,
+        CASE WHEN v_eligible THEN v_cohort END,
+        v_baseline, v_previous
+    )
+    ON CONFLICT (session_id, formula_version) DO NOTHING
+    RETURNING id INTO v_id;
+
+    IF v_id IS NULL THEN
+        SELECT id INTO v_id FROM public.session_progress_evaluations
+        WHERE session_id = p_session_id AND formula_version = v_formula;
+    END IF;
+
+    RETURN v_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_progress_evaluation(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_progress_evaluation(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) TO authenticated;
