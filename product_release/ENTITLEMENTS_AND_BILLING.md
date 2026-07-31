@@ -74,6 +74,18 @@ Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are dist
 
 Enabling paid billing is a **deliberate activation sequence**, **not a key swap**: it requires flipping **both** payment switches, real live Stripe configuration validated server-side, the paid-launch approval, and live-activation verification (per `PAID_OPS_HARDENING_RUNBOOK.md`). Until then this doc records the contract; it activates nothing.
 
+## 7a. Enterprise / organization entitlement posture (requirements only)
+
+No organization tier exists, and none is being built. This records what an organization tier **would have to satisfy**, so that no partial version ships by accident. Requirement classification and triggers live in `PRODUCT_REQUIREMENTS.md` §10a.
+
+- **The entitlement authority does not change.** Today entitlement is per-user and record-time authoritative. An organization tier would add a **seat grant** that resolves to the same per-user entitlement — it must **not** introduce a second, parallel authority.
+- **Seat entitlement is explicit, never inherited by domain.** Sharing an email domain with a customer grants nothing; a seat is assigned.
+- **Fail-closed is unchanged.** An unresolvable org or seat yields the **Free** entitlement, never an elevated one.
+- **No org-level quota pooling** is defined. Any pooled or transferable quota is a new product decision, not an implementation detail.
+- **Billing stays fail-closed and PO-authorized.** Nothing about an organization tier relaxes the live-activation contract in §7.
+
+**Not authorized:** creating an organization tier, seat model, or admin surface. This section is a specification of constraints, not a plan to build.
+
 ## 8. Open gaps (→ ROADMAP)
 
 - **Final quotas, pricing, packaging, unlimited positioning, and comped-access rules — all UNRESOLVED product decisions.** The current numeric limits are provisional development configuration, not policy or customer commitments. **Decision timing:** later product/pricing work, informed by product readiness and usage evidence. Enterprise packaging → `#1048`.

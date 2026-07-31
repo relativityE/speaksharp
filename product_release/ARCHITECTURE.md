@@ -138,6 +138,16 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
 - **ADR-3 — Persistence vs observability.** Supabase is the sole persistence truth; PostHog/Sentry are never a durable-write guarantee (§3).
 - **ADR-4 — No silent STT fallback.** Cloud is never entered implicitly; engine provenance is truthful (§8).
 
+## 14a. Enterprise readiness — structural implications (no buildout)
+
+Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10a; this records only what they would mean structurally, so the current design is not quietly foreclosed.
+
+- **Isolation today is per-user row-level security.** That is the deliberate design and the current privacy guarantee. An organization model would layer *membership* on top of it — it must not replace or weaken per-user RLS.
+- **Deletion must reach derived evidence.** Deleting a session has to remove or orphan-proof everything derived from it (transcript, delivery measurements, progress evaluation records, generated feedback). A deletion that leaves derived rows behind is not a deletion. *(Gap: no user-facing deletion path exists today → `ROADMAP.md`.)*
+- **Auditability requires an append-only record.** Access and change logging cannot be reconstructed from mutable rows after the fact; it would need its own immutable record with a stated retention window.
+- **Exports must reuse the stored evaluation, not recompute.** Any org-level export has to read the same persisted result the product displays, per the one-deterministic-truth rule in `PROGRESS_AND_NEXT_ACTION.md` §8a.
+- **No multi-tenant partitioning is planned.** Tenant-partitioned storage, per-tenant models and on-prem deployment are **Declined** (see §10a); reversing that is a new decision, not an incremental change.
+
 ## 15. Current limitations & open ADRs
 
 - **Entitlement selector not yet centralized** — the entitlement decision is currently read by multiple callers; unifying it behind one selector is **open** (#1036). Until then, ADR-1 fixes the authority boundaries (payment vs capability) but the code path is not yet single-sourced. Exact quotas/pricing/packaging/comped-access policy is owned by #1053.
