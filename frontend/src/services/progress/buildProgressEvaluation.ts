@@ -25,16 +25,21 @@ export const PROGRESS_ELIGIBILITY = {
     MIN_WORD_COUNT: 75,
 } as const;
 
-/** Closed set — an unknowable reason is recorded as `unknown`, never guessed. */
+/**
+ * Closed set — the canonical exclusion reasons from `PROGRESS_AND_NEXT_ACTION.md` §4, plus the defensive
+ * `not_completed` (the seam only evaluates completed sessions, so it is unreachable in the real journey).
+ * Missing filler evidence is a MISSING CLARITY INPUT and is reported as `no_clarity_evidence`; an
+ * incomplete/blank engine identity is reported as `engine_not_comparable`. An unknowable reason is
+ * recorded as `unknown`, never guessed.
+ */
 export type ExclusionReason =
     | 'not_completed'
     | 'too_short'
     | 'too_few_words'
     | 'no_transcript'
-    | 'no_filler_evidence'
     | 'no_clarity_evidence'
     | 'unverified_attribution'
-    | 'incomplete_engine_identity'
+    | 'engine_not_comparable'
     | 'unknown';
 
 /** Complete engine identity = all three present AND non-blank. NULL or empty/whitespace is incomplete. */
@@ -120,10 +125,9 @@ export function buildProgressEvaluation(
     if (words < PROGRESS_ELIGIBILITY.MIN_WORD_COUNT) reasons.push('too_few_words');
     if (!e.hasTranscript) reasons.push('no_transcript');
 
-    // Missing filler evidence must NEVER be imputed to zero — a null count is ABSENT evidence, so the
-    // session is excluded (a measured zero, `fillerCount === 0`, is valid evidence and passes).
-    if (e.fillerCount === null || e.fillerCount === undefined) reasons.push('no_filler_evidence');
-
+    // Missing filler evidence must NEVER be imputed to zero — a null count is a MISSING CLARITY INPUT, so
+    // `hasClarityEvidence` fails and the session is excluded as `no_clarity_evidence` (the canonical §4
+    // reason). A measured zero (`fillerCount === 0`) is valid evidence and passes.
     const clarityAvailable = hasClarityEvidence(e);
     if (!clarityAvailable) reasons.push('no_clarity_evidence');
 
@@ -131,8 +135,9 @@ export function buildProgressEvaluation(
     if (e.attributionStatus !== 'verified') reasons.push('unverified_attribution');
 
     // A comparable cohort requires a COMPLETE, non-blank engine identity (engine × version × model).
-    // Blank/partial identity would silently collapse distinct engines into one "comparable" series.
-    if (!hasCompleteEngineIdentity(e)) reasons.push('incomplete_engine_identity');
+    // Blank/partial identity would silently collapse distinct engines into one "comparable" series, so it
+    // is reported with the canonical §4 reason `engine_not_comparable`.
+    if (!hasCompleteEngineIdentity(e)) reasons.push('engine_not_comparable');
 
     const eligible = reasons.length === 0;
 

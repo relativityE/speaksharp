@@ -169,18 +169,20 @@ describe('#1045 buildProgressEvaluation — engine identity and filler evidence 
         ['blank engine version', { engineVersion: '' }],
         ['null model name', { modelName: null }],
         ['blank model name', { modelName: '\t' }],
-    ])('rejects %s as incomplete_engine_identity and stores no cohort/evidence', (_label, over) => {
+    ])('rejects %s as the canonical engine_not_comparable and stores no cohort/evidence', (_label, over) => {
         const r = buildProgressEvaluation(ev(over as Partial<SessionEvidence>));
         expect(r.eligible).toBe(false);
-        expect(r.exclusionReasons).toContain('incomplete_engine_identity');
+        expect(r.exclusionReasons).toContain('engine_not_comparable');
         expect(r.cohortKey).toBeNull();
         expect(r.clarityRaw).toBeNull();
     });
 
-    it('missing filler evidence (null count) is excluded, never imputed to zero', () => {
+    it('missing filler evidence (null count) is excluded as no_clarity_evidence, never imputed to zero', () => {
         const r = buildProgressEvaluation(ev({ fillerCount: null }));
         expect(r.eligible).toBe(false);
-        expect(r.exclusionReasons).toContain('no_filler_evidence');
+        // Canonical §4 reason — a missing filler input is a missing clarity input.
+        expect(r.exclusionReasons).toContain('no_clarity_evidence');
+        expect(r.exclusionReasons).not.toContain('no_filler_evidence');
         expect(r.fillerCount).toBeNull();
     });
 

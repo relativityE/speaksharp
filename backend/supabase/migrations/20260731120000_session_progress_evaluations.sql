@@ -191,14 +191,16 @@ BEGIN
     IF v_words < v_min_words                            THEN v_reasons := array_append(v_reasons, 'too_few_words'); END IF;
     IF s.transcript IS NULL OR length(btrim(s.transcript)) = 0
                                                         THEN v_reasons := array_append(v_reasons, 'no_transcript'); END IF;
-    IF NOT v_has_filler_evidence                        THEN v_reasons := array_append(v_reasons, 'no_filler_evidence'); END IF;
+    -- Missing filler evidence is a MISSING CLARITY INPUT (v_has_clarity depends on it), reported with the
+    -- canonical §4 reason 'no_clarity_evidence' — never imputed to zero, and no separate reason token.
     IF NOT v_has_clarity                                THEN v_reasons := array_append(v_reasons, 'no_clarity_evidence'); END IF;
     IF s.attribution_status IS DISTINCT FROM 'verified' THEN v_reasons := array_append(v_reasons, 'unverified_attribution'); END IF;
-    -- Engine identity must be COMPLETE and non-blank (null OR empty/whitespace is incomplete).
+    -- Engine identity must be COMPLETE and non-blank (null OR empty/whitespace is incomplete); the
+    -- canonical §4 reason for an unusable identity is 'engine_not_comparable'.
     IF s.engine IS NULL OR btrim(s.engine) = ''
        OR s.engine_version IS NULL OR btrim(s.engine_version) = ''
        OR s.model_name IS NULL OR btrim(s.model_name) = ''
-                                                        THEN v_reasons := array_append(v_reasons, 'incomplete_engine_identity'); END IF;
+                                                        THEN v_reasons := array_append(v_reasons, 'engine_not_comparable'); END IF;
 
     SELECT ARRAY(SELECT DISTINCT unnest(v_reasons) ORDER BY 1) INTO v_reasons;
     v_eligible := cardinality(v_reasons) = 0;
