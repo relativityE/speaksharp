@@ -145,6 +145,29 @@ export const calculateClarityScore = ({
     fillerCount: number;
     errorCount: number;
     wpm: number;
+}): number => Math.round(computeClarityRaw({ wordCount, fillerCount, errorCount, wpm }));
+
+/**
+ * #1045 — the UNROUNDED clear-delivery value, clamped to [0,100].
+ *
+ * `calculateClarityScore` rounds to an integer and that integer is what every existing surface displays
+ * and what `sessions.clarity_score` persists. Progress needs full precision (a 0.4-point movement is
+ * real), so the pre-round math lives here and `calculateClarityScore` is now exactly
+ * `Math.round(computeClarityRaw(...))` — display is byte-identical, proven by equivalence tests.
+ *
+ * Historical rows keep their rounded values and are NEVER rewritten; raw evidence is future-only, from
+ * the first eligible session after activation (`PROGRESS_AND_NEXT_ACTION.md` §5).
+ */
+export const computeClarityRaw = ({
+    wordCount,
+    fillerCount,
+    errorCount,
+    wpm,
+}: {
+    wordCount: number;
+    fillerCount: number;
+    errorCount: number;
+    wpm: number;
 }): number => {
     if (wordCount <= 0) return 0;
 
@@ -156,12 +179,12 @@ export const calculateClarityScore = ({
                 ? Math.min(ANALYTICS_THRESHOLDS.SLOW_PACE_MAX_CLARITY_PENALTY, (ANALYTICS_THRESHOLDS.VERY_SLOW_WPM - wpm) / 3)
                 : 0;
 
-    return Math.max(0, Math.min(100, Math.round(
+    return Math.max(0, Math.min(100,
         100
         - (fillerPercentage * ANALYTICS_THRESHOLDS.FILLER_CLARITY_PENALTY_PER_PERCENT)
         - (errorCount * ANALYTICS_THRESHOLDS.ERROR_MARKER_CLARITY_PENALTY)
         - pacePenalty
-    )));
+    ));
 };
 
 export const getClarityLabel = (clarityScore: number): string =>
