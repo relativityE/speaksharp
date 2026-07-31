@@ -1,0 +1,190 @@
+#!/usr/bin/env node
+/**
+ * #1037 — STT evidence artifact validator (Lane A / Lane B gate).
+ *
+ * Any lane that produces STT evidence must pass its artifact through this validator before the result
+ * is quoted, ranked, or published. It is FAIL-CLOSED: a row missing required fields, or whose audio
+ * route is not structurally proven, is reported inadmissible and excluded from rankings.
+ *
+ * This is deliberately a pure, offline check — it reads a JSON artifact and exits non-zero. It makes
+ * NO network calls and CANNOT incur provider cost, so it is safe to run in ordinary CI. Producing the
+ * evidence (which may cost money for Cloud) is a separate, explicitly authorized act.
+ *
+ * Usage:
+ *   node scripts/validate-stt-evidence.mjs <artifact.json> [--json]
+ *
+ * Exit codes: 0 = every row admissible · 1 = one or more inadmissible · 2 = usage/parse error.
+ */
+import { readFileSync } from 'node:fs';
+
+const REQUIRED_FIELDS = [
+    'comparability_class', 'engine', 'engine_version', 'model_name', 'attribution_status',
+    'browser', 'browser_version', 'os', 'device', 'network_condition', 'fixture_id',
+    'audio_route_proven', 'run_validity', 'invalid_reason', 'wer', 'first_partial_latency_ms',
+    'finalization_latency_ms', 'failure_class', 'release_sha',
+];
+
+const COMPARABILITY_CLASSES = new Set(['corpus_fixture', 'browser_journey']);
+const RUN_VALIDITY = new Set(['valid', 'invalid']);
+const FAILURE_CLASSES = new Set(['none', 'model_load_failed', 'decode_failed', 'audio_route_unproven', 'timeout', 'provider_error', 'unknown']);
+/** Revisions that move over time make a "comparable" cohort silently incomparable. */
+const MUTABLE_REVISIONS = new Set(['main', 'master', 'latest', 'head', 'HEAD', '']);
+/** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
+const SHA_RE = /^[0-9a-f]{40}$/i;
+const HASH_RE = /^[0-9a-f]{16,128}$/i;
+
+const isNum = v => typeof v === 'number' && Number.isFinite(v);
+const isStr = v => typeof v === 'string' && v.trim() !== '';
+
+/** Semantic checks — existence is not validity. A failed or malformed row must never rank. */
+function semanticProblems(row) {
+    const p = [];
+    if (!COMPARABILITY_CLASSES.has(row.comparability_class)) p.push(`comparability_class '${row.comparability_class}' is not a known class`);
+    if (!RUN_VALIDITY.has(row.run_validity)) p.push(`run_validity '${row.run_validity}' is not valid|invalid`);
+    if (!FAILURE_CLASSES.has(row.failure_class)) p.push(`failure_class '${row.failure_class}' is not a known class`);
+    for (const f of ['engine', 'engine_version', 'model_name', 'browser', 'browser_version', 'os', 'device', 'network_condition', 'fixture_id']) {
+        if (!isStr(row[f])) p.push(`${f} must be a non-empty string`);
+    }
+    if (!SHA_RE.test(String(row.release_sha ?? ''))) p.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
+
+    // Attribution: engine-specific evidence is admissible only when durably verified (#1033).
+    if (row.attribution_status !== 'verified') p.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+
+    // Validity/failure consistency — a row cannot be both admissible and failed.
+    if (row.run_validity === 'invalid') p.push('run_validity is "invalid" — the row reports its own measurement as unusable');
+    if (row.run_validity === 'valid' && row.invalid_reason != null) p.push('run_validity "valid" contradicts a non-null invalid_reason');
+    if (row.run_validity === 'valid' && row.failure_class !== 'none') p.push(`run_validity "valid" contradicts failure_class '${row.failure_class}'`);
+    if (row.audio_route_proven !== true) p.push('audio_route_proven must be exactly true for an admissible row');
+
+    // Ranges. WER is a rate; latencies are non-negative milliseconds.
+    if (row.wer !== null && row.wer !== undefined) {
+        if (!isNum(row.wer)) p.push('wer must be a finite number or null');
+        else if (row.wer < 0 || row.wer > 1) p.push(`wer ${row.wer} is outside [0,1] — express as a rate, not a percentage`);
+    }
+    for (const f of ['first_partial_latency_ms', 'finalization_latency_ms']) {
+        const v = row[f];
+        if (v !== null && v !== undefined && (!isNum(v) || v < 0)) p.push(`${f} must be a non-negative number or null`);
+    }
+    return p;
+}
+
+/** Mirrors deriveAudioRouteProven in tests/evidence/sttEvidenceSchema.ts. A start timestamp is NOT proof. */
+function routeProblem(ev, engine) {
+    if (!ev) return 'missing audio_route_evidence';
+    if (!ev.fixtureSha256) return 'missing fixture hash';
+    if (!ev.adapterInputPayloadSha256) return 'missing adapter-input payload hash';
+    if (!(ev.adapterInputBytes > 0)) return 'adapter-input payload is empty';
+    if (!(ev.decodedSampleCount > 0)) return 'no decoded samples reached the adapter';
+    if (!(ev.decodedDurationSeconds > 0)) return 'decoded duration is zero';
+    if (engine === 'cloud') {
+        if (!ev.submittedPayloadSha256) return 'cloud row missing submitted-payload hash';
+        if (!ev.providerJobId) return 'cloud row missing provider job id';
+    }
+    return null;
+}
+
+function checkRow(row, index) {
+    const problems = [];
+    for (const f of REQUIRED_FIELDS) {
+        if (!(f in row)) problems.push(`missing required field ${f}`);
+    }
+    const rp = routeProblem(row.audio_route_evidence, row.engine);
+    if (rp) problems.push(`audio route unproven: ${rp}`);
+
+    problems.push(...semanticProblems(row));
+
+    const ci = row.comparability_inputs ?? {};
+    for (const k of ['fixtureHash', 'groundTruthVersion', 'normalizationVersion', 'decodeConfiguration', 'modelRevision']) {
+        if (!ci[k]) problems.push(`missing comparability input ${k}`);
+    }
+    if (ci.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
+        problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
+    }
+    if (!ci.runtimeVersions || typeof ci.runtimeVersions !== 'object' || Object.keys(ci.runtimeVersions).length === 0) {
+        problems.push('runtimeVersions must be a non-empty map — a silent runtime upgrade would invalidate any ranking');
+    } else {
+        for (const [k, v] of Object.entries(ci.runtimeVersions)) {
+            if (!isStr(v)) problems.push(`runtimeVersions.${k} must be a non-empty version string`);
+        }
+    }
+    for (const [k, re] of [['fixtureHash', HASH_RE]]) {
+        if (ci[k] && !re.test(String(ci[k]))) problems.push(`${k} '${ci[k]}' is not a hash`);
+    }
+    if (row.audio_route_evidence?.fixtureSha256 && !HASH_RE.test(String(row.audio_route_evidence.fixtureSha256))) {
+        problems.push('audio_route_evidence.fixtureSha256 is not a hash');
+    }
+    if (ci.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
+        ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
+        problems.push('fixtureHash does not match the routed fixture');
+    }
+    // WER may only be present on a proven route — never estimated, never defaulted to zero.
+    if (rp && row.wer !== null && row.wer !== undefined) {
+        problems.push('wer present on a row whose audio route is unproven');
+    }
+    // Threads: configuration is not proof of use. `workerReportedThreads` may be null, never invented.
+    const rc = row.runtime_capability;
+    if (rc && rc.workerReportedThreads !== null && rc.workerReportedThreads !== undefined
+        && typeof rc.workerReportedThreads !== 'number') {
+        problems.push('workerReportedThreads must be a number or null');
+    }
+    return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
+}
+
+const [, , file, ...flags] = process.argv;
+if (!file) {
+    console.error('usage: node scripts/validate-stt-evidence.mjs <artifact.json> [--json]');
+    process.exit(2);
+}
+
+let rows;
+try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    rows = Array.isArray(parsed) ? parsed : parsed.rows;
+    if (!Array.isArray(rows)) throw new Error('artifact must be an array of rows, or an object with a `rows` array');
+} catch (err) {
+    console.error(`[stt-evidence] cannot read ${file}: ${err.message}`);
+    process.exit(2);
+}
+
+// FAIL CLOSED on an empty artifact: a gate meant to ESTABLISH evidence must not pass when a lane
+// produced no observations (fixture discovery failed, execution never ran, filter matched nothing).
+if (rows.length === 0) {
+    console.error(`[stt-evidence] ${file}: artifact contains ZERO rows — no evidence was produced. Failing closed.`);
+    process.exit(1);
+}
+
+const results = rows.map(checkRow);
+const bad = results.filter(r => r.problems.length > 0);
+const rankable = results.length - bad.length;
+
+/** Rows may only be compared inside one cohort — differing fixture/runtime/model is not a ranking. */
+const cohortKey = row => {
+    const ci = row.comparability_inputs ?? {};
+    return [row.comparability_class, row.engine, row.engine_version, row.model_name,
+        ci.fixtureHash, ci.groundTruthVersion, ci.normalizationVersion, ci.decodeConfiguration, ci.modelRevision,
+        Object.entries(ci.runtimeVersions ?? {}).sort().map(([k, v]) => `${k}@${v}`).join(',')].join('|');
+};
+const cohorts = new Map();
+for (const [i, row] of rows.entries()) {
+    if (results[i].problems.length) continue;
+    const k = cohortKey(row);
+    cohorts.set(k, (cohorts.get(k) ?? 0) + 1);
+}
+
+if (flags.includes('--json')) {
+    console.log(JSON.stringify({ total: rows.length, admissible: rankable, inadmissible: bad.length, cohorts: cohorts.size, findings: bad }, null, 2));
+} else {
+    console.log(`[stt-evidence] ${file}`);
+    console.log(`  rows: ${rows.length}  admissible: ${rankable}  inadmissible: ${bad.length}`);
+    for (const b of bad) {
+        console.log(`  ✗ ${b.fixture_id}`);
+        for (const p of b.problems) console.log(`      - ${p}`);
+    }
+    if (cohorts.size > 1) {
+        console.log(`  ⚠ ${cohorts.size} distinct comparable cohorts — rank ONLY within a cohort, never across them`);
+    }
+    if (bad.length === 0) console.log(`  ✓ every row is admissible; ${cohorts.size} cohort(s)`);
+}
+
+// FAIL CLOSED: an artifact with any inadmissible row must not be quoted or ranked as-is.
+process.exit(bad.length > 0 ? 1 : 0);
