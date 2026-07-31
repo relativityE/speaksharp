@@ -161,6 +161,46 @@ Competitive references (freshness-labeled; Product Owner-cited on 2026-07-24, **
 
 ---
 
+## 10a. Enterprise readiness (requirements only — no platform buildout)
+
+Enterprise buyers expect an admin surface, SSO/SCIM, retention and deletion controls, exports, auditability and an SLA. This section **defines the requirements and the demand trigger for each**; it authorizes **no** implementation. The governing rule is: **do not build the enterprise platform ahead of a validated design partner or a signed requirement.** Entitlement mechanics live in `ENTITLEMENTS_AND_BILLING.md`; structural implications in `ARCHITECTURE.md`; sequencing in `ROADMAP.md`.
+
+**Classification vocabulary.** *Now* = a standing obligation we already owe, independent of any enterprise deal. *Next* = do it when the named trigger fires. *Later* = real requirement, deliberately deferred until demand is proven. *Declined* = we have decided not to do it; revisiting requires a new decision.
+
+| Capability | Class | Requirement | Implementation trigger |
+|---|---|---|---|
+| **Transcript & audio retention + deletion** | **Now** | **Two distinct obligations, both required — satisfying one does not satisfy the other.** (a) A user can delete a saved session and its derived evidence. (b) A retention **duration** is decided and stated plainly. This is a privacy obligation to individual users, not an enterprise feature. | None — standing obligation. **Two open gaps → `ROADMAP.md`: (a) no user-facing session deletion exists today; (b) the retention duration is an UNRESOLVED policy decision requiring Product-Owner approval** (`ARCHITECTURE.md` §15). Shipping deletion alone does **not** close this row. |
+| **On-device Private transcription + data minimization** | **Now** | Stated as a concrete operating contract (below), not as generic "private" marketing copy. **Deliberately NOT called "zero data":** Private transcription keeps *audio* on-device, but the saved transcript and session evidence are persisted to our database. Claiming zero-data would overstate current behaviour. | None — standing obligation. |
+| **True no-storage session mode** | **Later** | A session whose transcript and evidence are never persisted server-side. A genuinely separate capability from on-device transcription. | A signed requirement or validated design partner asking for it. |
+| **Disclosure of current content recipients** | **Now** | Name **every third party that already receives customer content today**, and what it receives: the **persistence provider** (saved transcripts and session evidence), the **Cloud STT provider** (audio, when Cloud is the chosen engine), and **Google Gemini** (up to 8,000 transcript characters, when a Pro user requests AI suggestions — `get-ai-suggestions`, `MAX_TRANSCRIPT_CHARS = 8000`). | **None — this obligation already exists**, because these paths are live today. The table's own rule is that a recipient must be named **before** the path is offered; the Gemini path is currently offered, so disclosure is overdue, not deferred. **Gap → `ROADMAP.md`: publish the recipient list, or withdraw the AI-suggestions path until it exists.** |
+| **Formal DPA / sub-processor register + procurement package** | **Next** | A contractual register with terms, locations and processing purposes, suitable for procurement review. | First enterprise or privacy enquiry. **Gap: no DPA or sub-processor register exists in-repo, and the AI provider's data-handling terms are unverified** → `ROADMAP.md`. |
+| **Auditability (admin-visible access & change log)** | **Next** | Record who accessed or changed org-scoped data, retained for a stated window. | A signed requirement naming the retention period. |
+| **Organization / admin model** | **Later** | Accounts belong to an organization; an admin can see membership and org-scoped settings. | A validated design partner **or** a signed multi-seat requirement. |
+| **SSO / SCIM + bulk provisioning** | **Later** | SAML/OIDC sign-in and SCIM lifecycle against a named IdP. | A signed requirement **naming the IdP** — never built speculatively. |
+| **Cohort analytics & exports** | **Later** | Aggregate, non-identifying org-level reporting plus an export. | The organization model exists **and** a partner has asked for it. |
+| **Custom scenarios / content** | **Later** | Organizations supply their own rehearsal scenarios. | Guided Rehearsal (#1046) shipped **and** a design partner requests it. |
+| **Support / SLA / procurement terms** | **Later** | Stated response targets, uptime commitment and procurement documents. | Entering a contract negotiation. |
+| **Separate per-customer databases, deployments and models** | **Declined** | Dedicated infrastructure per customer is not pursued — it does not fit a lean operation. **This does not decline logical isolation:** if the organization model ships, org-scoped data (membership, settings, cohort reporting) **must** be isolated between organizations, layered on per-user RLS, which remains the base guarantee and is never weakened. | Reversing requires a new Product-Owner decision, not a trigger. |
+| **On-prem / self-hosted deployment** | **Later** | Deliberately **not** bundled with the declined per-customer infrastructure above: this is a distinct strategic question, and regulated, defence and privacy-sensitive organizations are plausible future users. | A **funded, signed requirement with acceptable economics** — never speculative. |
+
+### The privacy operating contract (what "private" concretely means)
+
+SpeakSharp's differentiator is that this is **specific and checkable**, not a checkbox:
+
+- **Private transcription runs on the user's own device.** Audio for a Private session is not uploaded; the model runs locally (see `STT.md`).
+- **Audio and transcripts MUST NOT enter analytics or error reporting.** No transcript, audio, or raw model output may be sent to PostHog or Sentry. This is a **normative requirement**, and **verifying it is a release requirement** — it is not asserted here as already proven.
+- **A user's saved evidence is user-controlled** — readable only by them under row-level security, and deletable by them. (Stated as control, not legal *ownership*: no published terms establish ownership.)
+- **Any third party that receives customer content must be named** before that path is offered — including the Cloud STT provider and any AI phrasing provider. **This rule is currently unmet for the live AI-suggestions path**, which is why disclosure is classified **Now** above.
+- **Cloud transcription is an explicit, entitled choice**, never a silent fallback from Private.
+
+Where the product cannot yet honour one of these, the gap is recorded in `ROADMAP.md` rather than papered over in copy.
+
+### Competitive references (marketing, not verified behaviour)
+
+Enterprise expectations above are informed by competitor **marketing pages** — [Yoodli enterprise](https://e.yoodli.ai/) and [Speeko business](https://www.speeko.co/business) / [Speeko privacy](https://www.speeko.co/privacy), captured **2026-07-31**. These are **vendor marketing claims, not independently verified behaviour**, and they are used only to enumerate *what buyers ask for*. They must not be restated as factual benchmarks or as competitor capabilities we have confirmed.
+
+---
+
 ## 11. Non-goals & explicit boundaries
 
 - **Testimonials stay hidden** until the Product Owner approves real, verified testimonial content. No placeholder, fabricated, synthetic, or unattributed testimonial may appear publicly.
