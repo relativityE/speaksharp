@@ -105,7 +105,7 @@ We'd love for you to try SpeakSharp and tell us what you liked or what we can im
 2. Try **Browser** transcription first as a brief **Quick preview**. Say a short answer, interview response, or presentation intro. (Drop in a few "um"s and "like"s on purpose so you can see how they're caught.)
 3. Notice the live feedback: filler words, pace, and your SpeakSharp score.
 4. Try **Private** transcription next — this is the main experience we're evaluating. Private runs on your own device, so your practice audio stays local. It may take a few seconds to get ready the first time. Free users get one Private sample of up to 5 minutes; it does not start counting down when you sign up — you choose when to use it. **No Pro purchase is needed for this beta** — the Private sample is included, and Pro purchasing isn't open during the test.
-5. For a longer Private recording, give it time to finalize after you stop. A full 5-minute take may take about 90 seconds to finish; you'll see honest "Finalizing…" progress while it does.
+5. For a longer Private recording, give it time to finalize after you stop — it processes your whole take on your device, so a longer recording takes a little longer to finish. You'll see honest "Finalizing…" progress the whole time.
 6. Review your saved session in **Analytics**.
 7. Look at your transcript, filler words, SpeakSharp score, and AI speech suggestions.
 8. Try the Analytics focus/theme options to see which view helps you most.
