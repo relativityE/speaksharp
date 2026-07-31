@@ -1,113 +1,214 @@
--- #1045 PR-C — durable recommendation identity + one-to-many attempts.
+-- #1045 — durable recommendation identity + one-to-many attempts, written ONLY through guarded RPCs.
 --
--- Implements `product_release/PROGRESS_AND_NEXT_ACTION.md` §8 (recommendation/attempt records) and the
--- follow-through measurement. Additive only; no existing table is altered.
+-- Implements `product_release/PROGRESS_AND_NEXT_ACTION.md` §8 and the follow-through funnel. Additive
+-- only. `outcome` is a DIRECTIONAL OBSERVATION; nothing here licenses a causal claim.
 --
--- WHY TWO TABLES. A single `try_next_target` on the evaluation cannot represent reality: a user may click
--- "Practice this next" repeatedly, abandon an attempt, change engine mid-way, or receive several
--- recommendations over time. Collapsing that into one column silently mis-attributes the wrong session
--- to the wrong recommendation. So:
---   * `progress_recommendations` is IMMUTABLE and identifies WHAT was recommended and from which session;
---   * `progress_recommendation_attempts` is one-to-many and records each ACCEPTANCE and its outcome.
+-- ── WHY RPC-ONLY, AND WHAT "IMMUTABLE" REALLY REQUIRES ──
+-- A recommendation must be tied to a PERSISTED, ELIGIBLE evaluation of a session the caller owns — a raw
+-- client INSERT with `WITH CHECK (auth.uid() = user_id)` cannot verify that. And attempts must be
+-- genuinely immutable in identity: a blanket `FOR UPDATE` policy would let a caller rewrite
+-- `recommendation_id` or `accepted_at`. So:
+--   * both tables grant SELECT only;
+--   * `record_progress_recommendation()` creates the immutable recommendation, requiring an eligible
+--     evaluation and a source metric value;
+--   * `record_recommendation_attempt()` creates one attempt (an acceptance);
+--   * `advance_recommendation_attempt()` performs ONLY validated lifecycle transitions (pending ->
+--     completed/not_comparable/abandoned) and can touch ONLY the funnel columns — never the identity.
 --
--- WHAT THIS MEASURES (the business question): recommendation shown -> accepted -> practice started ->
--- next comparable session completed -> did the targeted metric move in the recommended direction.
--- `outcome` is a DIRECTIONAL OBSERVATION ONLY. The product must never claim the recommendation CAUSED
--- the change, and nothing in this schema licenses that claim.
---
--- NOT APPLIED TO PRODUCTION BY THIS PR. Requires separate Product Owner migration approval.
---
--- ROLLBACK: DROP TABLE progress_recommendation_attempts, then progress_recommendations. Additive, and
--- nothing else reads them; dropping loses only follow-through evidence.
+-- NOT APPLIED TO PRODUCTION BY THIS MIGRATION. Requires separate Product Owner authorization.
+-- ROLLBACK: drop the three functions, then the attempts table, then the recommendations table.
 
 CREATE TABLE IF NOT EXISTS public.progress_recommendations (
     id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id              uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    -- The session this recommendation was derived FROM.
     source_session_id    uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
     formula_version      text NOT NULL,
     created_at           timestamptz NOT NULL DEFAULT now(),
 
-    -- What was recommended, and the evidence it came from.
     target_metric        text    NOT NULL,
     target_direction     text    NOT NULL,
     target_value         double precision NOT NULL,
     target_units         text    NOT NULL,
-    -- The source metric value at the time of the recommendation, and its version, so a later comparison
-    -- is made against what was ACTUALLY shown rather than a recomputed number.
-    source_metric_value  double precision,
-    -- The exact copy shown, so the funnel can be read without guessing what the user saw.
+    -- REQUIRED: the source metric value the recommendation was derived from, so a later comparison is
+    -- made against what was actually shown, not a recomputed number.
+    source_metric_value  double precision NOT NULL,
     shown_text           text    NOT NULL,
     shown_at             timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT progress_recommendations_direction_check
-        CHECK (target_direction IN ('decrease', 'increase', 'maintain')),
-    -- One recommendation per source session per formula version: re-rendering a session must not mint a
-    -- second identity for the same advice.
-    CONSTRAINT progress_recommendations_source_formula_key UNIQUE (source_session_id, formula_version)
+    CONSTRAINT prec_direction_check CHECK (target_direction IN ('decrease', 'increase', 'maintain')),
+    CONSTRAINT prec_metric_check CHECK (target_metric IN ('filler_rate', 'pace', 'clear_delivery')),
+    CONSTRAINT prec_source_formula_key UNIQUE (source_session_id, formula_version)
 );
 
 COMMENT ON TABLE public.progress_recommendations IS
-    '#1045 immutable recommendation identity: what was recommended, from which session, with the copy '
-    'actually shown. Attempts live in progress_recommendation_attempts (one-to-many).';
+    '#1045 immutable recommendation identity, written ONLY via record_progress_recommendation(). Tied to '
+    'an eligible evaluation of a session the caller owns. Attempts live in the attempts table.';
 
 CREATE TABLE IF NOT EXISTS public.progress_recommendation_attempts (
-    id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    recommendation_id        uuid NOT NULL REFERENCES public.progress_recommendations(id) ON DELETE CASCADE,
-    user_id                  uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    recommendation_id          uuid NOT NULL REFERENCES public.progress_recommendations(id) ON DELETE CASCADE,
+    user_id                    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
 
-    -- Funnel: accepted -> practice started -> next comparable completed -> did the target move.
-    accepted_at              timestamptz NOT NULL DEFAULT now(),
-    practice_session_id      uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
+    accepted_at                timestamptz NOT NULL DEFAULT now(),
+    practice_session_id        uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
     next_comparable_session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
-    lifecycle                text NOT NULL DEFAULT 'pending',
-    outcome                  text,
-    resolved_at              timestamptz,
+    lifecycle                  text NOT NULL DEFAULT 'pending',
+    outcome                    text,
+    resolved_at                timestamptz,
 
-    CONSTRAINT progress_recommendation_attempts_lifecycle_check
+    CONSTRAINT prec_att_lifecycle_check
         CHECK (lifecycle IN ('pending', 'completed', 'not_comparable', 'abandoned')),
-    CONSTRAINT progress_recommendation_attempts_outcome_check
+    CONSTRAINT prec_att_outcome_check
         CHECK (outcome IS NULL OR outcome IN ('moved', 'did_not_move', 'not_comparable', 'not_completed')),
-    -- An outcome may only exist once the attempt has actually resolved. This is what stops a pending
-    -- attempt from being counted as evidence of follow-through.
-    CONSTRAINT progress_recommendation_attempts_outcome_requires_resolution
+    -- An outcome may only exist once resolved — a pending attempt can never count as follow-through.
+    CONSTRAINT prec_att_outcome_requires_resolution
         CHECK ((outcome IS NULL AND lifecycle = 'pending') OR (outcome IS NOT NULL AND lifecycle <> 'pending'))
 );
 
 COMMENT ON TABLE public.progress_recommendation_attempts IS
-    '#1045 one attempt per acceptance of a recommendation. Handles repeat clicks, abandonment and engine '
-    'changes without mis-attributing a session. outcome is a DIRECTIONAL OBSERVATION, never a causal claim.';
+    '#1045 one attempt per acceptance. Created via record_recommendation_attempt(); advanced ONLY via '
+    'advance_recommendation_attempt() (validated lifecycle transitions; identity never rewritten).';
 
 CREATE INDEX IF NOT EXISTS idx_prec_user_created
     ON public.progress_recommendations (user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_prec_attempts_recommendation
+CREATE INDEX IF NOT EXISTS idx_prec_att_recommendation
     ON public.progress_recommendation_attempts (recommendation_id, accepted_at DESC);
 
 ALTER TABLE public.progress_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.progress_recommendation_attempts ENABLE ROW LEVEL SECURITY;
 
--- Per-user isolation, matching sessions. Recommendations are immutable (no UPDATE policy); attempts may
--- be updated by their owner because their lifecycle legitimately advances pending -> resolved.
+-- READ-ONLY for clients on BOTH tables. Every write goes through an RPC below.
 DROP POLICY IF EXISTS "prec_select_own" ON public.progress_recommendations;
 CREATE POLICY "prec_select_own" ON public.progress_recommendations
     FOR SELECT USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "prec_insert_own" ON public.progress_recommendations;
-CREATE POLICY "prec_insert_own" ON public.progress_recommendations
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
-
 DROP POLICY IF EXISTS "prec_att_select_own" ON public.progress_recommendation_attempts;
 CREATE POLICY "prec_att_select_own" ON public.progress_recommendation_attempts
     FOR SELECT USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "prec_att_insert_own" ON public.progress_recommendation_attempts;
-CREATE POLICY "prec_att_insert_own" ON public.progress_recommendation_attempts
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "prec_att_update_own" ON public.progress_recommendation_attempts;
-CREATE POLICY "prec_att_update_own" ON public.progress_recommendation_attempts
-    FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-REVOKE ALL ON public.progress_recommendations FROM PUBLIC;
-REVOKE ALL ON public.progress_recommendations FROM anon;
-REVOKE ALL ON public.progress_recommendation_attempts FROM PUBLIC;
-REVOKE ALL ON public.progress_recommendation_attempts FROM anon;
-GRANT SELECT, INSERT ON public.progress_recommendations TO authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.progress_recommendation_attempts TO authenticated;
+REVOKE ALL ON public.progress_recommendations FROM PUBLIC, anon;
+REVOKE ALL ON public.progress_recommendation_attempts FROM PUBLIC, anon;
+GRANT SELECT ON public.progress_recommendations TO authenticated;
+GRANT SELECT ON public.progress_recommendation_attempts TO authenticated;
+
+-- ── Create the immutable recommendation. Requires an ELIGIBLE evaluation of the caller's own session. ──
+CREATE OR REPLACE FUNCTION public.record_progress_recommendation(
+    p_source_session_id uuid,
+    p_target_metric     text,
+    p_target_direction  text,
+    p_target_value      double precision,
+    p_target_units      text,
+    p_source_metric_value double precision,
+    p_shown_text        text
+) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_uid uuid := auth.uid();
+    v_formula constant text := 'clarity_v1';
+    v_id uuid;
+BEGIN
+    IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+
+    -- The recommendation may only be tied to an ELIGIBLE evaluation of a session THIS user owns.
+    IF NOT EXISTS (
+        SELECT 1 FROM public.session_progress_evaluations e
+        WHERE e.session_id = p_source_session_id AND e.user_id = v_uid
+          AND e.eligible AND e.formula_version = v_formula
+    ) THEN
+        RAISE EXCEPTION 'no eligible evaluation for this session and user' USING ERRCODE = '42501';
+    END IF;
+
+    INSERT INTO public.progress_recommendations (
+        user_id, source_session_id, formula_version,
+        target_metric, target_direction, target_value, target_units, source_metric_value, shown_text
+    ) VALUES (
+        v_uid, p_source_session_id, v_formula,
+        p_target_metric, p_target_direction, p_target_value, p_target_units, p_source_metric_value, p_shown_text
+    )
+    ON CONFLICT (source_session_id, formula_version) DO NOTHING
+    RETURNING id INTO v_id;
+
+    IF v_id IS NULL THEN
+        SELECT id INTO v_id FROM public.progress_recommendations
+        WHERE source_session_id = p_source_session_id AND formula_version = v_formula AND user_id = v_uid;
+    END IF;
+    RETURN v_id;
+END;
+$$;
+
+-- ── Accept a recommendation: create one pending attempt owned by the caller. ──
+CREATE OR REPLACE FUNCTION public.record_recommendation_attempt(p_recommendation_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_uid uuid := auth.uid(); v_id uuid;
+BEGIN
+    IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.progress_recommendations r
+                   WHERE r.id = p_recommendation_id AND r.user_id = v_uid) THEN
+        RAISE EXCEPTION 'recommendation not found for this user' USING ERRCODE = '42501';
+    END IF;
+    INSERT INTO public.progress_recommendation_attempts (recommendation_id, user_id)
+    VALUES (p_recommendation_id, v_uid) RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+-- ── Advance an attempt through a VALIDATED lifecycle transition. Touches ONLY funnel columns; the
+--    identity (recommendation_id, user_id, accepted_at) can never be rewritten. ──
+CREATE OR REPLACE FUNCTION public.advance_recommendation_attempt(
+    p_attempt_id                 uuid,
+    p_lifecycle                  text,
+    p_practice_session_id        uuid DEFAULT NULL,
+    p_next_comparable_session_id uuid DEFAULT NULL,
+    p_outcome                    text DEFAULT NULL
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_uid uuid := auth.uid(); v_current text;
+BEGIN
+    IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
+
+    SELECT lifecycle INTO v_current FROM public.progress_recommendation_attempts
+    WHERE id = p_attempt_id AND user_id = v_uid;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'attempt not found for this user' USING ERRCODE = '42501';
+    END IF;
+
+    -- Only forward transitions out of pending are permitted; a resolved attempt is terminal.
+    IF v_current <> 'pending' THEN
+        RAISE EXCEPTION 'attempt already resolved (%); lifecycle is terminal', v_current USING ERRCODE = '22023';
+    END IF;
+    IF p_lifecycle NOT IN ('completed', 'not_comparable', 'abandoned') THEN
+        RAISE EXCEPTION 'invalid target lifecycle %', p_lifecycle USING ERRCODE = '22023';
+    END IF;
+
+    -- Any practice / next-comparable session referenced must belong to the caller.
+    IF p_practice_session_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.sessions WHERE id = p_practice_session_id AND user_id = v_uid) THEN
+        RAISE EXCEPTION 'practice session not found for this user' USING ERRCODE = '42501';
+    END IF;
+    IF p_next_comparable_session_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.sessions WHERE id = p_next_comparable_session_id AND user_id = v_uid) THEN
+        RAISE EXCEPTION 'next-comparable session not found for this user' USING ERRCODE = '42501';
+    END IF;
+
+    UPDATE public.progress_recommendation_attempts
+    SET lifecycle = p_lifecycle,
+        practice_session_id = COALESCE(p_practice_session_id, practice_session_id),
+        next_comparable_session_id = COALESCE(p_next_comparable_session_id, next_comparable_session_id),
+        outcome = p_outcome,
+        resolved_at = now()
+    WHERE id = p_attempt_id AND user_id = v_uid;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, double precision, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.record_recommendation_attempt(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, double precision, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_recommendation_attempt(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid, text) TO authenticated;

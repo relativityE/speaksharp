@@ -18,8 +18,24 @@ import type { ProgressEvaluation } from './buildProgressEvaluation';
  * inferred from observed variance: a calculable difference is not automatically meaningful user
  * progress. Recorded with the formula version so a later change is a new version, never a silent
  * restatement.
+ *
+ * PROVISIONAL `clarity_v1` product policy — provisionally approved by the Product Owner (2026-07-31),
+ * to be revised on real-user evidence. Not a proven fact.
  */
 export const MEANINGFUL_MOVEMENT_POINTS = 3;
+
+/**
+ * PROVISIONAL `clarity_v1` action-selection thresholds and targets — provisionally approved
+ * (2026-07-31), to be revised on real-user evidence. These are product policy, not proven facts.
+ */
+export const PROVISIONAL_ACTION_POLICY = {
+    fillerTriggerPercent: 5,
+    fillerTargetPercent: 3,
+    paceFastTriggerWpm: 170,
+    paceSlowTriggerWpm: 90,
+    paceTargetWpm: 150,
+    paceSlowTargetWpm: 130,
+} as const;
 
 export type ProgressDirection = 'improved' | 'declined' | 'below_policy' | 'baseline' | 'unavailable';
 
@@ -51,7 +67,10 @@ export function describeDirection(
             text: 'Not enough comparable data yet',
         };
     }
-    if (!baseline || baseline.clarityRaw === null) {
+    // FAIL CLOSED: a baseline that is null, ineligible, or carries no clarity is not a comparison —
+    // never compare against it. (`baseline.eligible` was previously unchecked, so an ineligible baseline
+    // could slip through.)
+    if (!baseline || !baseline.eligible || baseline.clarityRaw === null) {
         return {
             direction: 'baseline',
             deltaPoints: null,
@@ -118,37 +137,43 @@ export function buildTakeaways(current: ProgressEvaluation, previous: ProgressEv
         ? (current.fillerCount / current.wordCount) * 100
         : null;
 
-    // ── Action selection: weighted by actionability, not raw magnitude (§7). ──
+    // ── Action selection (PROVISIONAL clarity_v1 policy). Action copy is aligned to the target it
+    //    carries, so the words and the structured target can never disagree. ──
+    const P = PROVISIONAL_ACTION_POLICY;
     let target: StructuredTarget;
     let practiceThisNext: string;
-    if (fillerRate !== null && fillerRate >= 5) {
-        target = { metric: 'filler_rate', direction: 'decrease', targetValue: 3, units: 'percent of words' };
-        practiceThisNext = 'Pause instead of filling the gap';
-    } else if (current.wpm !== null && current.wpm > 170) {
-        target = { metric: 'pace', direction: 'decrease', targetValue: 150, units: 'words per minute' };
-        practiceThisNext = 'Slow your opening thirty seconds';
-    } else if (current.wpm !== null && current.wpm > 0 && current.wpm < 90) {
-        target = { metric: 'pace', direction: 'increase', targetValue: 130, units: 'words per minute' };
-        practiceThisNext = 'Keep your sentences moving forward';
+    if (fillerRate !== null && fillerRate >= P.fillerTriggerPercent) {
+        target = { metric: 'filler_rate', direction: 'decrease', targetValue: P.fillerTargetPercent, units: 'percent of words' };
+        practiceThisNext = `Cut filler words toward ${P.fillerTargetPercent}%`;
+    } else if (current.wpm !== null && current.wpm > P.paceFastTriggerWpm) {
+        target = { metric: 'pace', direction: 'decrease', targetValue: P.paceTargetWpm, units: 'words per minute' };
+        practiceThisNext = `Slow toward ${P.paceTargetWpm} words per minute`;
+    } else if (current.wpm !== null && current.wpm > 0 && current.wpm < P.paceSlowTriggerWpm) {
+        target = { metric: 'pace', direction: 'increase', targetValue: P.paceSlowTargetWpm, units: 'words per minute' };
+        practiceThisNext = `Lift pace toward ${P.paceSlowTargetWpm} words per minute`;
     } else {
         target = { metric: 'clear_delivery', direction: 'maintain', targetValue: current.clarityRaw ?? 0, units: 'points' };
-        practiceThisNext = 'Record one more at this pace';
+        practiceThisNext = 'Hold this clear delivery next time';
     }
 
-    // ── Observation: a genuine positive when one exists, otherwise neutral and factual. ──
+    // ── Observation: a genuine positive when one exists, otherwise a NEUTRAL MEASURED fact. The fallback
+    //    must never be participation/completion-based — §7c "completion is not performance". ──
     let whatWorked: string;
     const improvedVsPrevious = previous?.clarityRaw != null && current.clarityRaw != null
         && current.clarityRaw > previous.clarityRaw;
 
     if (improvedVsPrevious) {
         whatWorked = 'Clearer than your last session';
-    } else if (fillerRate !== null && fillerRate < 3) {
+    } else if (fillerRate !== null && fillerRate < P.fillerTargetPercent) {
         whatWorked = 'Very few filler words';
     } else if (current.wpm !== null && current.wpm >= 130 && current.wpm <= 150) {
         whatWorked = 'Pace stayed in range';
     } else {
-        // No valid positive — a neutral observation, stated without praise or implied improvement.
-        whatWorked = 'Full session recorded and saved';
+        // No valid positive: a neutral MEASURED observation — a fact about this session's delivery, not
+        // praise, not improvement, and never "you finished / you showed up".
+        whatWorked = current.fillerCount !== null
+            ? `${current.fillerCount} filler words this session`
+            : 'Pace measured this session';
     }
 
     return { whatWorked, practiceThisNext, target };

@@ -78,6 +78,13 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         expect(r.deltaPoints).toBeNull(); // no cross-cohort number is ever computed
     });
 
+    it('fails closed against an INELIGIBLE baseline — never compares to a session that cannot count', () => {
+        const ineligibleBaseline = { ...withClarity(mk({ sessionId: 's0' }), 80), eligible: false };
+        const r = describeDirection(withClarity(mk(), 90), ineligibleBaseline);
+        expect(r.direction).toBe('baseline'); // treated as "no valid comparison yet", never a false jump
+        expect(r.deltaPoints).toBeNull();
+    });
+
     it('an ineligible session shows the honest unavailable state', () => {
         const r = describeDirection(mk({ wordCount: 10 }), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('unavailable');
@@ -144,13 +151,15 @@ describe('#1045 buildTakeaways — exactly two, one of them the action (§7)', (
         expect(t.target.units).toBeTruthy();
     });
 
-    it('NEVER fabricates a positive when nothing improved — falls back to a neutral observation', () => {
+    it('NEVER fabricates a positive when nothing improved — falls back to a NEUTRAL MEASURED fact', () => {
         // every metric poor: high filler, too fast, and worse than previous
         const current = withClarity(mk({ fillerCount: 90, wpm: 220 }), 40);
         const previous = withClarity(mk({ sessionId: 's0' }), 80);
         const t = buildTakeaways(current, previous);
-        expect(t.whatWorked).toBe('Full session recorded and saved');
+        // a measured fact about the session, not praise and not participation/completion (§7c).
+        expect(t.whatWorked).toMatch(/filler words this session|Pace measured this session/);
         expect(t.whatWorked).not.toMatch(/great|excellent|improv|better|nice|well/i);
+        expect(t.whatWorked).not.toMatch(/recorded|saved|finished|completed|showed up|full session/i);
         expect(takeawaysWithinLimits(t)).toBe(true);
     });
 
