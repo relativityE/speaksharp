@@ -1,8 +1,17 @@
 name: Controlled STT Benchmarks
 
+# MANUAL / RELEASE-DRIVEN ONLY — there is deliberately no schedule.
+#
+# A weekly cron previously existed but was a NO-OP: every job is gated on `inputs.*`, and on a
+# `schedule` event `inputs` is absent (empty string), which GitHub's loose equality treats as equal to
+# `false`. So `inputs.run_cloud_ceiling != false` and `inputs.run_private_browser != false` were both
+# FALSE and every measurement step was skipped — the cron only burned runner setup. (Verified in run
+# history: run 30242982290, event=schedule, paid steps `skipped`. No paid scheduled execution ever
+# occurred; the earlier "weekly cost leak" claim was withdrawn.)
+#
+# Benchmarks are a deliberate act taken before an engine version bump or a release, never a background
+# job. Paid Cloud measurement additionally carries a job-level dispatch guard below.
 on:
-  schedule:
-    - cron: '0 3 * * 1'   # Every Monday at 3am UTC — weekly is sufficient
   workflow_dispatch:        # Manual trigger before any engine version bump
     inputs:
       write_results:
@@ -38,6 +47,11 @@ jobs:
   benchmark-cloud:
     name: AssemblyAI Ceiling Benchmark
     runs-on: ubuntu-latest
+    # COST BOUNDARY (defense-in-depth): paid AssemblyAI benchmarks run ONLY on an explicit manual
+    # dispatch. With the schedule removed this is belt-and-braces, but it states the boundary at the
+    # JOB level instead of leaving it to a subtle expression-coercion rule that is easy to misread.
+    # Cloud STT is not free and is not broken; re-measuring it is a deliberate pre-release act.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
 
