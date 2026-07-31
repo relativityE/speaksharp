@@ -35,11 +35,14 @@ This document owns **internal tester administration**. It deliberately routes:
 
 ---
 
-## 2. Release posture (operator view)
+## 2. Release posture — how to read it (never what it currently is)
 
-The current release is a **controlled private beta / early-access, non-payment** line (engineering posture and freshness rule are in `QUALITY.md`; the changing signoff SHA, run IDs, and gate colors are in `RELEASE_STATUS.md`).
+> **This document holds no current posture value.** Release line, payment state, v4 state, and any go/no-go **change independently of this procedure**, so recording them here would leave operators with conflicting instructions. **Read every live value from `RELEASE_STATUS.md`** before acting.
 
-- **Checkout is closed by the payment switches, not by the Stripe key class.** It stays closed unless **both** `VITE_PAYMENTS_ENABLED=true` and `PAYMENTS_ENABLED=true`; either OFF keeps checkout closed (verified in `frontend/src/config/appRuntimeConfig.ts` and `backend/supabase/functions/stripe-checkout/index.ts`). This is not a broad public launch and not a paid public launch.
+The operator's procedure:
+
+- **Determine the current release line and gate colors from `RELEASE_STATUS.md`** — do not infer them from this document or from any dated evidence.
+- **Checkout state is decided by the payment switches, not by the Stripe key class.** Checkout is open only when **both** `VITE_PAYMENTS_ENABLED=true` and `PAYMENTS_ENABLED=true`; either OFF keeps it closed (mechanism in `frontend/src/config/appRuntimeConfig.ts` and `backend/supabase/functions/stripe-checkout/index.ts`). **Read the current switch values from the environment/`RELEASE_STATUS.md`** — this doc states the rule, not the setting.
 - **Opening paid checkout requires the full activation contract** — both switches ON, aligned live Stripe keys/webhook/prices, and entitlement verification, under written Product-Owner authorization — **not merely a key swap.** The complete activation contract is owned by `OPERATIONS_AND_SECURITY.md`; billing mechanics by `ENTITLEMENTS_AND_BILLING.md`.
 - **Final pre-invite check:** re-run the full gate suite on the exact signoff SHA and confirm green (final-SHA freshness — every merge to `main` resets the signoff clock), then record the run in `RELEASE_STATUS.md`. Gate definitions live in `RELEASE_PROCESS.md`.
 
@@ -66,7 +69,7 @@ Entitlement *mechanics* (tiers, quotas, effective-Pro rules) are owned by `ENTIT
 - **Free-path tester scope** must prove: standard (Browser) transcription, the one Private sample, and that Cloud is unavailable to Free testers (only existing paid-Pro accounts retain access). Use a known Free account with the sample in both **unused** and **used** states when exercising both sides.
 - **Pro/admin/dev Cloud scope** (only if explicitly included in the wave): must prove Cloud recording, transcript, save/history/detail, analytics, and PDF export. Do **not** ask automatic-trial testers to validate Cloud.
 - **Effective paid Pro requires a real `stripe_subscription_id`** — DB `subscription_status='pro'` alone is not effective paid Pro. Verify the subscription id, not the flag.
-- **Pro recording cap for this release is 2h/day, 50h/month**, seeded in `tier_configs` (`backend/supabase/migrations/20260309000000_phase2_integration.sql`: `('pro', 7200, 180000, …)`) and enforced by the deployed usage functions — do **not** describe Pro as "unlimited" to any tester. Whether Pro should be raised is an unresolved product decision (→ `ROADMAP.md`); the requirement and provenance are in `ENTITLEMENTS_AND_BILLING.md`, and the dated entitlement audit is indexed by `EVIDENCE_INDEX.md`.
+- **Pro quota — describe only the seeded configuration, never a deployed guarantee.** The migration-seeded `tier_configs` row is `('pro', 7200, 180000, …)` (`backend/supabase/migrations/20260309000000_phase2_integration.sql`) — i.e. **provisional implementation values** of 2h/day and 50h/month. Per `ENTITLEMENTS_AND_BILLING.md` §4, **production equality with that seed is UNVERIFIED** (the read-only ops query is outstanding), and these numbers are **not approved policy or customer commitments**. Therefore: do **not** tell a tester what the Pro cap "is", do **not** state that deployed functions enforce these values, and do **not** describe Pro as "unlimited". Route the actual limit to `ENTITLEMENTS_AND_BILLING.md` (authority) and the outstanding production verification + any raise decision to `ROADMAP.md`; the dated entitlement audit is indexed by `EVIDENCE_INDEX.md`.
 
 Acceptance criteria for a "successful session" (save/history/detail, custom words, PDF contents, Private-sample fidelity) are **not** repeated here — they are owned by `QUALITY.md`. Data-provenance rules (Supabase authoritative; PostHog observability-only; do not call active accounts "testers" without a roster) are likewise in `QUALITY.md`.
 
@@ -75,7 +78,9 @@ Acceptance criteria for a "successful session" (save/history/detail, custom word
 ## 5. Automated first-time-tester proof (run before sending invites)
 
 - Run `.github/workflows/live-release-matrix.yml` with the first-time-tester / sample suite. It clears browser model storage, creates a fresh account, prepares Private STT, records, stops, and verifies save/history like a first-time tester.
-- This suite owns its own cleanup (the fresh account is deleted in `afterEach`). The reusable live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
+- **A green run does NOT prove the disposable account was deleted.** The suite attempts cleanup in `afterEach` (`deleteTesterByEmail` in `tests/live/first-time-tester-private-trial.live.spec.ts`), but it **does not check the `deleteUser` result and performs no post-delete verification** — its `catch` only `console.warn`s, and a missing service-role key skips deletion entirely with a warning. So a passing run can still leave a `first-time-tester-*` account in production.
+- **Therefore cleanup is only complete when proven by one of:** (a) a **scoped post-run orphan audit** confirming **zero** remaining `first-time-tester-*` accounts, or (b) a hardened suite that asserts a **zero-result lookup** for the created email after deletion. Until one of those runs, treat the account as **possibly orphaned** and record it. (Hardening the suite is tracked as an open item → `ROADMAP.md`.)
+- The reusable live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
 - Record the run (ID, result) in `RELEASE_STATUS.md`; the dated artifact is indexed by `EVIDENCE_INDEX.md`. This proof does not become "current status" — it is point-in-time evidence.
 
 ---
@@ -94,9 +99,11 @@ The manual hardware-validation **protocol** (the full per-browser/device checkli
 
 ## 7. Private v4 rollout posture (internal — never in `TESTER_GUIDE.md`)
 
-**v2 is the primary Private engine — the proven default users get. v4 is OFF for the release path.** All v4 flags default OFF; the hard-kill `VITE_PRIVATE_STT_V4_DISABLED` is available (`frontend/src/services/transcription/privateV4Flags.ts`). v4 shares the same telemetry spine, saved-session metadata, Report-Issue context, and e2e coverage as v2, but it is **not currently active or promoted**. Any move toward v4 primary needs real-world data. The engine arms, model variants, and finalize-latency contract are owned by `STT.md`; this section is the rollout/administration posture.
+> **No current v4 state is recorded here.** The live arm/rollout values change independently of this procedure — **read them from `RELEASE_STATUS.md` and the flag control plane** (and the engine contract from `STT.md`) before acting. This section is the rollout/administration **procedure** only.
 
-- **The free 5-minute Private sample is the v2/v4 measurement window.** v2 is the default for all beta traffic; v4 rollout is OFF (0%). Any targeted v4 exposure (allowlist / small cohort) is a **future, separately authorized rollout** — not currently ready or active — to collect real-world v4 data deliberately, narrowly, and reversibly once approved.
+The controlling mechanisms: v2 is the primary Private engine; v4 promotion is a **deliberate, separately authorized** step, never automatic. The hard-kill `VITE_PRIVATE_STT_V4_DISABLED` is available (`frontend/src/services/transcription/privateV4Flags.ts`), and v4 shares the same telemetry spine, saved-session metadata, Report-Issue context, and e2e coverage as v2. Any move toward v4 primary requires real-world data plus written authorization. The engine arms, model variants, and finalize-latency contract are owned by `STT.md`.
+
+- **The free Private sample is the v2/v4 measurement window.** Any targeted v4 exposure (allowlist / small cohort) is a **separately authorized rollout** — to collect real-world v4 data deliberately, narrowly, and reversibly. **Check the current rollout percentage and targeting in the flag control plane, not here.**
 - **Assignment + attribution.** Every `private_sample_*` event carries `engine_variant` (`private_v2`/`private_v4`) and `assignment_source` (`default | posthog_flag | allowlist | deterministic_override`), plus `posthog_flag_key` / `posthog_flag_value`. The saved session row's `engine_version` durably records the arm so it is reconstructable even if PostHog is missing — never rely on analytics alone.
 - **PostHog flags (owner-configured).** `private_stt_v4_enabled` is the actual control plane as configured: per-user targeting via a `distinct_id` (= Supabase user.id) condition, 0% broad rollout; first-wave exposure is done by adding test/owner `distinct_id`s to the flag condition. A separate `private_stt_v4_allowlist` flag was referenced as *planned* but was **not** present as a distinct PostHog flag during the 2026-06 investigation — use `private_stt_v4_enabled` distinct_id targeting until/unless a dedicated allowlist flag is actually created. Kill switch / rollback = clear the targeted `distinct_id`s / set rollout to 0% → new users get v2 immediately; existing saved sessions keep their recorded arm.
 - **Selective exposure controls for a first external wave:** named allowlist **+ Chrome desktop only**; internal/dogfood accounts first; avoid mobile / low-memory devices until v4 proves stable.
@@ -127,7 +134,7 @@ The manual hardware-validation **protocol** (the full per-browser/device checkli
 
 ## 8. Broad public launch vs controlled tester release
 
-The **broad public-launch** gate plan (public signup, production Stripe checkout/webhook lifecycle, trial lifecycle, Cloud/AI/PDF Pro promises, mobile baseline, observability/support) is a **separate track** from this controlled tester release and must not be mixed with the tester burn-down. Its current decision is **NO-GO** for broad launch; the controlled tester decision is tracked in `RELEASE_STATUS.md`.
+The **broad public-launch** gate plan (public signup, production Stripe checkout/webhook lifecycle, trial lifecycle, Cloud/AI/PDF Pro promises, mobile baseline, observability/support) is a **separate track** from this controlled tester release and must not be mixed with the tester burn-down. **Both the broad-launch decision and the controlled-tester decision are live values — read them from `RELEASE_STATUS.md`; neither verdict is recorded in this procedure.**
 
 - **Open broad-launch gates** (anything still unproven — e.g. live Stripe key cutover, physical-mobile-device pass) are open items → `ROADMAP.md`.
 - **Dated per-gate proof** (the historical PL-001…PL-011 evidence, including the test-mode checkout→entitlement journey accepted as functional proof, and the real-mic Cloud proof) is point-in-time evidence → indexed by `EVIDENCE_INDEX.md`, never treated as current status.

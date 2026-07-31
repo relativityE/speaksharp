@@ -107,7 +107,7 @@ We'd love for you to try SpeakSharp and tell us what you liked or what we can im
 4. Try **Private** transcription next — this is the main experience we're evaluating. Private runs on your own device, so your practice audio stays local. It may take a few seconds to get ready the first time. Free users get one Private sample of up to 5 minutes; it does not start counting down when you sign up — you choose when to use it. **No Pro purchase is needed for this beta** — the Private sample is included, and Pro purchasing isn't open during the test.
 5. For a longer Private recording, give it time to finalize after you stop — it processes your whole take on your device, so a longer recording takes a little longer to finish. You'll see honest "Finalizing…" progress the whole time.
 6. Review your saved session in **Analytics**.
-7. Look at your transcript, filler words, SpeakSharp score, and AI speech suggestions.
+7. Look at your transcript, filler words, and your session feedback.
 8. Try the Analytics focus/theme options to see which view helps you most.
 9. **Download a PDF report** from a saved session.
 10. Use **Report Issue** anytime you have feedback or run into a problem.
