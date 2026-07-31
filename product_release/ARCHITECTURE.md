@@ -146,7 +146,7 @@ Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10a; this rec
 - **Deletion must reach derived evidence.** Deleting a session has to remove or orphan-proof everything derived from it (transcript, delivery measurements, progress evaluation records, generated feedback). A deletion that leaves derived rows behind is not a deletion. *(Gap: no user-facing deletion path exists today → `ROADMAP.md`.)*
 - **Auditability requires an append-only record.** Access and change logging cannot be reconstructed from mutable rows after the fact; it would need its own immutable record with a stated retention window.
 - **Exports must reuse the stored evaluation, not recompute.** Any org-level export has to read the same persisted result the product displays, per the one-deterministic-truth rule in `PROGRESS_AND_NEXT_ACTION.md` §8a.
-- **No multi-tenant partitioning is planned.** Tenant-partitioned storage, per-tenant models and on-prem deployment are **Declined** (see §10a); reversing that is a new decision, not an incremental change.
+- **No tenant-PARTITIONED infrastructure is planned**, but logical isolation is required if the organization model ships. Separate per-tenant databases/deployments, per-tenant models and on-prem deployment are **Declined** (`PRODUCT_REQUIREMENTS.md` §10a). **Org-scoped data must still be isolated between organizations** — membership and org settings would be enforced in the same row-level-security layer that already isolates users, never by a separate partitioning scheme. Reversing the decline is a new decision, not an incremental change.
 
 ## 15. Current limitations & open ADRs
 

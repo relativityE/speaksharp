@@ -169,7 +169,7 @@ Enterprise buyers expect an admin surface, SSO/SCIM, retention and deletion cont
 
 | Capability | Class | Requirement | Implementation trigger |
 |---|---|---|---|
-| **Transcript & audio retention + deletion** | **Now** | A user can delete a saved session and its derived evidence, and the retention window is stated plainly. This is a **privacy obligation to individual users**, not an enterprise feature. | None — standing obligation. **Gap: no user-facing session deletion exists today** → `ROADMAP.md`. |
+| **Transcript & audio retention + deletion** | **Now** | **Two distinct obligations, both required — satisfying one does not satisfy the other.** (a) A user can delete a saved session and its derived evidence. (b) A retention **duration** is decided and stated plainly. This is a privacy obligation to individual users, not an enterprise feature. | None — standing obligation. **Two open gaps → `ROADMAP.md`: (a) no user-facing session deletion exists today; (b) the retention duration is an UNRESOLVED policy decision requiring Product-Owner approval** (`ARCHITECTURE.md` §15). Shipping deletion alone does **not** close this row. |
 | **Zero-data / private mode** | **Now** | Stated as a concrete operating contract (below), not as generic "private" marketing copy. | None — standing obligation; Private STT already keeps audio on-device. |
 | **Sub-processor & data-handling disclosure** | **Next** | Name every third party that receives customer content, what it receives, and under which terms. | First enterprise or privacy enquiry. **Gap: no DPA or sub-processor register exists in-repo; the AI-phrasing provider's terms are unverified** → `ROADMAP.md`. |
 | **Auditability (admin-visible access & change log)** | **Next** | Record who accessed or changed org-scoped data, retained for a stated window. | A signed requirement naming the retention period. |
@@ -178,7 +178,7 @@ Enterprise buyers expect an admin surface, SSO/SCIM, retention and deletion cont
 | **Cohort analytics & exports** | **Later** | Aggregate, non-identifying org-level reporting plus an export. | The organization model exists **and** a partner has asked for it. |
 | **Custom scenarios / content** | **Later** | Organizations supply their own rehearsal scenarios. | Guided Rehearsal (#1046) shipped **and** a design partner requests it. |
 | **Support / SLA / procurement terms** | **Later** | Stated response targets, uptime commitment and procurement documents. | Entering a contract negotiation. |
-| **Multi-tenant platform build (tenant isolation, per-tenant models, on-prem)** | **Declined** | Not pursued. Current isolation is per-user RLS; that is the deliberate design. | Reversing this requires a new Product-Owner decision, not a trigger. |
+| **Tenant-partitioned infrastructure (separate per-tenant databases/deployments, per-tenant models, on-prem/self-hosted)** | **Declined** | **Physical partitioning** is not pursued. **This does not decline logical isolation:** if the organization model ships, org-scoped data (membership, settings, cohort reporting) **must** be isolated between organizations — layered on top of per-user RLS, which remains the base guarantee and is never weakened. What is declined is separate infrastructure per customer, per-tenant models, and on-prem/self-hosted deployment. | Reversing this requires a new Product-Owner decision, not a trigger. |
 
 ### The privacy operating contract (what "private" concretely means)
 
