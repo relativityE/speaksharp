@@ -16,6 +16,7 @@ import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecover
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { FreestyleHelpOverlay } from '@/components/session/FreestyleHelpOverlay';
+import { PracticeFocusOnramp } from '@/components/session/PracticeFocusOnramp';
 import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
@@ -303,6 +304,13 @@ export const SessionPage: React.FC = () => {
                     </div>
                     <FreestyleHelpOverlay available={helpOverlayAvailable} />
                 </div>
+            </div>
+
+            <div className="max-w-7xl mx-auto px-4 sm:px-6">
+                <PracticeFocusOnramp
+                    available={helpOverlayAvailable && !showAnalyticsPrompt}
+                    transcriptionMode={mode}
+                />
             </div>
 
             {/* Status Bar - Spans full width of the main content area.
