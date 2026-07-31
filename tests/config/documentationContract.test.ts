@@ -20,6 +20,9 @@ const ENTITLEMENTS = read('ENTITLEMENTS_AND_BILLING.md'); // canonical #7 (#1053
 const QUALITY = read('QUALITY.md'); // canonical #8 (#1049)
 const RELEASE_PROCESS = read('RELEASE_PROCESS.md'); // canonical #9 (#1049)
 const OPERATIONS_AND_SECURITY = read('OPERATIONS_AND_SECURITY.md'); // canonical #11 (#1049)
+const TESTER_GUIDE = read('TESTER_GUIDE.md'); // canonical #12 (#1050)
+const TESTER_OPERATIONS = read('TESTER_OPERATIONS.md'); // canonical #13 (#1050)
+const EVIDENCE_INDEX = read('EVIDENCE_INDEX.md'); // canonical #14 (#1050)
 
 const CANONICAL_14 = [
   'README.md', 'PRODUCT_REQUIREMENTS.md', 'ROADMAP.md', 'ARCHITECTURE.md', 'STT.md',
@@ -253,7 +256,7 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('the 10 metadata fields appear within the document header (first 25 lines), not merely anywhere', () => {
-    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ARCHITECTURE', ARCHITECTURE], ['ENTITLEMENTS', ENTITLEMENTS], ['QUALITY', QUALITY], ['RELEASE_PROCESS', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY', OPERATIONS_AND_SECURITY]] as const) {
+    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ARCHITECTURE', ARCHITECTURE], ['ENTITLEMENTS', ENTITLEMENTS], ['QUALITY', QUALITY], ['RELEASE_PROCESS', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE', TESTER_GUIDE], ['TESTER_OPERATIONS', TESTER_OPERATIONS], ['EVIDENCE_INDEX', EVIDENCE_INDEX]] as const) {
       const header = md.split('\n').slice(0, 25).join('\n');
       const missing = METADATA_FIELDS.filter(f => !header.includes(f));
       expect(missing, `${label} header missing fields`).toEqual([]);
@@ -261,7 +264,7 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('relative links in the governed docs resolve', () => {
-    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS], ['ARCHITECTURE.md', ARCHITECTURE], ['ENTITLEMENTS_AND_BILLING.md', ENTITLEMENTS], ['QUALITY.md', QUALITY], ['RELEASE_PROCESS.md', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY.md', OPERATIONS_AND_SECURITY]] as const) {
+    for (const [name, md] of [['README.md', README], ['DOC_MIGRATION_LEDGER.md', LEDGER], ['RELEASE_STATUS.md', STATUS], ['PRODUCT_REQUIREMENTS.md', PRODUCT_REQUIREMENTS], ['ARCHITECTURE.md', ARCHITECTURE], ['ENTITLEMENTS_AND_BILLING.md', ENTITLEMENTS], ['QUALITY.md', QUALITY], ['RELEASE_PROCESS.md', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY.md', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE.md', TESTER_GUIDE], ['TESTER_OPERATIONS.md', TESTER_OPERATIONS], ['EVIDENCE_INDEX.md', EVIDENCE_INDEX]] as const) {
       for (const m of md.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
         expect(fs.existsSync(path.resolve(DOCS, m[1])), `${name}: broken link ${m[1]}`).toBe(true);
       }
