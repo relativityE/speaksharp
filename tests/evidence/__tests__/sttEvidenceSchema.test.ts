@@ -12,6 +12,7 @@ import {
 
 const FIXTURE_HASH = 'a'.repeat(64);
 const IMMUTABLE_REV = 'e7f3c1a9b2d4';
+const FULL_SHA = '58d0150bf18708fe645f226aac10ee0adeadfe36';
 
 const route = (over: Partial<AudioRouteEvidence> = {}): AudioRouteEvidence => ({
     fixtureSha256: FIXTURE_HASH,
@@ -39,7 +40,7 @@ const base = (over: Partial<RawRow> = {}): RawRow => ({
     first_partial_latency_ms: 800,
     finalization_latency_ms: 4200,
     failure_class: 'none',
-    release_sha: '772dfc12',
+    release_sha: FULL_SHA,
     audio_route_evidence: route(),
     runtime_capability: {
         requestedThreads: 4, configuredThreads: 4, workerReportedThreads: 4,
@@ -207,6 +208,14 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const a = finalizeRow(base());
         const b = finalizeRow(base({ fixture_id: 'harvard-01' }));
         expect(rankableCohorts([a, b]).size).toBe(1);
+    });
+
+    it('an abbreviated release_sha is rejected — evidence must name the exact deployed commit', () => {
+        for (const sha of ['772dfc12', '58d0150', '', 'not-a-sha']) {
+            const r = finalizeRow(base({ release_sha: sha }));
+            expect(r.run_validity, `${sha || '(empty)'} must be rejected`).toBe('invalid');
+        }
+        expect(finalizeRow(base({ release_sha: FULL_SHA })).run_validity).toBe('valid');
     });
 
     it('a single corpus execution may not claim a percentile', () => {

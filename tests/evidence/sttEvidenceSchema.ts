@@ -143,6 +143,9 @@ export function deriveAudioRouteProven(
     return { proven: true, reason: null };
 }
 
+/** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
+export const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+
 const REQUIRED_STRING_FIELDS = [
     'comparability_class', 'engine', 'engine_version', 'browser', 'browser_version',
     'os', 'device', 'network_condition', 'fixture_id', 'release_sha', 'model_name',
@@ -161,6 +164,10 @@ export function finalizeRow(
     for (const f of REQUIRED_STRING_FIELDS) {
         const v = (row as Record<string, unknown>)[f];
         if (typeof v !== 'string' || v.trim() === '') problems.push(`missing ${f}`);
+    }
+
+    if (!FULL_SHA_RE.test(String(row.release_sha ?? ''))) {
+        problems.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
     }
 
     const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);

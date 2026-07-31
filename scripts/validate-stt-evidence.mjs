@@ -29,7 +29,8 @@ const RUN_VALIDITY = new Set(['valid', 'invalid']);
 const FAILURE_CLASSES = new Set(['none', 'model_load_failed', 'decode_failed', 'audio_route_unproven', 'timeout', 'provider_error', 'unknown']);
 /** Revisions that move over time make a "comparable" cohort silently incomparable. */
 const MUTABLE_REVISIONS = new Set(['main', 'master', 'latest', 'head', 'HEAD', '']);
-const SHA_RE = /^[0-9a-f]{7,40}$/i;
+/** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
+const SHA_RE = /^[0-9a-f]{40}$/i;
 const HASH_RE = /^[0-9a-f]{16,128}$/i;
 
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
@@ -44,7 +45,7 @@ function semanticProblems(row) {
     for (const f of ['engine', 'engine_version', 'model_name', 'browser', 'browser_version', 'os', 'device', 'network_condition', 'fixture_id']) {
         if (!isStr(row[f])) p.push(`${f} must be a non-empty string`);
     }
-    if (!SHA_RE.test(String(row.release_sha ?? ''))) p.push(`release_sha '${row.release_sha}' is not a git SHA`);
+    if (!SHA_RE.test(String(row.release_sha ?? ''))) p.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
 
     // Attribution: engine-specific evidence is admissible only when durably verified (#1033).
     if (row.attribution_status !== 'verified') p.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
