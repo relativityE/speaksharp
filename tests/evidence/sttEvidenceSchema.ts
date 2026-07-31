@@ -72,6 +72,9 @@ export interface RuntimeCapability {
  * Versioned inputs that make two rows comparable. Ranking requires ALL of these to match, so a corpus
  * change, a normalization change, or a runtime upgrade cannot silently shift a comparison.
  */
+/** Revisions that move over time — pinning to them makes a "comparable" cohort silently incomparable. */
+export const MUTABLE_REVISIONS = new Set(['main', 'master', 'latest', 'head', 'HEAD', '']);
+
 export interface ComparabilityInputs {
     /** Single canonical fixture hash — the same value as AudioRouteEvidence.fixtureSha256. */
     fixtureHash: string;
@@ -89,6 +92,13 @@ export interface SttEvidenceRow {
     comparability_class: ComparabilityClass;
     engine: string;
     engine_version: string;
+    /**
+     * #1033 persisted producing-engine attribution. Engine-specific evidence is admissible ONLY when
+     * the recording's attribution was durably verified — a `pending`/`unverified`/`legacy_unknown` row
+     * cannot be published under its claimed engine.
+     */
+    attribution_status: 'verified' | 'pending' | 'unverified' | 'legacy_unknown';
+    model_name: string;
     browser: string;
     browser_version: string;
     os: string;
@@ -135,7 +145,7 @@ export function deriveAudioRouteProven(
 
 const REQUIRED_STRING_FIELDS = [
     'comparability_class', 'engine', 'engine_version', 'browser', 'browser_version',
-    'os', 'device', 'network_condition', 'fixture_id', 'release_sha',
+    'os', 'device', 'network_condition', 'fixture_id', 'release_sha', 'model_name',
 ] as const satisfies readonly (keyof SttEvidenceRow)[];
 
 /**
@@ -156,6 +166,10 @@ export function finalizeRow(
     const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);
     if (!route.proven) problems.push(`audio route unproven: ${route.reason}`);
 
+    if (row.attribution_status !== 'verified') {
+        problems.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+    }
+
     const ci = row.comparability_inputs;
     for (const [k, v] of Object.entries({
         fixtureHash: ci?.fixtureHash, groundTruthVersion: ci?.groundTruthVersion,
@@ -163,6 +177,12 @@ export function finalizeRow(
         modelRevision: ci?.modelRevision,
     })) {
         if (!v) problems.push(`missing comparability input ${k}`);
+    }
+    if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
+        problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
+    }
+    if (!ci?.runtimeVersions || Object.keys(ci.runtimeVersions).length === 0) {
+        problems.push('runtimeVersions must be a non-empty map — a silent runtime upgrade would invalidate any ranking');
     }
     // One canonical fixture hash: the comparability input must be the same value the route proved.
     if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
@@ -184,9 +204,41 @@ export function finalizeRow(
     };
 }
 
-/** Only valid, route-proven rows may be ranked, and only within one comparability class + cohort. */
+/**
+ * The identity two rows must share before their numbers may be compared. Ranking across differing
+ * fixtures, runtimes, models or normalization is meaningless, so the key includes all of them.
+ */
+export function cohortKey(r: SttEvidenceRow): string {
+    const ci = r.comparability_inputs;
+    return [
+        r.comparability_class, r.engine, r.engine_version, r.model_name,
+        ci.fixtureHash, ci.groundTruthVersion, ci.normalizationVersion,
+        ci.decodeConfiguration, ci.modelRevision,
+        Object.entries(ci.runtimeVersions ?? {}).sort().map(([k, v]) => `${k}@${v}`).join(','),
+    ].join('|');
+}
+
+/** Admissible rows only — valid, route-proven, verified attribution, and carrying a real WER. */
 export function rankableRows(rows: SttEvidenceRow[]): SttEvidenceRow[] {
-    return rows.filter(r => r.run_validity === 'valid' && r.audio_route_proven && r.wer !== null);
+    return rows.filter(r =>
+        r.run_validity === 'valid' &&
+        r.audio_route_proven &&
+        r.attribution_status === 'verified' &&
+        r.wer !== null);
+}
+
+/**
+ * Group admissible rows into comparable cohorts. Comparison/ranking MUST happen inside one group —
+ * `rankableRows()` alone filters bad rows but does not stop two good rows from different cohorts being
+ * ranked against each other, which is the subtler error.
+ */
+export function rankableCohorts(rows: SttEvidenceRow[]): Map<string, SttEvidenceRow[]> {
+    const out = new Map<string, SttEvidenceRow[]>();
+    for (const r of rankableRows(rows)) {
+        const k = cohortKey(r);
+        out.set(k, [...(out.get(k) ?? []), r]);
+    }
+    return out;
 }
 
 /**

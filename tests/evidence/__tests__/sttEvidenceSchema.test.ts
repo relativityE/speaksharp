@@ -3,12 +3,15 @@ import {
     finalizeRow,
     deriveAudioRouteProven,
     rankableRows,
+    rankableCohorts,
+    cohortKey,
     PERCENTILE_POLICY,
     type AudioRouteEvidence,
     type SttEvidenceRow,
 } from '../sttEvidenceSchema';
 
 const FIXTURE_HASH = 'a'.repeat(64);
+const IMMUTABLE_REV = 'e7f3c1a9b2d4';
 
 const route = (over: Partial<AudioRouteEvidence> = {}): AudioRouteEvidence => ({
     fixtureSha256: FIXTURE_HASH,
@@ -24,6 +27,8 @@ const base = (over: Partial<RawRow> = {}): RawRow => ({
     comparability_class: 'corpus_fixture',
     engine: 'private',
     engine_version: 'whisper-base.en@v2',
+    model_name: 'whisper-base.en',
+    attribution_status: 'verified',
     browser: 'Chromium',
     browser_version: '140.0.0.0',
     os: 'linux',
@@ -43,7 +48,7 @@ const base = (over: Partial<RawRow> = {}): RawRow => ({
     },
     comparability_inputs: {
         fixtureHash: FIXTURE_HASH, groundTruthVersion: 'gt-v1', normalizationVersion: 'norm-v1',
-        decodeConfiguration: 'q8/q8/wasm/worker/4', modelRevision: 'main',
+        decodeConfiguration: 'q8/q8/wasm/worker/4', modelRevision: IMMUTABLE_REV,
         runtimeVersions: { onnxruntime: '1.27.0' },
     },
     ...over,
@@ -59,13 +64,13 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(rankableRows([r])).toHaveLength(1);
     });
 
-    it('carries every one of the 17 #1037 required schema fields', () => {
+    it('carries every #1037 required schema field, plus attribution and model_name', () => {
         const r = finalizeRow(base()) as unknown as Record<string, unknown>;
         for (const f of [
-            'comparability_class', 'engine', 'engine_version', 'browser', 'browser_version', 'os',
-            'device', 'network_condition', 'fixture_id', 'audio_route_proven', 'run_validity',
-            'invalid_reason', 'wer', 'first_partial_latency_ms', 'finalization_latency_ms',
-            'failure_class', 'release_sha',
+            'comparability_class', 'engine', 'engine_version', 'model_name', 'attribution_status',
+            'browser', 'browser_version', 'os', 'device', 'network_condition', 'fixture_id',
+            'audio_route_proven', 'run_validity', 'invalid_reason', 'wer', 'first_partial_latency_ms',
+            'finalization_latency_ms', 'failure_class', 'release_sha',
         ]) {
             expect(f in r, `required field ${f} missing`).toBe(true);
         }
@@ -158,6 +163,50 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const good = finalizeRow(base());
         const bad = finalizeRow(base({ fixture_id: 'harvard-02', audio_route_evidence: route({ adapterInputBytes: 0 }) }));
         expect(rankableRows([good, bad] as SttEvidenceRow[])).toEqual([good]);
+    });
+
+    it('unverified attribution makes engine evidence inadmissible (#1033)', () => {
+        for (const st of ['pending', 'unverified', 'legacy_unknown'] as const) {
+            const r = finalizeRow(base({ attribution_status: st }));
+            expect(r.run_validity, `${st} must be inadmissible`).toBe('invalid');
+            expect(r.invalid_reason).toMatch(/not 'verified'/);
+            expect(rankableRows([r])).toHaveLength(0);
+        }
+    });
+
+    it('a mutable model revision is rejected — comparability must be immutable', () => {
+        for (const rev of ['main', 'master', 'latest']) {
+            const r = finalizeRow(base({
+                comparability_inputs: { ...base().comparability_inputs, modelRevision: rev },
+            }));
+            expect(r.run_validity, `${rev} must be rejected`).toBe('invalid');
+            expect(r.invalid_reason).toMatch(/is mutable/);
+        }
+    });
+
+    it('an empty runtimeVersions map is rejected — a silent runtime upgrade would void the ranking', () => {
+        const r = finalizeRow(base({
+            comparability_inputs: { ...base().comparability_inputs, runtimeVersions: {} },
+        }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/runtimeVersions must be a non-empty map/);
+    });
+
+    it('cohorts are separated: rows differing in model/runtime/fixture are never one ranking', () => {
+        const a = finalizeRow(base());
+        const b = finalizeRow(base({
+            fixture_id: 'harvard-02',
+            comparability_inputs: { ...base().comparability_inputs, runtimeVersions: { onnxruntime: '1.28.0' } },
+        }));
+        expect(rankableRows([a, b])).toHaveLength(2);          // both are individually admissible...
+        expect(rankableCohorts([a, b]).size).toBe(2);          // ...but they are NOT comparable
+        expect(cohortKey(a)).not.toBe(cohortKey(b));
+    });
+
+    it('same-cohort rows group together', () => {
+        const a = finalizeRow(base());
+        const b = finalizeRow(base({ fixture_id: 'harvard-01' }));
+        expect(rankableCohorts([a, b]).size).toBe(1);
     });
 
     it('a single corpus execution may not claim a percentile', () => {
