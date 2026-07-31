@@ -14,7 +14,11 @@ concurrency:
 jobs:
   canary-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15 (was 10) so the #1106 deploy-race gate can spend its full budget and still emit its diagnostic:
+    # the smoke test may now wait up to 4 min for the expected SHA to go live, plus 2 min for the product
+    # path, on top of checkout/setup/provision. Without this the JOB would be killed before the test could
+    # report DEPLOYMENT NOT LIVE — the same generic-timeout failure mode the gate exists to eliminate.
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

@@ -15,12 +15,25 @@ import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
  */
 const EXPECTED_RELEASE_SHA = process.env.EXPECTED_RELEASE_SHA?.trim();
 const PROD_HOST = 'speaksharp-public.vercel.app';
-const DEPLOY_WAIT_MS = 5 * 60_000; // Vercel post-merge publish budget
+const DEPLOY_WAIT_MS = 4 * 60_000; // Vercel post-merge publish budget
 const DEPLOY_POLL_MS = 15_000;
+/**
+ * Headroom for the product smoke that runs AFTER the gate. `playwright.canary.config.ts` sets a 60s
+ * per-test timeout, which is ample for the product path alone but would abort the deploy poll long before
+ * DEPLOY_WAIT_MS elapsed — Playwright would kill the test with a GENERIC timeout and the distinct
+ * `DEPLOYMENT NOT LIVE` error and `deployed-release` attachment would never be produced, defeating the
+ * whole point of the gate. So when (and only when) the gate is armed, the test timeout is raised to cover
+ * the poll budget PLUS this product budget. The workflow job timeout is raised to match.
+ */
+const PRODUCT_SMOKE_BUDGET_MS = 2 * 60_000;
+
+function deployGateIsArmed(): boolean {
+    return Boolean(EXPECTED_RELEASE_SHA) && (process.env.BASE_URL ?? '').includes(PROD_HOST);
+}
 
 async function assertDeployedReleaseIsLive(page: Page) {
     const base = process.env.BASE_URL ?? '';
-    if (!EXPECTED_RELEASE_SHA || !base.includes(PROD_HOST)) {
+    if (!deployGateIsArmed()) {
         debugLog(`[CANARY] deploy-race gate SKIPPED (expected SHA ${EXPECTED_RELEASE_SHA ? 'set' : 'unset'}; base="${base}").`);
         return;
     }
@@ -138,6 +151,13 @@ test.describe('Production Smoke Canary @canary', () => {
         // 0. #1106 DEPLOY-RACE GATE — confirm the deployed build is the one this run expects BEFORE any
         // product assertion, so a not-yet-live deployment fails distinctly as "deployment not live" rather
         // than misreporting a stale build as a product regression.
+        //
+        // The config's 60s per-test timeout would abort the poll (and its diagnostic) long before the
+        // budget elapsed, so extend the timeout — ONLY when the gate is armed, leaving every other run
+        // (local, non-prod) on the strict default.
+        if (deployGateIsArmed()) {
+            test.setTimeout(DEPLOY_WAIT_MS + PRODUCT_SMOKE_BUDGET_MS);
+        }
         await assertDeployedReleaseIsLive(page);
 
         // 1. Real Login (modeled after soak test)
