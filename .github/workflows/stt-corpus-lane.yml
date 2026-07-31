@@ -1,0 +1,45 @@
+name: STT Corpus Lane (Private v2, no Cloud)
+
+# #1037 Lane A. Executes the REAL Private-v2 recognizer (Xenova/whisper-base.en, pinned revision) against
+# the immutable controlled fixture corpus, emits an evidence artifact accepted by the merged validator,
+# and uploads it. Makes ZERO paid Cloud calls (no AssemblyAI/Gemini). v4 is out of scope.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/evidence/**'
+      - 'scripts/stt-corpus-lane.ts'
+      - 'scripts/validate-stt-evidence.mjs'
+      - '.github/workflows/stt-corpus-lane.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corpus-lane:
+    name: corpus-lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Run Private-v2 corpus lane + validate emitted artifact (fails closed)
+        run: |
+          node_modules/.bin/tsx scripts/stt-corpus-lane.ts \
+            --manifest tests/evidence/fixtures/corpus/manifest.json \
+            --out stt-evidence-artifacts/corpus.json \
+            --runs 3 \
+            --release-sha "${{ github.sha }}"
+      - name: Upload corpus evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stt-corpus-evidence
+          path: stt-evidence-artifacts/corpus.json
+          if-no-files-found: warn

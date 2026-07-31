@@ -70,24 +70,33 @@ describe('#1037 corpusLane — schema-valid rows, fail-closed, honest WER/percen
     it('a single (or small) execution emits observations only — never a p95', () => {
         const rows: CorpusRow[] = [buildCorpusRow(base())];
         const s = summarizeLatency(rows, 'finalization_latency_ms');
-        expect(s.p95).toBeNull();
-        expect(s.observations).toEqual([900]);
+        expect(s.cold.p95).toBeNull();
+        expect(s.warm.p95).toBeNull();
+        expect(s.cold.observations).toEqual([900]);
         expect(s.note).toMatch(/repeated runs/i);
     });
 
-    it('computes a p95 only over a defined repeated-run distribution with warm/cold classification', () => {
+    it('reports cold and warm as SEPARATE distributions and never combines them into one p95', () => {
+        // 24 warm (>=20 -> warm p95) + 1 cold (<20 -> cold p95 null). Cold is never folded into warm.
         const rows: CorpusRow[] = Array.from({ length: 25 }, (_, i) =>
             buildCorpusRow(base({ finalizationLatencyMs: 800 + i, thermalState: i === 0 ? 'cold' : 'warm' })));
         const s = summarizeLatency(rows, 'finalization_latency_ms');
         expect(s.runs).toBe(25);
-        expect(s.coldRuns).toBe(1);
-        expect(s.warmRuns).toBe(24);
-        expect(s.p95).not.toBeNull();
+        expect(s.cold.runs).toBe(1);
+        expect(s.warm.runs).toBe(24);
+        expect(s.cold.p95).toBeNull();       // 1 cold run — no percentile
+        expect(s.warm.p95).not.toBeNull();   // 24 warm runs — its own classified distribution
     });
 
-    it('25 runs with NO cold classification still refuses a p95 (classification required)', () => {
-        const rows: CorpusRow[] = Array.from({ length: 25 }, () => buildCorpusRow(base({ thermalState: 'warm' })));
-        expect(summarizeLatency(rows, 'finalization_latency_ms').p95).toBeNull();
+    it('a warm class below the policy minimum still refuses a warm p95', () => {
+        const rows: CorpusRow[] = Array.from({ length: 10 }, () => buildCorpusRow(base({ thermalState: 'warm' })));
+        expect(summarizeLatency(rows, 'finalization_latency_ms').warm.p95).toBeNull();
+    });
+
+    it('REFUSES to aggregate rows from different cohorts (throws)', () => {
+        const a = buildCorpusRow(base());
+        const b = buildCorpusRow(base({ comparabilityInputs: { ...ci, runtimeVersions: { onnxruntime: '9.9.9' } } }));
+        expect(() => summarizeLatency([a, b], 'finalization_latency_ms')).toThrow(/distinct cohorts/i);
     });
 
     it('rows differing only by runtime version fall into different cohorts (no silent cross-ranking)', () => {

@@ -8,6 +8,7 @@
  */
 import {
     finalizeRow,
+    cohortKey,
     PERCENTILE_POLICY,
     type SttEvidenceRow,
     type AudioRouteEvidence,
@@ -83,54 +84,78 @@ export function buildCorpusRow(input: CorpusRunInput): CorpusRow {
     return { ...row, thermal_state: input.thermalState, wer_detail: row.audio_route_proven ? werDetail : null };
 }
 
-export interface LatencySummary {
-    metric: 'first_partial_latency_ms' | 'finalization_latency_ms';
+export interface ThermalDistribution {
+    thermalState: ThermalState;
     runs: number;
-    coldRuns: number;
-    warmRuns: number;
     observations: number[];
     min: number | null;
     max: number | null;
-    /** null unless a defined repeated-run distribution exists (>= policy minimum). Never faked. */
+    /** null unless THIS class alone has a defined distribution (>= policy minimum). Never faked, never mixed. */
     p95: number | null;
+}
+
+export interface LatencySummary {
+    metric: 'first_partial_latency_ms' | 'finalization_latency_ms';
+    cohortKey: string;
+    runs: number;
+    /** Cold and warm are reported SEPARATELY — never combined into one percentile. */
+    cold: ThermalDistribution;
+    warm: ThermalDistribution;
     note: string;
 }
 
+function distribution(state: ThermalState, values: number[]): ThermalDistribution {
+    const enough = values.length >= PERCENTILE_POLICY.minRunsForPercentile;
+    let p95: number | null = null;
+    if (enough) {
+        const sorted = [...values].sort((a, b) => a - b);
+        const idx = Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1);
+        p95 = sorted[Math.max(0, idx)];
+    }
+    return {
+        thermalState: state,
+        runs: values.length,
+        observations: values,
+        min: values.length ? Math.min(...values) : null,
+        max: values.length ? Math.max(...values) : null,
+        p95,
+    };
+}
+
 /**
- * Summarize a metric across repeated runs. Refuses a percentile below the policy minimum and requires
- * warm/cold classification — a single (or handful of) run(s) emits observations only.
+ * Summarize a metric across repeated runs of a SINGLE cohort. Two guards the earlier version lacked:
+ *  1. All rows MUST share one `cohortKey()` — mixing cohorts is meaningless, so it throws rather than
+ *     silently averaging across fixtures/runtimes/models.
+ *  2. Cold and warm observations are NEVER combined into one p95 — each thermal class gets its own
+ *     classified distribution, and each still requires the policy minimum before a percentile appears.
  */
 export function summarizeLatency(
     rows: CorpusRow[],
     metric: 'first_partial_latency_ms' | 'finalization_latency_ms',
 ): LatencySummary {
     const admissible = rows.filter((r) => r.run_validity === 'valid' && r.audio_route_proven);
-    const observations = admissible
-        .map((r) => r[metric])
-        .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-    const coldRuns = admissible.filter((r) => r.thermal_state === 'cold').length;
-    const warmRuns = admissible.filter((r) => r.thermal_state === 'warm').length;
-
-    const enoughRuns = observations.length >= PERCENTILE_POLICY.minRunsForPercentile;
-    const classified = coldRuns > 0 && warmRuns > 0; // both classes present
-    const canPercentile = enoughRuns && (!PERCENTILE_POLICY.requiresWarmColdClassification || classified);
-
-    let p95: number | null = null;
-    if (canPercentile) {
-        const sorted = [...observations].sort((a, b) => a - b);
-        const idx = Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1);
-        p95 = sorted[Math.max(0, idx)];
+    const keys = new Set(admissible.map((r) => cohortKey(r)));
+    if (keys.size > 1) {
+        throw new Error(`summarizeLatency: refusing to aggregate ${keys.size} distinct cohorts — summarize one cohort at a time (use rankableCohorts)`);
     }
+    const obs = (state: ThermalState): number[] =>
+        admissible
+            .filter((r) => r.thermal_state === state)
+            .map((r) => r[metric])
+            .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+
+    const cold = distribution('cold', obs('cold'));
+    const warm = distribution('warm', obs('warm'));
+    const anyP95 = cold.p95 !== null || warm.p95 !== null;
 
     return {
         metric,
+        cohortKey: keys.size === 1 ? [...keys][0] : '',
         runs: admissible.length,
-        coldRuns,
-        warmRuns,
-        observations,
-        min: observations.length ? Math.min(...observations) : null,
-        max: observations.length ? Math.max(...observations) : null,
-        p95,
-        note: canPercentile ? 'percentile over a defined repeated-run distribution' : PERCENTILE_POLICY.note,
+        cold,
+        warm,
+        note: anyP95
+            ? 'per-thermal-class percentiles over defined repeated-run distributions; cold and warm are never combined'
+            : PERCENTILE_POLICY.note,
     };
 }

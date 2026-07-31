@@ -1,0 +1,14 @@
+{
+  "manifestVersion": "corpus_v1",
+  "groundTruthVersion": "gt_v1",
+  "note": "Immutable controlled corpus. Fixtures are synthetic speech (macOS 'say', voice Samantha, 16kHz mono PCM16) of neutral, content-free text — no user data. Reference text + hashes are pinned; a mismatch fails the run closed.",
+  "fixtures": [
+    {
+      "fixtureId": "fixture-001",
+      "path": "fixture-001.wav",
+      "fixtureSha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+      "referenceText": "the quick brown fox jumps over the lazy dog while a calm river flows past the old stone bridge",
+      "referenceTextSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70"
+    }
+  ]
+}
