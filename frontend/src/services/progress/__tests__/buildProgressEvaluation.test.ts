@@ -160,3 +160,34 @@ describe('#1045 resolveComparisonRefs — baseline and previous comparable', () 
         expect(refs.baselineSessionId).toBeNull();
     });
 });
+
+describe('#1045 buildProgressEvaluation — engine identity and filler evidence gates (review batch 2)', () => {
+    it.each([
+        ['null engine', { engine: null }],
+        ['blank engine', { engine: '   ' }],
+        ['null engine version', { engineVersion: null }],
+        ['blank engine version', { engineVersion: '' }],
+        ['null model name', { modelName: null }],
+        ['blank model name', { modelName: '\t' }],
+    ])('rejects %s as incomplete_engine_identity and stores no cohort/evidence', (_label, over) => {
+        const r = buildProgressEvaluation(ev(over as Partial<SessionEvidence>));
+        expect(r.eligible).toBe(false);
+        expect(r.exclusionReasons).toContain('incomplete_engine_identity');
+        expect(r.cohortKey).toBeNull();
+        expect(r.clarityRaw).toBeNull();
+    });
+
+    it('missing filler evidence (null count) is excluded, never imputed to zero', () => {
+        const r = buildProgressEvaluation(ev({ fillerCount: null }));
+        expect(r.eligible).toBe(false);
+        expect(r.exclusionReasons).toContain('no_filler_evidence');
+        expect(r.fillerCount).toBeNull();
+    });
+
+    it('a MEASURED zero filler count is valid evidence and stays eligible', () => {
+        const r = buildProgressEvaluation(ev({ fillerCount: 0 }));
+        expect(r.eligible).toBe(true);
+        expect(r.exclusionReasons).toEqual([]);
+        expect(r.fillerCount).toBe(0);
+    });
+});

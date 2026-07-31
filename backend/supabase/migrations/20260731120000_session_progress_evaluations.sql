@@ -54,12 +54,16 @@ CREATE TABLE IF NOT EXISTS public.session_progress_evaluations (
         (eligible = false AND cardinality(exclusion_reasons) > 0)
     ),
 
-    -- An eligible row MUST carry complete evidence, a COMPLETE engine identity, and verified attribution;
-    -- an ineligible row must carry no comparison references or evidence it has not earned.
+    -- An eligible row MUST carry complete evidence, a COMPLETE (non-blank) engine identity, verified
+    -- attribution, and a filler_count derived from present evidence (never an imputed zero); an
+    -- ineligible row must carry no comparison references or evidence it has not earned.
     CONSTRAINT spe_eligible_payload CHECK (
         (eligible = true
             AND clarity_raw IS NOT NULL AND cohort_key IS NOT NULL
-            AND engine IS NOT NULL AND engine_version IS NOT NULL AND model_name IS NOT NULL
+            AND filler_count IS NOT NULL AND error_marker_count IS NOT NULL
+            AND engine IS NOT NULL AND btrim(engine) <> ''
+            AND engine_version IS NOT NULL AND btrim(engine_version) <> ''
+            AND model_name IS NOT NULL AND btrim(model_name) <> ''
             AND attribution_status = 'verified')
         OR
         (eligible = false
@@ -118,7 +122,8 @@ DECLARE
     v_eligible   boolean;
     v_words      integer;
     v_fillers    integer;
-    v_errors     constant integer := 0;     -- error markers are transcript-derived; not persisted in v1
+    v_errors     integer;                    -- DERIVED from the persisted transcript; never hardcoded
+    v_has_filler_evidence boolean;           -- present, usable filler evidence (a valid zero counts; NULL/empty does not)
     v_wpm        double precision;
     v_has_clarity boolean;
     v_clarity    double precision;
@@ -138,16 +143,47 @@ BEGIN
     END IF;
 
     v_words := COALESCE(s.total_words, 0);
-    -- filler_words is {word: {count: N}} with a 'total' aggregate key; sum the real words only.
-    v_fillers := COALESCE((
-        SELECT SUM((v.value->>'count')::int)
-        FROM jsonb_each(COALESCE(s.filler_words, '{}'::jsonb)) AS v(key, value)
-        WHERE v.key <> 'total' AND jsonb_typeof(v.value) = 'object' AND v.value ? 'count'
-    ), 0);
     v_wpm := s.wpm;
 
+    -- FILLER EVIDENCE (must never be imputed). filler_words is {word:{count:N}} with a 'total' aggregate
+    -- key. Evidence is USABLE only when the object exists AND carries a numeric total.count OR at least one
+    -- numeric entry — mirroring frontend isUsableFillerCounts(). A missing/blank/malformed object is
+    -- ABSENT evidence, not zero fillers.
+    v_has_filler_evidence := s.filler_words IS NOT NULL AND jsonb_typeof(s.filler_words) = 'object' AND (
+        (jsonb_typeof(s.filler_words->'total') = 'object'
+            AND (s.filler_words->'total' ? 'count')
+            AND jsonb_typeof(s.filler_words->'total'->'count') = 'number')
+        OR EXISTS (
+            SELECT 1 FROM jsonb_each(s.filler_words) AS v(key, value)
+            WHERE v.key <> 'total' AND jsonb_typeof(v.value) = 'object'
+              AND (v.value ? 'count') AND jsonb_typeof(v.value->'count') = 'number')
+    );
+
+    -- Filler total, derived ONLY when evidence is present: prefer the persisted total.count (mirrors
+    -- frontend getFillerTotal), else sum the non-total entries. NULL when evidence is absent — clarity
+    -- is then never computed and the session is excluded with reason 'no_filler_evidence'.
+    IF v_has_filler_evidence THEN
+        v_fillers := COALESCE(
+            NULLIF(s.filler_words->'total'->>'count', '')::int,
+            (SELECT SUM((v.value->>'count')::int)
+             FROM jsonb_each(s.filler_words) AS v(key, value)
+             WHERE v.key <> 'total' AND jsonb_typeof(v.value) = 'object' AND (v.value ? 'count')),
+            0);
+    ELSE
+        v_fillers := NULL;
+    END IF;
+
+    -- ERROR MARKERS: DERIVED server-side from the persisted transcript with the SAME pattern as the
+    -- frontend ERROR_TAG_REGEX. This is a real clarity input; it is never hardcoded to zero.
+    v_errors := (
+        SELECT count(*)::int FROM regexp_matches(
+            COALESCE(s.transcript, ''),
+            '\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]',
+            'gi') AS m
+    );
+
     v_has_clarity := (s.transcript IS NOT NULL AND length(btrim(s.transcript)) > 0)
-                     AND v_words > 0 AND v_wpm IS NOT NULL;
+                     AND v_words > 0 AND v_wpm IS NOT NULL AND v_has_filler_evidence;
 
     -- §4 gates, evaluated SERVER-SIDE; deterministic reasons recorded for audit.
     IF s.status IS DISTINCT FROM 'completed'            THEN v_reasons := array_append(v_reasons, 'not_completed'); END IF;
@@ -155,9 +191,13 @@ BEGIN
     IF v_words < v_min_words                            THEN v_reasons := array_append(v_reasons, 'too_few_words'); END IF;
     IF s.transcript IS NULL OR length(btrim(s.transcript)) = 0
                                                         THEN v_reasons := array_append(v_reasons, 'no_transcript'); END IF;
+    IF NOT v_has_filler_evidence                        THEN v_reasons := array_append(v_reasons, 'no_filler_evidence'); END IF;
     IF NOT v_has_clarity                                THEN v_reasons := array_append(v_reasons, 'no_clarity_evidence'); END IF;
     IF s.attribution_status IS DISTINCT FROM 'verified' THEN v_reasons := array_append(v_reasons, 'unverified_attribution'); END IF;
-    IF s.engine IS NULL OR s.engine_version IS NULL OR s.model_name IS NULL
+    -- Engine identity must be COMPLETE and non-blank (null OR empty/whitespace is incomplete).
+    IF s.engine IS NULL OR btrim(s.engine) = ''
+       OR s.engine_version IS NULL OR btrim(s.engine_version) = ''
+       OR s.model_name IS NULL OR btrim(s.model_name) = ''
                                                         THEN v_reasons := array_append(v_reasons, 'incomplete_engine_identity'); END IF;
 
     SELECT ARRAY(SELECT DISTINCT unnest(v_reasons) ORDER BY 1) INTO v_reasons;

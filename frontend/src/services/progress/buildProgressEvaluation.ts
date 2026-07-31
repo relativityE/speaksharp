@@ -31,9 +31,17 @@ export type ExclusionReason =
     | 'too_short'
     | 'too_few_words'
     | 'no_transcript'
+    | 'no_filler_evidence'
     | 'no_clarity_evidence'
     | 'unverified_attribution'
+    | 'incomplete_engine_identity'
     | 'unknown';
+
+/** Complete engine identity = all three present AND non-blank. NULL or empty/whitespace is incomplete. */
+function hasCompleteEngineIdentity(e: SessionEvidence): boolean {
+    const present = (v: string | null): boolean => typeof v === 'string' && v.trim().length > 0;
+    return present(e.engine) && present(e.engineVersion) && present(e.modelName);
+}
 
 export interface SessionEvidence {
     sessionId: string;
@@ -112,11 +120,19 @@ export function buildProgressEvaluation(
     if (words < PROGRESS_ELIGIBILITY.MIN_WORD_COUNT) reasons.push('too_few_words');
     if (!e.hasTranscript) reasons.push('no_transcript');
 
+    // Missing filler evidence must NEVER be imputed to zero — a null count is ABSENT evidence, so the
+    // session is excluded (a measured zero, `fillerCount === 0`, is valid evidence and passes).
+    if (e.fillerCount === null || e.fillerCount === undefined) reasons.push('no_filler_evidence');
+
     const clarityAvailable = hasClarityEvidence(e);
     if (!clarityAvailable) reasons.push('no_clarity_evidence');
 
     // Engine-specific evidence is admissible only when #1033 attribution was durably verified.
     if (e.attributionStatus !== 'verified') reasons.push('unverified_attribution');
+
+    // A comparable cohort requires a COMPLETE, non-blank engine identity (engine × version × model).
+    // Blank/partial identity would silently collapse distinct engines into one "comparable" series.
+    if (!hasCompleteEngineIdentity(e)) reasons.push('incomplete_engine_identity');
 
     const eligible = reasons.length === 0;
 
