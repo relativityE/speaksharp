@@ -176,16 +176,27 @@ $$;
 
 -- ── Advance an attempt through a VALIDATED lifecycle transition. Touches ONLY funnel columns; the
 --    identity (recommendation_id, user_id, accepted_at) can never be rewritten. ──
+--    The OUTCOME is never accepted from the client. For a 'completed' transition the caller supplies the
+--    next practice session; the RPC verifies it is an ELIGIBLE, SAME-COHORT evaluation of the caller's own
+--    session and DERIVES 'moved' / 'did_not_move' by comparing that session's metric against the
+--    recommendation's recorded source value in the target direction. A directional observation only — no
+--    causal claim (§8). Coherent lifecycle/session combinations are enforced.
 CREATE OR REPLACE FUNCTION public.advance_recommendation_attempt(
     p_attempt_id                 uuid,
     p_lifecycle                  text,
     p_practice_session_id        uuid DEFAULT NULL,
-    p_next_comparable_session_id uuid DEFAULT NULL,
-    p_outcome                    text DEFAULT NULL
-) RETURNS void
+    p_next_comparable_session_id uuid DEFAULT NULL
+) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_uid uuid := auth.uid(); v_current text;
+DECLARE
+    v_uid uuid := auth.uid();
+    v_current text;
+    r         public.progress_recommendations%ROWTYPE;
+    src       public.session_progress_evaluations%ROWTYPE;
+    nxt       public.session_progress_evaluations%ROWTYPE;
+    v_next_val double precision;
+    v_outcome  text;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501'; END IF;
 
@@ -194,6 +205,10 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'attempt not found for this user' USING ERRCODE = '42501';
     END IF;
+    SELECT r2.* INTO r
+    FROM public.progress_recommendation_attempts a
+    JOIN public.progress_recommendations r2 ON r2.id = a.recommendation_id
+    WHERE a.id = p_attempt_id AND a.user_id = v_uid;
 
     -- Only forward transitions out of pending are permitted; a resolved attempt is terminal.
     IF v_current <> 'pending' THEN
@@ -213,19 +228,66 @@ BEGIN
         RAISE EXCEPTION 'next-comparable session not found for this user' USING ERRCODE = '42501';
     END IF;
 
+    -- ── Coherent lifecycle/session combinations + SERVER-DERIVED outcome ──
+    IF p_lifecycle = 'abandoned' THEN
+        -- No comparison happened; a next-comparable session is contradictory.
+        IF p_next_comparable_session_id IS NOT NULL THEN
+            RAISE EXCEPTION 'abandoned attempt cannot carry a next-comparable session' USING ERRCODE = '22023';
+        END IF;
+        v_outcome := 'not_completed';
+
+    ELSIF p_lifecycle = 'not_comparable' THEN
+        v_outcome := 'not_comparable';
+
+    ELSE  -- 'completed' REQUIRES a comparable next evaluation; otherwise the caller must use not_comparable.
+        IF p_next_comparable_session_id IS NULL THEN
+            RAISE EXCEPTION 'completed attempt requires a next-comparable session' USING ERRCODE = '22023';
+        END IF;
+        -- The recommendation's SOURCE evaluation (for its cohort) and the NEXT evaluation must both be the
+        -- caller's own, eligible, and in the SAME cohort — else the pair is not comparable.
+        SELECT * INTO src FROM public.session_progress_evaluations
+        WHERE session_id = r.source_session_id AND user_id = v_uid AND eligible AND formula_version = r.formula_version;
+        IF NOT FOUND THEN RAISE EXCEPTION 'source evaluation missing' USING ERRCODE = '22023'; END IF;
+
+        SELECT * INTO nxt FROM public.session_progress_evaluations
+        WHERE session_id = p_next_comparable_session_id AND user_id = v_uid AND eligible AND formula_version = r.formula_version;
+        IF NOT FOUND OR nxt.cohort_key IS DISTINCT FROM src.cohort_key THEN
+            RAISE EXCEPTION 'next session is not an eligible, same-cohort evaluation; use not_comparable'
+                USING ERRCODE = '22023';
+        END IF;
+
+        -- The next session's value for the recommendation's metric (derived from persisted columns).
+        v_next_val := CASE r.target_metric
+            WHEN 'filler_rate'    THEN CASE WHEN nxt.word_count > 0
+                                            THEN (nxt.filler_count::double precision / nxt.word_count) * 100 ELSE NULL END
+            WHEN 'pace'           THEN nxt.wpm
+            WHEN 'clear_delivery' THEN nxt.clarity_raw
+        END;
+        IF v_next_val IS NULL THEN RAISE EXCEPTION 'next evaluation lacks the compared metric' USING ERRCODE = '22023'; END IF;
+
+        -- DERIVE moved / did_not_move by target direction against the recommendation's recorded source value.
+        v_outcome := CASE r.target_direction
+            WHEN 'decrease' THEN CASE WHEN v_next_val < r.source_metric_value THEN 'moved' ELSE 'did_not_move' END
+            WHEN 'increase' THEN CASE WHEN v_next_val > r.source_metric_value THEN 'moved' ELSE 'did_not_move' END
+            WHEN 'maintain' THEN CASE WHEN v_next_val >= r.source_metric_value THEN 'moved' ELSE 'did_not_move' END
+        END;
+    END IF;
+
     UPDATE public.progress_recommendation_attempts
     SET lifecycle = p_lifecycle,
         practice_session_id = COALESCE(p_practice_session_id, practice_session_id),
         next_comparable_session_id = COALESCE(p_next_comparable_session_id, next_comparable_session_id),
-        outcome = p_outcome,
+        outcome = v_outcome,
         resolved_at = now()
     WHERE id = p_attempt_id AND user_id = v_uid;
+
+    RETURN v_outcome;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.record_recommendation_attempt(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.record_progress_recommendation(uuid, text, text, double precision, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_recommendation_attempt(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.advance_recommendation_attempt(uuid, text, uuid, uuid) TO authenticated;

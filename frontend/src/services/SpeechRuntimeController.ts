@@ -648,6 +648,7 @@ export class SpeechRuntimeController {
                 status: 'completed',
                 attributionStatus: (pending.patch as { attribution_status?: string })?.attribution_status,
                 metricsPersisted: true,
+                userId: this.capturedUserId,
             }).catch(() => { /* non-fatal */ });
             return true;
         } catch {
@@ -713,6 +714,7 @@ export class SpeechRuntimeController {
                         status: 'completed',
                         attributionStatus: (fullSave.attributionPatch as { attribution_status?: string })?.attribution_status,
                         metricsPersisted: true,
+                        userId: this.capturedUserId,
                     }).catch(() => { /* non-fatal */ });
                 }
                 return true;
@@ -3462,6 +3464,7 @@ export class SpeechRuntimeController {
                                 status: 'completed',
                                 attributionStatus: attributionTerminalStatus,
                                 metricsPersisted: metricsOk,
+                                userId: this.capturedUserId,
                             }).catch((progressErr) => logger.warn({ progressErr, sessionId }, '[controller] progress recording failed (non-fatal)'));
 
                             clearSessionRecoveryDraft(sessionId);

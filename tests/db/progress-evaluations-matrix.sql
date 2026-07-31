@@ -185,8 +185,16 @@ BEGIN
         UPDATE public.progress_recommendation_attempts SET recommendation_id = v_rec, accepted_at = now() WHERE id = v_att;
     EXCEPTION WHEN insufficient_privilege OR others THEN v_ok := true; END;
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 7: attempt identity was rewritten by a direct UPDATE'; END IF;
-    -- valid lifecycle advance
-    PERFORM public.advance_recommendation_attempt(v_att, 'completed', s3, s3, 'moved');
+    -- 'completed' REQUIRES a next-comparable session (no client outcome accepted).
+    v_ok := false;
+    BEGIN
+        PERFORM public.advance_recommendation_attempt(v_att, 'completed');  -- no next session
+    EXCEPTION WHEN others THEN v_ok := true; END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 7: completed without a next-comparable session was accepted'; END IF;
+    -- valid completed advance: outcome is DERIVED. s1 filler-rate source=2.0%, s3=1.0% (decrease) -> 'moved'.
+    IF public.advance_recommendation_attempt(v_att, 'completed', s3, s3) <> 'moved' THEN
+        RAISE EXCEPTION 'FAIL 7: server did not derive outcome=moved for an improved metric';
+    END IF;
     SELECT (lifecycle = 'completed' AND outcome = 'moved') INTO v_ok
     FROM public.progress_recommendation_attempts WHERE id = v_att;
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 7: valid lifecycle advance did not apply'; END IF;
@@ -197,7 +205,7 @@ BEGIN
     EXCEPTION WHEN others THEN v_ok := true; END;
     IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 7: a resolved attempt was advanced again'; END IF;
     RESET ROLE;
-    RAISE NOTICE 'PASS 7  attempts: RPC-created, identity immutable, resolution terminal';
+    RAISE NOTICE 'PASS 7  attempts: RPC-created, identity immutable, outcome DERIVED, resolution terminal';
 
     -- ---- 8. cross-user: other user cannot advance the victim''s attempt ----------------------------
     PERFORM set_config('request.jwt.claim.sub', v_other::text, true);
@@ -257,25 +265,51 @@ BEGIN
     PERFORM public.record_progress_evaluation('dddddddd-0000-4000-8000-000000000001'); RESET ROLE;
     SELECT eligible INTO v_ok FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001';
     IF v_ok THEN RAISE EXCEPTION 'FAIL 11: a session with NULL filler_words was marked eligible (imputed zero)'; END IF;
-    IF NOT ('no_filler_evidence' = ANY(SELECT unnest(exclusion_reasons) FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001')) THEN
-        RAISE EXCEPTION 'FAIL 11: missing filler evidence did not record no_filler_evidence';
+    -- Canonical §4 reason: a missing filler input is reported as no_clarity_evidence (never no_filler_evidence).
+    IF NOT ('no_clarity_evidence' = ANY(SELECT unnest(exclusion_reasons) FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001')) THEN
+        RAISE EXCEPTION 'FAIL 11: missing filler evidence did not record no_clarity_evidence';
     END IF;
     IF EXISTS (SELECT 1 FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000001' AND filler_count IS NOT NULL) THEN
         RAISE EXCEPTION 'FAIL 11: excluded session stored a filler_count';
     END IF;
-    RAISE NOTICE 'PASS 11 missing filler evidence excluded (no_filler_evidence), never imputed to zero';
+    RAISE NOTICE 'PASS 11 missing filler evidence excluded (canonical no_clarity_evidence), never imputed';
 
-    -- ---- 12. BLANK engine identity is EXCLUDED as incomplete_engine_identity ---------------------------
+    -- ---- 12. BLANK engine identity is EXCLUDED as the canonical reason engine_not_comparable -----------
     CALL pg_temp.seed_ex('dddddddd-0000-4000-8000-000000000002', v_victim, 300, 120, 140,
         jsonb_build_object('total', jsonb_build_object('count', 6)), 'a transcript', '   ', 'v2', 'm');
     PERFORM set_config('request.jwt.claim.sub', v_victim::text, true); SET ROLE authenticated;
     PERFORM public.record_progress_evaluation('dddddddd-0000-4000-8000-000000000002'); RESET ROLE;
     SELECT eligible INTO v_ok FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000002';
     IF v_ok THEN RAISE EXCEPTION 'FAIL 12: a blank-engine session was marked eligible'; END IF;
-    IF NOT ('incomplete_engine_identity' = ANY(SELECT unnest(exclusion_reasons) FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000002')) THEN
-        RAISE EXCEPTION 'FAIL 12: blank engine identity did not record incomplete_engine_identity';
+    IF NOT ('engine_not_comparable' = ANY(SELECT unnest(exclusion_reasons) FROM public.session_progress_evaluations WHERE session_id = 'dddddddd-0000-4000-8000-000000000002')) THEN
+        RAISE EXCEPTION 'FAIL 12: blank engine identity did not record engine_not_comparable';
     END IF;
-    RAISE NOTICE 'PASS 12 blank engine identity excluded (incomplete_engine_identity)';
+    RAISE NOTICE 'PASS 12 blank engine identity excluded (canonical engine_not_comparable)';
+
+    -- ---- 13. outcome derivation: did_not_move + non-comparable rejection (server-derived, never client) -
+    PERFORM set_config('request.jwt.claim.sub', v_victim::text, true); SET ROLE authenticated;
+    -- New recommendation on s3 (filler-rate source = 1.0%). s1 (2.0%) is same cohort but WORSE -> did_not_move.
+    v_rec := public.record_progress_recommendation(s3, 'filler_rate','decrease',3,'percent','Pause instead of filling');
+    v_att := public.record_recommendation_attempt(v_rec);
+    IF public.advance_recommendation_attempt(v_att, 'completed', s1, s1) <> 'did_not_move' THEN
+        RAISE EXCEPTION 'FAIL 13: worse next metric did not derive did_not_move';
+    END IF;
+    -- A DIFFERENT-cohort next session is not comparable -> a 'completed' transition must be REJECTED.
+    CALL pg_temp.seed_ex('eeeeeeee-0000-4000-8000-000000000001', v_victim, 300, 120, 140,
+        jsonb_build_object('total', jsonb_build_object('count', 3)), 'a transcript', 'private', 'OTHER-VER', 'OTHER-MODEL');
+    PERFORM public.record_progress_evaluation('eeeeeeee-0000-4000-8000-000000000001');
+    v_att := public.record_recommendation_attempt(v_rec);  -- a fresh pending attempt on the same rec
+    v_ok := false;
+    BEGIN
+        PERFORM public.advance_recommendation_attempt(v_att, 'completed', 'eeeeeeee-0000-4000-8000-000000000001', 'eeeeeeee-0000-4000-8000-000000000001');
+    EXCEPTION WHEN others THEN v_ok := true; END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 13: a different-cohort next session was accepted as completed'; END IF;
+    -- The caller may instead resolve it as not_comparable (no client outcome).
+    PERFORM public.advance_recommendation_attempt(v_att, 'not_comparable', NULL, 'eeeeeeee-0000-4000-8000-000000000001');
+    SELECT (outcome = 'not_comparable') INTO v_ok FROM public.progress_recommendation_attempts WHERE id = v_att;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FAIL 13: not_comparable did not derive its outcome'; END IF;
+    RESET ROLE;
+    RAISE NOTICE 'PASS 13 outcome derivation: did_not_move + comparability enforced; not_comparable derived';
 
     RAISE NOTICE '=== ALL PROGRESS MATRIX CHECKS PASSED ===';
 END;

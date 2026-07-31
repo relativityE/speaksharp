@@ -7,6 +7,7 @@ import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ProgressPanel } from '@/components/progress/ProgressPanel';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
@@ -804,6 +805,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : targetSession && targetSessionMetrics ? (
                 /* Session Detail View */
                 <div className="space-y-6">
+                    {/* #1045: the Progress loop — direction + two takeaways + "Practice this next".
+                        Renders nothing until an eligible evaluation exists for this session. */}
+                    <ProgressPanel session={targetSession} sessionHistory={sessionHistory} />
+
                     {/* Transcript-quality caveat: keep weak/uncertain saved transcripts from
                         reading as a precise grade. Visible (not a hidden detail) when untrusted. */}
                     {targetSessionQuality && !targetSessionQuality.trusted && targetSessionQuality.qualityNote && (

@@ -1,0 +1,109 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+/**
+ * #1045 — durable recovery (queue drain + bounded active-era sweep) and the "Practice this next" loop
+ * closure (open attempt resolved against the next saved session).
+ */
+
+const rpc = vi.fn();
+// The evaluations SELECT used by the sweep (awaited) and by recommendation derivation (.maybeSingle()).
+let coveredRows: Array<{ session_id: string }> = [];
+const maybeSingle = vi.fn(async () => ({ data: { eligible: false }, error: null }));
+function makeChain() {
+    const chain: Record<string, unknown> = {};
+    chain.select = () => chain;
+    chain.eq = () => chain;
+    chain.maybeSingle = maybeSingle;
+    // Awaiting the chain (the sweep's list query) resolves to the covered rows.
+    (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: coveredRows, error: null });
+    return chain;
+}
+const from = vi.fn(() => makeChain());
+vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ rpc, from }) }));
+vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
+
+import { reconcileProgressEvaluations, wireProgressEvaluationOnSave } from '../recordProgress';
+import { enqueueProgressReconcile, getQueuedSessionIdsForUser } from '../progressReconcileQueue';
+import { setOpenAttempt, getOpenAttemptForUser } from '../openAttempt';
+
+const USER = 'user-1';
+const rpcNames = () => rpc.mock.calls.map((c) => c[0]);
+
+beforeEach(() => {
+    localStorage.clear();
+    rpc.mockReset();
+    rpc.mockResolvedValue({ data: 'ok-id', error: null });
+    from.mockClear(); maybeSingle.mockClear();
+    coveredRows = [];
+});
+
+describe('#1045 durable recovery — reconcileProgressEvaluations', () => {
+    const sess = (id: string, over: Record<string, unknown> = {}) => ({
+        id, status: 'completed', attribution_status: 'verified', created_at: '2026-07-31T00:00:00Z', ...over,
+    });
+
+    it('drains the owner-scoped queue, recording each queued session (idempotent RPC)', async () => {
+        enqueueProgressReconcile('s-queued', USER, '2026-07-31T00:00:00Z');
+        const res = await reconcileProgressEvaluations(USER, []);
+        expect(res.queueDrained).toBe(1);
+        expect(rpc).toHaveBeenCalledWith('record_progress_evaluation', { p_session_id: 's-queued' });
+        expect(getQueuedSessionIdsForUser(USER)).toEqual([]); // cleared on success
+    });
+
+    it('sweeps only ACTIVE-ERA sessions missing an evaluation; never pre-activation history', async () => {
+        // s-old already has an evaluation (covered); it defines the era start.
+        coveredRows = [{ session_id: 's-old' }];
+        const sessions = [
+            sess('s-pre', { created_at: '2026-07-01T00:00:00Z' }), // BEFORE era start — must be skipped
+            sess('s-old', { created_at: '2026-07-20T00:00:00Z' }), // covered
+            sess('s-gap', { created_at: '2026-07-25T00:00:00Z' }), // in-era, missing -> recorded
+        ];
+        const res = await reconcileProgressEvaluations(USER, sessions);
+        expect(res.swept).toBe(1);
+        const recorded = rpc.mock.calls.filter((c) => c[0] === 'record_progress_evaluation').map((c) => c[1].p_session_id);
+        expect(recorded).toContain('s-gap');
+        expect(recorded).not.toContain('s-pre'); // future-only respected
+        expect(recorded).not.toContain('s-old'); // already covered
+    });
+
+    it('skips the sweep entirely when NO evaluations exist yet (queue handles first-session)', async () => {
+        coveredRows = [];
+        const res = await reconcileProgressEvaluations(USER, [sess('s-first')]);
+        expect(res.swept).toBe(0);
+        expect(rpcNames()).not.toContain('record_progress_evaluation');
+    });
+
+    it('ignores non-completed or non-terminal-attribution sessions in the sweep', async () => {
+        coveredRows = [{ session_id: 's-old' }];
+        const sessions = [
+            sess('s-old', { created_at: '2026-07-20T00:00:00Z' }),
+            sess('s-active', { created_at: '2026-07-25T00:00:00Z', status: 'active' }),
+            sess('s-pending', { created_at: '2026-07-26T00:00:00Z', attribution_status: 'pending' }),
+        ];
+        const res = await reconcileProgressEvaluations(USER, sessions);
+        expect(res.swept).toBe(0);
+    });
+});
+
+describe('#1045 "Practice this next" loop closure', () => {
+    it('resolves an open attempt against the next saved session and clears it', async () => {
+        setOpenAttempt({ attemptId: 'att-1', userId: USER, sourceSessionId: 's-source' });
+        // eval recorded, recommendation derivation no-ops (eligible:false), then the attempt is advanced.
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-next', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        expect(rpcNames()).toContain('advance_recommendation_attempt');
+        const advanceCall = rpc.mock.calls.find((c) => c[0] === 'advance_recommendation_attempt');
+        expect(advanceCall![1]).toMatchObject({ p_attempt_id: 'att-1', p_lifecycle: 'completed', p_next_comparable_session_id: 's-next' });
+        expect(getOpenAttemptForUser(USER)).toBeNull(); // cleared exactly once
+    });
+
+    it('never resolves a recommendation against its own source session', async () => {
+        setOpenAttempt({ attemptId: 'att-1', userId: USER, sourceSessionId: 's-self' });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-self', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        expect(rpcNames()).not.toContain('advance_recommendation_attempt');
+        expect(getOpenAttemptForUser(USER)).not.toBeNull(); // still open
+    });
+});
