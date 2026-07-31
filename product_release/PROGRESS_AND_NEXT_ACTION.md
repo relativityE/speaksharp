@@ -4,7 +4,7 @@
 **Last Verified:** 2026-07-31 — contract derived from the approved #1045 Product-Owner decisions and verified against the current code paths cited inline (`sessionAnalysis.ts`, `speakingScore.ts`, `SpeechRuntimeController.ts`, `attributionStatus.ts`). No run IDs, SHAs, or current release posture are carried here.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
-**Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, what the single next action is, and what must never be claimed.
+**Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the exactly-two-takeaway output contract (of which exactly one is an action), and what must never be claimed.
 **Not Authoritative For:** STT engine behaviour, accuracy, latency and attribution mechanics (→ `STT.md`); persisted schema and retention (→ `ARCHITECTURE.md`); tier / entitlement / quota gating (→ `ENTITLEMENTS_AND_BILLING.md`); general product guarantees and copy outside this loop (→ `PRODUCT_REQUIREMENTS.md`); evidence taxonomy and test protocol (→ `QUALITY.md`); current release posture, run IDs and SHAs (→ `RELEASE_STATUS.md`); dated proof artifacts and one-off audit runs (→ `EVIDENCE_INDEX.md`); open/deferred items (→ `ROADMAP.md`).
 **Supersedes:** the planned canonical destination formerly named `COACHING_SCORE.md` (never created) and the Personal-Progress direction in `SPEAKSHARP_SESSION_PROGRESS.operational.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` extraction mapping; the code paths cited inline; #1045 Product-Owner decisions.
@@ -15,7 +15,7 @@ Canonical statement of how SpeakSharp tells a user **whether their own practice 
 
 This is a **documentation** artifact. It defines the contract; it changes no application code, migration, or product behaviour on its own.
 
-**Precedence reminder (from `README.md` §1).** Everything here is a **Level-1 user-trust** surface: a number or phrase shown to a user must be true of that user's own recorded practice. Where this contract conflicts with runtime truth (Level 2), the runtime wins and the copy is wrong.
+**Precedence reminder (from `README.md` §1).** Everything here is a **Level-1 user-trust** surface: a number or phrase shown to a user must be true of that user's own recorded practice. **If runtime behaviour violates this Level-1 contract, the implementation or the user-facing surface is wrong.** The conflict is a **release blocker requiring explicit reconciliation** — runtime behaviour does not silently supersede the promise.
 
 ---
 
@@ -56,7 +56,9 @@ Current eligible session
     ↓  compare with the previous comparable session and with the baseline
 Direction: moved up / moved down / no meaningful change yet
     ↓  explain the observable supporting evidence
-Practice this next   (one structured, measurable target)
+Exactly two takeaways:
+    What worked          (≤ 6 words, not an action)
+    Practice this next   (≤ 8 words, THE action -- structured, measurable target)
     ↓  measure it in the next comparable session
 ```
 
@@ -80,7 +82,7 @@ The 3-word `MIN_RELIABLE_SCORING_WORDS` rule (`sessionAnalysis.ts`) decides whet
 
 Every excluded session records a deterministic exclusion reason (`too_short`, `too_few_words`, `no_clarity_evidence`, `no_transcript`, `engine_not_comparable`, `unverified_attribution`); an unknowable reason is recorded as `unknown`, never guessed.
 
-**Comparable cohort** = exact `engine` × exact `engine_version` × formula version. A user who changes engine or version **starts a new cohort**; no cross-cohort difference is ever computed or displayed, and the interface says the comparison restarted rather than showing a false jump.
+**Comparable cohort** = exact `engine` × exact `engine_version` × exact `model_name` × formula version. `model_name` is included because `engine_version` is **not proven** to uniquely and durably identify the producing model for every engine — `sessions` stores the two independently (`engine_version`, `model_name`), so version alone could silently mix two models. A user who changes engine, version or model **starts a new cohort**; no cross-cohort difference is ever computed or displayed, and the interface says the comparison restarted rather than showing a false jump.
 
 ---
 
@@ -89,8 +91,8 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 **Value:** the signed change in the clear-delivery measure, in **points**, against the user's baseline; the change against the previous comparable session is also recorded.
 
 - **Baseline = the first eligible *future* session.** There is **no historical backfill** in v1: existing `sessions.clarity_score` values are rounded integers and are **never rewritten**. Until a baseline exists, Progress shows an honest "not enough data yet" state — never a fabricated zero.
-- **Evidence is stored unrounded, from the first eligible future session onward.** `calculateClarityScore()` rounds; a raw counterpart supplies unrounded evidence while **display remains byte-identical** (proven by equivalence tests). The snapshot persists the raw value **and its exact inputs**: word count, canonical filler count, error-marker count, WPM, raw clear-delivery value, engine, engine version, attribution status, formula version.
-- **All arithmetic uses stored unrounded values; rounding happens only at render.**
+- **Evidence must be stored unrounded, from the first eligible future session onward.** `calculateClarityScore()` currently rounds to an integer. **The implementation must introduce** an unrounded counterpart that supplies raw evidence while every existing display remains byte-identical, and **before activation, equivalence tests must prove** that rounding the raw value reproduces the current function exactly across boundary and representative cases. *(None of this exists yet; implementation status → `ROADMAP.md` / `RELEASE_STATUS.md`.)*
+- **All arithmetic must use stored unrounded values; rounding happens only at render.**
 - **Points, not percentages** — there is no denominator, so no division-by-near-zero hazard.
 
 ---
@@ -101,7 +103,7 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 |---|---|
 | Improved | **"Clear delivery moved up 4 points."** |
 | Declined | **"Clear delivery moved down 2 points."** |
-| Within noise | **"No meaningful change yet."** |
+| Below meaningful-movement policy | **"No meaningful change yet."** |
 | No baseline yet | **"Baseline established — we'll compare future eligible sessions with this one."** |
 | Not comparable | **"Not enough comparable data yet"** + the reason |
 
@@ -111,9 +113,16 @@ The minimum movement that counts as meaningful is a **product policy value**, se
 
 ---
 
-## 7. Practice this next
+## 7. Exactly two takeaways — one of which is the action
 
-Each eligible session yields **exactly one** next action, selected **deterministically**, presented as **"Practice this next"**, and carrying a **structured, measurable target** into the following session.
+Each eligible session yields **exactly two takeaways**, and **exactly one of them is an action**. This is the same contract `#1047-A` (Session review) implements; the two authorities must not diverge.
+
+1. **What worked** — the strongest *valid* positive from the current session. **Maximum 6 words.** Not an action.
+2. **Practice this next** — the single next action. **Maximum 8 words.** Carries a **structured, measurable target** into the following session.
+
+No third takeaway. No opening verdict sentence. Both are tethered to the **current** saved session; history supplies comparison context separately and never becomes a takeaway.
+
+The action is selected **deterministically** and:
 
 - Selection weighs evidence validity, reliability, whether the difference is meaningful, and user actionability — **not** simply the largest raw gap.
 - The action is **measurable**: it names a metric, a direction, and a target value.
@@ -122,17 +131,22 @@ Each eligible session yields **exactly one** next action, selected **determinist
 
 ---
 
-## 8. What is persisted
+## 8. What must be persisted
 
-**Progress snapshot** (per eligible session, additive; no existing session row is ever rewritten): formula version, snapshot origin, the unrounded evidence and its exact inputs, eligibility result and exclusion reasons, cohort key, and **explicit `baseline_session_id` and `previous_comparable_session_id` references** so any displayed number can be traced to the two sessions that produced it.
+*None of the records below exist yet. This section is a **requirement**, not a description of current behaviour; implementation status → `ROADMAP.md` / `RELEASE_STATUS.md`.*
 
-**Recommendation and attempts are separate records** — one recommendation may be attempted many times:
+**Every future persisted `completed` session must receive one versioned Progress evaluation record.** This single model carries both outcomes, so eligibility and exclusion are never tracked in two places:
+
+- **Always recorded:** formula version, evaluation timestamp, duration, word count, `eligible` (bool), and — when `eligible = false` — the deterministic `exclusion_reasons` from §4.
+- **Recorded only when `eligible = true`:** the unrounded clear-delivery value and its exact inputs (word count, canonical filler count, error-marker count, WPM), engine, engine version, model name, attribution status, cohort key, and explicit **`baseline_session_id`** and **`previous_comparable_session_id`** references.
+- **Only eligible records influence Progress**, the direction statement, or either takeaway. An ineligible record is retained as an honest audit trail and is never averaged in.
+- Records are **additive**: no existing session row is ever rewritten.
+
+**Recommendations and attempts must be separate records** — one recommendation may be attempted many times:
 
 - **Recommendation (immutable):** `recommendation_id`, source session, source metric value and its version, target metric, direction, target value and **units**.
 - **Attempt (one-to-many):** its own id, accepted timestamp, the resulting practice session, the next comparable session, and a lifecycle of `pending | completed | not_comparable | abandoned`.
-- **Outcome** records whether the targeted metric moved in the recommended direction. This is a **directional observation only** — the product must never claim the recommendation *caused* the change.
-
----
+- **Outcome** must record whether the targeted metric moved in the recommended direction. This is a **directional observation only** — the product must never claim the recommendation *caused* the change.
 
 ## 9. Determinism and cost
 

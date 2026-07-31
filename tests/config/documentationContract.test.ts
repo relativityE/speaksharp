@@ -267,9 +267,13 @@ describe('documentation contract — product_release/', () => {
 
     // No CURRENT authority may still ROUTE to the retired name. Archived provenance is untouched and is
     // deliberately not scanned — history keeps its original wording.
-    for (const name of [
-      'README.md', 'DOC_MIGRATION_LEDGER.md', 'PRODUCT_REQUIREMENTS.md', 'ARCHITECTURE.md', 'STT.md',
-    ]) {
+    // Scan EVERY canonical document that currently exists (plus the ledger), not a hand-picked subset,
+    // so a stale pointer cannot survive in a file nobody thought to list.
+    const scanned = [...CANONICAL_14, 'DOC_MIGRATION_LEDGER.md']
+      .filter(n => n !== 'PROGRESS_AND_NEXT_ACTION.md')
+      .filter(n => fs.existsSync(path.join(DOCS, n)));
+    expect(scanned.length, 'expected several canonical docs to scan').toBeGreaterThan(5);
+    for (const name of scanned) {
       expect(read(name), `${name} still references the retired ${RETIRED_CANONICAL_NAME}`)
         .not.toContain(RETIRED_CANONICAL_NAME);
     }
