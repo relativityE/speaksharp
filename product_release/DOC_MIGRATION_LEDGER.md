@@ -583,6 +583,10 @@ PR [#1031](https://github.com/relativityE/speaksharp/pull/1031) (closed, superse
 5. **Private v2 ≈90s finalize** = accepted RC limitation, **not** a measured p95 — STT.md must state it so.
 6. **`ENTITLEMENT_PRO_LIMIT_EVIDENCE` open item** overlaps BACKLOG P1.3 → ROADMAP.
 7. **Sequencing** — one reconciliation PR at a time; final PR archives superseded files → exactly 14 canonical + this ledger archived.
+8. **TESTER_GUIDE / TESTER_OPERATIONS / EVIDENCE_INDEX (v1) — WRITTEN (#1050).** The final content triad is materialized by extract-and-verify, keeping external tester copy strictly separate from internal operations and indexing dated evidence without promoting it to current truth:
+   - `TESTER_GUIDE.md` (#12) = the **external** tester-facing copy, extracted from `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` (EXTRACTED; §3.H) and reconciled to shipped mode wording (#1041/#1064; §5) — the stale "Recommended" descriptor is dropped.
+   - `TESTER_OPERATIONS.md` (#13) = **internal** tester administration, extracting the operator/run parts of `INTERNAL_TEST_PROTOCOL.md` + `MANUAL_HARDWARE_VALIDATION.md` (EXTRACTED (split); §3.H — the engineering/quality parts already went to `QUALITY.md` via #1049 and are referenced, not duplicated), the broad-launch operations of `PUBLIC_LAUNCH_LEDGER.md`, and the entitlement ops items of `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`; open gaps route to `ROADMAP.md`.
+   - `EVIDENCE_INDEX.md` (#14) = an **index** of dated proof artifacts by path + date (`evidence/**`, §3.I retained evidence, generated digests), framed as historical evidence that reflects the moment it was captured and is **not** current release posture. Volatile run IDs / SHAs / current pass-fail posture stay in `RELEASE_STATUS.md`.
 
 ---
 
