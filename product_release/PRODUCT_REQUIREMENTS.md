@@ -5,7 +5,7 @@
 **Applies To:** The SpeakSharp beta product — individual speaking practice. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** The source for user-visible product guarantees, failure behavior, non-goals, and the feature contract.
-**Not Authoritative For:** tier / entitlement / quota / billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); the Session Progress / scoring model, its formulas and presentation (→ `PROGRESS_AND_NEXT_ACTION.md`); STT runtime and data contracts, baselines, accuracy, and SLOs (→ `STT.md`); structural design, persisted schema, and retention (→ `ARCHITECTURE.md`); deferred / future sequencing (→ `ROADMAP.md`); current release & deployment status (→ `RELEASE_STATUS.md`).
+**Not Authoritative For:** tier / entitlement / quota / billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); the personal progress and next-action contract, its calculation and presentation (→ `PROGRESS_AND_NEXT_ACTION.md`); STT runtime and data contracts, baselines, accuracy, and SLOs (→ `STT.md`); structural design, persisted schema, and retention (→ `ARCHITECTURE.md`); deferred / future sequencing (→ `ROADMAP.md`); current release & deployment status (→ `RELEASE_STATUS.md`).
 **Supersedes:** `PRD.operational.md` and `PRODUCT_FEATURES.operational.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §2 / §3.B extraction mapping; the `frontend/` and `backend/` code paths cited inline; freshness-labeled competitive references (Product Owner-cited, not independently verified by Engineering).
 
@@ -44,7 +44,7 @@ Requirements:
 - Progress is measured against the user's **own** baseline and self-selected/accepted targets — SpeakSharp must **not** grade the person against an unexplained universal standard.
 - Raw measurements and how they combine remain transparent to the user.
 
-The detailed Session Progress / Personal Progress model — including the staged retirement of the legacy 0–10 SpeakSharp Score — is owned by `PROGRESS_AND_NEXT_ACTION.md`. At the requirements level: the legacy 0–10 score is on a declared retirement path and must **not** be presented as the long-term experience, deepened, or rescaled to 0–100.
+The detailed personal progress and next-action contract — including the retirement of the legacy 0–10 SpeakSharp Score — is owned by `PROGRESS_AND_NEXT_ACTION.md`. At the requirements level: the legacy 0–10 score is on a declared retirement path and must **not** be presented as the long-term experience, deepened, or rescaled to 0–100.
 
 ---
 
@@ -133,7 +133,7 @@ Product-level tier rules only. Exact quota limits, pricing, packaging, checkout,
 
 Requirement-level only; formulas, comparability rules, metric eligibility, and presentation are owned by `PROGRESS_AND_NEXT_ACTION.md`.
 
-- The **first qualifying completed session establishes the user's baseline** and MUST NOT show an invented or fabricated percentage change.
+- The user's baseline is the **first eligible session evaluated under Progress v1 after activation** — not an ambiguous historical "first qualifying session". Sessions recorded before activation are **never** retro-fitted into a baseline. Until that first eligible session exists, no movement is shown, and an invented or fabricated change MUST NOT be displayed. (Eligibility and the full baseline rule are owned by `PROGRESS_AND_NEXT_ACTION.md`.)
 - **Later comparable sessions** show both the change from the **previous** comparable session and the cumulative change from **baseline**.
 - Progress is expressed against the user's **own** baseline/targets and attributable measurements — never an unexplained universal grade.
 
@@ -177,4 +177,4 @@ Competitive references (freshness-labeled; Product Owner-cited on 2026-07-24, **
 
 ## 12. Traceability
 
-Every requirement above maps to an extracted row in `DOC_MIGRATION_LEDGER.md` §3.B for `PRD.operational.md` and `PRODUCT_FEATURES.operational.md`, or to the code path cited inline. Content that the ledger routes elsewhere is deferred to its owner: the Personal Progress / scoring model, formulas, and presentation → `PROGRESS_AND_NEXT_ACTION.md`; tier/quota/billing mechanics → `ENTITLEMENTS_AND_BILLING.md`; STT baselines, accuracy, and the attribution/runtime contract → `STT.md`; persisted schema and retention → `ARCHITECTURE.md`; accepted future candidates and timing → `ROADMAP.md`; current release posture → `RELEASE_STATUS.md`.
+Every requirement above maps to an extracted row in `DOC_MIGRATION_LEDGER.md` §3.B for `PRD.operational.md` and `PRODUCT_FEATURES.operational.md`, or to the code path cited inline. Content that the ledger routes elsewhere is deferred to its owner: the personal progress and next-action contract, its calculation and presentation → `PROGRESS_AND_NEXT_ACTION.md`; tier/quota/billing mechanics → `ENTITLEMENTS_AND_BILLING.md`; STT baselines, accuracy, and the attribution/runtime contract → `STT.md`; persisted schema and retention → `ARCHITECTURE.md`; accepted future candidates and timing → `ROADMAP.md`; current release posture → `RELEASE_STATUS.md`.

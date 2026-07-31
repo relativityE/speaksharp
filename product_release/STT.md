@@ -5,7 +5,7 @@
 **Applies To:** The four SpeakSharp speech-to-text engines — Browser, Cloud, Private v2, Private v4 — and the shared recording/transcript lifecycle.
 **Class:** Runtime & data contract.
 **Authority:** The source for per-engine purpose, audio/data route, lifecycle and failure behavior, accuracy baselines, metric-validity rules, and internal STT SLOs.
-**Not Authoritative For:** user-visible product guarantees and copy (→ `PRODUCT_REQUIREMENTS.md`); tier / entitlement / quota gating of engines (→ `ENTITLEMENTS_AND_BILLING.md`); the Session Progress / scoring model (→ `PROGRESS_AND_NEXT_ACTION.md`); persisted schema and retention (→ `ARCHITECTURE.md`); current release & deployment status (→ `RELEASE_STATUS.md`); deferred sequencing (→ `ROADMAP.md`).
+**Not Authoritative For:** user-visible product guarantees and copy (→ `PRODUCT_REQUIREMENTS.md`); tier / entitlement / quota gating of engines (→ `ENTITLEMENTS_AND_BILLING.md`); the personal progress and next-action contract (→ `PROGRESS_AND_NEXT_ACTION.md`); persisted schema and retention (→ `ARCHITECTURE.md`); current release & deployment status (→ `RELEASE_STATUS.md`); deferred sequencing (→ `ROADMAP.md`).
 **Supersedes:** `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, and the STT portions of `stt-perf-proof-protocol.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `STT_BASELINE_CONTRACTS.operational.md` (baselines, drop-in definitions, stored targets); `SERVICE_LEVELS.operational.md` §STT (SLOs, SLO/SLA vocabulary); `tests/STT_BENCHMARKS.json` (stored numeric targets); the `frontend/src/services/transcription/` code paths cited inline; issue #1033 (single-producer invariant), #1044 (v4 HOLD decision).
 

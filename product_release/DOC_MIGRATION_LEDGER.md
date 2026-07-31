@@ -221,7 +221,7 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 | Reviewer Context | Decision provenance | PR | N/A | PROGRESS_AND_NEXT_ACTION → header metadata (Authority / Supersedes / Evidence Sources) | EXTRACTED |
 | Source Of Truth | Which artifact is truth for the score | AI | N/A | PROGRESS_AND_NEXT_ACTION → header metadata (Authority / Supersedes / Evidence Sources) | EXTRACTED |
 | Implementation Design | Legacy score impl design | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
-| Signed-Off Architecture Boundary | Boundary of the score subsystem | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Signed-Off Architecture Boundary | Boundary of the score subsystem — the durable rule (one deterministic truth reused by Session review / Analytics / PDF) survives the score's retirement | AI | verify vs code | PROGRESS_AND_NEXT_ACTION → §8a (one deterministic truth, reused everywhere) | EXTRACTED |
 | What The Score Means | Score semantics (legacy) | PR | N/A | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
 | Research Anchors | Cited research basis — not carried into the v1 contract | EV | verify citations | EVIDENCE_INDEX (dated research provenance) | EVIDENCE_ONLY |
 | Score Weights | Legacy weight table | AI | verify vs code constants | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
@@ -229,12 +229,12 @@ Content is durable-idea-only (re-stated + re-verified in canonical docs, never c
 | Calibration And Bias Testing | Calibration/bias approach for the retired legacy score; the testing approach itself remains owned by QUALITY | AC | verify vs tests | QUALITY (test approach); the legacy 0–10 score itself is retired by the #1045 decision and is not carried forward | EXTRACTED |
 | Score Labels | Legacy label bands | PR | cross-check UI | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
 | Confidence Levels | Confidence bands | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
-| User Experience Rules | Score UX rules | PR | cross-check UI | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| User Experience Rules | Score UX rules — the durable rules (concise actionable feedback; non-shaming filler language) survive the score's retirement | PR | cross-check UI | PROGRESS_AND_NEXT_ACTION → §8a (concise + actionable; non-shaming filler language) | EXTRACTED |
 | AI Role | AI's role in the legacy score | AI | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
-| Number-To-Coaching Flow | Score→coaching mapping | PR | verify vs code | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Number-To-Coaching Flow | Score→coaching mapping — the durable rule (a number is never shown without an action) survives the score's retirement | PR | verify vs code | PROGRESS_AND_NEXT_ACTION → §8a (movement always paired with an action) | EXTRACTED |
 | Experiment Status | Score experiment status | GAP | triage vs ROADMAP | ROADMAP | OPEN_GAP |
 | Future Model Improvements | Planned score-model changes | GAP | triage | ROADMAP → Later | OPEN_GAP |
-| Release Guardrail | Score release guardrail | AC | verify vs gates | PROGRESS_AND_NEXT_ACTION does NOT carry the legacy 0–10 score (retired by the #1045 decision); the historical record stays with the archived source | NO_DURABLE_CONTENT |
+| Release Guardrail | Score release guardrail — the durable rule (never over-claim precision) survives the score's retirement | AC | verify vs gates | PROGRESS_AND_NEXT_ACTION → §8a (no over-claimed precision) | EXTRACTED |
 
 ### 3.C Architecture (current) — File-state: ARCHIVE_AT_CLOSEOUT · Role: ENG
 

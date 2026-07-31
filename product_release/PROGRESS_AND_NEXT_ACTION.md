@@ -169,8 +169,17 @@ Finishing a session, practising often, or maintaining a streak are **participati
 
 **Every future persisted `completed` session must receive one versioned Progress evaluation record.** This single model carries both outcomes, so eligibility and exclusion are never tracked in two places:
 
-- **Always recorded:** formula version, evaluation timestamp, duration, word count, `eligible` (bool), and — when `eligible = false` — the deterministic `exclusion_reasons` from §4.
-- **Recorded only when `eligible = true`:** the unrounded clear-delivery value and its exact inputs (word count, canonical filler count, error-marker count, WPM), engine, engine version, model name, attribution status, cohort key, and explicit **`baseline_session_id`** and **`previous_comparable_session_id`** references.
+- **Always recorded — for every evaluation, eligible or not.** These are the facts needed to *prove* an eligibility decision or an exclusion afterwards, so each must be persisted or immutably referenced:
+  - `session_id`;
+  - transcript / clear-delivery **evidence availability** (the fact that evidence was present or absent — not the transcript itself);
+  - `engine`, `engine_version`, `model_name`;
+  - `attribution_status`;
+  - `duration` and `word_count`;
+  - `formula_version` and the **evaluation timestamp**;
+  - `eligible` (bool), and — when `eligible = false` — the deterministic `exclusion_reasons` from §4.
+
+  Without all of these, an exclusion cannot be audited later: *"why was this session not counted?"* must be answerable from the record alone, never recomputed from mutable state.
+- **Recorded only when `eligible = true`:** the unrounded clear-delivery value and its remaining inputs (canonical filler count, error-marker count, WPM), the cohort key, and explicit **`baseline_session_id`** and **`previous_comparable_session_id`** references. Baseline and previous-comparable references stay **eligible-only** — an ineligible evaluation never carries them.
 - **Only eligible records influence Progress**, the direction statement, or either takeaway. An ineligible record is retained as an honest audit trail and is never averaged in.
 - Records are **additive**: no existing session row is ever rewritten.
 
@@ -179,6 +188,19 @@ Finishing a session, practising often, or maintaining a streak are **participati
 - **Recommendation (immutable):** `recommendation_id`, source session, source metric value and its version, target metric, direction, target value and **units**.
 - **Attempt (one-to-many):** its own id, accepted timestamp, the resulting practice session, the next comparable session, and a lifecycle of `pending | completed | not_comparable | abandoned`.
 - **Outcome** must record whether the targeted metric moved in the recommended direction. This is a **directional observation only** — the product must never claim the recommendation *caused* the change.
+
+## 8a. Durable safeguards carried forward from the retired score
+
+The legacy 0–10 score is retired, but several of its **safeguards were sound and remain binding** — they protected users from over-claimed precision and from shaming language, independently of any particular formula.
+
+- **One deterministic truth, reused everywhere.** A session's evaluation is computed once, and the **same stored result** is what Session review, Analytics and the exported PDF display. These surfaces must never recompute independently and must never disagree. *(carried from: Signed-Off Architecture Boundary)*
+- **Feedback is concise and actionable.** Output stays short and tied to something the user can actually do next — never a wall of metrics, never commentary without a next step. *(carried from: User Experience Rules)*
+- **Non-shaming filler language.** Filler words are described neutrally, as an observable pattern. No wording that mocks, scolds, or implies the user is a poor speaker. *(carried from: User Experience Rules)*
+- **Movement is always paired with an action.** A number is never shown alone; every displayed movement is accompanied by the one next action (§7). *(carried from: Number-To-Coaching Flow)*
+- **No over-claimed precision.** Displayed figures never imply more accuracy than the evidence supports — no false decimals, no confidence claims the data cannot carry, no percentile or benchmark framing. *(carried from: Release Guardrail)*
+
+These are **release guardrails**: a surface that violates one is wrong and must be corrected, exactly as the precedence reminder above requires.
+
 
 ## 9. Determinism and cost
 
