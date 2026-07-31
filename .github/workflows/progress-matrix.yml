@@ -1,0 +1,71 @@
+name: Progress Evaluations Matrix (read-only)
+
+# Proves the #1045 Progress migrations against real PostgreSQL on the major versions production runs.
+# Applies the throwaway bootstrap + both migrations VERBATIM, runs the portable ownership/RLS/immutability
+# matrix, then falsifies (without the migrations the matrix MUST fail, so the assertions are not vacuous).
+# Disposable containers only; no secrets, no hosted database, nothing applied anywhere.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260731120000_session_progress_evaluations.sql'
+      - 'backend/supabase/migrations/20260731130000_progress_recommendations.sql'
+      - 'tests/db/progress-evaluations-bootstrap.sql'
+      - 'tests/db/progress-evaluations-matrix.sql'
+      - '.github/workflows/progress-matrix.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: "progress integrity matrix (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Apply bootstrap + both migrations, then run the matrix
+        run: |
+          set -euo pipefail
+          run() { psql -v ON_ERROR_STOP=1 -f "$1"; }
+          run tests/db/progress-evaluations-bootstrap.sql
+          run backend/supabase/migrations/20260731120000_session_progress_evaluations.sql
+          run backend/supabase/migrations/20260731130000_progress_recommendations.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-evaluations-matrix.sql
+
+      - name: Falsify — the matrix MUST fail without the migrations (assertions are not vacuous)
+        run: |
+          set -euo pipefail
+          createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" empty_test
+          export PGDATABASE=empty_test
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-evaluations-bootstrap.sql
+          if psql -v ON_ERROR_STOP=1 -f tests/db/progress-evaluations-matrix.sql; then
+            echo "::error::matrix passed WITHOUT the migrations — the assertions are vacuous"
+            exit 1
+          fi
+          echo "OK: matrix correctly fails without the migrations."

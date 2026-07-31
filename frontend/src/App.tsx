@@ -16,6 +16,7 @@ import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
+import { useProgressReconciliation } from './hooks/useProgressReconciliation';
 import { SSE2EWindow } from './config/TestFlags';
 import type { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
 import { setAppVisibleReady } from '@/lib/forensicAnchors';
@@ -48,6 +49,16 @@ const RouteReadinessManager: React.FC = () => {
     }
   }, [isResolved, setReady, location.pathname]);
 
+  return null;
+};
+
+/**
+ * #1045 durable Progress recovery — headless. Runs once per authenticated user (after their session list
+ * loads) to record any completed session whose evaluation was dropped at save time. Non-fatal, renders
+ * nothing.
+ */
+const ProgressReconciler: React.FC = () => {
+  useProgressReconciliation();
   return null;
 };
 
@@ -338,6 +349,7 @@ const App: React.FC = () => {
            can read the active /practice surface the page sets. */}
        <PracticeSurfaceProvider>
         <RouteReadinessManager />
+        <ProgressReconciler />
         <Navigation />
         <main
           id="main-content"

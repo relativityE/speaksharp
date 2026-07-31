@@ -32,6 +32,12 @@ vi.mock('../../lib/supabaseClient', () => ({
     }))
 }));
 
+// #1045: the Progress recording seam. Mocked so we can assert the completed-save journey INVOKES it with
+// the right context (metrics persisted + terminal attribution) — the wire the feature depends on.
+vi.mock('../progress/recordProgress', () => ({
+    wireProgressEvaluationOnSave: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     let controller: SpeechRuntimeController;
 
@@ -535,6 +541,19 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             });
         }
     );
+
+    it('#1045: the completed-save journey wires the Progress evaluation seam (metrics persisted + terminal attribution)', async () => {
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        vi.mocked(wireProgressEvaluationOnSave).mockClear();
+        (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = null;
+        await driveStopWithService(mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }), 'sess-progress-1', 'private');
+        expect(wireProgressEvaluationOnSave).toHaveBeenCalledWith(expect.objectContaining({
+            sessionId: 'sess-progress-1',
+            status: 'completed',
+            attributionStatus: 'verified',
+            metricsPersisted: true,
+        }));
+    });
 
     it('#1033: Private finalization uses the resolved Private arm ONLY when it belongs to this recording', async () => {
         const storage = await import('../../lib/storage');
