@@ -2,22 +2,36 @@ import * as React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '../../../../tests/support/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FreestyleOnrampDialog } from '../FreestyleOnrampDialog';
-import { CALIBRATION_MAX_SECONDS, type CreateCalibrationSession } from '@/services/practice/calibrationSession';
+import {
+  CALIBRATION_MAX_SECONDS,
+  CALIBRATION_PASSAGE,
+  type CalibrationSessionCallbacks,
+  type CreateCalibrationSession,
+} from '@/services/practice/calibrationSession';
 import { FREESTYLE_PROMPTS, PRACTICE_FOCUS_OPTIONS } from '@/services/practice/practiceFocus';
 
 function createFakeCalibration() {
   const start = vi.fn().mockResolvedValue(undefined);
   const stop = vi.fn().mockResolvedValue(undefined);
   const dispose = vi.fn().mockResolvedValue(undefined);
+  let activeCallbacks: CalibrationSessionCallbacks | null = null;
   const factory: CreateCalibrationSession = vi.fn((callbacks) => ({
     start: async () => {
+      activeCallbacks = callbacks;
       callbacks.onTranscript('A temporary calibration transcript.');
       await start();
     },
     stop,
     dispose,
   }));
-  return { factory, start, stop, dispose };
+  return {
+    factory,
+    start,
+    stop,
+    dispose,
+    signalReady: () => activeCallbacks?.onReady?.(),
+    signalError: (message: string) => activeCallbacks?.onError?.(message),
+  };
 }
 
 function Harness({
@@ -82,18 +96,31 @@ describe('FreestyleOnrampDialog', () => {
     expect(onContinue).toHaveBeenCalledWith({ focus: 'fillers', promptId: FREESTYLE_PROMPTS[0].id });
   });
 
-  it('uses Browser only, tells the truth about storage, and hard-stops at 30 seconds', async () => {
+  it('shows the approved passage, discloses the Browser boundary, and starts the 30-second cap only when ready', async () => {
     vi.useFakeTimers();
     const calibration = createFakeCalibration();
     render(<Harness createSession={calibration.factory} />);
     fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
     fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
     expect(screen.getByText('Browser', { selector: 'p' })).toBeInTheDocument();
-    expect(screen.getByText('Uses your browser’s speech recognition. Nothing from this test is saved to SpeakSharp.')).toBeInTheDocument();
-    expect(document.body.textContent ?? '').not.toMatch(/Cloud/);
+    expect(screen.getByTestId('calibration-passage')).toHaveTextContent(CALIBRATION_PASSAGE);
+    expect(screen.getByText(/Your browser manages transcription and may use its own speech service/)).toBeInTheDocument();
+    expect(screen.getByText(/SpeakSharp sends no calibration data to SpeakSharp Cloud, Gemini, Supabase, or its application servers/)).toBeInTheDocument();
+    expect(screen.getByText(/It creates no SpeakSharp session or Progress record/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Cloud/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
     await act(async () => { await Promise.resolve(); });
     expect(calibration.factory).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Preparing browser transcription…')).toBeInTheDocument();
+    expect(screen.getByTestId('calibration-countdown')).toHaveTextContent('0:30');
+    await act(async () => {
+      vi.advanceTimersByTime(CALIBRATION_MAX_SECONDS * 1000);
+      await Promise.resolve();
+    });
+    expect(calibration.stop).not.toHaveBeenCalled();
+
+    act(() => calibration.signalReady());
+    expect(screen.getByText('Listening—read the passage aloud.')).toBeInTheDocument();
     await act(async () => {
       vi.advanceTimersByTime(CALIBRATION_MAX_SECONDS * 1000 - 1);
       await Promise.resolve();
@@ -105,6 +132,40 @@ describe('FreestyleOnrampDialog', () => {
     });
     expect(calibration.stop).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('calibration-countdown')).toHaveTextContent('0:00');
+  });
+
+  it('disposes and shows a runtime recognition error without later reporting success', async () => {
+    vi.useFakeTimers();
+    const calibration = createFakeCalibration();
+    let finishDispose: (() => void) | undefined;
+    calibration.dispose.mockImplementationOnce(() => new Promise<void>((resolve) => { finishDispose = resolve; }));
+    render(<Harness createSession={calibration.factory} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+    await act(async () => { await Promise.resolve(); });
+    act(() => calibration.signalReady());
+
+    await act(async () => {
+      calibration.signalError('Browser recognition stopped.');
+      await Promise.resolve();
+    });
+
+    expect(calibration.dispose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Test complete/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(CALIBRATION_MAX_SECONDS * 1000);
+      await Promise.resolve();
+    });
+    expect(calibration.stop).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Test complete/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      finishDispose?.();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Browser recognition stopped.');
   });
 
   it('blocks calibration while recording state is unresolved', () => {

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const engineState = vi.hoisted(() => ({
-  options: null as null | { onTranscriptUpdate: (update: unknown) => void },
+  options: null as null | {
+    onTranscriptUpdate: (update: unknown) => void;
+    onReady: () => void;
+    onError?: (error: { message: string }) => void;
+  },
   checkAvailability: vi.fn(),
   init: vi.fn(),
   start: vi.fn(),
@@ -11,7 +15,11 @@ const engineState = vi.hoisted(() => ({
 }));
 
 class FakeBrowserEngine {
-  constructor(options: { onTranscriptUpdate: (update: unknown) => void }) {
+  constructor(options: {
+    onTranscriptUpdate: (update: unknown) => void;
+    onReady: () => void;
+    onError?: (error: { message: string }) => void;
+  }) {
     engineState.options = options;
   }
   checkAvailability = engineState.checkAvailability;
@@ -69,6 +77,34 @@ describe('isolated Browser calibration boundary', () => {
     expect(localStorage.getItem(LOCK_KEY)).toBeNull();
     expect(localWrite.mock.calls.filter(([key]) => key === LOCK_KEY).length).toBeGreaterThan(0);
     expect(localWrite.mock.calls.map(([key]) => String(key)).filter((key) => key !== LOCK_KEY && key !== 'speaksharp_tab_id')).toEqual([]);
+  });
+
+  it('reports ready only from the Browser acoustic-ready callback and only once', async () => {
+    const onReady = vi.fn();
+    const session = createCalibrationSession({ onTranscript, onReady });
+
+    await session.start();
+    expect(onReady).not.toHaveBeenCalled();
+
+    engineState.options?.onReady();
+    engineState.options?.onReady();
+    expect(onReady).toHaveBeenCalledTimes(1);
+
+    await session.dispose();
+  });
+
+  it('surfaces a runtime recognition error once while cleaning up the engine and mutex', async () => {
+    const onError = vi.fn();
+    const session = createCalibrationSession({ onTranscript, onError });
+
+    await session.start();
+    engineState.options?.onError?.({ message: 'Browser recognition stopped.' });
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('Browser recognition stopped.'));
+    await vi.waitFor(() => expect(engineState.terminate).toHaveBeenCalledTimes(1));
+    expect(engineState.stop).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(LOCK_KEY)).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('rejects calibration while the same tab has an active or unresolved recording', async () => {

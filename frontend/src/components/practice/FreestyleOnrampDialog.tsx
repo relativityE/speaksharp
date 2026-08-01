@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   CALIBRATION_MAX_SECONDS,
+  CALIBRATION_PASSAGE,
   createCalibrationSession,
   type CalibrationSession,
   type CreateCalibrationSession,
@@ -54,6 +55,7 @@ export function FreestyleOnrampDialog({
   const focusRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const calibrationTriggerRef = React.useRef<HTMLButtonElement>(null);
   const calibrationRef = React.useRef<CalibrationSession | null>(null);
+  const readySessionRef = React.useRef<CalibrationSession | null>(null);
   const capTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const tickTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = React.useRef(0);
@@ -70,6 +72,7 @@ export function FreestyleOnrampDialog({
     clearTimers();
     const session = calibrationRef.current;
     calibrationRef.current = null;
+    readySessionRef.current = null;
     if (session) await session.dispose().catch(() => undefined);
   }, [clearTimers]);
 
@@ -78,6 +81,7 @@ export function FreestyleOnrampDialog({
     setCalibrationTranscript('');
     setCalibrationError(null);
     setSecondsRemaining(CALIBRATION_MAX_SECONDS);
+    readySessionRef.current = null;
   }, []);
 
   React.useEffect(() => {
@@ -92,6 +96,16 @@ export function FreestyleOnrampDialog({
 
   React.useEffect(() => () => { void disposeCalibration(); }, [disposeCalibration]);
 
+  const handleCalibrationError = React.useCallback(async (session: CalibrationSession, message: string) => {
+    clearTimers();
+    await session.dispose().catch(() => undefined);
+    if (calibrationRef.current !== session) return;
+    calibrationRef.current = null;
+    readySessionRef.current = null;
+    setCalibrationError(message);
+    setCalibrationState('error');
+  }, [clearTimers]);
+
   const finishCalibration = React.useCallback(async () => {
     clearTimers();
     const session = calibrationRef.current;
@@ -99,15 +113,31 @@ export function FreestyleOnrampDialog({
     setCalibrationState('stopping');
     try {
       await session.stop();
+      if (calibrationRef.current !== session) return;
+      calibrationRef.current = null;
+      readySessionRef.current = null;
       setCalibrationState('complete');
       setSecondsRemaining(0);
     } catch (error) {
-      setCalibrationError(error instanceof Error ? error.message : 'The microphone test could not finish.');
-      setCalibrationState('error');
-    } finally {
-      calibrationRef.current = null;
+      await handleCalibrationError(
+        session,
+        error instanceof Error ? error.message : 'The microphone test could not finish.',
+      );
     }
-  }, [clearTimers]);
+  }, [clearTimers, handleCalibrationError]);
+
+  const handleCalibrationReady = React.useCallback((session: CalibrationSession) => {
+    if (calibrationRef.current !== session || readySessionRef.current === session) return;
+    readySessionRef.current = session;
+    startedAtRef.current = Date.now();
+    setSecondsRemaining(CALIBRATION_MAX_SECONDS);
+    setCalibrationState('recording');
+    capTimerRef.current = setTimeout(() => { void finishCalibration(); }, CALIBRATION_MAX_SECONDS * 1000);
+    tickTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000);
+      setSecondsRemaining(Math.max(0, CALIBRATION_MAX_SECONDS - elapsed));
+    }, 250);
+  }, [finishCalibration]);
 
   const chooseFocus = (nextFocus: PracticeFocus) => setFocus(nextFocus);
 
@@ -136,24 +166,18 @@ export function FreestyleOnrampDialog({
     setCalibrationState('starting');
     const session = createSession({
       onTranscript: setCalibrationTranscript,
-      onError: setCalibrationError,
+      onReady: () => handleCalibrationReady(session),
+      onError: (message) => { void handleCalibrationError(session, message); },
     });
     calibrationRef.current = session;
     try {
       await session.start();
-      if (calibrationRef.current !== session) return;
-      startedAtRef.current = Date.now();
-      setCalibrationState('recording');
-      capTimerRef.current = setTimeout(() => { void finishCalibration(); }, CALIBRATION_MAX_SECONDS * 1000);
-      tickTimerRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000);
-        setSecondsRemaining(Math.max(0, CALIBRATION_MAX_SECONDS - elapsed));
-      }, 250);
     } catch (error) {
       if (calibrationRef.current !== session) return;
-      calibrationRef.current = null;
-      setCalibrationError(error instanceof Error ? error.message : 'The microphone test could not start.');
-      setCalibrationState('error');
+      await handleCalibrationError(
+        session,
+        error instanceof Error ? error.message : 'The microphone test could not start.',
+      );
     }
   };
 
@@ -281,8 +305,14 @@ export function FreestyleOnrampDialog({
 
             <div className="rounded-lg border border-emerald-700/20 bg-emerald-50 p-3 text-sm text-emerald-950">
               <p className="flex items-start gap-2 font-semibold"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Temporary test only</p>
-              <p className="mt-1 pl-6">Uses your browser’s speech recognition. Nothing from this test is saved to SpeakSharp.</p>
+              <p className="mt-1 pl-6">Your browser manages transcription and may use its own speech service. SpeakSharp sends no calibration data to SpeakSharp Cloud, Gemini, Supabase, or its application servers.</p>
+              <p className="mt-1 pl-6">It creates no SpeakSharp session or Progress record, and the temporary transcript is discarded when you close this test.</p>
             </div>
+
+            <section aria-labelledby="calibration-passage-heading" className="rounded-lg border border-border bg-card p-4">
+              <h3 id="calibration-passage-heading" className="text-sm font-bold text-foreground">Read this passage aloud</h3>
+              <blockquote className="mt-2 text-sm leading-relaxed text-foreground/90" data-testid="calibration-passage">{CALIBRATION_PASSAGE}</blockquote>
+            </section>
 
             <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3" aria-live="polite">
               <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Calibration method</p><p className="font-bold text-foreground">Browser</p></div>
@@ -293,7 +323,7 @@ export function FreestyleOnrampDialog({
             {(calibrationState === 'recording' || calibrationState === 'stopping') && (
               <div role="status" className="flex items-center gap-2 text-sm font-semibold text-rose-700">
                 <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-600" aria-hidden="true" />
-                {calibrationState === 'recording' ? 'Listening—speak naturally.' : 'Finishing the temporary transcript…'}
+                {calibrationState === 'recording' ? 'Listening—read the passage aloud.' : 'Finishing the temporary transcript…'}
               </div>
             )}
             {(calibrationTranscript || calibrationState === 'complete') && (

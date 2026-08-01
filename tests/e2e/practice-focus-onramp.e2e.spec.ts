@@ -89,11 +89,12 @@ test.describe('#1116 Freestyle practice-focus on-ramp', () => {
     await page.getByRole('button', { name: 'Let me test with a sample' }).click();
     await expect(page.getByTestId('calibration-dialog')).toBeVisible();
     await page.waitForTimeout(250);
-    await expect(page.getByText('Uses your browser’s speech recognition. Nothing from this test is saved to SpeakSharp.')).toBeVisible();
+    await expect(page.getByTestId('calibration-passage')).toContainText('Good communication starts with a clear purpose.');
+    await expect(page.getByText(/Your browser manages transcription and may use its own speech service/)).toBeVisible();
     const storageBefore = await storageSnapshot(page);
     calibrationStarted = true;
     await page.getByRole('button', { name: 'Start 30-second test' }).click();
-    await expect(page.getByText(/Listening—speak naturally/)).toBeVisible();
+    await expect(page.getByText(/Listening—read the passage aloud/)).toBeVisible();
     await page.evaluate(() => {
       const recognition = (window as Window & {
         __activeSpeechRecognition?: { onresult?: ((event: unknown) => void) | null };
@@ -128,5 +129,7 @@ test.describe('#1116 Freestyle practice-focus on-ramp', () => {
     await expect(page).toHaveURL(/\/session\?focus=concise&prompt=recent-work$/, { timeout: 30_000 });
     await expect(page.getByTestId('freestyle-prompt-card')).toContainText('Be more concise');
     await expect(page.getByTestId('freestyle-prompt-card')).toContainText('Explain something you worked on recently');
+    await page.getByRole('button', { name: 'Dismiss Freestyle setup' }).click();
+    await expect(page.getByTestId('freestyle-prompt-card')).toBeHidden();
   });
 });

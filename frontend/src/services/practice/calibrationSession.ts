@@ -3,6 +3,7 @@ import { DistributedLock } from '@/lib/DistributedLock';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 export const CALIBRATION_MAX_SECONDS = 30;
+export const CALIBRATION_PASSAGE = 'Good communication starts with a clear purpose. Today I want to explain one small change that could make our work easier. The change is simple: agree on the next step before each meeting ends. That gives everyone a clear owner, a deadline, and fewer follow-up questions. I would start with our next team meeting and review the result after one week.';
 
 export interface CalibrationSessionCallbacks {
   onTranscript: (transcript: string) => void;
@@ -27,10 +28,10 @@ function joinTranscript(left: string, right: string): string {
 /**
  * A deliberately isolated mic/transcription path for #1116's short calibration.
  *
- * This first-release module imports only the Browser leaf engine.
- * It never imports the production TranscriptionService, Supabase, session/history
- * persistence, Progress, or a Cloud provider. A calibration therefore cannot create
- * product evidence or a billable provider request through this seam.
+ * This first-release module imports only the Browser leaf engine. The browser owns
+ * SpeechRecognition and may manage that capability through its own service. SpeakSharp
+ * does not route calibration through its production TranscriptionService, Supabase,
+ * session/history persistence, Progress, Gemini, or SpeakSharp Cloud/application servers.
  *
  * It does share the production recording mutex and authoritative same-tab lifecycle
  * projection. Calibration cannot overlap an unresolved recording in this tab or a
@@ -46,7 +47,10 @@ export function createCalibrationSession(
   let partialTranscript = '';
   let startPromise: Promise<void> | null = null;
   let stopPromise: Promise<void> | null = null;
+  let runtimeErrorCleanup: Promise<void> | null = null;
   let disposed = false;
+  let readySignaled = false;
+  let errorNotified = false;
 
   const assertActive = () => {
     if (disposed) throw new Error('Calibration was closed.');
@@ -64,14 +68,6 @@ export function createCalibrationSession(
     }
     if (transcript.partial !== undefined) partialTranscript = transcript.partial.trim();
     emit();
-  };
-
-  const options: TranscriptionModeOptions = {
-    onTranscriptUpdate,
-    onReady: () => { if (!disposed) callbacks.onReady?.(); },
-    onError: (error) => { if (!disposed) callbacks.onError?.(error.message); },
-    serviceId: 'freestyle-calibration',
-    runId: 'ephemeral-calibration',
   };
 
   const stopResources = async () => {
@@ -115,6 +111,30 @@ export function createCalibrationSession(
     return stopPromise;
   };
 
+  const notifyErrorOnce = (message: string) => {
+    if (disposed || errorNotified) return;
+    errorNotified = true;
+    callbacks.onError?.(message);
+  };
+
+  const options: TranscriptionModeOptions = {
+    onTranscriptUpdate,
+    onReady: () => {
+      if (disposed || stopPromise || readySignaled) return;
+      readySignaled = true;
+      callbacks.onReady?.();
+    },
+    onError: (error) => {
+      if (disposed || errorNotified) return;
+      const message = error.message || 'Browser transcription stopped unexpectedly.';
+      runtimeErrorCleanup ??= ensureStopped()
+        .catch(() => undefined);
+      notifyErrorOnce(message);
+    },
+    serviceId: 'freestyle-calibration',
+    runId: 'ephemeral-calibration',
+  };
+
   return {
     start() {
       if (disposed) return Promise.reject(new Error('Calibration is no longer available.'));
@@ -122,6 +142,8 @@ export function createCalibrationSession(
       startPromise = (async () => {
         finalTranscript = '';
         partialTranscript = '';
+        readySignaled = false;
+        errorNotified = false;
         emit();
 
         const sessionState = useSessionStore.getState();
@@ -148,7 +170,7 @@ export function createCalibrationSession(
       })().catch(async (error: unknown) => {
         await ensureStopped().catch(() => undefined);
         const message = error instanceof Error ? error.message : 'Calibration could not start.';
-        if (!disposed) callbacks.onError?.(message);
+        notifyErrorOnce(message);
         throw error;
       });
       return startPromise;
@@ -164,6 +186,7 @@ export function createCalibrationSession(
       // same cleanup promise before returning. No worker or microphone survives
       // closing the dialog during model initialization.
       await startPromise?.catch(() => undefined);
+      await runtimeErrorCleanup?.catch(() => undefined);
       await ensureStopped();
     },
   };
