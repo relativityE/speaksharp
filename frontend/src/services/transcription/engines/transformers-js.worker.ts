@@ -1,6 +1,7 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
-import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
+import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated, MAX_WASM_THREADS } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
+import { TRANSFORMERS_V2_WASM_PATHS } from './transformersV2WasmAssets';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type WhisperDecodeOptions = Record<string, unknown>;
@@ -13,8 +14,26 @@ type WorkerRequest =
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string; threads: number; crossOriginIsolated: boolean }
-    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | {
+        id: number;
+        type: 'loaded';
+        loadTimeMs: number;
+        model: string;
+        device: string;
+        requestedThreads: number;
+        configuredThreads: number;
+        workerReportedThreads: number;
+        crossOriginIsolated: boolean;
+      }
+    | {
+        id: number;
+        type: 'result';
+        transcript: string;
+        latencyMs: number;
+        audioLengthSeconds: number;
+        resultShape: string;
+        inputEvidence: { sha256: string; samples: number; bytes: number };
+      }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
 
@@ -26,6 +45,12 @@ interface TranscriptionResult {
 let transcriber: Pipeline | null = null;
 
 const WARMUP_AUDIO_SECONDS = 1;
+
+async function sha256Float32(audio: Float32Array): Promise<string> {
+    const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
+    const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 async function warmUpTranscriber(): Promise<void> {
     if (!transcriber) return;
@@ -79,6 +104,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     try {
         const wasmBackend = env.backends?.onnx?.wasm;
         if (wasmBackend) {
+            wasmBackend.wasmPaths = TRANSFORMERS_V2_WASM_PATHS;
             cpuThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
             wasmBackend.numThreads = cpuThreads;
             wasmBackend.simd = true;
@@ -132,7 +158,9 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         loadTimeMs: Math.round(performance.now() - loadStart),
         model: loadedModelKey,
         device: cpuThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
-        threads: cpuThreads,
+        requestedThreads: MAX_WASM_THREADS,
+        configuredThreads: cpuThreads,
+        workerReportedThreads: cpuThreads,
         crossOriginIsolated: cpuIsolated,
     });
     await warmUpTranscriber();
@@ -153,6 +181,15 @@ async function transcribe(id: number, audio: Float32Array, decodeOptions?: Whisp
     };
     Object.assign(options, decodeOptions);
 
+    // Hash the exact Float32 payload inside the worker that owns the model. The
+    // release-evidence harness compares this with the main-thread adapter hash;
+    // equality proves that the observed PCM crossed the real production worker
+    // boundary. This is diagnostics only and never contains audio or transcript.
+    const inputEvidence = {
+        sha256: await sha256Float32(audio),
+        samples: audio.length,
+        bytes: audio.byteLength,
+    };
     const result = await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
     const transcript = typeof result === 'string'
         ? result
@@ -165,6 +202,7 @@ async function transcribe(id: number, audio: Float32Array, decodeOptions?: Whisp
         latencyMs: Math.round(performance.now() - start),
         audioLengthSeconds,
         resultShape: typeof result === 'string' ? 'string' : Object.keys(result).sort().join(','),
+        inputEvidence,
     });
 }
 

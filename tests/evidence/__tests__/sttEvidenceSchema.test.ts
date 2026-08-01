@@ -151,6 +151,70 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.runtime_capability.fallbackReason).toContain('crossOriginIsolated');
     });
 
+    it('a Browser journey passes only after real recognition, timer, transcript, and session proof', () => {
+        const r = finalizeRow(base({
+            comparability_class: 'browser_journey',
+            engine: 'browser-webspeech',
+            runtime_capability: {
+                requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
+                runtimePath: 'browser-webspeech', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: null,
+            },
+            browser_journey_evidence: {
+                supportState: 'supported', executionMode: 'manual-assisted',
+                recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
+                sessionProduced: true, browserManagedTranscription: true,
+                applicationServerWrites: 0, cloudProviderCalls: 0,
+            },
+        }));
+        expect(r.run_validity).toBe('valid');
+    });
+
+    it.each([
+        ['recognitionStarted', false, /recognition did not actually start/i],
+        ['timerAdvanced', false, /timer did not advance/i],
+        ['transcriptProduced', false, /no transcript/i],
+        ['sessionProduced', false, /no session/i],
+    ] as const)('Browser journey fails closed when %s is not proven', (field, value, reason) => {
+        const r = finalizeRow(base({
+            comparability_class: 'browser_journey',
+            engine: 'browser-webspeech',
+            browser_journey_evidence: {
+                supportState: 'supported', executionMode: 'manual-assisted',
+                recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
+                sessionProduced: true, browserManagedTranscription: true,
+                applicationServerWrites: 0, cloudProviderCalls: 0,
+                [field]: value,
+            },
+        }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(reason);
+    });
+
+    it('Private browser-worker evidence requires matching main/worker hashes and self-hosted assets', () => {
+        const inputHash = 'c'.repeat(64);
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            private_worker_evidence: {
+                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+                mainThreadInputSha256: inputHash, workerInputSha256: inputHash,
+                inputHashesMatch: true, cloudProviderCalls: 0,
+            },
+        }));
+        expect(r.run_validity).toBe('valid');
+
+        const mismatch = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            private_worker_evidence: {
+                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+                mainThreadInputSha256: inputHash, workerInputSha256: 'd'.repeat(64),
+                inputHashesMatch: false, cloudProviderCalls: 0,
+            },
+        }));
+        expect(mismatch.run_validity).toBe('invalid');
+        expect(mismatch.invalid_reason).toMatch(/PCM hashes do not match/i);
+    });
+
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {
         const r = finalizeRow(base({
             runtime_capability: { ...base().runtime_capability, configuredThreads: 4, workerReportedThreads: null },

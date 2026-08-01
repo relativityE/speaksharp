@@ -1,0 +1,53 @@
+name: STT Runtime Evidence (Private v2 worker, no Cloud)
+
+# #1037 runtime closure. Browser/Web Speech remains a manual-assisted system-
+# Chrome gate because hosted headless runners cannot provide truthful live-mic
+# Web Speech evidence. This workflow proves the deterministic production worker
+# lane only and never invokes Cloud.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/benchmark/private-browser-dropin.ts'
+      - 'frontend/src/services/transcription/engines/TransformersJSEngine.ts'
+      - 'frontend/src/services/transcription/engines/transformers-js.worker.ts'
+      - 'scripts/private-v2-worker-evidence.mts'
+      - 'scripts/validate-stt-evidence.mjs'
+      - 'tests/evidence/**'
+      - '.github/workflows/stt-runtime-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-v2-production-worker:
+    name: private-v2-production-worker-single-thread
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start non-isolated test server
+        run: |
+          STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite --config frontend/vite.config.mjs --mode test --host 127.0.0.1 --port 5173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
+          pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:5173/private-dropin.html
+      - name: Prove production worker + single-thread fallback + PCM route
+        run: |
+          pnpm evidence:stt:private-worker -- \
+            --base-url http://127.0.0.1:5173 \
+            --release-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --out stt-evidence-artifacts/private-v2-worker.json
+      - name: Upload validator-accepted evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stt-private-v2-worker-evidence
+          path: stt-evidence-artifacts/private-v2-worker.json
+          if-no-files-found: warn
+          retention-days: 1

@@ -16,6 +16,7 @@ type DropInState = {
   capturedSeconds: number;
   modelReady: boolean;
   recording: boolean;
+  adapterInputSha256: string | null;
 };
 
 declare global {
@@ -24,6 +25,7 @@ declare global {
       initModel: () => Promise<void>;
       startCapture: () => Promise<void>;
       stopAndTranscribe: () => Promise<string>;
+      transcribePcmBase64: (pcmBase64: string) => Promise<string>;
     };
   }
 }
@@ -37,6 +39,7 @@ const state: DropInState = {
   capturedSeconds: 0,
   modelReady: false,
   recording: false,
+  adapterInputSha256: null,
 };
 
 const engine = new TransformersJSEngine();
@@ -48,6 +51,53 @@ let processorNode: ScriptProcessorNode | null = null;
 
 function compact(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+async function sha256Float32(audio: Float32Array): Promise<string> {
+  const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
+  const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function float32FromBase64(value: string): Float32Array {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error('PCM payload byte length is not aligned to Float32.');
+  }
+  return new Float32Array(bytes.buffer);
+}
+
+async function transcribePcm(audio16k: Float32Array): Promise<string> {
+  await initModel();
+  state.capturedSamples = audio16k.length;
+  state.capturedSeconds = audio16k.length / 16_000;
+  state.adapterInputSha256 = await sha256Float32(audio16k);
+  state.status = 'transcribing';
+  log('transcribe:start', {
+    samples16k: audio16k.length,
+    seconds: Number(state.capturedSeconds.toFixed(3)),
+    adapterInputSha256: state.adapterInputSha256,
+  });
+
+  const result = await engine.transcribe(audio16k);
+  if (!result.isOk) {
+    state.status = `transcribe error: ${result.error.message}`;
+    log('transcribe:error', { error: result.error.message });
+    throw result.error;
+  }
+
+  state.transcript = compact(result.data);
+  state.status = 'done';
+  log('transcribe:done', {
+    transcriptLength: state.transcript.length,
+    transcript: state.transcript,
+  });
+  return state.transcript;
+}
+
+async function transcribePcmBase64(pcmBase64: string): Promise<string> {
+  return transcribePcm(float32FromBase64(pcmBase64));
 }
 
 function render(): void {
@@ -156,34 +206,14 @@ async function stopAndTranscribe(): Promise<string> {
   const audio16k = resampleLinear(input, sourceRate, 16_000);
   state.capturedSamples = audio16k.length;
   state.capturedSeconds = audio16k.length / 16_000;
-  state.status = 'transcribing';
-  log('transcribe:start', {
-    sourceSamples: input.length,
-    sourceRate,
-    samples16k: audio16k.length,
-    seconds: Number(state.capturedSeconds.toFixed(3)),
-  });
-
-  const result = await engine.transcribe(audio16k);
-  if (!result.isOk) {
-    state.status = `transcribe error: ${result.error.message}`;
-    log('transcribe:error', { error: result.error.message });
-    throw result.error;
-  }
-
-  state.transcript = compact(result.data);
-  state.status = 'done';
-  log('transcribe:done', {
-    transcriptLength: state.transcript.length,
-    transcript: state.transcript,
-  });
-  return state.transcript;
+  return transcribePcm(audio16k);
 }
 
 window.__PRIVATE_DROPIN__ = Object.assign(state, {
   initModel,
   startCapture,
   stopAndTranscribe,
+  transcribePcmBase64,
 });
 
 document.querySelector<HTMLButtonElement>('#init')!.addEventListener('click', () => {

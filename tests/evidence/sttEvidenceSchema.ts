@@ -67,11 +67,35 @@ export interface RuntimeCapability {
      * `node-onnxruntime` is the Node corpus harness (onnxruntime-node native bindings) — model-equivalent
      * to, but NOT the same runtime as, the production browser worker (`wasm`/`wasm-multithread`/`webgpu`).
      */
-    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime';
+    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime' | 'browser-webspeech';
     crossOriginIsolated: boolean;
     sharedArrayBufferAvailable: boolean;
     /** Populated when the achieved configuration differs from the requested one. */
     fallbackReason: string | null;
+}
+
+/** Browser/Web Speech assertions that distinguish a real recording from an availability smoke. */
+export interface BrowserJourneyEvidence {
+    supportState: 'supported' | 'unavailable' | 'start-failure';
+    executionMode: 'automated' | 'manual-assisted';
+    recognitionStarted: boolean;
+    timerAdvanced: boolean;
+    transcriptProduced: boolean;
+    sessionProduced: boolean;
+    browserManagedTranscription: true;
+    applicationServerWrites: number;
+    cloudProviderCalls: number;
+}
+
+/** Worker-origin facts required before a browser-WASM row can claim production-worker coverage. */
+export interface PrivateWorkerEvidence {
+    workerUsed: boolean;
+    modelSource: 'self-hosted';
+    modelLoaded: string;
+    mainThreadInputSha256: string;
+    workerInputSha256: string;
+    inputHashesMatch: boolean;
+    cloudProviderCalls: number;
 }
 
 /**
@@ -126,6 +150,8 @@ export interface SttEvidenceRow {
     audio_route_evidence: AudioRouteEvidence;
     runtime_capability: RuntimeCapability;
     comparability_inputs: ComparabilityInputs;
+    browser_journey_evidence?: BrowserJourneyEvidence;
+    private_worker_evidence?: PrivateWorkerEvidence;
 }
 
 /**
@@ -201,6 +227,36 @@ export function finalizeRow(
     if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
         ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
         problems.push('fixtureHash does not match the routed fixture');
+    }
+
+    if (row.comparability_class === 'browser_journey') {
+        const journey = row.browser_journey_evidence;
+        if (!journey) {
+            problems.push('browser_journey row missing browser_journey_evidence');
+        } else {
+            if (journey.supportState !== 'supported') problems.push(`Browser support state is '${journey.supportState}', not supported`);
+            if (!journey.recognitionStarted) problems.push('Browser recognition did not actually start');
+            if (!journey.timerAdvanced) problems.push('Browser recording timer did not advance beyond 00:00');
+            if (!journey.transcriptProduced) problems.push('Browser journey produced no transcript');
+            if (!journey.sessionProduced) problems.push('Browser journey produced no session');
+            if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
+            if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+        }
+    }
+
+    if (row.engine === 'private-v2-browser-worker') {
+        const worker = row.private_worker_evidence;
+        if (!worker) {
+            problems.push('Private browser-worker row missing private_worker_evidence');
+        } else {
+            if (!worker.workerUsed) problems.push('Private evidence did not use the production browser worker');
+            if (worker.modelSource !== 'self-hosted') problems.push('Private evidence did not use self-hosted model assets');
+            if (!worker.modelLoaded) problems.push('Private worker did not report a loaded model');
+            if (!worker.inputHashesMatch || worker.mainThreadInputSha256 !== worker.workerInputSha256) {
+                problems.push('Private main-thread and worker PCM hashes do not match');
+            }
+            if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
+        }
     }
 
     // WER is only admissible on a proven route. Never estimated, never defaulted to zero.

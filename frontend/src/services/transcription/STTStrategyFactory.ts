@@ -38,7 +38,7 @@ export class STTStrategyFactory {
       if (ENV.isTest && typeof mockEngine?.checkAvailability !== 'function') {
         throw new Error(`[STTStrategyFactory] 🚨 CONTRACT VIOLATION: Mock for "${engineKey}" must implement checkAvailability().`);
       }
-    } else if (ENV.isTest) {
+    } else if (ENV.isTest && ENV.engineType !== 'real') {
       if (options.isValidation) {
         logger.info({ engineKey }, '[STTStrategyFactory] 🛡️ E2E Validation Phase: Using minimal stub for unregistered mock');
         // Minimal Stub that satisfies STTEngine/IPrivateSTTEngine contract for validation only

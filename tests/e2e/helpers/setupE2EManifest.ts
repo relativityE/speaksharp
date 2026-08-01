@@ -11,6 +11,7 @@ export interface SSE2EManifest {
   debug?: boolean;
   flags?: Record<string, unknown>;
   registry?: Record<string, unknown>;
+  realEngineRegistryKeys?: string[];
   MOCK_STT_AVAILABILITY?: boolean;
   guestStatus?: 'free' | 'basic' | 'pro';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
@@ -95,6 +96,7 @@ export async function setupE2EManifest(
     enableRealEngine?: boolean;
     flags?: { bypassMutex?: boolean; fastTimers?: boolean };
     debug?: boolean;
+    realEngineRegistryKeys?: string[];
     storage?: Record<string, string>;
     userType?: 'free' | 'basic' | 'pro';
     mockProfile?: Record<string, unknown>;
@@ -629,7 +631,11 @@ export async function setupE2EManifest(
       return instance;
     };
 
-    const supportEngines = ['mock', 'whisper-turbo', 'transformers-js', 'assemblyai', 'native-browser'];
+    const realEngineRegistryKeys = Array.isArray((m as SSE2EManifest).realEngineRegistryKeys)
+      ? (m as SSE2EManifest).realEngineRegistryKeys ?? []
+      : [];
+    const supportEngines = ['mock', 'whisper-turbo', 'transformers-js', 'assemblyai', 'native-browser']
+      .filter((id) => !realEngineRegistryKeys.includes(id));
     const engineRegistry = Object.fromEntries(
         supportEngines.map(id => [id, minimalStubFactory(id)])
     );
