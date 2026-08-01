@@ -127,6 +127,21 @@ function checkRow(row, index) {
         && typeof rc.workerReportedThreads !== 'number') {
         problems.push('workerReportedThreads must be a number or null');
     }
+
+    if (row.comparability_class === 'browser_journey') {
+        const journey = row.browser_journey_evidence;
+        if (!journey) {
+            problems.push('browser_journey row missing browser_journey_evidence');
+        } else {
+            if (journey.supportState !== 'supported') problems.push(`Browser support state is '${journey.supportState}', not supported`);
+            if (journey.recognitionStarted !== true) problems.push('Browser recognition did not actually start');
+            if (journey.timerAdvanced !== true) problems.push('Browser recording timer did not advance beyond 00:00');
+            if (journey.transcriptProduced !== true) problems.push('Browser journey produced no transcript');
+            if (journey.sessionProduced !== true) problems.push('Browser journey produced no session');
+            if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
+            if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+        }
+    }
     return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
 }
 

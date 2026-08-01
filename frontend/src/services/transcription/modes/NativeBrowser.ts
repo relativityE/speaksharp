@@ -943,6 +943,12 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
           eId: this.instanceId,
           timeoutMs: NATIVE_STT.START_TIMEOUT_MS,
         }, '[NativeBrowser] SpeechRecognition start timed out before onstart');
+        pushNativeTrace('recognition_start_timeout', {
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          timeoutMs: NATIVE_STT.START_TIMEOUT_MS,
+        });
         reject(TranscriptionError.unknown('Browser speech recognition did not start. Please try again or switch STT mode.'));
       }, NATIVE_STT.START_TIMEOUT_MS);
 

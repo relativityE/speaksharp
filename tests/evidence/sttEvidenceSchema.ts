@@ -67,11 +67,24 @@ export interface RuntimeCapability {
      * `node-onnxruntime` is the Node corpus harness (onnxruntime-node native bindings) — model-equivalent
      * to, but NOT the same runtime as, the production browser worker (`wasm`/`wasm-multithread`/`webgpu`).
      */
-    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime';
+    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime' | 'browser-webspeech';
     crossOriginIsolated: boolean;
     sharedArrayBufferAvailable: boolean;
     /** Populated when the achieved configuration differs from the requested one. */
     fallbackReason: string | null;
+}
+
+/** Browser/Web Speech assertions that distinguish a real recording from an availability smoke. */
+export interface BrowserJourneyEvidence {
+    supportState: 'supported' | 'unavailable' | 'start-failure';
+    executionMode: 'automated' | 'manual-assisted';
+    recognitionStarted: boolean;
+    timerAdvanced: boolean;
+    transcriptProduced: boolean;
+    sessionProduced: boolean;
+    browserManagedTranscription: true;
+    applicationServerWrites: number;
+    cloudProviderCalls: number;
 }
 
 /**
@@ -126,6 +139,7 @@ export interface SttEvidenceRow {
     audio_route_evidence: AudioRouteEvidence;
     runtime_capability: RuntimeCapability;
     comparability_inputs: ComparabilityInputs;
+    browser_journey_evidence?: BrowserJourneyEvidence;
 }
 
 /**
@@ -201,6 +215,21 @@ export function finalizeRow(
     if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
         ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
         problems.push('fixtureHash does not match the routed fixture');
+    }
+
+    if (row.comparability_class === 'browser_journey') {
+        const journey = row.browser_journey_evidence;
+        if (!journey) {
+            problems.push('browser_journey row missing browser_journey_evidence');
+        } else {
+            if (journey.supportState !== 'supported') problems.push(`Browser support state is '${journey.supportState}', not supported`);
+            if (!journey.recognitionStarted) problems.push('Browser recognition did not actually start');
+            if (!journey.timerAdvanced) problems.push('Browser recording timer did not advance beyond 00:00');
+            if (!journey.transcriptProduced) problems.push('Browser journey produced no transcript');
+            if (!journey.sessionProduced) problems.push('Browser journey produced no session');
+            if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
+            if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+        }
     }
 
     // WER is only admissible on a proven route. Never estimated, never defaulted to zero.
