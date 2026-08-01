@@ -67,6 +67,20 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(proSttSpec).not.toContain("testInfo.attach('session-pdf'");
         expect(proSttSpec).toContain('rm(artifactPath, { force: true })');
         expect(proSttSpec).toContain('download.delete()');
+
+        const shard = inventory.find(({ key }) => key === 'ci.yml::shard-report-${{ matrix.shard }}');
+        expect(shard?.paths).toEqual(['test-results/ci-evidence/playwright-shard-summary.json']);
+        const lighthouse = inventory.find(({ key }) => key === 'ci.yml::lighthouse-report');
+        expect(lighthouse?.paths).toEqual(['test-results/ci-evidence/lighthouse-summary.json']);
+
+        const ciWorkflow = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+        expect(ciWorkflow).not.toContain('path: blob-report/report-*.zip');
+        expect(ciWorkflow).not.toContain('path: lighthouse-results/');
+        expect(ciWorkflow).not.toContain('playwright merge-reports');
+        expect(ciWorkflow.indexOf('name: Sanitize E2E shard evidence'))
+            .toBeLessThan(ciWorkflow.indexOf('name: Scan shard review evidence'));
+        expect(ciWorkflow.indexOf('name: Sanitize Lighthouse evidence'))
+            .toBeLessThan(ciWorkflow.indexOf('name: Scan Lighthouse review evidence'));
     });
 
     it('limits approved screenshot uploaders to PNG-only one-day artifacts', () => {

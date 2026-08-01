@@ -172,9 +172,10 @@ export function parseLighthouse(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
 
     try {
-        const dirs = [
+    const dirs = [
       path.join(rootDir, 'lighthouse-results'),
-      path.join(rootDir, '.lighthouseci')
+      path.join(rootDir, '.lighthouseci'),
+      path.join(rootDir, 'artifacts', 'lighthouse')
     ];
 
     let files = [];
@@ -188,7 +189,8 @@ export function parseLighthouse(rootDir) {
     files = files.filter(file => {
       try {
         const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-        return data.categories && data.categories.performance;
+        return (data.categories && data.categories.performance)
+          || (data.kind === 'lighthouse-metrics-summary' && Array.isArray(data.reports));
       } catch {
         return false;
       }
@@ -206,6 +208,16 @@ export function parseLighthouse(rootDir) {
       const filePath = file;
       const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
+            if (data.kind === 'lighthouse-metrics-summary') {
+                for (const report of data.reports) {
+                    totals.performance += (report.categories.performance || 0) * 100;
+                    totals.accessibility += (report.categories.accessibility || 0) * 100;
+                    totals.bestPractices += (report.categories.bestPractices || 0) * 100;
+                    totals.seo += (report.categories.seo || 0) * 100;
+                    count++;
+                }
+                continue;
+            }
             if (data.categories) {
                 totals.performance += (data.categories.performance?.score || 0) * 100;
                 totals.accessibility += (data.categories.accessibility?.score || 0) * 100;
