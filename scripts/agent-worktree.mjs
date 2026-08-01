@@ -179,7 +179,11 @@ function upstreamState(worktreeRoot) {
  * `git worktree list --porcelain`, whose per-worktree block carries a `locked` / `locked <reason>` line.
  */
 function lockReason(worktreeRoot) {
-    const out = gitQuiet(['worktree', 'list', '--porcelain'], worktreeRoot) ?? '';
+    // Use the THROWING git path: an inspection failure (permissions/corruption) must propagate and fail the
+    // caller closed, NOT be silently converted to '' → null (which release would read as "already unlocked"
+    // and then delete the lease/marker while the worktree stays locked). null is returned ONLY when the
+    // porcelain output is read successfully and shows no lock line.
+    const out = git(['worktree', 'list', '--porcelain'], worktreeRoot);
     for (const block of out.split('\n\n')) {
         const lines = block.split('\n');
         const wl = lines.find((l) => l.startsWith('worktree '));
@@ -256,6 +260,19 @@ function cmdClaim({ agent, task, cwd }) {
             const ownedByCaller = existingLease.agent === agent && existingLease.branch === ctx.branch;
             if (!fieldsAgree || !ownedByCaller) {
                 throw new OwnershipError('existing marker/lease is inconsistent or contradicts this claim — resolve manually (fail closed)');
+            }
+            // A valid lease is not enough — the anti-prune lock must STILL be in place and ours. If it was
+            // removed out of band, restore our own lock; if a foreign lock replaced it, refuse. Otherwise an
+            // idempotent reclaim would report ownership over an unprotected (prunable) worktree.
+            const reason = lockReason(ctx.worktreeRoot);
+            if (reason === null) {
+                try {
+                    git(['worktree', 'lock', '--reason', LOCK_REASON, ctx.worktreeRoot], ctx.worktreeRoot);
+                } catch (e) {
+                    throw new OwnershipError(`idempotent reclaim could not restore the missing prune lock: ${String(e.stderr ?? e.message ?? e)}`);
+                }
+            } else if (reason !== LOCK_REASON) {
+                throw new OwnershipError(`idempotent reclaim found a foreign worktree lock (reason: ${JSON.stringify(reason)}) not created by this lease — resolve manually (fail closed)`);
             }
             return `already owned by ${agent}: ${ctx.worktreeRoot} (branch ${ctx.branch})`; // idempotent no-op
         }

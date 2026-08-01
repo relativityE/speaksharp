@@ -233,6 +233,26 @@ describe('agent-worktree MVP single-owner leases', () => {
         expect(lockReasonOf(wt)).toBe(null);
     });
 
+    it('(#1037 :260) idempotent reclaim RESTORES a prune lock removed out of band', () => {
+        const wt = addWorktree('wt-reclaim', 'feat-reclaim', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '70'], wt).status).toBe(0);
+        git(['worktree', 'unlock', wt], repo); // anti-prune lock removed out of band
+        expect(lockReasonOf(wt)).toBe(null);
+        expect(run(['claim', '--agent', 'alpha', '--task', '70'], wt).status).toBe(0); // reclaim no-op
+        expect(lockReasonOf(wt)).toBe('agent-worktree single-owner lease'); // protection restored
+    });
+
+    it('(#1037 :260) idempotent reclaim REFUSES a foreign lock that replaced ours', () => {
+        const wt = addWorktree('wt-reclaim2', 'feat-reclaim2', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '71'], wt).status).toBe(0);
+        git(['worktree', 'unlock', wt], repo);
+        git(['worktree', 'lock', '--reason', 'foreign-owner', wt], repo);
+        const r = run(['claim', '--agent', 'alpha', '--task', '71'], wt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/foreign worktree lock/i);
+        git(['worktree', 'unlock', wt], repo); // cleanup (tool must not have touched it)
+    });
+
     it('(7) release needs the owner + pushed state, then leaves branch and worktree intact', () => {
         const wtA = path.join(base, 'wt-a');
         expect(run(['release', '--agent', 'beta'], wtA).status).toBe(1);
