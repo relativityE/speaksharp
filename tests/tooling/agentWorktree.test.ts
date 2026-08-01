@@ -8,9 +8,9 @@
  * OS-temp-rejection case deliberately omits it. The per-worktree marker lives in the worktree's Git admin
  * dir (never the working tree), so tests locate it via `git rev-parse --absolute-git-dir`.
  */
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -294,6 +294,31 @@ describe('agent-worktree MVP single-owner leases', () => {
         expect(lockReasonOf(wt)).toBe(null);
     });
 
+    it('(#1126) idempotent reclaim requires the SAME --task; a changed task fails closed with no mutation; release then a new-task claim succeeds', () => {
+        const wt = addWorktree('wt-task', 'feat-task', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '100'], wt).status).toBe(0);
+        const lockBefore = lockReasonOf(wt);
+        const regBefore = readFileSync(registryFile(), 'utf8');
+        const markerBefore = readFileSync(markerFile(wt), 'utf8');
+        // exact same task → idempotent no-op success
+        expect(run(['claim', '--agent', 'alpha', '--task', '100'], wt).status).toBe(0);
+        // changed task (same agent + branch + path) → fail closed, and NOTHING mutated
+        const changed = run(['claim', '--agent', 'alpha', '--task', '101'], wt);
+        expect(changed.status).toBe(1);
+        expect(changed.err).toMatch(/leased for task '100', not '101'|release it before claiming a different task/i);
+        expect(lockReasonOf(wt)).toBe(lockBefore);
+        expect(readFileSync(registryFile(), 'utf8')).toBe(regBefore);
+        expect(readFileSync(markerFile(wt), 'utf8')).toBe(markerBefore);
+        // omitted task never acts as a wildcard against a stored task
+        const omitted = run(['claim', '--agent', 'alpha'], wt);
+        expect(omitted.status).toBe(1);
+        expect(omitted.err).toMatch(/non-blank --task/i);
+        // changing task requires explicit release, then a fresh different-task claim succeeds
+        expect(run(['release', '--agent', 'alpha'], wt).status).toBe(0);
+        expect(run(['claim', '--agent', 'alpha', '--task', '101'], wt).status).toBe(0);
+        expect(run(['assert-owner', '--agent', 'alpha'], wt).status).toBe(0);
+    });
+
     it('(7) release needs the owner + pushed state, then leaves branch and worktree intact', () => {
         const wtA = path.join(base, 'wt-a');
         expect(run(['release', '--agent', 'beta'], wtA).status).toBe(1);
@@ -327,5 +352,95 @@ describe('parseWorktreeLockReason (porcelain -z)', () => {
     it('THROWS when the listing has no matching worktree record (never treated as unlocked)', () => {
         const out = stream(rec('/tmp/some-other-wt', ['locked x']));
         expect(() => parseWorktreeLockReason(out, '/tmp/not-listed')).toThrow(/no matching .* record/i);
+    });
+});
+
+// #1126 — durable repository initialization history, proven on a FRESH isolated repo per test so each
+// partial-state combination (sentinel-only, marker-only, lease-only, lock-only) is truly isolated: no other
+// worktree's marker/lease can confound the "pristine vs partial" decision. A first-ever claim succeeds only
+// on a genuinely pristine repo and writes the sentinel OUTSIDE agent-worktrees/, so a later `rm -rf` of that
+// directory fails closed instead of reading as pristine.
+describe('#1126 durable initialization history (isolated repo)', () => {
+    let ibase: string, irepo: string, iwt: string, icommon: string, iregDir: string, ireg: string, isentinel: string;
+
+    function imarker(): string {
+        return path.join(git(['rev-parse', '--absolute-git-dir'], iwt), 'agent-owner.json');
+    }
+    function claim(task = '1', agent = 'alpha'): Res {
+        return run(['claim', '--agent', agent, '--task', task], iwt); // run() sets AGENT_WORKTREE_ALLOW_TMP=1
+    }
+
+    beforeEach(() => {
+        ibase = mkdtempSync(path.join(realpathSync(os.tmpdir()), 'agent-wt-iso-'));
+        const remote = path.join(ibase, 'remote.git');
+        git(['init', '-q', '--bare', remote], ibase);
+        irepo = path.join(ibase, 'repo');
+        git(['init', '-q', '-b', 'main', irepo], ibase);
+        git(['config', 'user.email', 'test@local'], irepo);
+        git(['config', 'user.name', 'test'], irepo);
+        git(['remote', 'add', 'origin', remote], irepo);
+        writeFileSync(path.join(irepo, 'README.md'), 'iso\n');
+        git(['add', '-A'], irepo);
+        git(['commit', '-q', '-m', 'init'], irepo);
+        git(['push', '-q', '-u', 'origin', 'main'], irepo);
+        iwt = path.join(ibase, 'wt');
+        git(['worktree', 'add', '-q', '-B', 'feat', iwt, 'main'], irepo);
+        git(['push', '-q', '-u', 'origin', 'feat'], iwt);
+        icommon = path.resolve(irepo, git(['rev-parse', '--git-common-dir'], irepo));
+        iregDir = path.join(icommon, 'agent-worktrees');
+        ireg = path.join(iregDir, 'leases.json');
+        isentinel = path.join(icommon, 'agent-worktrees.initialized');
+    });
+    afterEach(() => { rmSync(ibase, { recursive: true, force: true }); });
+
+    it('pristine repo: first-ever claim SUCCEEDS and writes the sentinel OUTSIDE agent-worktrees/', () => {
+        expect(existsSync(isentinel)).toBe(false);
+        expect(claim().status).toBe(0);
+        expect(existsSync(isentinel)).toBe(true);
+        expect(existsSync(ireg)).toBe(true);
+        expect(path.dirname(isentinel)).toBe(icommon);            // sibling of the registry dir, not inside it
+        expect(existsSync(path.join(iregDir, 'agent-worktrees.initialized'))).toBe(false); // never inside
+    });
+
+    it('durable survival: after a claim, wiping the ENTIRE agent-worktrees/ still fails a later claim closed', () => {
+        expect(claim().status).toBe(0);
+        rmSync(iregDir, { recursive: true, force: true });        // `rm -rf agent-worktrees/`
+        expect(existsSync(isentinel)).toBe(true);                 // sentinel is outside → survives
+        const r = claim('2');
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/missing though the registry was initialized|fail closed/i);
+    });
+
+    it('sentinel-only partial state → fail closed (initialized, but registry/marker/lock gone)', () => {
+        expect(claim().status).toBe(0);
+        rmSync(ireg);
+        rmSync(imarker());
+        git(['worktree', 'unlock', iwt], irepo);
+        const r = claim('3');
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/missing though the registry was initialized|fail closed/i);
+    });
+
+    it('marker-only partial state (no sentinel/registry/lock) → fail closed', () => {
+        writeFileSync(imarker(), JSON.stringify({ agent: 'alpha', task: '1', worktreePath: iwt, branch: 'feat', baseSha: 'x', createdAt: 't' }));
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/sentinel is absent but .* evidence exists|partial\/contradictory/i);
+    });
+
+    it('lease-only partial state (registry present, no sentinel) → fail closed', () => {
+        mkdirSync(iregDir, { recursive: true });
+        writeFileSync(ireg, JSON.stringify({ version: 1, leases: [] }));
+        expect(existsSync(isentinel)).toBe(false);
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/sentinel is absent but .* evidence exists|partial\/contradictory/i);
+    });
+
+    it('lock-only partial state (prune lock present, no sentinel) → fail closed', () => {
+        git(['worktree', 'lock', '--reason', 'stray', iwt], irepo);
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/sentinel is absent but .* evidence exists|partial\/contradictory/i);
     });
 });
