@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
+import { presentTranscript } from '../constants/transcriptState';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
@@ -229,11 +230,18 @@ export const generateSessionPdf = async (
     }
 
     // --- Transcript ---
+    // #1047 PR-U1: honor the server-owned transcript_state. An expired/not-captured transcript prints its
+    // honest reason, never an ordinary empty transcript and never reconstructed from absent text.
     doc.addPage();
     doc.setFontSize(16);
     doc.text('Transcript', 14, 22);
     doc.setFontSize(10);
-    writePaginatedText(doc, session.transcript || 'No transcript available.', 14, 32, 180);
+    const pdfTranscript = presentTranscript(session.transcript_state, session.transcript);
+    writePaginatedText(
+      doc,
+      pdfTranscript.canRenderTranscript ? session.transcript!.trim() : pdfTranscript.unavailableMessage!,
+      14, 32, 180,
+    );
 
     if (session.ai_suggestions) {
       doc.addPage();

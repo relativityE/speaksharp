@@ -5,6 +5,7 @@ import {
   TRANSCRIPT_STATE_COPY,
   hasReadableTranscript,
   resolveTranscriptState,
+  presentTranscript,
 } from '../transcriptState';
 
 describe('#1047 PR-U1 transcript state contract', () => {
@@ -40,5 +41,38 @@ describe('#1047 PR-U1 transcript state contract', () => {
   it('carries the canonical single-source copy for the two non-available states', () => {
     expect(TRANSCRIPT_STATE_COPY.EXPIRED).toBe('Transcript expired. Your measurements are still available.');
     expect(TRANSCRIPT_STATE_COPY.NOT_CAPTURED).toBe('No transcript was captured.');
+  });
+
+  describe('presentTranscript (single-source surface decision)', () => {
+    it('renders and enables AI only for a real available transcript', () => {
+      const p = presentTranscript('available', 'hello there');
+      expect(p).toEqual({ state: 'available', canRenderTranscript: true, aiAvailable: true, unavailableMessage: null });
+    });
+
+    it('shows the expired message, hides text, and disables AI', () => {
+      const p = presentTranscript('expired', null);
+      expect(p.canRenderTranscript).toBe(false);
+      expect(p.aiAvailable).toBe(false);
+      expect(p.unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.EXPIRED);
+    });
+
+    it('shows the not-captured message, hides text, and disables AI', () => {
+      const p = presentTranscript('not_captured', '');
+      expect(p.canRenderTranscript).toBe(false);
+      expect(p.aiAvailable).toBe(false);
+      expect(p.unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
+
+    it('never renders/acts on an available state whose text is actually blank (defensive)', () => {
+      const p = presentTranscript('available', '   ');
+      expect(p.canRenderTranscript).toBe(false);
+      expect(p.aiAvailable).toBe(false);
+      expect(p.unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
+
+    it('a legacy row (no server state) with text renders; without text is not_captured', () => {
+      expect(presentTranscript(undefined, 'legacy text').canRenderTranscript).toBe(true);
+      expect(presentTranscript(undefined, '').unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
   });
 });

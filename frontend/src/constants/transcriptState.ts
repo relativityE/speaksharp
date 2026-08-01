@@ -31,6 +31,39 @@ export function hasReadableTranscript(state: string | null | undefined): boolean
   return state === TRANSCRIPT_STATE.AVAILABLE;
 }
 
+/** Canonical, single-source presentation for a session's transcript across History/detail/PDF. */
+export interface TranscriptPresentation {
+  state: TranscriptState;
+  /** True only when there is real transcript text to render. */
+  canRenderTranscript: boolean;
+  /** True when AI/semantic actions that require transcript text may be offered. */
+  aiAvailable: boolean;
+  /** The honest message to show when transcript text is unavailable; null when it can be rendered. */
+  unavailableMessage: string | null;
+}
+
+/**
+ * Resolve a session's transcript to ONE presentation decision so no surface infers state from an empty
+ * string. `expired`/`not_captured` get their canonical copy; only `available` with real text renders.
+ */
+export function presentTranscript(
+  serverState: string | null | undefined,
+  transcript: string | null | undefined,
+): TranscriptPresentation {
+  const state = resolveTranscriptState(serverState, transcript);
+  const canRenderTranscript = state === TRANSCRIPT_STATE.AVAILABLE && !!transcript && transcript.trim().length > 0;
+  return {
+    state,
+    canRenderTranscript,
+    aiAvailable: canRenderTranscript,
+    unavailableMessage: canRenderTranscript
+      ? null
+      : state === TRANSCRIPT_STATE.EXPIRED
+        ? TRANSCRIPT_STATE_COPY.EXPIRED
+        : TRANSCRIPT_STATE_COPY.NOT_CAPTURED,
+  };
+}
+
 /**
  * Read-side fallback ONLY. The server owns `transcript_state`; clients never assert it. When a legacy row
  * predates the column (undefined), derive available/not_captured from transcript presence — NEVER `expired`,

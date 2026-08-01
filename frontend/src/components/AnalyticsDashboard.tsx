@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
+import { presentTranscript } from '@/constants/transcriptState';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
@@ -795,6 +796,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             : null,
         [targetSession]
     );
+    // #1047 PR-U1: one server-owned transcript-state decision — surfaces never infer state from an empty
+    // string. Drives the honest transcript body + AI/text-action availability below.
+    const targetTranscript = useMemo(
+        () => targetSession ? presentTranscript(targetSession.transcript_state, targetSession.transcript) : null,
+        [targetSession]
+    );
 
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
@@ -887,13 +894,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div
                                     className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed"
                                     data-testid="session-detail-transcript"
-                                    // Authoritative, trimmed transcript value for proof harnesses.
-                                    // Empty string here means the saved row carried no real transcript
-                                    // (e.g. the start-time `' '` placeholder of an unfinalized session),
-                                    // disambiguating a genuine product gap from a wrong selector read.
-                                    data-session-detail-transcript={targetSession.transcript?.trim() || ''}
+                                    // #1047 PR-U1: server-owned transcript_state drives this — an unavailable
+                                    // transcript shows its honest reason (expired / not captured), never an
+                                    // ordinary empty string, and never as if it were a real transcript.
+                                    data-session-detail-transcript={targetTranscript?.canRenderTranscript ? targetSession.transcript!.trim() : ''}
+                                    data-transcript-state={targetTranscript?.state}
                                 >
-                                    {targetSession.transcript?.trim() || "No transcript available for this session."}
+                                    {targetTranscript?.canRenderTranscript
+                                        ? targetSession.transcript!.trim()
+                                        : targetTranscript?.unavailableMessage}
                                 </div>
                             </CardContent>
                         </Card>
@@ -901,7 +910,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {/* AI Suggestions Panel */}
                         <div className="h-full">
                             <AISuggestions
-                                transcript={targetSession.transcript || ""}
+                                // #1047 PR-U1: AI/text actions are unavailable unless the transcript is
+                                // actually readable — withholding the text disables "Get Suggestions".
+                                transcript={targetTranscript?.aiAvailable ? (targetSession.transcript || "") : ""}
                                 sessionId={targetSession.id}
                                 initialSuggestions={targetSession.ai_suggestions}
                                 metrics={{
