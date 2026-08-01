@@ -85,6 +85,12 @@ export interface BrowserJourneyEvidence {
     browserManagedTranscription: true;
     applicationServerWrites: number;
     cloudProviderCalls: number;
+    /**
+     * SHA-256 of the PROMPT/utterance text the operator spoke — informational provenance only. It is NOT
+     * an audio-fixture hash and never proves an audio route (attended speech is played through a physical
+     * speaker/mic; Web Speech's capture is opaque). Kept off `fixtureHash` deliberately.
+     */
+    promptSha256?: string;
 }
 
 /**
@@ -190,34 +196,17 @@ export function finalizeRow(
         problems.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
     }
 
-    const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);
-    if (!route.proven) problems.push(`audio route unproven: ${route.reason}`);
+    // Two distinct admissibility contracts. A corpus row is admissible on a PROVEN audio route +
+    // VERIFIED engine attribution + comparability inputs. A browser_journey row cannot prove either — Web
+    // Speech's recognizer capture is opaque and it exposes no trustworthy provider/model identity — so it
+    // is admissible on JOURNEY evidence instead (recognition actually started, timer advanced, transcript
+    // + session produced, zero app-server/Cloud calls), stays honestly `unverified`, carries no WER, and
+    // is never ranked (see rankableRows). Its `audio_route_proven` is false by construction, which for a
+    // browser_journey is expected — NOT a failure.
+    const isBrowser = row.comparability_class === 'browser_journey';
+    let routeProven = false;
 
-    if (row.attribution_status !== 'verified') {
-        problems.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
-    }
-
-    const ci = row.comparability_inputs;
-    for (const [k, v] of Object.entries({
-        fixtureHash: ci?.fixtureHash, groundTruthVersion: ci?.groundTruthVersion,
-        normalizationVersion: ci?.normalizationVersion, decodeConfiguration: ci?.decodeConfiguration,
-        modelRevision: ci?.modelRevision,
-    })) {
-        if (!v) problems.push(`missing comparability input ${k}`);
-    }
-    if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
-        problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
-    }
-    if (!ci?.runtimeVersions || Object.keys(ci.runtimeVersions).length === 0) {
-        problems.push('runtimeVersions must be a non-empty map — a silent runtime upgrade would invalidate any ranking');
-    }
-    // One canonical fixture hash: the comparability input must be the same value the route proved.
-    if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
-        ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
-        problems.push('fixtureHash does not match the routed fixture');
-    }
-
-    if (row.comparability_class === 'browser_journey') {
+    if (isBrowser) {
         const journey = row.browser_journey_evidence;
         if (!journey) {
             problems.push('browser_journey row missing browser_journey_evidence');
@@ -230,19 +219,51 @@ export function finalizeRow(
             if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
             if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
         }
+        // Honesty guards: Browser must NOT claim verified engine identity, a proven route, or a WER.
+        if (row.attribution_status === 'verified') problems.push("browser_journey must not claim 'verified' engine attribution — Web Speech identity is unprovable");
+        if (row.wer !== null && row.wer !== undefined) problems.push('browser_journey is non-rankable — wer must be null');
+    } else {
+        const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);
+        routeProven = route.proven;
+        if (!route.proven) problems.push(`audio route unproven: ${route.reason}`);
+
+        if (row.attribution_status !== 'verified') {
+            problems.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+        }
+
+        const ci = row.comparability_inputs;
+        for (const [k, v] of Object.entries({
+            fixtureHash: ci?.fixtureHash, groundTruthVersion: ci?.groundTruthVersion,
+            normalizationVersion: ci?.normalizationVersion, decodeConfiguration: ci?.decodeConfiguration,
+            modelRevision: ci?.modelRevision,
+        })) {
+            if (!v) problems.push(`missing comparability input ${k}`);
+        }
+        if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
+            problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
+        }
+        if (!ci?.runtimeVersions || Object.keys(ci.runtimeVersions).length === 0) {
+            problems.push('runtimeVersions must be a non-empty map — a silent runtime upgrade would invalidate any ranking');
+        }
+        // One canonical fixture hash: the comparability input must be the same value the route proved.
+        if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
+            ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
+            problems.push('fixtureHash does not match the routed fixture');
+        }
     }
 
-    // WER is only admissible on a proven route. Never estimated, never defaulted to zero.
-    const wer = route.proven ? (row.wer ?? null) : null;
+    // WER is only admissible on a proven corpus route. Never estimated, never defaulted to zero.
+    const wer = routeProven ? (row.wer ?? null) : null;
 
     const invalid = problems.length > 0 || row.invalid_reason != null;
     return {
         ...row,
         wer,
-        audio_route_proven: route.proven,
+        audio_route_proven: routeProven,
         run_validity: invalid ? 'invalid' : 'valid',
         invalid_reason: invalid ? [row.invalid_reason, ...problems].filter(Boolean).join('; ') : null,
-        failure_class: !route.proven && row.failure_class === 'none' ? 'audio_route_unproven' : row.failure_class,
+        // An unproven route is a failure only for corpus rows; for browser_journey it is expected.
+        failure_class: !isBrowser && !routeProven && row.failure_class === 'none' ? 'audio_route_unproven' : row.failure_class,
     };
 }
 

@@ -151,23 +151,44 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.runtime_capability.fallbackReason).toContain('crossOriginIsolated');
     });
 
-    it('a Browser journey passes only after real recognition, timer, transcript, and session proof', () => {
-        const r = finalizeRow(base({
-            comparability_class: 'browser_journey',
-            engine: 'browser-webspeech',
-            runtime_capability: {
-                requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
-                runtimePath: 'browser-webspeech', crossOriginIsolated: false,
-                sharedArrayBufferAvailable: false, fallbackReason: null,
-            },
-            browser_journey_evidence: {
-                supportState: 'supported', executionMode: 'manual-assisted',
-                recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
-                sessionProduced: true, browserManagedTranscription: true,
-                applicationServerWrites: 0, cloudProviderCalls: 0,
-            },
-        }));
+    /** A valid browser_journey: honestly UNVERIFIED, no audio route, wer null, admissible on journey proof. */
+    const browserBase = (journey: Partial<import('../sttEvidenceSchema').BrowserJourneyEvidence> = {}) => base({
+        comparability_class: 'browser_journey',
+        engine: 'browser-webspeech',
+        attribution_status: 'unverified',
+        wer: null,
+        runtime_capability: {
+            requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
+            runtimePath: 'browser-webspeech', crossOriginIsolated: false,
+            sharedArrayBufferAvailable: false, fallbackReason: null,
+        },
+        browser_journey_evidence: {
+            supportState: 'supported', executionMode: 'manual-assisted',
+            recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
+            sessionProduced: true, browserManagedTranscription: true,
+            applicationServerWrites: 0, cloudProviderCalls: 0,
+            ...journey,
+        },
+    });
+
+    it('a Browser journey is admissible on journey proof alone — unverified, no audio route, wer null', () => {
+        const r = finalizeRow(browserBase());
         expect(r.run_validity).toBe('valid');
+        expect(r.audio_route_proven).toBe(false); // Web Speech route is opaque — never claimed
+        expect(r.attribution_status).toBe('unverified');
+        expect(r.wer).toBeNull();
+    });
+
+    it('a Browser journey that claims verified attribution is rejected (Web Speech identity is unprovable)', () => {
+        const dishonest = finalizeRow({ ...browserBase(), attribution_status: 'verified' });
+        expect(dishonest.run_validity).toBe('invalid');
+        expect(dishonest.invalid_reason).toMatch(/must not claim 'verified'/i);
+    });
+
+    it('a Browser journey that carries a WER is rejected (non-rankable)', () => {
+        const r = finalizeRow({ ...browserBase(), wer: 0.05 });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/non-rankable — wer must be null/i);
     });
 
     it.each([
@@ -176,17 +197,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         ['transcriptProduced', false, /no transcript/i],
         ['sessionProduced', false, /no session/i],
     ] as const)('Browser journey fails closed when %s is not proven', (field, value, reason) => {
-        const r = finalizeRow(base({
-            comparability_class: 'browser_journey',
-            engine: 'browser-webspeech',
-            browser_journey_evidence: {
-                supportState: 'supported', executionMode: 'manual-assisted',
-                recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
-                sessionProduced: true, browserManagedTranscription: true,
-                applicationServerWrites: 0, cloudProviderCalls: 0,
-                [field]: value,
-            },
-        }));
+        const r = finalizeRow(browserBase({ [field]: value }));
         expect(r.run_validity).toBe('invalid');
         expect(r.invalid_reason).toMatch(reason);
     });

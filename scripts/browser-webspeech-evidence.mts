@@ -35,16 +35,20 @@ async function selectMode(page: import('playwright').Page, mode: 'native'): Prom
   const select = page.getByTestId('stt-mode-select');
   await select.waitFor({ state: 'visible', timeout: 30_000 });
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    await select.click({ force: true });
+    // Normal accessible interaction only — NO force clicks. A forced click could bypass a disabled or
+    // obscured control and "prove" a path a real user could not take; fail closed instead.
+    await select.click();
     const option = page.getByTestId(`stt-mode-${mode}`);
     if (await option.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await option.click({ force: true });
+      const disabled = await option.getAttribute('aria-disabled');
+      if (disabled === 'true') throw new Error(`Browser mode option is disabled — a user could not select it (state=${await select.getAttribute('data-state')})`);
+      await option.click(); // Playwright waits for actionable (visible+enabled+stable); no force
       await page.waitForTimeout(500);
       if ((await select.getAttribute('data-state')) === mode) return;
     }
     await page.keyboard.press('Escape').catch(() => undefined);
   }
-  throw new Error(`could not select production Browser mode; final state=${await select.getAttribute('data-state')}`);
+  throw new Error(`could not select production Browser mode by normal interaction; final state=${await select.getAttribute('data-state')}`);
 }
 
 async function main(): Promise<void> {
@@ -192,6 +196,8 @@ async function main(): Promise<void> {
         userAgent: navigator.userAgent,
         connection: (navigator as Navigator & { connection?: { effectiveType?: string } }).connection?.effectiveType ?? 'unreported',
         sessionId: document.documentElement.getAttribute('data-session-persisted-id'),
+        appRelease: (window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RELEASE__
+          ?? (window as unknown as { __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RUNTIME_CONFIG__?.release ?? '',
       };
     });
     const events = snapshot.trace.map(entry => String(entry.event ?? ''));
@@ -210,15 +216,24 @@ async function main(): Promise<void> {
     const firstPartialLatencyMs = typeof startEvent?.t === 'number' && typeof partialEvent?.t === 'number'
       ? Number((partialEvent.t - startEvent.t).toFixed(1))
       : null;
-    const fixtureHash = hash(SPOKEN_TEXT);
+    const promptSha256 = hash(SPOKEN_TEXT);
     const browserVersion = /Chrome\/(\S+)/.exec(snapshot.userAgent)?.[1] ?? 'unknown';
     const osVersion = (await execFileAsync('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim();
+
+    // Bind evidence to the LOADED build: require the app-reported release to be a full SHA and to equal
+    // --release-sha (when supplied). Record the app-reported SHA on the row so a stale preview cannot pass
+    // while claiming the current exact head.
+    const appRelease = String(snapshot.appRelease ?? '');
+    if (!/^[0-9a-f]{40}$/i.test(appRelease)) throw new Error(`loaded build did not report a 40-char __APP_RELEASE__ (got '${appRelease}')`);
+    if (releaseSha && releaseSha !== appRelease) throw new Error(`--release-sha ${releaseSha} != loaded build __APP_RELEASE__ ${appRelease}`);
+
     const row = finalizeRow({
       comparability_class: 'browser_journey',
       engine: 'browser-webspeech',
       engine_version: 'web-speech-api/system-chrome',
       model_name: 'browser-managed-unreported',
-      attribution_status: 'verified',
+      // Browser stays honestly UNVERIFIED — Web Speech exposes no trustworthy provider/model identity.
+      attribution_status: 'unverified',
       browser: 'Google Chrome',
       browser_version: browserVersion,
       os: `macOS ${osVersion}`,
@@ -229,13 +244,16 @@ async function main(): Promise<void> {
       first_partial_latency_ms: firstPartialLatencyMs,
       finalization_latency_ms: finalizationLatencyMs,
       failure_class: 'none',
-      release_sha: releaseSha,
+      release_sha: appRelease,
+      // Web Speech's recognizer capture is opaque — there is NO proven audio route, and this row claims
+      // none. The passive same-mic capture is diagnostic only (artifact.passiveMicCaptureSha256), never
+      // the recognizer input.
       audio_route_evidence: {
-        fixtureSha256: fixtureHash,
-        adapterInputPayloadSha256: snapshot.captureHash,
-        adapterInputBytes: snapshot.captureBytes,
-        decodedSampleCount: snapshot.captureSamples,
-        decodedDurationSeconds: snapshot.captureDuration,
+        fixtureSha256: '',
+        adapterInputPayloadSha256: '',
+        adapterInputBytes: 0,
+        decodedSampleCount: 0,
+        decodedDurationSeconds: 0,
       },
       runtime_capability: {
         requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
@@ -243,20 +261,23 @@ async function main(): Promise<void> {
         sharedArrayBufferAvailable: false, fallbackReason: null,
       },
       comparability_inputs: {
-        fixtureHash,
-        groundTruthVersion: 'browser-system-tts-v1',
+        fixtureHash: '',
+        groundTruthVersion: 'not-scored',
         normalizationVersion: 'not-scored',
         decodeConfiguration: 'system-chrome/web-speech/browser-managed/live-mic',
         modelRevision: MODEL_REVISION,
         runtimeVersions: { chrome: browserVersion, 'web-speech-api': 'browser-managed' },
       },
-      browser_journey_evidence: journey,
+      // The spoken-prompt hash is informational provenance ONLY — not an audio-fixture/route hash.
+      browser_journey_evidence: { ...journey, promptSha256 },
     });
     const artifact = {
       generatedFor: '#1037 Browser/Web Speech manual-assisted journey',
       releaseSha,
       disclosure: 'Chrome manages Browser transcription and may use browser-vendor services. This run proves zero SpeakSharp Cloud/Gemini/Supabase/application-server writes, not on-device transcription.',
-      routeLimitation: 'Web Speech does not expose its backend audio payload. Route proof combines actual recognition start/result events with a hashed passive capture from the same microphone path; no WER is claimed.',
+      routeLimitation: 'Web Speech does not expose its recognizer audio payload, so this row claims NO audio route (audio_route_proven=false, attribution unverified, wer=null). Admissibility is journey-based: recognition actually started, timer advanced, transcript + session produced, zero app-server/Cloud writes.',
+      passiveMicCaptureSha256: snapshot.captureHash || null,
+      passiveMicCaptureNote: 'Diagnostic ONLY: SHA-256 of a passive same-microphone capture via the NativeBrowser observer. This is NOT the audio Web Speech received and is never used as route proof.',
       spokenText: SPOKEN_TEXT,
       transcript: snapshot.transcript,
       timerText,

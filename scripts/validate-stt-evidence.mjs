@@ -37,7 +37,7 @@ const isNum = v => typeof v === 'number' && Number.isFinite(v);
 const isStr = v => typeof v === 'string' && v.trim() !== '';
 
 /** Semantic checks — existence is not validity. A failed or malformed row must never rank. */
-function semanticProblems(row) {
+function semanticProblems(row, isBrowser) {
     const p = [];
     if (!COMPARABILITY_CLASSES.has(row.comparability_class)) p.push(`comparability_class '${row.comparability_class}' is not a known class`);
     if (!RUN_VALIDITY.has(row.run_validity)) p.push(`run_validity '${row.run_validity}' is not valid|invalid`);
@@ -47,14 +47,20 @@ function semanticProblems(row) {
     }
     if (!SHA_RE.test(String(row.release_sha ?? ''))) p.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
 
-    // Attribution: engine-specific evidence is admissible only when durably verified (#1033).
-    if (row.attribution_status !== 'verified') p.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+    // Admissibility differs by class. A browser_journey cannot prove verified attribution or an audio
+    // route (Web Speech is opaque) — it stays honestly unverified, non-rankable, and route-unproven.
+    if (isBrowser) {
+        if (row.attribution_status === 'verified') p.push("browser_journey must not claim 'verified' engine attribution — Web Speech identity is unprovable");
+    } else {
+        if (row.attribution_status !== 'verified') p.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+    }
 
     // Validity/failure consistency — a row cannot be both admissible and failed.
     if (row.run_validity === 'invalid') p.push('run_validity is "invalid" — the row reports its own measurement as unusable');
     if (row.run_validity === 'valid' && row.invalid_reason != null) p.push('run_validity "valid" contradicts a non-null invalid_reason');
     if (row.run_validity === 'valid' && row.failure_class !== 'none') p.push(`run_validity "valid" contradicts failure_class '${row.failure_class}'`);
-    if (row.audio_route_proven !== true) p.push('audio_route_proven must be exactly true for an admissible row');
+    if (!isBrowser && row.audio_route_proven !== true) p.push('audio_route_proven must be exactly true for an admissible corpus row');
+    if (isBrowser && row.wer !== null && row.wer !== undefined) p.push('browser_journey is non-rankable — wer must be null');
 
     // Ranges. WER is a rate; latencies are non-negative milliseconds.
     if (row.wer !== null && row.wer !== undefined) {
@@ -88,10 +94,30 @@ function checkRow(row, index) {
     for (const f of REQUIRED_FIELDS) {
         if (!(f in row)) problems.push(`missing required field ${f}`);
     }
+    const isBrowser = row.comparability_class === 'browser_journey';
+    problems.push(...semanticProblems(row, isBrowser));
+
+    if (isBrowser) {
+        // Journey admissibility: recognition actually happened + zero app-server/Cloud calls. NO audio-route
+        // proof and NO corpus comparability inputs are required — Web Speech's capture is opaque.
+        const journey = row.browser_journey_evidence;
+        if (!journey) {
+            problems.push('browser_journey row missing browser_journey_evidence');
+        } else {
+            if (journey.supportState !== 'supported') problems.push(`Browser support state is '${journey.supportState}', not supported`);
+            if (journey.recognitionStarted !== true) problems.push('Browser recognition did not actually start');
+            if (journey.timerAdvanced !== true) problems.push('Browser recording timer did not advance beyond 00:00');
+            if (journey.transcriptProduced !== true) problems.push('Browser journey produced no transcript');
+            if (journey.sessionProduced !== true) problems.push('Browser journey produced no session');
+            if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
+            if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+        }
+        return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
+    }
+
+    // ── corpus contract: proven audio route + comparability inputs ──
     const rp = routeProblem(row.audio_route_evidence, row.engine);
     if (rp) problems.push(`audio route unproven: ${rp}`);
-
-    problems.push(...semanticProblems(row));
 
     const ci = row.comparability_inputs ?? {};
     for (const k of ['fixtureHash', 'groundTruthVersion', 'normalizationVersion', 'decodeConfiguration', 'modelRevision']) {
@@ -126,21 +152,6 @@ function checkRow(row, index) {
     if (rc && rc.workerReportedThreads !== null && rc.workerReportedThreads !== undefined
         && typeof rc.workerReportedThreads !== 'number') {
         problems.push('workerReportedThreads must be a number or null');
-    }
-
-    if (row.comparability_class === 'browser_journey') {
-        const journey = row.browser_journey_evidence;
-        if (!journey) {
-            problems.push('browser_journey row missing browser_journey_evidence');
-        } else {
-            if (journey.supportState !== 'supported') problems.push(`Browser support state is '${journey.supportState}', not supported`);
-            if (journey.recognitionStarted !== true) problems.push('Browser recognition did not actually start');
-            if (journey.timerAdvanced !== true) problems.push('Browser recording timer did not advance beyond 00:00');
-            if (journey.transcriptProduced !== true) problems.push('Browser journey produced no transcript');
-            if (journey.sessionProduced !== true) problems.push('Browser journey produced no session');
-            if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
-            if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
-        }
     }
     return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyBrowserJourney } from '../browserJourney';
+import { classifyBrowserJourney, parseTimerSeconds } from '../browserJourney';
 
 const base = () => ({
   speechApiAvailable: true,
@@ -40,4 +40,20 @@ describe('#1037 Browser/Web Speech journey classification', () => {
     expect(result.transcriptProduced).toBe(false);
     expect(result.sessionProduced).toBe(false);
   });
+
+  it.each(['', '   ', 'abc', ':', '00', '12', '00:99', '00:60'])(
+    'treats empty/malformed timer text %p as NOT advanced (fail closed)',
+    (timerText) => {
+      expect(parseTimerSeconds(timerText)).toBeNull();
+      expect(classifyBrowserJourney({ ...base(), timerText }).timerAdvanced).toBe(false);
+    },
+  );
+
+  it.each([['00:03', 3], ['0:01', 1], ['1:00', 60], ['00:02.5', 2.5]] as const)(
+    'parses a positive elapsed timer %p and marks it advanced',
+    (timerText, seconds) => {
+      expect(parseTimerSeconds(timerText)).toBeCloseTo(seconds, 3);
+      expect(classifyBrowserJourney({ ...base(), timerText }).timerAdvanced).toBe(true);
+    },
+  );
 });
