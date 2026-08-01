@@ -129,6 +129,21 @@ describe('transformers-js.worker protocol contract', () => {
                 audioLengthSeconds: 1,
             }));
         });
+        const ordinaryResult = postedMessages.find(message => message.id === 4 && message.type === 'result');
+        expect(ordinaryResult).not.toHaveProperty('inputEvidence');
+
+        dispatchWorkerMessage({ id: 5, type: 'transcribe', audio, captureEvidence: true });
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 5,
+                type: 'result',
+                inputEvidence: {
+                    sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+                    samples: 16_000,
+                    bytes: 64_000,
+                },
+            }));
+        });
 
         expect(pipeline).toHaveBeenCalledWith(
             'automatic-speech-recognition',

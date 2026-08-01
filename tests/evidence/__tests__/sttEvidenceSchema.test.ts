@@ -298,6 +298,57 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.invalid_reason).toMatch(/crossOriginIsolated must be a boolean/i);
     });
 
+    it('Private browser-worker evidence requires matching main/worker hashes and self-hosted assets', () => {
+        const inputHash = 'c'.repeat(64);
+        const fallbackRuntime = {
+            requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+            runtimePath: 'wasm' as const, crossOriginIsolated: false,
+            sharedArrayBufferAvailable: false,
+            fallbackReason: 'crossOriginIsolated=false; single-thread floor',
+        };
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: fallbackRuntime,
+            private_worker_evidence: {
+                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+                mainThreadInputSha256: inputHash, workerInputSha256: inputHash,
+                inputHashesMatch: true, cloudProviderCalls: 0,
+            },
+        }));
+        expect(r.run_validity).toBe('valid');
+
+        const mismatch = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: fallbackRuntime,
+            private_worker_evidence: {
+                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+                mainThreadInputSha256: inputHash, workerInputSha256: 'd'.repeat(64),
+                inputHashesMatch: false, cloudProviderCalls: 0,
+            },
+        }));
+        expect(mismatch.run_validity).toBe('invalid');
+        expect(mismatch.invalid_reason).toMatch(/PCM hashes do not match/i);
+    });
+
+    it('Private browser-worker evidence rejects inferred effective threads and malformed hashes', () => {
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: {
+                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: 1,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            private_worker_evidence: {
+                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+                mainThreadInputSha256: 'not-a-hash', workerInputSha256: 'not-a-hash',
+                inputHashesMatch: true, cloudProviderCalls: 0,
+            },
+        }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/workerReportedThreads must be null/);
+        expect(r.invalid_reason).toMatch(/64-character SHA-256/);
+    });
+
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {
         const r = finalizeRow(base({
             runtime_capability: { ...base().runtime_capability, configuredThreads: 4, workerReportedThreads: null },

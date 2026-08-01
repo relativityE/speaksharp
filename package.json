@@ -100,6 +100,7 @@
     "benchmark:cloud:streaming-ab": "node scripts/pnpm-only.mjs && tsx scripts/assemblyai-streaming-ab-proof.mts",
     "benchmark:assemblyai": "node scripts/pnpm-only.mjs && tsx scripts/benchmark-assemblyai-ceiling.mts",
     "rc:stt:corpus": "node scripts/manual-stt-corpus-proof.mjs",
+    "evidence:stt:private-worker": "tsx scripts/private-v2-worker-evidence.mts",
     "evidence:stt:browser": "tsx scripts/browser-webspeech-evidence.mts",
     "prepare": "HUSKY=0 husky install",
     "preinstall": "npx only-allow pnpm"

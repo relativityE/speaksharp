@@ -35,7 +35,7 @@ const FAILURE_CLASSES = new Set(['none', 'model_load_failed', 'decode_failed', '
 const MUTABLE_REVISIONS = new Set(['main', 'master', 'latest', 'head', 'HEAD', '']);
 /** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
 const SHA_RE = /^[0-9a-f]{40}$/i;
-const HASH_RE = /^[0-9a-f]{16,128}$/i;
+const SHA256_RE = /^[0-9a-f]{64}$/i;
 
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
 const isStr = v => typeof v === 'string' && v.trim() !== '';
@@ -182,11 +182,15 @@ function checkRow(row, index) {
             if (!isStr(v)) problems.push(`runtimeVersions.${k} must be a non-empty version string`);
         }
     }
-    for (const [k, re] of [['fixtureHash', HASH_RE]]) {
+    for (const [k, re] of [['fixtureHash', SHA256_RE]]) {
         if (ci[k] && !re.test(String(ci[k]))) problems.push(`${k} '${ci[k]}' is not a hash`);
     }
-    if (row.audio_route_evidence?.fixtureSha256 && !HASH_RE.test(String(row.audio_route_evidence.fixtureSha256))) {
+    if (row.audio_route_evidence?.fixtureSha256 && !SHA256_RE.test(String(row.audio_route_evidence.fixtureSha256))) {
         problems.push('audio_route_evidence.fixtureSha256 is not a hash');
+    }
+    if (row.audio_route_evidence?.adapterInputPayloadSha256 &&
+        !SHA256_RE.test(String(row.audio_route_evidence.adapterInputPayloadSha256))) {
+        problems.push('audio_route_evidence.adapterInputPayloadSha256 is not a SHA-256 hash');
     }
     if (ci.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
         ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
@@ -201,6 +205,31 @@ function checkRow(row, index) {
     if (rc && rc.workerReportedThreads !== null && rc.workerReportedThreads !== undefined
         && typeof rc.workerReportedThreads !== 'number') {
         problems.push('workerReportedThreads must be a number or null');
+    }
+    if (row.engine === 'private-v2-browser-worker') {
+        const worker = row.private_worker_evidence;
+        if (!worker) {
+            problems.push('Private browser-worker row missing private_worker_evidence');
+        } else {
+            if (worker.workerUsed !== true) problems.push('Private evidence did not use the production browser worker');
+            if (worker.modelSource !== 'self-hosted') problems.push('Private evidence did not use self-hosted model assets');
+            if (!isStr(worker.modelLoaded)) problems.push('Private worker did not report a loaded model');
+            if (worker.inputHashesMatch !== true || worker.mainThreadInputSha256 !== worker.workerInputSha256) {
+                problems.push('Private main-thread and worker PCM hashes do not match');
+            }
+            if (!SHA256_RE.test(String(worker.mainThreadInputSha256 ?? '')) ||
+                !SHA256_RE.test(String(worker.workerInputSha256 ?? ''))) {
+                problems.push('Private worker PCM hashes must be 64-character SHA-256 values');
+            }
+            if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
+        }
+        if (rc?.requestedThreads !== 4) problems.push('Private v2 evidence did not request the four-thread policy ceiling');
+        if (rc?.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
+        if (rc?.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
+        if (rc?.crossOriginIsolated !== false || rc?.sharedArrayBufferAvailable !== false) {
+            problems.push('Private v2 fallback evidence was not collected without cross-origin isolation/SharedArrayBuffer');
+        }
+        if (rc?.runtimePath !== 'wasm') problems.push('Private v2 single-thread fallback must report runtimePath=wasm');
     }
     return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
 }

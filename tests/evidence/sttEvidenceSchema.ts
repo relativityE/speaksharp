@@ -142,6 +142,17 @@ export interface BrowserJourneyEvidence {
     releaseProofEligible: boolean;
 }
 
+/** Worker-origin facts required before a browser-WASM row can claim production-worker coverage. */
+export interface PrivateWorkerEvidence {
+    workerUsed: boolean;
+    modelSource: 'self-hosted';
+    modelLoaded: string;
+    mainThreadInputSha256: string;
+    workerInputSha256: string;
+    inputHashesMatch: boolean;
+    cloudProviderCalls: number;
+}
+
 /**
  * Versioned inputs that make two rows comparable. Ranking requires ALL of these to match, so a corpus
  * change, a normalization change, or a runtime upgrade cannot silently shift a comparison.
@@ -195,6 +206,7 @@ export interface SttEvidenceRow {
     runtime_capability: RuntimeCapability;
     comparability_inputs: ComparabilityInputs;
     browser_journey_evidence?: BrowserJourneyEvidence;
+    private_worker_evidence?: PrivateWorkerEvidence;
 }
 
 /**
@@ -220,6 +232,7 @@ export function deriveAudioRouteProven(
 
 /** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
 export const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+export const SHA256_RE = /^[0-9a-f]{64}$/i;
 
 const REQUIRED_STRING_FIELDS = [
     'comparability_class', 'engine', 'engine_version', 'browser', 'browser_version',
@@ -320,6 +333,32 @@ export function finalizeRow(
         if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
             ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
             problems.push('fixtureHash does not match the routed fixture');
+        }
+
+        if (row.engine === 'private-v2-browser-worker') {
+            const worker = row.private_worker_evidence;
+            if (!worker) {
+                problems.push('Private browser-worker row missing private_worker_evidence');
+            } else {
+                if (!worker.workerUsed) problems.push('Private evidence did not use the production browser worker');
+                if (worker.modelSource !== 'self-hosted') problems.push('Private evidence did not use self-hosted model assets');
+                if (!worker.modelLoaded) problems.push('Private worker did not report a loaded model');
+                if (!worker.inputHashesMatch || worker.mainThreadInputSha256 !== worker.workerInputSha256) {
+                    problems.push('Private main-thread and worker PCM hashes do not match');
+                }
+                if (!SHA256_RE.test(worker.mainThreadInputSha256) || !SHA256_RE.test(worker.workerInputSha256)) {
+                    problems.push('Private worker PCM hashes must be 64-character SHA-256 values');
+                }
+                if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
+            }
+            const runtime = row.runtime_capability;
+            if (runtime.requestedThreads !== 4) problems.push('Private v2 evidence did not request the four-thread policy ceiling');
+            if (runtime.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
+            if (runtime.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
+            if (runtime.crossOriginIsolated || runtime.sharedArrayBufferAvailable) {
+                problems.push('Private v2 fallback evidence was not collected without cross-origin isolation/SharedArrayBuffer');
+            }
+            if (runtime.runtimePath !== 'wasm') problems.push('Private v2 single-thread fallback must report runtimePath=wasm');
         }
     }
 

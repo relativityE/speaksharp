@@ -52,3 +52,4 @@ jobs:
           name: stt-corpus-evidence
           path: stt-evidence-artifacts/corpus.json
           if-no-files-found: warn
+          retention-days: 1
