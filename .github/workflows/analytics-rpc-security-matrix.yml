@@ -122,13 +122,24 @@ jobs:
           echo "Matrix correctly rejected the superseded definition:"
           grep -E 'FAIL [0-9]' falsify-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Sanitize matrix evidence
+        run: |
+          set -euo pipefail
+          for source in matrix-output.txt falsify-output.txt; do
+            test -s "$source"
+            destination="${source%.txt}.sanitized.txt"
+            sed -E 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}/[synthetic-uuid]/g' \
+              "$source" > "$destination"
+            test -s "$destination"
+          done
+
       - name: Publish evidence
         if: always()
         run: |
           {
             echo "### Matrix output (postgres:${{ matrix.pg }})"
             echo '```'
-            cat matrix-output.txt 2>/dev/null || echo '(no output captured)'
+            cat matrix-output.sanitized.txt 2>/dev/null || echo '(no sanitized output captured)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -143,7 +154,7 @@ jobs:
         with:
           name: analytics-rpc-security-matrix-pg${{ matrix.pg }}
           path: |
-            matrix-output.txt
-            falsify-output.txt
+            matrix-output.sanitized.txt
+            falsify-output.sanitized.txt
           retention-days: 30
           if-no-files-found: warn

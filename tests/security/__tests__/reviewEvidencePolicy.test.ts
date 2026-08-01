@@ -66,6 +66,21 @@ describe('#1132 ephemeral review-evidence policy', () => {
 
         const proStt = inventory.find(({ key }) => key === 'pro-stt-artifact-matrix.yml::pro-stt-artifact-matrix-artifacts');
         expect(proStt?.paths).toEqual(['test-results/live/pro-stt-artifact-matrix-evidence.jsonl']);
+
+        const analyticsMatrix = inventory.find(({ key }) =>
+            key === 'analytics-rpc-security-matrix.yml::analytics-rpc-security-matrix-pg${{ matrix.pg }}');
+        expect(analyticsMatrix?.paths).toEqual([
+            'matrix-output.sanitized.txt',
+            'falsify-output.sanitized.txt',
+        ]);
+        const analyticsWorkflow = readFileSync(
+            join(repoRoot, '.github/workflows/analytics-rpc-security-matrix.yml'),
+            'utf8',
+        );
+        expect(analyticsWorkflow).not.toMatch(/^\s+matrix-output\.txt$/m);
+        expect(analyticsWorkflow).not.toMatch(/^\s+falsify-output\.txt$/m);
+        expect(analyticsWorkflow.indexOf('name: Sanitize matrix evidence'))
+            .toBeLessThan(analyticsWorkflow.indexOf('name: Scan evidence artifact'));
         const proSttSpec = readFileSync(join(repoRoot, 'tests/live/pro-stt-artifact-matrix.live.spec.ts'), 'utf8');
         expect(proSttSpec).not.toContain("testInfo.attach('session-pdf'");
         expect(proSttSpec).toContain('rm(artifactPath, { force: true })');
