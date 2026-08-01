@@ -5,11 +5,21 @@ import { resolve } from 'node:path';
 const workflow = readFileSync(resolve('.github/workflows/stt-runtime-evidence.yml'), 'utf8');
 
 describe('#1037 Private-v2 runtime evidence workflow contract', () => {
-    it('builds the exact head and serves the emitted production bundle', () => {
+    it('checks out, builds, labels, and names evidence from one canonical exact SHA', () => {
+        const canonicalEvidenceSha =
+            "EVIDENCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}";
+
+        expect(workflow.split(canonicalEvidenceSha)).toHaveLength(2);
+        expect(workflow).toContain('ref: ${{ env.EVIDENCE_SHA }}');
+        expect(workflow).toContain('BUILD_ID="${{ env.EVIDENCE_SHA }}"');
+        expect(workflow).toContain('--release-sha "${{ env.EVIDENCE_SHA }}"');
+        expect(workflow).toContain('name: stt-private-v2-worker-evidence-${{ env.EVIDENCE_SHA }}');
+        expect(workflow).not.toMatch(/BUILD_ID=.*github\.(?:event\.pull_request\.head\.sha|sha)/);
+        expect(workflow).not.toMatch(/--release-sha.*github\.(?:event\.pull_request\.head\.sha|sha)/);
+
         expect(workflow).toContain('pnpm build:test');
         expect(workflow).toContain('pnpm exec vite preview');
         expect(workflow).not.toMatch(/pnpm exec vite --config/);
-        expect(workflow).toContain('BUILD_ID="${{ github.event.pull_request.head.sha || github.sha }}"');
     });
 
     it('fails when the mandatory evidence artifact is absent and retains it for one day', () => {

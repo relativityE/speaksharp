@@ -30,6 +30,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EVIDENCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   private-v2-production-worker:
     name: private-v2-production-worker-single-thread
@@ -45,6 +48,8 @@ jobs:
       VITE_USE_MOCK_AUTH: 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVIDENCE_SHA }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -53,7 +58,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build exact-head production bundle without cross-origin isolation
         run: |
-          BUILD_ID="${{ github.event.pull_request.head.sha || github.sha }}" STT_CROSS_ORIGIN_ISOLATED=0 pnpm build:test
+          BUILD_ID="${{ env.EVIDENCE_SHA }}" STT_CROSS_ORIGIN_ISOLATED=0 pnpm build:test
       - name: Start non-isolated production preview
         run: |
           STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite preview --config frontend/vite.config.mjs --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
@@ -62,13 +67,13 @@ jobs:
         run: |
           pnpm evidence:stt:private-worker -- \
             --base-url http://127.0.0.1:4173 \
-            --release-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --release-sha "${{ env.EVIDENCE_SHA }}" \
             --out stt-evidence-artifacts/private-v2-worker.json
       - name: Upload validator-accepted evidence
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: stt-private-v2-worker-evidence
+          name: stt-private-v2-worker-evidence-${{ env.EVIDENCE_SHA }}
           path: stt-evidence-artifacts/private-v2-worker.json
           if-no-files-found: error
           retention-days: 1
