@@ -1,12 +1,15 @@
 # #1097 PR-A — SECURITY DEFINER classification (verified against real PostgreSQL)
 
 **Status label:** `source-applied; deployed-unverified`.
-**What is proven:** the effective privilege state that the **committed migrations** produce when applied
-**verbatim** to a real PostgreSQL (the `.github/workflows/secdef-classification.yml` matrix runs this on
-`postgres:15/16/17`; locally reproduced on PGlite, PG16 semantics: **79/80** migrations applied, the single
-skip being an RLS-policy migration irrelevant to function ACLs).
-**What is NOT proven:** the *current hosted Supabase instance's* ACLs. No production query or mutation was
-performed. Confirming the hosted state requires a separately-authorized read-only check (a `\du`-class ACL
+**What is proven:** the effective privilege state that the **committed migrations** produce when constructed
+into a **disposable** PostgreSQL classification database (the `.github/workflows/secdef-classification.yml`
+matrix runs this on `postgres:15/16/17`; reproduced on PGlite: **80/80** migrations applied). **Function
+definitions and GRANT/REVOKE statements are replayed verbatim; a deterministic allowlist normalizes only
+known historical RLS-policy DDL defects needed to construct the disposable classification database** (see
+below).
+**What is NOT proven:** the *current hosted Supabase instance's* ACLs. The disposable replay verifies what the
+committed migrations PRODUCE — it does **not** verify hosted Supabase state. No production query or mutation
+was performed. Confirming the hosted state requires a separately-authorized read-only check (a `\du`-class ACL
 read against production) — deliberately out of scope here.
 
 ## Method
@@ -17,19 +20,22 @@ read against production) — deliberately out of scope here.
 - All committed versioned migrations (`^[0-9]{8,}_`, incl. the 8-digit `20251217_…`) are applied in
   filename order (non-versioned helpers `rotate_sessions.sql` / `test_usage_rpc.sql` are skipped, logged).
   Every **function / GRANT / REVOKE / table** statement — the classification targets — is applied **verbatim**
-  under `ON_ERROR_STOP=1`.
+  under `ON_ERROR_STOP=1`. Any migration **not** on the normalization allowlist that fails replay **fails the
+  job closed** — it is never silently normalized.
 
-### Migration replay-drift (provenance debt — does not affect this classification)
-The committed migration history is **not cleanly verbatim-replayable on a fresh database**, due to an
-**RLS-policy** drift: `20250811062708_initial_schema.sql` creates only `"Users can manage own sessions"`, but
-`20250825065500_fix_rls_performance_issue.sql` `DROP`s four policies it never created **and** re-creates
-`"Users can manage own sessions"` (and `20250825101500_fix_rls_performance_on_user_profiles.sql` is a
-committed **no-op** — its SQL sits after a `--` on the same line). To classify **function** ACLs (which have
-**zero** dependence on RLS policies) the harness normalizes **only RLS-policy DDL** to idempotent form
-(`DROP POLICY`→`DROP POLICY IF EXISTS`; an inline `DROP POLICY IF EXISTS` precedes each real `CREATE POLICY`;
-the guard is inline so a commented-out no-op stays a no-op). No function/grant/revoke/table statement is
-altered. This RLS-policy replay-drift is recorded here as **provenance debt** for a separate cleanup; it does
-not block or bias the SECURITY DEFINER classification.
+### Migration replay-drift (deterministic allowlist + provenance debt)
+The committed migration history is **not cleanly verbatim-replayable on a fresh database**. The normalizer
+(`scripts/secdef-normalize-migration.mjs`) carries an **exact allowlist** — currently exactly one file:
+- **`20250825065500_fix_rls_performance_issue.sql`** — `DROP`s four policies `initial_schema` never created
+  **and** re-creates `"Users can manage own sessions"` (already created by `initial_schema`).
+For an allowlisted file it normalizes **only RLS-policy DDL** (`DROP POLICY`→`DROP POLICY IF EXISTS`; an
+**inline** `DROP POLICY IF EXISTS` precedes each real `CREATE POLICY` — inline so a statement commented out on
+its line stays a no-op). **No function / GRANT / REVOKE / table DDL is transformed**, proven by
+`tests/db/secdef-normalize.contract.test.js` (residue-identity + keyword-count checks; non-allowlisted files
+pass through byte-identical). Separately, `20250825101500_fix_rls_performance_on_user_profiles.sql` is a
+committed **no-op** (its SQL sits after a same-line `--`) — recorded here as **provenance debt**; it is applied
+verbatim (not allowlisted) and is a harmless no-op. This RLS-policy replay-drift does not block or bias the
+SECURITY DEFINER classification and is filed as provenance debt for a separate cleanup.
 - `tests/db/secdef-classification-matrix.sql` — introspects `pg_proc` for every `SECURITY DEFINER` function
   in `public`; reports signature, `search_path`, `pg_temp` exposure, and effective EXECUTE for
   PUBLIC/anon/authenticated. It fails closed unless it is non-vacuous **and** discriminating (detects both
