@@ -72,8 +72,23 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(shard?.paths).toEqual(['test-results/ci-evidence/playwright-shard-summary.json']);
         const lighthouse = inventory.find(({ key }) => key === 'ci.yml::lighthouse-report');
         expect(lighthouse?.paths).toEqual(['test-results/ci-evidence/lighthouse-summary.json']);
+        const unitArtifacts = inventory.find(({ key }) => key === 'ci.yml::unit-artifacts');
+        expect(unitArtifacts?.paths).toEqual([
+            'artifacts/coverage/coverage-summary.json',
+            'unit-metrics.json',
+        ]);
 
         const ciWorkflow = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+        const unitJob = ciWorkflow.slice(
+            ciWorkflow.indexOf('  unit-coverage:'),
+            ciWorkflow.indexOf('  edge-tests:'),
+        );
+        expect(unitJob).not.toContain('frontend/coverage/coverage-summary.json');
+        expect(unitJob).toContain("node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::unit-artifacts'");
+        expect(unitJob).toContain("if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}");
+        expect(unitJob).toMatch(/name: unit-artifacts[\s\S]*?artifacts\/coverage\/coverage-summary\.json[\s\S]*?if-no-files-found: error/);
+        expect(unitJob.indexOf('name: Scan unit review evidence'))
+            .toBeLessThan(unitJob.indexOf('name: Upload Unit Artifacts'));
         expect(ciWorkflow).not.toContain('path: blob-report/report-*.zip');
         expect(ciWorkflow).not.toContain('path: lighthouse-results/');
         expect(ciWorkflow).not.toContain('playwright merge-reports');
@@ -81,6 +96,21 @@ describe('#1132 ephemeral review-evidence policy', () => {
             .toBeLessThan(ciWorkflow.indexOf('name: Scan shard review evidence'));
         expect(ciWorkflow.indexOf('name: Sanitize Lighthouse evidence'))
             .toBeLessThan(ciWorkflow.indexOf('name: Scan Lighthouse review evidence'));
+    });
+
+    it('requires the current unit coverage output and rejects an empty green artifact', () => {
+        const fixture = policyFixtureRepo();
+        writeFileSync(join(fixture, 'unit-metrics.json'), '{}\n');
+
+        expect(scanArtifactUpload('ci.yml::unit-artifacts', fixture)).toContainEqual(
+            expect.stringContaining('artifacts/coverage/coverage-summary.json: configured upload path does not exist; upload denied'),
+        );
+
+        const coverageSummary = join(fixture, 'artifacts', 'coverage', 'coverage-summary.json');
+        mkdirSync(dirname(coverageSummary), { recursive: true });
+        writeFileSync(coverageSummary, JSON.stringify({ total: { lines: { pct: 100 } } }));
+
+        expect(scanArtifactUpload('ci.yml::unit-artifacts', fixture)).toEqual([]);
     });
 
     it('limits approved screenshot uploaders to PNG-only one-day artifacts', () => {

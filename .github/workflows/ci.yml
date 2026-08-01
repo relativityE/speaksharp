@@ -234,10 +234,9 @@ jobs:
           name: unit-artifacts
           path: |
             artifacts/coverage/coverage-summary.json
-            frontend/coverage/coverage-summary.json
             unit-metrics.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
   edge-tests:
     name: edge-tests
