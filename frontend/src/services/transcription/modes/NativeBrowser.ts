@@ -341,6 +341,21 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return this.options as TranscriptionModeOptions;
   }
 
+  /**
+   * #1045/#1033: honest, stable identity for the browser's native Web Speech API so a real Native
+   * session earns VERIFIED attribution (a complete, non-blank engine/model/device tuple). Recognition
+   * runs on-device via the browser's engine. Without this the wrapper had no `getMetadata`, so
+   * `TranscriptionService.getMetadata()` fell back to null and Native sessions recorded `unverified`.
+   */
+  public getMetadata(): { engineVersion: string; modelName: string; deviceType: string } {
+    const family = this.browserStrategy?.browserFamily ?? 'browser';
+    return {
+      engineVersion: 'native-web-speech',
+      modelName: `web-speech-${family}`,
+      deviceType: 'browser',
+    };
+  }
+
   private resetRecognitionCycle(reason: string): void {
     this.recognitionCycleId += 1;
     this.cycleStartedAtMs = performance.now();
