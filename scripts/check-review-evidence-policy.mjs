@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
@@ -11,8 +11,17 @@ export const APPROVED_SCREENSHOT_UPLOADS = new Set([
   'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
 ]);
 
+// Product/marketing assets have a runtime purpose independent of code review.
+// New binary files everywhere else are review evidence unless explicitly added
+// to this narrow allowlist through a separately reviewed product change.
+export const APPROVED_PRODUCT_BINARY_ROOTS = new Set([
+  'frontend/public/',
+  'video-production/',
+]);
+
 // Historical binaries predate #1132. They are inventoried, not deleted or
-// expanded. Any new review binary committed outside this exact baseline fails.
+// expanded. Any new review binary committed outside an approved product-asset
+// root fails regardless of the directory name chosen for it.
 export const LEGACY_COMMITTED_REVIEW_BINARIES = new Set([
   'docs/evidence/1041/browser-selector-desktop.png',
   'docs/evidence/1041/browser-selector-mobile.png',
@@ -20,18 +29,41 @@ export const LEGACY_COMMITTED_REVIEW_BINARIES = new Set([
   'product_release/evidence/beta50_private_2026-07-10/mobile-private-recording.jpg',
 ]);
 
-const AUTOMATED_PLAYWRIGHT_CONFIGS = [
-  'playwright.base.config.ts',
-  'playwright.config.ts',
-  'playwright.live.config.ts',
-  'playwright.deployed-live.config.ts',
-  'playwright.canary.config.ts',
-  'playwright.soak.config.ts',
-  'playwright.stripe.config.ts',
+// This config is a developer-invoked demo recorder, not an automated review
+// lane. It remains explicit and fails policy if any Actions workflow invokes it.
+export const LOCAL_ONLY_MEDIA_PLAYWRIGHT_CONFIGS = new Set([
+  'playwright.demo.config.ts',
+]);
+
+// Compiled runtime output is a deployable product artifact, not review evidence.
+// Its source assets are governed by the product-asset allowlist above.
+export const NON_REVIEW_DIRECTORY_UPLOADS = new Set([
+  'ci.yml::build-artifacts',
+]);
+
+const REVIEW_BINARY_EXTENSION = /\.(?:png|jpe?g|webp|webm|mp4|mov|zip|trace|har)$/i;
+const BROAD_BROWSER_OUTPUT = /(?:^|\/)(?:blob-report|playwright-report|test-results)(?:\/|$)/i;
+const FORBIDDEN_ARTIFACT_PATH = /(?:\.(?:png|jpe?g|webp|webm|mp4|mov|har)$|trace\.zip$|storage[-_]?state|cookies?\.json|\.env(?:\.|$))/i;
+const TEXT_EXTENSIONS = new Set([
+  '.css', '.csv', '.html', '.js', '.json', '.jsonl', '.log', '.md', '.mjs', '.svg', '.txt', '.xml', '.yaml', '.yml',
+]);
+const MAX_INSPECTABLE_TEXT_BYTES = 10 * 1024 * 1024;
+const SENSITIVE_TEXT_PATTERNS = [
+  ['email address', /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i],
+  ['UUID', /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i],
+  ['bearer credential', /\bBearer\s+[A-Za-z0-9._~+\/-]{12,}/i],
+  ['embedded browser media', /data:(?:image|audio|video)\//i],
+  ['session or user content', /["'](?:access_token|refresh_token|id_token|password|cookie|storageState|transcript|prompt|brief|required_points?)["']\s*:\s*["'][^"']+["']/i],
 ];
 
 function indentation(line) {
   return line.length - line.trimStart().length;
+}
+
+function gitTrackedFiles(repoRoot, pathspecs = []) {
+  return execFileSync('git', ['ls-files', '-z', ...pathspecs], { cwd: repoRoot, encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean);
 }
 
 function scalarAfter(lines, start, end, key) {
@@ -60,6 +92,53 @@ function pathEntries(lines, start, end) {
   return [];
 }
 
+function jobBounds(lines, lineIndex) {
+  let start = 0;
+  for (let cursor = lineIndex; cursor >= 0; cursor -= 1) {
+    if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[cursor])) {
+      start = cursor;
+      break;
+    }
+  }
+  let end = lines.length;
+  for (let cursor = lineIndex + 1; cursor < lines.length; cursor += 1) {
+    if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[cursor])) {
+      end = cursor;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+function uploadStepStart(lines, usesIndex) {
+  const usesIndent = indentation(lines[usesIndex]);
+  for (let cursor = usesIndex; cursor >= 0; cursor -= 1) {
+    if (/^\s*-\s+(?:name|uses):/.test(lines[cursor]) && indentation(lines[cursor]) < usesIndent) return cursor;
+  }
+  return usesIndex;
+}
+
+function isBroadBrowserUpload(paths) {
+  return paths.some((path) => BROAD_BROWSER_OUTPUT.test(path) && (path.endsWith('/') || /[*?]/.test(path)));
+}
+
+function pathAppearsBroad(path) {
+  const withoutWorkspace = path.replace(/^\$\{\{\s*github\.workspace\s*\}\}\//, '');
+  if (/[*?]/.test(withoutWorkspace) || withoutWorkspace.endsWith('/')) return true;
+  if (/^\$\{\{/.test(withoutWorkspace) || withoutWorkspace.startsWith('/')) return false;
+  return extname(withoutWorkspace) === '';
+}
+
+function isBroadReviewUpload(name, paths) {
+  const reviewLike = /(?:artifact|evidence|proof|report|result|screenshot|metrics)/i.test(name ?? '')
+    || paths.some((path) => /(?:evidence|report|results?|screenshots?)(?:\/|$)/i.test(path));
+  return reviewLike && paths.some(pathAppearsBroad);
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function inventoryArtifactUploads(repoRoot = REPO_ROOT) {
   const workflowDir = join(repoRoot, '.github', 'workflows');
   const inventory = [];
@@ -79,13 +158,27 @@ export function inventoryArtifactUploads(repoRoot = REPO_ROOT) {
       }
 
       const name = scalarAfter(lines, usesIndex + 1, end, 'name');
+      const paths = pathEntries(lines, usesIndex + 1, end);
+      const key = `${workflow}::${name ?? '<missing-name>'}`;
+      const { start: jobStart } = jobBounds(lines, usesIndex);
+      const jobTextBeforeUpload = lines.slice(jobStart, usesIndex).join('\n');
+      const stepStart = uploadStepStart(lines, usesIndex);
+      const scannerPattern = new RegExp(
+        `id:\\s*(review_evidence_scan[A-Za-z0-9_-]*)[\\s\\S]{0,300}?node scripts/check-review-evidence-policy\\.mjs --scan-upload ['"]${escapeRegex(key)}['"]`,
+      );
+      const scannerMatch = jobTextBeforeUpload.match(scannerPattern);
       inventory.push({
         workflow,
         name,
-        key: `${workflow}::${name ?? '<missing-name>'}`,
-        paths: pathEntries(lines, usesIndex + 1, end),
+        key,
+        paths,
         retentionDays: scalarAfter(lines, usesIndex + 1, end, 'retention-days'),
         ifNoFilesFound: scalarAfter(lines, usesIndex + 1, end, 'if-no-files-found'),
+        uploadIf: scalarAfter(lines, stepStart, usesIndex, 'if'),
+        broadBrowserUpload: isBroadBrowserUpload(paths),
+        broadReviewUpload: isBroadReviewUpload(name, paths),
+        scannerId: scannerMatch?.[1],
+        hasPreUploadScanner: Boolean(scannerMatch),
       });
     }
   }
@@ -93,13 +186,139 @@ export function inventoryArtifactUploads(repoRoot = REPO_ROOT) {
   return inventory;
 }
 
+export function playwrightConfigFiles(repoRoot = REPO_ROOT) {
+  return gitTrackedFiles(repoRoot, ['playwright*.config.ts']).sort();
+}
+
+function isApprovedProductBinary(path) {
+  return [...APPROVED_PRODUCT_BINARY_ROOTS].some((root) => path.startsWith(root));
+}
+
 export function committedReviewBinaries(repoRoot = REPO_ROOT) {
-  const tracked = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
-    .split(/\r?\n/)
-    .filter(Boolean);
-  return tracked.filter((path) =>
-    /(^|\/)(?:evidence|test-results|playwright-report|screenshots?)(\/|$)/i.test(path)
-    && /\.(?:png|jpe?g|webp|webm|mp4|zip|trace)$/i.test(path));
+  return gitTrackedFiles(repoRoot)
+    .filter((path) => REVIEW_BINARY_EXTENSION.test(path))
+    .filter((path) => !isApprovedProductBinary(path));
+}
+
+function walkFiles(path) {
+  if (!existsSync(path)) return [];
+  if (!statSync(path).isDirectory()) return [path];
+  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
+    const child = join(path, entry.name);
+    return entry.isDirectory() ? walkFiles(child) : [child];
+  });
+}
+
+function inspectSensitiveText(contents, displayPath) {
+  const violations = [];
+  for (const [label, pattern] of SENSITIVE_TEXT_PATTERNS) {
+    if (pattern.test(contents)) violations.push(`${displayPath}: forbidden ${label} in artifact content`);
+  }
+  return violations;
+}
+
+function inspectZip(file, displayPath) {
+  const violations = [];
+  let entries;
+  try {
+    entries = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
+      .split(/\r?\n/)
+      .filter((entry) => entry && !entry.endsWith('/'));
+  } catch {
+    return [`${displayPath}: archive could not be inspected; upload denied`];
+  }
+
+  for (const entry of entries) {
+    if (FORBIDDEN_ARTIFACT_PATH.test(entry) || /\.zip$/i.test(entry)) {
+      violations.push(`${displayPath}: forbidden nested artifact path (${entry})`);
+      continue;
+    }
+    if (!TEXT_EXTENSIONS.has(extname(entry).toLowerCase())) {
+      violations.push(`${displayPath}: unapproved nested artifact type (${entry})`);
+      continue;
+    }
+    try {
+      const contents = execFileSync('unzip', ['-p', file, entry], {
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      violations.push(...inspectSensitiveText(contents, `${displayPath}!${entry}`));
+    } catch {
+      violations.push(`${displayPath}!${entry}: text entry could not be inspected; upload denied`);
+    }
+  }
+  return violations;
+}
+
+function scanArtifactRoots(repoRoot, roots) {
+  const violations = [];
+  const seen = new Set();
+  for (const absoluteRoot of roots) {
+    for (const file of walkFiles(absoluteRoot)) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const displayPath = relative(repoRoot, file).replaceAll('\\', '/');
+      if (lstatSync(file).isSymbolicLink()) {
+        violations.push(`${displayPath}: symbolic links are forbidden in uploaded browser output`);
+        continue;
+      }
+      if (FORBIDDEN_ARTIFACT_PATH.test(displayPath)) {
+        violations.push(`${displayPath}: forbidden browser/session artifact file`);
+        continue;
+      }
+      if (/\.zip$/i.test(displayPath)) {
+        if (!displayPath.startsWith('blob-report/')) {
+          violations.push(`${displayPath}: custom archive in browser output is forbidden`);
+          continue;
+        }
+        violations.push(...inspectZip(file, displayPath));
+        continue;
+      }
+      if (!TEXT_EXTENSIONS.has(extname(displayPath).toLowerCase())) {
+        violations.push(`${displayPath}: unapproved browser-output file type`);
+        continue;
+      }
+      if (statSync(file).size > MAX_INSPECTABLE_TEXT_BYTES) {
+        violations.push(`${displayPath}: artifact is too large to inspect; upload denied`);
+        continue;
+      }
+      const contents = readFileSync(file, 'utf8');
+      violations.push(...inspectSensitiveText(contents, displayPath));
+    }
+  }
+  return violations;
+}
+
+function uploadPathRoot(repoRoot, path) {
+  let candidate = path.replace(/^\$\{\{\s*github\.workspace\s*\}\}\//, '');
+  const runnerTempMatch = candidate.match(/^\$\{\{\s*runner\.temp\s*\}\}\/(.+)$/);
+  if (runnerTempMatch) {
+    return process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP, runnerTempMatch[1]) : undefined;
+  }
+  if (/\$\{\{/.test(candidate) || candidate.startsWith('/')) return undefined;
+  const wildcard = candidate.search(/[*?]/);
+  if (wildcard >= 0) candidate = candidate.slice(0, wildcard);
+  candidate = candidate.replace(/\/$/, '');
+  if (!candidate) return undefined;
+  const absolute = join(repoRoot, candidate);
+  if (existsSync(absolute)) return absolute;
+  const parent = dirname(absolute);
+  return existsSync(parent) && wildcard >= 0 ? parent : absolute;
+}
+
+export function scanArtifactUpload(key, repoRoot = REPO_ROOT) {
+  const artifact = inventoryArtifactUploads(repoRoot).find((entry) => {
+    if (entry.key === key) return true;
+    const dynamicKeyPattern = new RegExp(`^${escapeRegex(entry.key).replace(/\\\$\\\{\\\{.*?\\\}\\\}/g, '.+?')}$`);
+    return dynamicKeyPattern.test(key);
+  });
+  if (!artifact) return [`${key}: artifact uploader is not present in the workflow inventory`];
+  const roots = artifact.paths.map((path) => uploadPathRoot(repoRoot, path)).filter(Boolean);
+  return scanArtifactRoots(repoRoot, roots);
+}
+
+export function scanGeneratedArtifacts(repoRoot = REPO_ROOT) {
+  return scanArtifactRoots(repoRoot, ['blob-report', 'playwright-report', 'test-results'].map((path) => join(repoRoot, path)));
 }
 
 export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
@@ -131,10 +350,27 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
         violations.push(`${artifact.key}: forbidden browser/session artifact path (${path})`);
       }
     }
+
+    if (artifact.broadReviewUpload
+      && !APPROVED_SCREENSHOT_UPLOADS.has(artifact.key)
+      && !NON_REVIEW_DIRECTORY_UPLOADS.has(artifact.key)) {
+      if (!artifact.hasPreUploadScanner) {
+        violations.push(`${artifact.key}: broad browser-output upload requires a fail-closed pre-upload scanner`);
+      }
+      const scannerGuard = artifact.scannerId
+        ? new RegExp(`steps\\.${escapeRegex(artifact.scannerId)}\\.outcome\\s*==\\s*'success'`)
+        : undefined;
+      if (!scannerGuard?.test(artifact.uploadIf ?? '')) {
+        violations.push(`${artifact.key}: upload must be blocked unless the pre-upload scanner succeeds`);
+      }
+    }
   }
 
-  for (const workflow of readdirSync(join(repoRoot, '.github', 'workflows')).filter((name) => /\.ya?ml$/.test(name))) {
-    const lines = readFileSync(join(repoRoot, '.github', 'workflows', workflow), 'utf8').split(/\r?\n/);
+  const workflowDir = join(repoRoot, '.github', 'workflows');
+  const workflowFiles = readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name));
+  const workflowText = workflowFiles.map((workflow) => readFileSync(join(workflowDir, workflow), 'utf8')).join('\n');
+  for (const workflow of workflowFiles) {
+    const lines = readFileSync(join(workflowDir, workflow), 'utf8').split(/\r?\n/);
     for (const [index, line] of lines.entries()) {
       if (/^\s*(?:zip|tar|7z)\s/.test(line) && !/^\s*#/.test(line)) {
         violations.push(`${workflow}:${index + 1}: custom archive creation is forbidden`);
@@ -142,9 +378,15 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
     }
   }
 
-  for (const config of AUTOMATED_PLAYWRIGHT_CONFIGS) {
+  for (const config of playwrightConfigFiles(repoRoot)) {
     const contents = readFileSync(join(repoRoot, config), 'utf8');
-    for (const match of contents.matchAll(/^\s*(trace|video|screenshot):\s*['"]([^'"]+)['"]/gm)) {
+    if (LOCAL_ONLY_MEDIA_PLAYWRIGHT_CONFIGS.has(config)) {
+      if (workflowText.includes(config)) {
+        violations.push(`${config}: local-only media config must never be invoked by Actions`);
+      }
+      continue;
+    }
+    for (const match of contents.matchAll(/\b(trace|video|screenshot)\s*:\s*['"]([^'"]+)['"]/g)) {
       if (match[2] !== 'off') {
         violations.push(`${config}: automated ${match[1]} capture must be off (found ${match[2]})`);
       }
@@ -157,7 +399,7 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
   const committed = new Set(committedReviewBinaries(repoRoot));
   for (const path of committed) {
     if (!LEGACY_COMMITTED_REVIEW_BINARIES.has(path)) {
-      violations.push(`${path}: committed binary review evidence is forbidden`);
+      violations.push(`${path}: committed binary review evidence is forbidden outside approved product-asset roots`);
     }
   }
   for (const path of LEGACY_COMMITTED_REVIEW_BINARIES) {
@@ -168,8 +410,15 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
 }
 
 if (process.argv[1] && basename(process.argv[1]) === basename(MODULE_PATH)) {
-  const inventory = inventoryArtifactUploads();
-  const violations = reviewEvidencePolicyViolations();
-  console.log(JSON.stringify({ inventory, violations }, null, 2));
+  const scanIndex = process.argv.indexOf('--scan-upload');
+  const legacyScanRequested = process.argv.includes('--scan-generated-artifacts');
+  const scanRequested = scanIndex >= 0 || legacyScanRequested;
+  const inventoryCount = scanRequested ? undefined : inventoryArtifactUploads().length;
+  const violations = scanIndex >= 0
+    ? scanArtifactUpload(process.argv[scanIndex + 1] ?? '')
+    : legacyScanRequested
+      ? scanGeneratedArtifacts()
+      : reviewEvidencePolicyViolations();
+  console.log(JSON.stringify(scanRequested ? { violations } : { inventoryCount, violations }, null, 2));
   if (violations.length) process.exitCode = 1;
 }

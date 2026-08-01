@@ -208,8 +208,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Scan generated review evidence
+        id: review_evidence_scan
+        if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'benchmarks.yml::private-browser-benchmark-artifacts'
+
       - name: Upload Private browser benchmark artifacts
-        if: always() && inputs.run_private_browser != false
+        if: ${{ always() && inputs.run_private_browser != false && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: private-browser-benchmark-artifacts

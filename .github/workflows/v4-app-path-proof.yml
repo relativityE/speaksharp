@@ -85,8 +85,13 @@ jobs:
             echo "No proof artifact written at $STT_CORPUS_OUT"
           fi
 
-      - name: Upload v4 proof artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'v4-app-path-proof.yml::v4-app-path-proof'
+
+      - name: Upload v4 proof artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: v4-app-path-proof

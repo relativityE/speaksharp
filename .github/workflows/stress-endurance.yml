@@ -67,14 +67,17 @@ jobs:
           echo "Extracted browser endurance duration: $DURATION ms"
           SOAK_MEMORY_DURATION_MS=$DURATION pnpm test:endurance:browser
 
-      - name: Upload test results
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'stress-endurance.yml::stress-endurance-results'
+
+      - name: Upload test results
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: stress-endurance-results
           path: |
-            test-results/stress/
-            test-results/endurance/
-            test-results/soak/
-            test-results/soak-report/
+            test-results/stress/backend-stress.latest.json
+            test-results/endurance/browser-endurance.latest.json
           retention-days: 7

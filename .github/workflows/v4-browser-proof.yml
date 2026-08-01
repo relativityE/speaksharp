@@ -45,8 +45,13 @@ jobs:
             tests/e2e/v4-posthog-browser-control.e2e.spec.ts \
             --config=playwright.config.ts
 
-      - name: Upload v4 Proof Evidence
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'v4-browser-proof.yml::v4-browser-proof'
+
+      - name: Upload v4 Proof Evidence
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: v4-browser-proof

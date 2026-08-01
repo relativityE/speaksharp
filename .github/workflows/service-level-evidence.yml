@@ -164,14 +164,22 @@ jobs:
             console.log('Service-level evidence passed and counts as release evidence.');
           "
 
-      - name: Upload service-level evidence
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'service-level-evidence.yml::service-level-evidence'
+
+      - name: Upload service-level evidence
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: service-level-evidence
           path: |
-            product_release/evidence/
-            test-results/stress/
-            test-results/endurance/
-            ops-health/
+            product_release/evidence/software-quality.latest.json
+            product_release/evidence/software-quality-summary.latest.md
+            product_release/evidence/service-levels.latest.json
+            product_release/evidence/service-levels-summary.latest.md
+            test-results/stress/backend-stress.latest.json
+            test-results/endurance/browser-endurance.latest.json
+            ops-health/ops-health.summary.json
           retention-days: 14

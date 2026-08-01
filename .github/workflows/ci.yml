@@ -222,14 +222,19 @@ jobs:
           VITEST_MAX_FORKS: '2'
         run: pnpm ci:unit
 
-      - name: Upload Unit Artifacts
+      - name: Scan unit review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::unit-artifacts'
+
+      - name: Upload Unit Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: unit-artifacts
           path: |
-            artifacts/coverage
-            frontend/coverage
+            artifacts/coverage/coverage-summary.json
+            frontend/coverage/coverage-summary.json
             unit-metrics.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
@@ -348,12 +353,17 @@ jobs:
           pnpm ci:health-check
           touch test-results/playwright-infra/HEALTH_PASSED
 
-      - name: Upload Health Check Report
+      - name: Scan health-check review evidence
+        id: review_evidence_scan_health
         if: always() && matrix.shard == 1
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::health-check-report'
+
+      - name: Upload Health Check Report
+        if: ${{ always() && matrix.shard == 1 && steps.review_evidence_scan_health.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: health-check-report
-          path: test-results/playwright-infra
+          path: test-results/playwright-infra/HEALTH_PASSED
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: error
 
@@ -364,14 +374,17 @@ jobs:
           STT_ENGINE: mock
         run: pnpm ci:test ${{ matrix.shard }}
 
-      - name: Upload Shard Report
+      - name: Scan shard review evidence
+        id: review_evidence_scan_shard
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::shard-report-${{ matrix.shard }}'
+
+      - name: Upload Shard Report
+        if: ${{ always() && steps.review_evidence_scan_shard.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: shard-report-${{ matrix.shard }}
-          path: |
-            blob-report
-            test-results/playwright
+          path: blob-report/report-*.zip
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
@@ -429,8 +442,13 @@ jobs:
           echo "=== LHCI Results Debug ==="
           find lighthouse-results -maxdepth 2 -type f -print 2>/dev/null || echo "Directory empty or missing"
 
-      - name: Upload Lighthouse Report
+      - name: Scan Lighthouse review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::lighthouse-report'
+
+      - name: Upload Lighthouse Report
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: lighthouse-report
@@ -564,8 +582,13 @@ jobs:
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
-      - name: Upload HTML Report
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::playwright-report'
+
+      - name: Upload HTML Report
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: playwright-report
