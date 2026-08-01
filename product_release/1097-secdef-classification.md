@@ -54,33 +54,71 @@ Of these, the **hardened** subset also lists `pg_temp` explicitly last (`get_ana
 `get_user_id_by_email(text)` (`search_path = ''`), `process_stripe_webhook_event(...)` (both overloads),
 `enforce_report_session_ownership()` (`pg_catalog, public`; trigger).
 
+## Caller matrix (resolved from actual call sites, not memory)
+
+Method: searched `frontend/`, `backend/supabase/functions/`, `backend/supabase/migrations/`, `.github/`,
+`scripts/` for each function; recorded the runtime identity at each call site; tests are treated as evidence,
+never as production callers. Every function below is `SECURITY DEFINER` and independently derives
+`v_uid := auth.uid()` and scopes all work to the owner (e.g. `WHERE user_id = v_uid AND lease_id = …`), so
+grants are defense-in-depth, not the only control — but minimal grants are still required (grants-alone is
+insufficient AND surplus grants are still wrong).
+
+| Function | Real runtime caller (evidence) | Identity | Legitimate anon? |
+|---|---|---|---|
+| `acquire_recording_lease(uuid,text,boolean)` | **none** — `frontend/src/services/recordingLeasePolicy.ts` is a pure result-interpreter (no `supabase`/`.rpc`) and is **not imported** by any runtime module; no `.rpc('acquire_recording_lease')` exists anywhere | (would be authenticated user) | **no** |
+| `heartbeat_recording_lease(uuid)` | **none** (same as above) | (would be authenticated user) | **no** |
+| `release_recording_lease(uuid)` | **none** (same as above) | (would be authenticated user) | **no** |
+| `cleanup_expired_sessions()` | **none found** (no `.rpc`, no `cron.schedule`, no Edge Function) | — | **no** |
+| `expire_stale_sessions()` | only a **commented-out** `cron.schedule('*/5 * * * *', 'SELECT public.expire_stale_sessions()')` in `20260309000000_phase2_integration.sql:312` | db-internal cron (privileged) | **no** |
+| `ensure_trial_profile_for_new_user()` | a **trigger** — `EXECUTE FUNCTION …` on `auth.users` (`20260521100000_auto_trial_entitlements.sql:134`) | db-internal trigger | **no** (triggers need no EXECUTE grant) |
+| `update_user_usage(integer)` | **no direct caller** (internal helper; the app calls `create_session_and_update_usage`/`complete_session`, not this 1-arg overload directly) | definer-context (called from another SECURITY DEFINER fn) | **no** |
+
+**Root cause of the anon exposure:** `20260607040000_active_recording_lease.sql` runs `GRANT EXECUTE … TO
+authenticated` but never `REVOKE … FROM PUBLIC`, so PostgreSQL's default PUBLIC EXECUTE grant persists (and
+PUBLIC includes `anon`). The other exposed functions are PUBLIC-by-default (never granted narrowly at all).
+
 ## Narrow PR-B remediation set (proposal only — not to be coded until this target set is reviewed)
 
 **Scope discipline:** remediate ONLY the confirmed defects below. Do **not** broaden into a general
 `search_path` sweep of category B/C or unrelated hardening.
 
-1. **`REVOKE EXECUTE … FROM PUBLIC` (and from `anon`)** on functions that have no legitimate anonymous
-   caller: `cleanup_expired_sessions()`, `expire_stale_sessions()`, `update_user_usage(integer)`,
-   `acquire_recording_lease(uuid,text,boolean)`, `heartbeat_recording_lease(uuid)`,
-   `release_recording_lease(uuid)`, `ensure_trial_profile_for_new_user()`. Grant the minimum each real
-   caller needs (`service_role` for the cleanup/cron workers; `authenticated` for the lease trio if the app
-   calls them as an authenticated user; trigger functions need no EXECUTE grant at all).
-2. **Set a safe `search_path`** on the two functions that have none —
+1. **`REVOKE EXECUTE … FROM PUBLIC` and `FROM anon`** on all seven exposed functions — none has a legitimate
+   anonymous caller. Minimum grants after revoke, per the caller matrix:
+   - **recording-lease trio** — **classify as dead/deprecation candidates** (no live runtime caller). Do
+     **not** preserve access speculatively: revoke PUBLIC/anon now; grant `authenticated` **only if/when** the
+     user recording path is actually wired to call them (it is not today). Recommend a separate decision to
+     either wire the account-wide-mutex feature or drop the trio + `active_recording_lease` table + the dead
+     `recordingLeasePolicy.ts`.
+   - **`cleanup_expired_sessions()`** — no caller at all → dead/deprecation candidate; revoke PUBLIC/anon.
+   - **`expire_stale_sessions()`** — intended db-internal cron caller (currently commented out) runs
+     privileged and needs no PUBLIC/anon grant; revoke PUBLIC/anon.
+   - **`ensure_trial_profile_for_new_user()`** — trigger function; revoke PUBLIC/anon (needs no EXECUTE grant).
+   - **`update_user_usage(integer)`** — internal helper; revoke PUBLIC/anon (the `(integer,text,uuid)`
+     overload is already correctly locked to `authenticated`/`service_role`).
+   - Grant `service_role` **only** where a concrete deployed server caller exists — **none does today**, so
+     no new `service_role` grant is warranted.
+2. **Set a pg_temp-safe `search_path`** on the two functions that have none —
    `cleanup_expired_sessions()` and `expire_stale_sessions()` — to `pg_catalog, public, pg_temp` (pg_temp
-   last) or `''` with fully-qualified object references.
+   last) or `''` with fully-qualified object references. (The lease trio + `update_user_usage` use
+   `search_path = public`; hardening their `pg_temp` exposure is a category-B item, out of this narrow PR-B
+   unless review says otherwise.)
 
-**Open question for review before PR-B coding:** confirm which real callers each anon-reachable function
-legitimately has (esp. the recording-lease trio), so the minimum grant is correct rather than guessed.
-
-### PR-B implementation packet (to be finalized after this target set is reviewed)
-- **Functions & grants:** exact `REVOKE`/`GRANT` per function above.
-- **Search paths:** exact `ALTER FUNCTION … SET search_path = …` for the two cleanup functions.
-- **Migration behavior:** additive, idempotent (`REVOKE`/`GRANT` are safe to re-run); no function body change.
-- **Rollback:** paired down-migration restoring prior grants/search_path.
-- **Falsification tests:** extend this matrix to assert the remediated functions are **no longer**
-  anon-executable and that the two cleanup functions carry a pg_temp-safe `search_path` — the same harness
-  that today proves they ARE exposed will then prove they are not.
+### PR-B implementation packet (finalize after PR-A review fixes the target set)
+- **Functions & grants:** exact `REVOKE EXECUTE ON FUNCTION public.<sig> FROM PUBLIC, anon;` for all seven;
+  no new grant for the trigger/internal/cron functions; `authenticated`/`service_role` grants only where the
+  caller matrix proves a real caller (today: none beyond the already-correct locked set).
+- **Search paths:** exact `ALTER FUNCTION public.cleanup_expired_sessions() SET search_path = pg_catalog, public, pg_temp;`
+  and the same for `expire_stale_sessions()`.
+- **Migration behavior:** additive, idempotent (`REVOKE`/`ALTER FUNCTION … SET` are safe to re-run); no
+  function body change; independent per function.
+- **Rollback:** paired down-migration restoring the prior grants/search_path.
+- **Falsification tests:** extend `secdef-classification-matrix.sql` so that after PR-B the seven functions
+  assert **`anon = false`** and the two cleanup functions assert a pg_temp-safe `search_path` — the same
+  harness that today proves they ARE exposed then proves they are not. Add a direct behavioral test that an
+  `anon`-role `EXECUTE` of each remediated function is rejected.
 
 ## Ownership and parent
 - Parent issue: #1097 · Increment: PR-A (read-only classification) · Refs #1097, does not close.
-- No production query/mutation. Merge/apply/deploy remain separate PO gates.
+- No production query/mutation. The recording-lease caller question is resolved above (from call sites, not
+  memory). Merge/apply/deploy remain separate PO gates; **no PR-B implementation until PR-A review fixes the
+  target set.**
