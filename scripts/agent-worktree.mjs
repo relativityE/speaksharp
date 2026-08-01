@@ -32,7 +32,9 @@ const REGISTRY_DIRNAME = 'agent-worktrees';
 const MARKER_NAME = 'agent-owner.json'; // stored under the worktree's Git admin dir, never the working tree
 const SENTINEL_NAME = '.initialized';
 const LOCK_TIMEOUT_MS = 5000;
-const LEASE_STRING_FIELDS = ['agent', 'task', 'worktreePath', 'branch', 'createdAt'];
+// Every authoritative lease field. The registry requires all as non-empty strings, and a marker must
+// match its lease on ALL of them (tamper/consistency check) before assert/handoff/release/idempotent reclaim.
+const LEASE_STRING_FIELDS = ['agent', 'task', 'worktreePath', 'branch', 'baseSha', 'createdAt'];
 
 class OwnershipError extends Error {}
 
@@ -118,10 +120,12 @@ function readLeases(commonDir) {
 function writeLeases(commonDir, leases) {
     const { dir, file, sentinel } = registryPaths(commonDir);
     mkdirSync(dir, { recursive: true });
+    // Sentinel BEFORE the registry rename: a crash mid-write still leaves a durable initialization mark,
+    // so a subsequent disappearance of leases.json is never mistaken for a genuine first run.
+    if (!existsSync(sentinel)) writeFileSync(sentinel, `initialized ${new Date().toISOString()}\n`);
     const tmp = `${file}.tmp-${process.pid}`;
     writeFileSync(tmp, `${JSON.stringify({ version: 1, leases }, null, 2)}\n`);
     renameSync(tmp, file);
-    if (!existsSync(sentinel)) writeFileSync(sentinel, `initialized ${new Date().toISOString()}\n`);
 }
 
 function markerPath(gitDir) { return path.join(gitDir, MARKER_NAME); }
@@ -146,7 +150,7 @@ function assertPersistentPath(worktreeRoot) {
 }
 
 function requireAgent(agent, command) {
-    if (!agent) throw new OwnershipError(`${command} requires an agent identity (--agent or SS_AGENT)`);
+    if (!agent || String(agent).trim() === '') throw new OwnershipError(`${command} requires a non-blank agent identity (--agent or SS_AGENT)`);
     return agent;
 }
 function nowIso() { return new Date().toISOString(); }
@@ -168,12 +172,16 @@ function assertFullOwnership(ctx, agent) {
     if (!ctx.branch) throw new OwnershipError('HEAD is detached — no owned branch to prove (fail closed)');
     const marker = readMarker(ctx.gitDir);
     if (!marker) throw new OwnershipError(`no owner marker for ${ctx.worktreeRoot}; claim it first`);
-    if (marker.agent !== agent) throw new OwnershipError(`worktree owned by '${marker.agent}', not '${agent}'`);
-    if (marker.branch !== ctx.branch) throw new OwnershipError(`checked-out branch '${ctx.branch}' is not the owned branch '${marker.branch}'`);
     const lease = readLeases(ctx.commonDir).find((l) => l.worktreePath === ctx.worktreeRoot);
     if (!lease) throw new OwnershipError(`no registry lease for ${ctx.worktreeRoot}; marker is orphaned (fail closed)`);
-    if (lease.agent !== agent) throw new OwnershipError(`registry lease owned by '${lease.agent}', not '${agent}'`);
-    if (lease.branch !== ctx.branch) throw new OwnershipError(`registry lease branch '${lease.branch}' is not the current branch '${ctx.branch}'`);
+    // Marker and lease must agree on EVERY authoritative field (agent, task, path, branch, baseSha,
+    // createdAt) — a mismatch means tampering or drift and fails closed. readLeases already required
+    // baseSha to be present + non-empty in the registry.
+    for (const f of LEASE_STRING_FIELDS) {
+        if (marker[f] !== lease[f]) throw new OwnershipError(`marker/lease disagree on '${f}' — fail closed`);
+    }
+    if (lease.agent !== agent) throw new OwnershipError(`worktree owned by '${lease.agent}', not '${agent}'`);
+    if (lease.branch !== ctx.branch) throw new OwnershipError(`checked-out branch '${ctx.branch}' is not the owned branch '${lease.branch}'`);
     return { marker, lease };
 }
 
@@ -181,45 +189,63 @@ function assertFullOwnership(ctx, agent) {
 
 function cmdClaim({ agent, task, cwd }) {
     requireAgent(agent, 'claim');
-    if (!task) throw new OwnershipError('claim requires --task <issue>');
+    if (!task || String(task).trim() === '') throw new OwnershipError('claim requires a non-blank --task <issue>');
     const ctx = resolveContext(cwd);
     assertPersistentPath(ctx.worktreeRoot);
     if (!ctx.branch) throw new OwnershipError('claim requires a checked-out branch (HEAD is detached)');
+    if (!ctx.headSha) throw new OwnershipError('claim requires a commit (HEAD has no baseSha)');
+    // This tool governs LINKED worktrees only — the primary checkout cannot satisfy the prune-lock
+    // contract and must never be leased. (linked → gitDir is under <common>/worktrees/<id>.)
+    if (path.resolve(ctx.gitDir) === path.resolve(ctx.commonDir)) {
+        throw new OwnershipError('refusing to claim the primary checkout; run inside a linked worktree');
+    }
     return withLock(ctx.commonDir, () => {
         const leases = readLeases(ctx.commonDir);
         const existingLease = leases.find((l) => l.worktreePath === ctx.worktreeRoot);
         const existingMarker = readMarker(ctx.gitDir); // throws on a corrupt marker → no silent repair
 
-        // Cross-owner conflicts.
+        // Conflicts: branch uniqueness is enforced REGARDLESS of agent (a duplicate-branch record would
+        // brick readLeases for every worktree); a different agent cannot take this worktree.
         for (const l of leases) {
             if (l.worktreePath === ctx.worktreeRoot && l.agent !== agent) {
                 throw new OwnershipError(`worktree already owned by '${l.agent}' (task ${l.task}); release first`);
             }
-            if (l.branch === ctx.branch && l.agent !== agent) {
-                throw new OwnershipError(`branch '${ctx.branch}' already writable by '${l.agent}'; one writer per branch`);
+            if (l.branch === ctx.branch && l.worktreePath !== ctx.worktreeRoot) {
+                throw new OwnershipError(`branch '${ctx.branch}' already writable at '${l.worktreePath}'; one writer per branch`);
             }
         }
 
-        // Marker/registry consistency — a first claim requires NEITHER; a re-claim requires BOTH to agree
-        // with this agent + branch. Anything partial or contradictory fails closed (no silent repair).
+        // Idempotent reclaim: a first claim requires NEITHER marker nor lease; a re-claim requires BOTH,
+        // consistent with each other on every authoritative field and naming this agent+branch — then it
+        // is a NO-OP (no baseSha/createdAt drift). Anything partial/contradictory fails closed.
         const hasMarker = existingMarker != null;
         const hasLease = existingLease != null;
         if (hasMarker !== hasLease) {
             throw new OwnershipError('inconsistent state: exactly one of marker/registry-lease exists — resolve manually (fail closed)');
         }
         if (hasMarker && hasLease) {
-            const agrees = existingMarker.agent === agent && existingMarker.branch === ctx.branch
-                && existingLease.agent === agent && existingLease.branch === ctx.branch;
-            if (!agrees) throw new OwnershipError('existing marker/lease contradicts this claim — resolve manually (fail closed)');
+            const fieldsAgree = LEASE_STRING_FIELDS.every((f) => existingMarker[f] === existingLease[f]);
+            const ownedByCaller = existingLease.agent === agent && existingLease.branch === ctx.branch;
+            if (!fieldsAgree || !ownedByCaller) {
+                throw new OwnershipError('existing marker/lease is inconsistent or contradicts this claim — resolve manually (fail closed)');
+            }
+            return `already owned by ${agent}: ${ctx.worktreeRoot} (branch ${ctx.branch})`; // idempotent no-op
         }
 
+        // First claim: the anti-prune lock is REQUIRED — a failure fails the claim (not silently ignored).
+        try {
+            git(['worktree', 'lock', ctx.worktreeRoot], ctx.worktreeRoot);
+        } catch (e) {
+            if (!/already locked/i.test(String(e.stderr ?? e.message ?? ''))) {
+                throw new OwnershipError(`could not prune-lock the worktree (anti-prune contract): ${String(e.stderr ?? e.message ?? e)}`);
+            }
+        }
         const lease = {
             agent, task: String(task), worktreePath: ctx.worktreeRoot, branch: ctx.branch,
             baseSha: ctx.headSha, createdAt: nowIso(),
         };
-        writeLeases(ctx.commonDir, [...leases.filter((l) => l.worktreePath !== ctx.worktreeRoot), lease]);
+        writeLeases(ctx.commonDir, [...leases, lease]);
         writeFileSync(markerPath(ctx.gitDir), `${JSON.stringify(lease, null, 2)}\n`);
-        gitQuiet(['worktree', 'lock', ctx.worktreeRoot], ctx.worktreeRoot); // anti-prune only
         return `claimed ${ctx.worktreeRoot} (branch ${ctx.branch}) for ${agent}`;
     });
 }

@@ -119,6 +119,34 @@ describe('agent-worktree MVP single-owner leases', () => {
         expect(run(['assert-owner', '--agent', 'alpha'], path.join(base, 'wt-a')).status).toBe(0);
     });
 
+    it('enforces branch uniqueness even for the SAME agent (a duplicate-branch lease would brick the registry)', () => {
+        const wtDup2 = addWorktree('wt-a-dup2', 'feat-a', { force: true });
+        const r = run(['claim', '--agent', 'alpha', '--task', '13'], wtDup2); // alpha already owns feat-a at wt-a
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/one writer per branch/i);
+    });
+
+    it('rejects blank agent/task and the primary checkout', () => {
+        const wt = addWorktree('wt-blank', 'feat-blank');
+        expect(run(['claim', '--agent', '   ', '--task', '1'], wt).err).toMatch(/non-blank agent/i);
+        expect(run(['claim', '--agent', 'x', '--task', '   '], wt).err).toMatch(/non-blank --task/i);
+        // primary checkout (repo) is not a linked worktree → refused
+        const primary = run(['claim', '--agent', 'x', '--task', '1'], repo);
+        expect(primary.status).toBe(1);
+        expect(primary.err).toMatch(/primary checkout/i);
+    });
+
+    it('fails closed when the marker and its registry lease disagree on an authoritative field', () => {
+        const wt = addWorktree('wt-tamper', 'feat-tamper', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '50'], wt).status).toBe(0);
+        const mf = markerFile(wt);
+        const marker = JSON.parse(readFileSync(mf, 'utf8'));
+        writeFileSync(mf, JSON.stringify({ ...marker, task: '999' })); // tamper task to differ from the lease
+        const r = run(['assert-owner', '--agent', 'alpha'], wt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/marker\/lease disagree/i);
+    });
+
     it('(6) concurrent claims of the same fresh worktree serialize to exactly one winner', async () => {
         const wtC = addWorktree('wt-c', 'feat-c');
         const [r1, r2] = await Promise.all([
