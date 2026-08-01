@@ -279,13 +279,32 @@ export const useSessionStore = create<SessionStore>((set) => {
     setSTTStatus: (status) => {
         logger.debug({ type: status.type, message: status.message, timestamp: Date.now() }, '[STORE UPDATE]');
         set((state) => {
-            if (
+            // #1089 STALE TIMER (Ready/Idle invariant): "Ready to record" / "idle" with a non-zero elapsed
+            // timer is a contradiction — Ready asserts that no recording is in progress. The visible timer
+            // was only ever reset inside setSTTMode, which skips the reset once sessionSaved is true, so a
+            // prior take's elapsed value could survive into the Ready surface (the observed 00:09 while
+            // Ready). We MUST enforce this on EVERY route into Ready/Idle. Compute it FIRST, before the
+            // duplicate-status no-op below — otherwise republishing the SAME Ready status (a common
+            // re-render/re-subscribe path) returns early and preserves the stale timer. Guarded on
+            // runtimeState so a live recording is never zeroed from under itself. This zeroes ONLY the LIVE
+            // timer (elapsedTime/startTime); completedSessionDurationSeconds, transcript, saved-session
+            // identity and recovery state are deliberately untouched — the just-finished session's review
+            // still needs its real duration.
+            const violatesReadyTimerInvariant =
+                (status.type === 'ready' || status.type === 'idle') &&
+                state.runtimeState !== 'RECORDING' &&
+                (state.elapsedTime !== 0 || state.startTime !== null);
+
+            const isDuplicateStatus =
                 state.sttStatus.type === status.type &&
                 state.sttStatus.message === status.message &&
                 state.sttStatus.progress === status.progress &&
-                state.sttStatus.isFrozen === status.isFrozen
-            ) {
-                return state;
+                state.sttStatus.isFrozen === status.isFrozen;
+
+            if (isDuplicateStatus) {
+                // A genuine no-op UNLESS the stale-timer invariant is violated; if so, normalize only the
+                // LIVE timer while leaving the (unchanged) status and all completed/saved/recovery state.
+                return violatesReadyTimerInvariant ? { elapsedTime: 0, startTime: null } : state;
             }
             // Guard active recordings, but allow recovery once runtime has left RECORDING.
             if (
@@ -296,21 +315,7 @@ export const useSessionStore = create<SessionStore>((set) => {
                 logger.warn({ status, currentState: state.sttStatus.type }, '[Store] ⚠️ Attempted to overwrite recording state');
                 return state;
             }
-            // #1089 STALE TIMER: "Ready to record" with a non-zero elapsed timer is a contradiction —
-            // Ready asserts that no recording is in progress. The visible timer was only ever reset
-            // inside setSTTMode, which skips the reset once sessionSaved is true, so a prior take's
-            // elapsed value survived into the Ready surface (the observed 00:09 while Ready). Clearing
-            // it here makes the invariant hold on EVERY route into Ready/Idle, not just a mode change.
-            // Guarded on runtimeState so a live recording is never zeroed out from under itself.
-            // NOTE: this zeroes only the LIVE timer. `completedSessionDurationSeconds` is deliberately
-            // untouched — the just-finished session's review still needs its real duration (#1089 review
-            // finding: transition() sets status 'idle' BEFORE runtimeState leaves STOPPING, so this branch
-            // runs on every normal stop, not only on a stale-Ready surface).
-            if (
-                (status.type === 'ready' || status.type === 'idle') &&
-                state.runtimeState !== 'RECORDING' &&
-                (state.elapsedTime !== 0 || state.startTime !== null)
-            ) {
+            if (violatesReadyTimerInvariant) {
                 return { sttStatus: status, elapsedTime: 0, startTime: null };
             }
             return { sttStatus: status };

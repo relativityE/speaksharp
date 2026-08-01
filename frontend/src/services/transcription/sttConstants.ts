@@ -73,17 +73,15 @@ export const PRIV_STT = {
   // two were equal a take could silently lose its tail. 900s ≈ 57.6MB at 16kHz float32 — the recording cap
   // is the binding limit; this stays a true backstop that a normal take never reaches.
   MAX_UTTERANCE_SECONDS: 900,
-  // #891 beta recording length = the PRODUCT REQUIREMENT: a single Private take may run the full
-  // 5 minutes (300s). The prior 90s value was a beta latency control (kept Stop→final under ~30s on
-  // single-thread WASM); it was REJECTED as beta behavior. Segmented finalization was supposed to lift
-  // it but the implementation failed on real audio and is parked — so we lift the cap directly and make
-  // the finalize wait HONEST instead (the Finalizing… state is shown for the full Stop→final decode,
-  // which on WASM is ~0.27x realtime => ~80s for a 5-min take). WebGPU (v4) is the future accelerator,
-  // NOT a prerequisite for correct capture. The 600s MAX_UTTERANCE_SECONDS hard memory guard stays.
-  // 10 minutes. The prior 300s was set when finalization was ASSUMED slow; that assumption is now
-  // measured false. On production multi-threaded WASM (4 threads, #1043) a real 5:03 take finalized in
-  // 38.7s (RTF ~0.128), so a full 10-minute take costs ~77s of Finalizing… and ~19MB of buffer. Stopping
-  // a user who believes they are still recording is worse than a longer finalize wait.
+  // #891/#1089 PRODUCT REQUIREMENT: a single Private take may run the full 10 minutes (600s). History:
+  // #891 first set this to 5 minutes (300s) — itself a lift from a 90s beta latency control — on the
+  // ASSUMPTION that Stop→final decode was slow. That assumption is now measured false: on production
+  // multi-threaded WASM (4 threads, #1043) a real 5:03 take finalized in 38.7s (RTF ~0.128), so a full
+  // 10-minute take costs only ~77s of Finalizing… and ~19MB of buffer. Segmented finalization was meant
+  // to lift the cap but failed on real audio and is parked; we lift the cap directly and make the
+  // Finalizing… wait HONEST (shown for the whole Stop→final decode). Stopping a user who believes they
+  // are still recording is worse than a longer finalize wait. WebGPU (v4) is a future accelerator, NOT a
+  // prerequisite. The 900s MAX_UTTERANCE_SECONDS hard memory backstop (above) stays STRICTLY ABOVE this cap.
   MAX_PRIVATE_RECORDING_SECONDS: 600,
   PRIVATE_RECORDING_CAP_WARNING_SECONDS: 20,
   // #1089 HARD CEILING on post-Stop finalization. Finalizing… now disables the record control for its
