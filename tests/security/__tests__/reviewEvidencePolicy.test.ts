@@ -179,6 +179,13 @@ describe('#1132 ephemeral review-evidence policy', () => {
             expect.stringContaining('artifact uploader is not present'),
         );
 
+        const disguisedBinary = join(fixture, 'playwright-report', 'proof.txt');
+        writeFileSync(disguisedBinary, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', fixture)).toContainEqual(
+            expect.stringContaining('binary content in text artifact; upload denied'),
+        );
+        rmSync(disguisedBinary);
+
         const runnerTemp = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-runner-temp-'));
         temporaryRepos.push(runnerTemp);
         writeFileSync(join(runnerTemp, 'v4-vite.log'), JSON.stringify({ transcript: 'private practice words' }));
@@ -226,6 +233,28 @@ describe('#1132 ephemeral review-evidence policy', () => {
         );
         expect(reviewEvidencePolicyViolations(neutralUploader)).toContainEqual(
             expect.stringContaining('review-evidence.yml::output: broad browser-output upload requires'),
+        );
+
+        const absoluteDirectory = policyFixtureRepo();
+        replaceInFixture(
+            absoluteDirectory,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload neutral absolute output\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: absolute-output\n          path: /tmp/neutral-review-output\n          retention-days: 30\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(absoluteDirectory)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::absolute-output: broad browser-output upload requires'),
+        );
+
+        const absoluteFile = policyFixtureRepo();
+        replaceInFixture(
+            absoluteFile,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact absolute result\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: absolute-result\n          path: /tmp/result.json\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(absoluteFile)).not.toContainEqual(
+            expect.stringContaining('review-evidence.yml::absolute-result: broad browser-output upload requires'),
         );
     });
 

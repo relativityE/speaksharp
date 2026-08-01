@@ -184,7 +184,9 @@ function pathAppearsBroad(path) {
   const withoutWorkspace = path.replace(/^\$\{\{\s*github\.workspace\s*\}\}\//, '');
   if (/\$\{\{/.test(withoutWorkspace)) return true;
   if (/[*?[\]]/.test(withoutWorkspace) || withoutWorkspace.endsWith('/')) return true;
-  if (withoutWorkspace.startsWith('/')) return false;
+  // A literal absolute path is not inherently a file. Treat extensionless
+  // absolute paths as directories/fail-closed upload roots; an exact absolute
+  // file such as /tmp/result.json remains narrow.
   return extname(withoutWorkspace) === '';
 }
 
@@ -254,6 +256,22 @@ function hasBinaryMagic(contents) {
   return BINARY_MAGIC_PREFIXES.some((prefix) => contents.subarray(0, prefix.length).equals(prefix));
 }
 
+function hasNonTextContent(contents) {
+  if (contents.length === 0) return false;
+  if (hasBinaryMagic(contents) || contents.includes(0)) return true;
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(contents);
+    if (text.length === 0) return false;
+    const forbiddenControls = [...text].filter((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 && !['\t', '\n', '\r', '\f'].includes(character);
+    }).length;
+    return forbiddenControls / text.length > 0.005;
+  } catch {
+    return true;
+  }
+}
+
 export function committedReviewBinaries(repoRoot = REPO_ROOT) {
   return gitTrackedFiles(repoRoot)
     .filter((path) => !isApprovedProductBinary(path))
@@ -265,20 +283,9 @@ export function committedReviewBinaries(repoRoot = REPO_ROOT) {
       if (KNOWN_BINARY_EXTENSIONS.has(extension)) return true;
 
       const contents = readFileSync(absolute);
-      if (contents.length === 0) return false;
       if (hasBinaryMagic(contents)) return true;
       if (TEXT_CONTROL_EXCEPTIONS.has(path)) return false;
-      if (contents.includes(0)) return true;
-      try {
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(contents);
-        const forbiddenControls = [...text].filter((character) => {
-          const code = character.charCodeAt(0);
-          return code < 32 && !['\t', '\n', '\r', '\f'].includes(character);
-        }).length;
-        return forbiddenControls / text.length > 0.005;
-      } catch {
-        return true;
-      }
+      return hasNonTextContent(contents);
     });
 }
 
@@ -365,7 +372,14 @@ function scanArtifactRoots(repoRoot, roots) {
         violations.push(`${displayPath}: artifact is too large to inspect; upload denied`);
         continue;
       }
-      const contents = readFileSync(file, 'utf8');
+      const rawContents = readFileSync(file);
+      // Extensions are not evidence of content type. Apply the same binary
+      // classification used for committed files before decoding nominal text.
+      if (hasNonTextContent(rawContents)) {
+        violations.push(`${displayPath}: binary content in text artifact; upload denied`);
+        continue;
+      }
+      const contents = new TextDecoder('utf-8', { fatal: true }).decode(rawContents);
       violations.push(...inspectSensitiveText(contents, displayPath));
     }
   }
