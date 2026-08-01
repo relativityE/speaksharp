@@ -1,125 +1,253 @@
 /**
- * #1045 deployed journey — proves the LIVE Progress loop on the deployed app, AFTER the two migrations are
- * applied. Uses the MAINTAINED reusable Free account and seeds the Private SAMPLE entitlement through the
- * sanctioned service-role path (as tests/live/stt-switching-contract.live.spec.ts does). Real Private
- * recordings; no mocks. GitHub Actions injects all credentials (run via rc-gates gate-3-dast).
+ * #1045 deployed Progress journey — proves the LIVE Progress loop on the deployed app against the REAL
+ * backend (no mocks). Rewritten after a review finding: the prior version used
+ * `verifyCredentialsAndInjectSession` → `setupE2EManifest`, which installs a MOCKED `window.supabase`
+ * and an injected `__E2E_DEPS__.fetchUsageLimit`. That made `check-usage-limit` a mock, so the seeded
+ * PRODUCTION Private-sample entitlement was never consumed and Private read DISABLED — a harness defect,
+ * NOT a production entitlement defect. It also serialized the account's live auth session into the
+ * Playwright trace.
  *
- * The Private sample is ONE-SHOT (availability flips off once private_sample_session_id is set), so the
- * two-session loop re-seeds the sample between sessions via the same service-role path. This is a harness
- * precondition for exercising the Progress MECHANICS; it is not a claim about the sample business rule.
+ * This version follows the sanctioned live pattern (tests/live/stt-switching-contract.live.spec.ts):
+ *   - `deployedLiveTest` fixture (real deployed backend; MSW off; NO mocked supabase),
+ *   - REAL UI sign-in via /auth/signin (no session injection → no token in the trace),
+ *   - seed the Private sample on the MAINTAINED Free account via the service-role `user_profiles` path
+ *     BEFORE sign-in (NO account creation),
+ *   - PROVE a real `check-usage-limit` network response returned `private_sample_available: true` with
+ *     sufficient remaining allowance,
+ *   - POLL Private availability (it resolves only after the usage-limit fetch), never a single read,
+ *   - ASSERT the mock surfaces (`__E2E_DEPS__`, mocked supabase) are ABSENT,
+ *   - restore the shared account to a NON-entitled sample state in afterEach so a failure can never
+ *     leave a live free-Private sample on the shared account.
  *
- * A deterministic preflight fails in SECONDS before either long recording unless every precondition holds:
- * deployed SHA present, sample resolves available server-side, Private control enabled+selected, model
- * reaches ready, and (re-seeded) allowance covers each session. Each assertion names its gate.
+ * The Private sample is ONE-SHOT (availability flips off once a session consumes it), so the two-session
+ * loop re-seeds via the same service-role path between sessions. This is a harness precondition for
+ * exercising the Progress MECHANICS on the deployed app; it is not a claim about the sample business rule.
+ *
+ * NOTE: this spec is authored but must NOT be run until a corrected run is separately authorized.
  */
-import { test, expect, Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { test, expect } from './helpers/deployedLiveTest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { verifyCredentialsAndInjectSession } from '../e2e/helpers';
+import { AUDIO_ARGS, selectBenchmarkMode, preparePrivateModelIfPrompted } from './helpers/benchmark-utils';
+import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || '';
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const EMAIL = process.env.FREE_TEST_EMAIL || process.env.BASIC_TEST_EMAIL || process.env.VISUAL_TEST_EMAIL || '';
-const PASSWORD = process.env.FREE_TEST_PASSWORD || process.env.BASIC_TEST_PASSWORD || process.env.VISUAL_TEST_PASSWORD || '';
-const RECORD_MS = Number(process.env.PROGRESS_RECORD_MS || 45000); // ≥30s AND enough audio for ≥75 words
-const EXPECTED_RELEASE_SHA = (process.env.EXPECTED_RELEASE_SHA || '').trim();
+const BASE_URL = process.env.BASE_URL;
+const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '';
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+// MAINTAINED reusable Free account (GitHub-injected). No account is created by this spec.
+const EMAIL = process.env.FREE_TEST_EMAIL ?? process.env.BASIC_TEST_EMAIL ?? '';
+const PASSWORD = process.env.FREE_TEST_PASSWORD ?? process.env.BASIC_TEST_PASSWORD ?? '';
+const RECORD_MS = Number(process.env.PROGRESS_RECORD_MS ?? 45_000); // long enough for an eligible clarity sample
+const RECORD_SECONDS = Math.ceil(RECORD_MS / 1000);
+const EXPECTED_RELEASE_SHA = (process.env.EXPECTED_RELEASE_SHA ?? '').trim();
 
-test.use({ permissions: ['microphone'], viewport: { width: 1280, height: 800 } });
+test.describe.configure({ mode: 'serial', retries: 0 });
 
-/** Fresh, unused 5-minute Private sample on the maintained Free account (service-role; the sanctioned path). */
+test.use({
+  permissions: ['microphone'],
+  baseURL: BASE_URL,
+  viewport: { width: 1280, height: 800 },
+  launchOptions: {
+    // Private (Whisper) transcribes the fake-file audio directly, so recordings carry real speech
+    // (non-speech would be discarded and no session would persist).
+    args: [...AUDIO_ARGS, `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_LONG_AUDIO}`],
+  },
+});
+
+/** Fresh, UNUSED 5-minute Private sample on the maintained Free account (service-role; sanctioned path). */
 async function seedUnusedSample(admin: SupabaseClient, uid: string): Promise<void> {
-    const { error } = await admin.from('user_profiles').upsert({
-        id: uid,
-        subscription_status: 'free',
-        private_sample_limit_seconds: 300,
-        private_sample_seconds_used: 0,
-        private_sample_completed_at: null,
-        private_sample_session_id: null,
-    }, { onConflict: 'id' });
-    if (error) throw new Error(`seed sample failed: ${error.message}`);
+  const { error } = await admin.from('user_profiles').upsert({
+    id: uid,
+    subscription_status: 'free',
+    private_sample_limit_seconds: 300,
+    private_sample_seconds_used: 0,
+    private_sample_completed_at: null,
+    private_sample_session_id: null,
+  }, { onConflict: 'id' });
+  if (error) throw new Error(`seed sample failed: ${error.message}`);
 }
 
-async function resolveUid(): Promise<string> {
-    const c = createClient(SUPABASE_URL, ANON_KEY);
-    const { data, error } = await c.auth.signInWithPassword({ email: EMAIL, password: PASSWORD });
-    if (error || !data.user) throw new Error(`preflight: cannot authenticate maintained Free account: ${error?.message}`);
-    return data.user.id;
+/**
+ * Restore the SHARED account to a NON-entitled sample state (consumed → `private_sample_available=false`)
+ * so a failure or a completed run never leaves a live free-Private sample on the reusable account.
+ */
+async function clearSampleEntitlement(admin: SupabaseClient, uid: string): Promise<void> {
+  await admin.from('user_profiles').upsert({
+    id: uid,
+    subscription_status: 'free',
+    private_sample_limit_seconds: 300,
+    private_sample_seconds_used: 300,
+    private_sample_completed_at: '2024-01-01T00:05:00.000Z',
+    private_sample_session_id: null,
+  }, { onConflict: 'id' }).then(({ error }) => { if (error) console.warn(`[journey] clearSampleEntitlement: ${error.message}`); });
 }
 
-async function waitPrivateReady(page: Page): Promise<void> {
-    // Durable model status projected onto <html data-model-status>; v2 auto-loads from /models/.
-    await expect(async () => {
-        const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
-        expect(status, `model status is '${status}', not 'ready'`).toBe('ready');
-    }).toPass({ timeout: 180000 });
+async function resolveUidByEmail(admin: SupabaseClient, email: string): Promise<string> {
+  const target = email.toLowerCase();
+  for (let page = 1; page <= 25; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(`resolveUid: ${error.message}`);
+    const users = (data?.users ?? []) as Array<{ id: string; email?: string | null }>;
+    const hit = users.find((u) => (u.email ?? '').toLowerCase() === target);
+    if (hit) return hit.id;
+    if (users.length < 200) break;
+  }
+  throw new Error(`resolveUid: maintained Free account not found: ${email}`);
 }
 
-async function selectPrivate(page: Page): Promise<void> {
-    await page.goto('/session');
-    await page.waitForSelector('[data-testid="live-recording-card"]', { timeout: 30000 });
-    await page.getByTestId('stt-mode-select').click();
-    const priv = page.getByTestId('stt-mode-private');
-    await expect(priv, 'Private option present').toBeVisible({ timeout: 10000 });
-    expect(await priv.getAttribute('aria-disabled'), 'Private DISABLED — sample entitlement did not resolve').not.toBe('true');
-    await priv.click();
-    await page.keyboard.press('Escape').catch(() => { /* menu may be closed */ });
+async function signIn(page: Page, email: string, password: string): Promise<void> {
+  await page.goto('/auth/signin');
+  await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('email-input').fill(email);
+  await page.getByTestId('password-input').fill(password);
+  await page.getByTestId('sign-in-submit').click();
+  await page.waitForURL((url) => !url.pathname.includes('/auth/signin'), { timeout: 45_000 });
+  await page.goto('/session');
 }
 
-async function recordOneSession(page: Page): Promise<void> {
-    await waitPrivateReady(page);
-    const startStop = page.getByTestId('session-start-stop-button');
-    await expect(startStop, 'record: start/stop present').toBeVisible({ timeout: 20000 });
-    await startStop.click();
-    await expect(page.getByTestId('recording-indicator'), 'record: RECORDING engaged (Private)').toBeVisible({ timeout: 240000 });
-    await page.waitForTimeout(RECORD_MS);
-    await startStop.click();
-    await expect(page.getByTestId('recording-indicator'), 'record: finalize completes').toBeHidden({ timeout: 240000 });
-    await page.waitForTimeout(6000);
+async function isModeDisabled(page: Page, mode: 'private' | 'cloud'): Promise<boolean> {
+  const option = page.getByTestId(`stt-mode-${mode}`);
+  await expect(option).toBeVisible({ timeout: 10_000 });
+  return option.evaluate((el) => {
+    const h = el as HTMLElement;
+    return h.getAttribute('aria-disabled') === 'true' || h.hasAttribute('disabled') || h.hasAttribute('data-disabled');
+  });
+}
+
+/** Availability resolves only after the usage-limit fetch returns — poll, never read once. */
+async function expectPrivateEnabled(page: Page): Promise<void> {
+  await expect(async () => {
+    expect(await isModeDisabled(page, 'private'), 'Private should be available after entitlement resolves').toBe(false);
+  }).toPass({ timeout: 20_000, intervals: [500, 1_000, 2_000] });
+}
+
+async function readReleaseSha(page: Page): Promise<string> {
+  const sha = await page.evaluate(() => {
+    const w = window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } };
+    return w.__APP_RELEASE__ ?? w.__APP_RUNTIME_CONFIG__?.release ?? null;
+  });
+  expect(sha ?? '', `deployed release must be a 40-char SHA, got: ${sha}`).toMatch(/^[0-9a-f]{40}$/i);
+  return sha as string;
+}
+
+/** Prove the page is on the REAL backend, not a mock: no injected deps, no mocked supabase client. */
+async function assertNoMockSurfaces(page: Page): Promise<void> {
+  const surfaces = await page.evaluate(() => {
+    const w = window as unknown as { __E2E_DEPS__?: unknown; supabase?: { __isMock__?: boolean; __mock__?: boolean } };
+    return {
+      e2eDeps: Boolean(w.__E2E_DEPS__),
+      supabaseMocked: Boolean(w.supabase && (w.supabase.__isMock__ || w.supabase.__mock__)),
+    };
+  });
+  expect(surfaces.e2eDeps, 'mock injection __E2E_DEPS__ must be ABSENT (real backend)').toBe(false);
+  expect(surfaces.supabaseMocked, 'window.supabase must NOT be a mock (real backend)').toBe(false);
+}
+
+type EntitlementBody = { private_sample_available?: boolean; private_sample_seconds_remaining?: number } & Record<string, unknown>;
+
+async function recordEligiblePrivateSession(page: Page): Promise<void> {
+  // Prove Private is enabled (poll), then select it via the sanctioned selector.
+  const modeSelect = page.getByTestId('stt-mode-select');
+  await expect(modeSelect).toBeVisible({ timeout: 20_000 });
+  await modeSelect.click();
+  await expectPrivateEnabled(page);
+  await page.keyboard.press('Escape').catch(() => undefined);
+  await selectBenchmarkMode(page, 'private');
+
+  // Load the Private model to start-ready (auto-loads from /models/ on the deployed origin).
+  await preparePrivateModelIfPrompted(page, 180_000);
+
+  const startStop = page.getByTestId('session-start-stop-button');
+  await expect(startStop, 'record: start/stop present').toBeEnabled({ timeout: 60_000 });
+  await startStop.click();
+  await expect(startStop, 'record: RECORDING engaged (Private)').toHaveAttribute('data-recording', 'true', { timeout: 240_000 });
+  await page.waitForTimeout(RECORD_MS);
+  await startStop.click();
+  await expect(startStop, 'record: finalize completes').toHaveAttribute('data-recording', 'false', { timeout: 240_000 });
+  await expect(page.getByTestId('status-message-text'), 'record: session saved').toContainText(/Session saved/i, { timeout: 240_000 });
 }
 
 async function latestSessionId(admin: SupabaseClient, uid: string): Promise<string> {
-    const { data } = await admin.from('sessions').select('id, created_at, status, attribution_status')
-        .eq('user_id', uid).order('created_at', { ascending: false }).limit(1);
-    const row = data?.[0] as { id: string } | undefined;
-    if (!row) throw new Error('gate 1: no session persisted — recording discarded (non-speech) or not saved');
-    return row.id;
+  const { data } = await admin.from('sessions').select('id, created_at')
+    .eq('user_id', uid).order('created_at', { ascending: false }).limit(1);
+  const row = data?.[0] as { id: string } | undefined;
+  if (!row) throw new Error('no session persisted — recording discarded or not saved');
+  return row.id;
 }
 
-test('#1045 deployed journey: record → Progress panel → accept → next session resolves outcome', async ({ page }) => {
+test.describe.serial('#1045 deployed Progress journey @live', () => {
+  let admin: SupabaseClient;
+  let uid: string;
+  // Capture the REAL check-usage-limit responses so we can prove the entitlement source is production.
+  const entitlementBodies: EntitlementBody[] = [];
+
+  test.beforeAll(async () => {
+    test.skip(!BASE_URL, 'BASE_URL required');
+    test.skip(!SUPABASE_URL || !SERVICE_ROLE || !EMAIL || !PASSWORD, 'GitHub-injected Supabase + maintained Free creds required');
+    admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
+    uid = await resolveUidByEmail(admin, EMAIL);
+  });
+
+  // Restoration: never leave a live free-Private sample on the shared account, pass or fail.
+  test.afterEach(async () => {
+    if (admin && uid) await clearSampleEntitlement(admin, uid);
+  });
+
+  test('record → Progress panel → accept → next session resolves outcome', async ({ page }) => {
     test.setTimeout(15 * 60 * 1000);
-    test.skip(!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE || !EMAIL, 'requires GitHub-injected Supabase + maintained Free creds');
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
-    const uid = await resolveUid();
 
-    // ── Preflight (fail fast, seconds) ──
-    await seedUnusedSample(admin, uid);                                  // gate 2 precondition
+    // Capture check-usage-limit response bodies for the entitlement proof (step 4).
+    const isEnt = (url: string) => /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
+    page.on('response', async (response) => {
+      if (!isEnt(response.url())) return;
+      try { entitlementBodies.push(await response.json() as EntitlementBody); } catch { /* non-JSON */ }
+    });
+
+    // ── Seed BEFORE sign-in (service-role; maintained account; no account creation) ──
+    await seedUnusedSample(admin, uid);
     const { data: prof } = await admin.from('user_profiles')
-        .select('subscription_status, private_sample_seconds_used, private_sample_completed_at, private_sample_session_id, private_sample_limit_seconds')
-        .eq('id', uid).maybeSingle();
+      .select('private_sample_seconds_used, private_sample_completed_at, private_sample_session_id, private_sample_limit_seconds')
+      .eq('id', uid).maybeSingle();
     const p = prof as Record<string, unknown> | null;
-    expect(p?.private_sample_completed_at, 'preflight: sample must be unused (completed_at null)').toBeNull();
-    expect(p?.private_sample_session_id, 'preflight: sample must be unused (session_id null)').toBeNull();
+    expect(p?.private_sample_completed_at, 'preflight: sample unused (completed_at null)').toBeNull();
+    expect(p?.private_sample_session_id, 'preflight: sample unused (session_id null)').toBeNull();
     expect(Number(p?.private_sample_limit_seconds) - Number(p?.private_sample_seconds_used),
-        'preflight: sample allowance must cover a session').toBeGreaterThanOrEqual(RECORD_MS / 1000);
+      'preflight: allowance covers a session').toBeGreaterThanOrEqual(RECORD_SECONDS);
 
-    await verifyCredentialsAndInjectSession(page, EMAIL, PASSWORD, 'free');
-    await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
-    const deployedSha = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? '');
-    expect(deployedSha, 'preflight: deployed SHA must be a full 40-char commit').toMatch(/^[0-9a-f]{40}$/i);
-    if (EXPECTED_RELEASE_SHA) expect(deployedSha, `preflight: deployed ${deployedSha} != expected ${EXPECTED_RELEASE_SHA}`).toBe(EXPECTED_RELEASE_SHA);
-    test.info().annotations.push({ type: 'deployed_sha', description: deployedSha });
+    // ── Real UI sign-in (no session injection) ──
+    await signIn(page, EMAIL, PASSWORD);
+    await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
+
+    // ── Deployed SHA + no-mock proof ──
+    const deployedSha = await readReleaseSha(page);
+    if (EXPECTED_RELEASE_SHA) expect(deployedSha, `deployed ${deployedSha} != expected ${EXPECTED_RELEASE_SHA}`).toBe(EXPECTED_RELEASE_SHA);
+    await assertNoMockSurfaces(page);
     console.log(`[journey] deployed_sha=${deployedSha} uid=${uid}`);
 
-    await selectPrivate(page);   // gate 3: Private enabled + selected
+    // ── Entitlement proof: a REAL check-usage-limit response resolved the sample available ──
+    const modeSelect = page.getByTestId('stt-mode-select');
+    await expect(modeSelect).toBeVisible({ timeout: 20_000 });
+    await modeSelect.click();
+    await expectPrivateEnabled(page);
+    await page.keyboard.press('Escape').catch(() => undefined);
+    expect(entitlementBodies.length, 'a real check-usage-limit response must have been observed').toBeGreaterThan(0);
+    const available = entitlementBodies.some((b) => b.private_sample_available === true);
+    expect(available, 'check-usage-limit must report private_sample_available:true (real backend)').toBe(true);
+    const withRemaining = entitlementBodies.find((b) => typeof b.private_sample_seconds_remaining === 'number');
+    if (withRemaining) {
+      expect(Number(withRemaining.private_sample_seconds_remaining),
+        'check-usage-limit remaining allowance must cover a session').toBeGreaterThanOrEqual(RECORD_SECONDS);
+    }
+    console.log(`[journey] entitlement=${JSON.stringify(entitlementBodies[entitlementBodies.length - 1])}`);
 
     // ── Gate 1 — first eligible Private session ──
-    await recordOneSession(page);
+    await recordEligiblePrivateSession(page);
     const s1 = await latestSessionId(admin, uid);
     console.log(`[journey] session1=${s1}`);
 
     // ── Gate 2 — Session-review renders the Progress panel ──
     await page.goto(`/analytics/${s1}`);
-    await expect(page.getByTestId('progress-panel'), 'gate 2: Progress panel renders').toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId('progress-panel'), 'gate 2: Progress panel renders').toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('progress-direction')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toBeVisible();
     await expect(page.getByTestId('progress-practice-next')).toBeVisible();
@@ -128,39 +256,37 @@ test('#1045 deployed journey: record → Progress panel → accept → next sess
 
     // ── Gate 3 — accept records an attempt + enters the next practice ──
     await accept.click();
-    await expect(page).toHaveURL(/\/session/, { timeout: 20000 });
+    await expect(page).toHaveURL(/\/session/, { timeout: 20_000 });
 
     // Re-seed the one-shot sample so session 2 can also use Private (sanctioned service-role path).
     await seedUnusedSample(admin, uid);
 
     // ── Gate 4 — second eligible session resolves the attempt (server-derived outcome) ──
-    await selectPrivate(page);
-    await recordOneSession(page);
+    await recordEligiblePrivateSession(page);
     const s2 = await latestSessionId(admin, uid);
     console.log(`[journey] session2=${s2}`);
 
     // ── Verify persisted rows (service-role; sanitized) ──
     const { data: evalRow } = await admin.from('session_progress_evaluations')
-        .select('session_id, eligible, clarity_raw, cohort_key').eq('session_id', s1).maybeSingle();
+      .select('session_id, eligible, clarity_raw, cohort_key').eq('session_id', s1).maybeSingle();
     expect((evalRow as { eligible?: boolean } | null)?.eligible, 'session 1 evaluation must be eligible').toBe(true);
     const { data: rec } = await admin.from('progress_recommendations')
-        .select('id, target_metric, source_metric_value').eq('source_session_id', s1).maybeSingle();
-    expect((rec as { id?: string } | null)?.id, 'recommendation persisted for session 1').toBeTruthy();
+      .select('id, target_metric, source_metric_value').eq('source_session_id', s1).maybeSingle();
+    const recId = (rec as { id?: string } | null)?.id;
+    expect(recId, 'recommendation persisted for session 1').toBeTruthy();
 
     let attempt: { lifecycle: string; outcome: string | null } | null = null;
     for (let i = 0; i < 12 && !attempt; i++) {
-        const { data } = await admin.from('progress_recommendation_attempts')
-            .select('lifecycle, outcome, accepted_at, recommendation_id')
-            .eq('recommendation_id', (rec as { id: string }).id).order('accepted_at', { ascending: false }).limit(1);
-        const row = data?.[0] as { lifecycle: string; outcome: string | null } | undefined;
-        if (row && row.lifecycle !== 'pending') attempt = row;
-        else await page.waitForTimeout(3000);
+      const { data } = await admin.from('progress_recommendation_attempts')
+        .select('lifecycle, outcome, accepted_at, recommendation_id')
+        .eq('recommendation_id', recId!).order('accepted_at', { ascending: false }).limit(1);
+      const row = data?.[0] as { lifecycle: string; outcome: string | null } | undefined;
+      if (row && row.lifecycle !== 'pending') attempt = row;
+      else await page.waitForTimeout(3_000);
     }
-    console.log(`[journey] evaluation=eligible recommendation=${(rec as { id: string }).id} attempt=${JSON.stringify(attempt)}`);
+    console.log(`[journey] evaluation=eligible recommendation=${recId} attempt=${JSON.stringify(attempt)}`);
     expect(attempt, 'gate 4: attempt resolved to a terminal lifecycle').not.toBeNull();
     expect(['completed', 'not_comparable']).toContain(attempt!.lifecycle);
     expect(['moved', 'did_not_move', 'not_comparable']).toContain(attempt!.outcome);
-
-    // Restore the shared account to a clean unused-sample state.
-    await seedUnusedSample(admin, uid);
+  });
 });
