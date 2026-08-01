@@ -6,13 +6,20 @@ import {
     rankableCohorts,
     cohortKey,
     PERCENTILE_POLICY,
+    PRIVATE_V2_PROVENANCE_REQUIRED_FILES,
     type AudioRouteEvidence,
+    type PrivateWorkerEvidence,
     type SttEvidenceRow,
 } from '../sttEvidenceSchema';
 
 const FIXTURE_HASH = 'a'.repeat(64);
 const IMMUTABLE_REV = 'e7f3c1a9b2d4';
 const FULL_SHA = '58d0150bf18708fe645f226aac10ee0adeadfe36';
+const PRIVATE_INPUT_HASH = 'c'.repeat(64);
+const PRIVATE_MODEL_HASH = 'e'.repeat(64);
+const PRIVATE_SAMPLES = 80_000;
+const PRIVATE_BYTES = PRIVATE_SAMPLES * Float32Array.BYTES_PER_ELEMENT;
+const PRIVATE_DURATION = PRIVATE_SAMPLES / 16_000;
 
 const route = (over: Partial<AudioRouteEvidence> = {}): AudioRouteEvidence => ({
     fixtureSha256: FIXTURE_HASH,
@@ -20,6 +27,41 @@ const route = (over: Partial<AudioRouteEvidence> = {}): AudioRouteEvidence => ({
     adapterInputBytes: 320_000,
     decodedSampleCount: 160_000,
     decodedDurationSeconds: 10,
+    ...over,
+});
+
+const privateRoute = (): AudioRouteEvidence => route({
+    adapterInputPayloadSha256: PRIVATE_INPUT_HASH,
+    adapterInputBytes: PRIVATE_BYTES,
+    decodedSampleCount: PRIVATE_SAMPLES,
+    decodedDurationSeconds: PRIVATE_DURATION,
+});
+
+const privateWorkerEvidence = (over: Partial<PrivateWorkerEvidence> = {}): PrivateWorkerEvidence => ({
+    workerUsed: true,
+    modelSource: 'self-hosted',
+    modelLoaded: 'whisper-base.en',
+    modelProvenance: {
+        modelId: 'Xenova/whisper-base.en',
+        modelRevision: IMMUTABLE_REV,
+        verdict: 'identical',
+        files: PRIVATE_V2_PROVENANCE_REQUIRED_FILES.map(file => ({
+            file,
+            expectedSha256: PRIVATE_MODEL_HASH,
+            actualSha256: PRIVATE_MODEL_HASH,
+            identical: true,
+        })),
+    },
+    mainThreadInputSha256: PRIVATE_INPUT_HASH,
+    mainThreadInputSamples: PRIVATE_SAMPLES,
+    mainThreadInputBytes: PRIVATE_BYTES,
+    mainThreadInputDurationSeconds: PRIVATE_DURATION,
+    workerInputSha256: PRIVATE_INPUT_HASH,
+    workerInputSamples: PRIVATE_SAMPLES,
+    workerInputBytes: PRIVATE_BYTES,
+    workerInputDurationSeconds: PRIVATE_DURATION,
+    inputHashesMatch: true,
+    cloudProviderCalls: 0,
     ...over,
 });
 
@@ -299,7 +341,6 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
     });
 
     it('Private browser-worker evidence requires matching main/worker hashes and self-hosted assets', () => {
-        const inputHash = 'c'.repeat(64);
         const fallbackRuntime = {
             requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
             runtimePath: 'wasm' as const, crossOriginIsolated: false,
@@ -309,22 +350,18 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(base({
             engine: 'private-v2-browser-worker',
             runtime_capability: fallbackRuntime,
-            private_worker_evidence: {
-                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
-                mainThreadInputSha256: inputHash, workerInputSha256: inputHash,
-                inputHashesMatch: true, cloudProviderCalls: 0,
-            },
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence(),
         }));
         expect(r.run_validity).toBe('valid');
 
         const mismatch = finalizeRow(base({
             engine: 'private-v2-browser-worker',
             runtime_capability: fallbackRuntime,
-            private_worker_evidence: {
-                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
-                mainThreadInputSha256: inputHash, workerInputSha256: 'd'.repeat(64),
-                inputHashesMatch: false, cloudProviderCalls: 0,
-            },
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence({
+                workerInputSha256: 'd'.repeat(64), inputHashesMatch: false,
+            }),
         }));
         expect(mismatch.run_validity).toBe('invalid');
         expect(mismatch.invalid_reason).toMatch(/PCM hashes do not match/i);
@@ -338,15 +375,59 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
                 runtimePath: 'wasm', crossOriginIsolated: false,
                 sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
             },
-            private_worker_evidence: {
-                workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence({
                 mainThreadInputSha256: 'not-a-hash', workerInputSha256: 'not-a-hash',
-                inputHashesMatch: true, cloudProviderCalls: 0,
-            },
+            }),
         }));
         expect(r.run_validity).toBe('invalid');
         expect(r.invalid_reason).toMatch(/workerReportedThreads must be null/);
         expect(r.invalid_reason).toMatch(/64-character SHA-256/);
+    });
+
+    it.each([
+        ['sample count', { workerInputSamples: PRIVATE_SAMPLES + 1 }, /sample counts do not match/i],
+        ['byte count', { workerInputBytes: PRIVATE_BYTES - 4 }, /byte counts do not match/i],
+        ['duration', { workerInputDurationSeconds: PRIVATE_DURATION + 0.01 }, /duration is inconsistent/i],
+    ] as const)('Private browser-worker evidence fails closed on a %s mismatch', (_label, mismatch, reason) => {
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: {
+                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence(mismatch),
+        }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(reason);
+    });
+
+    it('Private browser-worker evidence rejects unproven model bytes and route tuple drift', () => {
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: {
+                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            audio_route_evidence: route({
+                adapterInputPayloadSha256: PRIVATE_INPUT_HASH,
+                adapterInputBytes: PRIVATE_BYTES,
+                decodedSampleCount: PRIVATE_SAMPLES - 1,
+                decodedDurationSeconds: PRIVATE_DURATION,
+            }),
+            private_worker_evidence: privateWorkerEvidence({
+                modelProvenance: {
+                    modelId: 'Xenova/whisper-base.en', modelRevision: IMMUTABLE_REV,
+                    verdict: 'differs', files: [],
+                },
+            }),
+        }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/model provenance is not byte-identical/i);
+        expect(r.invalid_reason).toMatch(/audio-route tuple does not match/i);
     });
 
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {

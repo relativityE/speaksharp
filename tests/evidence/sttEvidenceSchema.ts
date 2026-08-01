@@ -147,8 +147,25 @@ export interface PrivateWorkerEvidence {
     workerUsed: boolean;
     modelSource: 'self-hosted';
     modelLoaded: string;
+    modelProvenance: {
+        modelId: string;
+        modelRevision: string;
+        verdict: 'identical' | 'differs' | 'unverifiable';
+        files: Array<{
+            file: string;
+            expectedSha256: string;
+            actualSha256: string | null;
+            identical: boolean;
+        }>;
+    };
     mainThreadInputSha256: string;
+    mainThreadInputSamples: number;
+    mainThreadInputBytes: number;
+    mainThreadInputDurationSeconds: number;
     workerInputSha256: string;
+    workerInputSamples: number;
+    workerInputBytes: number;
+    workerInputDurationSeconds: number;
     inputHashesMatch: boolean;
     cloudProviderCalls: number;
 }
@@ -233,6 +250,22 @@ export function deriveAudioRouteProven(
 /** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
 export const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
 export const SHA256_RE = /^[0-9a-f]{64}$/i;
+export const PRIVATE_PCM_SAMPLE_RATE_HZ = 16_000;
+export const PRIVATE_PCM_DURATION_TOLERANCE_SECONDS = 1e-6;
+export const PRIVATE_V2_PROVENANCE_REQUIRED_FILES = [
+    'added_tokens.json',
+    'config.json',
+    'generation_config.json',
+    'merges.txt',
+    'normalizer.json',
+    'onnx/decoder_model_merged_quantized.onnx',
+    'onnx/encoder_model_quantized.onnx',
+    'preprocessor_config.json',
+    'special_tokens_map.json',
+    'tokenizer.json',
+    'tokenizer_config.json',
+    'vocab.json',
+] as const;
 
 const REQUIRED_STRING_FIELDS = [
     'comparability_class', 'engine', 'engine_version', 'browser', 'browser_version',
@@ -335,31 +368,84 @@ export function finalizeRow(
             problems.push('fixtureHash does not match the routed fixture');
         }
 
-        if (row.engine === 'private-v2-browser-worker') {
-            const worker = row.private_worker_evidence;
-            if (!worker) {
-                problems.push('Private browser-worker row missing private_worker_evidence');
+    }
+
+    if (row.engine === 'private-v2-browser-worker') {
+        const worker = row.private_worker_evidence;
+        if (!worker) {
+            problems.push('Private browser-worker row missing private_worker_evidence');
+        } else {
+            if (!worker.workerUsed) problems.push('Private evidence did not use the production browser worker');
+            if (worker.modelSource !== 'self-hosted') problems.push('Private evidence did not use self-hosted model assets');
+            if (!worker.modelLoaded) problems.push('Private worker did not report a loaded model');
+            if (!worker.inputHashesMatch || worker.mainThreadInputSha256 !== worker.workerInputSha256) {
+                problems.push('Private main-thread and worker PCM hashes do not match');
+            }
+            if (!SHA256_RE.test(worker.mainThreadInputSha256) || !SHA256_RE.test(worker.workerInputSha256)) {
+                problems.push('Private worker PCM hashes must be 64-character SHA-256 values');
+            }
+            const provenance = worker.modelProvenance;
+            if (!provenance || provenance.verdict !== 'identical' || provenance.files.length === 0) {
+                problems.push('Private model provenance is not byte-identical to the immutable manifest');
             } else {
-                if (!worker.workerUsed) problems.push('Private evidence did not use the production browser worker');
-                if (worker.modelSource !== 'self-hosted') problems.push('Private evidence did not use self-hosted model assets');
-                if (!worker.modelLoaded) problems.push('Private worker did not report a loaded model');
-                if (!worker.inputHashesMatch || worker.mainThreadInputSha256 !== worker.workerInputSha256) {
-                    problems.push('Private main-thread and worker PCM hashes do not match');
+                if (provenance.modelRevision !== row.comparability_inputs.modelRevision) {
+                    problems.push('Private model provenance revision does not match the comparison cohort');
                 }
-                if (!SHA256_RE.test(worker.mainThreadInputSha256) || !SHA256_RE.test(worker.workerInputSha256)) {
-                    problems.push('Private worker PCM hashes must be 64-character SHA-256 values');
+                if (provenance.modelId !== 'Xenova/whisper-base.en') {
+                    problems.push('Private model provenance ID does not match the production v2 model');
                 }
-                if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
+                for (const file of provenance.files) {
+                    if (file.file.startsWith('/') || file.file.split('/').includes('..') ||
+                        !file.identical || !SHA256_RE.test(file.expectedSha256) ||
+                        !file.actualSha256 || !SHA256_RE.test(file.actualSha256)) {
+                        problems.push(`Private model provenance file '${file.file}' is not byte-identical`);
+                    }
+                }
+                const provenFiles = new Set(provenance.files.map(file => file.file));
+                for (const requiredFile of PRIVATE_V2_PROVENANCE_REQUIRED_FILES) {
+                    if (!provenFiles.has(requiredFile)) {
+                        problems.push(`Private model provenance is missing required file '${requiredFile}'`);
+                    }
+                }
             }
-            const runtime = row.runtime_capability;
-            if (runtime.requestedThreads !== 4) problems.push('Private v2 evidence did not request the four-thread policy ceiling');
-            if (runtime.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
-            if (runtime.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
-            if (runtime.crossOriginIsolated || runtime.sharedArrayBufferAvailable) {
-                problems.push('Private v2 fallback evidence was not collected without cross-origin isolation/SharedArrayBuffer');
+            if (worker.mainThreadInputSamples !== worker.workerInputSamples) {
+                problems.push('Private main-thread and worker PCM sample counts do not match');
             }
-            if (runtime.runtimePath !== 'wasm') problems.push('Private v2 single-thread fallback must report runtimePath=wasm');
+            if (worker.mainThreadInputBytes !== worker.workerInputBytes) {
+                problems.push('Private main-thread and worker PCM byte counts do not match');
+            }
+            if (!Number.isInteger(worker.mainThreadInputSamples) || worker.mainThreadInputSamples <= 0 ||
+                !Number.isInteger(worker.workerInputSamples) || worker.workerInputSamples <= 0 ||
+                !Number.isInteger(worker.mainThreadInputBytes) || worker.mainThreadInputBytes <= 0 ||
+                !Number.isInteger(worker.workerInputBytes) || worker.workerInputBytes <= 0 ||
+                !Number.isFinite(worker.mainThreadInputDurationSeconds) || worker.mainThreadInputDurationSeconds <= 0 ||
+                !Number.isFinite(worker.workerInputDurationSeconds) || worker.workerInputDurationSeconds <= 0) {
+                problems.push('Private PCM tuple contains missing or invalid numeric values');
+            }
+            const expectedBytes = worker.mainThreadInputSamples * Float32Array.BYTES_PER_ELEMENT;
+            if (worker.mainThreadInputBytes !== expectedBytes || worker.workerInputBytes !== expectedBytes) {
+                problems.push('Private PCM byte counts are inconsistent with Float32 sample counts');
+            }
+            const expectedDuration = worker.mainThreadInputSamples / PRIVATE_PCM_SAMPLE_RATE_HZ;
+            if (Math.abs(worker.mainThreadInputDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS ||
+                Math.abs(worker.workerInputDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS) {
+                problems.push('Private PCM duration is inconsistent with samples / 16000');
+            }
+            if (row.audio_route_evidence.adapterInputBytes !== worker.mainThreadInputBytes ||
+                row.audio_route_evidence.decodedSampleCount !== worker.mainThreadInputSamples ||
+                Math.abs(row.audio_route_evidence.decodedDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS) {
+                problems.push('Private audio-route tuple does not match the main-thread PCM input');
+            }
+            if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
         }
+        const runtime = row.runtime_capability;
+        if (runtime.requestedThreads !== 4) problems.push('Private v2 evidence did not request the four-thread policy ceiling');
+        if (runtime.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
+        if (runtime.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
+        if (runtime.crossOriginIsolated || runtime.sharedArrayBufferAvailable) {
+            problems.push('Private v2 fallback evidence was not collected without cross-origin isolation/SharedArrayBuffer');
+        }
+        if (runtime.runtimePath !== 'wasm') problems.push('Private v2 single-thread fallback must report runtimePath=wasm');
     }
 
     // WER is only admissible on a proven corpus route. Never estimated, never defaulted to zero.

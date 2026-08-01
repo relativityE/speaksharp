@@ -10,10 +10,13 @@ on:
     paths:
       - 'frontend/src/benchmark/private-browser-dropin.ts'
       - 'frontend/private-dropin.html'
-      - 'frontend/src/services/transcription/engines/TransformersJSEngine.ts'
-      - 'frontend/src/services/transcription/engines/transformers-js.worker.ts'
-      - 'frontend/src/services/transcription/engines/transformersV2WasmAssets.ts'
+      - 'frontend/src/services/transcription/engines/**'
+      - 'frontend/src/services/transcription/utils/**'
       - 'frontend/src/services/transcription/sttConstants.ts'
+      - 'frontend/src/services/transcription/modes/types.ts'
+      - 'frontend/src/contracts/STTEngine.ts'
+      - 'frontend/src/contracts/IPrivateSTTEngine.ts'
+      - 'frontend/src/config/TestFlags.ts'
       - 'frontend/vite.config.mjs'
       - 'frontend/public/models/whisper-base.en/**'
       - 'package.json'
@@ -32,6 +35,14 @@ jobs:
     name: private-v2-production-worker-single-thread
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # This isolated drop-in never initializes auth and blocks all non-local
+      # requests. Explicit mock build values satisfy the frontend build contract
+      # without injecting or contacting a Supabase project.
+      VITE_SUPABASE_URL: https://mock.supabase.co
+      VITE_SUPABASE_ANON_KEY: mock_anon_key
+      VITE_AUTH_MODE: mock
+      VITE_USE_MOCK_AUTH: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v6
@@ -40,14 +51,17 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Start non-isolated test server
+      - name: Build exact-head production bundle without cross-origin isolation
         run: |
-          BUILD_ID="${{ github.event.pull_request.head.sha || github.sha }}" STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite --config frontend/vite.config.mjs --mode test --host 127.0.0.1 --port 5173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
-          pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:5173/private-dropin.html
+          BUILD_ID="${{ github.event.pull_request.head.sha || github.sha }}" STT_CROSS_ORIGIN_ISOLATED=0 pnpm build:test
+      - name: Start non-isolated production preview
+        run: |
+          STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite preview --config frontend/vite.config.mjs --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
+          pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:4173/private-dropin.html
       - name: Prove production worker + single-thread fallback + PCM route
         run: |
           pnpm evidence:stt:private-worker -- \
-            --base-url http://127.0.0.1:5173 \
+            --base-url http://127.0.0.1:4173 \
             --release-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
             --out stt-evidence-artifacts/private-v2-worker.json
       - name: Upload validator-accepted evidence
@@ -56,5 +70,5 @@ jobs:
         with:
           name: stt-private-v2-worker-evidence
           path: stt-evidence-artifacts/private-v2-worker.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 1

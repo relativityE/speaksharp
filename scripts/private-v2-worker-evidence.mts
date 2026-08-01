@@ -15,9 +15,11 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve, join } from 'node:path';
 import { finalizeRow } from '../tests/evidence/sttEvidenceSchema';
 import { wordErrorRate, NORMALIZATION_VERSION } from '../tests/evidence/werMetric';
+import { verifyModelAgainstManifest, type ExpectedModelManifest } from '../tests/evidence/modelProvenance';
 
 const MODEL_REVISION = '95bf40a508535962c6483ead40270b2e32267508';
 const MODEL_NAME = 'whisper-base.en';
+const MODEL_ID = 'Xenova/whisper-base.en';
 const require_ = createRequire(import.meta.url);
 const transformersPackagePath = require_.resolve('@xenova/transformers/package.json');
 const requireFromTransformers = createRequire(transformersPackagePath);
@@ -110,6 +112,20 @@ async function main(): Promise<void> {
   const releaseSha = arg('release-sha', process.env.GITHUB_SHA ?? '');
   const outPath = resolve(arg('out', 'test-results/stt-evidence/1037-private-v2-worker.json'));
   const manifestPath = resolve(arg('manifest', 'tests/evidence/fixtures/corpus/manifest.json'));
+  const modelManifestPath = resolve(arg(
+    'model-manifest',
+    `tests/evidence/fixtures/model-provenance/${MODEL_NAME}-${MODEL_REVISION}.json`,
+  ));
+  const productionModelDir = resolve(arg('model-dir', `frontend/dist/models/${MODEL_NAME}`));
+  const modelManifest = JSON.parse(readFileSync(modelManifestPath, 'utf8')) as ExpectedModelManifest;
+  if (modelManifest.schemaVersion !== 1 || modelManifest.modelId !== MODEL_ID ||
+      modelManifest.modelRevision !== MODEL_REVISION) {
+    throw new Error('model provenance manifest identity does not match the fixed Private-v2 target');
+  }
+  const modelProvenance = verifyModelAgainstManifest(productionModelDir, modelManifest);
+  if (modelProvenance.verdict !== 'identical') {
+    throw new Error(`production model provenance is '${modelProvenance.verdict}', not byte-identical`);
+  }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
     groundTruthVersion: string;
     fixtures: Array<{ fixtureId: string; path: string; fixtureSha256: string; referenceText: string }>;
@@ -171,6 +187,8 @@ async function main(): Promise<void> {
         modelReady: window.__PRIVATE_DROPIN__.modelReady,
         modelReadyLatencyMs: window.__PRIVATE_DROPIN__.modelReadyLatencyMs,
         adapterInputSha256: window.__PRIVATE_DROPIN__.adapterInputSha256,
+        capturedSamples: window.__PRIVATE_DROPIN__.capturedSamples,
+        capturedSeconds: window.__PRIVATE_DROPIN__.capturedSeconds,
       } : null,
       crossOriginIsolated,
       sharedArrayBufferAvailable: typeof SharedArrayBuffer !== 'undefined',
@@ -194,18 +212,27 @@ async function main(): Promise<void> {
         throw new Error(`production worker did not request required self-hosted model asset '${requiredPath}'`);
       }
     }
-    // Production builds emit /assets/*.wasm; Vite's exact-head test server uses a
-    // different same-origin path. The route interceptor already rejects every
-    // non-local request, so any observed .wasm request here is self-hosted.
-    const rawWasmAssetRequests = localRequests.filter(request => /\s\/.*\.wasm$/.test(request));
-    if (rawWasmAssetRequests.length === 0) {
-      throw new Error('production worker did not request a same-origin ORT WASM asset');
+    if (localRequests.some(request => request.includes('/@fs/'))) {
+      throw new Error('runtime served a Vite development /@fs path instead of production build assets');
     }
-    // Vite development URLs may contain /@fs/<absolute-machine-path>. Evidence
-    // retains only portable asset filenames; raw local request paths never leave
-    // this process or enter Actions artifacts/review reports.
+    const rawWorkerAssetRequests = localRequests.filter(request => /\s\/assets\/transformers-js\.worker-.*\.js$/.test(request));
+    if (rawWorkerAssetRequests.length === 0) {
+      throw new Error('runtime did not request the emitted production Transformers.js worker asset');
+    }
+    const workerAssetFiles = [...new Set(rawWorkerAssetRequests.map(request => basename(request.slice(4))))].sort();
+    const rawWasmAssetRequests = localRequests.filter(request => /\s\/assets\/.*\.wasm$/.test(request));
+    if (rawWasmAssetRequests.length === 0) {
+      throw new Error('production worker did not request a built same-origin /assets/*.wasm file');
+    }
     const wasmAssetFiles = [...new Set(rawWasmAssetRequests.map(request => basename(request.slice(4))))].sort();
     if (proof.dropIn.adapterInputSha256 !== mainInputSha256) throw new Error('Node and page adapter PCM hashes differ');
+    const mainInputSamples = audio.length;
+    const mainInputBytes = pcmBytes.byteLength;
+    const mainInputDurationSeconds = mainInputSamples / 16_000;
+    if (proof.dropIn.capturedSamples !== mainInputSamples ||
+        proof.dropIn.capturedSeconds !== mainInputDurationSeconds) {
+      throw new Error('Node and page adapter PCM sample/duration tuple differs');
+    }
     const hashesMatch = proof.input.sha256 === mainInputSha256;
     const metric = wordErrorRate(fixture.referenceText, transcript);
     const browserVersion = /Chrome\/(\S+)/.exec(proof.userAgent)?.[1] ?? 'unknown';
@@ -229,9 +256,9 @@ async function main(): Promise<void> {
       audio_route_evidence: {
         fixtureSha256: fixture.fixtureSha256,
         adapterInputPayloadSha256: mainInputSha256,
-        adapterInputBytes: pcmBytes.byteLength,
-        decodedSampleCount: proof.input.samples,
-        decodedDurationSeconds: proof.input.audioLengthSeconds,
+        adapterInputBytes: mainInputBytes,
+        decodedSampleCount: mainInputSamples,
+        decodedDurationSeconds: mainInputDurationSeconds,
       },
       runtime_capability: {
         requestedThreads: proof.runtime.requestedThreads,
@@ -259,8 +286,15 @@ async function main(): Promise<void> {
         workerUsed: true,
         modelSource: 'self-hosted',
         modelLoaded: proof.runtime.model,
+        modelProvenance,
         mainThreadInputSha256: mainInputSha256,
+        mainThreadInputSamples: mainInputSamples,
+        mainThreadInputBytes: mainInputBytes,
+        mainThreadInputDurationSeconds: mainInputDurationSeconds,
         workerInputSha256: proof.input.sha256,
+        workerInputSamples: proof.input.samples,
+        workerInputBytes: proof.input.bytes,
+        workerInputDurationSeconds: proof.input.audioLengthSeconds,
         inputHashesMatch: hashesMatch,
         cloudProviderCalls: externalRequests.length,
       },
@@ -282,7 +316,9 @@ async function main(): Promise<void> {
         transformers: TRANSFORMERS_VERSION,
         onnxruntimeWeb: ONNXRUNTIME_WEB_VERSION,
       },
+      modelProvenance,
       requiredModelRequests,
+      workerAssetFiles,
       wasmAssetFiles,
       transcript,
       writeRequests,
