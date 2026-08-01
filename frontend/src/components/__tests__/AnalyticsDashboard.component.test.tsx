@@ -478,7 +478,10 @@ describe('AnalyticsDashboard', () => {
         });
 
         const detail = screen.getByTestId('session-detail-transcript');
-        expect(detail).toHaveTextContent('No transcript available for this session.');
+        // #1047 PR-U1: a placeholder-only transcript (no server transcript_state) derives not_captured and
+        // shows the honest reason, not the old ambiguous "No transcript available for this session." blank.
+        expect(detail).toHaveTextContent('No transcript was captured.');
+        expect(detail).toHaveAttribute('data-transcript-state', 'not_captured');
         expect(detail).toHaveAttribute('data-session-detail-transcript', '');
     });
 
@@ -592,5 +595,42 @@ describe('AnalyticsDashboard', () => {
         const openLink = screen.getAllByRole('link', { name: /open saved session details/i })[0];
 
         expect(openLink).toHaveAttribute('href', '/analytics/session-1');
+    });
+
+    // #1047 PR-U1: the session-detail transcript honors the server-owned transcript_state — available text
+    // renders, expired/not_captured show their honest reason (never the removed text, never an ordinary
+    // empty transcript), measurements stay visible, and the AI/text action is disabled when unavailable.
+    describe('#1047 detail transcript-state matrix', () => {
+        const detailSession = (over: Record<string, unknown>) => ([{
+            id: 'sx', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
+            duration: 600, total_words: 1200, wpm: 120, clarity_score: 85,
+            filler_words: { um: { count: 5 } }, accuracy: 0.9, ...over,
+        }]);
+
+        it('available → renders the transcript text and enables the AI action', () => {
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ transcript: 'the practiced words', transcript_state: 'available' }) });
+            const el = screen.getByTestId('session-detail-transcript');
+            expect(el).toHaveAttribute('data-transcript-state', 'available');
+            expect(el.textContent).toContain('the practiced words');
+            expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeEnabled();
+        });
+
+        it('expired → shows the reason, hides the removed text, keeps measurements, disables the AI action', () => {
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ transcript: 'removed words', transcript_state: 'expired' }) });
+            const el = screen.getByTestId('session-detail-transcript');
+            expect(el).toHaveAttribute('data-transcript-state', 'expired');
+            expect(el.textContent).toContain('Transcript expired. Your measurements are still available.');
+            expect(el.textContent).not.toContain('removed words');
+            expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0); // measurements remain visible
+            expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeDisabled();
+        });
+
+        it('not_captured → shows the reason and disables the AI action', () => {
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ transcript: '', transcript_state: 'not_captured' }) });
+            const el = screen.getByTestId('session-detail-transcript');
+            expect(el).toHaveAttribute('data-transcript-state', 'not_captured');
+            expect(el.textContent).toContain('No transcript was captured.');
+            expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeDisabled();
+        });
     });
 });

@@ -247,7 +247,9 @@ describe('generateSessionPdf', () => {
     const savedPdf = await getSavedPdf();
 
     expect(savedPdf.text).toContain('(Transcript) Tj');
-    expect(savedPdf.text).toContain('(No transcript available.) Tj');
+    // #1047 PR-U1: a transcript-less row now reads the honest not-captured reason, not the old ambiguous
+    // "No transcript available." (no server transcript_state → derived not_captured).
+    expect(savedPdf.text).toContain('(No transcript was captured.) Tj');
   });
 
   it('paginates long transcripts instead of drawing them off the page', async () => {
@@ -328,5 +330,26 @@ describe('getPdfFillerTableData — SSOT: persisted canonical wins, no recount o
       filler_words: null, // absent → fallback recount
     } as unknown as Session);
     expect(rows.length).toBeGreaterThan(0);
+  });
+
+  // #1047 PR-U1: the PDF must print the honest transcript-state reason, never an ordinary empty transcript
+  // and never the removed text. Self-contained session (this describe is outside mockSession's scope).
+  const u1Session = (over: Partial<Session>): Session => ({
+    id: 'u1', user_id: 'user1', created_at: '2025-09-23T10:00:00Z', duration: 300,
+    filler_words: { um: { count: 1 } }, accuracy: 90, ...over,
+  } as unknown as Session);
+
+  it('prints the expired reason and NOT the removed transcript text when transcript_state is expired', async () => {
+    await generateSessionPdf(u1Session({ transcript: 'the real spoken words', transcript_state: 'expired' }), 'TestUser');
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).toContain('(Transcript expired. Your measurements are still available.) Tj');
+    expect(savedPdf.text).not.toContain('(the real spoken words) Tj'); // removed text never printed
+  });
+
+  it('prints the not-captured reason when transcript_state is not_captured', async () => {
+    await generateSessionPdf(u1Session({ transcript: '', transcript_state: 'not_captured' }), 'TestUser');
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).toContain('(No transcript was captured.) Tj');
+    expect(savedPdf.text).not.toContain('(No transcript available.) Tj'); // the old ambiguous fallback is gone
   });
 });
