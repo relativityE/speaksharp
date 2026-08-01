@@ -91,3 +91,6 @@ private-model-smoke.json
 
 # #1037 generated STT evidence run output (uploaded by CI, never committed)
 stt-evidence-artifacts/
+
+# Per-worktree single-owner marker (local ownership state; never committed)
+.agent-owner.json

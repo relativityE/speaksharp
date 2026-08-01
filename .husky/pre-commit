@@ -1,6 +1,14 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
+# --- single-owner worktree guard (opt-in; no-op unless SS_AGENT is set) ---
+if [ -n "$SS_AGENT" ]; then
+  node scripts/agent-worktree.mjs assert-owner --agent "$SS_AGENT" || {
+    echo "❌ [agent-worktree] '$SS_AGENT' does not own this worktree/branch — commit blocked."
+    exit 1
+  }
+fi
+
 # Only run lint-staged if there are staged files
 if [ -n "$(git diff --cached --name-only)" ]; then
   echo "[husky] Running lint-staged on staged files..."
