@@ -31,11 +31,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Run Private-v2 corpus lane + validate emitted artifact (fails closed)
         run: |
+          # On pull_request, github.sha is the synthetic merge ref — record the PR HEAD commit instead;
+          # fall back to github.sha for push/workflow_dispatch.
           node_modules/.bin/tsx scripts/stt-corpus-lane.ts \
             --manifest tests/evidence/fixtures/corpus/manifest.json \
             --out stt-evidence-artifacts/corpus.json \
             --runs 3 \
-            --release-sha "${{ github.sha }}"
+            --release-sha "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Upload corpus evidence artifact
         if: always()
         uses: actions/upload-artifact@v4

@@ -12,8 +12,9 @@
  * the only committed inputs.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { pipeline, env } from '@xenova/transformers';
 import { buildCorpusRow, summarizeLatency, type CorpusRow } from '../tests/evidence/corpusLane';
@@ -22,11 +23,39 @@ import { rankableCohorts, type RuntimeCapability, type ComparabilityInputs } fro
 // The product's Private v2 model, pinned to an IMMUTABLE commit (never 'main'/'latest').
 const MODEL_ID = 'Xenova/whisper-base.en';
 const MODEL_REVISION = '95bf40a508535962c6483ead40270b2e32267508';
-const TRANSFORMERS_VERSION = '2.17.2';
-const ONNXRUNTIME_NODE_VERSION = '1.24.3';
 const DECODE_CONFIGURATION = 'whisper-base.en/q8/pcm16k-mono/greedy';
 
+// Runtime versions are DERIVED from the installed packages — never hard-coded (they drift silently).
+const require_ = createRequire(import.meta.url);
+const TRANSFORMERS_VERSION: string = require_('@xenova/transformers/package.json').version;
+const ONNXRUNTIME_NODE_VERSION: string = require_('onnxruntime-node/package.json').version;
+
 const sha256 = (buf: Buffer | Uint8Array): string => createHash('sha256').update(buf).digest('hex');
+const fmt = (v: number | null): string => (v === null ? 'n/a' : v.toFixed(2));
+
+/**
+ * Prove (or explicitly refute) that the pinned HF files the harness runs are byte-identical to the
+ * product's self-hosted `/models/whisper-base.en` assets. Returns the per-file hashes and a verdict — the
+ * artifact records the truth either way; the harness never *claims* the exact production model on faith.
+ */
+function verifyModelProvenance(hfCacheDir: string, prodModelsDir: string): {
+    verdict: 'identical' | 'differs' | 'unverifiable';
+    files: Array<{ file: string; hfSha256: string | null; prodSha256: string | null; identical: boolean }>;
+} {
+    const rel = ['onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
+    const hfBase = resolve(hfCacheDir, MODEL_ID, MODEL_REVISION);
+    const files = rel.map((f) => {
+        const hfPath = resolve(hfBase, f);
+        const prodPath = resolve(prodModelsDir, f);
+        const hfSha = existsSync(hfPath) ? sha256(readFileSync(hfPath)) : null;
+        const prodSha = existsSync(prodPath) ? sha256(readFileSync(prodPath)) : null;
+        return { file: f, hfSha256: hfSha, prodSha256: prodSha, identical: hfSha !== null && hfSha === prodSha };
+    });
+    const verdict = files.some((f) => f.hfSha256 === null || f.prodSha256 === null)
+        ? 'unverifiable'
+        : files.every((f) => f.identical) ? 'identical' : 'differs';
+    return { verdict, files };
+}
 
 /** Parse a canonical PCM16 mono 16 kHz WAV by walking chunks (tolerates JUNK/FLLR padding). */
 function decodeWav16kMono(bytes: Buffer): Float32Array {
@@ -75,15 +104,23 @@ async function main(): Promise<void> {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     const manifestDir = dirname(manifestPath);
 
+    const hfCacheDir = process.env.HF_CACHE_DIR ?? '/private/tmp/hf-cache';
     env.allowLocalModels = false;               // fetch the pinned revision from HF (no Cloud STT call)
-    env.cacheDir = process.env.HF_CACHE_DIR ?? '/private/tmp/hf-cache';
+    env.cacheDir = hfCacheDir;
 
+    // Node corpus harness runtime — model-EQUIVALENT to, but NOT, the production browser worker. Thread
+    // counts are neither requested, configured, nor observed here, so they are honestly null.
     const runtime: RuntimeCapability = {
-        requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null, // node onnxruntime does not report it
-        runtimePath: 'wasm', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null,
+        requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
+        runtimePath: 'node-onnxruntime', crossOriginIsolated: false, sharedArrayBufferAvailable: false,
+        fallbackReason: 'node corpus harness (onnxruntime-node); not the production browser worker (wasm/webgpu)',
     };
 
     const asr = await pipeline('automatic-speech-recognition', MODEL_ID, { revision: MODEL_REVISION, quantized: true });
+
+    // Prove the pinned model files == the product's self-hosted assets (or record that they don't).
+    const modelProvenance = verifyModelProvenance(hfCacheDir, resolve(process.cwd(), 'frontend/public/models/whisper-base.en'));
+    console.log(`[corpus] model provenance vs production self-hosted assets: ${modelProvenance.verdict}`);
 
     const rows: CorpusRow[] = [];
     for (const fx of manifest.fixtures) {
@@ -128,15 +165,24 @@ async function main(): Promise<void> {
     }
 
     mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, JSON.stringify({ generatedFor: '#1037 Lane A corpus', releaseSha, rows }, null, 2));
+    writeFileSync(outPath, JSON.stringify({
+        generatedFor: '#1037 Lane A corpus (Node model-equivalent harness — NOT the production browser worker)',
+        releaseSha,
+        runtimeVersions: { '@xenova/transformers': TRANSFORMERS_VERSION, 'onnxruntime-node': ONNXRUNTIME_NODE_VERSION },
+        modelProvenance,
+        rows,
+    }, null, 2));
 
     // Group with the merged helper — comparison happens only within a cohort.
     const cohorts = rankableCohorts(rows);
     console.log(`[corpus] ${rows.length} rows, ${[...cohorts.keys()].length} admissible cohort(s)`);
     for (const [key, cohortRows] of cohorts) {
         const fin = summarizeLatency(cohortRows, 'finalization_latency_ms');
-        const wers = cohortRows.map((r) => r.wer).filter((w): w is number => w !== null);
-        console.log(`  cohort ${key.slice(0, 60)}…  admissible=${cohortRows.length}  WER=[${wers.map((w) => w.toFixed(3)).join(', ')}]  cold.p95=${fin.cold.p95} warm.p95=${fin.warm.p95}`);
+        for (const r of cohortRows) {
+            const f = r.filler_metric, p = r.punctuation_metric;
+            console.log(`  ${r.fixture_id}  WER=${r.wer?.toFixed(3) ?? 'null'}  filler(P/R/F1)=${f ? `${fmt(f.precision)}/${fmt(f.recall)}/${fmt(f.f1)}` : 'null'}  punct(P/R/F1)=${p ? `${fmt(p.precision)}/${fmt(p.recall)}/${fmt(p.f1)}` : 'null'}`);
+        }
+        console.log(`  cohort ${key.slice(0, 48)}…  admissible=${cohortRows.length}  cold.p95=${fin.cold.p95} warm.p95=${fin.warm.p95}`);
     }
 
     // Fail closed through the merged validator.

@@ -93,15 +93,40 @@ describe('#1037 corpusLane — schema-valid rows, fail-closed, honest WER/percen
         expect(summarizeLatency(rows, 'finalization_latency_ms').warm.p95).toBeNull();
     });
 
-    it('excludes a NEGATIVE latency (clock/harness error) from observations and percentiles', () => {
+    it('a NEGATIVE latency INVALIDATES the row (not merely dropped from the percentile)', () => {
+        const r = buildCorpusRow(base({ finalizationLatencyMs: -5 }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/negative latency/i);
+        expect(r.wer).toBeNull();            // an invalid row carries no scored metrics
+        expect(r.filler_metric).toBeNull();
+        expect(r.punctuation_metric).toBeNull();
+    });
+
+    it('an invalid negative-latency row is excluded from the latency summary entirely', () => {
         const rows: CorpusRow[] = [
             ...Array.from({ length: 20 }, () => buildCorpusRow(base({ finalizationLatencyMs: 900, thermalState: 'warm' }))),
-            buildCorpusRow(base({ finalizationLatencyMs: -5, thermalState: 'warm' })), // impossible → excluded
+            buildCorpusRow(base({ finalizationLatencyMs: -5, thermalState: 'warm' })), // invalid → excluded
         ];
         const s = summarizeLatency(rows, 'finalization_latency_ms');
         expect(s.warm.observations).not.toContain(-5);
-        expect(s.warm.runs).toBe(20);          // the negative measurement is not counted
+        expect(s.warm.runs).toBe(20);
         expect(s.warm.min).toBe(900);
+    });
+
+    it('emits filler + punctuation metrics on a proven route, and null on an unproven one', () => {
+        const proven = buildCorpusRow(base({
+            groundTruth: 'so um I think uh we should review. thanks.',
+            recognizerTranscript: 'so I think we should review. thanks.', // fillers dropped, punctuation kept
+        }));
+        expect(proven.filler_metric).not.toBeNull();
+        expect(proven.filler_metric!.version).toBe('filler_v1');
+        expect(proven.filler_metric!.referenceCount).toBe(2);   // um, uh in the reference
+        expect(proven.filler_metric!.recall).toBe(0);           // recognizer dropped both — honest low recall
+        expect(proven.punctuation_metric!.version).toBe('punct_v1');
+
+        const unproven = buildCorpusRow(base({ audioRoute: { ...provenRoute, adapterInputBytes: 0, decodedSampleCount: 0 } }));
+        expect(unproven.filler_metric).toBeNull();
+        expect(unproven.punctuation_metric).toBeNull();
     });
 
     it('REFUSES to aggregate rows from different cohorts (throws)', () => {

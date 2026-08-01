@@ -17,6 +17,7 @@ import {
     type FailureClass,
 } from './sttEvidenceSchema';
 import { wordErrorRate, NORMALIZATION_VERSION } from './werMetric';
+import { fillerPrf, punctuationPlacementPrf, type PrfResult } from './qualityMetrics';
 
 export type ThermalState = 'cold' | 'warm';
 
@@ -44,20 +45,28 @@ export interface CorpusRunInput {
 export interface CorpusRow extends SttEvidenceRow {
     thermal_state: ThermalState;
     wer_detail: ReturnType<typeof wordErrorRate> | null;
+    /** filler_v1 P/R/F1 — null unless the route is proven and a transcript+ground truth exist. */
+    filler_metric: PrfResult | null;
+    /** punct_v1 sentence-placement P/R/F1 — same guard. */
+    punctuation_metric: PrfResult | null;
 }
 
 /**
- * Assemble one corpus row. Route/validity/attribution are enforced by `finalizeRow`; WER is added only
- * when honestly measurable. `normalizationVersion` is forced to match the WER module so a row can never
- * claim a WER under a different normalization than the one that produced it.
+ * Assemble one corpus row. Route/validity/attribution are enforced by `finalizeRow`; WER and the quality
+ * metrics are added only when honestly measurable. `normalizationVersion` is forced to match the WER
+ * module so a row can never claim a metric under a different normalization than the one that produced it.
+ * A NEGATIVE latency is a clock/harness error and INVALIDATES the row (not merely dropped downstream).
  */
 export function buildCorpusRow(input: CorpusRunInput): CorpusRow {
-    // Precompute WER only if we have both a real transcript and a ground truth. finalizeRow decides
-    // whether the route is proven; if it is not, WER is dropped there regardless of what we pass.
-    let werDetail: ReturnType<typeof wordErrorRate> | null = null;
-    if (input.groundTruth != null && input.recognizerTranscript != null) {
-        werDetail = wordErrorRate(input.groundTruth, input.recognizerTranscript);
-    }
+    const haveBoth = input.groundTruth != null && input.recognizerTranscript != null;
+    const werDetail = haveBoth ? wordErrorRate(input.groundTruth as string, input.recognizerTranscript as string) : null;
+    const fillerDetail = haveBoth ? fillerPrf(input.groundTruth as string, input.recognizerTranscript as string) : null;
+    const punctDetail = haveBoth ? punctuationPlacementPrf(input.groundTruth as string, input.recognizerTranscript as string) : null;
+
+    // A negative latency measurement invalidates the row — it is a harness/clock fault, not evidence.
+    const negativeLatency =
+        (typeof input.firstPartialLatencyMs === 'number' && input.firstPartialLatencyMs < 0) ||
+        (typeof input.finalizationLatencyMs === 'number' && input.finalizationLatencyMs < 0);
 
     const row = finalizeRow({
         comparability_class: 'corpus_fixture',
@@ -79,9 +88,20 @@ export function buildCorpusRow(input: CorpusRunInput): CorpusRow {
         audio_route_evidence: input.audioRoute,
         runtime_capability: input.runtime,
         comparability_inputs: { ...input.comparabilityInputs, normalizationVersion: NORMALIZATION_VERSION },
+        invalid_reason: negativeLatency ? 'negative latency measurement (clock/harness error)' : undefined,
     } as Parameters<typeof finalizeRow>[0]);
 
-    return { ...row, thermal_state: input.thermalState, wer_detail: row.audio_route_proven ? werDetail : null };
+    // An invalid row (e.g. negative latency) carries NO scored metric — not even the one finalizeRow kept
+    // for a proven route. Only a valid, route-proven row exposes WER and the quality metrics.
+    const measurable = row.audio_route_proven && row.run_validity === 'valid';
+    return {
+        ...row,
+        wer: measurable ? row.wer : null,
+        thermal_state: input.thermalState,
+        wer_detail: measurable ? werDetail : null,
+        filler_metric: measurable ? fillerDetail : null,
+        punctuation_metric: measurable ? punctDetail : null,
+    };
 }
 
 export interface ThermalDistribution {

@@ -57,11 +57,17 @@ export interface AudioRouteEvidence {
  * "effective" is deliberately absent from this type.
  */
 export interface RuntimeCapability {
-    requestedThreads: number;
-    configuredThreads: number;
+    /** `null` when no specific count was requested (e.g. the Node corpus harness leaves it to the default). */
+    requestedThreads: number | null;
+    /** `null` when the achieved count was not configured/observed — never invented. */
+    configuredThreads: number | null;
     /** What the worker actually reported. `null` when the runtime does not report it — never inferred. */
     workerReportedThreads: number | null;
-    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu';
+    /**
+     * `node-onnxruntime` is the Node corpus harness (onnxruntime-node native bindings) — model-equivalent
+     * to, but NOT the same runtime as, the production browser worker (`wasm`/`wasm-multithread`/`webgpu`).
+     */
+    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime';
     crossOriginIsolated: boolean;
     sharedArrayBufferAvailable: boolean;
     /** Populated when the achieved configuration differs from the requested one. */
