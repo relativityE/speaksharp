@@ -18,6 +18,28 @@ export type ComparabilityClass = 'corpus_fixture' | 'browser_journey';
 /** Closed set of how a browser_journey may be driven — enforced at RUNTIME (types are erased). */
 export const BROWSER_EXECUTION_MODES = new Set(['automated', 'manual-assisted']);
 
+/**
+ * #1037: a browser_journey row must declare an HONEST runtime_capability (the Browser/Web-Speech runtime
+ * path + a well-typed capability shape), validated at runtime rather than skipped. Returns problems (empty
+ * = admissible). Mirrors scripts/validate-stt-evidence.mjs.
+ */
+function browserRuntimeCapabilityProblems(rc: unknown): string[] {
+    if (typeof rc !== 'object' || rc === null || Array.isArray(rc)) {
+        return ['browser_journey runtime_capability must be an object'];
+    }
+    const cap = rc as Record<string, unknown>;
+    const problems: string[] = [];
+    if (cap.runtimePath !== 'browser-webspeech') problems.push(`browser_journey runtime_capability.runtimePath must be 'browser-webspeech', got '${String(cap.runtimePath)}'`);
+    for (const k of ['requestedThreads', 'configuredThreads', 'workerReportedThreads']) {
+        if (!(cap[k] === null || (typeof cap[k] === 'number' && Number.isFinite(cap[k])))) problems.push(`browser_journey runtime_capability.${k} must be a finite number or null`);
+    }
+    for (const k of ['crossOriginIsolated', 'sharedArrayBufferAvailable']) {
+        if (typeof cap[k] !== 'boolean') problems.push(`browser_journey runtime_capability.${k} must be a boolean`);
+    }
+    if (!(cap.fallbackReason === null || typeof cap.fallbackReason === 'string')) problems.push('browser_journey runtime_capability.fallbackReason must be a string or null');
+    return problems;
+}
+
 export type RunValidity = 'valid' | 'invalid';
 
 /** Closed set — an unrecognized failure is `unknown`, never invented. */
@@ -236,6 +258,9 @@ export function finalizeRow(
             if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
             else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
         }
+        // Runtime capability is validated for Browser rows too (not skipped): Browser/Web-Speech runtime
+        // path + a well-typed capability shape.
+        problems.push(...browserRuntimeCapabilityProblems(row.runtime_capability));
         // Honesty guards: browser_journey is the canonical Browser engine, exactly 'unverified', never
         // rankable — a class label alone must not admit another engine's row.
         if (row.engine !== 'browser-webspeech') problems.push(`browser_journey requires engine 'browser-webspeech', got '${row.engine}'`);

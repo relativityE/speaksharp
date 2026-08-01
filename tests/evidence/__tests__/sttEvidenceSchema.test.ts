@@ -235,6 +235,30 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.invalid_reason).toMatch(/recorded a forbidden engine/i);
     });
 
+    it('a Browser journey missing runtime_capability is rejected (capability is validated, not skipped)', () => {
+        const r = finalizeRow({ ...browserBase(), runtime_capability: undefined as unknown as RawRow['runtime_capability'] });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/runtime_capability must be an object/i);
+    });
+
+    it('a Browser journey declaring a non-Browser runtime path is rejected', () => {
+        const r = finalizeRow({
+            ...browserBase(),
+            runtime_capability: { ...browserBase().runtime_capability, runtimePath: 'wasm' as const },
+        });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/runtimePath must be 'browser-webspeech'/i);
+    });
+
+    it('a Browser journey with a mistyped capability field is rejected', () => {
+        const r = finalizeRow({
+            ...browserBase(),
+            runtime_capability: { ...browserBase().runtime_capability, crossOriginIsolated: 'nope' as unknown as boolean },
+        });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/crossOriginIsolated must be a boolean/i);
+    });
+
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {
         const r = finalizeRow(base({
             runtime_capability: { ...base().runtime_capability, configuredThreads: 4, workerReportedThreads: null },

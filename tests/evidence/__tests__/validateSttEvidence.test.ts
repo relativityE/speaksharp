@@ -63,6 +63,9 @@ describe('#1037 validate-stt-evidence — browser_journey runtime boundary', () 
         ['a non-closed executionMode', { browser_journey_evidence: { supportState: 'supported', executionMode: 'totally-made-up', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [] } }],
         ['a MISSING forbidden-engine tripwire proof', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0 } }],
         ['a recorded forbidden-engine construction', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [{ key: 'assemblyai', phase: 'start', at: 1 }] } }],
+        ['a MISSING runtime_capability', { runtime_capability: undefined }],
+        ['a non-Browser runtime path', { runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'wasm', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null } }],
+        ['a mistyped capability field', { runtime_capability: { requestedThreads: 'two', configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null } }],
     ] as const)('rejects a crafted browser row with %s', (_label, over) => {
         expect(validate([browserRow(over)]).status).toBe(1);
     });

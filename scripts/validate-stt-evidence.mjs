@@ -38,6 +38,27 @@ const HASH_RE = /^[0-9a-f]{16,128}$/i;
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
 const isStr = v => typeof v === 'string' && v.trim() !== '';
 
+/**
+ * #1047-adjacent / #1037: a browser_journey row must still declare an HONEST runtime_capability — the
+ * Browser/Web-Speech runtime path with a well-typed capability shape — rather than skipping it. Returns the
+ * problems for a Browser row's runtime_capability (empty = admissible).
+ */
+function browserRuntimeCapabilityProblems(rc) {
+    if (typeof rc !== 'object' || rc === null || Array.isArray(rc)) {
+        return ['browser_journey runtime_capability must be an object'];
+    }
+    const p = [];
+    if (rc.runtimePath !== 'browser-webspeech') p.push(`browser_journey runtime_capability.runtimePath must be 'browser-webspeech', got '${rc.runtimePath}'`);
+    for (const k of ['requestedThreads', 'configuredThreads', 'workerReportedThreads']) {
+        if (!(rc[k] === null || isNum(rc[k]))) p.push(`browser_journey runtime_capability.${k} must be a finite number or null`);
+    }
+    for (const k of ['crossOriginIsolated', 'sharedArrayBufferAvailable']) {
+        if (typeof rc[k] !== 'boolean') p.push(`browser_journey runtime_capability.${k} must be a boolean`);
+    }
+    if (!(rc.fallbackReason === null || typeof rc.fallbackReason === 'string')) p.push('browser_journey runtime_capability.fallbackReason must be a string or null');
+    return p;
+}
+
 /** Semantic checks — existence is not validity. A failed or malformed row must never rank. */
 function semanticProblems(row, isBrowser) {
     const p = [];
@@ -124,6 +145,9 @@ function checkRow(row, index) {
             if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
             else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
         }
+        // Runtime capability is validated for Browser rows too (not skipped): it must declare the
+        // Browser/Web-Speech runtime path with a well-typed capability shape.
+        problems.push(...browserRuntimeCapabilityProblems(row.runtime_capability));
         return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
     }
 
