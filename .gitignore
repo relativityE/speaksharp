@@ -88,3 +88,6 @@ e2e_errors_detailed.txt
 unit-results.txt
 frontend/test_failures_v7.txt
 private-model-smoke.json
+
+# #1037 generated STT evidence run output (uploaded by CI, never committed)
+stt-evidence-artifacts/

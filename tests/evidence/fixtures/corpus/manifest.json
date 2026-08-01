@@ -1,0 +1,37 @@
+{
+  "manifestVersion": "corpus_v1",
+  "groundTruthVersion": "gt_v1",
+  "note": "Immutable controlled corpus. Fixtures are synthetic speech (macOS 'say', voice Samantha, 16kHz mono PCM16) of neutral, content-free text — no user data. Reference text + hashes are pinned; a mismatch fails the run closed.",
+  "fixtures": [
+    {
+      "fixtureId": "fixture-001",
+      "path": "fixture-001.wav",
+      "fixtureSha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+      "referenceText": "the quick brown fox jumps over the lazy dog while a calm river flows past the old stone bridge",
+      "referenceTextSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+      "qualityDimensions": [
+        "clean_words"
+      ]
+    },
+    {
+      "fixtureId": "fixture-002",
+      "path": "fixture-002.wav",
+      "fixtureSha256": "1441f3e970c91fdd4602c4419f1210e398ac46e09d7f553c9aea71e9b8eeb2ce",
+      "referenceText": "The meeting starts at nine. Please arrive early. Thank you very much.",
+      "referenceTextSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+      "qualityDimensions": [
+        "punctuation_placement"
+      ]
+    },
+    {
+      "fixtureId": "fixture-003",
+      "path": "fixture-003.wav",
+      "fixtureSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+      "referenceText": "So um I think uh we should um review the plan today",
+      "referenceTextSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+      "qualityDimensions": [
+        "filler_recognition"
+      ]
+    }
+  ]
+}
