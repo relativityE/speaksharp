@@ -4,10 +4,14 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     mergePlaywrightSummaries,
+    sanitizeAssemblyAiStreamingFile,
+    sanitizeAssemblyAiStreamingProof,
     sanitizeLighthouseDirectory,
     sanitizeLighthouseReports,
     sanitizePlaywrightFile,
     sanitizePlaywrightReport,
+    sanitizePrivateExactBufferFile,
+    sanitizePrivateExactBufferProof,
 } from '../../../scripts/sanitize-ci-artifact.mjs';
 import { aggregatePlaywright } from '../../../scripts/aggregate-playwright.mjs';
 import { parseLighthouse, parsePlaywrightResults } from '../../../scripts/ci-telemetry-utils.mjs';
@@ -38,6 +42,102 @@ function lighthouseReport() {
             'cumulative-layout-shift': metric,
             'final-screenshot': { details: { data: 'data:image/jpeg;base64,forbidden' } },
         },
+    };
+}
+
+function assemblyAiStreamingProof() {
+    return {
+        model: 'universal-streaming-english',
+        chunkMs: 50,
+        variants: ['baseline'],
+        fixtures: ['h1_6'],
+        results: [{
+            variant: 'baseline',
+            fixture: 'h1_6',
+            truth: 'private reference words from person@example.com',
+            transcript: 'private recognized words',
+            wer: 0.1,
+            accuracyPct: 90,
+            fillerRecall: 0.75,
+            turnCount: 3,
+            finalTurnCount: 1,
+            partialTurnCount: 2,
+            terminationSeen: true,
+            messageCount: 4,
+            closeCode: 1000,
+            closeReason: 'session transcript complete',
+            firstMessageRaw: 'data:image/png;base64,forbidden',
+            invalidSession: false,
+            invalidReason: null,
+            concurrencyRetries: 0,
+        }],
+    };
+}
+
+function privateExactBufferProof() {
+    const audioDataUrl = `data:audio/wav;base64,${Buffer.from('fixture audio bytes').toString('base64')}`;
+    return {
+        environmentProof: {
+            url: 'http://person@example.com/session',
+            authMode: 'real',
+            mockAuth: false,
+            releaseProofEligible: true,
+            cdpSameTab: true,
+        },
+        privateEngine: 'transformers-js',
+        webgpuDisabledForRun: true,
+        injectedMicAudio: { enabled: true, route: 'private fixture route' },
+        runnerPass: true,
+        gatePass: true,
+        pass: true,
+        results: [{
+            mode: 'private',
+            fixture: 'h1_6',
+            truth: 'private reference words',
+            transcript: 'private recognized words',
+            selectedForSaveTranscript: 'private recognized words',
+            wordCount: 3,
+            wer: 0.1,
+            accuracyPct: 90,
+            selectedForSaveWer: 0.1,
+            selectedForSaveAccuracyPct: 90,
+            sessionPersisted: true,
+            historyVisible: true,
+            detailVisible: true,
+            journeyPass: true,
+            inputLikelyContaminated: false,
+            fillerPass: true,
+            meetsWerThreshold: true,
+            privateRuntime: 'transformers-js-v2',
+            privateProvider: 'wasm',
+            privateWebgpuAvailable: false,
+            privateCrossOriginIsolated: true,
+            privateWasmThreadCount: 4,
+            privateCloudFallbackAttempted: false,
+            audioFrameStats: { count: 25, maxRms: 0.4, speechFrames: 20 },
+            privateAudioChunks: [{
+                samples: 16000,
+                durationSec: 1,
+                wavDataUrlBytes: audioDataUrl.length,
+                wavDataUrl: audioDataUrl,
+                transcript: 'private recognized words',
+            }],
+            privateUtteranceAudioChunks: [{
+                samples: 16000,
+                durationSec: 1,
+                wavDataUrlBytes: audioDataUrl.length,
+                wavDataUrl: audioDataUrl,
+            }],
+            rtf: {
+                canonicalRtf: 0.2,
+                capturedAudioMs: 1000,
+                finalizeDecodeMs: 200,
+                totalFinalizeMs: 240,
+                firstTextMs: 320,
+                rtfDefinition: 'private diagnostic definition',
+            },
+            auth: { email: 'person@example.com' },
+        }],
     };
 }
 
@@ -101,6 +201,48 @@ describe('#1132 CI artifact sanitization', () => {
         expect(serialized).not.toMatch(/person@example\.com|requestedUrl|final-screenshot|data:image|base64/i);
     });
 
+    it('allowlists AssemblyAI metrics while excluding transcripts, provider payloads, and identifiers', () => {
+        const sanitized = sanitizeAssemblyAiStreamingProof(assemblyAiStreamingProof());
+        const serialized = JSON.stringify(sanitized);
+
+        expect(sanitized).toMatchObject({
+            kind: 'assemblyai-streaming-metrics-summary',
+            model: 'universal-streaming-english',
+            fixtureCount: 1,
+            resultCount: 1,
+            results: [{
+                variant: 'baseline',
+                fixtureOrdinal: 1,
+                status: 'measured',
+                wer: 0.1,
+                accuracyPct: 90,
+            }],
+        });
+        expect(serialized).not.toMatch(/person@example\.com|truth|transcript|closeReason|firstMessageRaw|data:image|base64/i);
+    });
+
+    it('hashes Private exact-buffer audio while excluding raw audio, transcripts, and account content', () => {
+        const sanitized = sanitizePrivateExactBufferProof(privateExactBufferProof());
+        const serialized = JSON.stringify(sanitized);
+
+        expect(sanitized).toMatchObject({
+            kind: 'private-exact-app-buffer-summary',
+            environment: { releaseProofEligible: true, authMode: 'real' },
+            runner: { runnerPass: true, gatePass: true, pass: true, resultCount: 1 },
+            results: [{
+                mode: 'private',
+                journeyPass: true,
+                inferenceAudio: {
+                    chunkCount: 1,
+                    totalSamples: 16000,
+                    totalDurationSec: 1,
+                },
+            }],
+        });
+        expect(sanitized.results[0].inferenceAudio.audioSha256[0]).toMatch(/^[a-f0-9]{64}$/);
+        expect(serialized).not.toMatch(/person@example\.com|truth|transcript|wavDataUrl|data:audio|base64|fixture audio bytes/i);
+    });
+
     it('removes stale output and fails closed when sanitization input is missing or malformed', () => {
         const directory = temporaryDirectory();
         const playwrightOutput = join(directory, 'playwright-summary.json');
@@ -115,6 +257,18 @@ describe('#1132 CI artifact sanitization', () => {
         writeFileSync(join(lighthouseDirectory, 'invalid-report.json'), '{"categories":{}}\n');
         expect(() => sanitizeLighthouseDirectory(lighthouseDirectory, lighthouseOutput)).toThrow(/No valid Lighthouse/);
         expect(() => readFileSync(lighthouseOutput, 'utf8')).toThrow();
+
+        const assemblyAiOutput = join(directory, 'assemblyai-summary.json');
+        writeFileSync(assemblyAiOutput, '{"stale":true}\n');
+        expect(() => sanitizeAssemblyAiStreamingFile(join(directory, 'missing-assemblyai.json'), assemblyAiOutput)).toThrow(/missing/);
+        expect(() => readFileSync(assemblyAiOutput, 'utf8')).toThrow();
+
+        const exactBufferInput = join(directory, 'exact-buffer.json');
+        const exactBufferOutput = join(directory, 'exact-buffer-summary.json');
+        writeFileSync(exactBufferInput, JSON.stringify({ ...privateExactBufferProof(), results: [] }));
+        writeFileSync(exactBufferOutput, '{"stale":true}\n');
+        expect(() => sanitizePrivateExactBufferFile(exactBufferInput, exactBufferOutput)).toThrow(/results are missing/);
+        expect(() => readFileSync(exactBufferOutput, 'utf8')).toThrow();
     });
 
     it('preserves aggregate CI counts and Lighthouse scores without restoring excluded fields', () => {

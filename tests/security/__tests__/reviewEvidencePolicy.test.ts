@@ -120,6 +120,28 @@ describe('#1132 ephemeral review-evidence policy', () => {
         );
         expect(requiredUpstreams).toContain('lighthouse=$LIGHTHOUSE');
         expect(requiredUpstreams).not.toMatch(/for r in .*\$LIGHTHOUSE/);
+
+        const benchmarkWorkflow = readFileSync(join(repoRoot, '.github/workflows/benchmarks.yml'), 'utf8');
+        const assemblyAi = inventory.find(({ key }) => key === 'benchmarks.yml::assemblyai-streaming-ab-proof');
+        expect(assemblyAi).toMatchObject({
+            paths: ['/tmp/assemblyai-streaming-ab-summary.json'],
+            retentionDays: '1',
+            ifNoFilesFound: 'error',
+        });
+        const exactBuffer = inventory.find(({ key }) => key === 'benchmarks.yml::private-exact-app-buffer-proof');
+        expect(exactBuffer).toMatchObject({
+            paths: ['/tmp/speaksharp-private-h1_6-exact-buffer-summary.json'],
+            retentionDays: '1',
+            ifNoFilesFound: 'error',
+        });
+        expect(benchmarkWorkflow.indexOf('name: Sanitize AssemblyAI streaming A/B proof'))
+            .toBeLessThan(benchmarkWorkflow.indexOf('name: Scan AssemblyAI streaming A/B proof'));
+        expect(benchmarkWorkflow.indexOf('name: Sanitize Private exact app-buffer capture proof'))
+            .toBeLessThan(benchmarkWorkflow.indexOf('name: Scan Private exact app-buffer capture proof'));
+        expect(benchmarkWorkflow).not.toMatch(/path:\s*\/tmp\/assemblyai-streaming-ab-proof\.json/);
+        expect(benchmarkWorkflow).not.toMatch(/path:\s*\/tmp\/speaksharp-private-h1_6-exact-buffer-current\.json/);
+        expect(benchmarkWorkflow).toMatch(/name: Scan AssemblyAI streaming A\/B proof[\s\S]*?if: \$\{\{ always\(\) && inputs\.run_cloud_streaming_ab != false \}\}/);
+        expect(benchmarkWorkflow).toMatch(/name: Scan generated review evidence[\s\S]*?if: \$\{\{ always\(\) && inputs\.run_private_browser != false \}\}/);
     });
 
     it('requires the current unit coverage output and rejects an empty green artifact', () => {
