@@ -25,6 +25,14 @@ export interface IPrivateSTT {
     destroy(): Promise<void>;
     getEngineType(): string;
     /**
+     * Durable engine identity for the saved session row and #1033 VERIFIED attribution:
+     * `engineVersion` (resolved A/B arm), `modelName`, and on-device `deviceType`. The concrete
+     * PrivateSTT engine already implements this; declaring it here lets the PrivateWhisper wrapper
+     * delegate so `TranscriptionService.getMetadata()` (which asks the outer strategy) returns a
+     * complete tuple instead of falling back to null → Private no longer records `unverified`.
+     */
+    getMetadata(): { engineVersion: string; modelName: string; deviceType: string };
+    /**
      * Get the last heartbeat timestamp from the active engine
      */
     getLastHeartbeatTimestamp(): number;

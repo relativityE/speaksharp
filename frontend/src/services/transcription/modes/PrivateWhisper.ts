@@ -770,6 +770,17 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   /**
+   * #1045/#1033: expose the underlying PrivateSTT engine's durable identity through the wrapper.
+   * `TranscriptionService.getMetadata()` asks the OUTER strategy (this wrapper); without this
+   * delegation the wrapper had no `getMetadata`, so metadata fell back to null and every Private
+   * session was recorded with `attribution_status='unverified'` — making it ineligible for Progress.
+   * The engine already returns a complete tuple (engineVersion / modelName / deviceType='browser').
+   */
+  public getMetadata(): { engineVersion: string; modelName: string; deviceType: string } {
+    return this.privateSTT.getMetadata();
+  }
+
+  /**
    * Diagnostics only: recompute + publish window.__PRIVATE_TIMING__ (Slice 1).
    * Always on (not trace-gated) so any proof can read it; never gates behavior.
    */
