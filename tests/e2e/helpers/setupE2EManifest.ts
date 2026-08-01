@@ -192,17 +192,42 @@ export async function setupE2EManifest(
     };
 
     const nowIso = () => new Date().toISOString();
-    // #1047 PR-U1: the mock DB mirrors the server's BEFORE trigger — `expired` is sticky; otherwise the
-    // transcript_state always reflects transcript presence. This must run on EVERY session write (create,
-    // update, finalize RPC) so a session whose transcript arrives after creation becomes `available`, and a
-    // client can never assert a state that contradicts the stored text.
-    const reconcileTranscriptState = (row: Record<string, unknown>) => {
-      if (row.transcript_state === 'expired') return row; // sticky: server keeps transcript cleared
+    // #1047 PR-U1: the mock DB mirrors the server's BEFORE trigger, which owns transcript_state. Authority
+    // differs by writer:
+    //   • AUTHORITATIVE writes (server-established fixtures — the seed set + the default history) may set any
+    //     state, exactly as a real prior server write would; an authoritative `expired` is honoured.
+    //   • ORDINARY CLIENT writes (INSERT, UPDATE, finalize RPC) can NEVER self-assert a state. State is
+    //     recomputed from transcript presence, EXCEPT that `expired` is sticky: it is preserved ONLY when the
+    //     PREVIOUSLY PERSISTED row was already `expired` (a client cannot introduce `expired`, and cannot
+    //     resurrect a transcript once expired).
+    // Whenever the resolved state is `expired`, the transcript content is forced to null — the trigger clears
+    // it and a CHECK backstops `expired ⟹ transcript IS NULL`.
+    const deriveStateFromTranscript = (row: Record<string, unknown>) => {
       const t = row.transcript;
-      row.transcript_state = typeof t === 'string' && t.trim().length > 0 ? 'available' : 'not_captured';
+      return typeof t === 'string' && t.trim().length > 0 ? 'available' : 'not_captured';
+    };
+    const reconcileTranscriptState = (
+      row: Record<string, unknown>,
+      opts: { authoritative?: boolean; previousState?: unknown } = {}
+    ) => {
+      const { authoritative = false, previousState } = opts;
+      let state: string;
+      if (authoritative) {
+        // Server-established fixture: honour an explicit valid state, else derive from the transcript.
+        state = (row.transcript_state === 'available' || row.transcript_state === 'expired' || row.transcript_state === 'not_captured')
+          ? (row.transcript_state as string)
+          : deriveStateFromTranscript(row);
+      } else {
+        // Client write: sticky `expired` ONLY when the prior persisted row was already expired; a client can
+        // never introduce `expired` itself. Otherwise recompute from transcript presence (ignoring any
+        // client-provided transcript_state).
+        state = previousState === 'expired' ? 'expired' : deriveStateFromTranscript(row);
+      }
+      row.transcript_state = state;
+      if (state === 'expired') row.transcript = null; // sticky/seeded expired clears content (trigger + CHECK)
       return row;
     };
-    const makeSession = (overrides: Record<string, unknown> = {}) => {
+    const makeSession = (overrides: Record<string, unknown> = {}, opts: { authoritative?: boolean } = {}) => {
       const row: Record<string, unknown> = {
         id: `session-${Math.random().toString(36).slice(2)}`,
         user_id: e2eProfile.id,
@@ -225,14 +250,14 @@ export async function setupE2EManifest(
         pause_metrics: null,
         ...overrides,
       };
-      return reconcileTranscriptState(row);
+      return reconcileTranscriptState(row, { authoritative: opts.authoritative });
     };
 
     const e2eDbStorageKey = '__SS_E2E_SESSION_DB__';
     // #1047: an explicit seed (transcript_state variants) replaces the generic history. Each seeded row is
     // stamped with the authenticated user's id so the app's `.eq('user_id', …)` query returns it.
     const seededSessions = Array.isArray(seed) && seed.length > 0
-      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }))
+      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }, { authoritative: true }))
       : null;
     const defaultSessions = es
       ? []
@@ -240,7 +265,7 @@ export async function setupE2EManifest(
           id: `session-${index + 1}`,
           title: `Practice Session ${index + 1}`,
           created_at: new Date(Date.now() - index * 86400000).toISOString(),
-        })));
+        }, { authoritative: true })));
     const loadPersistedSessions = () => {
       try {
         const raw = window.sessionStorage.getItem(e2eDbStorageKey);
@@ -362,8 +387,10 @@ export async function setupE2EManifest(
         );
         if (pendingMutation.type === 'update') {
           for (const row of matching) {
+            const previousState = row.transcript_state; // capture BEFORE the client payload overwrites it
             Object.assign(row, pendingMutation.payload || {}, { updated_at: nowIso() });
-            reconcileTranscriptState(row);
+            // Ordinary client UPDATE: sticky `expired` only if the prior row was expired; never client-asserted.
+            reconcileTranscriptState(row, { authoritative: false, previousState });
           }
           persistSessions();
           return { data: matching, error: null, count: matching.length };
@@ -550,13 +577,15 @@ export async function setupE2EManifest(
           const sessionId = args?.p_session_id;
           const session = sessionState.sessions.find((row) => row.id === sessionId);
           if (session) {
+            const previousState = (session as Record<string, unknown>).transcript_state; // before overwrite
             Object.assign(session, {
               status: args?.p_status || 'completed',
               transcript: args?.p_final_transcript ?? session.transcript,
               duration: args?.p_final_duration ?? session.duration,
               updated_at: nowIso(),
             });
-            reconcileTranscriptState(session as Record<string, unknown>);
+            // Client finalize RPC: sticky `expired` only if already expired; the client cannot assert it.
+            reconcileTranscriptState(session as Record<string, unknown>, { authoritative: false, previousState });
             persistSessions();
           }
           return { data: { success: true, final_status: args?.p_status || 'completed' }, error: null };
