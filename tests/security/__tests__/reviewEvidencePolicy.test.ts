@@ -186,6 +186,13 @@ describe('#1132 ephemeral review-evidence policy', () => {
         );
         rmSync(disguisedBinary);
 
+        const extensionlessBinary = join(fixture, 'playwright-report', 'disguised-proof');
+        writeFileSync(extensionlessBinary, Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d]));
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', fixture)).toContainEqual(
+            expect.stringContaining('binary content in text artifact; upload denied'),
+        );
+        rmSync(extensionlessBinary);
+
         const runnerTemp = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-runner-temp-'));
         temporaryRepos.push(runnerTemp);
         writeFileSync(join(runnerTemp, 'v4-vite.log'), JSON.stringify({ transcript: 'private practice words' }));
@@ -298,6 +305,67 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', symlinked)).toContainEqual(
             expect.stringContaining('symbolic links are forbidden'),
         );
+    });
+
+    it('distinguishes nonexistent upload roots from valid empty and exact-text roots', () => {
+        const missingRelative = policyFixtureRepo();
+        replaceInFixture(
+            missingRelative,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            '          path: missing-review-output/',
+        );
+        expect(scanArtifactUpload(
+            'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
+            missingRelative,
+        )).toContainEqual(expect.stringContaining('configured upload path does not exist; upload denied'));
+
+        const missingAbsolute = policyFixtureRepo();
+        const missingAbsoluteRoot = join(missingAbsolute, 'never-created-review-output');
+        replaceInFixture(
+            missingAbsolute,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            `          path: ${missingAbsoluteRoot}/`,
+        );
+        expect(scanArtifactUpload(
+            'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
+            missingAbsolute,
+        )).toContainEqual(expect.stringContaining('configured upload path does not exist; upload denied'));
+
+        const emptyExisting = policyFixtureRepo();
+        mkdirSync(join(emptyExisting, 'empty-review-output'));
+        replaceInFixture(
+            emptyExisting,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            '          path: empty-review-output/',
+        );
+        // An existing empty directory is resolved and fully scanned. Whether an
+        // empty upload is accepted remains the upload step's if-no-files-found policy.
+        expect(scanArtifactUpload(
+            'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
+            emptyExisting,
+        )).toEqual([]);
+
+        const exactText = policyFixtureRepo();
+        writeFileSync(join(exactText, 'exact-result.json'), JSON.stringify({ passed: true }));
+        replaceInFixture(
+            exactText,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact text result\n        uses: actions/upload-artifact@v6\n        with:\n          name: exact-text-result\n          path: exact-result.json\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(scanArtifactUpload('review-evidence.yml::exact-text-result', exactText)).toEqual([]);
+
+        writeFileSync(join(exactText, 'HEALTH_PASSED'), 'health-check completed\n');
+        replaceInFixture(
+            exactText,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact marker\n        uses: actions/upload-artifact@v6\n        with:\n          name: exact-marker\n          path: HEALTH_PASSED\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(scanArtifactUpload('review-evidence.yml::exact-marker', exactText)).toEqual([]);
     });
 
     it('rejects newly committed review binaries outside named evidence directories', () => {

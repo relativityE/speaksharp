@@ -364,7 +364,11 @@ function scanArtifactRoots(repoRoot, roots) {
         violations.push(...inspectZip(file, displayPath));
         continue;
       }
-      if (!TEXT_EXTENSIONS.has(extname(displayPath).toLowerCase())) {
+      const extension = extname(displayPath).toLowerCase();
+      // Extensionless marker files (for example HEALTH_PASSED) are ordinary
+      // CI handoff text. Admit them only through the same size, binary-content,
+      // UTF-8, and sensitive-text checks used for named text formats.
+      if (extension && !TEXT_EXTENSIONS.has(extension)) {
         violations.push(`${displayPath}: unapproved browser-output file type`);
         continue;
       }
@@ -405,7 +409,8 @@ function uploadPathRoot(repoRoot, path) {
   const absolute = isAbsolute(candidate) ? candidate : join(repoRoot, candidate);
   if (existsSync(absolute)) return { root: absolute };
   const parent = dirname(absolute);
-  return { root: existsSync(parent) && wildcard >= 0 ? parent : absolute };
+  if (wildcard >= 0 && existsSync(parent)) return { root: parent };
+  return { error: `${path}: configured upload path does not exist; upload denied` };
 }
 
 export function scanArtifactUpload(key, repoRoot = REPO_ROOT) {
