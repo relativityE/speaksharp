@@ -34,6 +34,9 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - name: Run Private-v2 corpus lane + validate emitted artifact (fails closed)
+        env:
+          # Guaranteed-writable cache so the model files land on disk for the provenance hash check.
+          HF_CACHE_DIR: ${{ runner.temp }}/hf-cache
         run: |
           # On pull_request, github.sha is the synthetic merge ref — record the PR HEAD commit instead;
           # fall back to github.sha for push/workflow_dispatch.

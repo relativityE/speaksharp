@@ -13,7 +13,8 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { pipeline, env } from '@xenova/transformers';
@@ -82,7 +83,9 @@ async function main(): Promise<void> {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     const manifestDir = dirname(manifestPath);
 
-    const hfCacheDir = process.env.HF_CACHE_DIR ?? '/private/tmp/hf-cache';
+    // Writable on every host (ubuntu CI /tmp, macOS /var/folders). The model files MUST land on disk here
+    // so the provenance check can hash them — a hardcoded '/private/tmp' is not writable on CI runners.
+    const hfCacheDir = process.env.HF_CACHE_DIR ?? join(tmpdir(), 'ss-hf-cache');
     env.allowLocalModels = false;               // fetch the pinned revision from HF (no Cloud STT call)
     env.cacheDir = hfCacheDir;
 
