@@ -93,6 +93,17 @@ describe('#1037 corpusLane — schema-valid rows, fail-closed, honest WER/percen
         expect(summarizeLatency(rows, 'finalization_latency_ms').warm.p95).toBeNull();
     });
 
+    it('excludes a NEGATIVE latency (clock/harness error) from observations and percentiles', () => {
+        const rows: CorpusRow[] = [
+            ...Array.from({ length: 20 }, () => buildCorpusRow(base({ finalizationLatencyMs: 900, thermalState: 'warm' }))),
+            buildCorpusRow(base({ finalizationLatencyMs: -5, thermalState: 'warm' })), // impossible → excluded
+        ];
+        const s = summarizeLatency(rows, 'finalization_latency_ms');
+        expect(s.warm.observations).not.toContain(-5);
+        expect(s.warm.runs).toBe(20);          // the negative measurement is not counted
+        expect(s.warm.min).toBe(900);
+    });
+
     it('REFUSES to aggregate rows from different cohorts (throws)', () => {
         const a = buildCorpusRow(base());
         const b = buildCorpusRow(base({ comparabilityInputs: { ...ci, runtimeVersions: { onnxruntime: '9.9.9' } } }));

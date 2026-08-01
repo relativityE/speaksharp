@@ -43,4 +43,10 @@ describe('#1037 werMetric — versioned normalization + honest WER', () => {
     it('carries the normalization version so a normalization change is a new version', () => {
         expect(wordErrorRate('a', 'a').normalizationVersion).toBe(NORMALIZATION_VERSION);
     });
+
+    it('folds a typographic apostrophe to ASCII instead of splitting the word', () => {
+        // U+2019 in the ground truth must not turn "don't" into "don" + "t".
+        expect(normalizeTranscript('I don’t know')).toEqual(['i', "don't", 'know']);
+        expect(wordErrorRate('I don’t know', "i don't know").wer).toBe(0);
+    });
 });

@@ -138,11 +138,13 @@ export function summarizeLatency(
     if (keys.size > 1) {
         throw new Error(`summarizeLatency: refusing to aggregate ${keys.size} distinct cohorts — summarize one cohort at a time (use rankableCohorts)`);
     }
+    // A negative latency is a clock/harness error, not a measurement — it passes Number.isFinite but must
+    // be excluded so it can never enter a min/max/percentile. Only finite, non-negative values count.
     const obs = (state: ThermalState): number[] =>
         admissible
             .filter((r) => r.thermal_state === state)
             .map((r) => r[metric])
-            .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+            .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0);
 
     const cold = distribution('cold', obs('cold'));
     const warm = distribution('warm', obs('warm'));

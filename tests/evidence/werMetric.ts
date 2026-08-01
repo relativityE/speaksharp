@@ -20,6 +20,9 @@ export function normalizeTranscript(text: string): string[] {
     if (typeof text !== 'string') return [];
     return text
         .toLowerCase()
+        // Fold typographic apostrophes/backticks to ASCII first, so a curly-quoted "don't" in curated
+        // ground truth is not split into "don" + "t".
+        .replace(/[‘’ʼ`´]/g, "'")
         .replace(/[^\p{L}\p{N}\s'\-[\]_]/gu, ' ') // keep letters/digits/apostrophe/hyphen and […] markers
         .split(/\s+/)
         .map((t) => t.replace(/^['-]+|['-]+$/g, '')) // trim leading/trailing apostrophes-hyphens
