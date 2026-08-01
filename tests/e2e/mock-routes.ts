@@ -632,9 +632,11 @@ export async function setupE2EMocks(
         /** Hard override status. If not set, uses base statefulProfile. */
         userType?: 'free' | 'basic' | 'pro';
         profile?: Record<string, unknown>;
+        /** #1047: seed a specific saved-session set (e.g. transcript_state variants) instead of the default history. */
+        sessions?: Partial<MockSession>[];
     } = {}
 ): Promise<void> {
-    const { strictMode = false, emptySessions = false, userType, profile } = options;
+    const { strictMode = false, emptySessions = false, userType, profile, sessions } = options;
 
     // Inject profile override if userType is explicitly set
     if (userType) {
@@ -664,7 +666,9 @@ export async function setupE2EMocks(
         state.profile = { ...state.profile, ...profile } as typeof MOCK_USER_PROFILE;
     }
     state.userWords = [];
-    state.sessions = emptySessions ? [] : MOCK_SESSION_HISTORY.map(s => createMockSession(s as Partial<MockSession>));
+    state.sessions = emptySessions
+        ? []
+        : (sessions ?? MOCK_SESSION_HISTORY as Partial<MockSession>[]).map(s => createMockSession(s));
     state.emptySessions = emptySessions;
 
     // Set window flag for components or MSW handlers that check it
