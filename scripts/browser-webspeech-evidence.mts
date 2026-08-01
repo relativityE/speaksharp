@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   if (process.platform !== 'darwin') {
     throw new Error('manual-assisted Browser proof currently requires macOS system Chrome and /usr/bin/say');
   }
-  const baseUrl = arg('base-url', 'http://127.0.0.1:5173');
+  const baseUrl = arg('base-url', 'http://127.0.0.1:5174');
   const releaseSha = arg('release-sha', process.env.GITHUB_SHA ?? '');
   const outPath = resolve(arg('out', 'test-results/stt-evidence/1037-browser-webspeech.json'));
   const applicationServerWrites: string[] = [];
@@ -208,6 +208,14 @@ async function main(): Promise<void> {
         sessionId: document.documentElement.getAttribute('data-session-persisted-id'),
         appRelease: (window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RELEASE__
           ?? (window as unknown as { __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RUNTIME_CONFIG__?.release ?? '',
+        // Release-proof eligibility as the loaded build reports it (true only for the manual release-proof
+        // runtime: real Supabase + real auth on the manual port). The diagnostic/mock runtime reports false.
+        releaseProofEligible: Boolean(
+          (window as unknown as { __APP_RUNTIME_CONFIG__?: { releaseProofEligible?: boolean } }).__APP_RUNTIME_CONFIG__?.releaseProofEligible,
+        ),
+        // OBSERVED runtime capabilities — read from the live page, never manufactured.
+        crossOriginIsolated: Boolean((window as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated),
+        sharedArrayBufferAvailable: typeof SharedArrayBuffer !== 'undefined',
       };
     });
     const events = snapshot.trace.map(entry => String(entry.event ?? ''));
@@ -236,6 +244,11 @@ async function main(): Promise<void> {
     const appRelease = String(snapshot.appRelease ?? '');
     if (!/^[0-9a-f]{40}$/i.test(appRelease)) throw new Error(`loaded build did not report a 40-char __APP_RELEASE__ (got '${appRelease}')`);
     if (releaseSha && releaseSha !== appRelease) throw new Error(`--release-sha ${releaseSha} != loaded build __APP_RELEASE__ ${appRelease}`);
+    // FAIL CLOSED unless the loaded page is a release-proof runtime. The diagnostic/mock runtime (e.g. the
+    // 5173 port) reports releaseProofEligible=false — a 40-char __APP_RELEASE__ alone is not sufficient.
+    if (snapshot.releaseProofEligible !== true) {
+      throw new Error('loaded build is not release-proof eligible (__APP_RUNTIME_CONFIG__.releaseProofEligible !== true) — refusing to produce evidence from a diagnostic/mock runtime');
+    }
 
     // Fail closed if ANY forbidden (Cloud/Private) engine was constructed or started during the journey —
     // defense in depth beyond the network assertion, and the artifact records the (empty) result as proof
@@ -288,8 +301,9 @@ async function main(): Promise<void> {
       },
       runtime_capability: {
         requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
-        runtimePath: 'browser-webspeech', crossOriginIsolated: false,
-        sharedArrayBufferAvailable: false, fallbackReason: null,
+        // OBSERVED from the loaded page (not manufactured).
+        runtimePath: 'browser-webspeech', crossOriginIsolated: snapshot.crossOriginIsolated,
+        sharedArrayBufferAvailable: snapshot.sharedArrayBufferAvailable, fallbackReason: null,
       },
       comparability_inputs: {
         fixtureHash: '',
@@ -307,6 +321,8 @@ async function main(): Promise<void> {
         forbiddenEngineInvocations: forbiddenEngineTripwire,
         // Installation PROOF carried in the row: the guard installed atomically + the exact protected key set.
         forbiddenEngineGuard: { installed: guard.installed, protectedKeys: guard.protectedKeys },
+        // Release-proof attestation carried in the row so the validator can enforce it independently.
+        releaseProofEligible: snapshot.releaseProofEligible,
       },
     });
     const artifact = {

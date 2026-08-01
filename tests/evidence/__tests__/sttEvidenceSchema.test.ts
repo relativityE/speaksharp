@@ -167,7 +167,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
             recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
             sessionProduced: true, browserManagedTranscription: true,
             applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [],
-            forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] },
+            forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] }, releaseProofEligible: true,
             ...journey,
         },
     });
@@ -246,6 +246,21 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(browserBase({ forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai'] } }));
         expect(r.run_validity).toBe('invalid');
         expect(r.invalid_reason).toMatch(/did not protect required forbidden engines/i);
+    });
+
+    it('a Browser journey from a non-release-proof runtime is rejected', () => {
+        const r = finalizeRow(browserBase({ releaseProofEligible: false }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/release-proof runtime/i);
+    });
+
+    it('admits OBSERVED capability values — true and false are both valid (not manufactured)', () => {
+        const observedTrue = finalizeRow({
+            ...browserBase(),
+            runtime_capability: { ...browserBase().runtime_capability, crossOriginIsolated: true, sharedArrayBufferAvailable: true },
+        });
+        expect(observedTrue.run_validity).toBe('valid');
+        expect(finalizeRow(browserBase()).run_validity).toBe('valid'); // observed false also valid
     });
 
     it('a Browser journey missing runtime_capability is rejected (capability is validated, not skipped)', () => {

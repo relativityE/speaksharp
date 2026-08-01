@@ -154,6 +154,9 @@ function checkRow(row, index) {
                 const missing = REQUIRED_FORBIDDEN_ENGINE_KEYS.filter(k => !Array.isArray(guard.protectedKeys) || !guard.protectedKeys.includes(k));
                 if (missing.length) problems.push(`browser_journey guard did not protect required forbidden engines: ${missing.join(', ')}`);
             }
+            // Release-proof attestation: a diagnostic/mock runtime (releaseProofEligible=false) cannot back
+            // release evidence even with a valid __APP_RELEASE__.
+            if (journey.releaseProofEligible !== true) problems.push('browser_journey must be produced by a release-proof runtime (releaseProofEligible === true)');
         }
         // Runtime capability is validated for Browser rows too (not skipped): it must declare the
         // Browser/Web-Speech runtime path with a well-typed capability shape.

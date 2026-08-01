@@ -26,7 +26,7 @@ function browserRow(over: Record<string, unknown> = {}): Record<string, unknown>
         audio_route_evidence: { fixtureSha256: '', adapterInputPayloadSha256: '', adapterInputBytes: 0, decodedSampleCount: 0, decodedDurationSeconds: 0 },
         runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null },
         comparability_inputs: { fixtureHash: '', groundTruthVersion: 'not-scored', normalizationVersion: 'not-scored', decodeConfiguration: 'system-chrome/web-speech/browser-managed/live-mic', modelRevision: 'browser-managed-unreported-v1', runtimeVersions: { chrome: '148.0', 'web-speech-api': 'browser-managed' } },
-        browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [], forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] } },
+        browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [], forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] }, releaseProofEligible: true },
         ...over,
     };
 }
@@ -68,7 +68,12 @@ describe('#1037 validate-stt-evidence — browser_journey runtime boundary', () 
         ['a MISSING runtime_capability', { runtime_capability: undefined }],
         ['a non-Browser runtime path', { runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'wasm', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null } }],
         ['a mistyped capability field', { runtime_capability: { requestedThreads: 'two', configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null } }],
+        ['a release-ineligible runtime', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [], forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] }, releaseProofEligible: false } }],
     ] as const)('rejects a crafted browser row with %s', (_label, over) => {
         expect(validate([browserRow(over)]).status).toBe(1);
+    });
+
+    it('admits OBSERVED capability values (crossOriginIsolated / SharedArrayBuffer true) — observed, not manufactured', () => {
+        expect(validate([browserRow({ runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: true, sharedArrayBufferAvailable: true, fallbackReason: null } })]).status).toBe(0);
     });
 });

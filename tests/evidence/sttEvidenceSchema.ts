@@ -134,6 +134,12 @@ export interface BrowserJourneyEvidence {
      * `installed === true` and `protectedKeys ⊇ REQUIRED_FORBIDDEN_ENGINE_KEYS`.
      */
     forbiddenEngineGuard: { installed: boolean; protectedKeys: string[] };
+    /**
+     * Release-proof eligibility as the LOADED build reported it (`__APP_RUNTIME_CONFIG__.releaseProofEligible`).
+     * Admissibility REQUIRES `true` — a diagnostic/mock runtime (which reports false) cannot back release
+     * evidence even if it exposes a 40-char `__APP_RELEASE__`.
+     */
+    releaseProofEligible: boolean;
 }
 
 /**
@@ -275,6 +281,9 @@ export function finalizeRow(
                 const missing = REQUIRED_FORBIDDEN_ENGINE_KEYS.filter(k => !Array.isArray(guard.protectedKeys) || !guard.protectedKeys.includes(k));
                 if (missing.length) problems.push(`browser_journey guard did not protect required forbidden engines: ${missing.join(', ')}`);
             }
+            // Release-proof attestation: a diagnostic/mock runtime (releaseProofEligible=false) cannot back
+            // release evidence even with a valid __APP_RELEASE__.
+            if (journey.releaseProofEligible !== true) problems.push('browser_journey must be produced by a release-proof runtime (releaseProofEligible === true)');
         }
         // Runtime capability is validated for Browser rows too (not skipped): Browser/Web-Speech runtime
         // path + a well-typed capability shape.
