@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     APPROVED_SCREENSHOT_UPLOADS,
+    APPROVED_TEST_BINARY_FIXTURES,
     LEGACY_COMMITTED_REVIEW_BINARIES,
     committedReviewBinaries,
     inventoryArtifactUploads,
@@ -59,6 +60,13 @@ describe('#1132 ephemeral review-evidence policy', () => {
             'test-results/stress/backend-stress.latest.json',
             'test-results/endurance/browser-endurance.latest.json',
         ]);
+
+        const proStt = inventory.find(({ key }) => key === 'pro-stt-artifact-matrix.yml::pro-stt-artifact-matrix-artifacts');
+        expect(proStt?.paths).toEqual(['test-results/live/pro-stt-artifact-matrix-evidence.jsonl']);
+        const proSttSpec = readFileSync(join(repoRoot, 'tests/live/pro-stt-artifact-matrix.live.spec.ts'), 'utf8');
+        expect(proSttSpec).not.toContain("testInfo.attach('session-pdf'");
+        expect(proSttSpec).toContain('rm(artifactPath, { force: true })');
+        expect(proSttSpec).toContain('download.delete()');
     });
 
     it('limits approved screenshot uploaders to PNG-only one-day artifacts', () => {
@@ -71,7 +79,10 @@ describe('#1132 ephemeral review-evidence policy', () => {
     });
 
     it('freezes legacy committed review binaries without authorizing deletion or additions', () => {
-        expect(new Set(committedReviewBinaries())).toEqual(LEGACY_COMMITTED_REVIEW_BINARIES);
+        expect(new Set(committedReviewBinaries())).toEqual(new Set([
+            ...LEGACY_COMMITTED_REVIEW_BINARIES,
+            ...APPROVED_TEST_BINARY_FIXTURES,
+        ]));
     });
 
     it('discovers every tracked Playwright config and keeps the demo recorder local-only', () => {
@@ -134,6 +145,17 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(reviewEvidencePolicyViolations(trace)).toContainEqual(
             expect.stringContaining('automated trace capture must be off'),
         );
+
+        const exactPdf = policyFixtureRepo();
+        replaceInFixture(
+            exactPdf,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact PDF\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: proof\n          path: proof.pdf\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(exactPdf)).toContainEqual(
+            expect.stringContaining('binary review artifact path is forbidden (proof.pdf)'),
+        );
     });
 
     it('fails closed before broad browser-output upload when nested content is forbidden', () => {
@@ -194,22 +216,84 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(reviewEvidencePolicyViolations(missingGuard)).toContainEqual(
             expect.stringContaining('upload must be blocked unless the pre-upload scanner succeeds'),
         );
+
+        const neutralUploader = policyFixtureRepo();
+        replaceInFixture(
+            neutralUploader,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload neutral output\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: output\n          path: out/\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(neutralUploader)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::output: broad browser-output upload requires'),
+        );
+    });
+
+    it('fails closed for absolute, dynamic, and symlinked upload roots', () => {
+        const absolute = policyFixtureRepo();
+        const absoluteOutput = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-absolute-'));
+        temporaryRepos.push(absoluteOutput);
+        writeFileSync(join(absoluteOutput, 'nested.png'), 'forbidden screenshot');
+        replaceInFixture(
+            absolute,
+            '.github/workflows/v4-browser-proof.yml',
+            '            playwright-report/',
+            `            ${absoluteOutput}/`,
+        );
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', absolute)).toContainEqual(
+            expect.stringContaining('forbidden browser/session artifact file'),
+        );
+
+        const dynamic = policyFixtureRepo();
+        replaceInFixture(
+            dynamic,
+            '.github/workflows/v4-browser-proof.yml',
+            '            playwright-report/',
+            '            ${{ matrix.output_dir }}/',
+        );
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', dynamic)).toContainEqual(
+            expect.stringContaining('unsupported dynamic upload path; upload denied'),
+        );
+
+        const symlinked = policyFixtureRepo();
+        const symlinkTarget = join(symlinked, 'safe-target');
+        mkdirSync(symlinkTarget);
+        writeFileSync(join(symlinkTarget, 'result.json'), JSON.stringify({ passed: true }));
+        symlinkSync(symlinkTarget, join(symlinked, 'review-link'));
+        replaceInFixture(
+            symlinked,
+            '.github/workflows/v4-browser-proof.yml',
+            '            playwright-report/',
+            '            review-link/',
+        );
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', symlinked)).toContainEqual(
+            expect.stringContaining('symbolic links are forbidden'),
+        );
     });
 
     it('rejects newly committed review binaries outside named evidence directories', () => {
         const fixture = policyFixtureRepo();
-        for (const path of ['docs/new-review.png', 'review-output/proof.zip']) {
+        const binaryEvidence: Array<[string, Uint8Array]> = [
+            ['docs/new-review.png', Uint8Array.from([0x89, 0x50, 0x4e, 0x47])],
+            ['review-output/proof.zip', Uint8Array.from([0x50, 0x4b, 0x03, 0x04])],
+            ['docs/review-shot.gif', Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])],
+            ['docs/proof.pdf', Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d])],
+            ['docs/interview.wav', Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0])],
+            ['docs/extensionless-proof', Uint8Array.from([0, 0xff, 0x01, 0xfe])],
+        ];
+        for (const [path, contents] of binaryEvidence) {
             const added = join(fixture, path);
             mkdirSync(dirname(added), { recursive: true });
-            writeFileSync(added, 'new binary review evidence');
+            writeFileSync(added, contents);
             execFileSync('git', ['add', path], { cwd: fixture });
         }
 
         const violations = reviewEvidencePolicyViolations(fixture);
-        expect(violations).toEqual(expect.arrayContaining([
-            expect.stringContaining('docs/new-review.png: committed binary review evidence is forbidden'),
-            expect.stringContaining('review-output/proof.zip: committed binary review evidence is forbidden'),
-        ]));
+        for (const [path] of binaryEvidence) {
+            expect(violations).toContainEqual(
+                expect.stringContaining(`${path}: committed binary review evidence is forbidden`),
+            );
+        }
 
         const productAsset = join(fixture, 'frontend/public/assets/new-product-icon.png');
         mkdirSync(dirname(productAsset), { recursive: true });

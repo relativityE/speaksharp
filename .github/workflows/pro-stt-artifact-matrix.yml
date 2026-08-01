@@ -62,8 +62,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: pro-stt-artifact-matrix-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
+          path: test-results/live/pro-stt-artifact-matrix-evidence.jsonl
           retention-days: 14
+          if-no-files-found: error

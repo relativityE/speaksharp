@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
@@ -41,8 +41,70 @@ export const NON_REVIEW_DIRECTORY_UPLOADS = new Set([
   'ci.yml::build-artifacts',
 ]);
 
-const REVIEW_BINARY_EXTENSION = /\.(?:png|jpe?g|webp|webm|mp4|mov|zip|trace|har)$/i;
-const BROAD_BROWSER_OUTPUT = /(?:^|\/)(?:blob-report|playwright-report|test-results)(?:\/|$)/i;
+// Existing test audio is executable fixture input, not review evidence. Keep
+// this allowlist file-exact so a future binary placed anywhere under tests/
+// does not inherit approval from its directory name.
+export const APPROVED_TEST_BINARY_FIXTURES = new Set([
+  'tests/evidence/fixtures/corpus/fixture-001.wav',
+  'tests/evidence/fixtures/corpus/fixture-002.wav',
+  'tests/evidence/fixtures/corpus/fixture-003.wav',
+  'tests/fixtures/120sec_tone_16k.wav',
+  'tests/fixtures/harvard_01_16k.wav',
+  'tests/fixtures/harvard_benchmark_16k.wav',
+  'tests/fixtures/harvard_benchmark_16k_loop_120s.wav',
+  'tests/fixtures/harvard_sentences_16k.wav',
+  'tests/fixtures/jfk.flac',
+  'tests/fixtures/jfk_16k.wav',
+  'tests/fixtures/softonset_my_main_point_16k.wav',
+  'tests/fixtures/stt-isomorphic/audio/conv_01.wav',
+  'tests/fixtures/stt-isomorphic/audio/conv_02.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_1.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_10.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_2.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_3.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_4.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_5.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_6.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_7.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_8.wav',
+  'tests/fixtures/stt-isomorphic/audio/h1_9.wav',
+  'tests/fixtures/stt-isomorphic/audio/washington_01.wav',
+  'tests/fixtures/test-audio.wav',
+  'tests/fixtures/test_speech.aiff',
+  'tests/fixtures/test_speech_16k.wav',
+]);
+
+const BROAD_UPLOAD_SCANNER_EXEMPTIONS = new Set([
+  ...APPROVED_SCREENSHOT_UPLOADS,
+  ...NON_REVIEW_DIRECTORY_UPLOADS,
+]);
+const KNOWN_BINARY_EXTENSIONS = new Set([
+  '.7z', '.aif', '.aiff', '.avi', '.bmp', '.bz2', '.doc', '.docx', '.flac', '.gif', '.gz', '.har', '.ico',
+  '.jpeg', '.jpg', '.m4a', '.mkv', '.mov', '.mp3', '.mp4', '.ogg', '.onnx', '.otf', '.pdf', '.png', '.ppt',
+  '.pptx', '.rar', '.tar', '.tif', '.tiff', '.trace', '.wav', '.webm', '.webp', '.woff', '.woff2', '.xls',
+  '.xlsx', '.xz', '.zip',
+]);
+const TEXT_CONTROL_EXCEPTIONS = new Set([
+  // Contains an intentional NUL-character validation case inside a TypeScript
+  // string literal. This is source text, not an embedded review artifact.
+  'frontend/src/hooks/__tests__/useUserFillerWords.test.ts',
+]);
+const BINARY_MAGIC_PREFIXES = [
+  Buffer.from([0x89, 0x50, 0x4e, 0x47]), // PNG
+  Buffer.from('GIF87a'),
+  Buffer.from('GIF89a'),
+  Buffer.from('%PDF-'),
+  Buffer.from('RIFF'),
+  Buffer.from('FORM'),
+  Buffer.from('fLaC'),
+  Buffer.from('OggS'),
+  Buffer.from('ID3'),
+  Buffer.from('PK\x03\x04', 'binary'), // ZIP and Office containers
+  Buffer.from([0xff, 0xd8, 0xff]), // JPEG
+  Buffer.from('BM'),
+  Buffer.from([0x49, 0x49, 0x2a, 0x00]), // little-endian TIFF
+  Buffer.from([0x4d, 0x4d, 0x00, 0x2a]), // big-endian TIFF
+];
 const FORBIDDEN_ARTIFACT_PATH = /(?:\.(?:png|jpe?g|webp|webm|mp4|mov|har)$|trace\.zip$|storage[-_]?state|cookies?\.json|\.env(?:\.|$))/i;
 const TEXT_EXTENSIONS = new Set([
   '.css', '.csv', '.html', '.js', '.json', '.jsonl', '.log', '.md', '.mjs', '.svg', '.txt', '.xml', '.yaml', '.yml',
@@ -118,21 +180,16 @@ function uploadStepStart(lines, usesIndex) {
   return usesIndex;
 }
 
-function isBroadBrowserUpload(paths) {
-  return paths.some((path) => BROAD_BROWSER_OUTPUT.test(path) && (path.endsWith('/') || /[*?]/.test(path)));
-}
-
 function pathAppearsBroad(path) {
   const withoutWorkspace = path.replace(/^\$\{\{\s*github\.workspace\s*\}\}\//, '');
-  if (/[*?]/.test(withoutWorkspace) || withoutWorkspace.endsWith('/')) return true;
-  if (/^\$\{\{/.test(withoutWorkspace) || withoutWorkspace.startsWith('/')) return false;
+  if (/\$\{\{/.test(withoutWorkspace)) return true;
+  if (/[*?[\]]/.test(withoutWorkspace) || withoutWorkspace.endsWith('/')) return true;
+  if (withoutWorkspace.startsWith('/')) return false;
   return extname(withoutWorkspace) === '';
 }
 
-function isBroadReviewUpload(name, paths) {
-  const reviewLike = /(?:artifact|evidence|proof|report|result|screenshot|metrics)/i.test(name ?? '')
-    || paths.some((path) => /(?:evidence|report|results?|screenshots?)(?:\/|$)/i.test(path));
-  return reviewLike && paths.some(pathAppearsBroad);
+function isBroadUpload(paths) {
+  return paths.some(pathAppearsBroad);
 }
 
 function escapeRegex(value) {
@@ -175,8 +232,7 @@ export function inventoryArtifactUploads(repoRoot = REPO_ROOT) {
         retentionDays: scalarAfter(lines, usesIndex + 1, end, 'retention-days'),
         ifNoFilesFound: scalarAfter(lines, usesIndex + 1, end, 'if-no-files-found'),
         uploadIf: scalarAfter(lines, stepStart, usesIndex, 'if'),
-        broadBrowserUpload: isBroadBrowserUpload(paths),
-        broadReviewUpload: isBroadReviewUpload(name, paths),
+        broadUpload: isBroadUpload(paths),
         scannerId: scannerMatch?.[1],
         hasPreUploadScanner: Boolean(scannerMatch),
       });
@@ -194,15 +250,42 @@ function isApprovedProductBinary(path) {
   return [...APPROVED_PRODUCT_BINARY_ROOTS].some((root) => path.startsWith(root));
 }
 
+function hasBinaryMagic(contents) {
+  return BINARY_MAGIC_PREFIXES.some((prefix) => contents.subarray(0, prefix.length).equals(prefix));
+}
+
 export function committedReviewBinaries(repoRoot = REPO_ROOT) {
   return gitTrackedFiles(repoRoot)
-    .filter((path) => REVIEW_BINARY_EXTENSION.test(path))
-    .filter((path) => !isApprovedProductBinary(path));
+    .filter((path) => !isApprovedProductBinary(path))
+    .filter((path) => {
+      const absolute = join(repoRoot, path);
+      if (lstatSync(absolute).isSymbolicLink()) return true;
+
+      const extension = extname(path).toLowerCase();
+      if (KNOWN_BINARY_EXTENSIONS.has(extension)) return true;
+
+      const contents = readFileSync(absolute);
+      if (contents.length === 0) return false;
+      if (hasBinaryMagic(contents)) return true;
+      if (TEXT_CONTROL_EXCEPTIONS.has(path)) return false;
+      if (contents.includes(0)) return true;
+      try {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(contents);
+        const forbiddenControls = [...text].filter((character) => {
+          const code = character.charCodeAt(0);
+          return code < 32 && !['\t', '\n', '\r', '\f'].includes(character);
+        }).length;
+        return forbiddenControls / text.length > 0.005;
+      } catch {
+        return true;
+      }
+    });
 }
 
 function walkFiles(path) {
   if (!existsSync(path)) return [];
-  if (!statSync(path).isDirectory()) return [path];
+  const rootStat = lstatSync(path);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) return [path];
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
     const child = join(path, entry.name);
     return entry.isDirectory() ? walkFiles(child) : [child];
@@ -293,17 +376,22 @@ function uploadPathRoot(repoRoot, path) {
   let candidate = path.replace(/^\$\{\{\s*github\.workspace\s*\}\}\//, '');
   const runnerTempMatch = candidate.match(/^\$\{\{\s*runner\.temp\s*\}\}\/(.+)$/);
   if (runnerTempMatch) {
-    return process.env.RUNNER_TEMP ? join(process.env.RUNNER_TEMP, runnerTempMatch[1]) : undefined;
+    if (!process.env.RUNNER_TEMP) {
+      return { error: `${path}: runner.temp is unavailable; upload denied` };
+    }
+    candidate = join(process.env.RUNNER_TEMP, runnerTempMatch[1]);
   }
-  if (/\$\{\{/.test(candidate) || candidate.startsWith('/')) return undefined;
-  const wildcard = candidate.search(/[*?]/);
+  if (/\$\{\{/.test(candidate)) {
+    return { error: `${path}: unsupported dynamic upload path; upload denied` };
+  }
+  const wildcard = candidate.search(/[*?[\]]/);
   if (wildcard >= 0) candidate = candidate.slice(0, wildcard);
   candidate = candidate.replace(/\/$/, '');
-  if (!candidate) return undefined;
-  const absolute = join(repoRoot, candidate);
-  if (existsSync(absolute)) return absolute;
+  if (!candidate) return { root: repoRoot };
+  const absolute = isAbsolute(candidate) ? candidate : join(repoRoot, candidate);
+  if (existsSync(absolute)) return { root: absolute };
   const parent = dirname(absolute);
-  return existsSync(parent) && wildcard >= 0 ? parent : absolute;
+  return { root: existsSync(parent) && wildcard >= 0 ? parent : absolute };
 }
 
 export function scanArtifactUpload(key, repoRoot = REPO_ROOT) {
@@ -313,8 +401,12 @@ export function scanArtifactUpload(key, repoRoot = REPO_ROOT) {
     return dynamicKeyPattern.test(key);
   });
   if (!artifact) return [`${key}: artifact uploader is not present in the workflow inventory`];
-  const roots = artifact.paths.map((path) => uploadPathRoot(repoRoot, path)).filter(Boolean);
-  return scanArtifactRoots(repoRoot, roots);
+  if (artifact.paths.length === 0) return [`${key}: artifact uploader has no configured paths; upload denied`];
+  const resolutions = artifact.paths.map((path) => uploadPathRoot(repoRoot, path));
+  const violations = resolutions.flatMap((resolution) => resolution.error ? [resolution.error] : []);
+  const roots = resolutions.flatMap((resolution) => resolution.root ? [resolution.root] : []);
+  if (roots.length === 0) violations.push(`${key}: no upload path could be resolved; upload denied`);
+  return [...violations, ...scanArtifactRoots(repoRoot, roots)];
 }
 
 export function scanGeneratedArtifacts(repoRoot = REPO_ROOT) {
@@ -349,11 +441,16 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
       if (/(?:trace\.zip|\.webm\b|\.mp4\b|storage[-_]?state|cookies?\.json|\.env(?:\.|$))/i.test(path)) {
         violations.push(`${artifact.key}: forbidden browser/session artifact path (${path})`);
       }
+      const pathWithoutGlob = path.replace(/[*?[\]].*$/, '');
+      const configuredExtension = extname(pathWithoutGlob).toLowerCase();
+      if (KNOWN_BINARY_EXTENSIONS.has(configuredExtension)
+        && configuredExtension !== '.zip'
+        && !APPROVED_SCREENSHOT_UPLOADS.has(artifact.key)) {
+        violations.push(`${artifact.key}: binary review artifact path is forbidden (${path})`);
+      }
     }
 
-    if (artifact.broadReviewUpload
-      && !APPROVED_SCREENSHOT_UPLOADS.has(artifact.key)
-      && !NON_REVIEW_DIRECTORY_UPLOADS.has(artifact.key)) {
+    if (artifact.broadUpload && !BROAD_UPLOAD_SCANNER_EXEMPTIONS.has(artifact.key)) {
       if (!artifact.hasPreUploadScanner) {
         violations.push(`${artifact.key}: broad browser-output upload requires a fail-closed pre-upload scanner`);
       }
@@ -397,8 +494,12 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
   }
 
   const committed = new Set(committedReviewBinaries(repoRoot));
+  const allowedCommittedBinaries = new Set([
+    ...LEGACY_COMMITTED_REVIEW_BINARIES,
+    ...APPROVED_TEST_BINARY_FIXTURES,
+  ]);
   for (const path of committed) {
-    if (!LEGACY_COMMITTED_REVIEW_BINARIES.has(path)) {
+    if (!allowedCommittedBinaries.has(path)) {
       violations.push(`${path}: committed binary review evidence is forbidden outside approved product-asset roots`);
     }
   }

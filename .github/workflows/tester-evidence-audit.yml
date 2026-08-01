@@ -85,8 +85,13 @@ jobs:
 
       # Upload ONLY on success: a failed/partial run must never produce a successful-looking audit
       # artifact. `if-no-files-found: error` so a missing report is a hard failure, not a silent pass.
-      - name: Upload sanitized aggregate report
+      - name: Scan sanitized aggregate report
+        id: review_evidence_scan
         if: success()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'tester-evidence-audit.yml::tester-evidence-audit-aggregates'
+
+      - name: Upload sanitized aggregate report
+        if: ${{ success() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: tester-evidence-audit-aggregates
