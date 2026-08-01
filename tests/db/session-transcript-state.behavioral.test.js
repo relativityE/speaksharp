@@ -45,7 +45,8 @@ CREATE TABLE public.sessions (
 const USER = '11111111-1111-4111-8111-111111111111';
 let db;
 let legacyWithText;   // pre-migration row WITH a real transcript
-let legacyBlank;      // pre-migration row with a blank transcript
+let legacyBlank;      // pre-migration row with a blank (spaces) transcript
+let legacyWhitespace; // pre-migration row with a TAB/NEWLINE-only transcript (btrim-spaces-only would miss it)
 
 async function insert(transcript, extra = '') {
   const res = await db.query(
@@ -70,6 +71,9 @@ beforeAll(async () => {
   )).rows[0].id;
   legacyBlank = (await db.query(
     `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, '   ', 'completed') RETURNING id`, [USER],
+  )).rows[0].id;
+  legacyWhitespace = (await db.query(
+    `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, E'\\t\\n \\r', 'completed') RETURNING id`, [USER],
   )).rows[0].id;
   await db.exec(readFileSync(MIGRATION, 'utf8')); // apply the ACTUAL shipped migration
 });
@@ -100,6 +104,18 @@ describe('#1047 sessions.transcript_state — real DB-row behavior (PGlite)', ()
     expect(blank.transcript_state).toBe('not_captured');
     expect(blank.transcript).toBe('   ');                     // untouched, just classified
     expect([withText.transcript_state, blank.transcript_state]).not.toContain('expired');
+  });
+
+  it('2b. (#1131) whitespace-only transcripts (tabs/newlines) classify as not_captured on backfill AND write', async () => {
+    // btrim(transcript) with one arg strips only SPACES, so a tab/newline-only transcript would wrongly
+    // backfill/derive to `available`. The whitespace-robust check (~ non-whitespace) must classify it as
+    // not_captured — matching the frontend's `.trim()` semantics.
+    const legacyWs = await stateOf(legacyWhitespace);
+    expect(legacyWs.transcript_state).toBe('not_captured'); // backfill path
+    const insertedWs = await insert('\t\n \r\f');           // trigger path (INSERT)
+    expect(insertedWs.transcript_state).toBe('not_captured');
+    const realWithPadding = await insert('  actual spoken words  ');
+    expect(realWithPadding.transcript_state).toBe('available'); // surrounding whitespace + real text = available
   });
 
   it('3. INSERT derives state from the persisted transcript, ignoring a client-supplied value', async () => {

@@ -6,7 +6,10 @@ import { useChartContainerReady } from './useChartContainerReady';
 
 interface TrendDataPoint {
     date: string;
-    wpm: number;
+    // #1047: `null` = this session's transcript-state provenance says the metric is not measured
+    // (not_captured / expired-without-persisted). A null point is omitted from the trend (never a
+    // fabricated zero), matching the corrected clarity gating below.
+    wpm: number | null;
     /**
      * #1091: `null` = this session carries no scorable clarity evidence. An unscorable session's
      * `clarityScore` is 0 BY DESIGN, so plotting it drew a fabricated zero on the trend line — the same
@@ -14,7 +17,7 @@ interface TrendDataPoint {
      * `connectNulls` at its default `false`, so a null renders as a GAP rather than a point.
      */
     clarity: number | null;
-    fillers: number;
+    fillers: number | null;
     pauses: number;
 }
 

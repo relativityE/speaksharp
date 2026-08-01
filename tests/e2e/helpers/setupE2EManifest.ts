@@ -287,9 +287,10 @@ export async function setupE2EManifest(
       // Empty-session proofs must be a hard empty state. Reusing persisted
       // sessionStorage here lets earlier seeded analytics flows contaminate
       // `emptyUserPage` and hides the actual empty-state UX.
-      // An explicit #1047 seed always wins over a persisted DB so transcript_state variants are deterministic
-      // across the reload assertions; otherwise fall back to the persisted DB, then the generic default set.
-      sessions: es ? defaultSessions : (seededSessions ?? loadPersistedSessions() ?? defaultSessions),
+      // #1047 reload fidelity: a PERSISTED mock DB wins over the seed, so a page.reload() reads the
+      // round-tripped rows (proving persistence) instead of re-seeding. The explicit seed applies only on the
+      // FIRST load (no persisted DB yet); a fresh page (new test) starts with empty sessionStorage.
+      sessions: es ? defaultSessions : (loadPersistedSessions() ?? seededSessions ?? defaultSessions),
     };
     let userGoals = {
       user_id: e2eProfile.id,

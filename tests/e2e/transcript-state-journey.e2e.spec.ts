@@ -119,6 +119,22 @@ test.describe('#1047 U1 E2E mock fidelity — a client cannot self-assert `expir
     expect(result.afterResurrect.transcript).toBeNull();   // client resurrection denied
   });
 
+  test('reload reads the PERSISTED mock DB (a mutation survives reload — not a reseed)', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'u1-persist', title: 'Persisted take', transcript: 'the original words', transcript_state: 'available' as const, engine: 'private' as const }] });
+    // Mutate the persisted mock DB via the in-browser client, then reload. If the harness re-seeded on
+    // reload, the transcript would revert to the seed ('the original words'); reading the mutation proves the
+    // reload comes from the persisted DB.
+    await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      await sb.from('sessions').update({ transcript: 'edited persisted words' }).eq('id', 'u1-persist');
+    });
+    await page.reload();
+    const el = await openDetail(page, 'u1-persist');
+    await expect(el).toHaveAttribute('data-transcript-state', 'available');
+    await expect(el).toContainText('edited persisted words'); // survived reload ⇒ read from persisted, not reseeded
+    await expect(el).not.toContainText('the original words');
+  });
+
   test('an authoritative expired fixture seed persists as `expired` with transcript null', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'fx-seed', transcript: 'original text', transcript_state: 'expired' as const, engine: 'private' as const }] });
     const row = await page.evaluate(async () => {

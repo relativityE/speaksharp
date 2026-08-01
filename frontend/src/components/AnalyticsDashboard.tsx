@@ -751,29 +751,38 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (sessions.length !== 2) return null;
         return sessions.map(s => {
             const metrics = getSessionAnalysisMetrics(s!);
+            // #1047: comparison metrics are transcript-derived — gate each on transcript-state provenance so a
+            // not_captured/expired session compares as N/A (null), never as a sentinel 0.
+            const state = presentTranscript(s!.transcript_state, s!.transcript).state;
+            const clarityShowable = metrics.isClarityScorable && transcriptDerivedMetricShowable(state, typeof s!.clarity_score === 'number');
             return {
                 id: s!.id,
                 created_at: s!.created_at,
-                wpm: metrics.wpm,
-                clarity_score: metrics.clarityScore,
-                filler_count: metrics.fillerCount,
+                wpm: transcriptDerivedMetricShowable(state, typeof s!.wpm === 'number') ? metrics.wpm : null,
+                clarity_score: clarityShowable ? metrics.clarityScore : null,
+                filler_count: transcriptDerivedMetricShowable(state, isUsableFillerCounts(s!.filler_words)) ? metrics.fillerCount : null,
                 duration_seconds: s!.duration,
             };
-        }) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
+        }) as [{ id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }, { id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
     const trendData = useMemo(() => {
         if (!sessionHistory || sessionHistory.length < 2) return [];
         return sessionHistory.slice(0, 10).reverse().map(s => {
             const metrics = getSessionAnalysisMetrics(s);
+            // #1047: gate EVERY transcript-derived trend point on transcript-state provenance, not numeric
+            // presence — a not_captured/expired session's sentinel 0/{} must never chart as a real point.
+            // null = omitted point (Recharts renders a gap). Pauses are timing-derived (not transcript) and
+            // are charted as before.
+            const state = presentTranscript(s.transcript_state, s.transcript).state;
+            const wpmShowable = transcriptDerivedMetricShowable(state, typeof s.wpm === 'number');
+            const fillerShowable = transcriptDerivedMetricShowable(state, isUsableFillerCounts(s.filler_words));
+            const clarityShowable = metrics.isClarityScorable && transcriptDerivedMetricShowable(state, typeof s.clarity_score === 'number');
             return {
                 date: formatDate(s.created_at),
-                wpm: metrics.wpm,
-                // #1091: gate on the clarity contributor rule. `clarityScore` is 0 for an unscorable
-                // session by design, so charting it unconditionally drew a fabricated zero next to a
-                // corrected "Not enough data" card. null = omitted point (Recharts renders a gap).
-                clarity: metrics.isClarityScorable ? metrics.clarityScore : null,
-                fillers: metrics.fillerCount,
+                wpm: wpmShowable ? metrics.wpm : null,
+                clarity: clarityShowable ? metrics.clarityScore : null,
+                fillers: fillerShowable ? metrics.fillerCount : null,
                 pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
             };
         });

@@ -266,6 +266,10 @@ describe('AnalyticsDashboard', () => {
                     clarity_score: 77,
                     filler_words: { um: { count: 2 } },
                     accuracy: 0.9,
+                    // #1047: an `available` transcript backs these persisted measurements so the comparison
+                    // legitimately shows real numbers (not_captured/expired would correctly gate to N/A).
+                    transcript: 'the practiced words for session one',
+                    transcript_state: 'available',
                 },
                 {
                     id: 'session-2',
@@ -277,6 +281,8 @@ describe('AnalyticsDashboard', () => {
                     clarity_score: 88,
                     filler_words: { um: { count: 1 } },
                     accuracy: 0.95,
+                    transcript: 'the practiced words for session two',
+                    transcript_state: 'available',
                 },
             ],
         });

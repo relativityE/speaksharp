@@ -14,9 +14,9 @@ vi.mock('@/components/ui/dialog', () => ({
 interface SessionMetrics {
     id: string;
     created_at: string;
-    wpm: number;
-    clarity_score: number;
-    filler_count: number;
+    wpm: number | null;
+    clarity_score: number | null;
+    filler_count: number | null;
     duration_seconds: number;
 }
 
@@ -72,5 +72,19 @@ describe('SessionComparisonDialog', () => {
         expect(screen.getAllByText(/WPM/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Clarity/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Filler/i).length).toBeGreaterThan(0);
+    });
+
+    it('#1047: an unmeasured (null) transcript-derived metric renders N/A, never a sentinel 0', () => {
+        const withNulls: [SessionMetrics, SessionMetrics] = [
+            { ...mockSessions[0], wpm: null, clarity_score: null, filler_count: null },
+            mockSessions[1],
+        ];
+        render(
+            <SessionComparisonDialog open={true} onOpenChange={() => { }} sessions={withNulls} />
+        );
+        // Session 1's unmeasured metrics show N/A (not 0), and its delta rows are N/A too.
+        expect(screen.getAllByText('N/A').length).toBeGreaterThanOrEqual(3);
+        // The zero that a sentinel would have produced must NOT appear for the nulled metrics.
+        expect(screen.queryByText('0%')).not.toBeInTheDocument();
     });
 });

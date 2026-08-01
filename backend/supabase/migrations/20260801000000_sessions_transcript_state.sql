@@ -33,7 +33,7 @@ ALTER TABLE public.sessions
 --    `expired` must never be inferred from an absent/empty transcript.
 UPDATE public.sessions
   SET transcript_state = CASE
-    WHEN transcript IS NOT NULL AND length(btrim(transcript)) > 0 THEN 'available'
+    WHEN transcript IS NOT NULL AND transcript ~ '[^[:space:]]' THEN 'available'
     ELSE 'not_captured'
   END
   WHERE transcript_state IS NULL;
@@ -97,7 +97,7 @@ BEGIN
     -- re-save can never silently reintroduce retention-removed text (resurrection prevention).
     NEW.transcript_state := 'expired';
     NEW.transcript := NULL;
-  ELSIF NEW.transcript IS NOT NULL AND length(btrim(NEW.transcript)) > 0 THEN
+  ELSIF NEW.transcript IS NOT NULL AND NEW.transcript ~ '[^[:space:]]' THEN
     NEW.transcript_state := 'available';
   ELSE
     NEW.transcript_state := 'not_captured';

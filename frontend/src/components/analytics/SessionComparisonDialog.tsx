@@ -12,9 +12,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 interface SessionMetrics {
     id: string;
     created_at: string;
-    wpm: number;
-    clarity_score: number;
-    filler_count: number;
+    // #1047: transcript-derived metrics are `null` when transcript-state provenance says they are not
+    // measured (not_captured / expired-without-persisted). Rendered as N/A, never as a sentinel 0.
+    wpm: number | null;
+    clarity_score: number | null;
+    filler_count: number | null;
     duration_seconds: number;
 }
 
@@ -45,6 +47,31 @@ export const SessionComparisonDialog: React.FC<SessionComparisonDialogProps> = (
         return `${mins}m ${secs}s`;
     };
 
+    // #1047: a null (unmeasured) transcript-derived metric renders as N/A, never a fabricated number.
+    const metric = (v: number | null, unit = '') => (v === null ? 'N/A' : `${v}${unit}`);
+
+    // A delta is only shown when BOTH sessions measured the metric; otherwise an honest N/A row.
+    const renderDelta = (label: string, value: number | null, previousValue: number | null, opts: { unit?: string; inverse?: boolean } = {}) => {
+        if (value === null || previousValue === null) {
+            return (
+                <div className="flex items-center justify-between" data-testid="improvement-indicator">
+                    <span className="text-sm text-muted-foreground">{label}</span>
+                    <span className="font-medium">N/A</span>
+                </div>
+            );
+        }
+        return (
+            <ProgressIndicator
+                label={label}
+                value={value}
+                previousValue={previousValue}
+                unit={opts.unit}
+                inverse={opts.inverse}
+                data-testid="improvement-indicator"
+            />
+        );
+    };
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl" aria-label="Session Comparison">
@@ -69,15 +96,15 @@ export const SessionComparisonDialog: React.FC<SessionComparisonDialogProps> = (
                             </div>
                             <div>
                                 <span className="text-sm text-muted-foreground">WPM:</span>
-                                <span className="ml-2 font-medium">{session1.wpm}</span>
+                                <span className="ml-2 font-medium">{metric(session1.wpm)}</span>
                             </div>
                             <div>
                                 <span className="text-sm text-muted-foreground">Clarity:</span>
-                                <span className="ml-2 font-medium">{session1.clarity_score}%</span>
+                                <span className="ml-2 font-medium">{metric(session1.clarity_score, '%')}</span>
                             </div>
                             <div>
                                 <span className="text-sm text-muted-foreground">Fillers:</span>
-                                <span className="ml-2 font-medium">{session1.filler_count}</span>
+                                <span className="ml-2 font-medium">{metric(session1.filler_count)}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -95,15 +122,15 @@ export const SessionComparisonDialog: React.FC<SessionComparisonDialogProps> = (
                             </div>
                             <div>
                                 <span className="text-sm text-muted-foreground">WPM:</span>
-                                <span className="ml-2 font-medium">{session2.wpm}</span>
+                                <span className="ml-2 font-medium">{metric(session2.wpm)}</span>
                             </div>
                             <div>
                                 <span className="text-sm text-muted-foreground">Clarity:</span>
-                                <span className="ml-2 font-medium">{session2.clarity_score}%</span>
+                                <span className="ml-2 font-medium">{metric(session2.clarity_score, '%')}</span>
                             </div>
                             <div>
                                 <span className="text-sm text-muted-foreground">Fillers:</span>
-                                <span className="ml-2 font-medium">{session2.filler_count}</span>
+                                <span className="ml-2 font-medium">{metric(session2.filler_count)}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -115,26 +142,12 @@ export const SessionComparisonDialog: React.FC<SessionComparisonDialogProps> = (
                         <CardTitle className="text-base">Progress Analysis</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                        <ProgressIndicator
-                            label="WPM"
-                            value={session2.wpm}
-                            previousValue={session1.wpm}
-                            data-testid="improvement-indicator"
-                        />
-                        <ProgressIndicator
-                            label="Clarity"
-                            value={session2.clarity_score}
-                            previousValue={session1.clarity_score}
-                            unit="%"
-                            data-testid="improvement-indicator"
-                        />
-                        <ProgressIndicator
-                            label="Fillers"
-                            value={session2.filler_count}
-                            previousValue={session1.filler_count}
-                            inverse
-                            data-testid="improvement-indicator"
-                        />
+                        {/* #1047: a delta is only meaningful when BOTH sessions measured the metric. When
+                            either side is unmeasured (null), show an honest N/A row instead of a fabricated
+                            improvement/regression against a sentinel 0. */}
+                        {renderDelta('WPM', session2.wpm, session1.wpm)}
+                        {renderDelta('Clarity', session2.clarity_score, session1.clarity_score, { unit: '%' })}
+                        {renderDelta('Fillers', session2.filler_count, session1.filler_count, { inverse: true })}
                     </CardContent>
                 </Card>
             </DialogContent>
