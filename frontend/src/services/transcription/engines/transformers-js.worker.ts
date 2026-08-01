@@ -21,7 +21,7 @@ type WorkerResponse =
         model: string;
         device: string;
         requestedThreads: number;
-        configuredThreads: number;
+        configuredThreads: number | null;
         workerReportedThreads: null;
         crossOriginIsolated: boolean;
       }
@@ -99,19 +99,22 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     // policy degrades to 1 thread (the guaranteed CPU floor) when isolation is
     // unavailable, so this is safe everywhere. Telemetry below reports the actual
     // device/threads so release proof can confirm which CPU tier ran.
-    let cpuThreads = 1;
+    let configuredThreads: number | null = null;
     const cpuIsolated = isCrossOriginIsolated();
     try {
         const wasmBackend = env.backends?.onnx?.wasm;
         if (wasmBackend) {
             wasmBackend.wasmPaths = TRANSFORMERS_V2_WASM_PATHS;
-            cpuThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
-            wasmBackend.numThreads = cpuThreads;
+            const desiredThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
+            wasmBackend.numThreads = desiredThreads;
             wasmBackend.simd = true;
+            configuredThreads = desiredThreads;
         }
     } catch {
-        // Non-fatal: fall back to library defaults (single-threaded).
-        cpuThreads = 1;
+        // Non-fatal: the library may continue with its defaults, but those
+        // defaults are not observable here. Never relabel an unknown runtime
+        // configuration as explicit single-thread evidence.
+        configuredThreads = null;
     }
 
     // MAXDEPTH FIX (Part 4): whisper-base.en is a SPLIT model (separate encoder +
@@ -157,9 +160,11 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
         model: loadedModelKey,
-        device: cpuThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
+        device: configuredThreads == null
+            ? 'wasm-default-unverified'
+            : configuredThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
         requestedThreads: MAX_WASM_THREADS,
-        configuredThreads: cpuThreads,
+        configuredThreads,
         // ORT v1.14 accepts numThreads configuration but does not expose an
         // independent effective-thread count. Never relabel configuration as proof.
         workerReportedThreads: null,

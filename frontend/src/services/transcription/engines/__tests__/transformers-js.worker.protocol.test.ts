@@ -96,6 +96,37 @@ describe('transformers-js.worker protocol contract', () => {
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 6, type: 'ready' }));
     });
 
+    it.each([
+        ['missing WASM configuration object', {}],
+        ['throwing WASM thread assignment', {
+            backends: {
+                onnx: {
+                    wasm: Object.defineProperty({ wasmPaths: '', simd: false }, 'numThreads', {
+                        set: () => { throw new Error('thread configuration rejected'); },
+                    }),
+                },
+            },
+        }],
+    ])('contract: reports unknown configured threads for %s', async (_label, env) => {
+        const transcriber = vi.fn(async () => ({ text: '' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@xenova/transformers', () => ({ env, pipeline }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 9, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 9,
+                type: 'loaded',
+                device: 'wasm-default-unverified',
+                configuredThreads: null,
+                workerReportedThreads: null,
+            }));
+            expect(postedMessages).toContainEqual({ id: 9, type: 'ready' });
+        });
+    });
+
     it('contract: initialized worker returns a result message for transcribe requests', async () => {
         let observedAudio: Float32Array | null = null;
         let observedOptions: Record<string, unknown> | null = null;

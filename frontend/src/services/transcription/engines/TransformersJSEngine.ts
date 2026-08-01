@@ -45,7 +45,7 @@ type WorkerResponse =
         model: string;
         device?: string;
         requestedThreads?: number;
-        configuredThreads?: number;
+        configuredThreads?: number | null;
         workerReportedThreads?: number;
         crossOriginIsolated?: boolean;
       }
