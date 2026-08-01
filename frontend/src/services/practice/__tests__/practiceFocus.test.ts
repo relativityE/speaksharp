@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { FREESTYLE_PROMPTS, getNextFreestylePrompt, PRACTICE_FOCUS_OPTIONS } from '../practiceFocus';
+import {
+  buildFreestyleSessionSearch,
+  FREESTYLE_PROMPTS,
+  getNextFreestylePrompt,
+  PRACTICE_FOCUS_OPTIONS,
+  resolveFreestylePrompt,
+  resolvePracticeFocus,
+} from '../practiceFocus';
 import { PRACTICE_THIS_NEXT_LABEL } from '@/services/progress/progressPresentation';
 
 describe('Freestyle practice focus contract', () => {
@@ -11,7 +18,7 @@ describe('Freestyle practice focus contract', () => {
       'Keep a steady pace',
       'Deliver clearly',
     ]);
-    expect(FREESTYLE_PROMPTS).toEqual([
+    expect(FREESTYLE_PROMPTS.map(({ text }) => text)).toEqual([
       'Explain something you worked on recently: what it was, why it mattered, and what happened next.',
       'Give a short update: main point, current status, and next step.',
       'Describe a recent decision and why you made it.',
@@ -22,6 +29,17 @@ describe('Freestyle practice focus contract', () => {
       index: 0,
       prompt: FREESTYLE_PROMPTS[0],
     });
+  });
+
+  it('uses stable IDs and safely defaults malformed handoff values', () => {
+    expect(resolvePracticeFocus('not-a-focus')).toBe('just-practice');
+    expect(resolveFreestylePrompt('not-a-prompt')).toBeNull();
+    expect(buildFreestyleSessionSearch({ focus: 'concise', promptId: 'short-update' })).toBe(
+      '?focus=concise&prompt=short-update',
+    );
+    expect(buildFreestyleSessionSearch({ focus: 'fillers', promptId: null }, { privateTrial: true })).toBe(
+      '?focus=fillers&trial=private',
+    );
   });
 
   it('preserves the canonical follow-up action wording', () => {

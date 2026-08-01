@@ -14,12 +14,19 @@ export type PracticeFocus = (typeof PRACTICE_FOCUS_OPTIONS)[number]['id'];
  * required points, agendas, time budgets, readiness, or coverage checks.
  */
 export const FREESTYLE_PROMPTS = [
-  'Explain something you worked on recently: what it was, why it mattered, and what happened next.',
-  'Give a short update: main point, current status, and next step.',
-  'Describe a recent decision and why you made it.',
-  'Explain a familiar process to someone new.',
-  'Teach one idea using a simple example.',
+  { id: 'recent-work', text: 'Explain something you worked on recently: what it was, why it mattered, and what happened next.' },
+  { id: 'short-update', text: 'Give a short update: main point, current status, and next step.' },
+  { id: 'recent-decision', text: 'Describe a recent decision and why you made it.' },
+  { id: 'familiar-process', text: 'Explain a familiar process to someone new.' },
+  { id: 'teach-an-idea', text: 'Teach one idea using a simple example.' },
 ] as const;
+
+export type FreestylePromptId = (typeof FREESTYLE_PROMPTS)[number]['id'];
+
+export interface FreestyleOnrampSelection {
+  focus: PracticeFocus;
+  promptId: FreestylePromptId | null;
+}
 
 export function getNextFreestylePrompt(currentIndex: number | null): {
   index: number;
@@ -27,4 +34,25 @@ export function getNextFreestylePrompt(currentIndex: number | null): {
 } {
   const index = currentIndex === null ? 0 : (currentIndex + 1) % FREESTYLE_PROMPTS.length;
   return { index, prompt: FREESTYLE_PROMPTS[index] };
+}
+
+export function resolvePracticeFocus(value: string | null | undefined): PracticeFocus {
+  return PRACTICE_FOCUS_OPTIONS.some((option) => option.id === value)
+    ? value as PracticeFocus
+    : 'just-practice';
+}
+
+export function resolveFreestylePrompt(value: string | null | undefined) {
+  return FREESTYLE_PROMPTS.find((prompt) => prompt.id === value) ?? null;
+}
+
+export function buildFreestyleSessionSearch(
+  selection: FreestyleOnrampSelection,
+  options: { privateTrial?: boolean } = {},
+): string {
+  const params = new URLSearchParams();
+  params.set('focus', resolvePracticeFocus(selection.focus));
+  if (resolveFreestylePrompt(selection.promptId)) params.set('prompt', selection.promptId as FreestylePromptId);
+  if (options.privateTrial) params.set('trial', 'private');
+  return `?${params.toString()}`;
 }

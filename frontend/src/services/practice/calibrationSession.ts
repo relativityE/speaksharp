@@ -1,15 +1,13 @@
 import type { ITranscriptionEngine, Transcript, TranscriptionModeOptions } from '@/services/transcription/modes/types';
-import type { MicStream } from '@/services/transcription/utils/types';
+import { DistributedLock } from '@/lib/DistributedLock';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 export const CALIBRATION_MAX_SECONDS = 30;
-
-export type CalibrationMode = 'browser' | 'private';
 
 export interface CalibrationSessionCallbacks {
   onTranscript: (transcript: string) => void;
   onReady?: () => void;
   onError?: (message: string) => void;
-  onModelLoadProgress?: (progress: number | null) => void;
 }
 
 export interface CalibrationSession {
@@ -19,7 +17,6 @@ export interface CalibrationSession {
 }
 
 export type CreateCalibrationSession = (
-  mode: CalibrationMode,
   callbacks: CalibrationSessionCallbacks,
 ) => CalibrationSession;
 
@@ -30,17 +27,21 @@ function joinTranscript(left: string, right: string): string {
 /**
  * A deliberately isolated mic/transcription path for #1116's short calibration.
  *
- * This module imports only the leaf Browser/Private engines and microphone helper.
+ * This first-release module imports only the Browser leaf engine.
  * It never imports the production TranscriptionService, Supabase, session/history
  * persistence, Progress, or a Cloud provider. A calibration therefore cannot create
  * product evidence or a billable provider request through this seam.
+ *
+ * It does share the production recording mutex and authoritative same-tab lifecycle
+ * projection. Calibration cannot overlap an unresolved recording in this tab or a
+ * live recording/calibration in another tab.
  */
 export function createCalibrationSession(
-  mode: CalibrationMode,
   callbacks: CalibrationSessionCallbacks,
 ): CalibrationSession {
   let engine: ITranscriptionEngine | null = null;
-  let mic: MicStream | null = null;
+  let lock: DistributedLock | null = null;
+  let lockAcquired = false;
   let finalTranscript = '';
   let partialTranscript = '';
   let startPromise: Promise<void> | null = null;
@@ -69,26 +70,16 @@ export function createCalibrationSession(
     onTranscriptUpdate,
     onReady: () => { if (!disposed) callbacks.onReady?.(); },
     onError: (error) => { if (!disposed) callbacks.onError?.(error.message); },
-    onModelLoadProgress: (progress) => { if (!disposed) callbacks.onModelLoadProgress?.(progress); },
     serviceId: 'freestyle-calibration',
     runId: 'ephemeral-calibration',
   };
 
   const stopResources = async () => {
-    // End capture synchronously before a Private whole-utterance decode. The hard
-    // 30-second limit applies to accepted audio, not the time needed to finalize it.
-    const activeMic = mic;
-    mic = null;
     const activeEngine = engine;
     engine = null;
     let cleanupError: unknown;
     try {
-      activeMic?.stop();
-    } catch (error) {
-      cleanupError = error;
-    }
-    if (activeEngine) {
-      try {
+      if (activeEngine) {
         await activeEngine.stop();
         const transcript = await activeEngine.getTranscript();
         if (transcript.trim()) {
@@ -96,15 +87,25 @@ export function createCalibrationSession(
           partialTranscript = '';
           emit();
         }
+      }
+    } catch (error) {
+      cleanupError = error;
+    } finally {
+      try {
+        if (activeEngine) await activeEngine.terminate();
       } catch (error) {
         cleanupError ??= error;
-      } finally {
+      }
+      if (lockAcquired && lock) {
         try {
-          await activeEngine.terminate();
+          lock.updateState('TERMINATED');
+          lock.release();
         } catch (error) {
           cleanupError ??= error;
         }
       }
+      lockAcquired = false;
+      lock = null;
     }
     if (cleanupError) throw cleanupError;
   };
@@ -123,26 +124,14 @@ export function createCalibrationSession(
         partialTranscript = '';
         emit();
 
-        if (mode === 'private') {
-          const [{ default: PrivateWhisper }, { createMicStream }] = await Promise.all([
-            import('@/services/transcription/modes/PrivateWhisper'),
-            import('@/services/transcription/utils/audioUtils'),
-          ]);
-          assertActive();
-          engine = new PrivateWhisper(options);
-          const availability = await engine.checkAvailability();
-          assertActive();
-          if (!availability.isAvailable) {
-            throw new Error(availability.message ?? 'Private transcription is not available on this device.');
-          }
-          const initialized = await engine.init(120_000);
-          assertActive();
-          if (!initialized.isOk) throw initialized.error;
-          mic = await createMicStream();
-          assertActive();
-          await engine.start(mic);
-          return;
+        const sessionState = useSessionStore.getState();
+        if (sessionState.engineSelectionLocked || sessionState.pendingResolutionKind !== null) {
+          throw new Error('Finish the current recording or recovery step before testing your microphone.');
         }
+
+        lock = new DistributedLock();
+        lockAcquired = lock.acquire('CALIBRATION');
+        if (!lockAcquired) throw new Error('A recording or microphone test is active in another tab.');
 
         const { default: NativeBrowser } = await import('@/services/transcription/modes/NativeBrowser');
         assertActive();

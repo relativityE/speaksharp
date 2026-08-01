@@ -141,6 +141,22 @@ describe('SessionPage Rendering', () => {
         expect(screen.getByText('Practice Session')).toBeInTheDocument();
     });
 
+    it('keeps a direct /session entry unchanged with no Freestyle setup card', () => {
+        render(<SessionPage />, { route: '/session' });
+        expect(screen.queryByTestId('freestyle-prompt-card')).not.toBeInTheDocument();
+    });
+
+    it('resolves valid setup IDs and safely defaults malformed IDs', () => {
+        const { unmount } = render(<SessionPage />, { route: { pathname: '/session', search: '?focus=fillers&prompt=short-update' } });
+        expect(screen.getByTestId('freestyle-prompt-card')).toHaveTextContent('Reduce filler words');
+        expect(screen.getByTestId('freestyle-prompt-card')).toHaveTextContent('Give a short update');
+        unmount();
+
+        render(<SessionPage />, { route: { pathname: '/session', search: '?focus=not-real&prompt=not-real' } });
+        expect(screen.queryByTestId('freestyle-prompt-card')).not.toBeInTheDocument();
+        expect(screen.queryByText('not-real')).not.toBeInTheDocument();
+    });
+
     it('should render the live recording card', () => {
         render(<SessionPage />);
         expect(screen.getByTestId('live-recording-card')).toBeInTheDocument();

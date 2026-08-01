@@ -16,7 +16,7 @@ import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecover
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { FreestyleHelpOverlay } from '@/components/session/FreestyleHelpOverlay';
-import { PracticeFocusOnramp } from '@/components/session/PracticeFocusOnramp';
+import { FreestylePromptCard } from '@/components/session/FreestylePromptCard';
 import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
@@ -29,6 +29,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { formatSampleCapLine } from '@/utils/privateSampleDuration';
 import { useSearchParams } from 'react-router-dom';
+import { resolveFreestylePrompt, resolvePracticeFocus } from '@/services/practice/practiceFocus';
 
 /**
  * ARCHITECTURE:
@@ -119,6 +120,9 @@ export const SessionPage: React.FC = () => {
     // still owns first-time setup). An ineligible account is told truthfully and stays on Browser. The
     // intent is consumed once (guarded + URL cleaned) so a refresh/re-render can't re-apply it.
     const [searchParams, setSearchParams] = useSearchParams();
+    const resolvedFreestyleFocus = resolvePracticeFocus(searchParams.get('focus'));
+    const resolvedFreestylePrompt = resolveFreestylePrompt(searchParams.get('prompt'));
+    const hasFreestyleSetup = searchParams.has('focus') || resolvedFreestylePrompt !== null;
     const [trialUnavailableNotice, setTrialUnavailableNotice] = useState<string | null>(null);
     const trialHandledRef = useRef(false);
     useEffect(() => {
@@ -307,10 +311,12 @@ export const SessionPage: React.FC = () => {
             </div>
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6">
-                <PracticeFocusOnramp
-                    available={helpOverlayAvailable && !showAnalyticsPrompt}
-                    transcriptionMode={mode}
-                />
+                {hasFreestyleSetup && !showAnalyticsPrompt && (
+                    <FreestylePromptCard
+                        focus={resolvedFreestyleFocus}
+                        prompt={resolvedFreestylePrompt?.text ?? null}
+                    />
+                )}
             </div>
 
             {/* Status Bar - Spans full width of the main content area.

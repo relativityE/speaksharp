@@ -27,6 +27,7 @@ import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/componen
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
+import { FreestyleOnrampDialog } from '@/components/practice/FreestyleOnrampDialog';
 import { useHomeStreak } from '@/components/practice/useHomeStreak';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
 import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
@@ -36,6 +37,8 @@ import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
+import { buildFreestyleSessionSearch, type FreestyleOnrampSelection } from '@/services/practice/practiceFocus';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 // Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
 // the two-stop 135° gradient #0d7d74→#17a99b (blue-leaning, NOT emerald/mint and NOT the dark CTA teal
@@ -159,6 +162,10 @@ export default function PracticePage() {
   // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
   const [notifyOpen, setNotifyOpen] = React.useState(false);
+  const [freestyleOnrampOpen, setFreestyleOnrampOpen] = React.useState(false);
+  const [privateTrialIntent, setPrivateTrialIntent] = React.useState(false);
+  const freestyleReturnFocusRef = React.useRef<HTMLElement | null>(null);
+  const calibrationBlocked = useSessionStore((state) => state.engineSelectionLocked || state.pendingResolutionKind !== null);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -176,14 +183,24 @@ export default function PracticePage() {
 
   React.useEffect(() => () => { setSurface(null); }, [setSurface]);
 
-  // Freestyle: authed → /session directly; anonymous → account access preserving the /session intent via
-  // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.
-  const startFreestyle = () => {
+  // #1116 increment 1: PracticePage owns the optional setup. Capture the exact CTA that opened it so
+  // cancel/Escape restores focus, then pass only validated stable IDs through the existing safe deep-link.
+  const openFreestyleOnramp = (privateTrial: boolean) => {
     setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
     trackQuickPracticeStarted('landing_card');
-    if (isAuthed) navigate('/session');
-    else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
+    freestyleReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPrivateTrialIntent(privateTrial);
+    setFreestyleOnrampOpen(true);
+  };
+
+  const startFreestyle = () => openFreestyleOnramp(false);
+
+  const continueFreestyle = (selection: FreestyleOnrampSelection) => {
+    const search = buildFreestyleSessionSearch(selection, { privateTrial: privateTrialIntent });
+    setFreestyleOnrampOpen(false);
+    if (isAuthed) navigate(`/session${search}`);
+    else navigate('/auth/signup', { state: { from: { pathname: '/session', search } } });
   };
 
   // #1047 anonymous handoff: the "Try a 5-minute private session" band promises Private, so it must
@@ -192,11 +209,7 @@ export default function PracticePage() {
   // when the account is eligible (never a silent Browser fallback, never auto-record/auto-download);
   // an ineligible account is told truthfully and stays on Browser.
   const startPrivateTrial = () => {
-    setGuidedSelected(false);
-    trackPracticeModeSelected('quick', 'landing_card');
-    trackQuickPracticeStarted('landing_card');
-    if (isAuthed) navigate('/session?trial=private');
-    else navigate('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+    openFreestyleOnramp(true);
   };
 
   // Guided "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
@@ -241,6 +254,16 @@ export default function PracticePage() {
     />
   );
 
+  const freestyleOnramp = (
+    <FreestyleOnrampDialog
+      open={freestyleOnrampOpen}
+      onOpenChange={setFreestyleOnrampOpen}
+      onContinue={continueFreestyle}
+      returnFocusRef={freestyleReturnFocusRef}
+      calibrationBlocked={calibrationBlocked}
+    />
+  );
+
   if (isAuthed) {
     return (
       // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
@@ -253,6 +276,7 @@ export default function PracticePage() {
           defaultEmail={accountEmail}
           enabled={GUIDED_WAITLIST_ENABLED}
         />
+        {freestyleOnramp}
       </div>
     );
   }
@@ -314,6 +338,7 @@ export default function PracticePage() {
         defaultEmail=""
         enabled={GUIDED_WAITLIST_ENABLED}
       />
+      {freestyleOnramp}
     </div>
   );
 }

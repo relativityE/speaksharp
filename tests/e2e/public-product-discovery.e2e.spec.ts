@@ -71,6 +71,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
     await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('continue-freestyle-button').click();
     await expect(page).toHaveURL(/\/auth\/signup/, { timeout: 15000 });
     await page.getByTestId('email-input').fill('anon-freestyle@example.com');
     await page.getByTestId('password-input').fill(PW);
@@ -115,6 +116,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible();
     await page.keyboard.press('Escape');
     await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('continue-freestyle-button').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
   });
 });

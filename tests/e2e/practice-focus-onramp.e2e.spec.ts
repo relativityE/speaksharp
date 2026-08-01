@@ -69,8 +69,11 @@ test.describe('#1116 Freestyle practice-focus on-ramp', () => {
 
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await page.setViewportSize({ width: 1280, height: 960 });
-    await navigateToRoute(page, '/session');
-    await expect(page.getByTestId('practice-focus-onramp')).toBeVisible();
+    await navigateToRoute(page, '/practice');
+    const origin = page.getByTestId('practice-card-quick');
+    await origin.focus();
+    await origin.click();
+    await expect(page.getByTestId('freestyle-onramp-dialog')).toBeVisible();
 
     // Keyboard-only selection uses the radiogroup's roving focus contract.
     const justPractice = page.getByRole('radio', { name: 'Just practice' });
@@ -86,7 +89,7 @@ test.describe('#1116 Freestyle practice-focus on-ramp', () => {
     await page.getByRole('button', { name: 'Let me test with a sample' }).click();
     await expect(page.getByTestId('calibration-dialog')).toBeVisible();
     await page.waitForTimeout(250);
-    await expect(page.getByText(/Nothing is saved to Sessions, History, or Progress/)).toBeVisible();
+    await expect(page.getByText('Uses your browser’s speech recognition. Nothing from this test is saved to SpeakSharp.')).toBeVisible();
     const storageBefore = await storageSnapshot(page);
     calibrationStarted = true;
     await page.getByRole('button', { name: 'Start 30-second test' }).click();
@@ -111,13 +114,19 @@ test.describe('#1116 Freestyle practice-focus on-ramp', () => {
 
     await page.getByTestId('close-calibration-button').click();
     await expect(page.getByTestId('calibration-dialog')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Let me test with a sample' })).toBeFocused();
     await page.waitForTimeout(250);
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByTestId('practice-focus-onramp')).toBeVisible();
+    await expect(page.getByTestId('freestyle-onramp-dialog')).toBeVisible();
     await page.screenshot({ path: `${SCREENSHOT_DIR}/mobile-onramp.png`, fullPage: true });
     await page.getByRole('button', { name: 'Let me test with a sample' }).click();
     await expect(page.getByTestId('calibration-dialog')).toBeVisible();
     await page.waitForTimeout(250);
     await page.screenshot({ path: `${SCREENSHOT_DIR}/mobile-calibration.png`, fullPage: true });
+    await page.getByTestId('close-calibration-button').click();
+    await page.getByTestId('continue-freestyle-button').click();
+    await expect(page).toHaveURL(/\/session\?focus=concise&prompt=recent-work$/, { timeout: 30_000 });
+    await expect(page.getByTestId('freestyle-prompt-card')).toContainText('Be more concise');
+    await expect(page.getByTestId('freestyle-prompt-card')).toContainText('Explain something you worked on recently');
   });
 });

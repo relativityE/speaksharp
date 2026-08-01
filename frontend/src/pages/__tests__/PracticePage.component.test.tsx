@@ -82,10 +82,14 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
     });
 
-    it('Freestyle navigates DIRECTLY to /session', () => {
+    it('Freestyle opens the optional on-ramp and preserves its stable selections into /session', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-quick'));
-      expect(navigateSpy).toHaveBeenCalledWith('/session');
+      expect(screen.getByTestId('freestyle-onramp-dialog')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('radio', { name: 'Be more concise' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Give me a prompt' }));
+      fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(navigateSpy).toHaveBeenCalledWith('/session?focus=concise&prompt=recent-work');
     });
 
     it('Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {
@@ -166,18 +170,25 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
     });
 
-    it('Freestyle FREE TRIAL strip CTA → account access carrying the Private-trial intent (no auto-record)', () => {
+    it('Freestyle FREE TRIAL preserves Private-trial and optional setup through account access', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('freestyle-trial-start'));
-      // The band promises Private, so the intent rides through signup via from.search (resolvePostAuthPath
-      // preserves it) → /session?trial=private. NOT a bare /session that silently lands on Browser.
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+      fireEvent.click(screen.getByRole('radio', { name: 'Deliver clearly' }));
+      fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', {
+        state: { from: { pathname: '/session', search: '?focus=clarity&trial=private' } },
+      });
     });
 
-    it('Freestyle product card CTA → account access preserving /session intent', () => {
+    it('Freestyle product card preserves focus and prompt through signup', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-quick'));
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
+      fireEvent.click(screen.getByRole('radio', { name: 'Reduce filler words' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Give me a prompt' }));
+      fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', {
+        state: { from: { pathname: '/session', search: '?focus=fillers&prompt=recent-work' } },
+      });
     });
 
     it('Guided product card opens the gated coming-soon dialog (waitlist OFF), no form, no navigation', async () => {

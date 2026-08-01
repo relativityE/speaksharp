@@ -140,6 +140,7 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await page.setViewportSize(DESKTOP);
     await enterPractice(page);
     await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('continue-freestyle-button').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
     // Must NOT auto-start recording — the Session start control is present and not recording.
     await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'false', { timeout: 20000 });

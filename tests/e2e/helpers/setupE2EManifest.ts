@@ -116,7 +116,17 @@ export async function setupE2EManifest(
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
-  await page.route('**/telemetry/**', route => route.fulfill({ status: 200, body: '{}' }));
+  await page.route('**/telemetry/**', async route => {
+    // Vite serves source modules from /src/services/telemetry/*.ts. The former blanket
+    // fulfillment replaced those JavaScript modules with JSON and no JS MIME type, so a
+    // dev-server browser run could never boot. Preserve module requests; only isolate an
+    // actual telemetry network request from the UI readiness contract.
+    if (route.request().resourceType() === 'script') {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
 
   // Some transpiled Playwright init callbacks reference esbuild's __name helper
   // before the callback body executes. Seed it as a global no-op first so
