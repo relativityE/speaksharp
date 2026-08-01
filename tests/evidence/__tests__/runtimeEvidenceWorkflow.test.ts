@@ -27,6 +27,14 @@ describe('#1037 Private-v2 runtime evidence workflow contract', () => {
         expect(workflow).toContain('retention-days: 1');
     });
 
+    it('installs the repository-standard Chromium runtime before browser evidence runs', () => {
+        const installIndex = workflow.indexOf('run: pnpm pw:install');
+        const evidenceIndex = workflow.indexOf('pnpm evidence:stt:private-worker');
+
+        expect(installIndex).toBeGreaterThan(-1);
+        expect(evidenceIndex).toBeGreaterThan(installIndex);
+    });
+
     it('reruns for bounded production worker, thread-policy, config, model, and evidence dependencies', () => {
         for (const path of [
             "frontend/src/services/transcription/engines/**",
