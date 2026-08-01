@@ -31,7 +31,7 @@ DECLARE
   pg_temp_note     text;
   anon_exec        boolean;
   auth_exec        boolean;
-  public_default   boolean;
+  public_exec      boolean;
 BEGIN
   -- Harness integrity: the request roles must exist or every privilege check is meaningless.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
@@ -45,7 +45,12 @@ BEGIN
     SELECT p.oid,
            p.oid::regprocedure::text AS signature,
            COALESCE(array_to_string(p.proconfig, ' | '), '(none)') AS proconfig,
-           (p.proacl IS NULL) AS acl_is_default
+           -- EFFECTIVE PUBLIC EXECUTE, not ACL nullness: PUBLIC can execute when the ACL is the default
+           -- (NULL ⇒ PostgreSQL's implicit GRANT EXECUTE TO PUBLIC) OR an explicit PUBLIC (grantee 0) grant
+           -- exists. `proacl IS NULL` alone would falsely report an explicit `GRANT … TO PUBLIC` as locked.
+           (p.proacl IS NULL
+             OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a
+                        WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE')) AS public_can_execute
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.prosecdef
@@ -55,7 +60,7 @@ BEGIN
     sp := (SELECT COALESCE(array_to_string(pp.proconfig, ' | '), '(none)') FROM pg_proc pp WHERE pp.oid = r.oid);
     anon_exec := has_function_privilege('anon', r.oid, 'EXECUTE');
     auth_exec := has_function_privilege('authenticated', r.oid, 'EXECUTE');
-    public_default := r.acl_is_default;  -- NULL proacl → PostgreSQL default grants EXECUTE to PUBLIC
+    public_exec := r.public_can_execute;  -- effective PUBLIC EXECUTE (default OR explicit grantee-0 grant)
 
     IF sp = '(none)' THEN
       pg_temp_note := 'NO search_path set (caller-controlled; pg_temp searched FIRST)';
@@ -69,8 +74,8 @@ BEGIN
     IF anon_exec THEN n_anon := n_anon + 1; END IF;
     IF NOT anon_exec THEN n_locked := n_locked + 1; END IF;
 
-    RAISE NOTICE 'fn=% | search_path=% [%] | EXECUTE anon=% authenticated=% | public_default=%',
-      r.signature, sp, pg_temp_note, anon_exec, auth_exec, public_default;
+    RAISE NOTICE 'fn=% | search_path=% [%] | EXECUTE anon=% authenticated=% public=%',
+      r.signature, sp, pg_temp_note, anon_exec, auth_exec, public_exec;
   END LOOP;
 
   RAISE NOTICE '--- summary: % SECURITY DEFINER functions; anon-executable=%; no-search_path=%; anon-locked=% ---',

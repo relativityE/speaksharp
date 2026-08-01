@@ -40,13 +40,15 @@ shadowing.
 | `release_recording_lease(uuid)` | `public` | yes | explicit PUBLIC grant | MED — anon can release leases |
 | `ensure_trial_profile_for_new_user()` | `public` | yes | PUBLIC default | LOW — trigger function; direct EXECUTE grant is unnecessary |
 
-### B. Locked to `authenticated` (+ owner/service_role), REVOKEd from PUBLIC — 15 functions
+### B. Locked to `authenticated` (+ owner/service_role), REVOKEd from PUBLIC — 13 functions
 `check_usage_limit()`, `update_user_usage(integer,text,uuid)`, `create_session_and_update_usage(...)`,
 `complete_session(...)`, `heartbeat_session(uuid,integer)`, `consume_ai_suggestion_quota(...)`,
-`consume_formatter_quota(...)`, `normalize_user_filler_word(...)`, `rotate_user_sessions(...)`,
+`consume_formatter_quota(...)`,
 `get_analytics_summary(uuid)`, `set_user_timezone(text)`, `record_progress_evaluation(uuid)`,
 `record_progress_recommendation(...)`, `record_recommendation_attempt(uuid)`,
 `advance_recommendation_attempt(...)`.
+(`normalize_user_filler_word` and `rotate_user_sessions` are NOT `SECURITY DEFINER` in the deployed set — the
+harness introspects `pg_proc.prosecdef`, and neither appears; they were removed from this list.)
 Of these, the **hardened** subset also lists `pg_temp` explicitly last (`get_analytics_summary`,
 `set_user_timezone`, `record_progress_*`, `advance_recommendation_attempt`) — the target shape.
 
@@ -58,10 +60,16 @@ Of these, the **hardened** subset also lists `pg_temp` explicitly last (`get_ana
 
 Method: searched `frontend/`, `backend/supabase/functions/`, `backend/supabase/migrations/`, `.github/`,
 `scripts/` for each function; recorded the runtime identity at each call site; tests are treated as evidence,
-never as production callers. Every function below is `SECURITY DEFINER` and independently derives
-`v_uid := auth.uid()` and scopes all work to the owner (e.g. `WHERE user_id = v_uid AND lease_id = …`), so
-grants are defense-in-depth, not the only control — but minimal grants are still required (grants-alone is
-insufficient AND surplus grants are still wrong).
+never as production callers.
+
+**Ownership enforcement is NOT uniform — correction:** the recording-lease trio DOES self-enforce ownership
+(`v_uid := auth.uid()`, scoped `WHERE user_id = v_uid AND lease_id = …`), so for those the anon grant is a
+surplus-but-mitigated defense-in-depth gap. The **cleanup functions do NOT**: `cleanup_expired_sessions()`
+runs `UPDATE public.sessions … WHERE status='active' AND expires_at < now()` and `expire_stale_sessions()`
+similarly operate **across all users' rows with no `auth.uid()` scoping**. For those two, an anon EXECUTE
+grant is a genuine cross-tenant hazard (an unauthenticated caller could drive a global session-expiry sweep),
+not merely a redundant grant. Grants-alone is insufficient AND, for the cleanup workers, grants are the
+*only* boundary — which is exactly why revoking PUBLIC/anon on them is the priority.
 
 | Function | Real runtime caller (evidence) | Identity | Legitimate anon? |
 |---|---|---|---|
@@ -77,45 +85,24 @@ insufficient AND surplus grants are still wrong).
 authenticated` but never `REVOKE … FROM PUBLIC`, so PostgreSQL's default PUBLIC EXECUTE grant persists (and
 PUBLIC includes `anon`). The other exposed functions are PUBLIC-by-default (never granted narrowly at all).
 
-## Narrow PR-B remediation set (proposal only — not to be coded until this target set is reviewed)
+## Remediation direction (evidence-derived; the implementation packet is NOT in this durable doc)
 
-**Scope discipline:** remediate ONLY the confirmed defects below. Do **not** broaden into a general
-`search_path` sweep of category B/C or unrelated hardening.
+This report is the durable **classification evidence**. The proposed **PR-B implementation planning** (exact
+`REVOKE`/`GRANT`/`ALTER FUNCTION` statements, migration behavior, rollback, and falsification tests)
+deliberately lives in the **PR #1135 description**, not here — implementation planning is not durable
+product-release evidence and must not accrete in this file.
 
-1. **`REVOKE EXECUTE … FROM PUBLIC` and `FROM anon`** on all seven exposed functions — none has a legitimate
-   anonymous caller. Minimum grants after revoke, per the caller matrix:
-   - **recording-lease trio** — **classify as dead/deprecation candidates** (no live runtime caller). Do
-     **not** preserve access speculatively: revoke PUBLIC/anon now; grant `authenticated` **only if/when** the
-     user recording path is actually wired to call them (it is not today). Recommend a separate decision to
-     either wire the account-wide-mutex feature or drop the trio + `active_recording_lease` table + the dead
-     `recordingLeasePolicy.ts`.
-   - **`cleanup_expired_sessions()`** — no caller at all → dead/deprecation candidate; revoke PUBLIC/anon.
-   - **`expire_stale_sessions()`** — intended db-internal cron caller (currently commented out) runs
-     privileged and needs no PUBLIC/anon grant; revoke PUBLIC/anon.
-   - **`ensure_trial_profile_for_new_user()`** — trigger function; revoke PUBLIC/anon (needs no EXECUTE grant).
-   - **`update_user_usage(integer)`** — internal helper; revoke PUBLIC/anon (the `(integer,text,uuid)`
-     overload is already correctly locked to `authenticated`/`service_role`).
-   - Grant `service_role` **only** where a concrete deployed server caller exists — **none does today**, so
-     no new `service_role` grant is warranted.
-2. **Set a pg_temp-safe `search_path`** on the two functions that have none —
-   `cleanup_expired_sessions()` and `expire_stale_sessions()` — to `pg_catalog, public, pg_temp` (pg_temp
-   last) or `''` with fully-qualified object references. (The lease trio + `update_user_usage` use
-   `search_path = public`; hardening their `pg_temp` exposure is a category-B item, out of this narrow PR-B
-   unless review says otherwise.)
+Direction (bounded; do NOT broaden into a general category-B/C `search_path` sweep):
+- Revoke `PUBLIC`/`anon` EXECUTE from the seven exposed functions — none has a legitimate anon caller
+  (§caller matrix). No speculative grants: the recording-lease trio has **no** live caller (dead/deprecation
+  candidate, wire-or-drop); the cleanup workers run privileged cron / no caller; the trigger + internal-helper
+  functions need no direct grant; no deployed `service_role` caller exists today.
+- Give the two cleanup workers a pg_temp-safe `search_path` (they have none) — the acute item, since they are
+  **not** owner-scoped (see the ownership-enforcement correction above).
 
-### PR-B implementation packet (finalize after PR-A review fixes the target set)
-- **Functions & grants:** exact `REVOKE EXECUTE ON FUNCTION public.<sig> FROM PUBLIC, anon;` for all seven;
-  no new grant for the trigger/internal/cron functions; `authenticated`/`service_role` grants only where the
-  caller matrix proves a real caller (today: none beyond the already-correct locked set).
-- **Search paths:** exact `ALTER FUNCTION public.cleanup_expired_sessions() SET search_path = pg_catalog, public, pg_temp;`
-  and the same for `expire_stale_sessions()`.
-- **Migration behavior:** additive, idempotent (`REVOKE`/`ALTER FUNCTION … SET` are safe to re-run); no
-  function body change; independent per function.
-- **Rollback:** paired down-migration restoring the prior grants/search_path.
-- **Falsification tests:** extend `secdef-classification-matrix.sql` so that after PR-B the seven functions
-  assert **`anon = false`** and the two cleanup functions assert a pg_temp-safe `search_path` — the same
-  harness that today proves they ARE exposed then proves they are not. Add a direct behavioral test that an
-  `anon`-role `EXECUTE` of each remediated function is rejected.
+**Root cause** of the lease-trio leak: `20260607040000_active_recording_lease.sql` runs `GRANT … TO
+authenticated` without `REVOKE … FROM PUBLIC`, leaving PostgreSQL's default PUBLIC grant. **No PR-B
+implementation until this classification is reviewed and its target set approved.**
 
 ## Ownership and parent
 - Parent issue: #1097 · Increment: PR-A (read-only classification) · Refs #1097, does not close.

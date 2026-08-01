@@ -97,8 +97,12 @@ jobs:
           # and are skipped; we log that explicitly rather than silently include or drop them.
           for f in $(ls backend/supabase/migrations/*.sql | sort); do
             base="$(basename "$f")"
-            if [[ ! "$base" =~ ^[0-9]{14}_ ]]; then
-              echo "SKIP (not a timestamped migration): $base"
+            # Supabase applies any `<digits>_name.sql` in filename order. Accept BOTH 14-digit
+            # (YYYYMMDDHHMMSS) and shorter 8-digit (YYYYMMDD) version prefixes — e.g.
+            # 20251217_add_webhook_idempotency.sql — while still skipping non-versioned helper files
+            # (rotate_sessions.sql, test_usage_rpc.sql) that Supabase itself would not apply.
+            if [[ ! "$base" =~ ^[0-9]{8,}_ ]]; then
+              echo "SKIP (not a versioned migration): $base"
               continue
             fi
             echo "apply: $base"
