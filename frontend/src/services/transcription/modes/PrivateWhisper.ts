@@ -2244,6 +2244,29 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
+  /** Fire the one-shot capture-limit signal (status + callback + diagnostics) exactly once per recording. */
+  private signalCaptureLimitOnce(): void {
+    if (this.captureLimitSignalled) return;
+    this.captureLimitSignalled = true;
+    const bufferedSeconds = samplesToSeconds(this.utteranceSampleCount, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+    // Non-PII diagnostics: why the guard fired + the ACTUAL buffered duration.
+    pushPrivateTimeline('capture_limit_reached', {
+      serviceId: this.serviceId,
+      runId: this.instanceId,
+      bufferedSeconds: Number(bufferedSeconds.toFixed(2)),
+      limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
+    });
+    this.onStatusChange?.({
+      type: 'info',
+      message: 'Maximum recording length reached. Saving what you recorded…',
+      detail: 'We stopped the recording so nothing you already said is lost.',
+    });
+    this.onCaptureLimitReached?.({
+      bufferedSeconds: Number(bufferedSeconds.toFixed(2)),
+      limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
+    });
+  }
+
   private appendFrameToUtteranceAudio(
     frame: Float32Array,
     energy: ReturnType<typeof summarizeAudioEnergy>,
@@ -2256,34 +2279,20 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // from the buffer (-> content loss / Whisper hallucinating the gap). Instead we
     // only record where the last REAL-speech frame ends; only the silence AFTER that
     // (the genuine trailing tail / h1_6 chatter) is trimmed when the buffer is decoded.
-    // #891 capture-from-start: bound the ungated final buffer. On overflow keep the BEGINNING (the
-    // opening) and stop appending, rather than rolling the buffer forward and losing the opener.
-    if (this.utteranceSampleCount >= PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES) {
-      // #1089 DATA INTEGRITY: previously this returned silently — the engine stopped accepting audio
-      // while the UI kept showing "Recording", so everything the user said past the guard was discarded
-      // with no error. Now we signal ONCE so the app performs a controlled stop and finalizes what was
-      // captured. Audio recorded BEFORE the guard is untouched and still finalizes normally.
-      if (!this.captureLimitSignalled) {
-        this.captureLimitSignalled = true;
-        const bufferedSeconds = samplesToSeconds(this.utteranceSampleCount, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-        // Non-PII diagnostics: why the guard fired + the ACTUAL buffered duration.
-        pushPrivateTimeline('capture_limit_reached', {
-          serviceId: this.serviceId,
-          runId: this.instanceId,
-          bufferedSeconds: Number(bufferedSeconds.toFixed(2)),
-          limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
-        });
-        this.onStatusChange?.({
-          type: 'info',
-          message: 'Maximum recording length reached. Saving what you recorded…',
-          detail: 'We stopped the recording so nothing you already said is lost.',
-        });
-        this.onCaptureLimitReached?.({
-          bufferedSeconds: Number(bufferedSeconds.toFixed(2)),
-          limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
-        });
-      }
+    // #891/#1089 capture-from-start: bound the ungated final buffer. The buffer must NEVER exceed
+    // MAX_UTTERANCE_SAMPLES. A frame can begin BELOW the cap and cross it, so checking only the current
+    // count would accept the whole crossing frame and overshoot the advertised hard ceiling. Instead we
+    // CLAMP the crossing frame to the remaining head (keep the opening, drop the overrun), then signal once
+    // and stop — audio recorded before the cap is untouched and still finalizes normally. Previously this
+    // returned silently; now the one-shot signal drives a controlled stop so nothing already said is lost.
+    const remainingCapacity = PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES - this.utteranceSampleCount;
+    if (remainingCapacity <= 0) {
+      this.signalCaptureLimitOnce();
       return;
+    }
+    const crossesCap = frame.length > remainingCapacity;
+    if (crossesCap) {
+      frame = frame.subarray(0, remainingCapacity); // accept at most the remaining samples — never exceed MAX
     }
     this.appendUtteranceAudio([frame]);
     // First non-pure-silence frame anchors the conservative leading-silence trim (under-trim bias:
@@ -2296,6 +2305,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         this.utteranceFirstLoudSamples = this.utteranceSampleCount - frame.length;
       }
       this.utteranceLastRealSpeechSamples = this.utteranceSampleCount;
+    }
+    if (crossesCap) {
+      // The clamped head brought the buffer exactly to MAX — signal once and accept nothing further.
+      this.signalCaptureLimitOnce();
     }
   }
 

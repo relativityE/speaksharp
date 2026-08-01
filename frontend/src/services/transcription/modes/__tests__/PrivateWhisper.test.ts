@@ -1262,12 +1262,12 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         expect(s.finalizeDecodeMs! / (s.decodedUtteranceSeconds * 1000)).toBeCloseTo(0.259, 2);
     });
 
-    // #1089 hard capture backstop, driven to the EXACT boundary with real (non-silent) frames — not by
-    // assigning utteranceSampleCount. Proves: the accepted buffer is exactly MAX_UTTERANCE_SAMPLES, overrun
-    // frames are rejected, the one duration-only signal fires exactly once, and the first/middle/last
-    // captured sentinels survive (nothing silently dropped or rewound).
-    describe('#1089 capture backstop — boundary-driven one-shot signal + preservation', () => {
-        it('accepts exactly MAX samples, rejects overruns, signals once, and preserves first/middle/last sentinels', async () => {
+    // #1089 hard capture backstop at the REAL crossing boundary: a frame begins BELOW the cap and would
+    // cross it. Production must CLAMP that frame to the remaining head so the buffer never exceeds
+    // MAX_UTTERANCE_SAMPLES, drop the overrun tail, fire the duration-only signal exactly once, and preserve
+    // the first/middle/final ACCEPTED samples.
+    describe('#1089 capture backstop — crossing frame is clamped, never exceeds MAX', () => {
+        it('clamps a frame that crosses MAX to the remaining head, drops the overrun, signals once, preserves sentinels', async () => {
             const onCaptureLimitReached = vi.fn();
             // Self-sufficient mock setup (this describe is outside the facade beforeEach), so the test also
             // passes when run in isolation.
@@ -1285,35 +1285,43 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
             };
             const MAX = PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES;
             const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.02, peak: 0.4 };
-            // Three non-silent frames that sum to EXACTLY the cap (MAX is divisible by 3). Deterministic
-            // sentinels mark the first, middle, and last accepted samples.
-            expect(MAX % 3).toBe(0);
-            const F = MAX / 3;
-            const frames = [0, 1, 2].map(() => new Float32Array(F).fill(0.3));
-            frames[0][0] = 0.111;      // first sample of the whole buffer
-            frames[1][0] = 0.222;      // first sample of the middle frame
-            frames[2][F - 1] = 0.333;  // last sample of the whole buffer
-            for (const f of frames) engine.appendFrameToUtteranceAudio(f, realSpeech);
 
-            // Exactly at the boundary: the full cap is accepted, nothing more.
+            // Fill to MAX - n with two frames (n samples of headroom remain), then send a frame LARGER than n
+            // so it must be clamped to exactly n.
+            const n = 1000;
+            expect((MAX - n) % 2).toBe(0);
+            const F = (MAX - n) / 2;
+            const frame1 = new Float32Array(F).fill(0.3); frame1[0] = 0.111;      // first accepted sample
+            const frame2 = new Float32Array(F).fill(0.3); frame2[0] = 0.222;      // a middle accepted sample
+            engine.appendFrameToUtteranceAudio(frame1, realSpeech);
+            engine.appendFrameToUtteranceAudio(frame2, realSpeech);
+            expect(engine.utteranceSampleCount).toBe(MAX - n); // still below the cap; headroom = n
+
+            const crossing = new Float32Array(5000).fill(0.3); // 5000 > n → must clamp to n
+            crossing[n - 1] = 0.333;  // becomes the FINAL accepted sample after clamp
+            crossing[n] = 0.999;      // the FIRST overrun sample — must be DROPPED
+            engine.appendFrameToUtteranceAudio(crossing, realSpeech);
+
+            // Never exceeds MAX; the crossing frame contributed exactly its remaining head (n samples).
             expect(engine.utteranceSampleCount).toBe(MAX);
             expect(engine.utteranceAudioChunks.length).toBe(3);
-
-            // Overrun frames past the boundary are refused (no growth), and the signal fires ONCE.
-            engine.appendFrameToUtteranceAudio(new Float32Array(1024).fill(0.3), realSpeech);
-            engine.appendFrameToUtteranceAudio(new Float32Array(1024).fill(0.3), realSpeech);
-            expect(engine.utteranceSampleCount).toBe(MAX);            // no overrun accepted
-            expect(engine.utteranceAudioChunks.length).toBe(3);       // final decode gets exactly the cap
-            expect(onCaptureLimitReached).toHaveBeenCalledTimes(1);   // one duration-only signal
+            expect(engine.utteranceAudioChunks[2].length).toBe(n); // overrun tail dropped, only the head kept
+            expect(onCaptureLimitReached).toHaveBeenCalledTimes(1);
             expect(onCaptureLimitReached).toHaveBeenCalledWith({
                 bufferedSeconds: expect.any(Number),
                 limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
             });
 
-            // First/middle/last sentinels preserved at their exact positions (nothing dropped/rewound).
+            // A further frame after the cap is refused entirely and does not re-signal.
+            engine.appendFrameToUtteranceAudio(new Float32Array(1024).fill(0.3), realSpeech);
+            expect(engine.utteranceSampleCount).toBe(MAX);
+            expect(onCaptureLimitReached).toHaveBeenCalledTimes(1);
+
+            // First / middle / final ACCEPTED sentinels preserved; the dropped overrun sample is absent.
             expect(engine.utteranceAudioChunks[0][0]).toBeCloseTo(0.111, 5);
             expect(engine.utteranceAudioChunks[1][0]).toBeCloseTo(0.222, 5);
-            expect(engine.utteranceAudioChunks[2][F - 1]).toBeCloseTo(0.333, 5);
+            expect(engine.utteranceAudioChunks[2][n - 1]).toBeCloseTo(0.333, 5); // final accepted sample
+            expect(engine.utteranceAudioChunks[2][n]).toBeUndefined();           // 0.999 overrun never stored
         });
     });
 });
