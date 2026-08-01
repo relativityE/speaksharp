@@ -118,6 +118,11 @@ function checkRow(row, index) {
             if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
             if (journey.browserManagedTranscription !== true) problems.push('browser_journey must affirm browserManagedTranscription === true');
             if (!BROWSER_EXECUTION_MODES.has(journey.executionMode)) problems.push(`browser_journey executionMode must be one of ${[...BROWSER_EXECUTION_MODES].join('/')}, got '${journey.executionMode}'`);
+            // Forbidden-engine tripwire proof must be IN the row: present (guard ran) and empty (no Cloud/
+            // Private engine constructed/started). The artifact-envelope copy is human-facing only — this
+            // runtime boundary validates arbitrary JSON and cannot trust an envelope the parser discards.
+            if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
+            else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
         }
         return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
     }

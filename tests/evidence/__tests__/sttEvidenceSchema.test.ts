@@ -166,7 +166,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
             supportState: 'supported', executionMode: 'manual-assisted',
             recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
             sessionProduced: true, browserManagedTranscription: true,
-            applicationServerWrites: 0, cloudProviderCalls: 0,
+            applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [],
             ...journey,
         },
     });
@@ -221,6 +221,18 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(browserBase({ executionMode: 'totally-made-up' as unknown as 'automated' }));
         expect(r.run_validity).toBe('invalid');
         expect(r.invalid_reason).toMatch(/executionMode must be one of/i);
+    });
+
+    it('a Browser journey missing the forbidden-engine tripwire proof is rejected', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineInvocations: undefined as unknown as [] }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/forbiddenEngineInvocations array/i);
+    });
+
+    it('a Browser journey that recorded a forbidden-engine construction is rejected', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineInvocations: [{ key: 'transformers-js', phase: 'construct', at: 1 }] }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/recorded a forbidden engine/i);
     });
 
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {

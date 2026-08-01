@@ -325,7 +325,9 @@ async function main(): Promise<void> {
         runtimeVersions: { chrome: browserVersion, 'web-speech-api': 'browser-managed' },
       },
       // The spoken-prompt hash is informational provenance ONLY — not an audio-fixture/route hash.
-      browser_journey_evidence: { ...journey, promptSha256 },
+      // forbiddenEngineInvocations is the AUTHORITATIVE tripwire proof carried IN the row so the offline
+      // validator enforces it (the envelope copy below is human-facing only).
+      browser_journey_evidence: { ...journey, promptSha256, forbiddenEngineInvocations: forbiddenEngineTripwire },
     });
     const artifact = {
       generatedFor: '#1037 Browser/Web Speech manual-assisted journey',
@@ -337,7 +339,7 @@ async function main(): Promise<void> {
       forbiddenEngineGuard: {
         keys: [...FORBIDDEN_ENGINE_KEYS],
         invocations: forbiddenEngineTripwire,
-        note: 'Tripwires replaced every Cloud/Private engine factory; any construct/init/start was recorded and thrown. An empty invocations list proves only the real native-browser engine was used.',
+        note: 'Human-facing copy. The AUTHORITATIVE proof the validator enforces is rows[].browser_journey_evidence.forbiddenEngineInvocations. Tripwires replaced every Cloud/Private engine factory; any construct/init/start was recorded and thrown. An empty list proves only the real native-browser engine was used.',
       },
       spokenText: SPOKEN_TEXT,
       transcript: snapshot.transcript,

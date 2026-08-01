@@ -94,6 +94,14 @@ export interface BrowserJourneyEvidence {
      * speaker/mic; Web Speech's capture is opaque). Kept off `fixtureHash` deliberately.
      */
     promptSha256?: string;
+    /**
+     * Forbidden-engine tripwire result carried IN THE ROW (not just the artifact envelope) so the offline
+     * validator — the runtime boundary for arbitrary JSON — can independently enforce it. Each entry records
+     * a Cloud/Private engine that was constructed/started during the journey. Admissibility REQUIRES this to
+     * be present and EMPTY: a missing field cannot prove the guard ran, and a non-empty list proves a
+     * forbidden engine fired. See scripts/browser-webspeech-evidence.mts.
+     */
+    forbiddenEngineInvocations: Array<{ key: string; phase: string; at: number }>;
 }
 
 /**
@@ -223,6 +231,10 @@ export function finalizeRow(
             if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
             if (journey.browserManagedTranscription !== true) problems.push('browser_journey must affirm browserManagedTranscription === true');
             if (!BROWSER_EXECUTION_MODES.has(journey.executionMode)) problems.push(`browser_journey executionMode must be one of ${[...BROWSER_EXECUTION_MODES].join('/')}, got '${journey.executionMode}'`);
+            // Forbidden-engine guard proof must be IN the row: present (guard ran) and empty (no Cloud/Private
+            // engine constructed or started). A missing field or any invocation is inadmissible.
+            if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
+            else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
         }
         // Honesty guards: browser_journey is the canonical Browser engine, exactly 'unverified', never
         // rankable — a class label alone must not admit another engine's row.

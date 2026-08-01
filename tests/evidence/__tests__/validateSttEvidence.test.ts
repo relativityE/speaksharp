@@ -26,7 +26,7 @@ function browserRow(over: Record<string, unknown> = {}): Record<string, unknown>
         audio_route_evidence: { fixtureSha256: '', adapterInputPayloadSha256: '', adapterInputBytes: 0, decodedSampleCount: 0, decodedDurationSeconds: 0 },
         runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null },
         comparability_inputs: { fixtureHash: '', groundTruthVersion: 'not-scored', normalizationVersion: 'not-scored', decodeConfiguration: 'system-chrome/web-speech/browser-managed/live-mic', modelRevision: 'browser-managed-unreported-v1', runtimeVersions: { chrome: '148.0', 'web-speech-api': 'browser-managed' } },
-        browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0 },
+        browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [] },
         ...over,
     };
 }
@@ -60,7 +60,9 @@ describe('#1037 validate-stt-evidence — browser_journey runtime boundary', () 
         ['a WER present', { wer: 0.05 }],
         ['a Cloud call', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 1 } }],
         ['browserManagedTranscription false', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: false, applicationServerWrites: 0, cloudProviderCalls: 0 } }],
-        ['a non-closed executionMode', { browser_journey_evidence: { supportState: 'supported', executionMode: 'totally-made-up', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0 } }],
+        ['a non-closed executionMode', { browser_journey_evidence: { supportState: 'supported', executionMode: 'totally-made-up', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [] } }],
+        ['a MISSING forbidden-engine tripwire proof', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0 } }],
+        ['a recorded forbidden-engine construction', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [{ key: 'assemblyai', phase: 'start', at: 1 }] } }],
     ] as const)('rejects a crafted browser row with %s', (_label, over) => {
         expect(validate([browserRow(over)]).status).toBe(1);
     });
