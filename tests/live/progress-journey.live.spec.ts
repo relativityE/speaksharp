@@ -105,20 +105,27 @@ async function signIn(page: Page, email: string, password: string): Promise<void
   await page.goto('/session');
 }
 
-async function isModeDisabled(page: Page, mode: 'private' | 'cloud'): Promise<boolean> {
-  const option = page.getByTestId(`stt-mode-${mode}`);
-  await expect(option).toBeVisible({ timeout: 10_000 });
-  return option.evaluate((el) => {
-    const h = el as HTMLElement;
-    return h.getAttribute('aria-disabled') === 'true' || h.hasAttribute('disabled') || h.hasAttribute('data-disabled');
-  });
-}
-
-/** Availability resolves only after the usage-limit fetch returns — poll, never read once. */
-async function expectPrivateEnabled(page: Page): Promise<void> {
+/**
+ * Select Private once its entitlement gate resolves. Availability resolves only after the usage-limit
+ * fetch returns, so poll — opening the menu, reading the option, then CLOSING it each attempt so the next
+ * attempt's open never toggles it shut (the double-open race that broke the first corrected run). Once
+ * proven enabled + closed, select via the sanctioned `selectBenchmarkMode` (opens fresh and clicks).
+ */
+async function selectPrivate(page: Page): Promise<void> {
+  const modeSelect = page.getByTestId('stt-mode-select');
+  await expect(modeSelect).toBeVisible({ timeout: 20_000 });
   await expect(async () => {
-    expect(await isModeDisabled(page, 'private'), 'Private should be available after entitlement resolves').toBe(false);
-  }).toPass({ timeout: 20_000, intervals: [500, 1_000, 2_000] });
+    await modeSelect.click();
+    const option = page.getByTestId('stt-mode-private');
+    await expect(option).toBeVisible({ timeout: 3_000 });
+    const disabled = await option.evaluate((el) => {
+      const h = el as HTMLElement;
+      return h.getAttribute('aria-disabled') === 'true' || h.hasAttribute('disabled') || h.hasAttribute('data-disabled');
+    });
+    await page.keyboard.press('Escape').catch(() => undefined);
+    expect(disabled, 'Private should be available after entitlement resolves').toBe(false);
+  }).toPass({ timeout: 25_000, intervals: [1_000, 2_000, 3_000] });
+  await selectBenchmarkMode(page, 'private');
 }
 
 async function readReleaseSha(page: Page): Promise<string> {
@@ -146,13 +153,11 @@ async function assertNoMockSurfaces(page: Page): Promise<void> {
 type EntitlementBody = { private_sample_available?: boolean; private_sample_seconds_remaining?: number } & Record<string, unknown>;
 
 async function recordEligiblePrivateSession(page: Page): Promise<void> {
-  // Prove Private is enabled (poll), then select it via the sanctioned selector.
-  const modeSelect = page.getByTestId('stt-mode-select');
-  await expect(modeSelect).toBeVisible({ timeout: 20_000 });
-  await modeSelect.click();
-  await expectPrivateEnabled(page);
-  await page.keyboard.press('Escape').catch(() => undefined);
-  await selectBenchmarkMode(page, 'private');
+  // Reload /session so the (re-)seeded entitlement is refetched fresh for THIS session, then select
+  // Private once its gate resolves.
+  await page.goto('/session');
+  await page.waitForSelector('[data-testid="stt-mode-select"]', { timeout: 30_000 });
+  await selectPrivate(page);
 
   // Load the Private model to start-ready (auto-loads from /models/ on the deployed origin).
   await preparePrivateModelIfPrompted(page, 180_000);
@@ -224,15 +229,12 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     await assertNoMockSurfaces(page);
     console.log(`[journey] deployed_sha=${deployedSha} uid=${uid}`);
 
-    // ── Entitlement proof: a REAL check-usage-limit response resolved the sample available ──
-    const modeSelect = page.getByTestId('stt-mode-select');
-    await expect(modeSelect).toBeVisible({ timeout: 20_000 });
-    await modeSelect.click();
-    await expectPrivateEnabled(page);
-    await page.keyboard.press('Escape').catch(() => undefined);
-    expect(entitlementBodies.length, 'a real check-usage-limit response must have been observed').toBeGreaterThan(0);
-    const available = entitlementBodies.some((b) => b.private_sample_available === true);
-    expect(available, 'check-usage-limit must report private_sample_available:true (real backend)').toBe(true);
+    // ── Entitlement proof: a REAL check-usage-limit response (fired on load) resolved the sample
+    //    available. No dropdown needed — the network capture alone proves the real backend. ──
+    await expect(async () => {
+      expect(entitlementBodies.some((b) => b.private_sample_available === true),
+        'check-usage-limit must report private_sample_available:true (real backend)').toBe(true);
+    }).toPass({ timeout: 20_000, intervals: [1_000, 2_000, 3_000] });
     const withRemaining = entitlementBodies.find((b) => typeof b.private_sample_seconds_remaining === 'number');
     if (withRemaining) {
       expect(Number(withRemaining.private_sample_seconds_remaining),
