@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import TranscriptionService from '../TranscriptionService';
+import TranscriptionService, { shouldUseE2EMockMic } from '../TranscriptionService';
 import { STTStrategyFactory } from '../STTStrategyFactory';
 import { Result } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
@@ -26,6 +26,8 @@ describe('TranscriptionService — engine-start leaf capture (#P1 observability)
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createMicStream).mockRejectedValue(new Error(LEAF_MESSAGE));
+    window.__SS_E2E__ = { isActive: false, engineType: 'mock' };
     statusUpdates = [];
     vi.mocked(STTStrategyFactory.create).mockReturnValue({
       checkAvailability: vi.fn().mockResolvedValue({ isAvailable: true }),
@@ -81,5 +83,12 @@ describe('TranscriptionService — engine-start leaf capture (#P1 observability)
     await service.startTranscription().catch(() => { /* later engine specifics irrelevant to the clear */ });
 
     expect(service.getStartError()).toBeNull();
+  });
+
+  it('reserves the no-device microphone for deterministic E2E lanes', () => {
+    expect(shouldUseE2EMockMic(true, 'mock')).toBe(true);
+    expect(shouldUseE2EMockMic(true, 'system')).toBe(true);
+    expect(shouldUseE2EMockMic(true, 'real')).toBe(false);
+    expect(shouldUseE2EMockMic(false, 'real')).toBe(false);
   });
 });

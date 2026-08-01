@@ -261,6 +261,7 @@ async function main(): Promise<void> {
       transcript: snapshot.transcript,
       timerText,
       sessionId: snapshot.sessionId,
+      nativeTrace: snapshot.trace,
       applicationServerWrites,
       cloudProviderCalls,
       requestCount: allRequests.length,

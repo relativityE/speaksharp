@@ -158,6 +158,10 @@ export interface TranscriptionServiceOptions {
   watchdogTimeoutMs?: number;
 }
 
+export function shouldUseE2EMockMic(isE2E: boolean, engineType: string): boolean {
+  return isE2E && engineType !== 'real';
+}
+
 /**
  * ARCHITECTURE:
  * TranscriptionService serves as a Facade (GoF Pattern).
@@ -1113,7 +1117,7 @@ export default class TranscriptionService {
     try {
       if (this.options.mockMic) {
         this.mic = this.options.mockMic;
-      } else if (ENV.isE2E) {
+      } else if (shouldUseE2EMockMic(ENV.isE2E, ENV.engineType)) {
         this.mic = this.createE2EMockMic();
       } else {
         this.mic = await createMicStream();
