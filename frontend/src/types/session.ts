@@ -20,6 +20,8 @@ export interface PracticeSession {
   device_type?: string;
   /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
   attribution_status?: import('@/constants/attributionStatus').AttributionStatus;
+  /** #1047 PR-U1 server-owned transcript state: available | expired | not_captured. */
+  transcript_state?: import('@/constants/transcriptState').TranscriptState;
   custom_words?: Record<string, unknown>;
   clarity_score?: number;
   wpm?: number;

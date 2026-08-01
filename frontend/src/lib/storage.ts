@@ -47,7 +47,8 @@ const SESSION_ANALYSIS_SELECT = [
   'model_name',
   'device_type',
   'status',
-  'attribution_status'
+  'attribution_status',
+  'transcript_state'
 ].join(', ');
 
 /**
