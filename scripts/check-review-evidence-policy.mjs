@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 const MODULE_PATH = fileURLToPath(import.meta.url);
 const REPO_ROOT = resolve(dirname(MODULE_PATH), '..');
-const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
 
 export const APPROVED_SCREENSHOT_UPLOADS = new Set([
   'ci.yml::ux-review-screenshots-shard-${{ matrix.shard }}',
