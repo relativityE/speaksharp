@@ -352,4 +352,30 @@ describe('getPdfFillerTableData — SSOT: persisted canonical wins, no recount o
     expect(savedPdf.text).toContain('(No transcript was captured.) Tj');
     expect(savedPdf.text).not.toContain('(No transcript available.) Tj'); // the old ambiguous fallback is gone
   });
+
+  it('renders transcript-derived metrics as N/A (never measured zero) for an expired row with no persisted evidence', async () => {
+    await generateSessionPdf(
+      u1Session({ transcript: null, transcript_state: 'expired', filler_words: undefined }) as Session,
+      'TestUser',
+    );
+    // The Vocal Analytics table is the first autoTable call; transcript-derived cells are N/A, not 0.
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Total Words', 'N/A'],
+        ['Total Filler Words', 'N/A'],
+      ]),
+    }));
+  });
+
+  it('still shows persisted measurements for an expired row (measurements survive transcript loss)', async () => {
+    await generateSessionPdf(
+      u1Session({ transcript: null, transcript_state: 'expired', total_words: 120, filler_words: { um: { count: 2 } } }) as Session,
+      'TestUser',
+    );
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Total Words', '120'],
+      ]),
+    }));
+  });
 });

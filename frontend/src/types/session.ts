@@ -6,7 +6,9 @@ export interface PracticeSession {
   duration: number;
   title?: string;
   total_words?: number;
-  transcript?: string;
+  // #1047 PR-U1: SQL NULL is a real, meaningful value here (#1117 retention persists NULL on expiry). The
+  // optional `?` covers legacy/partial reads that omit the column; `| null` models the retention state.
+  transcript?: string | null;
   filler_words?: {
     [key: string]: {
       count: number;

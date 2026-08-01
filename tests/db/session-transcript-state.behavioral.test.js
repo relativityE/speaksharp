@@ -125,15 +125,40 @@ describe('#1047 sessions.transcript_state — real DB-row behavior (PGlite)', ()
     expect(after.transcript_state).not.toBe('expired');
   });
 
-  it('5. expired is sticky once a privileged retention op sets it (forward-compat for #1117)', async () => {
+  it('5. expired is sticky AND text stays NULL; an ordinary re-save cannot resurrect the transcript', async () => {
     const row = await insert('doomed transcript');
     // Simulate #1117: a privileged retention path (here: trigger disabled) removes the text and marks expired.
     await db.exec('ALTER TABLE public.sessions DISABLE TRIGGER trg_sessions_set_transcript_state');
     await db.query(`UPDATE public.sessions SET transcript=NULL, transcript_state='expired' WHERE id=$1`, [row.id]);
     await db.exec('ALTER TABLE public.sessions ENABLE TRIGGER trg_sessions_set_transcript_state');
-    expect((await stateOf(row.id)).transcript_state).toBe('expired');
-    // An ordinary later re-save must NOT resurrect it to available/not_captured.
+    const expired = await stateOf(row.id);
+    expect(expired.transcript_state).toBe('expired');
+    expect(expired.transcript).toBeNull();
+    // RESURRECTION ATTEMPT: an ordinary later re-save keeps state expired AND forces the text back to NULL —
+    // retention-removed text can never be silently reintroduced.
     await db.query(`UPDATE public.sessions SET title='renamed', transcript='someone re-saved text' WHERE id=$1`, [row.id]);
-    expect((await stateOf(row.id)).transcript_state).toBe('expired');
+    const after = await stateOf(row.id);
+    expect(after.transcript_state).toBe('expired');
+    expect(after.transcript).toBeNull();
+  });
+
+  it('6. the CHECK backstop rejects an expired row that carries transcript text (even with the trigger off)', async () => {
+    // The DB boundary — not just the trigger or UI — forbids expired-with-text. With the trigger disabled
+    // (the privileged retention path), a contradictory insert/update is REJECTED, never silently accepted.
+    await db.exec('ALTER TABLE public.sessions DISABLE TRIGGER trg_sessions_set_transcript_state');
+    try {
+      await expect(
+        db.query(`INSERT INTO public.sessions (user_id, transcript, status, transcript_state)
+                  VALUES ($1, 'still here', 'completed', 'expired')`, [USER]),
+      ).rejects.toThrow();
+      const ok = (await db.query(
+        `INSERT INTO public.sessions (user_id, transcript, status, transcript_state) VALUES ($1, 'kept', 'completed', 'available') RETURNING id`, [USER],
+      )).rows[0].id;
+      await expect(
+        db.query(`UPDATE public.sessions SET transcript_state='expired' WHERE id=$1`, [ok]), // text still present
+      ).rejects.toThrow();
+    } finally {
+      await db.exec('ALTER TABLE public.sessions ENABLE TRIGGER trg_sessions_set_transcript_state');
+    }
   });
 });

@@ -897,11 +897,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     // #1047 PR-U1: server-owned transcript_state drives this — an unavailable
                                     // transcript shows its honest reason (expired / not captured), never an
                                     // ordinary empty string, and never as if it were a real transcript.
-                                    data-session-detail-transcript={targetTranscript?.canRenderTranscript ? targetSession.transcript!.trim() : ''}
+                                    data-session-detail-transcript={targetTranscript?.canRenderTranscript ? (targetSession.transcript ?? "").trim() : ''}
                                     data-transcript-state={targetTranscript?.state}
                                 >
                                     {targetTranscript?.canRenderTranscript
-                                        ? targetSession.transcript!.trim()
+                                        ? (targetSession.transcript ?? "").trim()
                                         : targetTranscript?.unavailableMessage}
                                 </div>
                             </CardContent>

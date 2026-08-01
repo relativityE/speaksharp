@@ -63,6 +63,24 @@ BEGIN
   END IF;
 END $$;
 
+-- INVARIANT BACKSTOP (locked U1 rule): `expired` never carries transcript text. Enforced at the DB boundary
+-- as a CHECK so it holds even when the derivation trigger is bypassed (e.g. #1117's privileged retention
+-- path) — a contradictory insert/update is rejected, never silently accepted.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'sessions_expired_transcript_null_check'
+      AND conrelid = 'public.sessions'::regclass
+      AND contype = 'c'
+  ) THEN
+    ALTER TABLE public.sessions
+      ADD CONSTRAINT sessions_expired_transcript_null_check
+      CHECK (transcript_state <> 'expired' OR transcript IS NULL);
+  END IF;
+END $$;
+
 -- 5) Server-owned derivation. Runs BEFORE INSERT/UPDATE so the stored state always matches the transcript
 --    the server actually persisted, and any client-supplied transcript_state is overwritten (clients can
 --    never self-assert a state — least of all `expired`).
@@ -75,7 +93,10 @@ BEGIN
   -- resurrect it to not_captured/available. `expired` is only ever established by that retention path; this
   -- clause is forward-compatible and, in this PR, is never reachable because nothing sets `expired` yet.
   IF TG_OP = 'UPDATE' AND OLD.transcript_state = 'expired' THEN
+    -- STICKY + INVARIANT: an expired row stays expired AND its transcript stays NULL, so a later ordinary
+    -- re-save can never silently reintroduce retention-removed text (resurrection prevention).
     NEW.transcript_state := 'expired';
+    NEW.transcript := NULL;
   ELSIF NEW.transcript IS NOT NULL AND length(btrim(NEW.transcript)) > 0 THEN
     NEW.transcript_state := 'available';
   ELSE

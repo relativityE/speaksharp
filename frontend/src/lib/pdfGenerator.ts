@@ -142,6 +142,16 @@ export const generateSessionPdf = async (
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
     const metrics = getSessionAnalysisMetrics(session);
+    // #1047 PR-U1: a transcript-DERIVED metric may be shown only when the transcript is readable OR a
+    // persisted measurement backs it. Otherwise it is honestly N/A — never a recounted-from-absent-text
+    // zero. Persisted measurements (wpm/clarity/fillers/words/pauses) remain visible for an expired row.
+    const transcriptReadable = presentTranscript(session.transcript_state, session.transcript).canRenderTranscript;
+    const derivedOr = (persistedPresent: boolean, render: () => string): string =>
+      (transcriptReadable || persistedPresent) ? render() : 'N/A';
+    const wordsCell = derivedOr(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
+    const wpmCell = derivedOr(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
+    const clarityCell = derivedOr(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
+    const fillerCell = derivedOr(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
     const scoreResult = calculateSpeakingScore({
       transcript: session.transcript || '',
       wordCount: metrics.wordCount,
@@ -195,10 +205,10 @@ export const generateSessionPdf = async (
     const analyticsData = [
       ['Metric', 'Value'],
       ['Session ID', session.id],
-      ['Total Words', `${metrics.wordCount}`],
-      ['Speaking Pace (WPM)', `${metrics.wpm} (${metrics.wpmLabel})`],
-      ['Clear Delivery', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
-      ['Total Filler Words', `${metrics.fillerCount}`],
+      ['Total Words', wordsCell],
+      ['Speaking Pace (WPM)', wpmCell],
+      ['Clear Delivery', clarityCell],
+      ['Total Filler Words', fillerCell],
       ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
       ['Custom Words Detected', `${customWordsDetected}`],
       ['Transcription Mode', formatSessionRecordingMode(session)],
@@ -239,7 +249,7 @@ export const generateSessionPdf = async (
     const pdfTranscript = presentTranscript(session.transcript_state, session.transcript);
     writePaginatedText(
       doc,
-      pdfTranscript.canRenderTranscript ? session.transcript!.trim() : pdfTranscript.unavailableMessage!,
+      pdfTranscript.canRenderTranscript ? (session.transcript ?? "").trim() : pdfTranscript.unavailableMessage!,
       14, 32, 180,
     );
 
