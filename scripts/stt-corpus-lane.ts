@@ -12,17 +12,19 @@
  * the only committed inputs.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { pipeline, env } from '@xenova/transformers';
 import { buildCorpusRow, summarizeLatency, type CorpusRow } from '../tests/evidence/corpusLane';
 import { rankableCohorts, type RuntimeCapability, type ComparabilityInputs } from '../tests/evidence/sttEvidenceSchema';
+import { verifyModelProvenance } from '../tests/evidence/modelProvenance';
 
 // The product's Private v2 model, pinned to an IMMUTABLE commit (never 'main'/'latest').
 const MODEL_ID = 'Xenova/whisper-base.en';
 const MODEL_REVISION = '95bf40a508535962c6483ead40270b2e32267508';
+const MODEL_FILES = ['onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
 const DECODE_CONFIGURATION = 'whisper-base.en/q8/pcm16k-mono/greedy';
 
 // Runtime versions are DERIVED from the installed packages — never hard-coded (they drift silently).
@@ -32,30 +34,6 @@ const ONNXRUNTIME_NODE_VERSION: string = require_('onnxruntime-node/package.json
 
 const sha256 = (buf: Buffer | Uint8Array): string => createHash('sha256').update(buf).digest('hex');
 const fmt = (v: number | null): string => (v === null ? 'n/a' : v.toFixed(2));
-
-/**
- * Prove (or explicitly refute) that the pinned HF files the harness runs are byte-identical to the
- * product's self-hosted `/models/whisper-base.en` assets. Returns the per-file hashes and a verdict — the
- * artifact records the truth either way; the harness never *claims* the exact production model on faith.
- */
-function verifyModelProvenance(hfCacheDir: string, prodModelsDir: string): {
-    verdict: 'identical' | 'differs' | 'unverifiable';
-    files: Array<{ file: string; hfSha256: string | null; prodSha256: string | null; identical: boolean }>;
-} {
-    const rel = ['onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
-    const hfBase = resolve(hfCacheDir, MODEL_ID, MODEL_REVISION);
-    const files = rel.map((f) => {
-        const hfPath = resolve(hfBase, f);
-        const prodPath = resolve(prodModelsDir, f);
-        const hfSha = existsSync(hfPath) ? sha256(readFileSync(hfPath)) : null;
-        const prodSha = existsSync(prodPath) ? sha256(readFileSync(prodPath)) : null;
-        return { file: f, hfSha256: hfSha, prodSha256: prodSha, identical: hfSha !== null && hfSha === prodSha };
-    });
-    const verdict = files.some((f) => f.hfSha256 === null || f.prodSha256 === null)
-        ? 'unverifiable'
-        : files.every((f) => f.identical) ? 'identical' : 'differs';
-    return { verdict, files };
-}
 
 /** Parse a canonical PCM16 mono 16 kHz WAV by walking chunks (tolerates JUNK/FLLR padding). */
 function decodeWav16kMono(bytes: Buffer): Float32Array {
@@ -118,9 +96,19 @@ async function main(): Promise<void> {
 
     const asr = await pipeline('automatic-speech-recognition', MODEL_ID, { revision: MODEL_REVISION, quantized: true });
 
-    // Prove the pinned model files == the product's self-hosted assets (or record that they don't).
-    const modelProvenance = verifyModelProvenance(hfCacheDir, resolve(process.cwd(), 'frontend/public/models/whisper-base.en'));
+    // Prove the pinned model files == the product's self-hosted assets. FAIL CLOSED unless identical:
+    // a differing/unverifiable model must never emit admissible evidence under the production model's name.
+    const modelProvenance = verifyModelProvenance(
+        resolve(hfCacheDir, MODEL_ID, MODEL_REVISION),
+        resolve(process.cwd(), 'frontend/public/models/whisper-base.en'),
+        MODEL_FILES,
+    );
     console.log(`[corpus] model provenance vs production self-hosted assets: ${modelProvenance.verdict}`);
+    if (modelProvenance.verdict !== 'identical') {
+        console.error(`[corpus] FAILED: model provenance is '${modelProvenance.verdict}', not 'identical' — refusing to emit corpus evidence under the production model's name.`);
+        console.error(JSON.stringify(modelProvenance.files, null, 2));
+        process.exit(1);
+    }
 
     const rows: CorpusRow[] = [];
     for (const fx of manifest.fixtures) {

@@ -11,6 +11,10 @@ on:
       - 'scripts/stt-corpus-lane.ts'
       - 'scripts/validate-stt-evidence.mjs'
       - '.github/workflows/stt-corpus-lane.yml'
+      # Re-run when the PRODUCTION Private model assets/config change — the provenance check must catch a
+      # drift between the pinned HF revision and the self-hosted assets (the run fails closed unless identical).
+      - 'frontend/public/models/whisper-base.en/**'
+      - 'frontend/public/models/manifest.json'
   workflow_dispatch:
 
 permissions:
