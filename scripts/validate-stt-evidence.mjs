@@ -27,6 +27,8 @@ const REQUIRED_FIELDS = [
 const COMPARABILITY_CLASSES = new Set(['corpus_fixture', 'browser_journey']);
 /** How a browser_journey was driven — a closed set; anything else is inadmissible. */
 const BROWSER_EXECUTION_MODES = new Set(['automated', 'manual-assisted']);
+/** Cloud/Private engine keys a browser_journey MUST prove its guard protected (installed before app code). */
+const REQUIRED_FORBIDDEN_ENGINE_KEYS = ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'];
 const RUN_VALIDITY = new Set(['valid', 'invalid']);
 const FAILURE_CLASSES = new Set(['none', 'model_load_failed', 'decode_failed', 'audio_route_unproven', 'timeout', 'provider_error', 'unknown']);
 /** Revisions that move over time make a "comparable" cohort silently incomparable. */
@@ -144,6 +146,14 @@ function checkRow(row, index) {
             // runtime boundary validates arbitrary JSON and cannot trust an envelope the parser discards.
             if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
             else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
+            // Guard-installation proof: an empty invocation list is only meaningful if the guard is proven
+            // installed (atomically, before app code) and protected every required Cloud/Private key.
+            const guard = journey.forbiddenEngineGuard;
+            if (!guard || guard.installed !== true) problems.push('browser_journey must prove forbiddenEngineGuard.installed === true (guard authoritative before app execution)');
+            else {
+                const missing = REQUIRED_FORBIDDEN_ENGINE_KEYS.filter(k => !Array.isArray(guard.protectedKeys) || !guard.protectedKeys.includes(k));
+                if (missing.length) problems.push(`browser_journey guard did not protect required forbidden engines: ${missing.join(', ')}`);
+            }
         }
         // Runtime capability is validated for Browser rows too (not skipped): it must declare the
         // Browser/Web-Speech runtime path with a well-typed capability shape.

@@ -12,6 +12,7 @@ export interface SSE2EManifest {
   flags?: Record<string, unknown>;
   registry?: Record<string, unknown>;
   realEngineRegistryKeys?: string[];
+  forbiddenEngineKeys?: string[];
   MOCK_STT_AVAILABILITY?: boolean;
   guestStatus?: 'free' | 'basic' | 'pro';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
@@ -59,6 +60,8 @@ export interface E2EWindow {
   __SS_E2E__: SSE2EManifest;
   __SS_E2E_ACTIVE_ENGINE__?: unknown;
   __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
+  __SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__?: Array<{ key: string; phase: string; at: number }>;
+  __SS_E2E_FORBIDDEN_ENGINE_GUARD__?: { installed: boolean; protectedKeys: string[] };
   __SS_E2E_DEBUG__?: Record<string, unknown>;
   __MODEL_CACHED__?: boolean;
   __SS_E2E_BRIDGE__?: {
@@ -97,6 +100,12 @@ export async function setupE2EManifest(
     flags?: { bypassMutex?: boolean; fastTimers?: boolean };
     debug?: boolean;
     realEngineRegistryKeys?: string[];
+    /**
+     * #1037: engine keys that MUST NOT be constructed during a Browser/Web-Speech journey. Their registry
+     * factories are replaced with tripwires ATOMICALLY as the registry is built (not via a later interval),
+     * so the guard is authoritative before any application module can call STTRegistry.getEngine.
+     */
+    forbiddenEngineKeys?: string[];
     storage?: Record<string, string>;
     userType?: 'free' | 'basic' | 'pro';
     mockProfile?: Record<string, unknown>;
@@ -639,6 +648,37 @@ export async function setupE2EManifest(
     const engineRegistry = Object.fromEntries(
         supportEngines.map(id => [id, minimalStubFactory(id)])
     );
+
+    // #1037 FORBIDDEN-ENGINE GUARD — installed ATOMICALLY here as the registry is built (not via a later
+    // interval), so it is authoritative before any application module can call STTRegistry.getEngine. Each
+    // forbidden key's factory is replaced with a tripwire that RECORDS construction and THROWS on
+    // init/start/transcribe; an installation-proof object records the exact protected key set.
+    const forbiddenEngineKeys = Array.isArray((m as SSE2EManifest).forbiddenEngineKeys)
+      ? (m as SSE2EManifest).forbiddenEngineKeys ?? []
+      : [];
+    if (forbiddenEngineKeys.length > 0) {
+      win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ = win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ || [];
+      const recordTripwire = (key: string, phase: string) =>
+        win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__!.push({ key, phase, at: Date.now() });
+      for (const key of forbiddenEngineKeys) {
+        engineRegistry[key] = () => {
+          recordTripwire(key, 'construct');
+          const boom = (phase: string) => async () => {
+            recordTripwire(key, phase);
+            throw new Error(`[1037-tripwire] forbidden engine '${key}' ${phase}() invoked during a Browser/Web-Speech journey`);
+          };
+          return {
+            instanceId: `tripwire-${key}`,
+            checkAvailability: async () => { recordTripwire(key, 'checkAvailability'); return { isAvailable: false }; },
+            init: boom('init'), start: boom('start'), transcribe: boom('transcribe'), getTranscript: boom('getTranscript'),
+            stop: async () => {}, pause: async () => {}, resume: async () => {}, destroy: async () => {}, terminate: async () => {},
+            getEngineType: () => key, getLastHeartbeatTimestamp: () => Date.now(),
+          };
+        };
+      }
+      // Authoritative installation proof (exact protected key set), set atomically with the registry.
+      win.__SS_E2E_FORBIDDEN_ENGINE_GUARD__ = { installed: true, protectedKeys: [...forbiddenEngineKeys] };
+    }
 
     const mCast = m as SSE2EManifest;
     win.__SS_E2E__ = {

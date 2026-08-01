@@ -18,6 +18,9 @@ export type ComparabilityClass = 'corpus_fixture' | 'browser_journey';
 /** Closed set of how a browser_journey may be driven — enforced at RUNTIME (types are erased). */
 export const BROWSER_EXECUTION_MODES = new Set(['automated', 'manual-assisted']);
 
+/** Cloud/Private engine keys a browser_journey MUST prove its guard protected (installed before app code). */
+export const REQUIRED_FORBIDDEN_ENGINE_KEYS = ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'];
+
 /**
  * #1037: a browser_journey row must declare an HONEST runtime_capability (the Browser/Web-Speech runtime
  * path + a well-typed capability shape), validated at runtime rather than skipped. Returns problems (empty
@@ -124,6 +127,13 @@ export interface BrowserJourneyEvidence {
      * forbidden engine fired. See scripts/browser-webspeech-evidence.mts.
      */
     forbiddenEngineInvocations: Array<{ key: string; phase: string; at: number }>;
+    /**
+     * Proof the forbidden-engine guard was INSTALLED (atomically, before any application module could
+     * resolve an engine) and the exact key set it protected. An empty invocation list is only meaningful if
+     * the guard is proven installed and covers every required Cloud/Private key — so admissibility REQUIRES
+     * `installed === true` and `protectedKeys ⊇ REQUIRED_FORBIDDEN_ENGINE_KEYS`.
+     */
+    forbiddenEngineGuard: { installed: boolean; protectedKeys: string[] };
 }
 
 /**
@@ -257,6 +267,14 @@ export function finalizeRow(
             // engine constructed or started). A missing field or any invocation is inadmissible.
             if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
             else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
+            // Guard-installation proof: an empty invocation list is only meaningful if the guard is proven
+            // installed (atomically, before app code) and protected every required Cloud/Private key.
+            const guard = journey.forbiddenEngineGuard;
+            if (!guard || guard.installed !== true) problems.push('browser_journey must prove forbiddenEngineGuard.installed === true (guard authoritative before app execution)');
+            else {
+                const missing = REQUIRED_FORBIDDEN_ENGINE_KEYS.filter(k => !Array.isArray(guard.protectedKeys) || !guard.protectedKeys.includes(k));
+                if (missing.length) problems.push(`browser_journey guard did not protect required forbidden engines: ${missing.join(', ')}`);
+            }
         }
         // Runtime capability is validated for Browser rows too (not skipped): Browser/Web-Speech runtime
         // path + a well-typed capability shape.

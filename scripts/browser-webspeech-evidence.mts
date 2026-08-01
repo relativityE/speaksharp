@@ -91,52 +91,16 @@ async function main(): Promise<void> {
       }
     });
     const syntheticSession = createMockSession({}, 'pro');
+    // Forbidden-engine tripwires are installed ATOMICALLY inside setupE2EManifest as the registry is built
+    // (forbiddenEngineKeys), so the guard is authoritative BEFORE any application module can call
+    // STTRegistry.getEngine — no racy post-hoc interval. The manifest records an installation-proof object
+    // (__SS_E2E_FORBIDDEN_ENGINE_GUARD__) with the exact protected key set, asserted below and carried in the row.
     await setupE2EManifest(page, {
       engineType: 'real', enableRealEngine: true, userType: 'pro', emptySessions: true,
       debug: true, realEngineRegistryKeys: ['native-browser'],
+      forbiddenEngineKeys: [...FORBIDDEN_ENGINE_KEYS],
       storage: { 'speaksharp-runtime-evidence-auth': JSON.stringify(syntheticSession) },
     });
-    // Forbidden-engine TRIPWIRES. setupE2EManifest registers a permissive minimal stub for every
-    // non-real engine key, so an accidental switch to Cloud/Private would `start()` silently and the
-    // zero-Cloud network assertion would hold vacuously. Replace those keys' factories with tripwires that
-    // record any construction and THROW on init/start/transcribe. Runs AFTER setupE2EManifest's init script
-    // (later-registered addInitScripts execute later), so `__SS_E2E__.registry` already exists; STTRegistry
-    // resolves `window.__SS_E2E__.registry[key]` live on every getEngine, so these overrides are authoritative.
-    await page.addInitScript((forbiddenKeys: string[]) => {
-      const win = window as unknown as {
-        __SS_E2E__?: { registry?: Record<string, unknown> };
-        __SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__?: Array<{ key: string; phase: string; at: number }>;
-        setInterval: (h: () => void, t: number) => number;
-        clearInterval: (id: number) => void;
-      };
-      win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ = win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ || [];
-      const record = (key: string, phase: string) =>
-        win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__!.push({ key, phase, at: Date.now() });
-      const install = (): boolean => {
-        const registry = win.__SS_E2E__?.registry;
-        if (!registry) return false;
-        for (const key of forbiddenKeys) {
-          registry[key] = () => {
-            record(key, 'construct');
-            const boom = (phase: string) => async () => {
-              record(key, phase);
-              throw new Error(`[1037-tripwire] forbidden engine '${key}' ${phase}() invoked during a Browser/Web-Speech journey`);
-            };
-            return {
-              instanceId: `tripwire-${key}`,
-              checkAvailability: async () => { record(key, 'checkAvailability'); return { isAvailable: false }; },
-              init: boom('init'), start: boom('start'), transcribe: boom('transcribe'), getTranscript: boom('getTranscript'),
-              stop: async () => {}, pause: async () => {}, resume: async () => {}, destroy: async () => {}, terminate: async () => {},
-              getEngineType: () => key, getLastHeartbeatTimestamp: () => Date.now(),
-            };
-          };
-        }
-        return true;
-      };
-      if (!install()) {
-        const iv = win.setInterval(() => { if (install()) win.clearInterval(iv); }, 10);
-      }
-    }, [...FORBIDDEN_ENGINE_KEYS]);
     console.log('[browser-webspeech] phase=auth-seeded');
     await page.goto(`${baseUrl}/session?nativeDiag=1`, { waitUntil: 'domcontentloaded' });
     try {
@@ -276,9 +240,20 @@ async function main(): Promise<void> {
     // Fail closed if ANY forbidden (Cloud/Private) engine was constructed or started during the journey —
     // defense in depth beyond the network assertion, and the artifact records the (empty) result as proof
     // the guard ran.
-    const forbiddenEngineTripwire = await page.evaluate(() =>
-      (window as unknown as { __SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__?: Array<{ key: string; phase: string; at: number }> })
-        .__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ ?? []);
+    const forbiddenEngine = await page.evaluate(() => {
+      const w = window as unknown as {
+        __SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__?: Array<{ key: string; phase: string; at: number }>;
+        __SS_E2E_FORBIDDEN_ENGINE_GUARD__?: { installed: boolean; protectedKeys: string[] };
+      };
+      return { invocations: w.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ ?? [], guard: w.__SS_E2E_FORBIDDEN_ENGINE_GUARD__ ?? null };
+    });
+    const forbiddenEngineTripwire = forbiddenEngine.invocations;
+    // The guard must PROVE it was installed (atomically, before app code) and covers every forbidden key —
+    // an empty invocation list is meaningless if the guard never installed.
+    const guard = forbiddenEngine.guard;
+    if (!guard?.installed) throw new Error(`forbidden-engine guard was not installed before the journey: ${JSON.stringify(guard)}`);
+    const missingProtected = [...FORBIDDEN_ENGINE_KEYS].filter(k => !guard.protectedKeys.includes(k));
+    if (missingProtected.length > 0) throw new Error(`forbidden-engine guard did not protect: ${JSON.stringify(missingProtected)}`);
     if (forbiddenEngineTripwire.length > 0) {
       throw new Error(`forbidden engine constructed/started during the Browser journey: ${JSON.stringify(forbiddenEngineTripwire)}`);
     }
@@ -327,7 +302,12 @@ async function main(): Promise<void> {
       // The spoken-prompt hash is informational provenance ONLY — not an audio-fixture/route hash.
       // forbiddenEngineInvocations is the AUTHORITATIVE tripwire proof carried IN the row so the offline
       // validator enforces it (the envelope copy below is human-facing only).
-      browser_journey_evidence: { ...journey, promptSha256, forbiddenEngineInvocations: forbiddenEngineTripwire },
+      browser_journey_evidence: {
+        ...journey, promptSha256,
+        forbiddenEngineInvocations: forbiddenEngineTripwire,
+        // Installation PROOF carried in the row: the guard installed atomically + the exact protected key set.
+        forbiddenEngineGuard: { installed: guard.installed, protectedKeys: guard.protectedKeys },
+      },
     });
     const artifact = {
       generatedFor: '#1037 Browser/Web Speech manual-assisted journey',

@@ -167,6 +167,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
             recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
             sessionProduced: true, browserManagedTranscription: true,
             applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [],
+            forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] },
             ...journey,
         },
     });
@@ -233,6 +234,18 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(browserBase({ forbiddenEngineInvocations: [{ key: 'transformers-js', phase: 'construct', at: 1 }] }));
         expect(r.run_validity).toBe('invalid');
         expect(r.invalid_reason).toMatch(/recorded a forbidden engine/i);
+    });
+
+    it('a Browser journey whose guard was NOT installed is rejected (empty invocations alone is insufficient)', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineGuard: { installed: false, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] } }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/forbiddenEngineGuard\.installed === true/i);
+    });
+
+    it('a Browser journey whose guard omits a required Cloud/Private key is rejected', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai'] } }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/did not protect required forbidden engines/i);
     });
 
     it('a Browser journey missing runtime_capability is rejected (capability is validated, not skipped)', () => {
