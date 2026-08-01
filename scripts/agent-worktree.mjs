@@ -91,10 +91,16 @@ function registryPaths(commonDir) {
  */
 function anyMarkerAcrossWorktrees(commonDir) {
     const wtRoot = path.join(commonDir, 'worktrees');
-    if (!existsSync(wtRoot)) return false;
+    if (!existsSync(wtRoot)) return false; // no linked-worktree admin dir yet → genuinely none
     let entries;
-    try { entries = readdirSync(wtRoot); } catch { return false; }
-    return entries.some((id) => existsSync(path.join(wtRoot, id, MARKER_NAME)));
+    // Fail CLOSED on an enumeration error: an unreadable worktrees/ dir is not evidence of "no markers".
+    try { entries = readdirSync(wtRoot); }
+    catch (e) { throw new OwnershipError(`could not enumerate linked worktrees for initialization evidence — fail closed: ${String(e.message ?? e)}`); }
+    // Inspect EVERY linked worktree's admin dir for an ownership marker.
+    for (const id of entries) {
+        if (existsSync(path.join(wtRoot, id, MARKER_NAME))) return true;
+    }
+    return false;
 }
 
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
@@ -198,7 +204,10 @@ function requireAgent(agent, command) {
     return agent;
 }
 function nowIso() { return new Date().toISOString(); }
-function isClean(worktreeRoot) { return git(['status', '--porcelain'], worktreeRoot) === ''; }
+// `--untracked-files=all` FORCES untracked files (incl. inside untracked dirs) into the porcelain output
+// regardless of a repo/user `status.showUntrackedFiles=no` config — otherwise a dirty worktree with only
+// untracked changes would read as clean and let handoff/release proceed over unsaved work.
+function isClean(worktreeRoot) { return git(['status', '--porcelain', '--untracked-files=all'], worktreeRoot) === ''; }
 
 function upstreamState(worktreeRoot) {
     // A branch can track ANOTHER LOCAL branch (the '.' remote); `@{upstream}` still resolves and can equal

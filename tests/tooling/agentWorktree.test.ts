@@ -10,7 +10,7 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync, chmodSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -442,5 +442,42 @@ describe('#1126 durable initialization history (isolated repo)', () => {
         const r = claim();
         expect(r.status).toBe(1);
         expect(r.err).toMatch(/sentinel is absent but .* evidence exists|partial\/contradictory/i);
+    });
+
+    it('(#1126) untracked files count as dirty for release even when status.showUntrackedFiles=no', () => {
+        expect(claim().status).toBe(0);
+        // A repo/user config that hides untracked files must NOT let release proceed over unsaved work.
+        git(['config', 'status.showUntrackedFiles', 'no'], iwt);
+        writeFileSync(path.join(iwt, 'unsaved-scratch.txt'), 'work in progress');
+        const r = run(['release', '--agent', 'alpha'], iwt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/dirty/i);
+        rmSync(path.join(iwt, 'unsaved-scratch.txt'));
+    });
+
+    it('(#1126) a marker on ANOTHER linked worktree is initialization evidence (sentinel absent → fail closed)', () => {
+        // Second linked worktree in the SAME repo, carrying an ownership marker, with the durable sentinel
+        // absent: a claim on the first worktree must inspect every linked worktree and fail closed.
+        const wt2 = path.join(ibase, 'wt2');
+        git(['worktree', 'add', '-q', '-B', 'feat2', wt2, 'main'], irepo);
+        const gitDir2 = git(['rev-parse', '--absolute-git-dir'], wt2);
+        writeFileSync(path.join(gitDir2, 'agent-owner.json'), JSON.stringify({ agent: 'beta', task: '9', worktreePath: wt2, branch: 'feat2', baseSha: 'x', createdAt: 't' }));
+        expect(existsSync(isentinel)).toBe(false);
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/sentinel is absent but .* evidence exists|partial\/contradictory/i);
+    });
+
+    it('(#1126) marker enumeration failure fails closed (unreadable worktrees dir)', () => {
+        const wtRoot = path.join(icommon, 'worktrees');
+        // Remove read (keep execute) so readdir throws EACCES while git can still traverse to known children.
+        chmodSync(wtRoot, 0o311);
+        try {
+            const r = claim();
+            expect(r.status).toBe(1);
+            expect(r.err).toMatch(/could not enumerate linked worktrees|fail closed/i);
+        } finally {
+            chmodSync(wtRoot, 0o755); // restore so afterEach cleanup can remove the tree
+        }
     });
 });
