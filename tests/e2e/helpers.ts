@@ -459,6 +459,9 @@ export async function programmaticLoginWithRoutes(
     userType,
     mockProfile,
     emptySessions,
+    // #1047: the app (mock engine) reads sessions from the manifest's in-browser DB, so the seed must reach
+    // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
+    sessions,
     storage: authStorage
   });
 

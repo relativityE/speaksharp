@@ -110,9 +110,11 @@ export async function setupE2EManifest(
     userType?: 'free' | 'basic' | 'pro';
     mockProfile?: Record<string, unknown>;
     emptySessions?: boolean;
+    /** #1047: seed the in-browser mock session DB (e.g. transcript_state variants) instead of defaults. */
+    sessions?: Array<Record<string, unknown>>;
   }
 ) {
-  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -126,7 +128,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut, mp, es }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean }) => {
+  await page.addInitScript(({ m, s, ut, mp, es, seed }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>> }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -190,35 +192,55 @@ export async function setupE2EManifest(
     };
 
     const nowIso = () => new Date().toISOString();
-    const makeSession = (overrides: Record<string, unknown> = {}) => ({
-      id: `session-${Math.random().toString(36).slice(2)}`,
-      user_id: e2eProfile.id,
-      title: 'Test Session',
-      duration: 300,
-      total_words: 150,
-      transcript: 'the birch canoe slid on the smooth planks',
-      filler_words: { um: { count: 2 }, uh: { count: 3 } },
-      accuracy: 0.92,
-      clarity_score: 88,
-      wpm: 145,
-      engine: 'private',
-      status: 'completed',
-      created_at: nowIso(),
-      updated_at: nowIso(),
-      ai_suggestions: {
-        summary: 'Strong practice session.',
-        suggestions: [{ title: 'Keep it clear', description: 'Continue speaking with concise structure.' }],
-      },
-      pause_metrics: null,
-      ...overrides,
-    });
+    // #1047 PR-U1: the mock DB mirrors the server's BEFORE trigger — `expired` is sticky; otherwise the
+    // transcript_state always reflects transcript presence. This must run on EVERY session write (create,
+    // update, finalize RPC) so a session whose transcript arrives after creation becomes `available`, and a
+    // client can never assert a state that contradicts the stored text.
+    const reconcileTranscriptState = (row: Record<string, unknown>) => {
+      if (row.transcript_state === 'expired') return row; // sticky: server keeps transcript cleared
+      const t = row.transcript;
+      row.transcript_state = typeof t === 'string' && t.trim().length > 0 ? 'available' : 'not_captured';
+      return row;
+    };
+    const makeSession = (overrides: Record<string, unknown> = {}) => {
+      const row: Record<string, unknown> = {
+        id: `session-${Math.random().toString(36).slice(2)}`,
+        user_id: e2eProfile.id,
+        title: 'Test Session',
+        duration: 300,
+        total_words: 150,
+        transcript: 'the birch canoe slid on the smooth planks',
+        filler_words: { um: { count: 2 }, uh: { count: 3 } },
+        accuracy: 0.92,
+        clarity_score: 88,
+        wpm: 145,
+        engine: 'private',
+        status: 'completed',
+        created_at: nowIso(),
+        updated_at: nowIso(),
+        ai_suggestions: {
+          summary: 'Strong practice session.',
+          suggestions: [{ title: 'Keep it clear', description: 'Continue speaking with concise structure.' }],
+        },
+        pause_metrics: null,
+        ...overrides,
+      };
+      return reconcileTranscriptState(row);
+    };
 
     const e2eDbStorageKey = '__SS_E2E_SESSION_DB__';
-    const defaultSessions = es ? [] : Array.from({ length: 5 }, (_, index) => makeSession({
-        id: `session-${index + 1}`,
-        title: `Practice Session ${index + 1}`,
-        created_at: new Date(Date.now() - index * 86400000).toISOString(),
-      }));
+    // #1047: an explicit seed (transcript_state variants) replaces the generic history. Each seeded row is
+    // stamped with the authenticated user's id so the app's `.eq('user_id', …)` query returns it.
+    const seededSessions = Array.isArray(seed) && seed.length > 0
+      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }))
+      : null;
+    const defaultSessions = es
+      ? []
+      : (seededSessions ?? Array.from({ length: 5 }, (_, index) => makeSession({
+          id: `session-${index + 1}`,
+          title: `Practice Session ${index + 1}`,
+          created_at: new Date(Date.now() - index * 86400000).toISOString(),
+        })));
     const loadPersistedSessions = () => {
       try {
         const raw = window.sessionStorage.getItem(e2eDbStorageKey);
@@ -240,7 +262,9 @@ export async function setupE2EManifest(
       // Empty-session proofs must be a hard empty state. Reusing persisted
       // sessionStorage here lets earlier seeded analytics flows contaminate
       // `emptyUserPage` and hides the actual empty-state UX.
-      sessions: es ? defaultSessions : (loadPersistedSessions() ?? defaultSessions),
+      // An explicit #1047 seed always wins over a persisted DB so transcript_state variants are deterministic
+      // across the reload assertions; otherwise fall back to the persisted DB, then the generic default set.
+      sessions: es ? defaultSessions : (seededSessions ?? loadPersistedSessions() ?? defaultSessions),
     };
     let userGoals = {
       user_id: e2eProfile.id,
@@ -337,7 +361,10 @@ export async function setupE2EManifest(
           filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
         );
         if (pendingMutation.type === 'update') {
-          for (const row of matching) Object.assign(row, pendingMutation.payload || {}, { updated_at: nowIso() });
+          for (const row of matching) {
+            Object.assign(row, pendingMutation.payload || {}, { updated_at: nowIso() });
+            reconcileTranscriptState(row);
+          }
           persistSessions();
           return { data: matching, error: null, count: matching.length };
         }
@@ -529,6 +556,7 @@ export async function setupE2EManifest(
               duration: args?.p_final_duration ?? session.duration,
               updated_at: nowIso(),
             });
+            reconcileTranscriptState(session as Record<string, unknown>);
             persistSessions();
           }
           return { data: { success: true, final_status: args?.p_status || 'completed' }, error: null };
@@ -744,5 +772,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions });
 }
