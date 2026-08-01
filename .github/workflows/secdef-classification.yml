@@ -106,7 +106,25 @@ jobs:
               continue
             fi
             echo "apply: $base"
-            psql -v ON_ERROR_STOP=1 -f "$f"
+            # The committed migration history is NOT cleanly verbatim-replayable on a fresh DB: it carries a
+            # known RLS-POLICY replay-drift (initial_schema creates only "Users can manage own sessions", while
+            # 20250825065500_fix_rls_performance_issue drops four policies it never created AND re-creates
+            # "manage own sessions"). Under ON_ERROR_STOP a clean replay aborts. To classify function ACLs
+            # (which do NOT depend on RLS policies) we normalize ONLY RLS-policy DDL to idempotent form —
+            # `DROP POLICY` → `DROP POLICY IF EXISTS`, and each `CREATE POLICY "x" ON t` is preceded by a
+            # `DROP POLICY IF EXISTS "x" ON t`. NO function/grant/revoke/table statement is altered; every
+            # classification-relevant statement is still applied verbatim under ON_ERROR_STOP=1. The drift is
+            # recorded as provenance debt in product_release/1097-secdef-classification.md.
+            norm="$(mktemp)"
+            # Guard is injected INLINE (no newline) so a statement that is commented out on its line (some
+            # committed migrations put SQL after a `--` on the same physical line, making them no-ops) stays
+            # commented — we must not accidentally activate a no-op. A real CREATE POLICY still gets its
+            # preceding idempotent DROP on the same line.
+            sed -E 's/DROP[[:space:]]+POLICY[[:space:]]+(IF[[:space:]]+EXISTS[[:space:]]+)?/DROP POLICY IF EXISTS /Ig' "$f" \
+              | perl -0777 -pe 's/(CREATE\s+POLICY\s+("[^"]+"|\S+)\s+ON\s+(\S+))/DROP POLICY IF EXISTS $2 ON $3; $1/ig' \
+              > "$norm"
+            psql -v ON_ERROR_STOP=1 -f "$norm"
+            rm -f "$norm"
             applied=$((applied+1))
           done
           echo "applied $applied timestamped migrations verbatim" | tee -a "$GITHUB_STEP_SUMMARY"

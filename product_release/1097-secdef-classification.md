@@ -14,8 +14,22 @@ read against production) — deliberately out of scope here.
 - `tests/db/secdef-classification-prelude.sql` — stubs only what Supabase preinstalls (roles `anon` /
   `authenticated` / `service_role` / `authenticator` / `supabase_admin`, `auth`/`storage` schemas, `auth.*`
   helpers, `uuid-ossp` + `pgcrypto`). No product object is created here.
-- All committed timestamped migrations are applied **verbatim, in order** (non-timestamped helper files
-  `rotate_sessions.sql` / `test_usage_rpc.sql` are not part of the ordered set and are skipped, logged).
+- All committed versioned migrations (`^[0-9]{8,}_`, incl. the 8-digit `20251217_…`) are applied in
+  filename order (non-versioned helpers `rotate_sessions.sql` / `test_usage_rpc.sql` are skipped, logged).
+  Every **function / GRANT / REVOKE / table** statement — the classification targets — is applied **verbatim**
+  under `ON_ERROR_STOP=1`.
+
+### Migration replay-drift (provenance debt — does not affect this classification)
+The committed migration history is **not cleanly verbatim-replayable on a fresh database**, due to an
+**RLS-policy** drift: `20250811062708_initial_schema.sql` creates only `"Users can manage own sessions"`, but
+`20250825065500_fix_rls_performance_issue.sql` `DROP`s four policies it never created **and** re-creates
+`"Users can manage own sessions"` (and `20250825101500_fix_rls_performance_on_user_profiles.sql` is a
+committed **no-op** — its SQL sits after a `--` on the same line). To classify **function** ACLs (which have
+**zero** dependence on RLS policies) the harness normalizes **only RLS-policy DDL** to idempotent form
+(`DROP POLICY`→`DROP POLICY IF EXISTS`; an inline `DROP POLICY IF EXISTS` precedes each real `CREATE POLICY`;
+the guard is inline so a commented-out no-op stays a no-op). No function/grant/revoke/table statement is
+altered. This RLS-policy replay-drift is recorded here as **provenance debt** for a separate cleanup; it does
+not block or bias the SECURITY DEFINER classification.
 - `tests/db/secdef-classification-matrix.sql` — introspects `pg_proc` for every `SECURITY DEFINER` function
   in `public`; reports signature, `search_path`, `pg_temp` exposure, and effective EXECUTE for
   PUBLIC/anon/authenticated. It fails closed unless it is non-vacuous **and** discriminating (detects both
