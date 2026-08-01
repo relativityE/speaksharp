@@ -32,6 +32,9 @@ const REGISTRY_DIRNAME = 'agent-worktrees';
 const MARKER_NAME = 'agent-owner.json'; // stored under the worktree's Git admin dir, never the working tree
 const SENTINEL_NAME = '.initialized';
 const LOCK_TIMEOUT_MS = 5000;
+// The prune-lock reason this tool stamps on the worktree. Release only unlocks a lock carrying THIS exact
+// reason, so a foreign/manual `git worktree lock` is never adopted or silently removed.
+const LOCK_REASON = 'agent-worktree single-owner lease';
 // Every authoritative lease field. The registry requires all as non-empty strings, and a marker must
 // match its lease on ALL of them (tamper/consistency check) before assert/handoff/release/idempotent reclaim.
 const LEASE_STRING_FIELDS = ['agent', 'task', 'worktreePath', 'branch', 'baseSha', 'createdAt'];
@@ -157,11 +160,36 @@ function nowIso() { return new Date().toISOString(); }
 function isClean(worktreeRoot) { return git(['status', '--porcelain'], worktreeRoot) === ''; }
 
 function upstreamState(worktreeRoot) {
-    const upstream = gitQuiet(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], worktreeRoot);
-    if (!upstream) return { hasUpstream: false, matchesUpstream: false, upstream: null };
+    // A branch can track ANOTHER LOCAL branch (the '.' remote); `@{upstream}` still resolves and can equal
+    // HEAD, which would falsely report a pushed state even though no remote has the commit. Require the
+    // upstream to be a real remote-tracking ref (refs/remotes/…) before treating it as "pushed".
+    const fullRef = gitQuiet(['rev-parse', '--symbolic-full-name', '@{upstream}'], worktreeRoot);
+    if (!fullRef) return { hasUpstream: false, matchesUpstream: false, upstream: null };
+    if (!fullRef.startsWith('refs/remotes/')) {
+        return { hasUpstream: false, matchesUpstream: false, upstream: null };
+    }
+    const upstream = gitQuiet(['rev-parse', '--abbrev-ref', '@{upstream}'], worktreeRoot);
     const local = gitQuiet(['rev-parse', 'HEAD'], worktreeRoot);
     const remote = gitQuiet(['rev-parse', '@{upstream}'], worktreeRoot);
     return { hasUpstream: true, matchesUpstream: Boolean(local && remote && local === remote), upstream };
+}
+
+/**
+ * The prune-lock reason on `worktreeRoot`, or null if the worktree is not locked. Parses
+ * `git worktree list --porcelain`, whose per-worktree block carries a `locked` / `locked <reason>` line.
+ */
+function lockReason(worktreeRoot) {
+    const out = gitQuiet(['worktree', 'list', '--porcelain'], worktreeRoot) ?? '';
+    for (const block of out.split('\n\n')) {
+        const lines = block.split('\n');
+        const wl = lines.find((l) => l.startsWith('worktree '));
+        if (!wl) continue;
+        if (path.resolve(wl.slice('worktree '.length)) !== path.resolve(worktreeRoot)) continue;
+        const locked = lines.find((l) => l === 'locked' || l.startsWith('locked '));
+        if (!locked) return null;
+        return locked === 'locked' ? '' : locked.slice('locked '.length);
+    }
+    return null;
 }
 
 /**
@@ -232,12 +260,19 @@ function cmdClaim({ agent, task, cwd }) {
             return `already owned by ${agent}: ${ctx.worktreeRoot} (branch ${ctx.branch})`; // idempotent no-op
         }
 
-        // First claim: the anti-prune lock is REQUIRED — a failure fails the claim (not silently ignored).
+        // First claim: the anti-prune lock is REQUIRED and must be OURS. We stamp LOCK_REASON so release can
+        // later verify the lock is ours before unlocking. A pre-existing lock is only tolerated when it
+        // already carries our reason (e.g. a prior crashed claim); any other (foreign/manual) lock is
+        // refused rather than adopted, since release must never remove a lock this tool did not create.
         try {
-            git(['worktree', 'lock', ctx.worktreeRoot], ctx.worktreeRoot);
+            git(['worktree', 'lock', '--reason', LOCK_REASON, ctx.worktreeRoot], ctx.worktreeRoot);
         } catch (e) {
             if (!/already locked/i.test(String(e.stderr ?? e.message ?? ''))) {
                 throw new OwnershipError(`could not prune-lock the worktree (anti-prune contract): ${String(e.stderr ?? e.message ?? e)}`);
+            }
+            const existing = lockReason(ctx.worktreeRoot);
+            if (existing !== LOCK_REASON) {
+                throw new OwnershipError(`refusing a pre-existing/foreign worktree lock (reason: ${JSON.stringify(existing)}) not created by this lease — resolve manually (fail closed)`);
             }
         }
         const lease = {
@@ -280,11 +315,25 @@ function cmdRelease({ agent, cwd }) {
         if (!isClean(ctx.worktreeRoot)) throw new OwnershipError('working tree is dirty — commit/discard before release');
         const up = upstreamState(ctx.worktreeRoot);
         if (!(up.hasUpstream && up.matchesUpstream)) throw new OwnershipError('HEAD is not pushed to its upstream — push before release');
+        // Remove the prune lock FIRST and only if it is OURS (LOCK_REASON), surfacing any failure. Doing it
+        // before dropping the lease + marker keeps release retryable: a foreign lock or a failed unlock
+        // aborts here with the ownership records still intact, rather than reporting success while the
+        // worktree stays unexpectedly locked and unrecoverable through this workflow.
+        const reason = lockReason(ctx.worktreeRoot);
+        if (reason !== null) {
+            if (reason !== LOCK_REASON) {
+                throw new OwnershipError(`worktree lock (reason: ${JSON.stringify(reason)}) was not created by this lease — refusing to remove it (fail closed)`);
+            }
+            try {
+                git(['worktree', 'unlock', ctx.worktreeRoot], ctx.worktreeRoot);
+            } catch (e) {
+                throw new OwnershipError(`failed to remove the prune lock (release aborted, lease kept for retry): ${String(e.stderr ?? e.message ?? e)}`);
+            }
+        }
         const leases = readLeases(ctx.commonDir);
         writeLeases(ctx.commonDir, leases.filter((l) => l.worktreePath !== ctx.worktreeRoot));
         const mp = markerPath(ctx.gitDir);
         if (existsSync(mp)) unlinkSync(mp);
-        gitQuiet(['worktree', 'unlock', ctx.worktreeRoot], ctx.worktreeRoot);
         return `released ${ctx.worktreeRoot} (was ${agent}); branch + worktree left intact`;
     });
 }

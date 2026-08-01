@@ -10,7 +10,7 @@
  */
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -47,6 +47,19 @@ function runAsync(args: string[], cwd: string): Promise<Res> {
         execFile('node', [CLI, ...args], { cwd, env: { ...process.env, SS_AGENT: '', AGENT_WORKTREE_ALLOW_TMP: '1' } },
             (err, stdout, stderr) => resolve({ status: err ? ((err as { code?: number }).code ?? 1) : 0, out: stdout, err: stderr }));
     });
+}
+function lockReasonOf(wt: string): string | null {
+    const out = git(['worktree', 'list', '--porcelain'], repo);
+    for (const block of out.split('\n\n')) {
+        const lines = block.split('\n');
+        const wl = lines.find((l) => l.startsWith('worktree '));
+        // git reports the CANONICAL worktree path (e.g. /private/var/… on macOS) — realpath both sides.
+        if (!wl || realpathSync(wl.slice('worktree '.length)) !== realpathSync(wt)) continue;
+        const locked = lines.find((l) => l === 'locked' || l.startsWith('locked '));
+        if (!locked) return null;
+        return locked === 'locked' ? '' : locked.slice('locked '.length);
+    }
+    return null;
 }
 function addWorktree(name: string, branch: string, opts: { force?: boolean; push?: boolean } = {}): string {
     const wt = path.join(base, name);
@@ -190,6 +203,34 @@ describe('agent-worktree MVP single-owner leases', () => {
         expect(ok.status).toBe(0);
         expect(JSON.parse(ok.out).from).toBe('alpha');
         expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(0); // manifest-only
+    });
+
+    it('(#1037 :164) a local-branch upstream is NOT a pushed state (handoff refuses)', () => {
+        const wt = addWorktree('wt-localups', 'feat-localups');
+        // Track another LOCAL branch (the '.' remote): @{upstream} resolves and equals HEAD, but no remote
+        // has the commit — this must NOT read as pushed.
+        git(['branch', '--set-upstream-to=main', 'feat-localups'], wt);
+        expect(run(['claim', '--agent', 'alpha', '--task', '60'], wt).status).toBe(0);
+        const r = run(['handoff', '--agent', 'alpha'], wt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/upstream/i);
+    });
+
+    it('(#1037 :240) a pre-existing foreign worktree lock is refused, not adopted', () => {
+        const wt = addWorktree('wt-foreign', 'feat-foreign', { push: true });
+        git(['worktree', 'lock', '--reason', 'manual-by-someone-else', wt], repo);
+        const r = run(['claim', '--agent', 'alpha', '--task', '61'], wt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/foreign|not created by this lease/i);
+        git(['worktree', 'unlock', wt], repo); // cleanup (the tool must not have touched it)
+    });
+
+    it('(#1037 :240,:287) claim stamps the lease reason; release removes only that lock', () => {
+        const wt = addWorktree('wt-lockreason', 'feat-lockreason', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '62'], wt).status).toBe(0);
+        expect(lockReasonOf(wt)).toBe('agent-worktree single-owner lease');
+        expect(run(['release', '--agent', 'alpha'], wt).status).toBe(0);
+        expect(lockReasonOf(wt)).toBe(null);
     });
 
     it('(7) release needs the owner + pushed state, then leaves branch and worktree intact', () => {
