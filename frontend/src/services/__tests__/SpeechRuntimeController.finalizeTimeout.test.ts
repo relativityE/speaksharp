@@ -127,4 +127,33 @@ describe('#1089 bounded finalization', () => {
         expect(outcome).not.toBeInstanceOf(FinalizationTimeoutError);
         expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
     });
+
+    // #1089: freezeTranscriptLifecycleAtStop latches finalization TRUE before the STOPPING transition. If
+    // that transition is rejected, the latch must be cleared (control re-enabled) and the frozen snapshot
+    // dropped — never left hung — rather than stranding the user behind a disabled record control.
+    it('clears the finalizing latch when the STOPPING transition is rejected (recovery, not a lockout)', async () => {
+        const svc = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 10_000),
+            stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: 'x', stats: {} }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+            isServiceDestroyed: () => false,
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            subscribe: vi.fn(() => vi.fn()),
+            fsm: { is: vi.fn().mockReturnValue(false) },
+        } as unknown as ITranscriptionService;
+        (controller as unknown as { service: unknown }).service = svc;
+
+        // Reject the STOPPING transition AFTER finalization has latched true.
+        const rejection = new Error('STOPPING transition rejected');
+        (controller as unknown as { transition: (t: string) => Promise<void> }).transition =
+            vi.fn(async (target: string) => { if (target === 'STOPPING') throw rejection; });
+
+        const outcome = await controller.stopRecording().catch((e: unknown) => e);
+
+        expect(outcome).toBe(rejection);                                       // rejection propagated, not swallowed
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false); // latch cleared → control usable
+        expect(useSessionStore.getState().frozenTranscriptAtStop).toBeNull();  // frozen snapshot dropped
+        expect(svc.stopTranscription).not.toHaveBeenCalled();                  // never reached finalize/save
+    });
 });

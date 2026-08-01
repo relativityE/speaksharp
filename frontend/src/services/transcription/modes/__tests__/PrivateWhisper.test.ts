@@ -1261,4 +1261,40 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         // RTF must be based on the decoded ruler (24346 / (93.88*1000) ≈ 0.259), not the inflated raw.
         expect(s.finalizeDecodeMs! / (s.decodedUtteranceSeconds * 1000)).toBeCloseTo(0.259, 2);
     });
+
+    // #1089 hard capture backstop: at MAX_UTTERANCE_SAMPLES the engine must signal ONCE (so the app can
+    // perform a controlled stop) and then STOP appending, preserving the opening it already captured —
+    // never silently discarding audio while the UI still shows "Recording".
+    describe('#1089 capture backstop — one-shot signal + boundary preservation', () => {
+        it('fires onCaptureLimitReached exactly once at the cap and stops appending (beginning preserved)', async () => {
+            const onCaptureLimitReached = vi.fn();
+            const capped = new PrivateWhisper({
+                onTranscriptUpdate: vi.fn(), onModelLoadProgress: vi.fn(), onReady: vi.fn(),
+                onStatusChange: vi.fn(), onCaptureLimitReached,
+            });
+            await capped.init();
+            const engine = capped as unknown as {
+                utteranceSampleCount: number;
+                utteranceAudioChunks: Float32Array[];
+                appendFrameToUtteranceAudio: (frame: Float32Array, energy: { rms: number; peak: number }) => void;
+            };
+            const FRAME = 1024;
+            const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.02, peak: 0.4 };
+            // Capture an opening, then simulate reaching the hard cap.
+            for (let i = 0; i < 5; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
+            const chunksAtCap = engine.utteranceAudioChunks.length;
+            engine.utteranceSampleCount = PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES;
+
+            // Three more frames past the cap: signal once, append never again.
+            for (let i = 0; i < 3; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
+
+            expect(onCaptureLimitReached).toHaveBeenCalledTimes(1); // one-shot latch
+            expect(onCaptureLimitReached).toHaveBeenCalledWith({
+                bufferedSeconds: expect.any(Number),
+                limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
+            });
+            expect(engine.utteranceSampleCount).toBe(PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES); // stopped appending
+            expect(engine.utteranceAudioChunks.length).toBe(chunksAtCap); // opening preserved, nothing added
+        });
+    });
 });
