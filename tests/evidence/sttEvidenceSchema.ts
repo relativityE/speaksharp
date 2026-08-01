@@ -15,6 +15,9 @@
 /** Evidence class. Corpus and browser-journey rows must never share a WER ranking. */
 export type ComparabilityClass = 'corpus_fixture' | 'browser_journey';
 
+/** Closed set of how a browser_journey may be driven — enforced at RUNTIME (types are erased). */
+export const BROWSER_EXECUTION_MODES = new Set(['automated', 'manual-assisted']);
+
 export type RunValidity = 'valid' | 'invalid';
 
 /** Closed set — an unrecognized failure is `unknown`, never invented. */
@@ -218,6 +221,8 @@ export function finalizeRow(
             if (!journey.sessionProduced) problems.push('Browser journey produced no session');
             if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
             if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+            if (journey.browserManagedTranscription !== true) problems.push('browser_journey must affirm browserManagedTranscription === true');
+            if (!BROWSER_EXECUTION_MODES.has(journey.executionMode)) problems.push(`browser_journey executionMode must be one of ${[...BROWSER_EXECUTION_MODES].join('/')}, got '${journey.executionMode}'`);
         }
         // Honesty guards: browser_journey is the canonical Browser engine, exactly 'unverified', never
         // rankable — a class label alone must not admit another engine's row.

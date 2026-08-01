@@ -211,6 +211,18 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.invalid_reason).toMatch(reason);
     });
 
+    it('a Browser journey that does not affirm browserManagedTranscription is rejected', () => {
+        const r = finalizeRow(browserBase({ browserManagedTranscription: false as unknown as true }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/browserManagedTranscription === true/i);
+    });
+
+    it('a Browser journey with an executionMode outside the closed set is rejected', () => {
+        const r = finalizeRow(browserBase({ executionMode: 'totally-made-up' as unknown as 'automated' }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/executionMode must be one of/i);
+    });
+
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {
         const r = finalizeRow(base({
             runtime_capability: { ...base().runtime_capability, configuredThreads: 4, workerReportedThreads: null },

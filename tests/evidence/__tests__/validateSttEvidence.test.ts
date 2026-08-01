@@ -59,6 +59,8 @@ describe('#1037 validate-stt-evidence — browser_journey runtime boundary', () 
         ['non-canonical engine', { engine: 'cloud' }],
         ['a WER present', { wer: 0.05 }],
         ['a Cloud call', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 1 } }],
+        ['browserManagedTranscription false', { browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: false, applicationServerWrites: 0, cloudProviderCalls: 0 } }],
+        ['a non-closed executionMode', { browser_journey_evidence: { supportState: 'supported', executionMode: 'totally-made-up', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0 } }],
     ] as const)('rejects a crafted browser row with %s', (_label, over) => {
         expect(validate([browserRow(over)]).status).toBe(1);
     });

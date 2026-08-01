@@ -21,6 +21,11 @@ import { createMockSession } from '../frontend/src/mocks/test-user-utils';
 const execFileAsync = promisify(execFile);
 const SPOKEN_TEXT = 'SpeakSharp browser practice starts quickly. Clear ideas, steady pacing, and concise delivery help every audience follow the message.';
 const MODEL_REVISION = 'browser-managed-unreported-v1';
+// The Cloud + Private engine registry keys (see providers/sttProviderConfig.ts). A Browser/Web-Speech
+// journey must construct ONLY the real native-browser engine; if the app ever resolves any of these, the
+// tripwire below records it and throws, so a silent mid-journey engine switch cannot pass the zero-Cloud
+// claim vacuously through a permissive stub.
+const FORBIDDEN_ENGINE_KEYS = ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] as const;
 
 function arg(name: string, fallback?: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -91,6 +96,47 @@ async function main(): Promise<void> {
       debug: true, realEngineRegistryKeys: ['native-browser'],
       storage: { 'speaksharp-runtime-evidence-auth': JSON.stringify(syntheticSession) },
     });
+    // Forbidden-engine TRIPWIRES. setupE2EManifest registers a permissive minimal stub for every
+    // non-real engine key, so an accidental switch to Cloud/Private would `start()` silently and the
+    // zero-Cloud network assertion would hold vacuously. Replace those keys' factories with tripwires that
+    // record any construction and THROW on init/start/transcribe. Runs AFTER setupE2EManifest's init script
+    // (later-registered addInitScripts execute later), so `__SS_E2E__.registry` already exists; STTRegistry
+    // resolves `window.__SS_E2E__.registry[key]` live on every getEngine, so these overrides are authoritative.
+    await page.addInitScript((forbiddenKeys: string[]) => {
+      const win = window as unknown as {
+        __SS_E2E__?: { registry?: Record<string, unknown> };
+        __SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__?: Array<{ key: string; phase: string; at: number }>;
+        setInterval: (h: () => void, t: number) => number;
+        clearInterval: (id: number) => void;
+      };
+      win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ = win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ || [];
+      const record = (key: string, phase: string) =>
+        win.__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__!.push({ key, phase, at: Date.now() });
+      const install = (): boolean => {
+        const registry = win.__SS_E2E__?.registry;
+        if (!registry) return false;
+        for (const key of forbiddenKeys) {
+          registry[key] = () => {
+            record(key, 'construct');
+            const boom = (phase: string) => async () => {
+              record(key, phase);
+              throw new Error(`[1037-tripwire] forbidden engine '${key}' ${phase}() invoked during a Browser/Web-Speech journey`);
+            };
+            return {
+              instanceId: `tripwire-${key}`,
+              checkAvailability: async () => { record(key, 'checkAvailability'); return { isAvailable: false }; },
+              init: boom('init'), start: boom('start'), transcribe: boom('transcribe'), getTranscript: boom('getTranscript'),
+              stop: async () => {}, pause: async () => {}, resume: async () => {}, destroy: async () => {}, terminate: async () => {},
+              getEngineType: () => key, getLastHeartbeatTimestamp: () => Date.now(),
+            };
+          };
+        }
+        return true;
+      };
+      if (!install()) {
+        const iv = win.setInterval(() => { if (install()) win.clearInterval(iv); }, 10);
+      }
+    }, [...FORBIDDEN_ENGINE_KEYS]);
     console.log('[browser-webspeech] phase=auth-seeded');
     await page.goto(`${baseUrl}/session?nativeDiag=1`, { waitUntil: 'domcontentloaded' });
     try {
@@ -227,6 +273,16 @@ async function main(): Promise<void> {
     if (!/^[0-9a-f]{40}$/i.test(appRelease)) throw new Error(`loaded build did not report a 40-char __APP_RELEASE__ (got '${appRelease}')`);
     if (releaseSha && releaseSha !== appRelease) throw new Error(`--release-sha ${releaseSha} != loaded build __APP_RELEASE__ ${appRelease}`);
 
+    // Fail closed if ANY forbidden (Cloud/Private) engine was constructed or started during the journey —
+    // defense in depth beyond the network assertion, and the artifact records the (empty) result as proof
+    // the guard ran.
+    const forbiddenEngineTripwire = await page.evaluate(() =>
+      (window as unknown as { __SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__?: Array<{ key: string; phase: string; at: number }> })
+        .__SS_E2E_FORBIDDEN_ENGINE_TRIPWIRE__ ?? []);
+    if (forbiddenEngineTripwire.length > 0) {
+      throw new Error(`forbidden engine constructed/started during the Browser journey: ${JSON.stringify(forbiddenEngineTripwire)}`);
+    }
+
     const row = finalizeRow({
       comparability_class: 'browser_journey',
       engine: 'browser-webspeech',
@@ -278,6 +334,11 @@ async function main(): Promise<void> {
       routeLimitation: 'Web Speech does not expose its recognizer audio payload, so this row claims NO audio route (audio_route_proven=false, attribution unverified, wer=null). Admissibility is journey-based: recognition actually started, timer advanced, transcript + session produced, zero app-server/Cloud writes.',
       passiveMicCaptureSha256: snapshot.captureHash || null,
       passiveMicCaptureNote: 'Diagnostic ONLY: SHA-256 of a passive same-microphone capture via the NativeBrowser observer. This is NOT the audio Web Speech received and is never used as route proof.',
+      forbiddenEngineGuard: {
+        keys: [...FORBIDDEN_ENGINE_KEYS],
+        invocations: forbiddenEngineTripwire,
+        note: 'Tripwires replaced every Cloud/Private engine factory; any construct/init/start was recorded and thrown. An empty invocations list proves only the real native-browser engine was used.',
+      },
       spokenText: SPOKEN_TEXT,
       transcript: snapshot.transcript,
       timerText,

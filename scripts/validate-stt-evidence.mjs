@@ -25,6 +25,8 @@ const REQUIRED_FIELDS = [
 ];
 
 const COMPARABILITY_CLASSES = new Set(['corpus_fixture', 'browser_journey']);
+/** How a browser_journey was driven — a closed set; anything else is inadmissible. */
+const BROWSER_EXECUTION_MODES = new Set(['automated', 'manual-assisted']);
 const RUN_VALIDITY = new Set(['valid', 'invalid']);
 const FAILURE_CLASSES = new Set(['none', 'model_load_failed', 'decode_failed', 'audio_route_unproven', 'timeout', 'provider_error', 'unknown']);
 /** Revisions that move over time make a "comparable" cohort silently incomparable. */
@@ -114,6 +116,8 @@ function checkRow(row, index) {
             if (journey.sessionProduced !== true) problems.push('Browser journey produced no session');
             if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
             if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+            if (journey.browserManagedTranscription !== true) problems.push('browser_journey must affirm browserManagedTranscription === true');
+            if (!BROWSER_EXECUTION_MODES.has(journey.executionMode)) problems.push(`browser_journey executionMode must be one of ${[...BROWSER_EXECUTION_MODES].join('/')}, got '${journey.executionMode}'`);
         }
         return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
     }
