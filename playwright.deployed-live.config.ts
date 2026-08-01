@@ -36,9 +36,9 @@ export default defineConfig({
   use: {
     ...baseConfig.use,
     baseURL: process.env.BASE_URL || 'https://speaksharp-public.vercel.app',
-    trace: 'on',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    trace: 'off',
+    screenshot: 'off',
+    video: 'off',
     // #964: the Vercel Protection Bypass is NOT a global header (that leaked x-vercel-* onto cross-origin
     // Supabase requests and broke check-usage-limit CORS). It is injected HOST-SCOPED to the tested
     // base_url only, via the shared fixture in tests/live/helpers/deployedLiveTest.ts.

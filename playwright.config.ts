@@ -61,8 +61,8 @@ export default defineConfig({
     // ✅ Allow service workers for MSW
     serviceWorkers: 'allow',
 
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: 'off',
+    screenshot: 'off',
     video: 'off',
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',

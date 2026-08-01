@@ -384,13 +384,13 @@ jobs:
         with:
           name: ux-review-screenshots-shard-${{ matrix.shard }}
           path: |
-            test-results/post-save-consolidation
-            test-results/mode-selector
-            test-results/mode-selector-stays-local
-            test-results/practice-entry
-            test-results/freestyle-help
-            test-results/practice-continuity
-            test-results/product-discovery
+            test-results/post-save-consolidation/**/*.png
+            test-results/mode-selector/**/*.png
+            test-results/mode-selector-stays-local/**/*.png
+            test-results/practice-entry/**/*.png
+            test-results/freestyle-help/**/*.png
+            test-results/practice-continuity/**/*.png
+            test-results/product-discovery/**/*.png
           retention-days: 1
           if-no-files-found: ignore
 
@@ -570,7 +570,7 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Assert Required Evidence Is Present

@@ -94,6 +94,7 @@ jobs:
         with:
           name: assemblyai-streaming-ab-proof
           path: /tmp/assemblyai-streaming-ab-proof.json
+          retention-days: 1
           if-no-files-found: warn
 
       - name: Open PR with updated benchmarks

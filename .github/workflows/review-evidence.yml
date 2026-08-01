@@ -72,6 +72,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots
-          path: evidence/
+          path: evidence/*.png
           retention-days: 1
           if-no-files-found: error

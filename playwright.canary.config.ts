@@ -33,8 +33,9 @@ export default defineConfig({
     use: {
         ...baseConfig.use,
         baseURL: process.env.BASE_URL || 'http://localhost:5173',  // Dev server port or production URL
-        video: 'retain-on-failure',
-        trace: 'retain-on-failure',
+        video: 'off',
+        trace: 'off',
+        screenshot: 'off',
     },
     // No webServer - workflow starts server via start-server-and-test (like soak)
     projects: [{

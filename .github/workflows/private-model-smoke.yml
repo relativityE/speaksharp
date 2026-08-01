@@ -64,4 +64,5 @@ jobs:
         with:
           name: private-v4-model-smoke
           path: private-model-smoke.json
+          retention-days: 1
           if-no-files-found: warn

@@ -351,6 +351,7 @@ jobs:
             blob-report/live/
             playwright-report/
             test-results/live/
+          retention-days: 1
 
   live-private-sample-telemetry:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-sample-telemetry' }}

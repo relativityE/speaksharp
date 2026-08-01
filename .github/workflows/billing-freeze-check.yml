@@ -43,4 +43,5 @@ jobs:
         with:
           name: billing-freeze-report
           path: billing-freeze-report.json
+          retention-days: 1
           if-no-files-found: warn

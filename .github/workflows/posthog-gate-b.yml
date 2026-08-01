@@ -100,4 +100,5 @@ jobs:
           path: |
             gate-b-evidence.txt
             gate-b-evidence.json
+          retention-days: 1
           if-no-files-found: warn

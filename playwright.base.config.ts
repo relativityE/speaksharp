@@ -93,8 +93,11 @@ export const baseConfig: Partial<PlaywrightTestConfig> = {
         viewport: { width: 1280, height: 720 },
         deviceScaleFactor: 1,
         ignoreHTTPSErrors: true,
-        screenshot: 'only-on-failure',
-        trace: 'retain-on-failure',
+        // Review automation must not retain browser session media. Specs that
+        // intentionally produce approved review PNGs write them to explicit
+        // paths which are uploaded by the one-day screenshot lanes only.
+        screenshot: 'off',
+        trace: 'off',
         video: 'off',
     },
 };
