@@ -6,6 +6,7 @@ import {
   hasReadableTranscript,
   resolveTranscriptState,
   presentTranscript,
+  transcriptDerivedMetricShowable,
 } from '../transcriptState';
 
 describe('#1047 PR-U1 transcript state contract', () => {
@@ -73,6 +74,28 @@ describe('#1047 PR-U1 transcript state contract', () => {
     it('a legacy row (no server state) with text renders; without text is not_captured', () => {
       expect(presentTranscript(undefined, 'legacy text').canRenderTranscript).toBe(true);
       expect(presentTranscript(undefined, '').unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
+  });
+
+  describe('transcriptDerivedMetricShowable (evidence provenance, not numeric presence)', () => {
+    it('available → always showable (readable text backs the metric)', () => {
+      expect(transcriptDerivedMetricShowable('available', false)).toBe(true);
+      expect(transcriptDerivedMetricShowable('available', true)).toBe(true);
+    });
+
+    it('not_captured → NEVER showable, even with a persisted number (0/{} are schema sentinels)', () => {
+      expect(transcriptDerivedMetricShowable('not_captured', true)).toBe(false);
+      expect(transcriptDerivedMetricShowable('not_captured', false)).toBe(false);
+    });
+
+    it('expired → showable only when a genuinely persisted measurement survives', () => {
+      expect(transcriptDerivedMetricShowable('expired', true)).toBe(true);
+      expect(transcriptDerivedMetricShowable('expired', false)).toBe(false);
+    });
+
+    it('legacy/undefined state → only a genuinely persisted value, never a transcript-less recount', () => {
+      expect(transcriptDerivedMetricShowable(undefined, true)).toBe(true);
+      expect(transcriptDerivedMetricShowable(undefined, false)).toBe(false);
     });
   });
 });

@@ -3,6 +3,7 @@ import { AnalyticsDashboard } from '../AnalyticsDashboard';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import React from 'react';
 import type { UserProfile } from '@/types/user';
+import { TEST_IDS } from '@/constants/testIds';
 
 // Mock dependencies
 vi.mock('../../lib/pdfGenerator', () => ({
@@ -632,5 +633,32 @@ describe('AnalyticsDashboard', () => {
             expect(el.textContent).toContain('No transcript was captured.');
             expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeDisabled();
         });
+
+        it('not_captured with sentinel metrics → detail tiles show Not enough data, never a measured zero', () => {
+            renderComponent({
+                sessionId: 'sx',
+                sessionHistory: [{
+                    id: 'sx', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
+                    duration: 600, total_words: 0, filler_words: {}, transcript: '', transcript_state: 'not_captured',
+                }],
+            });
+            // The Speaking Pace tile reads "Not enough data", not a sentinel zero.
+            expect(screen.getAllByText(/Not enough data/i).length).toBeGreaterThan(0);
+            const paceCard = screen.getByTestId(TEST_IDS.STAT_CARD_SPEAKING_PACE);
+            expect(paceCard.textContent).toContain('Not enough data');
+            expect(paceCard.textContent).not.toMatch(/\b0\s*WPM\b/);
+        });
+    });
+
+    it('#1047 not_captured history item shows N/A for transcript-derived metrics (no sentinel zeros)', () => {
+        renderComponent({
+            sessionHistory: [{
+                id: 'nc-1', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
+                duration: 600, total_words: 0, filler_words: {}, transcript: '', transcript_state: 'not_captured',
+            }],
+        });
+        const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-nc-1`);
+        expect(row.textContent).toContain('N/A');
+        expect(row.textContent).not.toMatch(/\b0\s*WPM\b/);
     });
 });

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
-import { presentTranscript } from '@/constants/transcriptState';
+import { presentTranscript, transcriptDerivedMetricShowable } from '@/constants/transcriptState';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
@@ -25,7 +25,7 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
+import { getSessionAnalysisMetrics, calculateRatePerMinute, isUsableFillerCounts } from '@/utils/sessionAnalysis';
 import { getSessionPauseCount } from '@/lib/analyticsUtils';
 import {
     decodePace,
@@ -435,15 +435,18 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
-    const totalFillers = metrics.fillerCount;
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
     const engineBadge = getEngineBadge(session);
     const EngineIcon = engineBadge.icon;
 
-    const wpm = metrics.wpm;
-    const clarity = metrics.clarityScore;
+    // #1047 PR-U1: transcript-derived metrics show only when transcript-state provenance allows it — a
+    // not_captured row's sentinel 0/{} is never rendered as a measurement (shown as N/A).
+    const transcriptStateItem = presentTranscript(session.transcript_state, session.transcript).state;
+    const wpm = transcriptDerivedMetricShowable(transcriptStateItem, typeof session.wpm === 'number') ? metrics.wpm : 'N/A';
+    const clarity = transcriptDerivedMetricShowable(transcriptStateItem, typeof session.clarity_score === 'number') ? metrics.clarityScore : 'N/A';
+    const totalFillers = transcriptDerivedMetricShowable(transcriptStateItem, isUsableFillerCounts(session.filler_words)) ? metrics.fillerCount : 'N/A';
 
     return (
         <div
@@ -491,17 +494,17 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
 
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}<span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span></p>
+                    <p className="font-bold text-foreground text-lg">{wpm}{typeof wpm === 'number' && <span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span>}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
                 </div>
                 <div className="text-center">
-                    <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
+                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
                 </div>
                 <div className="text-center">
-                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
+                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
 
@@ -831,10 +834,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     {/* Session Metrics Summary */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {/* #1047 PR-U1: transcript-derived tiles show only when transcript-state provenance
+                            allows it; a not_captured session's sentinel 0/{} renders as Not enough data, an
+                            expired session still shows its genuinely persisted measurements. */}
                         <StatCard
                             icon={<Gauge />}
                             label="Speaking Pace"
-                            value={targetSessionMetrics.wpm}
+                            value={transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.wpm === 'number') ? targetSessionMetrics.wpm : NOT_ENOUGH_DATA}
                             unit="WPM"
                             description={targetSessionMetrics.wpmExplanation}
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
@@ -844,15 +850,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <StatCard
                             icon={<Target />}
                             label="Clear Delivery"
-                            value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
-                            unit={targetSessionMetrics.isClarityScorable ? '%' : undefined}
+                            value={(targetSessionMetrics.isClarityScorable && transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.clarity_score === 'number')) ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
+                            unit={(targetSessionMetrics.isClarityScorable && transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.clarity_score === 'number')) ? '%' : undefined}
                             description={targetSessionMetrics.clarityExplanation}
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
                             label="Detected filler words"
-                            value={targetSessionMetrics.fillerCount}
+                            value={transcriptDerivedMetricShowable(targetTranscript?.state, isUsableFillerCounts(targetSession.filler_words)) ? targetSessionMetrics.fillerCount : NOT_ENOUGH_DATA}
                             description={targetSessionMetrics.fillerExplanation}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />

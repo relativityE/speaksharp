@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
-import { presentTranscript } from '../constants/transcriptState';
+import { presentTranscript, transcriptDerivedMetricShowable } from '../constants/transcriptState';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
@@ -142,17 +142,20 @@ export const generateSessionPdf = async (
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
     const metrics = getSessionAnalysisMetrics(session);
-    // #1047 PR-U1: a transcript-DERIVED metric may be shown only when the transcript is readable OR a
-    // persisted measurement backs it. Otherwise it is honestly N/A — never a recounted-from-absent-text
-    // zero. Persisted measurements (wpm/clarity/fillers/words/pauses) remain visible for an expired row.
-    const transcriptReadable = presentTranscript(session.transcript_state, session.transcript).canRenderTranscript;
-    const derivedOr = (persistedPresent: boolean, render: () => string): string =>
-      (transcriptReadable || persistedPresent) ? render() : 'N/A';
-    const wordsCell = derivedOr(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
-    const wpmCell = derivedOr(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
-    const clarityCell = derivedOr(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
-    const fillerCell = derivedOr(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
-    const scoreResult = calculateSpeakingScore({
+    // #1047 PR-U1: show a transcript-DERIVED metric only when transcript-state PROVENANCE allows it — never
+    // from numeric presence (a not_captured row's `total_words: 0` / empty filler map are schema-default
+    // SENTINELS, not measurements). An expired row still shows its genuinely persisted measurements.
+    const transcriptState = presentTranscript(session.transcript_state, session.transcript).state;
+    const transcriptReadable = transcriptState === 'available';
+    const derivedCell = (persistedIsRealNumber: boolean, render: () => string): string =>
+      transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
+    const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
+    const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
+    const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
+    const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
+    // Never recompute a transcript-dependent score/coaching from absent text; only a readable transcript
+    // yields a new score/coaching conclusion.
+    const scoreResult = transcriptReadable ? calculateSpeakingScore({
       transcript: session.transcript || '',
       wordCount: metrics.wordCount,
       wpm: metrics.wpm,
@@ -166,7 +169,7 @@ export const generateSessionPdf = async (
         longestPause: 0,
       },
       engine: session.engine,
-    });
+    }) : null;
     const customWords = getCustomWordList(session.custom_words);
     const customWordsDetected = customWords.reduce((sum, word) => {
       const savedCount = session.custom_words?.[word];
@@ -217,8 +220,8 @@ export const generateSessionPdf = async (
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
       ['Longest Pause', formatOptionalNumber(session.pause_metrics?.longestPause, value => `${value.toFixed(1)}s`)],
-      ['SpeakSharp Score', scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
-      ['Coaching Suggestion', scoreResult.actions.slice(0, 2).join('; ')],
+      ['SpeakSharp Score', !scoreResult ? 'N/A' : scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
+      ['Coaching Suggestion', scoreResult ? scoreResult.actions.slice(0, 2).join('; ') : 'N/A'],
     ];
 
     autoTable(doc, {

@@ -31,6 +31,24 @@ export function hasReadableTranscript(state: string | null | undefined): boolean
   return state === TRANSCRIPT_STATE.AVAILABLE;
 }
 
+/**
+ * Whether a TRANSCRIPT-DERIVED metric may be shown as evidence, decided from transcript-state PROVENANCE —
+ * never from numeric presence. For `not_captured`, persisted numerics (`total_words: 0`, empty filler maps)
+ * are schema/RPC default SENTINELS, not measurements, so they are never evidence. For `expired`, genuinely
+ * persisted measurements survive text removal and may be shown. For `available`, the readable transcript
+ * backs the metric. Anything else → show only a genuinely persisted value.
+ */
+export function transcriptDerivedMetricShowable(
+  state: string | null | undefined,
+  persistedIsRealNumber: boolean,
+): boolean {
+  if (state === TRANSCRIPT_STATE.AVAILABLE) return true;
+  if (state === TRANSCRIPT_STATE.NOT_CAPTURED) return false;
+  if (state === TRANSCRIPT_STATE.EXPIRED) return persistedIsRealNumber;
+  // Legacy/undefined state: fall back to genuinely persisted evidence only (no transcript-less recount).
+  return persistedIsRealNumber;
+}
+
 /** Canonical, single-source presentation for a session's transcript across History/detail/PDF. */
 export interface TranscriptPresentation {
   state: TranscriptState;
