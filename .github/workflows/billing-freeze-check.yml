@@ -37,8 +37,13 @@ jobs:
           BILLING_FREEZE_REPORT_PATH: billing-freeze-report.json
         run: node scripts/billing-freeze-check.mjs
 
+      - name: Scan sanitized billing-freeze report
+        id: review_evidence_scan
+        if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'billing-freeze-check.yml::billing-freeze-report'
+
       - name: Upload sanitized billing-freeze report
-        if: always() # upload on PASS or FAIL so a violation is still auditable
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }} # upload on PASS or FAIL only when sanitized
         uses: actions/upload-artifact@v4
         with:
           name: billing-freeze-report

@@ -58,8 +58,13 @@ jobs:
           OVERLAP_THRESHOLD: ${{ github.event.inputs.overlap_threshold || '0.6' }}
         run: node scripts/private-model-smoke.mjs
 
-      - name: Upload smoke artifact
+      - name: Scan smoke artifact
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'private-model-smoke.yml::private-v4-model-smoke'
+
+      - name: Upload smoke artifact
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: private-v4-model-smoke

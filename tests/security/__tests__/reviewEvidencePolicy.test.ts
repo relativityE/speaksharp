@@ -60,6 +60,9 @@ describe('#1132 ephemeral review-evidence policy', () => {
             'test-results/stress/backend-stress.latest.json',
             'test-results/endurance/browser-endurance.latest.json',
         ]);
+        expect(stress?.broadUpload).toBe(false);
+        expect(readFileSync(join(repoRoot, '.github/workflows/stress-endurance.yml'), 'utf8'))
+            .not.toContain('test-results/soak/');
 
         const proStt = inventory.find(({ key }) => key === 'pro-stt-artifact-matrix.yml::pro-stt-artifact-matrix-artifacts');
         expect(proStt?.paths).toEqual(['test-results/live/pro-stt-artifact-matrix-evidence.jsonl']);
@@ -96,6 +99,12 @@ describe('#1132 ephemeral review-evidence policy', () => {
             .toBeLessThan(ciWorkflow.indexOf('name: Scan shard review evidence'));
         expect(ciWorkflow.indexOf('name: Sanitize Lighthouse evidence'))
             .toBeLessThan(ciWorkflow.indexOf('name: Scan Lighthouse review evidence'));
+        const requiredUpstreams = ciWorkflow.slice(
+            ciWorkflow.indexOf('      - name: Require Upstream Success'),
+            ciWorkflow.indexOf('      - name: Checkout Code', ciWorkflow.indexOf('      - name: Require Upstream Success')),
+        );
+        expect(requiredUpstreams).toContain('lighthouse=$LIGHTHOUSE');
+        expect(requiredUpstreams).not.toMatch(/for r in .*\$LIGHTHOUSE/);
     });
 
     it('requires the current unit coverage output and rejects an empty green artifact', () => {
@@ -237,6 +246,19 @@ describe('#1132 ephemeral review-evidence policy', () => {
         );
         rmSync(extensionlessBinary);
 
+        const archiveSource = join(fixture, 'archive-source');
+        const archiveRoot = join(fixture, 'blob-report');
+        mkdirSync(archiveSource);
+        mkdirSync(archiveRoot);
+        writeFileSync(
+            join(archiveSource, 'proof.txt'),
+            Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        );
+        execFileSync('zip', ['-q', join(archiveRoot, 'report-proof.zip'), 'proof.txt'], { cwd: archiveSource });
+        expect(scanArtifactUpload('v4-auto-fallback-proof.yml::v4-auto-fallback-proof', fixture)).toContainEqual(
+            expect.stringContaining('binary content in text archive entry; upload denied'),
+        );
+
         const runnerTemp = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-runner-temp-'));
         temporaryRepos.push(runnerTemp);
         writeFileSync(join(runnerTemp, 'v4-vite.log'), JSON.stringify({ transcript: 'private practice words' }));
@@ -252,7 +274,7 @@ describe('#1132 ephemeral review-evidence policy', () => {
         }
     });
 
-    it('rejects a broad browser-output uploader without both scanner and success guard', () => {
+    it('requires every review artifact upload to have both scanner and success guard', () => {
         const missingScanner = policyFixtureRepo();
         replaceInFixture(
             missingScanner,
@@ -283,7 +305,7 @@ describe('#1132 ephemeral review-evidence policy', () => {
             "      - name: Upload neutral output\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: output\n          path: out/\n          retention-days: 1\n\n      - name: Upload review evidence\n",
         );
         expect(reviewEvidencePolicyViolations(neutralUploader)).toContainEqual(
-            expect.stringContaining('review-evidence.yml::output: broad browser-output upload requires'),
+            expect.stringContaining('review-evidence.yml::output: review artifact upload requires'),
         );
 
         const absoluteDirectory = policyFixtureRepo();
@@ -294,7 +316,7 @@ describe('#1132 ephemeral review-evidence policy', () => {
             "      - name: Upload neutral absolute output\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: absolute-output\n          path: /tmp/neutral-review-output\n          retention-days: 30\n\n      - name: Upload review evidence\n",
         );
         expect(reviewEvidencePolicyViolations(absoluteDirectory)).toContainEqual(
-            expect.stringContaining('review-evidence.yml::absolute-output: broad browser-output upload requires'),
+            expect.stringContaining('review-evidence.yml::absolute-output: review artifact upload requires'),
         );
 
         const absoluteFile = policyFixtureRepo();
@@ -304,8 +326,37 @@ describe('#1132 ephemeral review-evidence policy', () => {
             '      - name: Upload review evidence\n',
             "      - name: Upload exact absolute result\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: absolute-result\n          path: /tmp/result.json\n          retention-days: 1\n\n      - name: Upload review evidence\n",
         );
-        expect(reviewEvidencePolicyViolations(absoluteFile)).not.toContainEqual(
-            expect.stringContaining('review-evidence.yml::absolute-result: broad browser-output upload requires'),
+        expect(reviewEvidencePolicyViolations(absoluteFile)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::absolute-result: review artifact upload requires'),
+        );
+
+        const exactText = policyFixtureRepo();
+        writeFileSync(join(exactText, 'proof.txt'), 'sanitized proof\n');
+        replaceInFixture(
+            exactText,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact text\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: exact-text\n          path: proof.txt\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(exactText)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::exact-text: review artifact upload requires'),
+        );
+    });
+
+    it('allows optional members of multi-root uploads but never an empty resolved set', () => {
+        const partial = policyFixtureRepo();
+        const blobResult = join(partial, 'blob-report', 'live', 'result.json');
+        const testResult = join(partial, 'test-results', 'live', 'result.json');
+        mkdirSync(dirname(blobResult), { recursive: true });
+        mkdirSync(dirname(testResult), { recursive: true });
+        writeFileSync(blobResult, JSON.stringify({ passed: true }));
+        writeFileSync(testResult, JSON.stringify({ passed: true }));
+
+        expect(scanArtifactUpload('live-release-matrix.yml::live-custom-words-artifacts', partial)).toEqual([]);
+
+        const empty = policyFixtureRepo();
+        expect(scanArtifactUpload('live-release-matrix.yml::live-custom-words-artifacts', empty)).toContainEqual(
+            expect.stringContaining('no upload path could be resolved; upload denied'),
         );
     });
 

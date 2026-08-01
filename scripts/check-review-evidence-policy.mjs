@@ -74,7 +74,7 @@ export const APPROVED_TEST_BINARY_FIXTURES = new Set([
   'tests/fixtures/test_speech_16k.wav',
 ]);
 
-const BROAD_UPLOAD_SCANNER_EXEMPTIONS = new Set([
+const CONTENT_SCANNER_EXEMPTIONS = new Set([
   ...APPROVED_SCREENSHOT_UPLOADS,
   ...NON_REVIEW_DIRECTORY_UPLOADS,
 ]);
@@ -328,10 +328,18 @@ function inspectZip(file, displayPath) {
       continue;
     }
     try {
-      const contents = execFileSync('unzip', ['-p', file, entry], {
-        encoding: 'utf8',
+      const rawContents = execFileSync('unzip', ['-p', file, entry], {
         maxBuffer: 10 * 1024 * 1024,
       });
+      if (rawContents.length > MAX_INSPECTABLE_TEXT_BYTES) {
+        violations.push(`${displayPath}!${entry}: archive entry is too large to inspect; upload denied`);
+        continue;
+      }
+      if (hasNonTextContent(rawContents)) {
+        violations.push(`${displayPath}!${entry}: binary content in text archive entry; upload denied`);
+        continue;
+      }
+      const contents = new TextDecoder('utf-8', { fatal: true }).decode(rawContents);
       violations.push(...inspectSensitiveText(contents, `${displayPath}!${entry}`));
     } catch {
       violations.push(`${displayPath}!${entry}: text entry could not be inspected; upload denied`);
@@ -410,7 +418,7 @@ function uploadPathRoot(repoRoot, path) {
   if (existsSync(absolute)) return { root: absolute };
   const parent = dirname(absolute);
   if (wildcard >= 0 && existsSync(parent)) return { root: parent };
-  return { error: `${path}: configured upload path does not exist; upload denied` };
+  return { missing: `${path}: configured upload path does not exist; upload denied` };
 }
 
 export function scanArtifactUpload(key, repoRoot = REPO_ROOT) {
@@ -424,7 +432,15 @@ export function scanArtifactUpload(key, repoRoot = REPO_ROOT) {
   const resolutions = artifact.paths.map((path) => uploadPathRoot(repoRoot, path));
   const violations = resolutions.flatMap((resolution) => resolution.error ? [resolution.error] : []);
   const roots = resolutions.flatMap((resolution) => resolution.root ? [resolution.root] : []);
-  if (roots.length === 0) violations.push(`${key}: no upload path could be resolved; upload denied`);
+  const missing = resolutions.flatMap((resolution) => resolution.missing ? [resolution.missing] : []);
+  if (roots.length === 0) {
+    violations.push(...missing, `${key}: no upload path could be resolved; upload denied`);
+  } else if (artifact.paths.length === 1 || artifact.ifNoFilesFound === 'error') {
+    // A single configured artifact is always required. Multi-root uploads may
+    // omit optional members unless the workflow explicitly opts into GitHub's
+    // fail-if-missing contract. At least one fully scanned root is mandatory.
+    violations.push(...missing);
+  }
   return [...violations, ...scanArtifactRoots(repoRoot, roots)];
 }
 
@@ -469,9 +485,12 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
       }
     }
 
-    if (artifact.broadUpload && !BROAD_UPLOAD_SCANNER_EXEMPTIONS.has(artifact.key)) {
+    // Exact text extensions are not trustworthy content declarations. Every
+    // review/evidence artifact—broad or exact—must pass the same content scan,
+    // except the two explicitly governed binary lanes below.
+    if (!CONTENT_SCANNER_EXEMPTIONS.has(artifact.key)) {
       if (!artifact.hasPreUploadScanner) {
-        violations.push(`${artifact.key}: broad browser-output upload requires a fail-closed pre-upload scanner`);
+        violations.push(`${artifact.key}: review artifact upload requires a fail-closed pre-upload scanner`);
       }
       const scannerGuard = artifact.scannerId
         ? new RegExp(`steps\\.${escapeRegex(artifact.scannerId)}\\.outcome\\s*==\\s*'success'`)

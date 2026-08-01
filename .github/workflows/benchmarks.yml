@@ -88,8 +88,13 @@ jobs:
           ASSEMBLYAI_STREAMING_AB_FIXTURES: ${{ inputs.streaming_ab_fixtures }}
         run: pnpm benchmark:cloud:streaming-ab
 
-      - name: Upload AssemblyAI streaming A/B proof
+      - name: Scan AssemblyAI streaming A/B proof
+        id: review_evidence_scan_assemblyai
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'benchmarks.yml::assemblyai-streaming-ab-proof'
+
+      - name: Upload AssemblyAI streaming A/B proof
+        if: ${{ always() && steps.review_evidence_scan_assemblyai.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: assemblyai-streaming-ab-proof
@@ -199,8 +204,13 @@ jobs:
         run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
 
-      - name: Upload Private exact app-buffer capture proof
+      - name: Scan Private exact app-buffer capture proof
+        id: review_evidence_scan_exact_buffer
         if: always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'benchmarks.yml::private-exact-app-buffer-proof'
+
+      - name: Upload Private exact app-buffer capture proof
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true && steps.review_evidence_scan_exact_buffer.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: private-exact-app-buffer-proof

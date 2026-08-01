@@ -45,8 +45,12 @@ jobs:
             --out stt-evidence-artifacts/corpus.json \
             --runs 3 \
             --release-sha "${{ github.event.pull_request.head.sha || github.sha }}"
-      - name: Upload corpus evidence artifact
+      - name: Scan corpus evidence artifact
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'stt-corpus-lane.yml::stt-corpus-evidence'
+      - name: Upload corpus evidence artifact
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: stt-corpus-evidence

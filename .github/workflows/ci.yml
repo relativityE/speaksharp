@@ -492,7 +492,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E lighthouse=$LIGHTHOUSE"
-          for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E" "$LIGHTHOUSE"; do
+          # Lighthouse remains advisory. Its sanitizer and upload fail closed
+          # inside that job, but an advisory outage is not a required gate.
+          for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
             [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
           done
 
@@ -575,8 +577,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/report-ci-timing.mjs
 
-      - name: Upload CI Metrics
+      - name: Scan CI metrics evidence
+        id: review_evidence_scan_ci_metrics
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::ci-metrics'
+
+      - name: Upload CI Metrics
+        if: ${{ always() && steps.review_evidence_scan_ci_metrics.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: ci-metrics

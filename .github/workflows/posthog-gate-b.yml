@@ -92,8 +92,13 @@ jobs:
             console.log("✅ Gate B targeting VERIFIED (single user).");
           '
 
-      - name: Upload Gate B evidence
+      - name: Scan Gate B evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'posthog-gate-b.yml::posthog-gate-b-evidence'
+
+      - name: Upload Gate B evidence
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: posthog-gate-b-evidence

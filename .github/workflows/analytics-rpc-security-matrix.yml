@@ -132,8 +132,13 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload evidence artifact
+      - name: Scan evidence artifact
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'analytics-rpc-security-matrix.yml::analytics-rpc-security-matrix-pg${{ matrix.pg }}'
+
+      - name: Upload evidence artifact
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: analytics-rpc-security-matrix-pg${{ matrix.pg }}

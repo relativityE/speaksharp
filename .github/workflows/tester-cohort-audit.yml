@@ -71,8 +71,13 @@ jobs:
         run: node scripts/tester-cohort-audit.mjs
 
       # Sanitized: pseudonymous identifiers only, safe for engineering review.
-      - name: Upload sanitized engineering artifact
+      - name: Scan sanitized engineering artifact
+        id: review_evidence_scan_sanitized
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'tester-cohort-audit.yml::cohort-sanitized'
+
+      - name: Upload sanitized engineering artifact
+        if: ${{ always() && steps.review_evidence_scan_sanitized.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: cohort-sanitized
@@ -80,8 +85,13 @@ jobs:
           retention-days: 7
 
       # Restricted: contains the pseudonym -> cohort/report-title mapping. Short retention, PO review only.
-      - name: Upload RESTRICTED Product Owner artifact
+      - name: Scan RESTRICTED Product Owner artifact
+        id: review_evidence_scan_restricted
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'tester-cohort-audit.yml::cohort-restricted-po-only'
+
+      - name: Upload RESTRICTED Product Owner artifact
+        if: ${{ always() && steps.review_evidence_scan_restricted.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: cohort-restricted-po-only
