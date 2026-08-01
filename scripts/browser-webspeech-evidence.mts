@@ -208,11 +208,9 @@ async function main(): Promise<void> {
         sessionId: document.documentElement.getAttribute('data-session-persisted-id'),
         appRelease: (window as unknown as { __APP_RELEASE__?: string; __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RELEASE__
           ?? (window as unknown as { __APP_RUNTIME_CONFIG__?: { release?: string } }).__APP_RUNTIME_CONFIG__?.release ?? '',
-        // Release-proof eligibility as the loaded build reports it (true only for the manual release-proof
-        // runtime: real Supabase + real auth on the manual port). The diagnostic/mock runtime reports false.
-        releaseProofEligible: Boolean(
-          (window as unknown as { __APP_RUNTIME_CONFIG__?: { releaseProofEligible?: boolean } }).__APP_RUNTIME_CONFIG__?.releaseProofEligible,
-        ),
+        // Release-proof eligibility as the loaded build reports it — captured RAW (no Boolean coercion), so a
+        // malformed truthy value (e.g. the string "false") cannot pass the strict `=== true` gate below.
+        releaseProofEligible: (window as unknown as { __APP_RUNTIME_CONFIG__?: { releaseProofEligible?: unknown } }).__APP_RUNTIME_CONFIG__?.releaseProofEligible,
         // OBSERVED runtime capabilities — read from the live page, never manufactured.
         crossOriginIsolated: Boolean((window as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated),
         sharedArrayBufferAvailable: typeof SharedArrayBuffer !== 'undefined',

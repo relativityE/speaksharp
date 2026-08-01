@@ -254,6 +254,17 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.invalid_reason).toMatch(/release-proof runtime/i);
     });
 
+    it.each([
+        ['string "true"', 'true'],
+        ['string "false"', 'false'],
+        ['numeric 1', 1],
+        ['null', null],
+    ] as const)('rejects a malformed truthy releaseProofEligible (%s) — must be exactly boolean true', (_label, value) => {
+        const r = finalizeRow(browserBase({ releaseProofEligible: value as unknown as boolean }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/release-proof runtime/i);
+    });
+
     it('admits OBSERVED capability values — true and false are both valid (not manufactured)', () => {
         const observedTrue = finalizeRow({
             ...browserBase(),
