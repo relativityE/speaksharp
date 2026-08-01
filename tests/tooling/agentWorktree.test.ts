@@ -5,14 +5,12 @@
  * Proves the fail-closed ownership contract with real git worktrees in throwaway repos (never touches the
  * working repo). The CLI acts only on its CURRENT worktree, so tests pass the target via child-process
  * `cwd` (no `--path`). AGENT_WORKTREE_ALLOW_TMP=1 permits temp worktrees for the functional cases; the
- * OS-temp-rejection case deliberately omits it. Covers the seven required cases: (1) same path/branch
- * cannot have two owners; (2) different paths/branches can; (3) owner passes, non-owner/missing/corrupt
- * marker fail assert-owner; (4) OS-temp path rejected; (5) dirty/unpushed handoff rejected, clean
- * upstream-matching handoff succeeds; (6) concurrent claims serialize; (7) release keeps branch + worktree.
+ * OS-temp-rejection case deliberately omits it. The per-worktree marker lives in the worktree's Git admin
+ * dir (never the working tree), so tests locate it via `git rev-parse --absolute-git-dir`.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -25,39 +23,36 @@ let repo: string;
 function git(args: string[], cwd: string): string {
     return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
+function markerFile(wt: string): string {
+    return path.join(git(['rev-parse', '--absolute-git-dir'], wt), 'agent-owner.json');
+}
+function registryFile(): string {
+    return path.join(path.resolve(repo, git(['rev-parse', '--git-common-dir'], repo)), 'agent-worktrees', 'leases.json');
+}
 
 type Res = { status: number; out: string; err: string };
-
-/** Run the CLI IN a target worktree (cwd), the way a real agent would. */
 function run(args: string[], cwd: string, opts: { allowTmp?: boolean } = {}): Res {
     const env: NodeJS.ProcessEnv = { ...process.env, SS_AGENT: '' };
     if (opts.allowTmp !== false) env.AGENT_WORKTREE_ALLOW_TMP = '1';
     else delete env.AGENT_WORKTREE_ALLOW_TMP;
     try {
-        const out = execFileSync('node', [CLI, ...args], { cwd, encoding: 'utf8', env });
-        return { status: 0, out, err: '' };
+        return { status: 0, out: execFileSync('node', [CLI, ...args], { cwd, encoding: 'utf8', env }), err: '' };
     } catch (e: unknown) {
         const x = e as { status?: number; stdout?: string; stderr?: string };
         return { status: x.status ?? 1, out: x.stdout ?? '', err: x.stderr ?? '' };
     }
 }
-
 function runAsync(args: string[], cwd: string): Promise<Res> {
     return new Promise((resolve) => {
         execFile('node', [CLI, ...args], { cwd, env: { ...process.env, SS_AGENT: '', AGENT_WORKTREE_ALLOW_TMP: '1' } },
             (err, stdout, stderr) => resolve({ status: err ? ((err as { code?: number }).code ?? 1) : 0, out: stdout, err: stderr }));
     });
 }
-
 function addWorktree(name: string, branch: string, opts: { force?: boolean; push?: boolean } = {}): string {
     const wt = path.join(base, name);
-    if (opts.force) {
-        // Check out an EXISTING branch already checked out elsewhere (no -B: cannot reset a branch in use).
-        git(['worktree', 'add', '-q', '--force', wt, branch], repo);
-    } else {
-        git(['worktree', 'add', '-q', '-B', branch, wt], repo);
-    }
-    if (opts.push) { git(['push', '-q', '-u', 'origin', branch], wt); }
+    if (opts.force) git(['worktree', 'add', '-q', '--force', wt, branch], repo);
+    else git(['worktree', 'add', '-q', '-B', branch, wt], repo);
+    if (opts.push) git(['push', '-q', '-u', 'origin', branch], wt);
     return wt;
 }
 
@@ -75,7 +70,6 @@ beforeAll(() => {
     git(['commit', '-q', '-m', 'init'], repo);
     git(['push', '-q', '-u', 'origin', 'main'], repo);
 });
-
 afterAll(() => { if (base) rmSync(base, { recursive: true, force: true }); });
 
 describe('agent-worktree MVP single-owner leases', () => {
@@ -86,26 +80,33 @@ describe('agent-worktree MVP single-owner leases', () => {
         expect(r.err).toMatch(/OS-temp/i);
     });
 
-    it('(1,3) claim succeeds; same worktree cannot have two owners; owner/non-owner/corrupt assert-owner', () => {
+    it('(1,3) claim; the marker lives in the git admin dir (tree stays clean); owner/non-owner assert', () => {
         const wtA = addWorktree('wt-a', 'feat-a', { push: true });
         expect(run(['claim', '--agent', 'alpha', '--task', '10'], wtA).status).toBe(0);
-        // owner passes
+        expect(existsSync(markerFile(wtA))).toBe(true);
+        expect(git(['status', '--porcelain'], wtA)).toBe(''); // marker never dirties the working tree
         expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(0);
-        // non-owner fails
         expect(run(['assert-owner', '--agent', 'beta'], wtA).status).toBe(1);
-        // second owner cannot claim the same worktree
         const dup = run(['claim', '--agent', 'beta', '--task', '11'], wtA);
         expect(dup.status).toBe(1);
         expect(dup.err).toMatch(/already owned by 'alpha'/i);
-        // corrupt marker → fail closed
-        writeFileSync(path.join(wtA, '.agent-owner.json'), '{ not json');
-        expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(1);
-        // reclaim to restore a valid marker for later cases
+        // an idempotent re-claim by the SAME owner is allowed (marker + lease agree)
         expect(run(['claim', '--agent', 'alpha', '--task', '10'], wtA).status).toBe(0);
     });
 
+    it('(3) a corrupt marker fails closed and is NOT silently repaired by claim', () => {
+        const wtA = path.join(base, 'wt-a');
+        const saved = readFileSync(markerFile(wtA), 'utf8');
+        writeFileSync(markerFile(wtA), '{ not json');
+        expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(1);
+        const reclaim = run(['claim', '--agent', 'alpha', '--task', '10'], wtA);
+        expect(reclaim.status).toBe(1); // no silent overwrite of a corrupt marker
+        expect(reclaim.err).toMatch(/malformed/i);
+        writeFileSync(markerFile(wtA), saved); // restore for later cases
+    });
+
     it('(1) a second worktree on the SAME branch cannot be claimed by another owner', () => {
-        const wtDup = addWorktree('wt-a-dup', 'feat-a', { force: true }); // forced same-branch checkout
+        const wtDup = addWorktree('wt-a-dup', 'feat-a', { force: true });
         const r = run(['claim', '--agent', 'beta', '--task', '12'], wtDup);
         expect(r.status).toBe(1);
         expect(r.err).toMatch(/one writer per branch/i);
@@ -115,7 +116,6 @@ describe('agent-worktree MVP single-owner leases', () => {
         const wtB = addWorktree('wt-b', 'feat-b', { push: true });
         expect(run(['claim', '--agent', 'beta', '--task', '20'], wtB).status).toBe(0);
         expect(run(['assert-owner', '--agent', 'beta'], wtB).status).toBe(0);
-        // wt-a (alpha) is still owned — coexistence
         expect(run(['assert-owner', '--agent', 'alpha'], path.join(base, 'wt-a')).status).toBe(0);
     });
 
@@ -125,51 +125,51 @@ describe('agent-worktree MVP single-owner leases', () => {
             runAsync(['claim', '--agent', 'one', '--task', '30'], wtC),
             runAsync(['claim', '--agent', 'two', '--task', '30'], wtC),
         ]);
-        const wins = [r1, r2].filter((r) => r.status === 0).length;
-        expect(wins).toBe(1); // lock serialized them; the loser saw the winner's lease
+        expect([r1, r2].filter((r) => r.status === 0).length).toBe(1);
     });
 
-    it('(5) handoff is rejected while dirty/unpushed and succeeds only clean + upstream-matching', () => {
+    it('fails closed when the registry is malformed, has a bad/duplicate record, or DISAPPEARS', () => {
+        const reg = registryFile();
+        const saved = readFileSync(reg, 'utf8');
+        const wtX = addWorktree('wt-x', 'feat-x');
+        // malformed JSON
+        writeFileSync(reg, '{ truncated');
+        expect(run(['claim', '--agent', 'zed', '--task', '40'], wtX).err).toMatch(/malformed|fail closed/i);
+        // valid JSON but a duplicate branch record
+        writeFileSync(reg, JSON.stringify({ version: 1, leases: [
+            { agent: 'a', task: '1', worktreePath: '/p1', branch: 'dup', baseSha: 'x', createdAt: 't' },
+            { agent: 'b', task: '2', worktreePath: '/p2', branch: 'dup', baseSha: 'x', createdAt: 't' },
+        ] }));
+        expect(run(['claim', '--agent', 'zed', '--task', '40'], wtX).err).toMatch(/duplicate branch|fail closed/i);
+        // registry initialized then DISAPPEARS (sentinel remains) → fail closed, never treated as empty
+        writeFileSync(reg, saved);
+        rmSync(reg);
+        expect(run(['claim', '--agent', 'zed', '--task', '40'], wtX).err).toMatch(/missing though the registry was initialized|fail closed/i);
+        writeFileSync(reg, saved); // restore
+    });
+
+    it('(5) handoff needs full ownership + clean + upstream match; ownership stays unchanged', () => {
         const wtA = path.join(base, 'wt-a');
-        // dirty
         writeFileSync(path.join(wtA, 'scratch.txt'), 'x');
         expect(run(['handoff', '--agent', 'alpha'], wtA).err).toMatch(/dirty/i);
         rmSync(path.join(wtA, 'scratch.txt'));
-        // ahead of upstream (unpushed commit)
         writeFileSync(path.join(wtA, 'more.txt'), 'y');
         git(['add', '-A'], wtA);
         git(['commit', '-q', '-m', 'ahead'], wtA);
         expect(run(['handoff', '--agent', 'alpha'], wtA).err).toMatch(/upstream/i);
-        // clean + pushed → manifest, ownership UNCHANGED
         git(['push', '-q'], wtA);
         const ok = run(['handoff', '--agent', 'alpha'], wtA);
         expect(ok.status).toBe(0);
-        const manifest = JSON.parse(ok.out);
-        expect(manifest.handoff).toBe(true);
-        expect(manifest.from).toBe('alpha');
-        expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(0); // still owner (manifest-only)
+        expect(JSON.parse(ok.out).from).toBe('alpha');
+        expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(0); // manifest-only
     });
 
-    it('(3) fails closed when the lease registry is malformed (never treated as empty)', () => {
-        const wtE = addWorktree('wt-e', 'feat-e');
-        const reg = path.join(repo, '.git', 'agent-worktrees', 'leases.json');
-        const saved = readFileSync(reg, 'utf8'); // preserve real leases for later cases
-        writeFileSync(reg, '{ truncated');
-        const r = run(['claim', '--agent', 'zed', '--task', '40'], wtE);
-        expect(r.status).toBe(1);
-        expect(r.err).toMatch(/malformed|fail closed/i);
-        writeFileSync(reg, saved); // restore; corruption must not silently drop existing leases
-    });
-
-    it('(7) release requires the owner + pushed state, then leaves branch and worktree intact', () => {
+    it('(7) release needs the owner + pushed state, then leaves branch and worktree intact', () => {
         const wtA = path.join(base, 'wt-a');
-        // non-owner cannot release
         expect(run(['release', '--agent', 'beta'], wtA).status).toBe(1);
-        const rel = run(['release', '--agent', 'alpha'], wtA);
-        expect(rel.status).toBe(0);
-        // lease gone
+        expect(run(['release', '--agent', 'alpha'], wtA).status).toBe(0);
         expect(run(['assert-owner', '--agent', 'alpha'], wtA).status).toBe(1);
-        // branch + worktree still exist
+        expect(existsSync(markerFile(wtA))).toBe(false);
         expect(git(['worktree', 'list'], repo)).toContain(wtA);
         expect(git(['branch', '--list', 'feat-a'], repo)).toContain('feat-a');
     });

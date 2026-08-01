@@ -8,18 +8,18 @@
  *
  * This tool registers an ALREADY-CREATED **current** worktree. It never creates, switches, removes,
  * prunes, resets, cleans, deletes, or force-pushes worktrees/branches, and it only ever acts on the
- * caller's own current worktree (no arbitrary path targeting). Missing/corrupt/conflicting state fails
- * closed; there is no automatic stale takeover.
+ * caller's own current worktree (no arbitrary path targeting). Missing/corrupt/conflicting/incomplete
+ * state fails closed; there is no automatic stale takeover and no silent repair.
  *
  * Commands (operate on the CURRENT worktree only):
  *   claim   --agent <id> --task <issue>   Atomically lease the current worktree + its branch for <id>.
  *   assert-owner --agent <id>             Mutation preflight: fail closed unless path, branch, marker, and
  *                                         registry all name <id>. (Detached HEAD fails closed.)
  *   status  [--json]                      Read-only sanitized lease + branch/base/head + dirty + upstream.
- *   handoff --agent <id>                  Require owner + clean + HEAD==pushed upstream; print a text
- *                                         handoff manifest. Does NOT release or mutate ownership.
- *   release --agent <id>                  Require owner + clean/pushed; remove ONLY this lease/marker and
- *                                         the worktree prune-lock. Never deletes a branch or worktree.
+ *   handoff --agent <id>                  Require full ownership + clean + HEAD==pushed upstream; print a
+ *                                         text handoff manifest. Does NOT release or mutate ownership.
+ *   release --agent <id>                  Require full ownership + clean/pushed; remove ONLY this lease and
+ *                                         marker (+ prune-lock). Never deletes a branch or worktree.
  *
  * Exit codes: 0 = ok · 1 = ownership/state violation · 2 = usage error.
  */
@@ -29,15 +29,16 @@ import path from 'node:path';
 import os from 'node:os';
 
 const REGISTRY_DIRNAME = 'agent-worktrees';
-const MARKER_NAME = '.agent-owner.json';
+const MARKER_NAME = 'agent-owner.json'; // stored under the worktree's Git admin dir, never the working tree
+const SENTINEL_NAME = '.initialized';
 const LOCK_TIMEOUT_MS = 5000;
+const LEASE_STRING_FIELDS = ['agent', 'task', 'worktreePath', 'branch', 'createdAt'];
 
 class OwnershipError extends Error {}
 
 function git(args, cwd) {
     return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
-
 function gitQuiet(args, cwd) {
     try { return git(args, cwd); } catch { return null; }
 }
@@ -50,21 +51,20 @@ function resolveContext(cwd) {
         throw new OwnershipError(`not inside a git worktree: ${cwd}`);
     }
     const commonDir = path.resolve(worktreeRoot, git(['rev-parse', '--git-common-dir'], worktreeRoot));
+    // Per-worktree PRIVATE admin dir (e.g. .git/worktrees/<id>) — the marker lives here, never in the tree.
+    const gitDir = git(['rev-parse', '--absolute-git-dir'], worktreeRoot);
     // Detached HEAD → no symbolic branch → branch is null (ownership fails closed downstream).
     const branch = gitQuiet(['symbolic-ref', '--quiet', '--short', 'HEAD'], worktreeRoot);
     const headSha = gitQuiet(['rev-parse', 'HEAD'], worktreeRoot);
-    return { worktreeRoot, commonDir, branch, headSha };
+    return { worktreeRoot, commonDir, gitDir, branch, headSha };
 }
 
 function registryPaths(commonDir) {
     const dir = path.join(commonDir, REGISTRY_DIRNAME);
-    return { dir, lock: path.join(dir, '.lock'), file: path.join(dir, 'leases.json') };
+    return { dir, lock: path.join(dir, '.lock'), file: path.join(dir, 'leases.json'), sentinel: path.join(dir, SENTINEL_NAME) };
 }
 
-/** Synchronous sleep without a spin loop. */
-function sleepMs(ms) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 
 /** Serialize concurrent writers via an atomic mkdir lock under the shared common dir. */
 function withLock(commonDir, fn) {
@@ -82,36 +82,61 @@ function withLock(commonDir, fn) {
     try { return fn(); } finally { try { rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ } }
 }
 
-/** Fail closed on a missing or corrupt registry — it is part of the collision-prevention authority. */
-function readLeases(file) {
-    if (!existsSync(file)) return [];
-    let raw;
-    try { raw = readFileSync(file, 'utf8'); } catch (e) { throw new OwnershipError(`cannot read lease registry: ${e.message}`); }
+/**
+ * Read + VALIDATE the registry. Parsing an array is not enough authority: the version, every lease's
+ * required fields/types, and path/branch uniqueness are all checked. Any violation — malformed JSON, a
+ * bad record, a duplicate, or a registry file that was initialized and then DISAPPEARED — fails closed.
+ */
+function readLeases(commonDir) {
+    const { file, sentinel } = registryPaths(commonDir);
+    if (!existsSync(file)) {
+        if (existsSync(sentinel)) throw new OwnershipError('lease registry file is missing though the registry was initialized — refusing to proceed (fail closed)');
+        return []; // genuine first run
+    }
     let parsed;
-    try { parsed = JSON.parse(raw); } catch { throw new OwnershipError('lease registry is malformed JSON — refusing to proceed (fail closed)'); }
-    if (!parsed || !Array.isArray(parsed.leases)) throw new OwnershipError('lease registry has no leases[] array — refusing to proceed (fail closed)');
+    try { parsed = JSON.parse(readFileSync(file, 'utf8')); }
+    catch { throw new OwnershipError('lease registry is malformed JSON — refusing to proceed (fail closed)'); }
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.leases)) {
+        throw new OwnershipError('lease registry has an unexpected shape (version/leases) — refusing to proceed (fail closed)');
+    }
+    const seenPath = new Set();
+    const seenBranch = new Set();
+    for (const l of parsed.leases) {
+        if (!l || typeof l !== 'object') throw new OwnershipError('lease registry contains a non-object record (fail closed)');
+        for (const f of LEASE_STRING_FIELDS) {
+            if (typeof l[f] !== 'string' || l[f].trim() === '') throw new OwnershipError(`lease registry record missing/invalid '${f}' (fail closed)`);
+        }
+        if (seenPath.has(l.worktreePath)) throw new OwnershipError(`lease registry has duplicate worktree '${l.worktreePath}' (fail closed)`);
+        if (seenBranch.has(l.branch)) throw new OwnershipError(`lease registry has duplicate branch '${l.branch}' (fail closed)`);
+        seenPath.add(l.worktreePath);
+        seenBranch.add(l.branch);
+    }
     return parsed.leases;
 }
 
-/** Atomic write: sibling temp file + rename, so a crash never leaves the authority file truncated. */
-function writeLeases(file, leases) {
+/** Atomic write: sibling temp file + rename; also drop the initialized sentinel so a later disappearance is detectable. */
+function writeLeases(commonDir, leases) {
+    const { dir, file, sentinel } = registryPaths(commonDir);
+    mkdirSync(dir, { recursive: true });
     const tmp = `${file}.tmp-${process.pid}`;
     writeFileSync(tmp, `${JSON.stringify({ version: 1, leases }, null, 2)}\n`);
     renameSync(tmp, file);
+    if (!existsSync(sentinel)) writeFileSync(sentinel, `initialized ${new Date().toISOString()}\n`);
 }
 
-function markerPath(worktreeRoot) { return path.join(worktreeRoot, MARKER_NAME); }
+function markerPath(gitDir) { return path.join(gitDir, MARKER_NAME); }
 
-function readMarker(worktreeRoot) {
-    const p = markerPath(worktreeRoot);
+/** Read the marker; a malformed marker fails closed (never silently repaired). null = absent. */
+function readMarker(gitDir) {
+    const p = markerPath(gitDir);
     if (!existsSync(p)) return null;
-    try { return JSON.parse(readFileSync(p, 'utf8')); } catch { throw new OwnershipError('owner marker is malformed JSON (fail closed)'); }
+    try { return JSON.parse(readFileSync(p, 'utf8')); }
+    catch { throw new OwnershipError('owner marker is malformed JSON — refusing to proceed (fail closed)'); }
 }
 
 /** Persistent project storage only — never an OS temp path (a temp lease is not durable governance). */
 function assertPersistentPath(worktreeRoot) {
     if (process.env.AGENT_WORKTREE_ALLOW_TMP === '1') return; // isolated-temp-repo tests only
-    // Resolve symlinks so macOS's /var/folders (real /private/var/folders) is detected, not missed.
     const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
     const tmp = real(os.tmpdir());
     const resolved = real(worktreeRoot);
@@ -124,20 +149,32 @@ function requireAgent(agent, command) {
     if (!agent) throw new OwnershipError(`${command} requires an agent identity (--agent or SS_AGENT)`);
     return agent;
 }
-
 function nowIso() { return new Date().toISOString(); }
+function isClean(worktreeRoot) { return git(['status', '--porcelain'], worktreeRoot) === ''; }
 
-function isClean(worktreeRoot) {
-    return git(['status', '--porcelain'], worktreeRoot) === '';
-}
-
-/** { hasUpstream, matchesUpstream } — a handoff transfers a pushed commit, so HEAD must equal upstream. */
 function upstreamState(worktreeRoot) {
     const upstream = gitQuiet(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], worktreeRoot);
     if (!upstream) return { hasUpstream: false, matchesUpstream: false, upstream: null };
     const local = gitQuiet(['rev-parse', 'HEAD'], worktreeRoot);
     const remote = gitQuiet(['rev-parse', '@{upstream}'], worktreeRoot);
-    return { hasUpstream: true, matchesUpstream: Boolean(local && remote && local === remote), upstream, local, remote };
+    return { hasUpstream: true, matchesUpstream: Boolean(local && remote && local === remote), upstream };
+}
+
+/**
+ * Full ownership proof for a mutation/handoff/release: current branch present, marker + registry lease
+ * BOTH present and BOTH naming `agent` on the CURRENT branch. Returns the lease. Fails closed otherwise.
+ */
+function assertFullOwnership(ctx, agent) {
+    if (!ctx.branch) throw new OwnershipError('HEAD is detached — no owned branch to prove (fail closed)');
+    const marker = readMarker(ctx.gitDir);
+    if (!marker) throw new OwnershipError(`no owner marker for ${ctx.worktreeRoot}; claim it first`);
+    if (marker.agent !== agent) throw new OwnershipError(`worktree owned by '${marker.agent}', not '${agent}'`);
+    if (marker.branch !== ctx.branch) throw new OwnershipError(`checked-out branch '${ctx.branch}' is not the owned branch '${marker.branch}'`);
+    const lease = readLeases(ctx.commonDir).find((l) => l.worktreePath === ctx.worktreeRoot);
+    if (!lease) throw new OwnershipError(`no registry lease for ${ctx.worktreeRoot}; marker is orphaned (fail closed)`);
+    if (lease.agent !== agent) throw new OwnershipError(`registry lease owned by '${lease.agent}', not '${agent}'`);
+    if (lease.branch !== ctx.branch) throw new OwnershipError(`registry lease branch '${lease.branch}' is not the current branch '${ctx.branch}'`);
+    return { marker, lease };
 }
 
 // ── commands ────────────────────────────────────────────────────────────────
@@ -149,8 +186,11 @@ function cmdClaim({ agent, task, cwd }) {
     assertPersistentPath(ctx.worktreeRoot);
     if (!ctx.branch) throw new OwnershipError('claim requires a checked-out branch (HEAD is detached)');
     return withLock(ctx.commonDir, () => {
-        const { file } = registryPaths(ctx.commonDir);
-        const leases = readLeases(file);
+        const leases = readLeases(ctx.commonDir);
+        const existingLease = leases.find((l) => l.worktreePath === ctx.worktreeRoot);
+        const existingMarker = readMarker(ctx.gitDir); // throws on a corrupt marker → no silent repair
+
+        // Cross-owner conflicts.
         for (const l of leases) {
             if (l.worktreePath === ctx.worktreeRoot && l.agent !== agent) {
                 throw new OwnershipError(`worktree already owned by '${l.agent}' (task ${l.task}); release first`);
@@ -159,16 +199,27 @@ function cmdClaim({ agent, task, cwd }) {
                 throw new OwnershipError(`branch '${ctx.branch}' already writable by '${l.agent}'; one writer per branch`);
             }
         }
-        const rest = leases.filter((l) => l.worktreePath !== ctx.worktreeRoot);
+
+        // Marker/registry consistency — a first claim requires NEITHER; a re-claim requires BOTH to agree
+        // with this agent + branch. Anything partial or contradictory fails closed (no silent repair).
+        const hasMarker = existingMarker != null;
+        const hasLease = existingLease != null;
+        if (hasMarker !== hasLease) {
+            throw new OwnershipError('inconsistent state: exactly one of marker/registry-lease exists — resolve manually (fail closed)');
+        }
+        if (hasMarker && hasLease) {
+            const agrees = existingMarker.agent === agent && existingMarker.branch === ctx.branch
+                && existingLease.agent === agent && existingLease.branch === ctx.branch;
+            if (!agrees) throw new OwnershipError('existing marker/lease contradicts this claim — resolve manually (fail closed)');
+        }
+
         const lease = {
             agent, task: String(task), worktreePath: ctx.worktreeRoot, branch: ctx.branch,
             baseSha: ctx.headSha, createdAt: nowIso(),
         };
-        rest.push(lease);
-        writeLeases(file, rest);
-        writeFileSync(markerPath(ctx.worktreeRoot), `${JSON.stringify(lease, null, 2)}\n`);
-        // Lock the worktree against pruning (anti-prune only; never creates/removes/switches).
-        gitQuiet(['worktree', 'lock', ctx.worktreeRoot], ctx.worktreeRoot);
+        writeLeases(ctx.commonDir, [...leases.filter((l) => l.worktreePath !== ctx.worktreeRoot), lease]);
+        writeFileSync(markerPath(ctx.gitDir), `${JSON.stringify(lease, null, 2)}\n`);
+        gitQuiet(['worktree', 'lock', ctx.worktreeRoot], ctx.worktreeRoot); // anti-prune only
         return `claimed ${ctx.worktreeRoot} (branch ${ctx.branch}) for ${agent}`;
     });
 }
@@ -176,65 +227,46 @@ function cmdClaim({ agent, task, cwd }) {
 function cmdAssertOwner({ agent, cwd }) {
     requireAgent(agent, 'assert-owner');
     const ctx = resolveContext(cwd);
-    if (!ctx.branch) throw new OwnershipError('HEAD is detached — no owned branch to prove (fail closed)');
-    const marker = readMarker(ctx.worktreeRoot);
-    if (!marker) throw new OwnershipError(`no owner marker in ${ctx.worktreeRoot}; claim it before mutating`);
-    if (marker.agent !== agent) throw new OwnershipError(`worktree owned by '${marker.agent}', not '${agent}'`);
-    if (marker.branch !== ctx.branch) throw new OwnershipError(`checked-out branch '${ctx.branch}' is not the owned branch '${marker.branch}'`);
-    const { file } = registryPaths(ctx.commonDir);
-    const lease = readLeases(file).find((l) => l.worktreePath === ctx.worktreeRoot);
-    if (!lease) throw new OwnershipError(`no registry lease for ${ctx.worktreeRoot}; marker is orphaned`);
-    if (lease.agent !== agent) throw new OwnershipError(`registry lease owned by '${lease.agent}', not '${agent}'`);
-    if (lease.branch !== ctx.branch) throw new OwnershipError(`registry lease branch '${lease.branch}' is not the current branch '${ctx.branch}'`);
+    assertFullOwnership(ctx, agent);
     return `owner confirmed: ${agent} @ ${ctx.worktreeRoot} (${ctx.branch})`;
 }
 
 function cmdHandoff({ agent, cwd }) {
     requireAgent(agent, 'handoff');
     const ctx = resolveContext(cwd);
-    if (!ctx.branch) throw new OwnershipError('HEAD is detached — cannot hand off (fail closed)');
-    const { file } = registryPaths(ctx.commonDir);
-    const lease = readLeases(file).find((l) => l.worktreePath === ctx.worktreeRoot);
-    if (!lease) throw new OwnershipError(`no lease for ${ctx.worktreeRoot}`);
-    if (lease.agent !== agent) throw new OwnershipError(`only the current owner '${lease.agent}' may hand off`);
+    const { lease } = assertFullOwnership(ctx, agent); // marker + registry + branch, not just the lease
     if (!isClean(ctx.worktreeRoot)) throw new OwnershipError('working tree is dirty — commit or discard before handoff');
     const up = upstreamState(ctx.worktreeRoot);
     if (!up.hasUpstream) throw new OwnershipError('branch has no upstream — push it before handoff');
     if (!up.matchesUpstream) throw new OwnershipError('HEAD does not equal the pushed upstream — push before handoff');
-    // Manifest ONLY — ownership is NOT mutated. The recipient claims a DIFFERENT worktree at this SHA.
-    const manifest = {
+    return JSON.stringify({
         handoff: true, from: agent, worktreePath: ctx.worktreeRoot, branch: ctx.branch,
         headSha: ctx.headSha, upstream: up.upstream, task: lease.task, at: nowIso(),
         note: 'Recipient: create/claim your OWN worktree and review this pushed SHA. Ownership unchanged until the current owner runs `release`.',
-    };
-    return JSON.stringify(manifest, null, 2);
+    }, null, 2);
 }
 
 function cmdRelease({ agent, cwd }) {
     requireAgent(agent, 'release');
     const ctx = resolveContext(cwd);
     return withLock(ctx.commonDir, () => {
-        const { file } = registryPaths(ctx.commonDir);
-        const leases = readLeases(file);
-        const lease = leases.find((l) => l.worktreePath === ctx.worktreeRoot);
-        if (!lease) throw new OwnershipError(`no lease for ${ctx.worktreeRoot}`);
-        if (lease.agent !== agent) throw new OwnershipError(`only the owner '${lease.agent}' may release, not '${agent}'`);
+        assertFullOwnership(ctx, agent); // marker + registry + branch
         if (!isClean(ctx.worktreeRoot)) throw new OwnershipError('working tree is dirty — commit/discard before release');
         const up = upstreamState(ctx.worktreeRoot);
         if (!(up.hasUpstream && up.matchesUpstream)) throw new OwnershipError('HEAD is not pushed to its upstream — push before release');
-        writeLeases(file, leases.filter((l) => l.worktreePath !== ctx.worktreeRoot));
-        const mp = markerPath(ctx.worktreeRoot);
+        const leases = readLeases(ctx.commonDir);
+        writeLeases(ctx.commonDir, leases.filter((l) => l.worktreePath !== ctx.worktreeRoot));
+        const mp = markerPath(ctx.gitDir);
         if (existsSync(mp)) unlinkSync(mp);
-        gitQuiet(['worktree', 'unlock', ctx.worktreeRoot], ctx.worktreeRoot); // unlock prune-lock; never removes the worktree
-        return `released ${ctx.worktreeRoot} (was ${lease.agent}); branch + worktree left intact`;
+        gitQuiet(['worktree', 'unlock', ctx.worktreeRoot], ctx.worktreeRoot);
+        return `released ${ctx.worktreeRoot} (was ${agent}); branch + worktree left intact`;
     });
 }
 
 function cmdStatus({ cwd, json }) {
     const ctx = resolveContext(cwd);
-    const { file } = registryPaths(ctx.commonDir);
-    const leases = readLeases(file);
-    const marker = readMarker(ctx.worktreeRoot);
+    const leases = readLeases(ctx.commonDir);
+    const marker = readMarker(ctx.gitDir);
     const up = upstreamState(ctx.worktreeRoot);
     const dirty = !isClean(ctx.worktreeRoot);
     const view = {
