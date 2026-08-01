@@ -489,30 +489,3 @@ When genuinely blocked, report:
 
 Permission failures, protected environments, missing Product Owner authority, and
 irreconcilable source-of-truth conflicts are stop conditions. Do not work around them.
-
-## Single-owner worktrees (agent collision prevention)
-
-A git worktree has **exactly one owning agent for its entire lifetime**. No other agent may enter it,
-switch its branch, or commit/rebase/push inside it. Reviews and handoffs happen through **pushed SHAs**,
-never through a shared directory.
-
-- **One owner per worktree, one writer per branch.** Each agent works only in its own persistent worktree
-  under `test-support/worktrees/<agent>/<task>` and writes only its own branches (e.g. Dev → `dev/*`,
-  Test → `test/*`, plus its own `safety/<task>-<agent>-*`). Branch *names* do not grant ownership — the
-  lease + owner marker do.
-- **Never enter another agent's worktree.** Do not `checkout`, `switch`, `commit`, `rebase`, `clean`,
-  `reset`, run formatters, or push inside a worktree you do not own. Treat other agents' `safety/*`
-  branches as read-only. This is a hard stop even when it looks convenient.
-- **Persistent paths only** — never place an operational worktree under `/tmp` or `/private/tmp`.
-- **Claim before writing; release only after handoff.** Use `scripts/agent-worktree.mjs`:
-  - `claim --agent <A> --issue <N> --branch <B>` — atomically leases the worktree + branch (fails on a
-    worktree or branch already owned by another agent).
-  - `assert-owner --agent <A>` — fail-closed guard; the pre-commit/pre-push/pre-rebase hooks run it
-    automatically whenever `SS_AGENT` is set, blocking any mutation in a worktree/branch you do not own.
-  - `status`, `handoff --to <A2>`, `release` — inspect, transfer, or free ownership.
-- **Handoff protocol:** a clean pushed SHA + base SHA + diff list + tests + an explicit `handoff` (or
-  `release`). The receiver reviews from its **own** worktree at that pushed SHA.
-- The lease registry lives under Git's **common dir** (`<git-common-dir>/agent-worktrees/leases.json`),
-  shared across all worktrees; each worktree also carries a local `.agent-owner.json` marker. The tool
-  never runs destructive git (no reset/checkout/clean/rebase/push/delete) — separate directories plus the
-  fail-closed guard eliminate the collision at its root.
