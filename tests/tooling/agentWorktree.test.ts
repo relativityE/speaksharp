@@ -16,6 +16,9 @@ import path from 'node:path';
 import os from 'node:os';
 
 const CLI = fileURLToPath(new URL('../../scripts/agent-worktree.mjs', import.meta.url));
+// The CLI guards main() behind a direct-execution check, so importing its pure parser does not run the CLI.
+// @ts-expect-error - the .mjs CLI module ships no type declarations
+import { parseWorktreeLockReason } from '../../scripts/agent-worktree.mjs';
 
 let base: string;
 let repo: string;
@@ -221,14 +224,14 @@ describe('agent-worktree MVP single-owner leases', () => {
         git(['worktree', 'lock', '--reason', 'manual-by-someone-else', wt], repo);
         const r = run(['claim', '--agent', 'alpha', '--task', '61'], wt);
         expect(r.status).toBe(1);
-        expect(r.err).toMatch(/foreign|not created by this lease/i);
+        expect(r.err).toMatch(/pre-existing worktree lock on first claim/i);
         git(['worktree', 'unlock', wt], repo); // cleanup (the tool must not have touched it)
     });
 
     it('(#1037 :240,:287) claim stamps the lease reason; release removes only that lock', () => {
         const wt = addWorktree('wt-lockreason', 'feat-lockreason', { push: true });
         expect(run(['claim', '--agent', 'alpha', '--task', '62'], wt).status).toBe(0);
-        expect(lockReasonOf(wt)).toBe('agent-worktree single-owner lease');
+        expect(lockReasonOf(wt)).toMatch(/^agent-worktree-lease:[0-9a-f]{16}$/);
         expect(run(['release', '--agent', 'alpha'], wt).status).toBe(0);
         expect(lockReasonOf(wt)).toBe(null);
     });
@@ -239,7 +242,7 @@ describe('agent-worktree MVP single-owner leases', () => {
         git(['worktree', 'unlock', wt], repo); // anti-prune lock removed out of band
         expect(lockReasonOf(wt)).toBe(null);
         expect(run(['claim', '--agent', 'alpha', '--task', '70'], wt).status).toBe(0); // reclaim no-op
-        expect(lockReasonOf(wt)).toBe('agent-worktree single-owner lease'); // protection restored
+        expect(lockReasonOf(wt)).toMatch(/^agent-worktree-lease:[0-9a-f]{16}$/); // protection restored
     });
 
     it('(#1037 :260) idempotent reclaim REFUSES a foreign lock that replaced ours', () => {
@@ -249,8 +252,46 @@ describe('agent-worktree MVP single-owner leases', () => {
         git(['worktree', 'lock', '--reason', 'foreign-owner', wt], repo);
         const r = run(['claim', '--agent', 'alpha', '--task', '71'], wt);
         expect(r.status).toBe(1);
-        expect(r.err).toMatch(/foreign worktree lock/i);
+        expect(r.err).toMatch(/reason is not this lease|resolve manually/i);
         git(['worktree', 'unlock', wt], repo); // cleanup (tool must not have touched it)
+    });
+
+    it('(#1126 :182) a null/primitive/array marker fails closed (not treated as absent)', () => {
+        const wt = addWorktree('wt-nullmarker', 'feat-nullmarker', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '80'], wt).status).toBe(0);
+        const mf = markerFile(wt);
+        for (const bad of ['null', '"a-string"', '[]', '42']) {
+            writeFileSync(mf, bad);
+            const r = run(['assert-owner', '--agent', 'alpha'], wt);
+            expect(r.status).toBe(1);
+            expect(r.err).toMatch(/not a JSON object|missing\/blank authoritative field/i);
+        }
+    });
+
+    it('(#1126 :185) assert-owner fails closed when the lock is missing or foreign (never restores it)', () => {
+        const wt = addWorktree('wt-assertlock', 'feat-assertlock', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '81'], wt).status).toBe(0);
+        // missing lock → assert fails closed, and does NOT restore it
+        git(['worktree', 'unlock', wt], repo);
+        const missing = run(['assert-owner', '--agent', 'alpha'], wt);
+        expect(missing.status).toBe(1);
+        expect(missing.err).toMatch(/prune lock is missing/i);
+        expect(lockReasonOf(wt)).toBe(null); // assert-owner must not have re-locked
+        // foreign lock → reason mismatch fails closed
+        git(['worktree', 'lock', '--reason', 'foreign-owner', wt], repo);
+        const foreign = run(['assert-owner', '--agent', 'alpha'], wt);
+        expect(foreign.status).toBe(1);
+        expect(foreign.err).toMatch(/reason does not match this lease/i);
+        git(['worktree', 'unlock', wt], repo); // cleanup
+    });
+
+    it('(#1126 :185) reclaim then release succeed on the exact owned lock', () => {
+        const wt = addWorktree('wt-exactlock', 'feat-exactlock', { push: true });
+        expect(run(['claim', '--agent', 'alpha', '--task', '82'], wt).status).toBe(0);
+        expect(run(['claim', '--agent', 'alpha', '--task', '82'], wt).status).toBe(0); // reclaim no-op
+        expect(run(['assert-owner', '--agent', 'alpha'], wt).status).toBe(0);
+        expect(run(['release', '--agent', 'alpha'], wt).status).toBe(0);
+        expect(lockReasonOf(wt)).toBe(null);
     });
 
     it('(7) release needs the owner + pushed state, then leaves branch and worktree intact', () => {
@@ -261,5 +302,30 @@ describe('agent-worktree MVP single-owner leases', () => {
         expect(existsSync(markerFile(wtA))).toBe(false);
         expect(git(['worktree', 'list'], repo)).toContain(wtA);
         expect(git(['branch', '--list', 'feat-a'], repo)).toContain('feat-a');
+    });
+});
+
+// #1126 item 3/5 — the pure `git worktree list --porcelain -z` parser. Deterministic (no git): proves a
+// newline-containing worktree path parses correctly, and a listing that omits our worktree is an ERROR
+// (fail closed), never silently read as "unlocked".
+describe('parseWorktreeLockReason (porcelain -z)', () => {
+    const rec = (path: string, attrs: string[] = []) =>
+        [`worktree ${path}`, 'HEAD ' + '0'.repeat(40), 'branch refs/heads/feat', ...attrs].join('\0') + '\0';
+    const stream = (...records: string[]) => records.join('\0'); // records separated by an extra NUL
+
+    it('matches a worktree whose path contains a newline and returns its lock reason', () => {
+        const p = '/tmp/wt\nwith-newline';
+        const out = stream(rec('/other/wt'), rec(p, ['locked agent-worktree-lease:deadbeefdeadbeef']));
+        expect(parseWorktreeLockReason(out, p)).toBe('agent-worktree-lease:deadbeefdeadbeef');
+    });
+
+    it('returns null for a matched-but-unlocked worktree record', () => {
+        const p = '/tmp/wt-plain';
+        expect(parseWorktreeLockReason(stream(rec(p)), p)).toBeNull();
+    });
+
+    it('THROWS when the listing has no matching worktree record (never treated as unlocked)', () => {
+        const out = stream(rec('/tmp/some-other-wt', ['locked x']));
+        expect(() => parseWorktreeLockReason(out, '/tmp/not-listed')).toThrow(/no matching .* record/i);
     });
 });
