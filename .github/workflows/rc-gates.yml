@@ -259,9 +259,7 @@ jobs:
             test-results/
             playwright-report/
             blob-report/
-          # Live DAST traces can contain short-lived auth material captured from the running app.
-          # Keep the blast radius small: 1-day retention per AGENTS.md live-artifact policy.
-          retention-days: 1
+          retention-days: 14
           if-no-files-found: ignore
 
   gate-4-sca:

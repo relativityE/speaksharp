@@ -152,7 +152,15 @@ async function assertNoMockSurfaces(page: Page): Promise<void> {
 
 type EntitlementBody = { private_sample_available?: boolean; private_sample_seconds_remaining?: number } & Record<string, unknown>;
 
-async function recordEligiblePrivateSession(page: Page): Promise<void> {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Records one eligible Private session and returns the EXACT id the app persisted — read from the
+ * `data-session-persisted-id` forensic anchor the app stamps on save, NOT "the newest session for the
+ * account" (which could be a concurrent test's row). Waits for the anchor to appear and, when a prior id
+ * is given, to ADVANCE past it, so session 2 is provably distinct from session 1.
+ */
+async function recordEligiblePrivateSession(page: Page, previousId: string | null): Promise<string> {
   // Reload /session so the (re-)seeded entitlement is refetched fresh for THIS session, then select
   // Private once its gate resolves.
   await page.goto('/session');
@@ -170,14 +178,14 @@ async function recordEligiblePrivateSession(page: Page): Promise<void> {
   await startStop.click();
   await expect(startStop, 'record: finalize completes').toHaveAttribute('data-recording', 'false', { timeout: 240_000 });
   await expect(page.getByTestId('status-message-text'), 'record: session saved').toContainText(/Session saved/i, { timeout: 240_000 });
-}
 
-async function latestSessionId(admin: SupabaseClient, uid: string): Promise<string> {
-  const { data } = await admin.from('sessions').select('id, created_at')
-    .eq('user_id', uid).order('created_at', { ascending: false }).limit(1);
-  const row = data?.[0] as { id: string } | undefined;
-  if (!row) throw new Error('no session persisted — recording discarded or not saved');
-  return row.id;
+  let sessionId = '';
+  await expect(async () => {
+    sessionId = (await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'))) ?? '';
+    expect(sessionId, 'app must stamp data-session-persisted-id after save').toMatch(UUID_RE);
+    if (previousId) expect(sessionId, 'the persisted session id must advance for this recording').not.toBe(previousId);
+  }).toPass({ timeout: 30_000, intervals: [1_000, 2_000, 3_000] });
+  return sessionId;
 }
 
 test.describe.serial('#1045 deployed Progress journey @live', () => {
@@ -243,8 +251,7 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     console.log(`[journey] entitlement=${JSON.stringify(entitlementBodies[entitlementBodies.length - 1])}`);
 
     // ── Gate 1 — first eligible Private session ──
-    await recordEligiblePrivateSession(page);
-    const s1 = await latestSessionId(admin, uid);
+    const s1 = await recordEligiblePrivateSession(page, null);
     console.log(`[journey] session1=${s1}`);
 
     // ── Gate 2 — Session-review renders the Progress panel ──
@@ -264,8 +271,8 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     await seedUnusedSample(admin, uid);
 
     // ── Gate 4 — second eligible session resolves the attempt (server-derived outcome) ──
-    await recordEligiblePrivateSession(page);
-    const s2 = await latestSessionId(admin, uid);
+    const s2 = await recordEligiblePrivateSession(page, s1);
+    expect(s2, 'session 2 must be a distinct persisted session').not.toBe(s1);
     console.log(`[journey] session2=${s2}`);
 
     // ── Verify persisted rows (service-role; sanitized) ──
