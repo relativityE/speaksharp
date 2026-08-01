@@ -219,8 +219,10 @@ export function finalizeRow(
             if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
             if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
         }
-        // Honesty guards: Browser must NOT claim verified engine identity, a proven route, or a WER.
-        if (row.attribution_status === 'verified') problems.push("browser_journey must not claim 'verified' engine attribution — Web Speech identity is unprovable");
+        // Honesty guards: browser_journey is the canonical Browser engine, exactly 'unverified', never
+        // rankable — a class label alone must not admit another engine's row.
+        if (row.engine !== 'browser-webspeech') problems.push(`browser_journey requires engine 'browser-webspeech', got '${row.engine}'`);
+        if (row.attribution_status !== 'unverified') problems.push(`browser_journey attribution must be exactly 'unverified', got '${row.attribution_status}'`);
         if (row.wer !== null && row.wer !== undefined) problems.push('browser_journey is non-rankable — wer must be null');
     } else {
         const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);

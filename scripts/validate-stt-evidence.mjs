@@ -47,10 +47,13 @@ function semanticProblems(row, isBrowser) {
     }
     if (!SHA_RE.test(String(row.release_sha ?? ''))) p.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
 
-    // Admissibility differs by class. A browser_journey cannot prove verified attribution or an audio
-    // route (Web Speech is opaque) — it stays honestly unverified, non-rankable, and route-unproven.
+    // Admissibility differs by class. This validator is the runtime boundary for arbitrary JSON, so a
+    // browser_journey row is affirmatively constrained to the canonical Browser engine, exact `unverified`
+    // attribution, and a route it never proved — a class label alone cannot launder another engine's row.
     if (isBrowser) {
-        if (row.attribution_status === 'verified') p.push("browser_journey must not claim 'verified' engine attribution — Web Speech identity is unprovable");
+        if (row.engine !== 'browser-webspeech') p.push(`browser_journey requires engine 'browser-webspeech', got '${row.engine}'`);
+        if (row.attribution_status !== 'unverified') p.push(`browser_journey attribution must be exactly 'unverified', got '${row.attribution_status}'`);
+        if (row.audio_route_proven !== false) p.push('browser_journey must not claim a proven audio route (audio_route_proven must be false)');
     } else {
         if (row.attribution_status !== 'verified') p.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
     }

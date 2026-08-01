@@ -179,10 +179,19 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.wer).toBeNull();
     });
 
-    it('a Browser journey that claims verified attribution is rejected (Web Speech identity is unprovable)', () => {
-        const dishonest = finalizeRow({ ...browserBase(), attribution_status: 'verified' });
-        expect(dishonest.run_validity).toBe('invalid');
-        expect(dishonest.invalid_reason).toMatch(/must not claim 'verified'/i);
+    it.each(['verified', 'pending', 'legacy_unknown'] as const)(
+        'a Browser journey with attribution %s is rejected — must be exactly unverified',
+        (status) => {
+            const r = finalizeRow({ ...browserBase(), attribution_status: status });
+            expect(r.run_validity).toBe('invalid');
+            expect(r.invalid_reason).toMatch(/attribution must be exactly 'unverified'/i);
+        },
+    );
+
+    it('a browser_journey with a non-canonical engine is rejected (a class label cannot launder another engine)', () => {
+        const r = finalizeRow({ ...browserBase(), engine: 'cloud' });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/requires engine 'browser-webspeech'/i);
     });
 
     it('a Browser journey that carries a WER is rejected (non-rankable)', () => {
