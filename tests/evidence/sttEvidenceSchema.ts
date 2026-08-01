@@ -487,6 +487,45 @@ export function rankableRows(rows: SttEvidenceRow[]): SttEvidenceRow[] {
 }
 
 /**
+ * An isolated worker diagnostic may prove that audio reached a particular worker/model without
+ * proving the persisted session attribution required for engine-specific publication. This guard
+ * accepts that narrow diagnostic only when missing persisted attribution is its sole admissibility
+ * defect. It must stay explicitly unverified, invalid, WER-free, and non-rankable.
+ */
+export function unverifiedWorkerDiagnosticProblems(row: SttEvidenceRow): string[] {
+    const problems: string[] = [];
+
+    if (row.engine !== 'private-v2-browser-worker') {
+        problems.push(`diagnostic engine is '${row.engine}', not 'private-v2-browser-worker'`);
+    }
+    if (row.attribution_status !== 'unverified') {
+        problems.push(`diagnostic attribution_status is '${row.attribution_status}', not 'unverified'`);
+    }
+    if (row.run_validity !== 'invalid') {
+        problems.push(`diagnostic run_validity is '${row.run_validity}', not 'invalid'`);
+    }
+    if (row.wer !== null) {
+        problems.push('unverified diagnostic must not publish WER');
+    }
+    if (rankableRows([row]).length !== 0) {
+        problems.push('unverified diagnostic unexpectedly entered the rankable cohort');
+    }
+
+    const verifiedControl = finalizeRow({
+        ...row,
+        attribution_status: 'verified',
+        invalid_reason: null,
+    });
+    if (verifiedControl.run_validity !== 'valid') {
+        problems.push(
+            `diagnostic has defects beyond missing persisted attribution: ${verifiedControl.invalid_reason ?? 'unknown defect'}`,
+        );
+    }
+
+    return problems;
+}
+
+/**
  * Group admissible rows into comparable cohorts. Comparison/ranking MUST happen inside one group —
  * `rankableRows()` alone filters bad rows but does not stop two good rows from different cohorts being
  * ranked against each other, which is the subtler error.

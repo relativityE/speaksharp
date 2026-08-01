@@ -5,6 +5,7 @@ import {
     rankableRows,
     rankableCohorts,
     cohortKey,
+    unverifiedWorkerDiagnosticProblems,
     PERCENTILE_POLICY,
     PRIVATE_V2_PROVENANCE_REQUIRED_FILES,
     type AudioRouteEvidence,
@@ -428,6 +429,52 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.run_validity).toBe('invalid');
         expect(r.invalid_reason).toMatch(/model provenance is not byte-identical/i);
         expect(r.invalid_reason).toMatch(/audio-route tuple does not match/i);
+    });
+
+    it('accepts an isolated Private-worker measurement only as unverified, WER-free, and non-rankable', () => {
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            attribution_status: 'unverified',
+            wer: null,
+            runtime_capability: {
+                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence(),
+        }));
+
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/not 'verified'/);
+        expect(r.wer).toBeNull();
+        expect(rankableRows([r])).toHaveLength(0);
+        expect(unverifiedWorkerDiagnosticProblems(r)).toEqual([]);
+    });
+
+    it.each([
+        ['verified attribution', { attribution_status: 'verified' as const }, /not 'unverified'/],
+        ['published WER', { wer: 0 }, /must not publish WER/],
+        ['additional route defect', {
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence({ workerInputSamples: PRIVATE_SAMPLES + 1 }),
+        }, /defects beyond missing persisted attribution/],
+    ])('rejects an unverified Private-worker diagnostic with %s', (_label, override, reason) => {
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            attribution_status: 'unverified',
+            wer: null,
+            runtime_capability: {
+                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: privateWorkerEvidence(),
+            ...override,
+        }));
+
+        expect(unverifiedWorkerDiagnosticProblems(r).join('; ')).toMatch(reason);
     });
 
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {

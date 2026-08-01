@@ -71,7 +71,7 @@ jobs:
             --base-url http://127.0.0.1:4173 \
             --release-sha "${{ env.EVIDENCE_SHA }}" \
             --out stt-evidence-artifacts/private-v2-worker.json
-      - name: Upload validator-accepted evidence
+      - name: Upload validated unverified diagnostic evidence
         if: success()
         uses: actions/upload-artifact@v4
         with:

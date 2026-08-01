@@ -10,11 +10,10 @@
 import { chromium } from 'playwright';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve, join } from 'node:path';
-import { finalizeRow } from '../tests/evidence/sttEvidenceSchema';
-import { wordErrorRate, NORMALIZATION_VERSION } from '../tests/evidence/werMetric';
+import { finalizeRow, unverifiedWorkerDiagnosticProblems } from '../tests/evidence/sttEvidenceSchema';
+import { NORMALIZATION_VERSION } from '../tests/evidence/werMetric';
 import { verifyModelAgainstManifest, type ExpectedModelManifest } from '../tests/evidence/modelProvenance';
 
 const MODEL_REVISION = '95bf40a508535962c6483ead40270b2e32267508';
@@ -234,21 +233,20 @@ async function main(): Promise<void> {
       throw new Error('Node and page adapter PCM sample/duration tuple differs');
     }
     const hashesMatch = proof.input.sha256 === mainInputSha256;
-    const metric = wordErrorRate(fixture.referenceText, transcript);
     const browserVersion = /Chrome\/(\S+)/.exec(proof.userAgent)?.[1] ?? 'unknown';
     const row = finalizeRow({
       comparability_class: 'corpus_fixture',
       engine: 'private-v2-browser-worker',
       engine_version: `private_v2:${MODEL_NAME}`,
       model_name: MODEL_NAME,
-      attribution_status: 'verified',
+      attribution_status: 'unverified',
       browser: 'Chromium',
       browser_version: browserVersion,
       os: process.platform,
       device: process.arch,
       network_condition: 'local-self-hosted-assets; external requests blocked',
       fixture_id: fixture.fixtureId,
-      wer: metric.wer,
+      wer: null,
       first_partial_latency_ms: null,
       finalization_latency_ms: proof.input.latencyMs,
       failure_class: 'none',
@@ -299,11 +297,20 @@ async function main(): Promise<void> {
         cloudProviderCalls: externalRequests.length,
       },
     });
+    const diagnosticProblems = unverifiedWorkerDiagnosticProblems(row);
+    if (diagnosticProblems.length > 0) {
+      throw new Error(`unverified worker diagnostic failed validation: ${diagnosticProblems.join('; ')}`);
+    }
 
     const artifact = {
       generatedFor: '#1037 production Private-v2 browser-worker single-thread fallback',
       releaseSha,
-      limitations: ['Batch worker emits no partial transcript; first_partial_latency_ms is honestly null.'],
+      classification: 'unverified-worker-diagnostic-non-rankable',
+      persistedAttributionProven: false,
+      limitations: [
+        'No persisted session attribution is exercised; the row is intentionally unverified, invalid, WER-free, and non-rankable.',
+        'Batch worker emits no partial transcript; first_partial_latency_ms is honestly null.',
+      ],
       totalJourneyLatencyMs: totalLatencyMs,
       timingMs: {
         modelLoad: proof.runtime.modelLoadTimeMs,
@@ -320,7 +327,7 @@ async function main(): Promise<void> {
       requiredModelRequests,
       workerAssetFiles,
       wasmAssetFiles,
-      transcript,
+      transcriptProduced: transcript.trim().length > 0,
       writeRequests,
       externalRequests,
       localRequestCount: localRequests.length,
@@ -328,9 +335,8 @@ async function main(): Promise<void> {
     };
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify(artifact, null, 2));
-    execFileSync('node', ['scripts/validate-stt-evidence.mjs', outPath], { stdio: 'inherit' });
     if (writeRequests.length > 0) throw new Error(`unexpected local write requests: ${writeRequests.join(', ')}`);
-    console.log(`[private-v2-worker] accepted artifact: ${outPath}`);
+    console.log(`[private-v2-worker] validated unverified diagnostic artifact: ${outPath}`);
   } finally {
     await browser.close();
   }

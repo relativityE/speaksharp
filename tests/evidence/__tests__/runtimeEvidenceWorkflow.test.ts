@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const workflow = readFileSync(resolve('.github/workflows/stt-runtime-evidence.yml'), 'utf8');
+const producer = readFileSync(resolve('scripts/private-v2-worker-evidence.mts'), 'utf8');
 
 describe('#1037 Private-v2 runtime evidence workflow contract', () => {
     it('checks out, builds, labels, and names evidence from one canonical exact SHA', () => {
@@ -25,6 +26,14 @@ describe('#1037 Private-v2 runtime evidence workflow contract', () => {
     it('fails when the mandatory evidence artifact is absent and retains it for one day', () => {
         expect(workflow).toContain('if-no-files-found: error');
         expect(workflow).toContain('retention-days: 1');
+    });
+
+    it('publishes the isolated worker result only as an unverified, WER-free diagnostic', () => {
+        expect(producer).toContain("attribution_status: 'unverified'");
+        expect(producer).toContain('wer: null');
+        expect(producer).toContain('unverifiedWorkerDiagnosticProblems(row)');
+        expect(producer).not.toContain("attribution_status: 'verified'");
+        expect(workflow).toContain('Upload validated unverified diagnostic evidence');
     });
 
     it('installs the repository-standard Chromium runtime before browser evidence runs', () => {
