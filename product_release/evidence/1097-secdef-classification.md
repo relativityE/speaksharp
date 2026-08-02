@@ -49,32 +49,45 @@ shadowing.
 
 ## Classification result — 24 `SECURITY DEFINER` functions in `public`
 
-### A. Anon-reachable (the risk surface) — 7 functions
-| Function (exact signature) | `search_path` | anon EXECUTE | Why exposed | Risk |
+### A. Anon-EXECUTE exposed — 6 functions
+**anon EXECUTE exposure ≠ successful anon usage-mutation.** A function can carry an anon EXECUTE grant yet
+mutate nothing when invoked by `anon`, because it self-scopes on `auth.uid()` (NULL for anon). The genuine
+hazard is the subset where anon EXECUTE would *actually mutate* state. The harness reports the grant
+(`has_function_privilege('anon', …)`); the mutation column is a body-read judgement.
+
+| Function | `search_path` | anon EXECUTE (grant) | Successful anon usage-mutation? | Risk |
 |---|---|---|---|---|
-| `cleanup_expired_sessions()` | **(none)** | yes | PUBLIC default | **HIGH** — no `search_path` (pg_temp first) **and** anon can invoke a state-mutating cleanup |
-| `expire_stale_sessions()` | **(none)** | yes | PUBLIC default | **HIGH** — same as above |
-| `update_user_usage(integer)` | `public` | yes | PUBLIC default | **HIGH** — anon can mutate usage accounting (the `(integer,text,uuid)` overload is correctly locked) |
-| `acquire_recording_lease(uuid,text,boolean)` | `public` | yes | explicit PUBLIC grant | MED — anon can acquire recording leases |
-| `heartbeat_recording_lease(uuid)` | `public` | yes | explicit PUBLIC grant | MED — anon can heartbeat leases |
-| `release_recording_lease(uuid)` | `public` | yes | explicit PUBLIC grant | MED — anon can release leases |
-| `ensure_trial_profile_for_new_user()` | `public` | yes | PUBLIC default | LOW — trigger function; direct EXECUTE grant is unnecessary |
+| `cleanup_expired_sessions()` | **(none)** | yes | **YES** — `UPDATE public.sessions … WHERE status='active'` with **no `auth.uid()` scoping** (cross-tenant) | **HIGH** |
+| `expire_stale_sessions()` | **(none)** | yes | **YES** — same cross-tenant, no `auth.uid()` scoping | **HIGH** |
+| `update_user_usage(integer)` | `public` | yes | **No** (mitigated) — delegates to the `auth.uid()`-scoped `(integer,text,uuid)` overload; anon's NULL uid mutates nothing | LOW (surplus grant) |
+| `acquire_recording_lease(uuid,text,boolean)` | `public` | yes | **No** (mitigated) — `v_uid := auth.uid()`, all writes `WHERE user_id = v_uid`; anon no-ops | LOW (surplus grant) |
+| `heartbeat_recording_lease(uuid)` | `public` | yes | **No** (mitigated) — self-scoped on `auth.uid()` | LOW (surplus grant) |
+| `release_recording_lease(uuid)` | `public` | yes | **No** (mitigated) — self-scoped on `auth.uid()` | LOW (surplus grant) |
 
-### B. Locked to `authenticated` (+ owner/service_role), REVOKEd from PUBLIC — 13 functions
-`check_usage_limit()`, `update_user_usage(integer,text,uuid)`, `create_session_and_update_usage(...)`,
-`complete_session(...)`, `heartbeat_session(uuid,integer)`, `consume_ai_suggestion_quota(...)`,
-`consume_formatter_quota(...)`,
-`get_analytics_summary(uuid)`, `set_user_timezone(text)`, `record_progress_evaluation(uuid)`,
-`record_progress_recommendation(...)`, `record_recommendation_attempt(uuid)`,
-`advance_recommendation_attempt(...)`.
-(`normalize_user_filler_word` and `rotate_user_sessions` are NOT `SECURITY DEFINER` in the deployed set — the
-harness introspects `pg_proc.prosecdef`, and neither appears; they were removed from this list.)
-Of these, the **hardened** subset also lists `pg_temp` explicitly last (`get_analytics_summary`,
-`set_user_timezone`, `record_progress_*`, `advance_recommendation_attempt`) — the target shape.
+`ensure_trial_profile_for_new_user()` carries a PUBLIC/anon EXECUTE grant too, but it is a **trigger** on
+`auth.users` — not directly callable to mutate — so it is classified with the authenticated/trigger set (B),
+not as an anon usage-mutation risk. Its surplus EXECUTE grant should still be revoked.
 
-### C. Locked to service_role/owner only (no anon/authenticated) — 2 functions
-`get_user_id_by_email(text)` (`search_path = ''`), `process_stripe_webhook_event(...)` (both overloads),
-`enforce_report_session_ownership()` (`pg_catalog, public`; trigger).
+### B. Authenticated / owner context (no PUBLIC), REVOKEd from PUBLIC — 14 functions
+Grantees are per-function from the actual `proacl`; there is **no blanket `service_role` grant** — most carry
+only `authenticated` (+ the owner). `check_usage_limit()`, `update_user_usage(integer,text,uuid)`,
+`create_session_and_update_usage(...)`, `complete_session(...)`, `heartbeat_session(uuid,integer)`,
+`consume_ai_suggestion_quota(...)`, `consume_formatter_quota(...)`, `get_analytics_summary(uuid)`,
+`set_user_timezone(text)`, `record_progress_evaluation(uuid)`, `record_progress_recommendation(...)`,
+`record_recommendation_attempt(uuid)`, `advance_recommendation_attempt(...)`, plus the trigger functions
+**`enforce_report_session_ownership()`** (`pg_catalog, public`; fires on an authenticated user's
+`user_issue_reports` write) and **`ensure_trial_profile_for_new_user()`** (`auth.users` trigger; its surplus
+PUBLIC EXECUTE grant is to be revoked). A `service_role` grant is called out ONLY where the function's actual
+ACL shows one — never asserted blanket.
+(`normalize_user_filler_word` and `rotate_user_sessions` are NOT `SECURITY DEFINER` in the deployed set —
+`pg_proc.prosecdef` shows neither — so they are excluded.)
+Hardened subset (explicit `pg_temp` last): `get_analytics_summary`, `set_user_timezone`, `record_progress_*`,
+`advance_recommendation_attempt` — the target shape.
+
+### C. Owner/service_role only (no anon/authenticated) — per-function, measured
+`get_user_id_by_email(text)` (`search_path = ''`) and `process_stripe_webhook_event(...)` (both overloads):
+their ACLs grant only the owner (+ `service_role` where the ACL literally shows it) — stated per function, not
+blanket.
 
 ## Caller matrix (resolved from actual call sites, not memory)
 
@@ -107,10 +120,12 @@ PUBLIC includes `anon`). The other exposed functions are PUBLIC-by-default (neve
 
 ## Remediation direction (evidence-derived; the implementation packet is NOT in this durable doc)
 
-This report is the durable **classification evidence**. The proposed **PR-B implementation planning** (exact
-`REVOKE`/`GRANT`/`ALTER FUNCTION` statements, migration behavior, rollback, and falsification tests)
-deliberately lives in the **PR #1135 description**, not here — implementation planning is not durable
-product-release evidence and must not accrete in this file.
+This report is the durable **classification evidence**, indexed under the evidence authority
+(`EVIDENCE_INDEX.md`). The proposed **PR-B implementation planning** (exact `REVOKE`/`GRANT`/`ALTER FUNCTION`
+statements, migration behavior, rollback, and falsification tests) deliberately lives in the **PR #1135
+description**, not here — implementation planning is not durable product-release evidence and must not accrete
+in this file. **Remediation RISK is routed to the roadmap** (#1128) and its remediation successor (#1141 /
+#1097 PR-B); **PR-B does not begin until this classification (PR-A) is accepted.**
 
 Direction (bounded; do NOT broaden into a general category-B/C `search_path` sweep):
 - Revoke `PUBLIC`/`anon` EXECUTE from the seven exposed functions — none has a legitimate anon caller
