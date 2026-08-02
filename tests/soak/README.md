@@ -56,7 +56,7 @@ Even though it's a backend Node script hammering the database, it initializes it
 ### 2. The Browser Endurance Check (Playwright)
 This phase boots up actual Chromium browsers. In `stress-endurance.yml`, we inject `SOAK_TEST_PASSWORD`.
 
-*   **Why?** Playwright automatically navigates to `speaksharp.app`, types in `soak-test0@test.com` and your `SOAK_TEST_PASSWORD` into the standard login form, and clicks "Sign In". It runs exactly as a real human user would, purely through the frontend React interface.
+*   **Why?** Playwright automatically navigates to `speaksharp-public.vercel.app`, types in `soak-test0@test.com` and your `SOAK_TEST_PASSWORD` into the standard login form, and clicks "Sign In". It runs exactly as a real human user would, purely through the frontend React interface.
 
 **In Summary:** The stress/endurance suite operates from the perspective of an external, untrusted web client. We never use admin privileges to bypass the tests.
 

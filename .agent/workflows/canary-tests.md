@@ -30,7 +30,7 @@ gh run view <RUN_ID> --log-failed
 ```
 
 ## GitHub Secrets Used
-- `CANARY_PASSWORD` - Password for `canary-user@speaksharp.app`
+- `CANARY_PASSWORD` - Password for `canary-user@example.com`
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`
 
 ## Files

@@ -7,7 +7,7 @@ This evidence was captured against local `4173` using Chrome CDP on `9222`, real
 
 Signed-in account:
 
-- `stt-browser-proof-1779702930@speaksharp.app`
+- `stt-browser-proof-1779702930@example.com`
 - Profile displayed as Pro.
 - Private and Cloud mode options were enabled after switching away from the stale browser account.
 
@@ -26,7 +26,7 @@ Input phrase:
 ## Findings
 
 1. The earlier Cloud failure was a test-account precondition, not an AssemblyAI/provider failure.
-   - The browser was still signed in as `v4journey.1779641988398@speaksharp.app`.
+   - The browser was still signed in as `v4journey.1779641988398@example.com`.
    - That account showed a Pro badge but did not expose Cloud entitlement in the UI.
    - After signing in as the workflow-created Pro cloud-entitled account, Cloud mode became selectable and the token/websocket path worked.
 

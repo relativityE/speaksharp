@@ -57,7 +57,7 @@ const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_
 const PRIVATE_SETUP_USER_CONSENT_REQUIRED = process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true';
 const HEADLESS = process.env.HEADLESS === 'true';
 const MAX_WER = process.env.STT_MAX_WER == null ? null : Number(process.env.STT_MAX_WER);
-const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@speaksharp.app`;
+const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@${process.env.LIVE_TEST_EMAIL_DOMAIN || 'example.com'}`;
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';

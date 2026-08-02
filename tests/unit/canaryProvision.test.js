@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { classifyError, withRetry, signInWithBoundedRetry, verifyTier, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
 
-const CANARY = 'canary@speaksharp.app';
+const CANARY = 'canary@example.com';
 const config = { email: CANARY, password: 'pw' };
 const invalidJwt = { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' };
 const badCreds = { status: 400, message: 'Invalid login credentials' };          // recognized → recoverable
@@ -77,7 +77,7 @@ describe('verifyTier — FAIL-CLOSED', () => {
 describe('enforceCeiling', () => {
   it('ok / warn / exceeded / skipped', async () => {
     expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true })).status).toBe('ok');
-    const two = [{ users: [{ email: CANARY }, { email: 'canary-x@speaksharp.app' }] }];
+    const two = [{ users: [{ email: CANARY }, { email: 'canary-x@example.com' }] }];
     expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: false })).status).toBe('warn');
     expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true })).status).toBe('exceeded');
     expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true })).status).toBe('skipped');

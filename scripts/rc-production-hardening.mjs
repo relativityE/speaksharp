@@ -23,7 +23,7 @@ const forbiddenChecks = [
   {
     file: 'frontend/src/contexts/AuthProvider.tsx',
     description: 'manual auth provider must not inject devBypass profile sessions',
-    pattern: /devBypass|dev-bypass|dev@speaksharp\.app/,
+    pattern: /devBypass|dev-bypass|dev@example\.com/, // #1148: guard target uses the reserved test domain, not the third-party domain
   },
   {
     file: 'frontend/src/hooks/useUserProfile.ts',

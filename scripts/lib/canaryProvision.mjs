@@ -19,7 +19,10 @@
  * No credentials, tokens, JWT claims, or user records are returned/logged.
  */
 
-const CANARY_EMAIL_RE = /^canary(-.+)?@speaksharp\.app$/i;
+// #1148: match canary accounts by their `canary` local-part convention, DOMAIN-AGNOSTIC. The prior form
+// hard-coded a third-party domain; the canary identity's domain is now injected (vars.CANARY_EMAIL), so the
+// ceiling counts canary-prefixed accounts regardless of the (approved) domain they are provisioned under.
+const CANARY_EMAIL_RE = /^canary(-.+)?@/i;
 
 /**
  * Classify a Supabase error into an actionable, content-free category.

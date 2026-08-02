@@ -1,7 +1,7 @@
 {
   "ok": true,
   "account": {
-    "email": "ux-hardnav-1780680159600@speaksharp.app",
+    "email": "ux-hardnav-1780680159600@example.com",
     "password": "SpeakSharp-HardNav-1780680159600!"
   },
   "beforeStart": {
@@ -15,7 +15,7 @@
     "startButtonRecording": "false",
     "transcriptTextOnly": "",
     "transcriptVisible": "Start recording and your words will appear here.",
-    "bodyText": "Skip to content Private is ready. Nothing leaves your browser. Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@speaksharp.app Sign Out Practice Session Record, review, and track your speaking patterns Private ready. Nothing leaves your browser. Trial access: 59m 59s left for Private/Vault Mode. Private Model Complete 100% Runs locally after model setup. All audio processing remains local. • Private 00:00 PRIVATE READY. NOTHING LEAVES YOUR BROWSER. Live Transcript Start recording and your words will appear here. LIVE COACHING SpeakSharp Score* The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact. Improve the ingredients, then come back and try to lift the score. Speak a little more to get a useful score. -- SCOR",
+    "bodyText": "Skip to content Private is ready. Nothing leaves your browser. Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine. SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@example.com Sign Out Practice Session Record, review, and track your speaking patterns Private ready. Nothing leaves your browser. Trial access: 59m 59s left for Private/Vault Mode. Private Model Complete 100% Runs locally after model setup. All audio processing remains local. • Private 00:00 PRIVATE READY. NOTHING LEAVES YOUR BROWSER. Live Transcript Start recording and your words will appear here. LIVE COACHING SpeakSharp Score* The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact. Improve the ingredients, then come back and try to lift the score. Speak a little more to get a useful score. -- SCOR",
     "draft": null,
     "draftRawLength": 0,
     "environmentProof": {
@@ -39,7 +39,7 @@
     "startButtonRecording": "true",
     "transcriptTextOnly": "Basically.",
     "transcriptVisible": "Draft transcript Text may change before the final transcript is saved.Basically.",
-    "bodyText": "Skip to content Private is ready. Nothing leaves your browser. SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@speaksharp.app Sign Out Practice Session Record, review, and track your speaking patterns Recording active Trial access: 59m 59s left for Private/Vault Mode. Private Model Complete 100% Runs locally after model setup. All audio processing remains local. • Private 00:03 RECORDING ACTIVE MIN 5S REQUIRED Basically. Live Transcript Live text Draft transcript Text may change before the final transcript is saved. Basically. LIVE COACHING SpeakSharp Score* The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact. Improve the ingredients, then come back and try to lift the score. Speak a little more to get a useful score. -- SCORE SOON Confidence: Building Getting Started Warming up Try this now Start with one complet",
+    "bodyText": "Skip to content Private is ready. Nothing leaves your browser. SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@example.com Sign Out Practice Session Record, review, and track your speaking patterns Recording active Trial access: 59m 59s left for Private/Vault Mode. Private Model Complete 100% Runs locally after model setup. All audio processing remains local. • Private 00:03 RECORDING ACTIVE MIN 5S REQUIRED Basically. Live Transcript Live text Draft transcript Text may change before the final transcript is saved. Basically. LIVE COACHING SpeakSharp Score* The visible tools roll up into one coaching score: structure, pace/fillers/pauses, clarity, and audience impact. Improve the ingredients, then come back and try to lift the score. Speak a little more to get a useful score. -- SCORE SOON Confidence: Building Getting Started Warming up Try this now Start with one complet",
     "draft": null,
     "draftRawLength": 0,
     "environmentProof": {
@@ -63,7 +63,7 @@
     "startButtonRecording": null,
     "transcriptTextOnly": "",
     "transcriptVisible": "",
-    "bodyText": "Skip to content SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@speaksharp.app Sign Out Your Analytics Track your speaking progress and improvements Pro active Your trends start after one saved session Save a practice session to see pace, filler words, clarity, PDF reports, and progress history here. Start Practice Session",
+    "bodyText": "Skip to content SpeakSharp Home Session Analytics PRO ux-hardnav-1780680159600@example.com Sign Out Your Analytics Track your speaking progress and improvements Pro active Your trends start after one saved session Save a practice session to see pace, filler words, clarity, PDF reports, and progress history here. Start Practice Session",
     "draft": {
       "sessionId": "unsaved-1780680170250",
       "userId": null,

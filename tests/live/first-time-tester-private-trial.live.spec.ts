@@ -112,7 +112,7 @@ test.describe('First-time tester Private sample path @live', () => {
     console.log('FIRST_TIME_TESTER_STEP cleared_private_model_storage');
 
     const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
-    const email = `first-time-tester-${unique}@speaksharp.app`;
+    const email = `first-time-tester-${unique}@${process.env.LIVE_TEST_EMAIL_DOMAIN ?? 'example.com'}`;
     const password = `SpeakSharpSample-${unique}!`;
     createdFirstTimeEmail = email; // register for afterEach cleanup so it never accumulates
 

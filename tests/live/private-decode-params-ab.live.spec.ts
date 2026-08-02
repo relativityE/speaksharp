@@ -187,7 +187,7 @@ function makeTesterAccount(label: string) {
   // STABLE reusable account per variant — never mints a per-run user (which accumulated as
   // private-decode-ab-* residue). Pro/trial state is mocked client-side, so no DB provisioning.
   return {
-    email: `private-decode-ab-${label}-reuse@speaksharp.app`,
+    email: `private-decode-ab-${label}-reuse@${process.env.LIVE_TEST_EMAIL_DOMAIN ?? 'example.com'}`,
     password: process.env.PRIVATE_DECODE_AB_REUSE_PASSWORD ?? 'SpeakSharpDecodeAb-Reuse!Aa9',
   };
 }

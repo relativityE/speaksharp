@@ -41,7 +41,7 @@
   "microphonePath": "page getUserMedia override with per-fixture WAV injected at mic request time",
   "auth": {
     "mode": "fresh",
-    "email": "stt-corpus-1780675058782@speaksharp.app",
+    "email": "stt-corpus-1780675058782@example.com",
     "password": "SttCorpus1780675058782!Aa9"
   },
   "startedAt": "2026-06-05T15:57:38.782Z",
@@ -104,7 +104,7 @@
     },
     {
       "type": "info",
-      "text": "{email: stt-corpus-1780675058782@speaksharp.app} [AuthPage] Attempting sign_up"
+      "text": "{email: stt-corpus-1780675058782@example.com} [AuthPage] Attempting sign_up"
     },
     {
       "type": "info",
@@ -1799,7 +1799,7 @@
       "privateWasmThreadCount": 1,
       "privateCloudFallbackAttempted": false,
       "historyVisible": false,
-      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@speaksharp.appSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
+      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@example.comSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
       "analyticsTranscriptEvidence": {
         "bodyLength": 358,
         "uniqueTranscriptWordCount": 0,
@@ -2600,7 +2600,7 @@
       "privateWasmThreadCount": 1,
       "privateCloudFallbackAttempted": false,
       "historyVisible": false,
-      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@speaksharp.appSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
+      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@example.comSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
       "analyticsTranscriptEvidence": {
         "bodyLength": 358,
         "uniqueTranscriptWordCount": 0,

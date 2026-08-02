@@ -88,4 +88,4 @@ If you've been provided with a **One-Time Code**, follow these steps to activate
 
 ---
 
-*Need more help? Join our community or contact support at support@speaksharp.app.*
+*Need more help? Use the in-app **Report issue** action to reach us.*

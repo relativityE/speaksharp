@@ -722,10 +722,10 @@ After deployment, verify the complete user journey:
 | Environment | URL | Purpose |
 |-------------|-----|---------|
 | Preview | `speaksharp-*.vercel.app` | PR previews |
-| Alpha/Staging | `alpha.speaksharp.app` | Soft launch, beta testers |
-| Production | `speaksharp.app` | Public release |
+| Alpha/Staging | `[third-party domain redacted #1148]` | Soft launch, beta testers |
+| Production | `[third-party domain redacted #1148]` | Public release |
 
 **Custom domain setup:**
 1. Vercel Dashboard → Project → Domains
-2. Add `alpha.speaksharp.app`
+2. Add `[third-party domain redacted #1148]`
 3. Add CNAME record in DNS: `alpha → cname.vercel-dns.com`

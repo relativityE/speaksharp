@@ -6,7 +6,7 @@
  * "which humans tried SpeakSharp, what did they do, and did they report anything" — including testers
  * with ZERO activity and ZERO reports. It also treats every non-excluded account as a candidate tester,
  * which massively over-counts: the test suite mints accounts on @example.com, @test.com and
- * @speaksharp.app (several with per-run timestamps), so automated accounts were being reported as testers.
+ * @example.com (several with per-run timestamps), so automated accounts were being reported as testers.
  *
  * This script adds ONLY what is missing:
  *   - pattern-based classification (automated / internal / human) so the human cohort is trustworthy

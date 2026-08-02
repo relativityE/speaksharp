@@ -39,7 +39,8 @@ test.describe('Account-wide recording mutex @live', () => {
       : {
         // STABLE reusable fallback account (when no env reviewer creds are configured) — fixed, never
         // a per-run mint, so it cannot accumulate as account-mutex-* residue.
-        email: 'account-mutex-reuse@speaksharp.app',
+        // #1148: domain injected at runtime (real reuse account recorded for #1146); reserved example.com fallback.
+        email: `account-mutex-reuse@${process.env.LIVE_TEST_EMAIL_DOMAIN ?? 'example.com'}`,
         password: process.env.ACCOUNT_MUTEX_REUSE_PASSWORD ?? 'SpeakSharpMutex-Reuse!Aa9',
         mode: 'fresh' as const,
       };
