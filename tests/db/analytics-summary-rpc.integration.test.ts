@@ -935,4 +935,54 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(2999999997.0, 1);
         });
     });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1131 round-4 — exact-head review threads: expired clarity explanation, trend time-normalization
+    // parity, and array/scalar fail-closed. (Defect #1 — the expired-explanation withholding — is a UI
+    // concern proven in AnalyticsDashboard.component.test.tsx.)
+    // ---------------------------------------------------------------------------------------------
+    describe('(#1131 round-4) trend time-normalization parity + array/scalar fail-closed', () => {
+        it('#2: filler trends normalize by SPEAKING TIME (not raw-count average) — unequal-duration windows match the client', async () => {
+            // Fixtures are authored OLDEST-first (asPracticeSessions reverses to newest-first for the client,
+            // matching the RPC's created_at DESC). current window = 2 most-recent (newest 60s um2 + mid 120s
+            // um4): 6 um / 3 min = 2.0 (a raw-count average would be 3.0). previous window = oldest (60s um3):
+            // 3 um / 1 min = 3.0.
+            const rows: Fixture[] = [
+                fx('oldest', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 3 }, total: { count: 3 } } }),
+                fx('mid', { created_at: '2026-07-02T10:00:00Z', duration: 120, total_words: 240, transcript: words(240), transcript_state: 'available', filler_words: { um: { count: 4 }, total: { count: 4 } } }),
+                fx('newest', { created_at: '2026-07-03T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { fillerWordTrends } = await callRpc(db, USER);
+            const clientTrends = calculateFillerWordTrends(asPracticeSessions(rows));
+
+            expect(fillerWordTrends.um.current).toBeCloseTo(2.0, 2);   // time-normalized, NOT the 3.0 raw-count avg
+            expect(fillerWordTrends.um.previous).toBeCloseTo(3.0, 2);
+            expect(fillerWordTrends.um.current).not.toBeCloseTo(3.0, 2);
+            // client ≡ RPC on the same unequal-duration windows.
+            expect(clientTrends.um.current).toBeCloseTo(fillerWordTrends.um.current, 2);
+            expect(clientTrends.um.previous).toBeCloseTo(fillerWordTrends.um.previous, 2);
+        });
+
+        it('#3: an ARRAY or SCALAR filler_words never aborts the RPC and yields no fabricated metric — matching the client', async () => {
+            for (const bad of [[{ count: 2 }], 5] as unknown[]) {
+                const rows: Fixture[] = [
+                    fx('bad-shape', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: bad as unknown as Record<string, { count: number }> }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                // Must not throw — jsonb_each is guarded against non-objects; helper returns NULL for non-objects.
+                const { overallStats, topFillerWords, fillerWordTrends } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();  // array/scalar is not filler evidence
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(topFillerWords).toEqual([]);
+                expect(fillerWordTrends).toEqual({});
+                expect(overallStats.avgWpm).toBe(120);                 // WPM unaffected
+                expect(client.avgFillerWordsPerMin).toBeNull();        // client agrees (Array.isArray / non-object → null)
+            }
+        });
+    });
 });

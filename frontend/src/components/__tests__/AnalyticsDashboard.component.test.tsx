@@ -393,6 +393,34 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('clarity-score-value-explanation')).toHaveTextContent(/cannot be scored/i);
     });
 
+    it('#1131 round-4 (#1): an EXPIRED session shows its persisted clarity score but WITHHOLDS the recomputed explanation', () => {
+        renderComponent({
+            sessionId: 'expired-session',
+            sessionHistory: [
+                {
+                    id: 'expired-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    wpm: 120,
+                    clarity_score: 88,
+                    filler_words: { um: { count: 2 }, total: { count: 2 } },
+                    // server-owned: transcript removed by retention, measurements survive.
+                    transcript_state: 'expired',
+                    transcript: null,
+                },
+            ],
+        });
+
+        // The persisted score still shows (measurements survive retention)…
+        expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/88/);
+        // …but the transcript-recomputed explanation (errorCount=0 from absent text) is withheld entirely.
+        expect(screen.queryByTestId('clarity-score-value-explanation')).toBeNull();
+        expect(screen.queryByTestId('stat-card-speaking_pace-explanation')).toBeNull();
+        expect(screen.queryByTestId('filler-count-value-explanation')).toBeNull();
+    });
+
     it('shows saved recording mode metadata in the session detail view', () => {
         renderComponent({
             sessionId: 'session-1',

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
-import { presentTranscript, transcriptDerivedMetricShowable } from '@/constants/transcriptState';
+import { presentTranscript, transcriptDerivedMetricShowable, TRANSCRIPT_STATE } from '@/constants/transcriptState';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
@@ -851,7 +851,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             label="Speaking Pace"
                             value={transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.wpm === 'number') ? targetSessionMetrics.wpm : NOT_ENOUGH_DATA}
                             unit="WPM"
-                            description={targetSessionMetrics.wpmExplanation}
+                            // #1131 round-4 (#1): for an EXPIRED row the transcript is gone but measurements
+                            // persist, so the recomputed *Explanation (word/error/filler counts, errorCount=0
+                            // from absent text) is potentially FALSE while the persisted value still shows —
+                            // withhold it. (not_captured keeps its honest evidence-free "cannot be scored"
+                            // explanation; available keeps its transcript-backed narrative.)
+                            description={targetTranscript?.state === TRANSCRIPT_STATE.EXPIRED ? undefined : targetSessionMetrics.wpmExplanation}
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
                         {/* #1045: one vocabulary for absent evidence. A bare "--" reads as a rendering
@@ -861,14 +866,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             label="Clear Delivery"
                             value={(targetSessionMetrics.isClarityScorable && transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.clarity_score === 'number')) ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
                             unit={(targetSessionMetrics.isClarityScorable && transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.clarity_score === 'number')) ? '%' : undefined}
-                            description={targetSessionMetrics.clarityExplanation}
+                            // #1131 round-4 (#1): withhold the recomputed clarity narrative ONLY for an EXPIRED
+                            // row — the persisted clarity SCORE may still show, but the explanation (recomputed
+                            // with errorCount=0 from absent text) would be a false statement. not_captured keeps
+                            // its honest "cannot be scored" copy.
+                            description={targetTranscript?.state === TRANSCRIPT_STATE.EXPIRED ? undefined : targetSessionMetrics.clarityExplanation}
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
                             label="Detected filler words"
                             value={transcriptDerivedMetricShowable(targetTranscript?.state, isUsableFillerCounts(targetSession.filler_words)) ? targetSessionMetrics.fillerCount : NOT_ENOUGH_DATA}
-                            description={targetSessionMetrics.fillerExplanation}
+                            // #1131 round-4 (#1): same rule for the filler narrative — withhold only for an
+                            // EXPIRED row rather than recompute from absent text.
+                            description={targetTranscript?.state === TRANSCRIPT_STATE.EXPIRED ? undefined : targetSessionMetrics.fillerExplanation}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
                     </div>

@@ -229,7 +229,10 @@ BEGIN
     FROM (
         SELECT v.key as word, sum((v.value->>'count')::bigint) as count
         FROM sessions s,
-             jsonb_each(s.filler_words) AS v(key, value)
+             -- #1131 round-4 (#3): fail closed on non-object filler_words. jsonb_each aborts on an array/scalar;
+             -- filler_words is unconstrained JSONB, and this scan spans ALL of the user's rows (before the WHERE),
+             -- so coalesce a non-object to '{}' (yields no rows) instead of letting it abort get_analytics_summary.
+             jsonb_each(CASE WHEN jsonb_typeof(s.filler_words) = 'object' THEN s.filler_words ELSE '{}'::jsonb END) AS v(key, value)
         WHERE s.user_id = p_user_id
           AND s.transcript_state IS DISTINCT FROM 'not_captured'
           AND v.key != 'total'
@@ -361,40 +364,57 @@ BEGIN
         v_trend_current_count := LEAST(v_eligible_filler_count, 10) - (LEAST(v_eligible_filler_count, 10) / 2);
 
         WITH eligible_filler_sessions AS (
-            SELECT id, row_number() OVER (ORDER BY created_at DESC) as rn
+            SELECT id, duration, row_number() OVER (ORDER BY created_at DESC) as rn
             FROM sessions
             WHERE user_id = p_user_id
               AND transcript_state IS DISTINCT FROM 'not_captured'
               AND public._ss_valid_filler_total(filler_words) IS NOT NULL
         ),
         last_10_sessions AS (
-            SELECT id, rn FROM eligible_filler_sessions WHERE rn <= 10
+            SELECT id, duration, rn FROM eligible_filler_sessions WHERE rn <= 10
+        ),
+        -- #1131 round-4 (#2): per-window SPEAKING TIME (distinct per session). The client normalizes each
+        -- window's filler counts by its total speaking minutes; the RPC must do the same (previously it
+        -- averaged raw counts, so unequal-duration windows diverged from the client).
+        window_minutes AS (
+            SELECT
+                sum(duration) FILTER (WHERE rn <= v_trend_current_count) / 60.0 AS cur_min,
+                sum(duration) FILTER (WHERE rn >  v_trend_current_count) / 60.0 AS prev_min
+            FROM last_10_sessions
         ),
         filler_counts AS (
-            -- #1131 correction 4: only per-word entries with a VALID non-negative integer count contribute;
-            -- the regex guards the ::int cast so a fractional/negative/malformed count never crashes it.
+            -- #1131 correction 4 / #32: only per-word entries with a VALID JSON-number non-negative integer
+            -- count contribute; the type check + regex guard the ::bigint cast against malformed values.
             SELECT
                 l.rn,
                 v.key as word,
                 (v.value->>'count')::bigint as count
             FROM last_10_sessions l
             JOIN sessions s ON s.id = l.id
-            CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
+            -- #1131 round-4 (#3): fail closed on non-object filler_words (defense-in-depth — eligible rows are
+            -- already objects via _ss_valid_filler_total, but never call jsonb_each on unconstrained JSONB).
+            CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(s.filler_words) = 'object' THEN s.filler_words ELSE '{}'::jsonb END) AS v(key, value)
             WHERE v.key != 'total'
               AND jsonb_typeof(v.value->'count') = 'number'
               AND (v.value->>'count') ~ '^[0-9]{1,9}$'
         ),
-        averages AS (
+        sums AS (
             SELECT
                 word,
-                avg(count) FILTER (WHERE rn <= v_trend_current_count) as current_avg,
-                avg(count) FILTER (WHERE rn > v_trend_current_count) as previous_avg
+                sum(count) FILTER (WHERE rn <= v_trend_current_count) as cur_sum,
+                sum(count) FILTER (WHERE rn >  v_trend_current_count) as prev_sum
             FROM filler_counts
             GROUP BY word
         )
-        SELECT coalesce(jsonb_object_agg(word, jsonb_build_object('current', coalesce(current_avg, 0), 'previous', coalesce(previous_avg, 0))), '{}'::jsonb)
+        -- Per-word rate = window filler count / window speaking minutes, rounded to 2dp — matching the client
+        -- getRatesForWindow (counts / totalMinutes, toFixed(2)); a word absent from a window is 0, and a
+        -- zero-duration window yields 0 (mirrors the client `totalMinutes <= 0` guard).
+        SELECT coalesce(jsonb_object_agg(word, jsonb_build_object(
+            'current',  CASE WHEN w.cur_min  > 0 THEN round(coalesce(s2.cur_sum, 0)  / w.cur_min, 2)  ELSE 0 END,
+            'previous', CASE WHEN w.prev_min > 0 THEN round(coalesce(s2.prev_sum, 0) / w.prev_min, 2) ELSE 0 END
+        )), '{}'::jsonb)
         INTO v_filler_word_trends
-        FROM averages;
+        FROM sums s2 CROSS JOIN window_minutes w;
     ELSE
         v_filler_word_trends := '{}'::jsonb;
     END IF;

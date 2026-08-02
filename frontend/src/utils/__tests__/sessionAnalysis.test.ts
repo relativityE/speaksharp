@@ -273,6 +273,14 @@ describe('isUsableFillerCounts — valid-zero is usable; only absent/malformed i
     it('malformed (non-numeric total, no numeric entry) is NOT usable', () => {
         expect(isUsableFillerCounts({ total: { count: 'x' } } as never)).toBe(false);
     });
+    it('#1131 round-4 (#3): an ARRAY or SCALAR filler_words is NOT usable — fail closed, never treated as an object map', () => {
+        // typeof [] === 'object', so an array would otherwise be iterated by index. Scalars carry no counts.
+        expect(isUsableFillerCounts([{ count: 2 }] as never)).toBe(false);
+        expect(validatedFillerTotal([{ count: 2 }] as never)).toBeNull();
+        expect(isUsableFillerCounts(5 as never)).toBe(false);
+        expect(validatedFillerTotal(5 as never)).toBeNull();
+        expect(validatedFillerTotal('x' as never)).toBeNull();
+    });
     it('#1131 (#31): a finite but INVALID total (fractional / negative) is NOT usable — never coerced to zero', () => {
         // Previously these were "usable" (Number.isFinite) then getFillerTotal coerced them to a confident 0.
         expect(isUsableFillerCounts({ total: { count: 2.5 } } as never)).toBe(false);

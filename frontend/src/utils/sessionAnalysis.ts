@@ -65,7 +65,9 @@ export const isValidFillerCount = (v: unknown): v is number =>
 export const validatedFillerTotal = (
     fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
 ): number | null => {
-    if (!fillerWords || typeof fillerWords !== 'object') return null;
+    // #1131 round-4 (#3): fail closed on non-plain-objects. `typeof [] === 'object'`, so an ARRAY would
+    // otherwise be iterated by index and treated as a filler map; a scalar/null carries no counts either.
+    if (!fillerWords || typeof fillerWords !== 'object' || Array.isArray(fillerWords)) return null;
     const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
     if (isValidFillerCount(total)) return total; // total-authoritative
     let sum = 0;
