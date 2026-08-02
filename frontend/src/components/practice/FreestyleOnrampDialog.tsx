@@ -31,6 +31,7 @@ interface FreestyleOnrampDialogProps {
   onContinue: (selection: FreestyleOnrampSelection) => void;
   returnFocusRef: React.RefObject<HTMLElement | null>;
   calibrationBlocked?: boolean;
+  canStartCalibration?: () => boolean;
   createSession?: CreateCalibrationSession;
 }
 
@@ -42,6 +43,7 @@ export function FreestyleOnrampDialog({
   onContinue,
   returnFocusRef,
   calibrationBlocked = false,
+  canStartCalibration = () => true,
   createSession = createCalibrationSession,
 }: FreestyleOnrampDialogProps) {
   const [focus, setFocus] = React.useState<PracticeFocus>('just-practice');
@@ -163,6 +165,12 @@ export function FreestyleOnrampDialog({
   };
 
   const startCalibration = async () => {
+    if (calibrationBlocked || !canStartCalibration()) {
+      resetCalibration();
+      setCalibrationState('error');
+      setCalibrationError('Finish the current recording or recovery step before testing your microphone.');
+      return;
+    }
     await disposeCalibration();
     resetCalibration();
     setCalibrationState('starting');

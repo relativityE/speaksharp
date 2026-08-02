@@ -135,6 +135,24 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeEnabled();
     });
 
+    it('rechecks recovery at Start when another tab writes the current owner draft after mount', () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+      saveSessionRecoveryDraft({
+        sessionId: 'cross-tab-after-mount',
+        userId: 'u-1',
+        transcript: 'new unsaved private words',
+        durationSeconds: 14,
+        mode: 'private',
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);
+      expect(localStorage.getItem('speaksharp_active_session_lock')).toBeNull();
+    });
+
     it('fails calibration closed when recovery storage cannot be inspected', () => {
       const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
         throw new DOMException('storage denied', 'SecurityError');

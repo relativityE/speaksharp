@@ -1,9 +1,11 @@
 import type { ITranscriptionEngine, Transcript, TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { DistributedLock } from '@/lib/DistributedLock';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { safeResetSessionTelemetryIfCurrent } from '@/services/telemetry/sessionTelemetryBus';
 
 export const CALIBRATION_MAX_SECONDS = 30;
 export const CALIBRATION_PASSAGE = 'Good communication starts with a clear purpose. Today I want to explain one small change that could make our work easier. The change is simple: agree on the next step before each meeting ends. That gives everyone a clear owner, a deadline, and fewer follow-up questions. I would start with our next team meeting and review the result after one week.';
+export const CALIBRATION_TELEMETRY_SESSION_ID = 'ephemeral-calibration';
 
 export interface CalibrationSessionCallbacks {
   onTranscript: (transcript: string) => void;
@@ -92,6 +94,10 @@ export function createCalibrationSession(
       } catch (error) {
         cleanupError ??= error;
       }
+      // NativeBrowser publishes raw transcript events to the process-wide
+      // shadow bus. Purge only if calibration still owns that bus; an actual
+      // successor session must never be cleared by stale calibration cleanup.
+      safeResetSessionTelemetryIfCurrent(CALIBRATION_TELEMETRY_SESSION_ID);
       if (lockAcquired && lock) {
         try {
           lock.updateState('TERMINATED');
@@ -133,7 +139,7 @@ export function createCalibrationSession(
       notifyErrorOnce(message);
     },
     serviceId: 'freestyle-calibration',
-    runId: 'ephemeral-calibration',
+    runId: CALIBRATION_TELEMETRY_SESSION_ID,
   };
 
   return {

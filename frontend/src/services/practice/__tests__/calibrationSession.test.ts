@@ -32,10 +32,33 @@ class FakeBrowserEngine {
 
 vi.mock('@/services/transcription/modes/NativeBrowser', () => ({ default: FakeBrowserEngine }));
 
-import { createCalibrationSession } from '../calibrationSession';
+import { CALIBRATION_TELEMETRY_SESSION_ID, createCalibrationSession } from '../calibrationSession';
 import { useSessionStore } from '@/stores/useSessionStore';
+import {
+  __resetSessionTelemetryBusForTests,
+  getSessionTelemetryBus,
+  publishTelemetry,
+} from '@/services/telemetry/sessionTelemetryBus';
 
 const LOCK_KEY = 'speaksharp_active_session_lock';
+
+function seedCalibrationTranscriptTelemetry() {
+  getSessionTelemetryBus().reset(CALIBRATION_TELEMETRY_SESSION_ID);
+  publishTelemetry({
+    type: 'transcript.partial',
+    mode: 'native',
+    t: 1,
+    text: 'raw temporary words',
+    sequence: 0,
+  });
+  publishTelemetry({
+    type: 'transcript.final',
+    mode: 'native',
+    t: 2,
+    text: 'raw temporary words final',
+    sequence: 1,
+  });
+}
 
 describe('isolated Browser calibration boundary', () => {
   const onTranscript = vi.fn();
@@ -45,6 +68,7 @@ describe('isolated Browser calibration boundary', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    __resetSessionTelemetryBusForTests();
     useSessionStore.getState().setEngineSelectionLock(false, null);
     engineState.options = null;
     engineState.checkAvailability.mockResolvedValue({ isAvailable: true });
@@ -61,7 +85,38 @@ describe('isolated Browser calibration boundary', () => {
     useSessionStore.getState().setEngineSelectionLock(false, null);
     localStorage.clear();
     sessionStorage.clear();
+    __resetSessionTelemetryBusForTests();
     vi.unstubAllGlobals();
+  });
+
+  it('purges its raw transcript telemetry on successful stop', async () => {
+    const session = createCalibrationSession({ onTranscript });
+    await session.start();
+    seedCalibrationTranscriptTelemetry();
+    expect(getSessionTelemetryBus().getBufferedEvents()).toHaveLength(2);
+
+    await session.stop();
+
+    expect(getSessionTelemetryBus().currentSessionId).toBe('unset');
+    expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
+  });
+
+  it('does not clear telemetry after another session has rebound the process bus', async () => {
+    const session = createCalibrationSession({ onTranscript });
+    await session.start();
+    getSessionTelemetryBus().reset('successor-session');
+    publishTelemetry({
+      type: 'transcript.final',
+      mode: 'private',
+      t: 3,
+      text: 'successor words',
+      sequence: 0,
+    });
+
+    await session.stop();
+
+    expect(getSessionTelemetryBus().currentSessionId).toBe('successor-session');
+    expect(getSessionTelemetryBus().getBufferedEvents()).toHaveLength(1);
   });
 
   it('uses only the Browser leaf engine, emits ephemeral words, and leaves no active lock or network write', async () => {
@@ -109,6 +164,7 @@ describe('isolated Browser calibration boundary', () => {
     const session = createCalibrationSession({ onTranscript, onError });
 
     await session.start();
+    seedCalibrationTranscriptTelemetry();
     engineState.options?.onError?.({ message: 'Browser recognition stopped.' });
 
     await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('Browser recognition stopped.'));
@@ -116,6 +172,7 @@ describe('isolated Browser calibration boundary', () => {
     expect(engineState.stop).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(LOCK_KEY)).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
   });
 
   it('rejects calibration while the same tab has an active or unresolved recording', async () => {
@@ -140,10 +197,22 @@ describe('isolated Browser calibration boundary', () => {
   it('releases its mutex when Browser initialization fails', async () => {
     engineState.init.mockResolvedValue({ isOk: false, error: new Error('init failed') });
     const session = createCalibrationSession({ onTranscript });
+    seedCalibrationTranscriptTelemetry();
 
     await expect(session.start()).rejects.toThrow('init failed');
     expect(engineState.terminate).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(LOCK_KEY)).toBeNull();
+    expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
+  });
+
+  it('purges raw transcript telemetry when calibration is disposed', async () => {
+    const session = createCalibrationSession({ onTranscript });
+    await session.start();
+    seedCalibrationTranscriptTelemetry();
+
+    await session.dispose();
+
+    expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
   });
 
   it('closes cleanly during asynchronous initialization and releases its mutex', async () => {

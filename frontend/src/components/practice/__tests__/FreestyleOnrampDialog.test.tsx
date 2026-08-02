@@ -37,10 +37,12 @@ function createFakeCalibration(finalTranscript = 'A temporary calibration transc
 function Harness({
   createSession,
   calibrationBlocked = false,
+  canStartCalibration,
   onContinue = vi.fn(),
 }: {
   createSession?: CreateCalibrationSession;
   calibrationBlocked?: boolean;
+  canStartCalibration?: () => boolean;
   onContinue?: ReturnType<typeof vi.fn>;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -53,6 +55,7 @@ function Harness({
       onContinue={onContinue}
       returnFocusRef={trigger}
       calibrationBlocked={calibrationBlocked}
+      canStartCalibration={canStartCalibration}
       createSession={createSession}
     />
   </>;
@@ -230,6 +233,20 @@ describe('FreestyleOnrampDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
     expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeDisabled();
     expect(screen.getByText(/Finish the current recording or recovery step/)).toBeInTheDocument();
+  });
+
+  it('reruns the recovery preflight at Start before constructing an engine', () => {
+    const calibration = createFakeCalibration();
+    let canStart = true;
+    render(<Harness createSession={calibration.factory} canStartCalibration={() => canStart} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+    canStart = false;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+
+    expect(calibration.factory).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);
   });
 
   it('restores focus to the calibration trigger and then the originating Freestyle CTA', async () => {

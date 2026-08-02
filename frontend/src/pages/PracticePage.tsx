@@ -183,6 +183,11 @@ export default function PracticePage() {
   // synchronously so a reload cannot briefly present an unsafe calibration CTA.
   const hasOwnedRecoveryDraft = hasUnresolvedRecoveryForCalibration(user?.id);
   const calibrationBlocked = runtimeCalibrationBlocked || hasOwnedRecoveryDraft;
+  const canStartCalibration = React.useCallback(() => {
+    const sessionState = useSessionStore.getState();
+    if (sessionState.engineSelectionLocked || sessionState.pendingResolutionKind !== null) return false;
+    return !hasUnresolvedRecoveryForCalibration(user?.id);
+  }, [user?.id]);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -278,6 +283,7 @@ export default function PracticePage() {
       onContinue={continueFreestyle}
       returnFocusRef={freestyleReturnFocusRef}
       calibrationBlocked={calibrationBlocked}
+      canStartCalibration={canStartCalibration}
     />
   );
 
