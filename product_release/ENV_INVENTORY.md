@@ -175,6 +175,23 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 > allowed (probe-verified — secret + variable can coexist), so no rename. (`FREE_TEST_EMAIL`/
 > `FREE_TEST_PASSWORD` are not set as GitHub secrets → out of scope.)
 
+### 3c. #1148 injected identity / domain configuration (Variables — authoritative)
+
+The #1148 third-party-domain purge replaced every hard-coded third-party-domain identity with **injected**
+configuration. These are **GitHub repo Variables** (`vars.*`), non-secret (names/wiring only — never values).
+The `no-third-party-domain` scanner (`scripts/no-third-party-domain-scan.mjs` + `.github/workflows/no-third-party-domain.yml`)
+enforces zero third-party-domain references in tracked **contents and paths** on every push.
+
+| Variable | Home | Consumers | Scope | Fallback | Fail-closed behavior |
+|---|---|---|---|---|---|
+| `CANARY_EMAIL` | `vars.CANARY_EMAIL` | `.github/workflows/canary.yml` (provision + smoke) → `scripts/provision-canary.mjs` | CI (canary) | **none** — no hard-coded email | Unset/empty → `provision-canary.mjs` errors on the missing required env; no default domain is ever substituted. |
+| `CANARY_CEILING_EXCLUDE` | `vars.CANARY_CEILING_EXCLUDE` (comma-separated **exact** emails) | `canary.yml` (ceiling step) → `scripts/canary-ceiling.mjs` → `enforceCeiling({ exclude })` | CI (canary ceiling) | empty list | Excludes only **exact** #1146-deferred legacy identities from `CANARY_MAX` — never a domain wildcard; empty → nothing excluded (strictest). |
+| `LIVE_TEST_EMAIL_DOMAIN` | `vars.LIVE_TEST_EMAIL_DOMAIN` | `tests/live/*.live.spec.ts` (first-time-tester, private-sample-telemetry, private-cache, private-decode-ab, private-longform, tester-b, account-mutex) + `scripts/manual-stt-corpus-proof.mjs`; **injected into the relevant `live-release-matrix.yml` jobs** | CI (live proofs) + local | reserved `example.com` (RFC 2606) | The workflow injects `vars.LIVE_TEST_EMAIL_DOMAIN` so the configured value is used, not silently bypassed by the `example.com` fallback (which applies only when a caller does not inject it). |
+
+> Pre-existing synthetic accounts under the old third-party domain are recorded on **#1146** for authorized
+> deletion; the canary ceiling excludes them by **exact identity** (`CANARY_CEILING_EXCLUDE`), never a domain
+> bypass, and R1 deletes/provisions nothing.
+
 #### Migration status — 2026-06-08
 **8 Variables CREATED** (values public/derivable; same-named Secrets still present + still used by CI —
 this is the safe intermediate state, nothing flipped yet):

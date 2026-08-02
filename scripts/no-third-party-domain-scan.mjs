@@ -24,9 +24,9 @@ const TLD = 'a' + 'pp';            // the third-party TLD
 //     JavaScript string escapes for the dot: . (unicode) and \x2e (hex) — an executable hostname could
 //     be assembled from the brand + one of these + the TLD. Matched literally; the `i` flag covers case.
 const DOT = '(?:\\\\?\\.|%2e'
-    + '|&#0*46;'          // HTML decimal, incl. leading-zero forms (&#46; / &#046;)
-    + '|&#x0*2e;'         // HTML hex, incl. leading-zero/case forms (&#x2e; / &#x02e; / &#x2E;)
-    + '|&period;'         // named HTML entity
+    + '|&#0*46;?'         // HTML decimal, incl. leading-zero AND semicolonless forms (&#46; / &#046; / &#46)
+    + '|&#x0*2e;?'        // HTML hex, incl. leading-zero/case AND semicolonless forms (&#x2e; / &#x02e; / &#x2e)
+    + '|&period;?'        // named HTML entity, incl. semicolonless (&period)
     + '|\\\\u002e'        // JS 4-hex unicode escape (.)
     + '|\\\\u\\{0*2e\\}'  // JS ES6 code-point escape (\u{2e} / \u{02e})
     + '|\\\\x2e'          // JS hex escape (\x2e)

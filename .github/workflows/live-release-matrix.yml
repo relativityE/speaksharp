@@ -304,6 +304,7 @@ jobs:
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+          LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }} # #1148: injected test-email domain (not the example.com fallback)
           ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
         run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
@@ -336,6 +337,7 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           BASE_URL: https://speaksharp-public.vercel.app/
+          LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }} # #1148: injected test-email domain (not the example.com fallback)
           # Required so the spec's afterEach can delete the fresh first-time account it mints
           # (otherwise it accumulates as first-time-tester-* residue).
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -370,6 +372,7 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           BASE_URL: https://speaksharp-public.vercel.app/
+          LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }} # #1148: injected test-email domain (not the example.com fallback)
           # Required: the spec mints a fresh free account (unused Private sample), reads the saved
           # session's engine_version, and deletes the account in afterEach (so it never accumulates).
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}

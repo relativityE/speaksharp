@@ -42,8 +42,12 @@ describe('#1148 no-third-party-domain scanner — deny/allow authority', () => {
         expect(scanText(forbidden('&#x02e;')).length).toBe(1);   // hex leading-zero
         expect(scanText(forbidden('&#x2E;')).length).toBe(1);    // hex uppercase
         expect(scanText(forbidden('&period;')).length).toBe(1);  // named entity
-        // Allowed control: an unrelated numeric entity must NOT match.
-        expect(scanText(`${BRAND}&#038;${TLD}`).length).toBe(0); // &#038; = '&', not a dot
+        expect(scanText(forbidden('&#46')).length).toBe(1);      // semicolonless decimal
+        expect(scanText(forbidden('&#x2e')).length).toBe(1);     // semicolonless hex
+        expect(scanText(forbidden('&period')).length).toBe(1);   // semicolonless named
+        // Allowed controls: unrelated entities (not a dot) must NOT match, incl. a non-dot codepoint.
+        expect(scanText(`${BRAND}&#038;${TLD}`).length).toBe(0);  // &#038; = '&'
+        expect(scanText(`${BRAND}&#460;${TLD}`).length).toBe(0);  // &#460; ≠ '.', and TLD does not follow &#46
     });
 
     it('ALLOWS the approved Vercel release-proof host (brand not immediately followed by the dot+TLD)', () => {
