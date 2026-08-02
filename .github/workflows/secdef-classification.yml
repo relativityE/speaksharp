@@ -23,6 +23,8 @@ on:
       - 'backend/supabase/migrations/**'
       - 'tests/db/secdef-classification-prelude.sql'
       - 'tests/db/secdef-classification-matrix.sql'
+      - 'tests/db/secdef-normalize.contract.test.js'
+      - 'scripts/secdef-normalize-migration.mjs'
       - '.github/workflows/secdef-classification.yml'
 
 permissions:
