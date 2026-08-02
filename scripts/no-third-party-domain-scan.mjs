@@ -54,6 +54,10 @@ function trackedFiles() {
 function main() {
     const offenders = [];
     for (const file of trackedFiles()) {
+        // #1148: scan the tracked PATH/filename itself first — a directory or file name can carry the
+        // forbidden domain regardless of the file's content type (binary included), so this runs before the
+        // binary-content skip below.
+        if (FORBIDDEN.test(file)) offenders.push(`${file} (path)`);
         const ext = (file.split('.').pop() || '').toLowerCase();
         if (BINARY_EXT.has(ext)) continue;
         let buf;

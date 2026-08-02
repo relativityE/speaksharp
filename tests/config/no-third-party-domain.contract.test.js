@@ -43,4 +43,12 @@ describe('#1148 no-third-party-domain scanner — deny/allow authority', () => {
         expect(scanText('first-time-tester@example.com').length).toBe(0);
         expect(scanText('The SpeakSharp product is great.').length).toBe(0);
     });
+
+    it('DENIES the forbidden domain in tracked PATHS/filenames (same authority the scanner applies to paths)', () => {
+        expect(FORBIDDEN.test(`src/${forbidden()}/config.ts`)).toBe(true);      // directory name
+        expect(FORBIDDEN.test(`docs/${forbidden()}-notes.md`)).toBe(true);      // file name
+        // Approved host / reserved domain in a path must NOT match.
+        expect(FORBIDDEN.test('src/speaksharp-public.vercel.app/x.ts')).toBe(false);
+        expect(FORBIDDEN.test('tests/fixtures/example.com/audio.wav')).toBe(false);
+    });
 });
