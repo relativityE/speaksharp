@@ -151,6 +151,9 @@ describe('#1132 ephemeral review-evidence policy', () => {
         );
         expect(privateEvidenceHelper).toContain('sanitizePrivateBenchmarkEvidence(evidence, label)');
         expect(privateEvidenceHelper).toContain('JSON.stringify(sanitizedEvidence, null, 2)');
+        expect(privateEvidenceHelper).toContain('wavDataUrl: wavDataUrl ?? null');
+        expect(privateEvidenceHelper).not.toContain('STT_INCLUDE_AUDIO_DATA_URL');
+        expect(privateEvidenceHelper).not.toContain('shouldIncludeAudioDataUrl');
         expect(privateEvidenceHelper).not.toContain('JSON.stringify(evidence, null, 2)');
     });
 

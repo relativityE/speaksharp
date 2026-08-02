@@ -545,10 +545,18 @@ function finiteMetric(value: unknown): number | null {
 function audioSha256(value: unknown): string | null {
     if (value == null) return null;
     if (typeof value !== 'string') throw new Error('Private benchmark audio payload must be a string');
-    const match = value.match(/^data:audio\/[A-Za-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/);
+    const match = value.match(/^data:audio\/[A-Za-z0-9.+-]+;base64,([A-Za-z0-9+/]+={0,2})$/);
     if (!match) throw new Error('Private benchmark audio payload must be a base64 audio data URL');
-    const bytes = Buffer.from(match[1], 'base64');
+    const encoded = match[1];
+    const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+    if (!canonicalBase64.test(encoded)) {
+        throw new Error('Private benchmark audio payload must use canonical base64 padding');
+    }
+    const bytes = Buffer.from(encoded, 'base64');
     if (bytes.length === 0) throw new Error('Private benchmark audio payload is empty');
+    if (bytes.toString('base64') !== encoded) {
+        throw new Error('Private benchmark audio payload failed canonical base64 round-trip validation');
+    }
     return createHash('sha256').update(bytes).digest('hex');
 }
 
@@ -640,8 +648,7 @@ export async function attachPrivateBenchmarkEvidence(
     testInfo: TestInfo,
     label: string,
 ): Promise<void> {
-    const includeAudioDataUrl = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
-    const evidence = await page.evaluate(({ evidenceLabel, includeAudioDataUrl: shouldIncludeAudioDataUrl }) => {
+    const evidence = await page.evaluate(({ evidenceLabel }) => {
         const root = document.documentElement;
         const debugWindow = window as Window & {
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
@@ -656,7 +663,10 @@ export async function attachPrivateBenchmarkEvidence(
             return {
                 ...rest,
                 wavDataUrlBytes: typeof wavDataUrl === 'string' ? wavDataUrl.length : 0,
-                ...(shouldIncludeAudioDataUrl ? { wavDataUrl: wavDataUrl ?? null } : {}),
+                // Required for in-memory hashing on every maintained benchmark entry point. This raw
+                // value never reaches disk or testInfo.attach: sanitizePrivateBenchmarkEvidence replaces
+                // it with a SHA-256 digest before the only write below.
+                wavDataUrl: wavDataUrl ?? null,
             };
         };
 
@@ -681,7 +691,7 @@ export async function attachPrivateBenchmarkEvidence(
             privateAudioChunks: (debugWindow.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
             privateUtteranceAudioChunks: (debugWindow.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
         };
-    }, { evidenceLabel: label, includeAudioDataUrl });
+    }, { evidenceLabel: label });
 
     // The raw object may contain replayable audio and user/session text. Keep it
     // in memory only; never write or attach it beneath Playwright upload roots.

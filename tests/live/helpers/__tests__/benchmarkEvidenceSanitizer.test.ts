@@ -59,6 +59,27 @@ describe('#1132 Private browser benchmark evidence sanitization', () => {
         }, 'private-cpu')).toThrow(/empty|base64 audio data URL/);
     });
 
+    it.each([
+        'AA=A',
+        'A===',
+        'AAAA=',
+        'YQ',
+    ])('rejects malformed or noncanonical base64 before hashing: %s', (encoded) => {
+        expect(() => sanitizePrivateBenchmarkEvidence({
+            privateAudioChunks: [{ wavDataUrl: `data:audio/wav;base64,${encoded}` }],
+        }, 'private-cpu')).toThrow(/base64|padding|round-trip/i);
+    });
+
+    it('accepts canonically padded audio and emits only its digest', () => {
+        const audioDataUrl = `data:audio/wav;base64,${Buffer.from('a').toString('base64')}`;
+        const sanitized = sanitizePrivateBenchmarkEvidence({
+            privateAudioChunks: [{ wavDataUrl: audioDataUrl }],
+        }, 'private-cpu');
+
+        expect(sanitized.privateAudioChunks[0].audioSha256).toMatch(/^[a-f0-9]{64}$/);
+        expect(JSON.stringify(sanitized)).not.toContain(audioDataUrl);
+    });
+
     it('fails closed when the browser capture globals produce no hashed audio route', () => {
         expect(() => sanitizePrivateBenchmarkEvidence({
             privateAudioChunks: [],
