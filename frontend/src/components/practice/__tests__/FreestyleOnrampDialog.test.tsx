@@ -10,9 +10,9 @@ import {
 } from '@/services/practice/calibrationSession';
 import { FREESTYLE_PROMPTS, PRACTICE_FOCUS_OPTIONS } from '@/services/practice/practiceFocus';
 
-function createFakeCalibration() {
+function createFakeCalibration(finalTranscript = 'A temporary calibration transcript.') {
   const start = vi.fn().mockResolvedValue(undefined);
-  const stop = vi.fn().mockResolvedValue(undefined);
+  const stop = vi.fn().mockResolvedValue(finalTranscript);
   const dispose = vi.fn().mockResolvedValue(undefined);
   let activeCallbacks: CalibrationSessionCallbacks | null = null;
   const factory: CreateCalibrationSession = vi.fn((callbacks) => ({
@@ -105,7 +105,8 @@ describe('FreestyleOnrampDialog', () => {
     expect(screen.getByText('Browser', { selector: 'p' })).toBeInTheDocument();
     expect(screen.getByTestId('calibration-passage')).toHaveTextContent(CALIBRATION_PASSAGE);
     expect(screen.getByText(/Your browser manages transcription and may use its own speech service/)).toBeInTheDocument();
-    expect(screen.getByText(/SpeakSharp sends no calibration data to SpeakSharp Cloud, Gemini, Supabase, or its application servers/)).toBeInTheDocument();
+    expect(screen.getByText(/SpeakSharp does not send this calibration transcript to its application servers or save it to your account/)).toBeInTheDocument();
+    expect(screen.getByTestId('calibration-dialog')).not.toHaveTextContent(/SpeakSharp Cloud|Gemini|Supabase/i);
     expect(screen.getByText(/It creates no SpeakSharp session or Progress record/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Cloud/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
@@ -132,6 +133,62 @@ describe('FreestyleOnrampDialog', () => {
     });
     expect(calibration.stop).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('calibration-countdown')).toHaveTextContent('0:00');
+    expect(screen.getByText(/Test complete/)).toBeInTheDocument();
+  });
+
+  it('treats an empty manual stop as insufficient evidence with a retry, never success', async () => {
+    const calibration = createFakeCalibration('   ');
+    render(<Harness createSession={calibration.factory} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+    await act(async () => { await Promise.resolve(); });
+    act(() => calibration.signalReady());
+    fireEvent.click(screen.getByRole('button', { name: 'Stop test' }));
+
+    expect(await screen.findByText(/Not enough evidence to confirm transcription/)).toBeInTheDocument();
+    expect(screen.getByText('No words were captured.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByText(/Test complete/)).not.toBeInTheDocument();
+  });
+
+  it('treats an empty 30-second cap as insufficient evidence, never success', async () => {
+    vi.useFakeTimers();
+    const calibration = createFakeCalibration('');
+    render(<Harness createSession={calibration.factory} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+    await act(async () => { await Promise.resolve(); });
+    act(() => calibration.signalReady());
+    await act(async () => {
+      vi.advanceTimersByTime(CALIBRATION_MAX_SECONDS * 1000);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Not enough evidence to confirm transcription/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByText(/Test complete/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the calibration dialog open until an active test has stopped cleanly', async () => {
+    const calibration = createFakeCalibration();
+    render(<Harness createSession={calibration.factory} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+    await act(async () => { await Promise.resolve(); });
+    act(() => calibration.signalReady());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByTestId('calibration-dialog')).toBeInTheDocument();
+    expect(calibration.dispose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop test' }));
+    expect(await screen.findByText(/Test complete/)).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByTestId('calibration-dialog')).not.toBeInTheDocument();
   });
 
   it('disposes and shows a runtime recognition error without later reporting success', async () => {

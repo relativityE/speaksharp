@@ -38,6 +38,7 @@ import {
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
 import { buildFreestyleSessionSearch, type FreestyleOnrampSelection } from '@/services/practice/practiceFocus';
+import { getRecoverableDraftForUser } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 // Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
@@ -68,6 +69,17 @@ const GUIDED_BULLETS: Bullet[] = [
 ];
 
 interface Bullet { text: string; Icon: LucideIcon }
+
+function hasUnresolvedRecoveryForCalibration(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  try {
+    return getRecoverableDraftForUser(userId) !== null;
+  } catch {
+    // If browser storage cannot be inspected, fail closed: calibration must not
+    // compete with recovery work whose ownership/state cannot be established.
+    return true;
+  }
+}
 
 function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSolid, ctaNote, onClick, testid, cornerBadge }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
@@ -165,7 +177,12 @@ export default function PracticePage() {
   const [freestyleOnrampOpen, setFreestyleOnrampOpen] = React.useState(false);
   const [privateTrialIntent, setPrivateTrialIntent] = React.useState(false);
   const freestyleReturnFocusRef = React.useRef<HTMLElement | null>(null);
-  const calibrationBlocked = useSessionStore((state) => state.engineSelectionLocked || state.pendingResolutionKind !== null);
+  const runtimeCalibrationBlocked = useSessionStore((state) => state.engineSelectionLocked || state.pendingResolutionKind !== null);
+  // The recording controller rehydrates an owned recovery draft on SessionPage,
+  // but calibration starts from PracticePage. Read the same owner-scoped source
+  // synchronously so a reload cannot briefly present an unsafe calibration CTA.
+  const hasOwnedRecoveryDraft = hasUnresolvedRecoveryForCalibration(user?.id);
+  const calibrationBlocked = runtimeCalibrationBlocked || hasOwnedRecoveryDraft;
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -188,7 +205,6 @@ export default function PracticePage() {
   const openFreestyleOnramp = (privateTrial: boolean) => {
     setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
-    trackQuickPracticeStarted('landing_card');
     freestyleReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPrivateTrialIntent(privateTrial);
     setFreestyleOnrampOpen(true);
@@ -199,6 +215,7 @@ export default function PracticePage() {
   const continueFreestyle = (selection: FreestyleOnrampSelection) => {
     const search = buildFreestyleSessionSearch(selection, { privateTrial: privateTrialIntent });
     setFreestyleOnrampOpen(false);
+    trackQuickPracticeStarted('landing_card');
     if (isAuthed) navigate(`/session${search}`);
     else navigate('/auth/signup', { state: { from: { pathname: '/session', search } } });
   };

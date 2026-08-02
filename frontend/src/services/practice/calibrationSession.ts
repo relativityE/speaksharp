@@ -13,7 +13,7 @@ export interface CalibrationSessionCallbacks {
 
 export interface CalibrationSession {
   start(): Promise<void>;
-  stop(): Promise<void>;
+  stop(): Promise<string>;
   dispose(): Promise<void>;
 }
 
@@ -46,7 +46,7 @@ export function createCalibrationSession(
   let finalTranscript = '';
   let partialTranscript = '';
   let startPromise: Promise<void> | null = null;
-  let stopPromise: Promise<void> | null = null;
+  let stopPromise: Promise<string> | null = null;
   let runtimeErrorCleanup: Promise<void> | null = null;
   let disposed = false;
   let readySignaled = false;
@@ -70,7 +70,7 @@ export function createCalibrationSession(
     emit();
   };
 
-  const stopResources = async () => {
+  const stopResources = async (): Promise<string> => {
     const activeEngine = engine;
     engine = null;
     let cleanupError: unknown;
@@ -104,6 +104,7 @@ export function createCalibrationSession(
       lock = null;
     }
     if (cleanupError) throw cleanupError;
+    return joinTranscript(finalTranscript, partialTranscript);
   };
 
   const ensureStopped = () => {
@@ -128,7 +129,7 @@ export function createCalibrationSession(
       if (disposed || errorNotified) return;
       const message = error.message || 'Browser transcription stopped unexpectedly.';
       runtimeErrorCleanup ??= ensureStopped()
-        .catch(() => undefined);
+        .then(() => undefined, () => undefined);
       notifyErrorOnce(message);
     },
     serviceId: 'freestyle-calibration',

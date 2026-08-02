@@ -13,6 +13,8 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackQuickPracticeStarted: vi.fn(),
   trackGuidedRehearsalUnavailable: vi.fn(),
 }));
+import { trackQuickPracticeStarted } from '@/services/practiceTelemetry';
+import { saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 // The waitlist submit is mocked so the dialog can be exercised without a network call.
 const submitWaitlist = vi.fn();
 vi.mock('@/services/guidedWaitlistService', () => ({
@@ -33,13 +35,16 @@ vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefine
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 const mockHistory = vi.mocked(useRecentPracticeSummary);
+const quickPracticeStarted = vi.mocked(trackQuickPracticeStarted);
 type HistoryReturn = ReturnType<typeof useRecentPracticeSummary>;
 
 const root = () => screen.getByTestId('practice-root');
 
 describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   beforeEach(() => {
+    localStorage.clear();
     navigateSpy.mockReset();
+    quickPracticeStarted.mockClear();
     submitWaitlist.mockReset();
     submitWaitlist.mockResolvedValue({ ok: true });
     mockUser = { id: 'u-1', email: 'me@example.com' };
@@ -86,10 +91,61 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-quick'));
       expect(screen.getByTestId('freestyle-onramp-dialog')).toBeInTheDocument();
+      expect(quickPracticeStarted).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('radio', { name: 'Be more concise' }));
       fireEvent.click(screen.getByRole('button', { name: 'Give me a prompt' }));
       fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(quickPracticeStarted).toHaveBeenCalledTimes(1);
+      expect(quickPracticeStarted).toHaveBeenCalledWith('landing_card');
       expect(navigateSpy).toHaveBeenCalledWith('/session?focus=concise&prompt=recent-work');
+    });
+
+    it('does not report practice started when optional setup is canceled', () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(quickPracticeStarted).not.toHaveBeenCalled();
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('blocks calibration when the authenticated owner has an unsaved recovery draft', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 'recover-me',
+        userId: 'u-1',
+        transcript: 'unsaved private words',
+        durationSeconds: 12,
+        mode: 'private',
+      });
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeDisabled();
+      expect(screen.getByText(/Finish the current recording or recovery step/)).toBeInTheDocument();
+    });
+
+    it('does not expose another account recovery draft through the calibration guard', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 'other-account',
+        userId: 'user-B',
+        transcript: 'another account private words',
+        durationSeconds: 12,
+        mode: 'private',
+      });
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeEnabled();
+    });
+
+    it('fails calibration closed when recovery storage cannot be inspected', () => {
+      const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('storage denied', 'SecurityError');
+      });
+      try {
+        render(<PracticePage />);
+        fireEvent.click(screen.getByTestId('practice-card-quick'));
+        expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeDisabled();
+      } finally {
+        read.mockRestore();
+      }
     });
 
     it('Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {

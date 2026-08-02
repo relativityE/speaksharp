@@ -69,14 +69,25 @@ describe('isolated Browser calibration boundary', () => {
     const session = createCalibrationSession({ onTranscript });
     await session.start();
     engineState.options?.onTranscriptUpdate({ transcript: { partial: 'temporary draft' } });
-    await session.stop();
+    const finalTranscript = await session.stop();
 
     expect(engineState.start).toHaveBeenCalledWith();
+    expect(finalTranscript).toBe('final temporary words');
     expect(onTranscript).toHaveBeenLastCalledWith('final temporary words');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(localStorage.getItem(LOCK_KEY)).toBeNull();
     expect(localWrite.mock.calls.filter(([key]) => key === LOCK_KEY).length).toBeGreaterThan(0);
     expect(localWrite.mock.calls.map(([key]) => String(key)).filter((key) => key !== LOCK_KEY && key !== 'speaksharp_tab_id')).toEqual([]);
+  });
+
+  it('returns an empty authoritative result when Browser captured no words', async () => {
+    engineState.getTranscript.mockResolvedValue('   ');
+    const session = createCalibrationSession({ onTranscript });
+
+    await session.start();
+    expect(await session.stop()).toBe('');
+    expect(onTranscript).toHaveBeenLastCalledWith('');
+    expect(localStorage.getItem(LOCK_KEY)).toBeNull();
   });
 
   it('reports ready only from the Browser acoustic-ready callback and only once', async () => {

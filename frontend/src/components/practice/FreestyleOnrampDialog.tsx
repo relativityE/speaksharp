@@ -23,7 +23,7 @@ import {
   type PracticeFocus,
 } from '@/services/practice/practiceFocus';
 
-type CalibrationState = 'idle' | 'starting' | 'recording' | 'stopping' | 'complete' | 'error';
+type CalibrationState = 'idle' | 'starting' | 'recording' | 'stopping' | 'complete' | 'insufficient' | 'error';
 
 interface FreestyleOnrampDialogProps {
   open: boolean;
@@ -60,6 +60,7 @@ export function FreestyleOnrampDialog({
   const tickTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = React.useRef(0);
   const previouslyOpenRef = React.useRef(false);
+  const calibrationBusy = calibrationState === 'starting' || calibrationState === 'recording' || calibrationState === 'stopping';
 
   const clearTimers = React.useCallback(() => {
     if (capTimerRef.current) clearTimeout(capTimerRef.current);
@@ -112,11 +113,12 @@ export function FreestyleOnrampDialog({
     if (!session) return;
     setCalibrationState('stopping');
     try {
-      await session.stop();
+      const finalTranscript = (await session.stop()).trim();
       if (calibrationRef.current !== session) return;
       calibrationRef.current = null;
       readySessionRef.current = null;
-      setCalibrationState('complete');
+      setCalibrationTranscript(finalTranscript);
+      setCalibrationState(finalTranscript ? 'complete' : 'insufficient');
       setSecondsRemaining(0);
     } catch (error) {
       await handleCalibrationError(
@@ -183,6 +185,7 @@ export function FreestyleOnrampDialog({
 
   const handleCalibrationOpenChange = (nextOpen: boolean) => {
     if (nextOpen && calibrationBlocked) return;
+    if (!nextOpen && calibrationBusy) return;
     setCalibrationOpen(nextOpen);
     if (!nextOpen) {
       void disposeCalibration();
@@ -191,6 +194,7 @@ export function FreestyleOnrampDialog({
   };
 
   const handleOuterOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && calibrationBusy) return;
     if (!nextOpen) {
       setCalibrationOpen(false);
       void disposeCalibration();
@@ -201,8 +205,6 @@ export function FreestyleOnrampDialog({
     }
     onOpenChange(nextOpen);
   };
-
-  const busy = calibrationState === 'starting' || calibrationState === 'recording' || calibrationState === 'stopping';
 
   return (
     <Dialog open={open} onOpenChange={handleOuterOpenChange}>
@@ -305,7 +307,7 @@ export function FreestyleOnrampDialog({
 
             <div className="rounded-lg border border-emerald-700/20 bg-emerald-50 p-3 text-sm text-emerald-950">
               <p className="flex items-start gap-2 font-semibold"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Temporary test only</p>
-              <p className="mt-1 pl-6">Your browser manages transcription and may use its own speech service. SpeakSharp sends no calibration data to SpeakSharp Cloud, Gemini, Supabase, or its application servers.</p>
+              <p className="mt-1 pl-6">Your browser manages transcription and may use its own speech service. SpeakSharp does not send this calibration transcript to its application servers or save it to your account.</p>
               <p className="mt-1 pl-6">It creates no SpeakSharp session or Progress record, and the temporary transcript is discarded when you close this test.</p>
             </div>
 
@@ -326,20 +328,22 @@ export function FreestyleOnrampDialog({
                 {calibrationState === 'recording' ? 'Listening—read the passage aloud.' : 'Finishing the temporary transcript…'}
               </div>
             )}
-            {(calibrationTranscript || calibrationState === 'complete') && (
+            {(calibrationTranscript || calibrationState === 'complete' || calibrationState === 'insufficient') && (
               <div className="min-h-24 rounded-lg border border-border bg-background p-3" data-testid="calibration-transcript">
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Temporary transcript</p>
-                <p className="text-sm leading-relaxed text-foreground" aria-live="polite">{calibrationTranscript || 'No words were captured. Try again and speak after the listening signal.'}</p>
+                <p className="text-sm leading-relaxed text-foreground" aria-live="polite">{calibrationTranscript || 'No words were captured.'}</p>
               </div>
             )}
             {calibrationState === 'complete' && <p role="status" className="text-sm font-semibold text-emerald-800">Test complete. This transcript will be discarded when you close this window.</p>}
+            {calibrationState === 'insufficient' && <p role="status" className="text-sm font-semibold text-foreground">Not enough evidence to confirm transcription. Try again and speak after the listening signal.</p>}
             {calibrationState === 'error' && <p role="alert" className="text-sm font-semibold text-destructive">{calibrationError ?? 'The microphone test could not run. Check microphone permission and try again.'}</p>}
 
             <DialogFooter className="gap-2 sm:space-x-0">
               {(calibrationState === 'idle' || calibrationState === 'error') && <Button type="button" onClick={() => { void startCalibration(); }} data-testid="start-calibration-button"><Mic className="h-4 w-4" aria-hidden="true" />Start 30-second test</Button>}
               {calibrationState === 'recording' && <Button type="button" variant="destructive" onClick={() => { void finishCalibration(); }} data-testid="stop-calibration-button"><Square className="h-4 w-4" aria-hidden="true" />Stop test</Button>}
               {calibrationState === 'complete' && <Button type="button" variant="outline" onClick={() => { void startCalibration(); }} data-testid="retry-calibration-button"><RotateCcw className="h-4 w-4" aria-hidden="true" />Test again</Button>}
-              <Button type="button" variant="ghost" disabled={busy} onClick={() => handleCalibrationOpenChange(false)} data-testid="close-calibration-button">Close</Button>
+              {calibrationState === 'insufficient' && <Button type="button" variant="outline" onClick={() => { void startCalibration(); }} data-testid="retry-calibration-button"><RotateCcw className="h-4 w-4" aria-hidden="true" />Try again</Button>}
+              <Button type="button" variant="ghost" disabled={calibrationBusy} onClick={() => handleCalibrationOpenChange(false)} data-testid="close-calibration-button">Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
