@@ -38,7 +38,10 @@ import {
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
 import { buildFreestyleSessionSearch, type FreestyleOnrampSelection } from '@/services/practice/practiceFocus';
-import { getRecoverableDraftForUser } from '@/services/sessionRecoveryDraft';
+import {
+  getRecoverableDraftForUser,
+  SESSION_RECOVERY_DRAFT_STORAGE_KEY,
+} from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 // Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
@@ -181,7 +184,23 @@ export default function PracticePage() {
   // The recording controller rehydrates an owned recovery draft on SessionPage,
   // but calibration starts from PracticePage. Read the same owner-scoped source
   // synchronously so a reload cannot briefly present an unsafe calibration CTA.
-  const hasOwnedRecoveryDraft = hasUnresolvedRecoveryForCalibration(user?.id);
+  const subscribeToRecoveryStorage = React.useCallback((notify: () => void) => {
+    const handleRecoveryStorageChange = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== SESSION_RECOVERY_DRAFT_STORAGE_KEY) return;
+      notify();
+    };
+    window.addEventListener('storage', handleRecoveryStorageChange);
+    return () => window.removeEventListener('storage', handleRecoveryStorageChange);
+  }, []);
+  const readOwnedRecoveryState = React.useCallback(
+    () => hasUnresolvedRecoveryForCalibration(user?.id),
+    [user?.id],
+  );
+  const hasOwnedRecoveryDraft = React.useSyncExternalStore(
+    subscribeToRecoveryStorage,
+    readOwnedRecoveryState,
+    readOwnedRecoveryState,
+  );
   const calibrationBlocked = runtimeCalibrationBlocked || hasOwnedRecoveryDraft;
   const canStartCalibration = React.useCallback(() => {
     const sessionState = useSessionStore.getState();

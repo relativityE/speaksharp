@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent, waitFor, within } from '../../../tests/support/test-utils';
 import PracticePage from '../PracticePage';
 
 const navigateSpy = vi.fn();
@@ -14,7 +14,11 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackGuidedRehearsalUnavailable: vi.fn(),
 }));
 import { trackQuickPracticeStarted } from '@/services/practiceTelemetry';
-import { saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import {
+  clearSessionRecoveryDraft,
+  saveSessionRecoveryDraft,
+  SESSION_RECOVERY_DRAFT_STORAGE_KEY,
+} from '@/services/sessionRecoveryDraft';
 // The waitlist submit is mocked so the dialog can be exercised without a network call.
 const submitWaitlist = vi.fn();
 vi.mock('@/services/guidedWaitlistService', () => ({
@@ -135,7 +139,44 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeEnabled();
     });
 
-    it('rechecks recovery at Start when another tab writes the current owner draft after mount', () => {
+    it('reacts to owner-scoped recovery changes from another tab without a reload', async () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      const calibrationButton = screen.getByRole('button', { name: 'Let me test with a sample' });
+      expect(calibrationButton).toBeEnabled();
+
+      saveSessionRecoveryDraft({
+        sessionId: 'cross-tab-owner-draft',
+        userId: 'u-1',
+        transcript: 'new unsaved private words',
+        durationSeconds: 14,
+        mode: 'private',
+      });
+      window.dispatchEvent(new StorageEvent('storage', { key: SESSION_RECOVERY_DRAFT_STORAGE_KEY }));
+      await waitFor(() => expect(calibrationButton).toBeDisabled());
+
+      clearSessionRecoveryDraft('cross-tab-owner-draft');
+      window.dispatchEvent(new StorageEvent('storage', { key: SESSION_RECOVERY_DRAFT_STORAGE_KEY }));
+      await waitFor(() => expect(calibrationButton).toBeEnabled());
+    });
+
+    it('ignores another account recovery storage event for the calibration guard', async () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      const calibrationButton = screen.getByRole('button', { name: 'Let me test with a sample' });
+
+      saveSessionRecoveryDraft({
+        sessionId: 'cross-tab-other-owner',
+        userId: 'user-B',
+        transcript: 'another account private words',
+        durationSeconds: 14,
+        mode: 'private',
+      });
+      window.dispatchEvent(new StorageEvent('storage', { key: SESSION_RECOVERY_DRAFT_STORAGE_KEY }));
+      await waitFor(() => expect(calibrationButton).toBeEnabled());
+    });
+
+    it('rechecks recovery at Start when another tab writes the current owner draft after mount', async () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-quick'));
       fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
@@ -149,7 +190,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
 
-      expect(screen.getByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);
       expect(localStorage.getItem('speaksharp_active_session_lock')).toBeNull();
     });
 

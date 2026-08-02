@@ -235,7 +235,7 @@ describe('FreestyleOnrampDialog', () => {
     expect(screen.getByText(/Finish the current recording or recovery step/)).toBeInTheDocument();
   });
 
-  it('reruns the recovery preflight at Start before constructing an engine', () => {
+  it('reruns the recovery preflight at Start before constructing an engine', async () => {
     const calibration = createFakeCalibration();
     let canStart = true;
     render(<Harness createSession={calibration.factory} canStartCalibration={() => canStart} />);
@@ -244,6 +244,21 @@ describe('FreestyleOnrampDialog', () => {
     canStart = false;
 
     fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+
+    expect(calibration.factory).not.toHaveBeenCalled();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);
+  });
+
+  it('reruns recovery preflight after awaited disposal closes the cross-tab race', async () => {
+    const calibration = createFakeCalibration();
+    let canStart = true;
+    render(<Harness createSession={calibration.factory} canStartCalibration={() => canStart} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Start Freestyle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+    canStart = false;
+    await act(async () => { await Promise.resolve(); });
 
     expect(calibration.factory).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);

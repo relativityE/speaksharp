@@ -165,13 +165,22 @@ export function FreestyleOnrampDialog({
   };
 
   const startCalibration = async () => {
-    if (calibrationBlocked || !canStartCalibration()) {
+    if (calibrationBlocked) {
       resetCalibration();
       setCalibrationState('error');
       setCalibrationError('Finish the current recording or recovery step before testing your microphone.');
       return;
     }
     await disposeCalibration();
+    // Disposal is asynchronous. Another tab can create recovery work while it
+    // completes, so this owner-scoped preflight must be the final operation
+    // before constructing the Browser calibration session.
+    if (!canStartCalibration()) {
+      resetCalibration();
+      setCalibrationState('error');
+      setCalibrationError('Finish the current recording or recovery step before testing your microphone.');
+      return;
+    }
     resetCalibration();
     setCalibrationState('starting');
     const session = createSession({
