@@ -25,18 +25,24 @@ export const DEVICE_CAPABILITY_STATES = [
   'microphone-dismissed',
   'offline-before-model-load',
   'offline-during-model-load',
+  'low-memory-failure',
   'worker-failure',
+  'browser-speech-unavailable',
   'cold-model-cache',
   'warm-model-cache',
 ] as const;
 
 export const DEVICE_ACCESSIBILITY_ASSERTIONS = [
   'keyboard-only',
+  'visible-focus',
   'focus-order',
   'focus-return',
+  'focus-trap-escape',
   'accessible-names',
   'live-regions',
+  'error-announcements',
   'contrast',
+  'reflow',
   'zoom-200',
   'no-horizontal-overflow',
 ] as const;
@@ -64,6 +70,16 @@ export type DeviceBrowser = typeof DEVICE_BROWSERS[number];
 export type DeviceCapabilityState = typeof DEVICE_CAPABILITY_STATES[number];
 export type DeviceAccessibilityAssertion = typeof DEVICE_ACCESSIBILITY_ASSERTIONS[number];
 export type DevicePerformanceMetric = typeof DEVICE_PERFORMANCE_METRICS[number];
+export type DeviceQualificationStatus = 'passed' | 'failed' | 'blocked' | 'unavailable';
+
+export interface DeviceCapabilityMetadata {
+  hardwareConcurrency: number | null;
+  deviceMemoryGb: number | null;
+  crossOriginIsolated: boolean | null;
+  sharedArrayBufferAvailable: boolean;
+  webGpuAvailable: boolean;
+  browserSpeechAvailable: boolean;
+}
 
 export interface DeviceQualificationRow {
   releaseSha: string;
@@ -73,8 +89,10 @@ export interface DeviceQualificationRow {
   deviceClass: string;
   viewport: { width: number; height: number; orientation: 'portrait' | 'landscape' };
   capabilityState: DeviceCapabilityState;
-  status: 'passed' | 'failed' | 'blocked';
+  capabilities: DeviceCapabilityMetadata;
+  status: DeviceQualificationStatus;
   blockingIssue: number | null;
+  unavailableReason: string | null;
   assertions: Record<DeviceAccessibilityAssertion, boolean | null>;
   metrics: Record<DevicePerformanceMetric, number | null>;
   noAutomaticModelDownload: boolean;
@@ -82,7 +100,19 @@ export interface DeviceQualificationRow {
   cloudProviderCalls: number;
 }
 
-const FULL_SHA = /^[0-9a-f]{40}$/i;
+export interface DeviceQualificationReport {
+  schemaVersion: 1;
+  releaseSha: string;
+  rows: DeviceQualificationRow[];
+}
+
+export interface DevicePerformanceDistribution {
+  observed: number;
+  p50: number | null;
+  p95: number | null;
+}
+
+const FULL_SHA = /^[0-9a-f]{40}$/;
 
 export function deviceQualificationProblems(row: DeviceQualificationRow): string[] {
   const problems: string[] = [];
@@ -98,7 +128,26 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
   if (!(row.viewport.width > 0 && row.viewport.height > 0)) problems.push('viewport dimensions must be positive');
   const derivedOrientation = row.viewport.width > row.viewport.height ? 'landscape' : 'portrait';
   if (row.viewport.orientation !== derivedOrientation) problems.push('viewport orientation contradicts its dimensions');
-  if (!['passed', 'failed', 'blocked'].includes(row.status)) problems.push(`unsupported status: ${String(row.status)}`);
+  if (!['passed', 'failed', 'blocked', 'unavailable'].includes(row.status)) {
+    problems.push(`unsupported status: ${String(row.status)}`);
+  }
+
+  if (!(row.capabilities.hardwareConcurrency === null
+    || (Number.isInteger(row.capabilities.hardwareConcurrency) && row.capabilities.hardwareConcurrency > 0))) {
+    problems.push('capabilities.hardwareConcurrency must be a positive integer or null');
+  }
+  if (!(row.capabilities.deviceMemoryGb === null
+    || (typeof row.capabilities.deviceMemoryGb === 'number'
+      && Number.isFinite(row.capabilities.deviceMemoryGb)
+      && row.capabilities.deviceMemoryGb > 0))) {
+    problems.push('capabilities.deviceMemoryGb must be a positive number or null');
+  }
+  for (const key of ['crossOriginIsolated', 'sharedArrayBufferAvailable', 'webGpuAvailable', 'browserSpeechAvailable'] as const) {
+    const value = row.capabilities[key];
+    if (!(typeof value === 'boolean' || (key === 'crossOriginIsolated' && value === null))) {
+      problems.push(`capabilities.${key} must be ${key === 'crossOriginIsolated' ? 'boolean or null' : 'boolean'}`);
+    }
+  }
 
   if (row.status === 'blocked') {
     if (!Number.isInteger(row.blockingIssue) || Number(row.blockingIssue) <= 0) {
@@ -106,6 +155,11 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
     }
   } else if (row.blockingIssue !== null) {
     problems.push('non-blocked rows must not carry blockingIssue');
+  }
+  if (row.status === 'unavailable') {
+    if (!row.unavailableReason?.trim()) problems.push('unavailable rows must name an unavailableReason');
+  } else if (row.unavailableReason !== null) {
+    problems.push('non-unavailable rows must not carry unavailableReason');
   }
 
   for (const key of DEVICE_ACCESSIBILITY_ASSERTIONS) {
@@ -137,3 +191,49 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
   return problems;
 }
 
+function percentile(values: number[], quantile: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.max(0, Math.ceil(sorted.length * quantile) - 1)];
+}
+
+export function devicePerformanceDistributions(rows: DeviceQualificationRow[]): Record<DevicePerformanceMetric, DevicePerformanceDistribution> {
+  return Object.fromEntries(DEVICE_PERFORMANCE_METRICS.map((metric) => {
+    const values = rows
+      .filter(row => row.status === 'passed' && deviceQualificationProblems(row).length === 0)
+      .map(row => row.metrics[metric])
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+    return [metric, {
+      observed: values.length,
+      p50: percentile(values, 0.5),
+      p95: percentile(values, 0.95),
+    }];
+  })) as Record<DevicePerformanceMetric, DevicePerformanceDistribution>;
+}
+
+export function deviceQualificationReportProblems(report: DeviceQualificationReport): string[] {
+  const problems: string[] = [];
+  if (report.schemaVersion !== 1) problems.push('schemaVersion must be 1');
+  if (!FULL_SHA.test(report.releaseSha)) problems.push('report releaseSha must be a full 40-character SHA');
+  if (!Array.isArray(report.rows) || report.rows.length === 0) problems.push('report must contain at least one row');
+
+  const identities = new Set<string>();
+  for (const [index, row] of report.rows.entries()) {
+    for (const problem of deviceQualificationProblems(row)) problems.push(`rows[${index}]: ${problem}`);
+    if (row.releaseSha !== report.releaseSha) problems.push(`rows[${index}]: releaseSha differs from report releaseSha`);
+    const identity = [row.browser, row.browserVersion, row.os, row.deviceClass, row.viewport.width,
+      row.viewport.height, row.capabilityState].join('|');
+    if (identities.has(identity)) problems.push(`rows[${index}]: duplicate qualification cell`);
+    identities.add(identity);
+  }
+
+  return problems;
+}
+
+export function deviceQualificationDisposition(report: DeviceQualificationReport): DeviceQualificationStatus {
+  if (deviceQualificationReportProblems(report).length > 0) return 'failed';
+  if (report.rows.some(row => row.status === 'failed')) return 'failed';
+  if (report.rows.some(row => row.status === 'blocked')) return 'blocked';
+  if (report.rows.some(row => row.status === 'unavailable')) return 'unavailable';
+  return 'passed';
+}
