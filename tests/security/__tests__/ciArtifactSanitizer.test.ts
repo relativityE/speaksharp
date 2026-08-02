@@ -243,6 +243,17 @@ describe('#1132 CI artifact sanitization', () => {
         expect(serialized).not.toMatch(/person@example\.com|truth|transcript|wavDataUrl|data:audio|base64|fixture audio bytes/i);
     });
 
+    it.each([
+        'AA=A',
+        'A===',
+        'AAAA=',
+        'YQ',
+    ])('rejects malformed or noncanonical exact-buffer base64 before hashing: %s', (encoded) => {
+        const proof = privateExactBufferProof();
+        proof.results[0].privateAudioChunks[0].wavDataUrl = `data:audio/wav;base64,${encoded}`;
+        expect(() => sanitizePrivateExactBufferProof(proof)).toThrow(/base64|padding|round-trip/i);
+    });
+
     it('removes stale output and fails closed when sanitization input is missing or malformed', () => {
         const directory = temporaryDirectory();
         const playwrightOutput = join(directory, 'playwright-summary.json');

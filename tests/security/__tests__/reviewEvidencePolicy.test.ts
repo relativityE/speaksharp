@@ -12,6 +12,7 @@ import {
     playwrightConfigFiles,
     reviewEvidencePolicyViolations,
     scanArtifactUpload,
+    scanGeneratedArtifacts,
 } from '../../../scripts/check-review-evidence-policy.mjs';
 
 const repoRoot = resolve('.');
@@ -86,6 +87,14 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(proSttSpec).toContain('rm(artifactPath, { force: true })');
         expect(proSttSpec).toContain('download.delete()');
 
+        const reviewEvidenceWorkflow = readFileSync(join(repoRoot, '.github/workflows/review-evidence.yml'), 'utf8');
+        expect(reviewEvidenceWorkflow).toContain('ref: ${{ github.event.inputs.reviewed_sha }}');
+        expect(reviewEvidenceWorkflow).toContain('node scripts/verify-review-evidence-sha.mjs "$REVIEWED_SHA"');
+        expect(reviewEvidenceWorkflow.indexOf('name: Verify reviewed SHA matches checked-out HEAD'))
+            .toBeLessThan(reviewEvidenceWorkflow.indexOf('name: Setup Environment'));
+        expect(reviewEvidenceWorkflow.indexOf('name: Verify reviewed SHA matches checked-out HEAD'))
+            .toBeLessThan(reviewEvidenceWorkflow.indexOf('name: Upload review evidence'));
+
         const shard = inventory.find(({ key }) => key === 'ci.yml::shard-report-${{ matrix.shard }}');
         expect(shard?.paths).toEqual(['test-results/ci-evidence/playwright-shard-summary.json']);
         const lighthouse = inventory.find(({ key }) => key === 'ci.yml::lighthouse-report');
@@ -108,6 +117,7 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(unitJob.indexOf('name: Scan unit review evidence'))
             .toBeLessThan(unitJob.indexOf('name: Upload Unit Artifacts'));
         expect(ciWorkflow).not.toContain('path: blob-report/report-*.zip');
+        expect(inventory.flatMap(({ paths }) => paths).join('\n')).not.toContain('blob-report/');
         expect(ciWorkflow).not.toContain('path: lighthouse-results/');
         expect(ciWorkflow).not.toContain('playwright merge-reports');
         expect(ciWorkflow.indexOf('name: Sanitize E2E shard evidence'))
@@ -243,6 +253,17 @@ describe('#1132 ephemeral review-evidence policy', () => {
             expect.stringContaining('custom archive creation is forbidden'),
         );
 
+        const blobReportUpload = policyFixtureRepo();
+        replaceInFixture(
+            blobReportUpload,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            '          path: blob-report/',
+        );
+        expect(reviewEvidencePolicyViolations(blobReportUpload)).toContainEqual(
+            expect.stringContaining('blob-report archives are forbidden upload paths'),
+        );
+
         const trace = policyFixtureRepo();
         replaceInFixture(trace, 'playwright.config.ts', "trace: 'off'", "trace: 'retain-on-failure'");
         expect(reviewEvidencePolicyViolations(trace)).toContainEqual(
@@ -296,17 +317,11 @@ describe('#1132 ephemeral review-evidence policy', () => {
         );
         rmSync(extensionlessBinary);
 
-        const archiveSource = join(fixture, 'archive-source');
         const archiveRoot = join(fixture, 'blob-report');
-        mkdirSync(archiveSource);
         mkdirSync(archiveRoot);
-        writeFileSync(
-            join(archiveSource, 'proof.txt'),
-            Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-        );
-        execFileSync('zip', ['-q', join(archiveRoot, 'report-proof.zip'), 'proof.txt'], { cwd: archiveSource });
-        expect(scanArtifactUpload('v4-auto-fallback-proof.yml::v4-auto-fallback-proof', fixture)).toContainEqual(
-            expect.stringContaining('binary content in text archive entry; upload denied'),
+        writeFileSync(join(archiveRoot, 'report-proof.zip'), Uint8Array.from([0x50, 0x4b, 0x03, 0x04]));
+        expect(scanGeneratedArtifacts(fixture)).toContainEqual(
+            expect.stringContaining('custom archive in browser output is forbidden'),
         );
 
         const runnerTemp = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-runner-temp-'));
@@ -395,11 +410,8 @@ describe('#1132 ephemeral review-evidence policy', () => {
 
     it('allows optional members of multi-root uploads but never an empty resolved set', () => {
         const partial = policyFixtureRepo();
-        const blobResult = join(partial, 'blob-report', 'live', 'result.json');
         const testResult = join(partial, 'test-results', 'live', 'result.json');
-        mkdirSync(dirname(blobResult), { recursive: true });
         mkdirSync(dirname(testResult), { recursive: true });
-        writeFileSync(blobResult, JSON.stringify({ passed: true }));
         writeFileSync(testResult, JSON.stringify({ passed: true }));
 
         expect(scanArtifactUpload('live-release-matrix.yml::live-custom-words-artifacts', partial)).toEqual([]);

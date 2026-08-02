@@ -116,7 +116,6 @@ jobs:
           path: |
             ${{ github.workspace }}/v4-auto-fallback-proof.json
             ${{ runner.temp }}/v4-auto-vite.log
-            blob-report/
             playwright-report/
             test-results/
           retention-days: 14

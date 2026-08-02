@@ -268,10 +268,14 @@ export function sanitizeAssemblyAiStreamingProof(rawProof) {
 
 function audioPayloadDigest(dataUrl, label) {
   if (typeof dataUrl !== 'string') fail(`${label} is missing`);
-  const match = dataUrl.match(/^data:audio\/[A-Za-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/);
+  const match = dataUrl.match(/^data:audio\/[A-Za-z0-9.+-]+;base64,([A-Za-z0-9+/]+={0,2})$/);
   if (!match) fail(`${label} is not a base64 audio data URL`);
-  const bytes = Buffer.from(match[1], 'base64');
+  const encoded = match[1];
+  const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+  if (!canonicalBase64.test(encoded)) fail(`${label} must use canonical base64 padding`);
+  const bytes = Buffer.from(encoded, 'base64');
   if (bytes.length === 0) fail(`${label} contains no audio bytes`);
+  if (bytes.toString('base64') !== encoded) fail(`${label} failed canonical base64 round-trip validation`);
   return createHash('sha256').update(bytes).digest('hex');
 }
 

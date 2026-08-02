@@ -98,7 +98,6 @@ jobs:
           path: |
             ${{ github.workspace }}/v4-stage-b-apppath-proof.json
             ${{ runner.temp }}/v4-vite.log
-            blob-report/
             playwright-report/
             test-results/
           retention-days: 14

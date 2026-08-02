@@ -105,7 +105,7 @@ const BINARY_MAGIC_PREFIXES = [
   Buffer.from([0x49, 0x49, 0x2a, 0x00]), // little-endian TIFF
   Buffer.from([0x4d, 0x4d, 0x00, 0x2a]), // big-endian TIFF
 ];
-const FORBIDDEN_ARTIFACT_PATH = /(?:\.(?:png|jpe?g|webp|webm|mp4|mov|har)$|trace\.zip$|storage[-_]?state|cookies?\.json|\.env(?:\.|$))/i;
+const FORBIDDEN_ARTIFACT_PATH = /(?:\.(?:png|jpe?g|webp|webm|mp4|mov|har|zip)$|storage[-_]?state|cookies?\.json|\.env(?:\.|$))/i;
 const TEXT_EXTENSIONS = new Set([
   '.css', '.csv', '.html', '.js', '.json', '.jsonl', '.log', '.md', '.mjs', '.svg', '.txt', '.xml', '.yaml', '.yml',
 ]);
@@ -307,47 +307,6 @@ function inspectSensitiveText(contents, displayPath) {
   return violations;
 }
 
-function inspectZip(file, displayPath) {
-  const violations = [];
-  let entries;
-  try {
-    entries = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
-      .split(/\r?\n/)
-      .filter((entry) => entry && !entry.endsWith('/'));
-  } catch {
-    return [`${displayPath}: archive could not be inspected; upload denied`];
-  }
-
-  for (const entry of entries) {
-    if (FORBIDDEN_ARTIFACT_PATH.test(entry) || /\.zip$/i.test(entry)) {
-      violations.push(`${displayPath}: forbidden nested artifact path (${entry})`);
-      continue;
-    }
-    if (!TEXT_EXTENSIONS.has(extname(entry).toLowerCase())) {
-      violations.push(`${displayPath}: unapproved nested artifact type (${entry})`);
-      continue;
-    }
-    try {
-      const rawContents = execFileSync('unzip', ['-p', file, entry], {
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      if (rawContents.length > MAX_INSPECTABLE_TEXT_BYTES) {
-        violations.push(`${displayPath}!${entry}: archive entry is too large to inspect; upload denied`);
-        continue;
-      }
-      if (hasNonTextContent(rawContents)) {
-        violations.push(`${displayPath}!${entry}: binary content in text archive entry; upload denied`);
-        continue;
-      }
-      const contents = new TextDecoder('utf-8', { fatal: true }).decode(rawContents);
-      violations.push(...inspectSensitiveText(contents, `${displayPath}!${entry}`));
-    } catch {
-      violations.push(`${displayPath}!${entry}: text entry could not be inspected; upload denied`);
-    }
-  }
-  return violations;
-}
-
 function scanArtifactRoots(repoRoot, roots) {
   const violations = [];
   const seen = new Set();
@@ -360,16 +319,12 @@ function scanArtifactRoots(repoRoot, roots) {
         violations.push(`${displayPath}: symbolic links are forbidden in uploaded browser output`);
         continue;
       }
-      if (FORBIDDEN_ARTIFACT_PATH.test(displayPath)) {
-        violations.push(`${displayPath}: forbidden browser/session artifact file`);
+      if (/\.zip$/i.test(displayPath)) {
+        violations.push(`${displayPath}: custom archive in browser output is forbidden`);
         continue;
       }
-      if (/\.zip$/i.test(displayPath)) {
-        if (!displayPath.startsWith('blob-report/')) {
-          violations.push(`${displayPath}: custom archive in browser output is forbidden`);
-          continue;
-        }
-        violations.push(...inspectZip(file, displayPath));
+      if (FORBIDDEN_ARTIFACT_PATH.test(displayPath)) {
+        violations.push(`${displayPath}: forbidden browser/session artifact file`);
         continue;
       }
       const extension = extname(displayPath).toLowerCase();
@@ -473,13 +428,15 @@ export function reviewEvidencePolicyViolations(repoRoot = REPO_ROOT) {
     }
 
     for (const path of artifact.paths) {
+      if (/(?:^|\/)blob-report(?:\/|$)/i.test(path)) {
+        violations.push(`${artifact.key}: blob-report archives are forbidden upload paths (${path})`);
+      }
       if (/(?:trace\.zip|\.webm\b|\.mp4\b|storage[-_]?state|cookies?\.json|\.env(?:\.|$))/i.test(path)) {
         violations.push(`${artifact.key}: forbidden browser/session artifact path (${path})`);
       }
       const pathWithoutGlob = path.replace(/[*?[\]].*$/, '');
       const configuredExtension = extname(pathWithoutGlob).toLowerCase();
       if (KNOWN_BINARY_EXTENSIONS.has(configuredExtension)
-        && configuredExtension !== '.zip'
         && !APPROVED_SCREENSHOT_UPLOADS.has(artifact.key)) {
         violations.push(`${artifact.key}: binary review artifact path is forbidden (${path})`);
       }

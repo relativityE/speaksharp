@@ -36,6 +36,14 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.reviewed_sha }}
+          fetch-depth: 1
+
+      - name: Verify reviewed SHA matches checked-out HEAD
+        env:
+          REVIEWED_SHA: ${{ github.event.inputs.reviewed_sha }}
+        run: node scripts/verify-review-evidence-sha.mjs "$REVIEWED_SHA"
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment

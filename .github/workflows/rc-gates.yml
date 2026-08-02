@@ -263,7 +263,6 @@ jobs:
           path: |
             test-results/
             playwright-report/
-            blob-report/
           retention-days: 14
           if-no-files-found: ignore
 

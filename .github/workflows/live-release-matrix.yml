@@ -68,7 +68,6 @@ jobs:
         with:
           name: live-custom-words-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -106,7 +105,6 @@ jobs:
         with:
           name: live-native-preflight-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -145,7 +143,6 @@ jobs:
         with:
           name: live-cloud-token-gates-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -188,7 +185,6 @@ jobs:
         with:
           name: live-cloud-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -234,7 +230,6 @@ jobs:
         with:
           name: live-stt-switching-contract-artifacts
           path: |
-            blob-report/deployed-live/
             playwright-report/deployed-live/
             test-results/deployed-live/
           retention-days: 14
@@ -285,7 +280,6 @@ jobs:
         with:
           name: live-attribution-proof-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -348,7 +342,6 @@ jobs:
         with:
           name: live-private-cache-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -388,7 +381,6 @@ jobs:
         with:
           name: live-first-time-tester-private-trial-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 1
@@ -428,7 +420,6 @@ jobs:
         with:
           name: live-private-sample-telemetry-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -464,7 +455,6 @@ jobs:
         with:
           name: live-stripe-webhook-readiness-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -499,7 +489,6 @@ jobs:
         with:
           name: live-stripe-checkout-readiness-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -537,7 +526,6 @@ jobs:
         with:
           name: live-stripe-billing-portal-readiness-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -580,7 +568,6 @@ jobs:
         with:
           name: live-stripe-paid-soft-launch-runtime-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14

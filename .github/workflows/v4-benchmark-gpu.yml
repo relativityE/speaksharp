@@ -124,6 +124,5 @@ jobs:
           path: |
             tests/STT_BENCHMARKS.json
             ${{ runner.temp }}/v4-vite.log
-            blob-report/
             test-results/
           retention-days: 14

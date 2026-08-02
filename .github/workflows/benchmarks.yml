@@ -245,7 +245,6 @@ jobs:
         with:
           name: private-browser-benchmark-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
