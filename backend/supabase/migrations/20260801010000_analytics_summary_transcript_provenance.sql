@@ -28,15 +28,22 @@ DECLARE
     v_weekly_sessions_count INT;
     v_total_sessions INT;
     v_total_duration_seconds INT;
-    -- #1047 review: the WPM/filler-rate DENOMINATOR must exclude not_captured rows. v_total_duration_seconds
-    -- stays all-session (it feeds only totalPracticeTime); this eligible-only duration feeds the rates so a
-    -- not_captured row's stale/sentinel duration can never dilute or inflate WPM or filler-per-minute.
-    v_eligible_duration_seconds INT;
+    -- #1047 U1 (review correction): rate DENOMINATORS are METRIC-SPECIFIC. v_total_duration_seconds stays
+    -- all-session (feeds only totalPracticeTime). Each rate uses the duration of rows that actually persist
+    -- ITS metric, so an expired row with duration but no persisted words cannot deflate WPM, and a row
+    -- without persisted fillers cannot dilute the filler rate.
+    v_wpm_duration_seconds INT;
+    v_filler_duration_seconds INT;
     v_total_words INT;
     v_sum_clarity FLOAT8;
     v_clarity_contributors INT;
-    v_word_time_sessions INT;
+    -- #1047 U1: per-metric contributor counts (rows whose duration enters each rate's denominator).
+    v_wpm_contributors INT;
+    v_filler_contributors INT;
     v_total_filler_words INT;
+    -- #1047 U1: number of filler-metric-eligible rows. A "trend" is a comparison and needs at least TWO such
+    -- measurements; with fewer we report NO trend (mirrors the client calculateFillerWordTrends >= 2 gate).
+    v_eligible_filler_count INT;
     v_avg_clarity TEXT;
     v_avg_wpm NUMERIC;
     v_avg_filler_per_min TEXT;
@@ -60,11 +67,24 @@ BEGIN
     SELECT
         count(*),
         coalesce(sum(duration), 0),
-        -- All-session duration for total-practice-time only.
-        coalesce(sum(duration) FILTER (WHERE transcript_state IS DISTINCT FROM 'not_captured'), 0),
-        -- Transcript-derived WPM numerator: provenance-eligible rows only (excludes not_captured sentinels;
-        -- keeps available + expired-with-persisted-metrics + legacy).
-        coalesce(sum(total_words) FILTER (WHERE transcript_state IS DISTINCT FROM 'not_captured'), 0),
+        -- #1047 U1: WPM-metric-eligible duration — a row contributes ITS speaking time to the WPM denominator
+        -- only when the WPM value is genuinely persisted (a real word count) AND its provenance is showable
+        -- (not a not_captured sentinel). This is the exact client rule for every row that exists in production:
+        -- an `available` row always carries words, and an `expired` row contributes only if a word count
+        -- survived retention. (transcript_state is one of the three concrete values — 20260801000000 backfill.)
+        coalesce(sum(duration) FILTER (
+            WHERE transcript_state IS DISTINCT FROM 'not_captured'
+              AND total_words IS NOT NULL AND total_words > 0), 0),
+        -- #1047 U1: filler-metric-eligible duration — same rule for fillers (real persisted filler data +
+        -- showable provenance). Matches the client hasRealFillerData gate (filler_words present, not '{}').
+        coalesce(sum(duration) FILTER (
+            WHERE transcript_state IS DISTINCT FROM 'not_captured'
+              AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb), 0),
+        -- Transcript-derived WPM numerator: SAME eligibility as its denominator above, so numerator and
+        -- denominator always describe the identical set of rows.
+        coalesce(sum(total_words) FILTER (
+            WHERE transcript_state IS DISTINCT FROM 'not_captured'
+              AND total_words IS NOT NULL AND total_words > 0), 0),
         coalesce(sum(clarity_score) FILTER (
             WHERE clarity_score IS NOT NULL
               AND coalesce(total_words, 0) >= c_min_reliable_scoring_words
@@ -75,19 +95,29 @@ BEGIN
               AND coalesce(total_words, 0) >= c_min_reliable_scoring_words
               AND transcript_state IS DISTINCT FROM 'not_captured'
         ),
+        -- #1047 U1: METRIC-SPECIFIC contributor counts. WPM and filler no longer share one "words+duration"
+        -- count — each reports exactly the rows whose speaking time entered ITS rate denominator (same
+        -- eligibility as v_wpm_duration_seconds / v_filler_duration_seconds above, requiring real elapsed time).
         count(*) FILTER (
-            WHERE coalesce(total_words, 0) > 0
-              AND coalesce(duration, 0) > 0
+            WHERE coalesce(duration, 0) > 0
               AND transcript_state IS DISTINCT FROM 'not_captured'
+              AND total_words IS NOT NULL AND total_words > 0
+        ),
+        count(*) FILTER (
+            WHERE coalesce(duration, 0) > 0
+              AND transcript_state IS DISTINCT FROM 'not_captured'
+              AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb
         )
     INTO
         v_total_sessions,
         v_total_duration_seconds,
-        v_eligible_duration_seconds,
+        v_wpm_duration_seconds,
+        v_filler_duration_seconds,
         v_total_words,
         v_sum_clarity,
         v_clarity_contributors,
-        v_word_time_sessions
+        v_wpm_contributors,
+        v_filler_contributors
     FROM sessions
     WHERE user_id = p_user_id;
 
@@ -113,17 +143,18 @@ BEGIN
     -- BOTH a numerator and a denominator. "0 WPM" would read as "you spoke impossibly slowly" rather
     -- than "we transcribed nothing", so absence is reported as NULL.
     v_avg_wpm := CASE
-        WHEN v_eligible_duration_seconds > 0 AND v_total_words > 0
-            THEN round(v_total_words / (v_eligible_duration_seconds / 60.0))
+        WHEN v_wpm_duration_seconds > 0 AND v_total_words > 0
+            THEN round(v_total_words / (v_wpm_duration_seconds / 60.0))
         ELSE NULL
     END;
 
     -- Filler rate: a rate needs transcribed words, not merely elapsed time. Without words the old
     -- "0.0/min" decoded to the POSITIVE label "Low" — silence praised as clean delivery. A real take
-    -- with words and no fillers still reports 0.0; that is genuine evidence and stays.
+    -- with words and no fillers still reports 0.0; that is genuine evidence and stays. #1047 U1: uses the
+    -- FILLER-metric-eligible duration, so only rows with persisted filler data enter the denominator.
     v_avg_filler_per_min := CASE
-        WHEN v_eligible_duration_seconds > 0 AND v_total_words > 0
-            THEN (v_total_filler_words / (v_eligible_duration_seconds / 60.0))::numeric(10,1)::text
+        WHEN v_filler_duration_seconds > 0 AND v_total_words > 0
+            THEN (v_total_filler_words / (v_filler_duration_seconds / 60.0))::numeric(10,1)::text
         ELSE NULL
     END;
 
@@ -137,8 +168,8 @@ BEGIN
         -- read it, so it keeps the same (now corrected) value rather than being renamed away.
         'avgAccuracy', v_avg_clarity,
         'clarityContributorCount', v_clarity_contributors,
-        'wpmContributorCount', v_word_time_sessions,
-        'fillerRateContributorCount', v_word_time_sessions
+        'wpmContributorCount', v_wpm_contributors,
+        'fillerRateContributorCount', v_filler_contributors
     );
 
     -- Top 2 Filler Words
@@ -176,11 +207,12 @@ BEGIN
     FROM (
         SELECT
             to_char(created_at, 'MM/DD/YYYY') as date,
-            -- #1047 review: a not_captured row's stale filler_words must NOT plot a rate — emit NULL (omitted
-            -- point), never a fabricated value, even when a nonzero sentinel count remains. An eligible row
-            -- (available / expired-with-persisted-metrics) with real duration still charts its rate.
+            -- #1047 U1: plot a filler rate ONLY when THIS row's filler evidence is showable — the exact client
+            -- fillerMetricEligible gate (available always; expired only with real persisted filler data). A
+            -- not_captured row (stale sentinel) OR an expired row whose filler data did not survive retention
+            -- emits NULL (omitted point), never a fabricated 0.00.
             CASE
-                WHEN transcript_state IS DISTINCT FROM 'not_captured' AND duration > 0
+                WHEN filler_eligible AND duration > 0
                     THEN (fw_count / (duration / 60.0))::numeric(10,2)::text
                 ELSE NULL
             END as "FW/min",
@@ -199,6 +231,10 @@ BEGIN
                 s.clarity_score,
                 s.total_words,
                 s.transcript_state,
+                -- #1047 U1: precompute the client's fillerMetricEligible provenance gate for the FW/min point —
+                -- showable provenance (not not_captured) AND real persisted filler data (not the empty '{}').
+                (s.transcript_state IS DISTINCT FROM 'not_captured'
+                 AND s.filler_words IS NOT NULL AND s.filler_words <> '{}'::jsonb) as filler_eligible,
                 coalesce((SELECT sum((v.value->>'count')::int) FROM jsonb_each(s.filler_words) AS v(key, value) WHERE v.key != 'total'), 0) as fw_count
             FROM sessions s
             WHERE s.user_id = p_user_id
@@ -251,37 +287,53 @@ BEGIN
         ) d
     ) d;
 
-    -- Filler Word Trends (Last 10 sessions, compare 0-5 and 5-10)
-    -- #1047 review: exclude not_captured rows so their stale filler counts never occupy a trend window slot;
-    -- the windows are recency slices of the provenance-eligible history (mirrors the client filler-trend gate).
-    WITH last_10_sessions AS (
-        SELECT id, created_at, row_number() OVER (ORDER BY created_at DESC) as rn
-        FROM sessions
-        WHERE user_id = p_user_id
-          AND transcript_state IS DISTINCT FROM 'not_captured'
-        LIMIT 10
-    ),
-    filler_counts AS (
-        SELECT
-            l.rn,
-            v.key as word,
-            (v.value->>'count')::int as count
-        FROM last_10_sessions l
-        JOIN sessions s ON s.id = l.id
-        CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
-        WHERE v.key != 'total'
-    ),
-    averages AS (
-        SELECT
-            word,
-            avg(count) FILTER (WHERE rn <= 5) as current_avg,
-            avg(count) FILTER (WHERE rn > 5) as previous_avg
-        FROM filler_counts
-        GROUP BY word
-    )
-    SELECT coalesce(jsonb_object_agg(word, jsonb_build_object('current', coalesce(current_avg, 0), 'previous', coalesce(previous_avg, 0))), '{}'::jsonb)
-    INTO v_filler_word_trends
-    FROM averages;
+    -- Filler Word Trends (compare the most-recent 5 vs the prior 5 FILLER-ELIGIBLE sessions).
+    -- #1047 U1: the trend window is a recency slice of the FILLER-metric-eligible history — the exact client
+    -- gate (available always; expired only with real persisted filler data). A not_captured row (stale
+    -- sentinel) or an expired row whose filler data did not survive retention never occupies a window slot.
+    -- A trend also needs >= 2 eligible measurements; with fewer we emit NO trend ('{}'), never a phantom
+    -- direction derived from a single point. Mirrors client calculateFillerWordTrends.
+    SELECT count(*) INTO v_eligible_filler_count
+    FROM sessions
+    WHERE user_id = p_user_id
+      AND transcript_state IS DISTINCT FROM 'not_captured'
+      AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb;
+
+    IF v_eligible_filler_count >= 2 THEN
+        WITH eligible_filler_sessions AS (
+            SELECT id, row_number() OVER (ORDER BY created_at DESC) as rn
+            FROM sessions
+            WHERE user_id = p_user_id
+              AND transcript_state IS DISTINCT FROM 'not_captured'
+              AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb
+        ),
+        last_10_sessions AS (
+            SELECT id, rn FROM eligible_filler_sessions WHERE rn <= 10
+        ),
+        filler_counts AS (
+            SELECT
+                l.rn,
+                v.key as word,
+                (v.value->>'count')::int as count
+            FROM last_10_sessions l
+            JOIN sessions s ON s.id = l.id
+            CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
+            WHERE v.key != 'total'
+        ),
+        averages AS (
+            SELECT
+                word,
+                avg(count) FILTER (WHERE rn <= 5) as current_avg,
+                avg(count) FILTER (WHERE rn > 5) as previous_avg
+            FROM filler_counts
+            GROUP BY word
+        )
+        SELECT coalesce(jsonb_object_agg(word, jsonb_build_object('current', coalesce(current_avg, 0), 'previous', coalesce(previous_avg, 0))), '{}'::jsonb)
+        INTO v_filler_word_trends
+        FROM averages;
+    ELSE
+        v_filler_word_trends := '{}'::jsonb;
+    END IF;
 
     RETURN jsonb_build_object(
         'overallStats', v_overall_stats || jsonb_build_object('chartData', v_chart_data),

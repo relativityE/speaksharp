@@ -270,3 +270,60 @@ describe('(#1047) transcript provenance — not_captured excluded from every tra
         expect(calculateAccuracyData([validAcc, ncAcc])).toHaveLength(1);
     });
 });
+
+describe('(#1047 U1) metric-specific evidence + >=2 filler-trend gate — client falsification', () => {
+    // Each fixture is built so the OLD blanket rule (one shared eligible-duration for every rate) would yield
+    // a DIFFERENT, provably-wrong number than the corrected per-metric rule.
+    const avail = (over: Partial<PracticeSession> = {}): PracticeSession => ({
+        id: 'a', created_at: '2026-07-01T10:00:00.000Z', user_id: 'user-1', duration: 60,
+        total_words: 120, clarity_score: 88, transcript: 'the quick brown fox jumps',
+        transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } },
+        pause_metrics: { silencePercentage: 0, transitionPauses: 1, extendedPauses: 0, longestPause: 0 },
+        ...over,
+    });
+
+    it('an EXPIRED row with words but NO persisted filler counts toward WPM only — never the filler rate', () => {
+        // WPM sees both rows (240 words / 2 min = 120). Filler sees only the available row (2 / 1 = 2.0).
+        // The old shared denominator would report 2 fillers / 2 min = 1.0 — the falsified wrong answer.
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'e', created_at: '2026-07-02T10:00:00.000Z', total_words: 120, clarity_score: 84,
+                    transcript: null, transcript_state: 'expired', filler_words: undefined }),
+        ];
+        const m = calculateOverallStats(rows);
+        expect(m.averageWPM).toBe(120);
+        expect(m.avgFillerWordsPerMin).toBe('2.0');   // NOT 1.0
+    });
+
+    it('an EXPIRED row with fillers but NO persisted words counts toward the filler rate only — never WPM', () => {
+        // Filler sees both rows (6 / 2 min = 3.0). WPM sees only the available row (120 / 1 min = 120).
+        // The old shared denominator would report 120 words / 2 min = 60 WPM — the falsified wrong answer.
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'e', created_at: '2026-07-02T10:00:00.000Z', total_words: undefined, clarity_score: undefined,
+                    transcript: null, transcript_state: 'expired',
+                    filler_words: { um: { count: 4 }, total: { count: 4 } } }),
+        ];
+        const m = calculateOverallStats(rows);
+        expect(m.averageWPM).toBe(120);               // NOT 60
+        expect(m.avgFillerWordsPerMin).toBe('3.0');
+    });
+
+    it('reports NO filler trend from a SINGLE eligible measurement (>=2 gate)', () => {
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'nc', created_at: '2026-07-02T10:00:00.000Z', transcript: '',
+                    transcript_state: 'not_captured', filler_words: { um: { count: 40 }, total: { count: 40 } } }),
+        ];
+        expect(calculateFillerWordTrends(rows)).toEqual({});   // one eligible point ≠ a trend
+    });
+
+    it('DOES report a filler trend once there are >=2 eligible measurements', () => {
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'a2', created_at: '2026-07-02T10:00:00.000Z',
+                    filler_words: { um: { count: 6 }, total: { count: 6 } } }),
+        ];
+        expect(Object.keys(calculateFillerWordTrends(rows))).toContain('um');
+    });
+});
