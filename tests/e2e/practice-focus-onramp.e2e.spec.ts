@@ -4,7 +4,7 @@ import { navigateToRoute, programmaticLoginWithRoutes } from './helpers';
 const SCREENSHOT_DIR = 'test-results/1116-practice-focus-onramp';
 
 async function installCalibrationSpeechRecognition(page: Page) {
-  await page.addInitScript(() => {
+  await page.evaluate(() => {
     class CalibrationSpeechRecognition {
       lang = 'en-US';
       interimResults = true;
@@ -57,7 +57,6 @@ async function storageSnapshot(page: Page) {
 
 test.describe('#1116 Freestyle practice-focus on-ramp', () => {
   test('is usable at desktop/mobile and calibration creates no application write', async ({ page }) => {
-    await installCalibrationSpeechRecognition(page);
     const applicationWrites: string[] = [];
     let calibrationStarted = false;
     page.on('request', (request) => {
@@ -92,6 +91,10 @@ test.describe('#1116 Freestyle practice-focus on-ramp', () => {
     await expect(page.getByTestId('calibration-passage')).toContainText('Good communication starts with a clear purpose.');
     await expect(page.getByText(/Your browser manages transcription and may use its own speech service/)).toBeVisible();
     const storageBefore = await storageSnapshot(page);
+    // The shared E2E bridge installs a silent recognizer while the application
+    // boots. Replace it immediately before calibration constructs its Browser
+    // leaf engine so this journey proves the acoustic-ready onReady boundary.
+    await installCalibrationSpeechRecognition(page);
     calibrationStarted = true;
     await page.getByRole('button', { name: 'Start 30-second test' }).click();
     await expect(page.getByText(/Listening—read the passage aloud/)).toBeVisible();
