@@ -261,4 +261,3 @@ export function productValueJourneyDisposition(report: ProductValueJourneyReport
   if (results.some(result => result.status === 'unavailable')) return 'unavailable';
   return 'passed';
 }
-
