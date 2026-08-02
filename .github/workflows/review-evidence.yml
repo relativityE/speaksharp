@@ -36,6 +36,14 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.reviewed_sha }}
+          fetch-depth: 1
+
+      - name: Verify reviewed SHA matches checked-out HEAD
+        env:
+          REVIEWED_SHA: ${{ github.event.inputs.reviewed_sha }}
+        run: node scripts/verify-review-evidence-sha.mjs "$REVIEWED_SHA"
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -72,6 +80,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots
-          path: evidence/
+          path: evidence/*.png
           retention-days: 1
           if-no-files-found: error

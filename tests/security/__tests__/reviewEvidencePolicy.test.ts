@@ -1,0 +1,560 @@
+import { execFileSync } from 'node:child_process';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+    APPROVED_SCREENSHOT_UPLOADS,
+    APPROVED_TEST_BINARY_FIXTURES,
+    LEGACY_COMMITTED_REVIEW_BINARIES,
+    committedReviewBinaries,
+    inventoryArtifactUploads,
+    playwrightConfigFiles,
+    reviewEvidencePolicyViolations,
+    scanArtifactUpload,
+    scanGeneratedArtifacts,
+} from '../../../scripts/check-review-evidence-policy.mjs';
+
+const repoRoot = resolve('.');
+const temporaryRepos: string[] = [];
+
+function policyFixtureRepo(): string {
+    const fixture = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-policy-'));
+    temporaryRepos.push(fixture);
+    cpSync(join(repoRoot, '.github', 'workflows'), join(fixture, '.github', 'workflows'), { recursive: true });
+    for (const config of playwrightConfigFiles(repoRoot)) {
+        cpSync(join(repoRoot, config), join(fixture, config));
+    }
+    for (const binary of LEGACY_COMMITTED_REVIEW_BINARIES) {
+        const target = join(fixture, binary);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, 'historical evidence placeholder');
+    }
+    execFileSync('git', ['init', '--quiet'], { cwd: fixture });
+    execFileSync('git', ['add', '.'], { cwd: fixture });
+    return fixture;
+}
+
+function replaceInFixture(fixture: string, path: string, before: string, after: string): void {
+    const target = join(fixture, path);
+    const contents = readFileSync(target, 'utf8');
+    expect(contents).toContain(before);
+    writeFileSync(target, contents.replace(before, after));
+}
+
+afterEach(() => {
+    for (const fixture of temporaryRepos.splice(0)) rmSync(fixture, { recursive: true, force: true });
+});
+
+describe('#1132 ephemeral review-evidence policy', () => {
+    it('inventories every upload and enforces the repository policy', () => {
+        const inventory = inventoryArtifactUploads();
+
+        expect(inventory.length).toBeGreaterThan(40);
+        expect(new Set(inventory.map(({ key }) => key)).size).toBe(inventory.length);
+        expect(inventory.every(({ workflow, name, paths, retentionDays }) =>
+            workflow && name && paths.length > 0 && retentionDays)).toBe(true);
+        expect(reviewEvidencePolicyViolations()).toEqual([]);
+
+        const stress = inventory.find(({ key }) => key === 'stress-endurance.yml::stress-endurance-results');
+        expect(stress?.paths).toEqual([
+            'test-results/stress/backend-stress.latest.json',
+            'test-results/endurance/browser-endurance.latest.json',
+        ]);
+        expect(stress?.broadUpload).toBe(false);
+        expect(readFileSync(join(repoRoot, '.github/workflows/stress-endurance.yml'), 'utf8'))
+            .not.toContain('test-results/soak/');
+
+        const proStt = inventory.find(({ key }) => key === 'pro-stt-artifact-matrix.yml::pro-stt-artifact-matrix-artifacts');
+        expect(proStt?.paths).toEqual(['test-results/live/pro-stt-artifact-matrix-evidence.jsonl']);
+
+        const analyticsMatrix = inventory.find(({ key }) =>
+            key === 'analytics-rpc-security-matrix.yml::analytics-rpc-security-matrix-pg${{ matrix.pg }}');
+        expect(analyticsMatrix?.paths).toEqual([
+            'matrix-output.sanitized.txt',
+            'falsify-output.sanitized.txt',
+        ]);
+        const analyticsWorkflow = readFileSync(
+            join(repoRoot, '.github/workflows/analytics-rpc-security-matrix.yml'),
+            'utf8',
+        );
+        expect(analyticsWorkflow).not.toMatch(/^\s+matrix-output\.txt$/m);
+        expect(analyticsWorkflow).not.toMatch(/^\s+falsify-output\.txt$/m);
+        expect(analyticsWorkflow.indexOf('name: Sanitize matrix evidence'))
+            .toBeLessThan(analyticsWorkflow.indexOf('name: Scan evidence artifact'));
+        const proSttSpec = readFileSync(join(repoRoot, 'tests/live/pro-stt-artifact-matrix.live.spec.ts'), 'utf8');
+        expect(proSttSpec).not.toContain("testInfo.attach('session-pdf'");
+        expect(proSttSpec).toContain('rm(artifactPath, { force: true })');
+        expect(proSttSpec).toContain('download.delete()');
+
+        const reviewEvidenceWorkflow = readFileSync(join(repoRoot, '.github/workflows/review-evidence.yml'), 'utf8');
+        expect(reviewEvidenceWorkflow).toContain('ref: ${{ github.event.inputs.reviewed_sha }}');
+        expect(reviewEvidenceWorkflow).toContain('node scripts/verify-review-evidence-sha.mjs "$REVIEWED_SHA"');
+        expect(reviewEvidenceWorkflow.indexOf('name: Verify reviewed SHA matches checked-out HEAD'))
+            .toBeLessThan(reviewEvidenceWorkflow.indexOf('name: Setup Environment'));
+        expect(reviewEvidenceWorkflow.indexOf('name: Verify reviewed SHA matches checked-out HEAD'))
+            .toBeLessThan(reviewEvidenceWorkflow.indexOf('name: Upload review evidence'));
+
+        const shard = inventory.find(({ key }) => key === 'ci.yml::shard-report-${{ matrix.shard }}');
+        expect(shard?.paths).toEqual(['test-results/ci-evidence/playwright-shard-summary.json']);
+        const lighthouse = inventory.find(({ key }) => key === 'ci.yml::lighthouse-report');
+        expect(lighthouse?.paths).toEqual(['test-results/ci-evidence/lighthouse-summary.json']);
+        const unitArtifacts = inventory.find(({ key }) => key === 'ci.yml::unit-artifacts');
+        expect(unitArtifacts?.paths).toEqual([
+            'artifacts/coverage/coverage-summary.json',
+            'unit-metrics.json',
+        ]);
+
+        const ciWorkflow = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+        const unitJob = ciWorkflow.slice(
+            ciWorkflow.indexOf('  unit-coverage:'),
+            ciWorkflow.indexOf('  edge-tests:'),
+        );
+        expect(unitJob).not.toContain('frontend/coverage/coverage-summary.json');
+        expect(unitJob).toContain("node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::unit-artifacts'");
+        expect(unitJob).toContain("if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}");
+        expect(unitJob).toMatch(/name: unit-artifacts[\s\S]*?artifacts\/coverage\/coverage-summary\.json[\s\S]*?if-no-files-found: error/);
+        expect(unitJob.indexOf('name: Scan unit review evidence'))
+            .toBeLessThan(unitJob.indexOf('name: Upload Unit Artifacts'));
+        expect(ciWorkflow).not.toContain('path: blob-report/report-*.zip');
+        expect(inventory.flatMap(({ paths }) => paths).join('\n')).not.toContain('blob-report/');
+        expect(ciWorkflow).not.toContain('path: lighthouse-results/');
+        expect(ciWorkflow).not.toContain('playwright merge-reports');
+        expect(ciWorkflow.indexOf('name: Sanitize E2E shard evidence'))
+            .toBeLessThan(ciWorkflow.indexOf('name: Scan shard review evidence'));
+        expect(ciWorkflow.indexOf('name: Sanitize Lighthouse evidence'))
+            .toBeLessThan(ciWorkflow.indexOf('name: Scan Lighthouse review evidence'));
+        const requiredUpstreams = ciWorkflow.slice(
+            ciWorkflow.indexOf('      - name: Require Upstream Success'),
+            ciWorkflow.indexOf('      - name: Checkout Code', ciWorkflow.indexOf('      - name: Require Upstream Success')),
+        );
+        expect(requiredUpstreams).toContain('lighthouse=$LIGHTHOUSE');
+        expect(requiredUpstreams).not.toMatch(/for r in .*\$LIGHTHOUSE/);
+
+        const benchmarkWorkflow = readFileSync(join(repoRoot, '.github/workflows/benchmarks.yml'), 'utf8');
+        const assemblyAi = inventory.find(({ key }) => key === 'benchmarks.yml::assemblyai-streaming-ab-proof');
+        expect(assemblyAi).toMatchObject({
+            paths: ['/tmp/assemblyai-streaming-ab-summary.json'],
+            retentionDays: '1',
+            ifNoFilesFound: 'error',
+        });
+        const exactBuffer = inventory.find(({ key }) => key === 'benchmarks.yml::private-exact-app-buffer-proof');
+        expect(exactBuffer).toMatchObject({
+            paths: ['/tmp/speaksharp-private-h1_6-exact-buffer-summary.json'],
+            retentionDays: '1',
+            ifNoFilesFound: 'error',
+        });
+        expect(benchmarkWorkflow.indexOf('name: Sanitize AssemblyAI streaming A/B proof'))
+            .toBeLessThan(benchmarkWorkflow.indexOf('name: Scan AssemblyAI streaming A/B proof'));
+        expect(benchmarkWorkflow.indexOf('name: Sanitize Private exact app-buffer capture proof'))
+            .toBeLessThan(benchmarkWorkflow.indexOf('name: Scan Private exact app-buffer capture proof'));
+        expect(benchmarkWorkflow).not.toMatch(/path:\s*\/tmp\/assemblyai-streaming-ab-proof\.json/);
+        expect(benchmarkWorkflow).not.toMatch(/path:\s*\/tmp\/speaksharp-private-h1_6-exact-buffer-current\.json/);
+        expect(benchmarkWorkflow).toMatch(/name: Scan AssemblyAI streaming A\/B proof[\s\S]*?if: \$\{\{ always\(\) && inputs\.run_cloud_streaming_ab != false \}\}/);
+        expect(benchmarkWorkflow).toMatch(/name: Scan generated review evidence[\s\S]*?if: \$\{\{ always\(\) && inputs\.run_private_browser != false \}\}/);
+        expect(benchmarkWorkflow).toMatch(/run_private_browser:[\s\S]*?default: true/);
+        expect(benchmarkWorkflow).toContain("STT_INCLUDE_AUDIO_DATA_URL: 'true'");
+        const benchmarkHelper = readFileSync(join(repoRoot, 'tests/live/helpers/benchmark-utils.ts'), 'utf8');
+        const privateEvidenceHelper = benchmarkHelper.slice(
+            benchmarkHelper.indexOf('export async function attachPrivateBenchmarkEvidence'),
+            benchmarkHelper.indexOf('export const PRIVATE_WASM_SMOKE_CAVEAT'),
+        );
+        expect(privateEvidenceHelper).toContain('sanitizePrivateBenchmarkEvidence(evidence, label)');
+        expect(privateEvidenceHelper).toContain('JSON.stringify(sanitizedEvidence, null, 2)');
+        expect(privateEvidenceHelper).toContain('wavDataUrl: wavDataUrl ?? null');
+        expect(privateEvidenceHelper).not.toContain('STT_INCLUDE_AUDIO_DATA_URL');
+        expect(privateEvidenceHelper).not.toContain('shouldIncludeAudioDataUrl');
+        expect(privateEvidenceHelper).not.toContain('JSON.stringify(evidence, null, 2)');
+    });
+
+    it('requires the current unit coverage output and rejects an empty green artifact', () => {
+        const fixture = policyFixtureRepo();
+        writeFileSync(join(fixture, 'unit-metrics.json'), '{}\n');
+
+        expect(scanArtifactUpload('ci.yml::unit-artifacts', fixture)).toContainEqual(
+            expect.stringContaining('artifacts/coverage/coverage-summary.json: configured upload path does not exist; upload denied'),
+        );
+
+        const coverageSummary = join(fixture, 'artifacts', 'coverage', 'coverage-summary.json');
+        mkdirSync(dirname(coverageSummary), { recursive: true });
+        writeFileSync(coverageSummary, JSON.stringify({ total: { lines: { pct: 100 } } }));
+
+        expect(scanArtifactUpload('ci.yml::unit-artifacts', fixture)).toEqual([]);
+    });
+
+    it('limits approved screenshot uploaders to PNG-only one-day artifacts', () => {
+        const screenshotUploads = inventoryArtifactUploads().filter(({ name, paths }) =>
+            /screenshot/i.test(name ?? '') || paths.some((path) => /\.png(?:$|\b)/i.test(path)));
+
+        expect(new Set(screenshotUploads.map(({ key }) => key))).toEqual(APPROVED_SCREENSHOT_UPLOADS);
+        expect(screenshotUploads.every(({ retentionDays }) => retentionDays === '1')).toBe(true);
+        expect(screenshotUploads.every(({ paths }) => paths.every((path) => /\.png(?:$|\b)/i.test(path)))).toBe(true);
+    });
+
+    it('freezes legacy committed review binaries without authorizing deletion or additions', () => {
+        expect(new Set(committedReviewBinaries())).toEqual(new Set([
+            ...LEGACY_COMMITTED_REVIEW_BINARIES,
+            ...APPROVED_TEST_BINARY_FIXTURES,
+        ]));
+    });
+
+    it('discovers every tracked Playwright config and keeps the demo recorder local-only', () => {
+        expect(playwrightConfigFiles()).toContain('playwright.demo.config.ts');
+
+        const fixture = policyFixtureRepo();
+        const newConfig = join(fixture, 'playwright.new-review.config.ts');
+        writeFileSync(newConfig, "export default { use: { screenshot: 'on', video: 'off', trace: 'off' } };\n");
+        execFileSync('git', ['add', 'playwright.new-review.config.ts'], { cwd: fixture });
+        expect(reviewEvidencePolicyViolations(fixture)).toContainEqual(
+            expect.stringContaining('automated screenshot capture must be off'),
+        );
+
+        const workflowUse = policyFixtureRepo();
+        replaceInFixture(
+            workflowUse,
+            '.github/workflows/review-evidence.yml',
+            '          mkdir -p evidence',
+            '          pnpm exec playwright test --config=playwright.demo.config.ts\n          mkdir -p evidence',
+        );
+        expect(reviewEvidencePolicyViolations(workflowUse)).toContainEqual(
+            expect.stringContaining('local-only media config must never be invoked by Actions'),
+        );
+    });
+
+    it('fails closed on missing or greater screenshot retention', () => {
+        const missing = policyFixtureRepo();
+        replaceInFixture(missing, '.github/workflows/review-evidence.yml', '          retention-days: 1\n', '');
+        expect(reviewEvidencePolicyViolations(missing)).toEqual(expect.arrayContaining([
+            expect.stringContaining('retention-days is required'),
+            expect.stringContaining('screenshot retention must be exactly one day'),
+        ]));
+
+        const greater = policyFixtureRepo();
+        replaceInFixture(
+            greater,
+            '.github/workflows/review-evidence.yml',
+            '          retention-days: 1',
+            '          retention-days: 2',
+        );
+        expect(reviewEvidencePolicyViolations(greater)).toContainEqual(
+            expect.stringContaining('screenshot retention must be exactly one day'),
+        );
+    });
+
+    it('rejects custom archives and unauthorized browser/session media', () => {
+        const archive = policyFixtureRepo();
+        replaceInFixture(
+            archive,
+            '.github/workflows/review-evidence.yml',
+            '          mkdir -p evidence',
+            '          zip evidence.zip evidence/*.png\n          mkdir -p evidence',
+        );
+        expect(reviewEvidencePolicyViolations(archive)).toContainEqual(
+            expect.stringContaining('custom archive creation is forbidden'),
+        );
+
+        const blobReportUpload = policyFixtureRepo();
+        replaceInFixture(
+            blobReportUpload,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            '          path: blob-report/',
+        );
+        expect(reviewEvidencePolicyViolations(blobReportUpload)).toContainEqual(
+            expect.stringContaining('blob-report archives are forbidden upload paths'),
+        );
+
+        const trace = policyFixtureRepo();
+        replaceInFixture(trace, 'playwright.config.ts', "trace: 'off'", "trace: 'retain-on-failure'");
+        expect(reviewEvidencePolicyViolations(trace)).toContainEqual(
+            expect.stringContaining('automated trace capture must be off'),
+        );
+
+        const exactPdf = policyFixtureRepo();
+        replaceInFixture(
+            exactPdf,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact PDF\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: proof\n          path: proof.pdf\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(exactPdf)).toContainEqual(
+            expect.stringContaining('binary review artifact path is forbidden (proof.pdf)'),
+        );
+    });
+
+    it('fails closed before broad browser-output upload when nested content is forbidden', () => {
+        const fixture = policyFixtureRepo();
+        const nestedScreenshot = join(fixture, 'test-results', 'soak', 'nested', 'auth-failure.png');
+        mkdirSync(dirname(nestedScreenshot), { recursive: true });
+        writeFileSync(nestedScreenshot, 'not uploaded');
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', fixture)).toContainEqual(
+            expect.stringContaining('forbidden browser/session artifact file'),
+        );
+
+        rmSync(nestedScreenshot);
+        const nestedJson = join(fixture, 'playwright-report', 'nested', 'result.json');
+        mkdirSync(dirname(nestedJson), { recursive: true });
+        writeFileSync(nestedJson, JSON.stringify({ transcript: 'private practice words' }));
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', fixture)).toContainEqual(
+            expect.stringContaining('forbidden session or user content'),
+        );
+
+        expect(scanArtifactUpload('ci.yml::shard-report-1', fixture)).not.toContainEqual(
+            expect.stringContaining('artifact uploader is not present'),
+        );
+
+        const disguisedBinary = join(fixture, 'playwright-report', 'proof.txt');
+        writeFileSync(disguisedBinary, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', fixture)).toContainEqual(
+            expect.stringContaining('binary content in text artifact; upload denied'),
+        );
+        rmSync(disguisedBinary);
+
+        const extensionlessBinary = join(fixture, 'playwright-report', 'disguised-proof');
+        writeFileSync(extensionlessBinary, Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d]));
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', fixture)).toContainEqual(
+            expect.stringContaining('binary content in text artifact; upload denied'),
+        );
+        rmSync(extensionlessBinary);
+
+        const archiveRoot = join(fixture, 'blob-report');
+        mkdirSync(archiveRoot);
+        writeFileSync(join(archiveRoot, 'report-proof.zip'), Uint8Array.from([0x50, 0x4b, 0x03, 0x04]));
+        expect(scanGeneratedArtifacts(fixture)).toContainEqual(
+            expect.stringContaining('custom archive in browser output is forbidden'),
+        );
+
+        const runnerTemp = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-runner-temp-'));
+        temporaryRepos.push(runnerTemp);
+        writeFileSync(join(runnerTemp, 'v4-vite.log'), JSON.stringify({ transcript: 'private practice words' }));
+        const previousRunnerTemp = process.env.RUNNER_TEMP;
+        process.env.RUNNER_TEMP = runnerTemp;
+        try {
+            expect(scanArtifactUpload('v4-app-path-proof.yml::v4-app-path-proof', fixture)).toContainEqual(
+                expect.stringContaining('forbidden session or user content'),
+            );
+        } finally {
+            if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+            else process.env.RUNNER_TEMP = previousRunnerTemp;
+        }
+    });
+
+    it('requires every review artifact upload to have both scanner and success guard', () => {
+        const missingScanner = policyFixtureRepo();
+        replaceInFixture(
+            missingScanner,
+            '.github/workflows/v4-browser-proof.yml',
+            "      - name: Scan generated review evidence\n        id: review_evidence_scan\n        if: always()\n        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'v4-browser-proof.yml::v4-browser-proof'\n\n",
+            '',
+        );
+        expect(reviewEvidencePolicyViolations(missingScanner)).toContainEqual(
+            expect.stringContaining('requires a fail-closed pre-upload scanner'),
+        );
+
+        const missingGuard = policyFixtureRepo();
+        replaceInFixture(
+            missingGuard,
+            '.github/workflows/v4-browser-proof.yml',
+            "if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}",
+            'if: always()',
+        );
+        expect(reviewEvidencePolicyViolations(missingGuard)).toContainEqual(
+            expect.stringContaining('upload must be blocked unless the pre-upload scanner succeeds'),
+        );
+
+        const neutralUploader = policyFixtureRepo();
+        replaceInFixture(
+            neutralUploader,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload neutral output\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: output\n          path: out/\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(neutralUploader)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::output: review artifact upload requires'),
+        );
+
+        const absoluteDirectory = policyFixtureRepo();
+        replaceInFixture(
+            absoluteDirectory,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload neutral absolute output\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: absolute-output\n          path: /tmp/neutral-review-output\n          retention-days: 30\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(absoluteDirectory)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::absolute-output: review artifact upload requires'),
+        );
+
+        const absoluteFile = policyFixtureRepo();
+        replaceInFixture(
+            absoluteFile,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact absolute result\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: absolute-result\n          path: /tmp/result.json\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(absoluteFile)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::absolute-result: review artifact upload requires'),
+        );
+
+        const exactText = policyFixtureRepo();
+        writeFileSync(join(exactText, 'proof.txt'), 'sanitized proof\n');
+        replaceInFixture(
+            exactText,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact text\n        if: always()\n        uses: actions/upload-artifact@v6\n        with:\n          name: exact-text\n          path: proof.txt\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(reviewEvidencePolicyViolations(exactText)).toContainEqual(
+            expect.stringContaining('review-evidence.yml::exact-text: review artifact upload requires'),
+        );
+    });
+
+    it('allows optional members of multi-root uploads but never an empty resolved set', () => {
+        const partial = policyFixtureRepo();
+        const testResult = join(partial, 'test-results', 'live', 'result.json');
+        mkdirSync(dirname(testResult), { recursive: true });
+        writeFileSync(testResult, JSON.stringify({ passed: true }));
+
+        expect(scanArtifactUpload('live-release-matrix.yml::live-custom-words-artifacts', partial)).toEqual([]);
+
+        const empty = policyFixtureRepo();
+        expect(scanArtifactUpload('live-release-matrix.yml::live-custom-words-artifacts', empty)).toContainEqual(
+            expect.stringContaining('no upload path could be resolved; upload denied'),
+        );
+    });
+
+    it('fails closed for absolute, dynamic, and symlinked upload roots', () => {
+        const absolute = policyFixtureRepo();
+        const absoluteOutput = mkdtempSync(join(tmpdir(), 'speaksharp-review-evidence-absolute-'));
+        temporaryRepos.push(absoluteOutput);
+        writeFileSync(join(absoluteOutput, 'nested.png'), 'forbidden screenshot');
+        replaceInFixture(
+            absolute,
+            '.github/workflows/v4-browser-proof.yml',
+            '            playwright-report/',
+            `            ${absoluteOutput}/`,
+        );
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', absolute)).toContainEqual(
+            expect.stringContaining('forbidden browser/session artifact file'),
+        );
+
+        const dynamic = policyFixtureRepo();
+        replaceInFixture(
+            dynamic,
+            '.github/workflows/v4-browser-proof.yml',
+            '            playwright-report/',
+            '            ${{ matrix.output_dir }}/',
+        );
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', dynamic)).toContainEqual(
+            expect.stringContaining('unsupported dynamic upload path; upload denied'),
+        );
+
+        const symlinked = policyFixtureRepo();
+        const symlinkTarget = join(symlinked, 'safe-target');
+        mkdirSync(symlinkTarget);
+        writeFileSync(join(symlinkTarget, 'result.json'), JSON.stringify({ passed: true }));
+        symlinkSync(symlinkTarget, join(symlinked, 'review-link'));
+        replaceInFixture(
+            symlinked,
+            '.github/workflows/v4-browser-proof.yml',
+            '            playwright-report/',
+            '            review-link/',
+        );
+        expect(scanArtifactUpload('v4-browser-proof.yml::v4-browser-proof', symlinked)).toContainEqual(
+            expect.stringContaining('symbolic links are forbidden'),
+        );
+    });
+
+    it('distinguishes nonexistent upload roots from valid empty and exact-text roots', () => {
+        const missingRelative = policyFixtureRepo();
+        replaceInFixture(
+            missingRelative,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            '          path: missing-review-output/',
+        );
+        expect(scanArtifactUpload(
+            'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
+            missingRelative,
+        )).toContainEqual(expect.stringContaining('configured upload path does not exist; upload denied'));
+
+        const missingAbsolute = policyFixtureRepo();
+        const missingAbsoluteRoot = join(missingAbsolute, 'never-created-review-output');
+        replaceInFixture(
+            missingAbsolute,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            `          path: ${missingAbsoluteRoot}/`,
+        );
+        expect(scanArtifactUpload(
+            'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
+            missingAbsolute,
+        )).toContainEqual(expect.stringContaining('configured upload path does not exist; upload denied'));
+
+        const emptyExisting = policyFixtureRepo();
+        mkdirSync(join(emptyExisting, 'empty-review-output'));
+        replaceInFixture(
+            emptyExisting,
+            '.github/workflows/review-evidence.yml',
+            '          path: evidence/*.png',
+            '          path: empty-review-output/',
+        );
+        // An existing empty directory is resolved and fully scanned. Whether an
+        // empty upload is accepted remains the upload step's if-no-files-found policy.
+        expect(scanArtifactUpload(
+            'review-evidence.yml::pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-mode-selector-screenshots',
+            emptyExisting,
+        )).toEqual([]);
+
+        const exactText = policyFixtureRepo();
+        writeFileSync(join(exactText, 'exact-result.json'), JSON.stringify({ passed: true }));
+        replaceInFixture(
+            exactText,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact text result\n        uses: actions/upload-artifact@v6\n        with:\n          name: exact-text-result\n          path: exact-result.json\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(scanArtifactUpload('review-evidence.yml::exact-text-result', exactText)).toEqual([]);
+
+        writeFileSync(join(exactText, 'HEALTH_PASSED'), 'health-check completed\n');
+        replaceInFixture(
+            exactText,
+            '.github/workflows/review-evidence.yml',
+            '      - name: Upload review evidence\n',
+            "      - name: Upload exact marker\n        uses: actions/upload-artifact@v6\n        with:\n          name: exact-marker\n          path: HEALTH_PASSED\n          retention-days: 1\n\n      - name: Upload review evidence\n",
+        );
+        expect(scanArtifactUpload('review-evidence.yml::exact-marker', exactText)).toEqual([]);
+    });
+
+    it('rejects newly committed review binaries outside named evidence directories', () => {
+        const fixture = policyFixtureRepo();
+        const binaryEvidence: Array<[string, Uint8Array]> = [
+            ['docs/new-review.png', Uint8Array.from([0x89, 0x50, 0x4e, 0x47])],
+            ['review-output/proof.zip', Uint8Array.from([0x50, 0x4b, 0x03, 0x04])],
+            ['docs/review-shot.gif', Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])],
+            ['docs/proof.pdf', Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d])],
+            ['docs/interview.wav', Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0])],
+            ['docs/extensionless-proof', Uint8Array.from([0, 0xff, 0x01, 0xfe])],
+        ];
+        for (const [path, contents] of binaryEvidence) {
+            const added = join(fixture, path);
+            mkdirSync(dirname(added), { recursive: true });
+            writeFileSync(added, contents);
+            execFileSync('git', ['add', path], { cwd: fixture });
+        }
+
+        const violations = reviewEvidencePolicyViolations(fixture);
+        for (const [path] of binaryEvidence) {
+            expect(violations).toContainEqual(
+                expect.stringContaining(`${path}: committed binary review evidence is forbidden`),
+            );
+        }
+
+        const productAsset = join(fixture, 'frontend/public/assets/new-product-icon.png');
+        mkdirSync(dirname(productAsset), { recursive: true });
+        writeFileSync(productAsset, 'approved product asset root');
+        execFileSync('git', ['add', 'frontend/public/assets/new-product-icon.png'], { cwd: fixture });
+        expect(reviewEvidencePolicyViolations(fixture)).not.toContainEqual(
+            expect.stringContaining('frontend/public/assets/new-product-icon.png'),
+        );
+    });
+});

@@ -26,7 +26,8 @@ export default defineConfig({
         ...baseConfig.use,
         baseURL: urls.dev,
         video: 'off',
-        trace: 'retain-on-failure',
+        trace: 'off',
+        screenshot: 'off',
     },
     // No webServer - assumes dev server is running
     projects: [

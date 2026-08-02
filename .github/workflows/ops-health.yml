@@ -80,8 +80,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/publish-ops-health-summary.mjs
 
-      - name: Upload ops health artifact
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ops-health.yml::ops-health-dashboard'
+
+      - name: Upload ops health artifact
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: ops-health-dashboard

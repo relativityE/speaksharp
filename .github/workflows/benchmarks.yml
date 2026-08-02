@@ -88,13 +88,27 @@ jobs:
           ASSEMBLYAI_STREAMING_AB_FIXTURES: ${{ inputs.streaming_ab_fixtures }}
         run: pnpm benchmark:cloud:streaming-ab
 
+      - name: Sanitize AssemblyAI streaming A/B proof
+        if: ${{ always() && inputs.run_cloud_streaming_ab != false }}
+        run: node scripts/sanitize-ci-artifact.mjs assemblyai-streaming /tmp/assemblyai-streaming-ab-proof.json /tmp/assemblyai-streaming-ab-summary.json
+
+      - name: Scan AssemblyAI streaming A/B proof
+        id: review_evidence_scan_assemblyai
+        if: ${{ always() && inputs.run_cloud_streaming_ab != false }}
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'benchmarks.yml::assemblyai-streaming-ab-proof'
+
       - name: Upload AssemblyAI streaming A/B proof
-        if: always()
+        if: ${{ always() && inputs.run_cloud_streaming_ab != false && steps.review_evidence_scan_assemblyai.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: assemblyai-streaming-ab-proof
-          path: /tmp/assemblyai-streaming-ab-proof.json
-          if-no-files-found: warn
+          path: /tmp/assemblyai-streaming-ab-summary.json
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Remove raw AssemblyAI streaming proof
+        if: ${{ always() && inputs.run_cloud_streaming_ab != false }}
+        run: rm -f /tmp/assemblyai-streaming-ab-proof.json
 
       - name: Open PR with updated benchmarks
         if: success() && steps.cloud-ceiling.outcome == 'success' && inputs.write_results != false
@@ -175,6 +189,10 @@ jobs:
           pnpm exec tsx scripts/manual-stt-corpus-proof.mjs
           kill "$server_pid" || true
 
+      - name: Sanitize Private exact app-buffer capture proof
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true }}
+        run: node scripts/sanitize-ci-artifact.mjs private-exact-buffer /tmp/speaksharp-private-h1_6-exact-buffer-current.json /tmp/speaksharp-private-h1_6-exact-buffer-summary.json
+
       - name: Run Private browser benchmark suite
         if: inputs.run_private_browser != false
         env:
@@ -198,22 +216,35 @@ jobs:
         run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
 
-      - name: Upload Private exact app-buffer capture proof
+      - name: Scan Private exact app-buffer capture proof
+        id: review_evidence_scan_exact_buffer
         if: always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'benchmarks.yml::private-exact-app-buffer-proof'
+
+      - name: Upload Private exact app-buffer capture proof
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true && steps.review_evidence_scan_exact_buffer.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: private-exact-app-buffer-proof
-          path: /tmp/speaksharp-private-h1_6-exact-buffer-current.json
-          if-no-files-found: warn
-          retention-days: 14
+          path: /tmp/speaksharp-private-h1_6-exact-buffer-summary.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove raw Private exact app-buffer proof
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true }}
+        run: rm -f /tmp/speaksharp-private-h1_6-exact-buffer-current.json
+
+      - name: Scan generated review evidence
+        id: review_evidence_scan
+        if: ${{ always() && inputs.run_private_browser != false }}
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'benchmarks.yml::private-browser-benchmark-artifacts'
 
       - name: Upload Private browser benchmark artifacts
-        if: always() && inputs.run_private_browser != false
+        if: ${{ always() && inputs.run_private_browser != false && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: private-browser-benchmark-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14

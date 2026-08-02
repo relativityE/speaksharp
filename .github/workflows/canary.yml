@@ -78,8 +78,13 @@ jobs:
           CANARY_ENFORCE: fail
         run: node scripts/canary-ceiling.mjs
 
-      - name: Upload Test Results
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'canary.yml::canary-test-results'
+
+      - name: Upload Test Results
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: canary-test-results

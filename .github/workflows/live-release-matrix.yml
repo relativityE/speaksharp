@@ -57,13 +57,17 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Custom Words Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-custom-words-artifacts'
+
+      - name: Upload Custom Words Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-custom-words-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -90,13 +94,17 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/analytics-live-native-probe.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Native Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-native-preflight-artifacts'
+
+      - name: Upload Native Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-native-preflight-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -124,13 +132,17 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/cloud-token-gates.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Cloud Token Gate Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-cloud-token-gates-artifacts'
+
+      - name: Upload Cloud Token Gate Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-cloud-token-gates-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -162,13 +174,17 @@ jobs:
         # After AssemblyAI 1008/3009 "Too many concurrent sessions", wait 5-10 minutes before rerun.
         run: pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
-      - name: Upload Cloud Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-cloud-artifacts'
+
+      - name: Upload Cloud Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-cloud-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -203,13 +219,17 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/stt-switching-contract.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=list --workers=1
 
-      - name: Upload STT Switching Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-stt-switching-contract-artifacts'
+
+      - name: Upload STT Switching Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-stt-switching-contract-artifacts
           path: |
-            blob-report/deployed-live/
             playwright-report/deployed-live/
             test-results/deployed-live/
           retention-days: 14
@@ -249,13 +269,17 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/session-attribution-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
-      - name: Upload Attribution Proof Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-attribution-proof-artifacts'
+
+      - name: Upload Attribution Proof Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-attribution-proof-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -307,13 +331,17 @@ jobs:
           ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
         run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
-      - name: Upload Private Cache Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-private-cache-artifacts'
+
+      - name: Upload Private Cache Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-private-cache-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -342,15 +370,20 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
-      - name: Upload First-Time Tester Private Trial Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-first-time-tester-private-trial-artifacts'
+
+      - name: Upload First-Time Tester Private Trial Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-first-time-tester-private-trial-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
+          retention-days: 1
 
   live-private-sample-telemetry:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-sample-telemetry' }}
@@ -376,13 +409,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec playwright test tests/live/private-sample-telemetry.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
-      - name: Upload Private-Sample Telemetry Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-private-sample-telemetry-artifacts'
+
+      - name: Upload Private-Sample Telemetry Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-private-sample-telemetry-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -407,13 +444,17 @@ jobs:
           STRIPE_LIVE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
         run: pnpm exec playwright test tests/live/stripe-webhook-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Stripe Webhook Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-stripe-webhook-readiness-artifacts'
+
+      - name: Upload Stripe Webhook Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-webhook-readiness-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -437,13 +478,17 @@ jobs:
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-checkout-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Stripe Checkout Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-stripe-checkout-readiness-artifacts'
+
+      - name: Upload Stripe Checkout Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-checkout-readiness-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -470,13 +515,17 @@ jobs:
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Stripe Billing Portal Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-stripe-billing-portal-readiness-artifacts'
+
+      - name: Upload Stripe Billing Portal Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-billing-portal-readiness-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14
@@ -508,13 +557,17 @@ jobs:
           STRIPE_COMPLETE_HOSTED_CHECKOUT: 'true'
         run: pnpm exec playwright test tests/live/stripe-paid-soft-launch-runtime.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Stripe Paid Soft Launch Artifacts
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'live-release-matrix.yml::live-stripe-paid-soft-launch-runtime-artifacts'
+
+      - name: Upload Stripe Paid Soft Launch Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-paid-soft-launch-runtime-artifacts
           path: |
-            blob-report/live/
             playwright-report/
             test-results/live/
           retention-days: 14

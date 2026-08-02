@@ -111,14 +111,18 @@ jobs:
         run: |
           [ -f "${RUNNER_TEMP}/v4-vite.pid" ] && kill "$(cat "${RUNNER_TEMP}/v4-vite.pid")" 2>/dev/null || true
 
-      - name: Upload benchmark evidence
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'v4-benchmark-gpu.yml::v4-gpu-benchmark'
+
+      - name: Upload benchmark evidence
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: v4-gpu-benchmark
           path: |
             tests/STT_BENCHMARKS.json
             ${{ runner.temp }}/v4-vite.log
-            blob-report/
             test-results/
           retention-days: 14

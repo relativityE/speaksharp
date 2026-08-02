@@ -97,9 +97,13 @@ case $STAGE in
             if [[ "$subarg" =~ ^[0-9]+$ ]]; then SHARD="$subarg"; fi
         done
         if [ -n "$SHARD" ]; then
-            pnpm exec playwright test --project=full-suite --no-deps --shard="${SHARD}/4" --reporter=blob --output=test-results/playwright
+            PLAYWRIGHT_TELEMETRY_CANONICAL=false \
+            PLAYWRIGHT_TELEMETRY_OUTPUT_NAME="test-results/playwright-shard-${SHARD}.raw.json" \
+                pnpm exec playwright test --project=full-suite --no-deps --shard="${SHARD}/4" --reporter=./scripts/playwright-telemetry-reporter.mjs --output=test-results/playwright
         else
-            pnpm exec playwright test --project=full-suite --no-deps --reporter=blob --output=test-results/playwright
+            PLAYWRIGHT_TELEMETRY_CANONICAL=false \
+            PLAYWRIGHT_TELEMETRY_OUTPUT_NAME="test-results/playwright.raw.json" \
+                pnpm exec playwright test --project=full-suite --no-deps --reporter=./scripts/playwright-telemetry-reporter.mjs --output=test-results/playwright
         fi
         ;;
     report)

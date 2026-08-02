@@ -222,17 +222,21 @@ jobs:
           VITEST_MAX_FORKS: '2'
         run: pnpm ci:unit
 
-      - name: Upload Unit Artifacts
+      - name: Scan unit review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::unit-artifacts'
+
+      - name: Upload Unit Artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: unit-artifacts
           path: |
-            artifacts/coverage
-            frontend/coverage
+            artifacts/coverage/coverage-summary.json
             unit-metrics.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
   edge-tests:
     name: edge-tests
@@ -348,12 +352,17 @@ jobs:
           pnpm ci:health-check
           touch test-results/playwright-infra/HEALTH_PASSED
 
-      - name: Upload Health Check Report
+      - name: Scan health-check review evidence
+        id: review_evidence_scan_health
         if: always() && matrix.shard == 1
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::health-check-report'
+
+      - name: Upload Health Check Report
+        if: ${{ always() && matrix.shard == 1 && steps.review_evidence_scan_health.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: health-check-report
-          path: test-results/playwright-infra
+          path: test-results/playwright-infra/HEALTH_PASSED
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: error
 
@@ -364,16 +373,28 @@ jobs:
           STT_ENGINE: mock
         run: pnpm ci:test ${{ matrix.shard }}
 
-      - name: Upload Shard Report
+      - name: Sanitize E2E shard evidence
+        id: sanitize_e2e_shard
         if: always()
+        run: |
+          node scripts/sanitize-ci-artifact.mjs playwright \
+            "test-results/playwright-shard-${{ matrix.shard }}.raw.json" \
+            "test-results/ci-evidence/playwright-shard-summary.json" \
+            "${{ matrix.shard }}"
+
+      - name: Scan shard review evidence
+        id: review_evidence_scan_shard
+        if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::shard-report-${{ matrix.shard }}'
+
+      - name: Upload Shard Report
+        if: ${{ always() && steps.sanitize_e2e_shard.outcome == 'success' && steps.review_evidence_scan_shard.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: shard-report-${{ matrix.shard }}
-          path: |
-            blob-report
-            test-results/playwright
+          path: test-results/ci-evidence/playwright-shard-summary.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
       # UX review screenshots (post-save consolidation + mode selector). ONE uploader, both paths.
       # Uploaded on whichever shard ran the producing spec; empty on the others.
@@ -384,13 +405,13 @@ jobs:
         with:
           name: ux-review-screenshots-shard-${{ matrix.shard }}
           path: |
-            test-results/post-save-consolidation
-            test-results/mode-selector
-            test-results/mode-selector-stays-local
-            test-results/practice-entry
-            test-results/freestyle-help
-            test-results/practice-continuity
-            test-results/product-discovery
+            test-results/post-save-consolidation/**/*.png
+            test-results/mode-selector/**/*.png
+            test-results/mode-selector-stays-local/**/*.png
+            test-results/practice-entry/**/*.png
+            test-results/freestyle-help/**/*.png
+            test-results/practice-continuity/**/*.png
+            test-results/product-discovery/**/*.png
           retention-days: 1
           if-no-files-found: ignore
 
@@ -399,7 +420,6 @@ jobs:
     needs: [scope, build]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -429,18 +449,31 @@ jobs:
           echo "=== LHCI Results Debug ==="
           find lighthouse-results -maxdepth 2 -type f -print 2>/dev/null || echo "Directory empty or missing"
 
-      - name: Upload Lighthouse Report
+      - name: Sanitize Lighthouse evidence
+        id: sanitize_lighthouse
         if: always()
+        run: |
+          node scripts/sanitize-ci-artifact.mjs lighthouse \
+            lighthouse-results \
+            test-results/ci-evidence/lighthouse-summary.json
+
+      - name: Scan Lighthouse review evidence
+        id: review_evidence_scan
+        if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::lighthouse-report'
+
+      - name: Upload Lighthouse Report
+        if: ${{ always() && steps.sanitize_lighthouse.outcome == 'success' && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: lighthouse-report
-          path: lighthouse-results/
+          path: test-results/ci-evidence/lighthouse-summary.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # Heavy evidence generation for the FULL lane. It installs dependencies because it genuinely needs
-  # them (playwright merge-reports, ci:report:github, aggregate-ci, report-ci-timing). Splitting this
-  # out keeps the required `report` gate thin AND keeps evidence inside the acceptance result.
+  # report generation and aggregation scripts. Splitting this out keeps the required `report` gate thin
+  # AND keeps sanitized evidence inside the acceptance result.
   full-evidence:
     name: full-evidence
     needs: [scope, unit-coverage, edge-tests, build, health-check, e2e, lighthouse-advisory]
@@ -455,9 +488,12 @@ jobs:
           BUILD: ${{ needs.build.result }}
           HEALTH: ${{ needs.health-check.result }}
           E2E: ${{ needs.e2e.result }}
+          LIGHTHOUSE: ${{ needs.lighthouse-advisory.result }}
         run: |
           set -euo pipefail
-          echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E"
+          echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E lighthouse=$LIGHTHOUSE"
+          # Lighthouse remains advisory. Its sanitizer and upload fail closed
+          # inside that job, but an advisory outage is not a required gate.
           for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
             [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
           done
@@ -496,24 +532,16 @@ jobs:
           cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
           cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
 
-          # Canonical Playwright evidence contract (ONE exact shape):
-          #   artifacts/playwright/shard-<N>/report-full-suite-<N>.zip   for N in 1..4
-          # Explicit per-shard loop. Directory names are NEVER derived from whatever report-*.zip
-          # happens to be present (that produced shard-full-suite-1/ and could never satisfy the
-          # shard-1/ assertion). Missing, duplicate or ambiguous shard reports are rejected.
+          # Canonical Playwright evidence contract: one sanitized JSON summary
+          # per shard. Raw Playwright archives never cross the job boundary.
           shard_error=0
           for shard in 1 2 3 4; do
-            matches=$(find artifacts -type f -name "report-*${shard}.zip" ! -path 'artifacts/playwright/*' | sort)
-            count=$(printf '%s\n' "$matches" | grep -c . || true)
-            if [ "$count" -eq 0 ]; then
-              echo "::error::no Playwright report found for shard ${shard}"; shard_error=1; continue
-            fi
-            if [ "$count" -gt 1 ]; then
-              echo "::error::ambiguous Playwright reports for shard ${shard}:"; printf '%s\n' "$matches"
-              shard_error=1; continue
+            source="artifacts/shard-report-${shard}/playwright-shard-summary.json"
+            if [ ! -s "$source" ]; then
+              echo "::error::no sanitized Playwright summary found for shard ${shard}"; shard_error=1; continue
             fi
             mkdir -p "artifacts/playwright/shard-${shard}"
-            cp "$(printf '%s\n' "$matches" | head -1)" "artifacts/playwright/shard-${shard}/"
+            cp "$source" "artifacts/playwright/shard-${shard}/playwright-shard-${shard}.json"
           done
           if [ "$shard_error" -ne 0 ]; then
             echo "::error::Playwright shard evidence is incomplete or ambiguous"; exit 1
@@ -528,15 +556,14 @@ jobs:
 
       - name: Merge E2E Reports
         run: |
-          mkdir -p test-results/playwright artifacts/playwright-merge
-          find artifacts/playwright -type f -name '*.zip' -exec cp {} artifacts/playwright-merge/ \;
-
-          if [ "$(find artifacts/playwright-merge -type f -name '*.zip' | wc -l)" -gt 0 ]; then
-            pnpm exec playwright merge-reports --reporter json,html artifacts/playwright-merge > test-results/playwright/results.json
-            echo "✅ Merged E2E report saved to test-results/playwright/results.json"
-          else
-            echo "⚠️ No E2E reports to merge"
-          fi
+          mkdir -p test-results/playwright
+          node scripts/sanitize-ci-artifact.mjs merge-playwright \
+            test-results/playwright/results.json \
+            artifacts/playwright/shard-1/playwright-shard-1.json \
+            artifacts/playwright/shard-2/playwright-shard-2.json \
+            artifacts/playwright/shard-3/playwright-shard-3.json \
+            artifacts/playwright/shard-4/playwright-shard-4.json
+          echo "✅ Sanitized E2E summaries merged."
 
       - name: Generate Final Report
         run: pnpm ci:report:github
@@ -550,8 +577,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/report-ci-timing.mjs
 
-      - name: Upload CI Metrics
+      - name: Scan CI metrics evidence
+        id: review_evidence_scan_ci_metrics
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'ci.yml::ci-metrics'
+
+      - name: Upload CI Metrics
+        if: ${{ always() && steps.review_evidence_scan_ci_metrics.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: ci-metrics
@@ -561,15 +593,6 @@ jobs:
             artifacts/ci-job-timing.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md
-          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
-          if-no-files-found: warn
-
-      - name: Upload HTML Report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: playwright-report
-          path: playwright-report/
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 

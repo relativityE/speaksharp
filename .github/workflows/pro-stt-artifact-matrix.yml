@@ -52,13 +52,16 @@ jobs:
             pnpm exec playwright test tests/live/pro-stt-artifact-matrix.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1 -g "Pro ${STT_ARTIFACT_MODE}"
           fi
 
-      - name: Upload Pro STT Artifact Matrix Evidence
+      - name: Scan generated review evidence
+        id: review_evidence_scan
         if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'pro-stt-artifact-matrix.yml::pro-stt-artifact-matrix-artifacts'
+
+      - name: Upload Pro STT Artifact Matrix Evidence
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: pro-stt-artifact-matrix-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
+          path: test-results/live/pro-stt-artifact-matrix-evidence.jsonl
           retention-days: 14
+          if-no-files-found: error

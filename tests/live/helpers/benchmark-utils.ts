@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
 import { expect, Page, TestInfo } from '@playwright/test';
 
 type BenchmarkPreconditionSnapshot = {
@@ -527,6 +528,103 @@ export async function expectBenchmarkTranscriptOutput(page: Page, label: string,
     }
 }
 
+type PrivateBenchmarkRawEvidence = {
+    root?: Record<string, unknown>;
+    transcriptText?: unknown;
+    runtime?: unknown;
+    privateTimeline?: unknown;
+    privateTranscriptTrace?: unknown;
+    privateAudioChunks?: unknown;
+    privateUtteranceAudioChunks?: unknown;
+};
+
+function finiteMetric(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function audioSha256(value: unknown): string | null {
+    if (value == null) return null;
+    if (typeof value !== 'string') throw new Error('Private benchmark audio payload must be a string');
+    const match = value.match(/^data:audio\/[A-Za-z0-9.+-]+;base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!match) throw new Error('Private benchmark audio payload must be a base64 audio data URL');
+    const encoded = match[1];
+    const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+    if (!canonicalBase64.test(encoded)) {
+        throw new Error('Private benchmark audio payload must use canonical base64 padding');
+    }
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.length === 0) throw new Error('Private benchmark audio payload is empty');
+    if (bytes.toString('base64') !== encoded) {
+        throw new Error('Private benchmark audio payload failed canonical base64 round-trip validation');
+    }
+    return createHash('sha256').update(bytes).digest('hex');
+}
+
+function summarizePrivateAudioChunks(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value.map((chunk, index) => {
+        if (!chunk || typeof chunk !== 'object' || Array.isArray(chunk)) {
+            throw new Error(`Private benchmark audio chunk ${index} must be an object`);
+        }
+        const raw = chunk as Record<string, unknown>;
+        return {
+            samples: finiteMetric(raw.samples),
+            durationSec: finiteMetric(raw.durationSec),
+            rms: finiteMetric(raw.rms),
+            peak: finiteMetric(raw.peak),
+            wavDataUrlBytes: finiteMetric(raw.wavDataUrlBytes),
+            audioSha256: audioSha256(raw.wavDataUrl),
+        };
+    });
+}
+
+/**
+ * Convert the in-memory browser diagnostic into the only representation that
+ * may enter Playwright output or an Actions artifact. Raw transcript, URL,
+ * runtime payloads, traces, identifiers, and audio data URLs are deliberately
+ * excluded; fixture audio is represented only by content hashes and metrics.
+ */
+export function sanitizePrivateBenchmarkEvidence(
+    rawEvidence: PrivateBenchmarkRawEvidence,
+    label: string,
+) {
+    const root = rawEvidence.root && typeof rawEvidence.root === 'object'
+        ? rawEvidence.root
+        : {};
+    const transcriptWordCount = typeof rawEvidence.transcriptText === 'string'
+        ? rawEvidence.transcriptText.trim().split(/\s+/).filter(Boolean).length
+        : 0;
+    const privateAudioChunks = summarizePrivateAudioChunks(rawEvidence.privateAudioChunks);
+    const privateUtteranceAudioChunks = summarizePrivateAudioChunks(rawEvidence.privateUtteranceAudioChunks);
+    const capturedAudioHashes = [...privateAudioChunks, ...privateUtteranceAudioChunks]
+        .map(chunk => chunk.audioSha256)
+        .filter((hash): hash is string => hash != null);
+    if (capturedAudioHashes.length === 0) {
+        throw new Error('Private benchmark evidence requires at least one valid captured-audio hash');
+    }
+    return {
+        schemaVersion: 1,
+        kind: 'private-browser-benchmark-summary',
+        label,
+        root: {
+            appReady: typeof root.appReady === 'string' ? root.appReady : null,
+            runtimeState: typeof root.runtimeState === 'string' ? root.runtimeState : null,
+            sttReady: typeof root.sttReady === 'string' ? root.sttReady : null,
+            modelStatus: typeof root.modelStatus === 'string' ? root.modelStatus : null,
+            sessionPersisted: typeof root.sessionPersisted === 'string' ? root.sessionPersisted : null,
+            transcriptState: typeof root.transcriptState === 'string' ? root.transcriptState : null,
+        },
+        transcriptWordCount,
+        runtimePresent: rawEvidence.runtime != null,
+        privateTimelineEventCount: Array.isArray(rawEvidence.privateTimeline) ? rawEvidence.privateTimeline.length : 0,
+        privateTranscriptTraceEventCount: Array.isArray(rawEvidence.privateTranscriptTrace)
+            ? rawEvidence.privateTranscriptTrace.length
+            : 0,
+        privateAudioChunks,
+        privateUtteranceAudioChunks,
+    };
+}
+
 type BenchmarkSaveCandidate = {
     selectedForSave?: string;
     saveCandidateReason?: string;
@@ -550,8 +648,7 @@ export async function attachPrivateBenchmarkEvidence(
     testInfo: TestInfo,
     label: string,
 ): Promise<void> {
-    const includeAudioDataUrl = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
-    const evidence = await page.evaluate(({ evidenceLabel, includeAudioDataUrl: shouldIncludeAudioDataUrl }) => {
+    const evidence = await page.evaluate(({ evidenceLabel }) => {
         const root = document.documentElement;
         const debugWindow = window as Window & {
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
@@ -566,7 +663,10 @@ export async function attachPrivateBenchmarkEvidence(
             return {
                 ...rest,
                 wavDataUrlBytes: typeof wavDataUrl === 'string' ? wavDataUrl.length : 0,
-                ...(shouldIncludeAudioDataUrl ? { wavDataUrl: wavDataUrl ?? null } : {}),
+                // Required for in-memory hashing on every maintained benchmark entry point. This raw
+                // value never reaches disk or testInfo.attach: sanitizePrivateBenchmarkEvidence replaces
+                // it with a SHA-256 digest before the only write below.
+                wavDataUrl: wavDataUrl ?? null,
             };
         };
 
@@ -591,14 +691,12 @@ export async function attachPrivateBenchmarkEvidence(
             privateAudioChunks: (debugWindow.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
             privateUtteranceAudioChunks: (debugWindow.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
         };
-    }, { evidenceLabel: label, includeAudioDataUrl }).catch((error) => ({
-        label,
-        capturedAt: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error),
-        url: page.url(),
-    }));
+    }, { evidenceLabel: label });
 
-    const evidenceJson = JSON.stringify(evidence, null, 2);
+    // The raw object may contain replayable audio and user/session text. Keep it
+    // in memory only; never write or attach it beneath Playwright upload roots.
+    const sanitizedEvidence = sanitizePrivateBenchmarkEvidence(evidence, label);
+    const evidenceJson = JSON.stringify(sanitizedEvidence, null, 2);
     const evidencePath = testInfo.outputPath(`${label}-private-benchmark-evidence.json`);
     fs.writeFileSync(evidencePath, evidenceJson);
 

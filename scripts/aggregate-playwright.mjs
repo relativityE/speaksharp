@@ -30,16 +30,19 @@ export function aggregatePlaywright(filePath) {
       totalDurationMs += duration;
       retryOverheadMs += overhead;
 
-      // Track for hotspot detection
+      const title = typeof test.title === 'string' && test.title ? test.title : 'anonymous test';
+
+      // Sanitized CI summaries deliberately omit test titles. Local telemetry
+      // may retain source-controlled titles for developer-only hotspot detail.
       allTests.push({
-        title: test.title,
+        title,
         duration,
         retryOverheadMs: overhead,
         attempts
       });
 
       // Extract file name from title
-      const parts = test.title.split(' › ');
+      const parts = title.split(' › ');
       const file = parts.find(p => p.endsWith('.spec.ts')) || 'unknown';
 
       if (!breakdown[file]) {

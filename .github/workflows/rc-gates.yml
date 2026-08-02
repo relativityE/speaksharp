@@ -250,15 +250,19 @@ jobs:
             echo ""
             echo "Root-cause classification only. The release gate stays **FAIL** until a FULL Gate 3 (no diagnostic input) passes."
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload Gate 3 DAST artifacts (trace/screenshot/video/report)
-        if: ${{ always() }}
+      - name: Scan generated review evidence
+        id: review_evidence_scan
+        if: always()
+        run: node scripts/check-review-evidence-policy.mjs --scan-upload 'rc-gates.yml::gate-3-dast-artifacts'
+
+      - name: Upload Gate 3 DAST artifacts
+        if: ${{ always() && steps.review_evidence_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: gate-3-dast-artifacts
           path: |
             test-results/
             playwright-report/
-            blob-report/
           retention-days: 14
           if-no-files-found: ignore
 

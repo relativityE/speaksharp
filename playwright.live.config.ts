@@ -71,10 +71,10 @@ export default defineConfig({
         ...baseConfig.use,
         baseURL: process.env.BASE_URL || 'http://localhost:5173',
 
-        // Trace always on for live tests — failures are hard to reproduce
-        trace: 'on',
-        screenshot: 'on',
-        video: 'on',
+        // Live credentials must never be captured into browser media artifacts.
+        trace: 'off',
+        screenshot: 'off',
+        video: 'off',
     },
 
     projects: [

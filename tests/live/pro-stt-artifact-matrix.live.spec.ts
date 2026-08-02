@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Response, type TestInfo } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { AUDIO_ARGS, assertManualReleaseProofEnvironment, assertPreStartMode, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
@@ -11,6 +12,15 @@ const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|pup
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;
 const MIN_SAVEABLE_RECORDING_MS = 7_000;
+const SANITIZED_EVIDENCE_PATH = resolve('test-results/live/pro-stt-artifact-matrix-evidence.jsonl');
+const PDF_FIXTURE_SPEECH_PATTERN = /swan dive|park truck|pepper|twister|quick brown fox|stale smell|old beer/i;
+const PROHIBITED_PDF_CONTENT = [
+  ['email address', /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i],
+  ['credential marker', /\b(?:access[_ -]?token|refresh[_ -]?token|authorization|bearer\s+\S+|password)\b/i],
+  ['embedded media', /data:(?:image|audio|video)\//i],
+  ['unresolved application value', /\b(?:undefined|null|NaN)\b/],
+  ['false transcript state', /\b(?:transcript (?:unavailable|expired)|no transcript available)\b/i],
+] as const;
 
 type SttMode = typeof MODES[number];
 
@@ -32,8 +42,10 @@ test.afterEach(async ({ page }) => {
 });
 
 test.describe.serial('Pro STT artifact path matrix @live', () => {
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and Pro test credentials are required.');
+    await mkdir(dirname(SANITIZED_EVIDENCE_PATH), { recursive: true });
+    await writeFile(SANITIZED_EVIDENCE_PATH, '');
   });
 
   for (const mode of MODES) {
@@ -52,14 +64,19 @@ test.describe.serial('Pro STT artifact path matrix @live', () => {
       await assertAiSuggestionsUsable(page);
       const pdfEvidence = await assertPdfExport(page, testInfo);
 
-      console.log(`LIVE_PRO_STT_ARTIFACT_EVIDENCE ${JSON.stringify({
+      const sanitizedEvidence = {
         mode,
-        environmentProof,
-        detailHref,
-        transcriptPreview: transcript.slice(0, 180),
-        transcriptLength: transcript.length,
+        releaseProofEligible: environmentProof.releaseProofEligible === true,
+        authMode: environmentProof.authMode,
+        releaseProofSource: environmentProof.source ?? 'unknown',
+        fixtureSpeechObserved: TRANSCRIPT_PATTERN.test(transcript),
+        speechCharacterCount: transcript.length,
+        analyticsDetailObserved: /^\/analytics\/[A-Za-z0-9-]+$/.test(detailHref),
+        aiSuggestionsSucceeded: true,
         pdf: pdfEvidence,
-      })}`);
+      };
+      await appendFile(SANITIZED_EVIDENCE_PATH, `${JSON.stringify(sanitizedEvidence)}\n`);
+      console.log(`LIVE_PRO_STT_ARTIFACT_EVIDENCE ${JSON.stringify(sanitizedEvidence)}`);
     });
   }
 });
@@ -241,29 +258,40 @@ async function assertPdfExport(page: Page, testInfo: TestInfo) {
   expect(downloadedFileName).toMatch(/^[A-Za-z0-9_]+_session_\d+_\d{8}\.pdf$/);
 
   const artifactPath = testInfo.outputPath(downloadedFileName);
-  await download.saveAs(artifactPath);
-  await testInfo.attach('session-pdf', { path: artifactPath, contentType: 'application/pdf' });
+  try {
+    await download.saveAs(artifactPath);
+    const pdfText = await extractPdfText(artifactPath);
+    expect(pdfText).toContain('SpeakSharp Session Report');
+    expect(pdfText).toContain('Session ID');
+    expect(pdfText).toContain('Speaking Pace');
+    expect(pdfText).toContain('Clear Delivery');
+    expect(pdfText).toContain('Total Filler Words');
+    expect(pdfText).toContain('Transcription Mode');
+    expect(pdfText).toContain('Transcript');
+    expect(pdfText.length, 'PDF parser must return readable report content').toBeGreaterThan(100);
+    expect(PDF_FIXTURE_SPEECH_PATTERN.test(pdfText), 'PDF must present the saved transcript state and fixture speech').toBe(true);
+    for (const [label, pattern] of PROHIBITED_PDF_CONTENT) {
+      expect(pattern.test(pdfText), `PDF must not contain prohibited ${label}`).toBe(false);
+    }
 
-  const pdfText = await extractPdfText(artifactPath);
-  expect(pdfText).toContain('SpeakSharp Session Report');
-  expect(pdfText).toContain('Session ID');
-  expect(pdfText).toContain('Speaking Pace');
-  expect(pdfText).toContain('Clear Delivery');
-  expect(pdfText).toContain('Total Filler Words');
-  expect(pdfText).toContain('Transcription Mode');
-  expect(pdfText).toContain('Transcript');
-  expect(pdfText).toMatch(/swan dive|park truck|pepper|twister|quick brown fox|stale smell|old beer/i);
-
-  const evidence = {
-    filename: downloadedFileName,
-    artifact: artifactPath,
-    textIncludesTranscript: /swan dive|park truck|pepper|twister|quick brown fox|stale smell|old beer/i.test(pdfText),
-    textIncludesSessionId: pdfText.includes('Session ID'),
-    textIncludesAnalytics: /Speaking Pace|Clear Delivery|Total Filler Words|Transcription Mode/.test(pdfText),
-    textLength: pdfText.length,
-  };
-  console.log(`LIVE_PDF_EXPORT_EVIDENCE ${JSON.stringify(evidence)}`);
-  return evidence;
+    return {
+      readable: pdfText.length > 100,
+      reportHeadingPresent: pdfText.includes('SpeakSharp Session Report'),
+      sessionIdentifierLabelPresent: pdfText.includes('Session ID'),
+      analyticsLabelsPresent: /Speaking Pace|Clear Delivery|Total Filler Words|Transcription Mode/.test(pdfText),
+      transcriptStatePresent: pdfText.includes('Transcript') && PDF_FIXTURE_SPEECH_PATTERN.test(pdfText),
+      prohibitedContentAbsent: PROHIBITED_PDF_CONTENT.every(([, pattern]) => !pattern.test(pdfText)),
+      extractedCharacterCount: pdfText.length,
+    };
+  } finally {
+    // The PDF proves the product export in-process, but contains session text.
+    // Delete both the saved copy and Playwright's temporary download, including
+    // parse/assertion/save failure paths, before any reporter or upload can retain it.
+    await Promise.all([
+      rm(artifactPath, { force: true }),
+      download.delete(),
+    ]);
+  }
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
