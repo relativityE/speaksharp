@@ -43,7 +43,10 @@ export const DEVICE_ACCESSIBILITY_ASSERTIONS = [
   'error-announcements',
   'contrast',
   'reflow',
-  'zoom-200',
+  // Automated CSS zoom is a reflow simulation, not proof that the browser's
+  // native 200% zoom control was exercised. Native browser zoom remains a
+  // separate manual qualification gate outside this dependency-neutral lane.
+  'css-zoom-200-simulation',
   'no-horizontal-overflow',
 ] as const;
 
@@ -113,6 +116,15 @@ export interface DevicePerformanceDistribution {
 }
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
+const DEVICE_DEPENDENCY_ISSUES = new Set<number>(Object.values(DEVICE_DEPENDENCY_GATES));
+
+function requiredCellKey(
+  browser: DeviceBrowser,
+  viewport: DeviceQualificationRow['viewport'],
+  capabilityState: DeviceCapabilityState,
+): string {
+  return [browser, viewport.width, viewport.height, viewport.orientation, capabilityState].join('|');
+}
 
 export function deviceQualificationProblems(row: DeviceQualificationRow): string[] {
   const problems: string[] = [];
@@ -128,6 +140,11 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
   if (!(row.viewport.width > 0 && row.viewport.height > 0)) problems.push('viewport dimensions must be positive');
   const derivedOrientation = row.viewport.width > row.viewport.height ? 'landscape' : 'portrait';
   if (row.viewport.orientation !== derivedOrientation) problems.push('viewport orientation contradicts its dimensions');
+  if (!DEVICE_VIEWPORTS.some(viewport => viewport.width === row.viewport.width
+    && viewport.height === row.viewport.height
+    && viewport.orientation === row.viewport.orientation)) {
+    problems.push('viewport is not in the required qualification matrix');
+  }
   if (!['passed', 'failed', 'blocked', 'unavailable'].includes(row.status)) {
     problems.push(`unsupported status: ${String(row.status)}`);
   }
@@ -150,8 +167,8 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
   }
 
   if (row.status === 'blocked') {
-    if (!Number.isInteger(row.blockingIssue) || Number(row.blockingIssue) <= 0) {
-      problems.push('blocked rows must name a positive blockingIssue');
+    if (!Number.isInteger(row.blockingIssue) || !DEVICE_DEPENDENCY_ISSUES.has(Number(row.blockingIssue))) {
+      problems.push(`blocked rows must name an approved dependency issue: ${[...DEVICE_DEPENDENCY_ISSUES].join(', ')}`);
     }
   } else if (row.blockingIssue !== null) {
     problems.push('non-blocked rows must not carry blockingIssue');
@@ -172,6 +189,9 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
     const value = row.metrics[key];
     if (!(value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0))) {
       problems.push(`metrics.${key} must be a non-negative number or null`);
+    }
+    if (row.status === 'passed' && value === null) {
+      problems.push(`passed row lacks observed metrics.${key}`);
     }
   }
 
@@ -218,6 +238,7 @@ export function deviceQualificationReportProblems(report: DeviceQualificationRep
   if (!Array.isArray(report.rows) || report.rows.length === 0) problems.push('report must contain at least one row');
 
   const identities = new Set<string>();
+  const observedRequiredCells = new Set<string>();
   for (const [index, row] of report.rows.entries()) {
     for (const problem of deviceQualificationProblems(row)) problems.push(`rows[${index}]: ${problem}`);
     if (row.releaseSha !== report.releaseSha) problems.push(`rows[${index}]: releaseSha differs from report releaseSha`);
@@ -225,6 +246,17 @@ export function deviceQualificationReportProblems(report: DeviceQualificationRep
       row.viewport.height, row.capabilityState].join('|');
     if (identities.has(identity)) problems.push(`rows[${index}]: duplicate qualification cell`);
     identities.add(identity);
+    observedRequiredCells.add(requiredCellKey(row.browser, row.viewport, row.capabilityState));
+  }
+
+  const missingRequiredCells = DEVICE_BROWSERS.flatMap(browser =>
+    DEVICE_VIEWPORTS.flatMap(viewport =>
+      DEVICE_CAPABILITY_STATES.map(capabilityState => requiredCellKey(browser, viewport, capabilityState))))
+    .filter(cell => !observedRequiredCells.has(cell));
+  if (missingRequiredCells.length > 0) {
+    const sample = missingRequiredCells.slice(0, 5).join(', ');
+    const remainder = missingRequiredCells.length > 5 ? ', …' : '';
+    problems.push(`report missing ${missingRequiredCells.length} required browser/viewport/capability cells: ${sample}${remainder}`);
   }
 
   return problems;

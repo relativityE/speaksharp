@@ -43,6 +43,20 @@ const validRow = (): DeviceQualificationRow => ({
   cloudProviderCalls: 0,
 });
 
+const fullMatrixRows = (): DeviceQualificationRow[] => DEVICE_BROWSERS.flatMap(browser =>
+  DEVICE_VIEWPORTS.flatMap(viewport => DEVICE_CAPABILITY_STATES.map(capabilityState => ({
+    ...validRow(),
+    browser,
+    viewport: { width: viewport.width, height: viewport.height, orientation: viewport.orientation },
+    capabilityState,
+  }))));
+
+const report = (rows: DeviceQualificationRow[]): DeviceQualificationReport => ({
+  schemaVersion: 1,
+  releaseSha: 'a'.repeat(40),
+  rows,
+});
+
 describe('#1144 device qualification contract', () => {
   it('locks the required browser, viewport, capability, accessibility, and performance matrices', () => {
     expect(DEVICE_BROWSERS).toEqual(['chromium', 'firefox', 'webkit']);
@@ -60,7 +74,8 @@ describe('#1144 device qualification contract', () => {
       'cold-model-cache',
       'warm-model-cache',
     ]));
-    expect(DEVICE_ACCESSIBILITY_ASSERTIONS).toContain('zoom-200');
+    expect(DEVICE_ACCESSIBILITY_ASSERTIONS).toContain('css-zoom-200-simulation');
+    expect(DEVICE_ACCESSIBILITY_ASSERTIONS).not.toContain('zoom-200');
     expect(DEVICE_ACCESSIBILITY_ASSERTIONS).toContain('focus-trap-escape');
     expect(DEVICE_ACCESSIBILITY_ASSERTIONS).toContain('error-announcements');
     expect(DEVICE_PERFORMANCE_METRICS).toContain('linked-repeat-handoff-ms');
@@ -101,7 +116,20 @@ describe('#1144 device qualification contract', () => {
   it('rejects a blocked row with no authoritative dependency', () => {
     const row = validRow();
     row.status = 'blocked';
-    expect(deviceQualificationProblems(row)).toContain('blocked rows must name a positive blockingIssue');
+    expect(deviceQualificationProblems(row).join('\n')).toContain('approved dependency issue');
+  });
+
+  it('rejects a forged blocking issue outside the declared dependency gates', () => {
+    const row = validRow();
+    row.status = 'blocked';
+    row.blockingIssue = 999999;
+    expect(deviceQualificationProblems(row).join('\n')).toContain('approved dependency issue');
+  });
+
+  it('rejects a passed row with no observed latency for a required metric', () => {
+    const row = validRow();
+    row.metrics['private-model-load-ms'] = null;
+    expect(deviceQualificationProblems(row)).toContain('passed row lacks observed metrics.private-model-load-ms');
   });
 
   it('requires an explicit reason for unavailable capability cells', () => {
@@ -116,44 +144,42 @@ describe('#1144 device qualification contract', () => {
   });
 
   it('never aggregates blocked, unavailable, invalid, or failed rows into green', () => {
-    const report = (rows: DeviceQualificationRow[]): DeviceQualificationReport => ({
-      schemaVersion: 1,
-      releaseSha: 'a'.repeat(40),
-      rows,
-    });
-    expect(deviceQualificationDisposition(report([validRow()]))).toBe('passed');
+    expect(deviceQualificationDisposition(report(fullMatrixRows()))).toBe('passed');
 
-    const unavailable = validRow();
+    const unavailableRows = fullMatrixRows();
+    const unavailable = unavailableRows[0];
     unavailable.status = 'unavailable';
     unavailable.unavailableReason = 'capability is not provided';
-    unavailable.deviceClass = 'browser-without-speech';
-    expect(deviceQualificationDisposition(report([validRow(), unavailable]))).toBe('unavailable');
+    expect(deviceQualificationDisposition(report(unavailableRows))).toBe('unavailable');
 
-    const blocked = validRow();
+    const blockedRows = fullMatrixRows();
+    const blocked = blockedRows[0];
     blocked.status = 'blocked';
     blocked.blockingIssue = 1120;
-    blocked.deviceClass = 'product-dependency-blocked';
-    expect(deviceQualificationDisposition(report([validRow(), blocked]))).toBe('blocked');
+    expect(deviceQualificationDisposition(report(blockedRows))).toBe('blocked');
 
-    const failed = validRow();
+    const failedRows = fullMatrixRows();
+    const failed = failedRows[0];
     failed.status = 'failed';
-    failed.deviceClass = 'runtime-failure';
-    expect(deviceQualificationDisposition(report([validRow(), failed]))).toBe('failed');
+    expect(deviceQualificationDisposition(report(failedRows))).toBe('failed');
 
-    const invalid = validRow();
+    const invalidRows = fullMatrixRows();
+    const invalid = invalidRows[0];
     invalid.releaseSha = 'short';
-    expect(deviceQualificationDisposition(report([invalid]))).toBe('failed');
+    expect(deviceQualificationDisposition(report(invalidRows))).toBe('failed');
+  });
+
+  it('rejects a partial matrix even when its only row is individually valid', () => {
+    const problems = deviceQualificationReportProblems(report([validRow()]));
+    expect(problems.join('\n')).toContain('report missing 179 required browser/viewport/capability cells');
+    expect(deviceQualificationDisposition(report([validRow()]))).toBe('failed');
   });
 
   it('rejects mixed release identities and duplicate cells', () => {
     const row = validRow();
     const duplicate = validRow();
     duplicate.releaseSha = 'b'.repeat(40);
-    const problems = deviceQualificationReportProblems({
-      schemaVersion: 1,
-      releaseSha: 'a'.repeat(40),
-      rows: [row, duplicate],
-    });
+    const problems = deviceQualificationReportProblems(report([row, duplicate]));
     expect(problems).toEqual(expect.arrayContaining([
       expect.stringContaining('releaseSha differs'),
       expect.stringContaining('duplicate qualification cell'),
