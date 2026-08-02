@@ -1,8 +1,14 @@
 {
   "ok": true,
   "account": {
-    "email": "ux-rapid-1780680070265@example.com",
-    "password": "SpeakSharp-Rapid-1780680070265!"
+    "email": "[redacted-email]",
+    "password": "[redacted]",
+    "_redaction": {
+      "redacted": true,
+      "fields": ["email", "password"],
+      "reason": "#1148/#1150: the run's ephemeral test identity and credential are removed from committed evidence. No example.com account ever participated in this proof; an explicit redaction token replaces the previously-substituted valid-looking address rather than another usable identity.",
+      "policy": "credentials and identities are never retained in committed evidence"
+    }
   },
   "before": {
     "label": "before-rapid-cycles",

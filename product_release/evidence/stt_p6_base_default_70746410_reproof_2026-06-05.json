@@ -41,8 +41,14 @@
   "microphonePath": "page getUserMedia override with per-fixture WAV injected at mic request time",
   "auth": {
     "mode": "fresh",
-    "email": "stt-corpus-1780675058782@example.com",
-    "password": "SttCorpus1780675058782!Aa9"
+    "email": "[redacted-email]",
+    "password": "[redacted]",
+    "_redaction": {
+      "redacted": true,
+      "fields": ["email", "password"],
+      "reason": "#1148/#1150: the run's ephemeral test identity and credential are removed from committed evidence. No example.com account ever participated in this proof; an explicit redaction token replaces the previously-substituted valid-looking address rather than another usable identity.",
+      "policy": "credentials and identities are never retained in committed evidence"
+    }
   },
   "startedAt": "2026-06-05T15:57:38.782Z",
   "consoleEvents": [
@@ -104,7 +110,7 @@
     },
     {
       "type": "info",
-      "text": "{email: stt-corpus-1780675058782@example.com} [AuthPage] Attempting sign_up"
+      "text": "{email: [redacted-email]} [AuthPage] Attempting sign_up"
     },
     {
       "type": "info",
@@ -1799,7 +1805,7 @@
       "privateWasmThreadCount": 1,
       "privateCloudFallbackAttempted": false,
       "historyVisible": false,
-      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@example.comSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
+      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issue[redacted-email]Sign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
       "analyticsTranscriptEvidence": {
         "bodyLength": 358,
         "uniqueTranscriptWordCount": 0,
@@ -2600,7 +2606,7 @@
       "privateWasmThreadCount": 1,
       "privateCloudFallbackAttempted": false,
       "historyVisible": false,
-      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@example.comSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
+      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issue[redacted-email]Sign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
       "analyticsTranscriptEvidence": {
         "bodyLength": 358,
         "uniqueTranscriptWordCount": 0,

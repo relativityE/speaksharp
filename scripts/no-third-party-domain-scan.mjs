@@ -13,7 +13,7 @@
 // is assembled from fragments at runtime, so the scanner cannot flag itself.
 
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, lstatSync, readlinkSync } from 'node:fs';
 
 const BRAND = 'speak' + 'sharp';   // SpeakSharp brand token (also present, legitimately, in the approved host)
 const TLD = 'a' + 'pp';            // the third-party TLD
@@ -65,12 +65,22 @@ function main() {
         // forbidden domain regardless of the file's content type (binary included), so this runs before the
         // binary-content skip below.
         if (FORBIDDEN.test(file)) offenders.push(`${file} (path)`);
-        const ext = (file.split('.').pop() || '').toLowerCase();
-        if (BINARY_EXT.has(ext)) continue;
-        let buf;
-        try { buf = readFileSync(file); } catch { continue; }
-        if (looksBinary(buf)) continue;
-        const text = buf.toString('utf8');
+        let text;
+        try {
+            // #1150: for a tracked SYMLINK, scan the tracked BLOB — the link's target TEXT — WITHOUT
+            // dereferencing it. readFileSync(symlink) would follow the link and scan the target file's
+            // contents instead, so a symlink whose stored target is the forbidden domain would slip through
+            // (and a broken link would be silently skipped). lstat + readlink read the blob directly.
+            if (lstatSync(file).isSymbolicLink()) {
+                text = readlinkSync(file);
+            } else {
+                const ext = (file.split('.').pop() || '').toLowerCase();
+                if (BINARY_EXT.has(ext)) continue;
+                const buf = readFileSync(file);
+                if (looksBinary(buf)) continue;
+                text = buf.toString('utf8');
+            }
+        } catch { continue; }
         const hits = scanText(text);
         if (hits.length) {
             text.split('\n').forEach((line, i) => {
