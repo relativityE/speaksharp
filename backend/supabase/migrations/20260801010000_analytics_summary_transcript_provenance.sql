@@ -79,7 +79,7 @@ BEGIN
         -- showable provenance). Matches the client hasRealFillerData gate (filler_words present, not '{}').
         coalesce(sum(duration) FILTER (
             WHERE transcript_state IS DISTINCT FROM 'not_captured'
-              AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb), 0),
+              AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false)), 0),
         -- Transcript-derived WPM numerator: SAME eligibility as its denominator above, so numerator and
         -- denominator always describe the identical set of rows.
         coalesce(sum(total_words) FILTER (
@@ -106,7 +106,7 @@ BEGIN
         count(*) FILTER (
             WHERE coalesce(duration, 0) > 0
               AND transcript_state IS DISTINCT FROM 'not_captured'
-              AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb
+              AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false)
         )
     INTO
         v_total_sessions,
@@ -124,13 +124,19 @@ BEGIN
     -- Total filler words (lower bound: rows with absent/malformed filler_words contribute nothing).
     -- #1047 review: the filler-rate NUMERATOR excludes not_captured rows — their persisted filler_words are
     -- a sentinel, so counting them would fabricate a rate against a transcript that was never captured.
+    -- #1131 correction 2: draw the numerator from the SAME genuine-filler-evidence row set as the denominator
+    -- (v_filler_duration_seconds), and only sum keys whose `count` is genuinely numeric. This keeps numerator
+    -- and denominator describing one identical set of rows, and a malformed count (missing / null / a string)
+    -- contributes nothing rather than fabricating a value or aborting the cast.
     SELECT coalesce(sum((v.value->>'count')::int), 0)
     INTO v_total_filler_words
     FROM sessions s,
          jsonb_each(s.filler_words) AS v(key, value)
     WHERE s.user_id = p_user_id
       AND s.transcript_state IS DISTINCT FROM 'not_captured'
-      AND v.key != 'total';
+      AND s.filler_words @? '$.*.count ? (@.type() == "number")'
+      AND v.key != 'total'
+      AND jsonb_typeof(v.value->'count') = 'number';
 
     -- Clarity: average over CONTRIBUTORS, never over all sessions. NULL when nothing qualifies.
     v_avg_clarity := CASE
@@ -148,12 +154,14 @@ BEGIN
         ELSE NULL
     END;
 
-    -- Filler rate: a rate needs transcribed words, not merely elapsed time. Without words the old
-    -- "0.0/min" decoded to the POSITIVE label "Low" — silence praised as clean delivery. A real take
-    -- with words and no fillers still reports 0.0; that is genuine evidence and stays. #1047 U1: uses the
-    -- FILLER-metric-eligible duration, so only rows with persisted filler data enter the denominator.
+    -- Filler rate. #1131 review correction 1: the rate must NOT depend on word-count / WPM evidence. Its
+    -- denominator is the FILLER-metric-eligible speaking time (v_filler_duration_seconds), which already
+    -- includes ONLY rows carrying genuine persisted filler data (a real numeric count) — a silent/wordless
+    -- take contributes no such evidence and is excluded upstream, so it can never be praised as a flattering
+    -- 0.0/min. A real take with genuine fillers but unpersisted words still reports its rate. A real take with
+    -- words and genuinely zero fillers still reports 0.0 — that is evidence and stays.
     v_avg_filler_per_min := CASE
-        WHEN v_filler_duration_seconds > 0 AND v_total_words > 0
+        WHEN v_filler_duration_seconds > 0
             THEN (v_total_filler_words / (v_filler_duration_seconds / 60.0))::numeric(10,1)::text
         ELSE NULL
     END;
@@ -231,10 +239,12 @@ BEGIN
                 s.clarity_score,
                 s.total_words,
                 s.transcript_state,
-                -- #1047 U1: precompute the client's fillerMetricEligible provenance gate for the FW/min point —
-                -- showable provenance (not not_captured) AND real persisted filler data (not the empty '{}').
+                -- #1047 U1 / #1131 correction 2: precompute the client's fillerMetricEligible gate for the FW/min
+                -- point — showable provenance (not not_captured) AND GENUINE persisted filler data: at least one
+                -- key with a real numeric count. Mirrors client hasRealFillerData, so an empty `{}` or a
+                -- malformed `{um:{}}` / `{um:{count:null}}` is NOT evidence and never charts a fabricated 0.00.
                 (s.transcript_state IS DISTINCT FROM 'not_captured'
-                 AND s.filler_words IS NOT NULL AND s.filler_words <> '{}'::jsonb) as filler_eligible,
+                 AND COALESCE(s.filler_words @? '$.*.count ? (@.type() == "number")', false)) as filler_eligible,
                 coalesce((SELECT sum((v.value->>'count')::int) FROM jsonb_each(s.filler_words) AS v(key, value) WHERE v.key != 'total'), 0) as fw_count
             FROM sessions s
             WHERE s.user_id = p_user_id
@@ -297,7 +307,7 @@ BEGIN
     FROM sessions
     WHERE user_id = p_user_id
       AND transcript_state IS DISTINCT FROM 'not_captured'
-      AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb;
+      AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false);
 
     IF v_eligible_filler_count >= 2 THEN
         WITH eligible_filler_sessions AS (
@@ -305,7 +315,7 @@ BEGIN
             FROM sessions
             WHERE user_id = p_user_id
               AND transcript_state IS DISTINCT FROM 'not_captured'
-              AND filler_words IS NOT NULL AND filler_words <> '{}'::jsonb
+              AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false)
         ),
         last_10_sessions AS (
             SELECT id, rn FROM eligible_filler_sessions WHERE rn <= 10

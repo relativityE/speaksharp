@@ -33,8 +33,25 @@ const hasRealFillerData = (s: PracticeSession): boolean => {
 const metricEligible = (s: PracticeSession, persistedIsReal: boolean): boolean =>
     transcriptDerivedMetricShowable(resolveTranscriptState(s.transcript_state, s.transcript), persistedIsReal);
 
-const wpmMetricEligible = (s: PracticeSession): boolean => metricEligible(s, isRealNumber(s.total_words) && (s.total_words ?? 0) > 0);
-const fillerMetricEligible = (s: PracticeSession): boolean => metricEligible(s, hasRealFillerData(s));
+// #1131 review correction 2: a metric is eligible only when BOTH its provenance is showable AND its own
+// value is GENUINELY persisted. `transcriptDerivedMetricShowable(available, …)` answers provenance only and
+// returns true regardless of the value, so each per-metric helper must AND the value in explicitly. Without
+// this, an `available` row with a missing/malformed metric (e.g. filler_words `{}` or `{um:{}}`) would be
+// counted as a contributor with a value of 0 — a flattering zero from absent data — and the client would
+// disagree with the RPC (which gates on the persisted value). The value predicate is metric-specific:
+// WPM needs a real positive word count; filler needs a real numeric count on some key (hasRealFillerData).
+const wpmMetricEligible = (s: PracticeSession): boolean => {
+    const hasWords = isRealNumber(s.total_words) && (s.total_words ?? 0) > 0;
+    return metricEligible(s, hasWords) && hasWords;
+};
+const fillerMetricEligible = (s: PracticeSession): boolean => {
+    const hasFiller = hasRealFillerData(s);
+    return metricEligible(s, hasFiller) && hasFiller;
+};
+// Accuracy is RECOMPUTED from ground_truth vs transcript (calculateWordErrorRate), not read from the
+// persisted `accuracy` column, and calculateAccuracyData already gates on `ground_truth && transcript &&
+// engine`. So accuracy eligibility is provenance-only here — an `expired` row (transcript removed) is
+// naturally excluded downstream by the transcript check, and the persisted `accuracy` value is not the gate.
 const accuracyMetricEligible = (s: PracticeSession): boolean => metricEligible(s, isRealNumber(s.accuracy));
 
 /**
@@ -165,7 +182,13 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // which decodes to the POSITIVE label "Low" — i.e. silence was being praised as clean delivery
     // and could become the user's "What worked". A genuine take with words and no fillers still
     // reports 0.0; that is real evidence.
-    const avgFillerWordsPerMin = fillerDurationSeconds > 0 && totalWords > 0
+    // #1131 review correction 1: the filler RATE must NOT depend on word-count / WPM evidence. Its denominator
+    // is the FILLER-metric-eligible speaking time (fillerDurationSeconds), which already includes only rows
+    // that carry genuine persisted filler data (hasRealFillerData) — a wordless/silent take contributes no
+    // such evidence and is excluded upstream, so it can no longer be praised as a flattering 0.0. Coupling the
+    // filler rate to totalWords (the WPM aggregate) let a take with genuine fillers but unpersisted words go
+    // dark, and made two independent metrics share one denominator condition.
+    const avgFillerWordsPerMin = fillerDurationSeconds > 0
         ? calculateRatePerMinute(totalFillerWords, fillerDurationSeconds, 1)
         : null;
     const avgClarity = clarityContributors > 0

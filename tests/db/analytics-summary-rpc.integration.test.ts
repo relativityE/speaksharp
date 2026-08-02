@@ -354,11 +354,13 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             expect(overallStats.clarityContributorCount).toBe(0);
         });
 
-        it('does NOT report a flattering 0.0 filler rate for a wordless take', async () => {
+        it('does NOT report a flattering 0.0 filler rate for a take with no genuine filler evidence', async () => {
+            // #1131 correction 1: the guard is filler-intrinsic, not word-count. A silent take captures no
+            // genuine filler data (empty `{}`), so it is excluded from the filler denominator → null, never 0.0.
             const db = await makeDb();
             await seed(db, [fx('silence', {
                 duration: 6, total_words: 0, clarity_score: null, wpm: null,
-                filler_words: { total: { count: 0 } },
+                filler_words: {},
             })]);
             const { overallStats } = await callRpc(db, USER);
             expect(overallStats.avgFillerWordsPerMin).toBeNull();
@@ -728,6 +730,48 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
 
             expect(Object.keys(fillerWordTrends)).toContain('um');       // a real trend now exists
             expect(Object.keys(clientTrends)).toContain('um');
+        });
+
+        it('(#1131 correction 1) filler rate is INDEPENDENT of word count — genuine fillers, no persisted words, still report', async () => {
+            // A single expired row: word count did not survive retention, but the filler measurement did.
+            // OLD code gated the filler rate on v_total_words > 0, so this went dark (null). The corrected
+            // rate uses only filler-metric evidence: 3 fillers / (60s = 1 min) = 3.0. Client agrees.
+            const rows: Fixture[] = [
+                fx('expired-filler-only', { created_at: '2026-07-01T10:00:00Z', duration: 60,
+                    total_words: null, wpm: null, clarity_score: null, transcript: null,
+                    transcript_state: 'expired', filler_words: { um: { count: 3 }, total: { count: 3 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgWpm).toBeNull();                     // no persisted words → WPM genuinely unknown
+            expect(overallStats.avgFillerWordsPerMin).toBe('3.0');      // but the filler rate is real (not null)
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(3.0, 1);
+            expect(client.averageWPM).toBeNull();
+        });
+
+        it('(#1131 correction 2) an empty or MALFORMED filler map is NOT evidence — client and RPC AGREE on null, never a flattering 0.0', async () => {
+            // Each fixture is an `available` take (real words) whose filler map carries NO genuine numeric count:
+            // empty `{}`, a key with no count `{um:{}}`, and a null count `{um:{count:null}}`. OLD RPC treated
+            // any non-empty object as evidence and reported 0.0 (a flattering zero from missing data), disagreeing
+            // with the client. Corrected: both layers require a real numeric count → both report null.
+            for (const malformed of [{}, { um: {} }, { um: { count: null } }] as Array<Record<string, { count?: number }>>) {
+                const rows: Fixture[] = [
+                    fx('malformed-filler', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120,
+                        transcript: words(120), transcript_state: 'available', filler_words: malformed }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                const { overallStats } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();       // no fabricated 0.0 from missing data
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(client.avgFillerWordsPerMin).toBeNull();             // client AGREES with the RPC
+                expect(overallStats.avgWpm).toBe(120);                      // the WPM metric is unaffected
+            }
         });
 
         it('a history where EVERY row is not_captured yields all-null rates and no trend — never a fabricated number', async () => {
