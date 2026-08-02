@@ -134,6 +134,31 @@ function withLock(commonDir, fn) {
 }
 
 /**
+ * NO-FOLLOW inspection of the durable initialization sentinel — the exact discipline `readMarker` applies to
+ * the owner marker. NEVER use `existsSync(sentinel)`: it FOLLOWS a symlink, so a dangling
+ * `agent-worktrees.initialized` symlink reads as absent and a subsequent `writeFileSync(sentinel, …)` would
+ * follow the link and create/overwrite an ARBITRARY target while the claim silently succeeds. Instead lstat
+ * the entry:
+ *   - ENOENT (absent directory entry)              → returns false (a genuine first run may initialize);
+ *   - a REGULAR file                               → returns true  (an existing sentinel may be reused);
+ *   - ANY symlink / directory / FIFO / socket /
+ *     device / other non-regular entry, or ANY
+ *     inspection error (EACCES, malformed, I/O)    → THROWS (fail closed) WITHOUT reading or writing through
+ *                                                    it — the sentinel target, registry, marker, and prune
+ *                                                    lock are all untouched.
+ */
+function sentinelPresent(sentinel) {
+    let st;
+    try { st = lstatSync(sentinel); }
+    catch (e) {
+        if (e && e.code === 'ENOENT') return false; // absent → first run may initialize
+        throw new OwnershipError(`could not inspect initialization sentinel (${e && e.code ? e.code : 'I/O error'}) — fail closed`);
+    }
+    if (!st.isFile()) throw new OwnershipError('initialization sentinel is not a regular file (symlink/dir/fifo/device/special) — fail closed');
+    return true;
+}
+
+/**
  * Read + VALIDATE the registry. Parsing an array is not enough authority: the version, every lease's
  * required fields/types, and path/branch uniqueness are all checked. Any violation — malformed JSON, a
  * bad record, a duplicate, or a registry file that was initialized and then DISAPPEARED — fails closed.
@@ -141,7 +166,9 @@ function withLock(commonDir, fn) {
 function readLeases(commonDir) {
     const { file, sentinel } = registryPaths(commonDir);
     if (!existsSync(file)) {
-        if (existsSync(sentinel)) throw new OwnershipError('lease registry file is missing though the registry was initialized — refusing to proceed (fail closed)');
+        // NO-FOLLOW sentinel inspection: a non-regular sentinel throws (fail closed) rather than being read
+        // through; a regular sentinel means the registry was initialized then vanished → fail closed.
+        if (sentinelPresent(sentinel)) throw new OwnershipError('lease registry file is missing though the registry was initialized — refusing to proceed (fail closed)');
         return []; // genuine first run
     }
     let parsed;
@@ -168,11 +195,16 @@ function readLeases(commonDir) {
 /** Atomic write: sibling temp file + rename; also drop the durable initialization sentinel so a later disappearance is detectable. */
 function writeLeases(commonDir, leases) {
     const { dir, file, sentinel } = registryPaths(commonDir);
+    // NO-FOLLOW sentinel inspection FIRST — before any mkdir/write. sentinelPresent() lstats the entry, so a
+    // dangling/non-regular sentinel throws (fail closed) with ZERO mutation: the registry dir is not created,
+    // no temp file is written, and the sentinel target is never followed. `existsSync` would instead follow a
+    // dangling symlink and let the later `writeFileSync` create/overwrite an arbitrary target.
+    const alreadyInitialized = sentinelPresent(sentinel);
     mkdirSync(dir, { recursive: true });
     // Durable sentinel (at the common-dir root, OUTSIDE agent-worktrees/) written BEFORE the registry rename:
     // a crash mid-write — or a later `rm -rf agent-worktrees/` — still leaves the initialization mark, so a
     // subsequent disappearance of leases.json is never mistaken for a genuine first run (readLeases throws).
-    if (!existsSync(sentinel)) writeFileSync(sentinel, `initialized ${new Date().toISOString()}\n`);
+    if (!alreadyInitialized) writeFileSync(sentinel, `initialized ${new Date().toISOString()}\n`);
     const tmp = `${file}.tmp-${process.pid}`;
     writeFileSync(tmp, `${JSON.stringify({ version: 1, leases }, null, 2)}\n`);
     renameSync(tmp, file);
@@ -350,7 +382,9 @@ function cmdClaim({ agent, task, cwd }) {
         // action). The inverse — sentinel present but the registry file missing/corrupt — fails closed inside
         // readLeases, which is what makes deleting the whole agent-worktrees/ directory fail closed.
         const { file: registryFile, sentinel: sentinelPath } = registryPaths(ctx.commonDir);
-        if (!existsSync(sentinelPath)) {
+        // NO-FOLLOW: a non-regular/dangling sentinel throws here (fail closed) rather than being treated as
+        // "present" and skipping the pristine-repo gate.
+        if (!sentinelPresent(sentinelPath)) {
             const evidence =
                 existsSync(registryFile) ||
                 existsSync(markerPath(ctx.gitDir)) ||

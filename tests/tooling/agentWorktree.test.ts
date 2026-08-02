@@ -570,4 +570,54 @@ describe('#1126 durable initialization history (isolated repo)', () => {
         expect(r.status).toBe(1);
         expect(r.err).toMatch(/not a regular file|fail closed/i);
     });
+
+    // ---- Durable initialization SENTINEL: NO-FOLLOW inspection (analogous to the marker cases above). ----
+    // The hazard: `existsSync(sentinel)` FOLLOWS a symlink, so a dangling `agent-worktrees.initialized`
+    // symlink reads as absent and `writeFileSync(sentinel, …)` then writes THROUGH it to an arbitrary target.
+
+    it('(#1126) a DANGLING symlink SENTINEL fails a claim closed and never writes through it', () => {
+        const target = path.join(ibase, 'sentinel-target-should-stay-absent');
+        symlinkSync(target, isentinel); // dangling: target does not exist
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/initialization sentinel is not a regular file|fail closed/i);
+        // Write-through hazard: the claim must NOT create the symlink target.
+        expect(existsSync(target)).toBe(false);
+    });
+
+    it('(#1126) failing closed on a non-regular SENTINEL mutates NO registry / marker / prune-lock', () => {
+        symlinkSync(path.join(ibase, 'sentinel-nowhere'), isentinel); // dangling symlink sentinel, pristine repo
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/initialization sentinel is not a regular file|fail closed/i);
+        expect(existsSync(ireg)).toBe(false);        // registry/lease not created
+        expect(existsSync(imarker())).toBe(false);   // owner marker not written
+        expect(lockReasonOf(iwt)).toBeNull();        // prune lock not taken
+    });
+
+    it('(#1126) a SYMLINK sentinel pointing at a valid regular file STILL fails closed (no-follow, not just dangling)', () => {
+        const decoy = path.join(ibase, 'decoy-initialized');
+        writeFileSync(decoy, 'initialized 1970-01-01T00:00:00.000Z\n'); // perfectly valid sentinel content, elsewhere
+        symlinkSync(decoy, isentinel); // sentinel is a symlink to a real file
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/initialization sentinel is not a regular file|fail closed/i);
+    });
+
+    it('(#1126) a DIRECTORY named as the sentinel (non-regular entry) fails a claim closed', () => {
+        mkdirSync(isentinel); // a directory, not a regular file
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/initialization sentinel is not a regular file|fail closed/i);
+    });
+
+    it('(#1126) an existing REGULAR sentinel is REUSED (not rewritten) on a later registry write', () => {
+        expect(claim().status).toBe(0);
+        expect(existsSync(isentinel)).toBe(true);
+        const before = readFileSync(isentinel, 'utf8');
+        // A second registry-mutating operation must reuse the regular sentinel, byte-for-byte, not rewrite it.
+        expect(run(['release', '--agent', 'alpha'], iwt).status).toBe(0);
+        expect(existsSync(isentinel)).toBe(true);
+        expect(readFileSync(isentinel, 'utf8')).toBe(before);
+    });
 });
