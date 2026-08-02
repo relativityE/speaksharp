@@ -27,6 +27,15 @@ function joinTranscript(left: string, right: string): string {
   return [left.trim(), right.trim()].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
+function purgeCalibrationNativeTrace(): void {
+  if (typeof window === 'undefined' || !Array.isArray(window.__NATIVE_BROWSER_TRACE__)) return;
+  // NativeBrowser's process-wide diagnostic trace can contain nested rawResults
+  // transcript values. Remove every event owned by this ephemeral run while
+  // preserving any successor or unrelated recording trace.
+  window.__NATIVE_BROWSER_TRACE__ = window.__NATIVE_BROWSER_TRACE__
+    .filter(event => event.rId !== CALIBRATION_TELEMETRY_SESSION_ID);
+}
+
 /**
  * A deliberately isolated mic/transcription path for #1116's short calibration.
  *
@@ -98,6 +107,7 @@ export function createCalibrationSession(
       // shadow bus. Purge only if calibration still owns that bus; an actual
       // successor session must never be cleared by stale calibration cleanup.
       safeResetSessionTelemetryIfCurrent(CALIBRATION_TELEMETRY_SESSION_ID);
+      purgeCalibrationNativeTrace();
       if (lockAcquired && lock) {
         try {
           lock.updateState('TERMINATED');

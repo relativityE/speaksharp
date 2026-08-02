@@ -60,6 +60,21 @@ function seedCalibrationTranscriptTelemetry() {
   });
 }
 
+function seedNativeBrowserTrace() {
+  window.__NATIVE_BROWSER_TRACE__ = [
+    {
+      event: 'onresult_raw',
+      rId: CALIBRATION_TELEMETRY_SESSION_ID,
+      rawResults: [{ transcript: 'nested calibration words', isFinal: false }],
+    },
+    {
+      event: 'onresult_raw',
+      rId: 'successor-session',
+      rawResults: [{ transcript: 'successor words', isFinal: true }],
+    },
+  ];
+}
+
 describe('isolated Browser calibration boundary', () => {
   const onTranscript = vi.fn();
   let fetchSpy: ReturnType<typeof vi.fn>;
@@ -68,6 +83,7 @@ describe('isolated Browser calibration boundary', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    window.__NATIVE_BROWSER_TRACE__ = [];
     __resetSessionTelemetryBusForTests();
     useSessionStore.getState().setEngineSelectionLock(false, null);
     engineState.options = null;
@@ -85,6 +101,7 @@ describe('isolated Browser calibration boundary', () => {
     useSessionStore.getState().setEngineSelectionLock(false, null);
     localStorage.clear();
     sessionStorage.clear();
+    delete window.__NATIVE_BROWSER_TRACE__;
     __resetSessionTelemetryBusForTests();
     vi.unstubAllGlobals();
   });
@@ -93,12 +110,17 @@ describe('isolated Browser calibration boundary', () => {
     const session = createCalibrationSession({ onTranscript });
     await session.start();
     seedCalibrationTranscriptTelemetry();
+    seedNativeBrowserTrace();
     expect(getSessionTelemetryBus().getBufferedEvents()).toHaveLength(2);
 
     await session.stop();
 
     expect(getSessionTelemetryBus().currentSessionId).toBe('unset');
     expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
+    expect(window.__NATIVE_BROWSER_TRACE__).toEqual([
+      expect.objectContaining({ rId: 'successor-session' }),
+    ]);
+    expect(JSON.stringify(window.__NATIVE_BROWSER_TRACE__)).not.toContain('nested calibration words');
   });
 
   it('does not clear telemetry after another session has rebound the process bus', async () => {
@@ -165,6 +187,7 @@ describe('isolated Browser calibration boundary', () => {
 
     await session.start();
     seedCalibrationTranscriptTelemetry();
+    seedNativeBrowserTrace();
     engineState.options?.onError?.({ message: 'Browser recognition stopped.' });
 
     await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('Browser recognition stopped.'));
@@ -173,6 +196,9 @@ describe('isolated Browser calibration boundary', () => {
     expect(localStorage.getItem(LOCK_KEY)).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
+    expect(window.__NATIVE_BROWSER_TRACE__).toEqual([
+      expect.objectContaining({ rId: 'successor-session' }),
+    ]);
   });
 
   it('rejects calibration while the same tab has an active or unresolved recording', async () => {
@@ -209,10 +235,14 @@ describe('isolated Browser calibration boundary', () => {
     const session = createCalibrationSession({ onTranscript });
     await session.start();
     seedCalibrationTranscriptTelemetry();
+    seedNativeBrowserTrace();
 
     await session.dispose();
 
     expect(getSessionTelemetryBus().getBufferedEvents()).toEqual([]);
+    expect(window.__NATIVE_BROWSER_TRACE__).toEqual([
+      expect.objectContaining({ rId: 'successor-session' }),
+    ]);
   });
 
   it('closes cleanly during asynchronous initialization and releases its mutex', async () => {
