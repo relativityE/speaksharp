@@ -236,6 +236,8 @@ describe('#1144 device qualification contract', () => {
       "- 'tests/e2e/helpers.ts'",
       "- 'tests/e2e/helpers/**'",
       "- 'tests/e2e/mock-routes.ts'",
+      "- 'backend/supabase/functions/_shared/test-fixtures.ts'",
+      "- 'tests/support/factories/session.factory.ts'",
       "- 'tests/e2e/fixtures.ts'",
       "- 'tests/constants.ts'",
       "- 'pnpm-lock.yaml'",
