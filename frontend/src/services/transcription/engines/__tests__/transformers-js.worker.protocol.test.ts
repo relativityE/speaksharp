@@ -97,7 +97,7 @@ describe('transformers-js.worker protocol contract', () => {
     });
 
     it.each([
-        ['missing WASM configuration object', {}],
+        ['missing WASM configuration object', {}, null],
         ['throwing WASM thread assignment', {
             backends: {
                 onnx: {
@@ -106,8 +106,8 @@ describe('transformers-js.worker protocol contract', () => {
                     }),
                 },
             },
-        }],
-    ])('contract: reports unknown configured threads for %s', async (_label, env) => {
+        }, 1],
+    ])('contract: reports unknown configured threads for %s', async (_label, env, expectedRequest) => {
         const transcriber = vi.fn(async () => ({ text: '' }));
         const pipeline = vi.fn(async () => transcriber);
         vi.doMock('@xenova/transformers', () => ({ env, pipeline }));
@@ -120,11 +120,39 @@ describe('transformers-js.worker protocol contract', () => {
                 id: 9,
                 type: 'loaded',
                 device: 'wasm-default-unverified',
+                requestedThreads: expectedRequest,
                 configuredThreads: null,
                 workerReportedThreads: null,
             }));
             expect(postedMessages).toContainEqual({ id: 9, type: 'ready' });
         });
+    });
+
+    it('contract: reports the non-isolated thread count actually assigned to ORT', async () => {
+        const wasm = { wasmPaths: '', numThreads: 0, simd: false };
+        const transcriber = vi.fn(async () => ({ text: '' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@xenova/transformers', () => ({
+            env: { backends: { onnx: { wasm } } },
+            pipeline,
+        }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 10, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 10,
+                type: 'loaded',
+                device: 'wasm-singlethread',
+                requestedThreads: 1,
+                configuredThreads: 1,
+                workerReportedThreads: null,
+                crossOriginIsolated: false,
+            }));
+            expect(postedMessages).toContainEqual({ id: 10, type: 'ready' });
+        });
+        expect(wasm.numThreads).toBe(1);
     });
 
     it('contract: initialized worker returns a result message for transcribe requests', async () => {

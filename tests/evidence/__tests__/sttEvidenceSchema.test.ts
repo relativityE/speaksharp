@@ -343,7 +343,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
 
     it('Private browser-worker evidence requires matching main/worker hashes and self-hosted assets', () => {
         const fallbackRuntime = {
-            requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+            requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
             runtimePath: 'wasm' as const, crossOriginIsolated: false,
             sharedArrayBufferAvailable: false,
             fallbackReason: 'crossOriginIsolated=false; single-thread floor',
@@ -372,7 +372,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(base({
             engine: 'private-v2-browser-worker',
             runtime_capability: {
-                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: 1,
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: 1,
                 runtimePath: 'wasm', crossOriginIsolated: false,
                 sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
             },
@@ -394,7 +394,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(base({
             engine: 'private-v2-browser-worker',
             runtime_capability: {
-                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
                 runtimePath: 'wasm', crossOriginIsolated: false,
                 sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
             },
@@ -409,7 +409,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         const r = finalizeRow(base({
             engine: 'private-v2-browser-worker',
             runtime_capability: {
-                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
                 runtimePath: 'wasm', crossOriginIsolated: false,
                 sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
             },
@@ -437,7 +437,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
             attribution_status: 'unverified',
             wer: null,
             runtime_capability: {
-                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
                 runtimePath: 'wasm', crossOriginIsolated: false,
                 sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
             },
@@ -465,7 +465,7 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
             attribution_status: 'unverified',
             wer: null,
             runtime_capability: {
-                requestedThreads: 4, configuredThreads: 1, workerReportedThreads: null,
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
                 runtimePath: 'wasm', crossOriginIsolated: false,
                 sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
             },

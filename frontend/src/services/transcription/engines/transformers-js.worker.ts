@@ -1,5 +1,5 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
-import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated, MAX_WASM_THREADS } from '../utils/wasmThreads';
+import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
 import { TRANSFORMERS_V2_WASM_PATHS } from './transformersV2WasmAssets';
 
@@ -20,7 +20,7 @@ type WorkerResponse =
         loadTimeMs: number;
         model: string;
         device: string;
-        requestedThreads: number;
+        requestedThreads: number | null;
         configuredThreads: number | null;
         workerReportedThreads: null;
         crossOriginIsolated: boolean;
@@ -99,6 +99,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     // policy degrades to 1 thread (the guaranteed CPU floor) when isolation is
     // unavailable, so this is safe everywhere. Telemetry below reports the actual
     // device/threads so release proof can confirm which CPU tier ran.
+    let requestedThreads: number | null = null;
     let configuredThreads: number | null = null;
     const cpuIsolated = isCrossOriginIsolated();
     try {
@@ -106,6 +107,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         if (wasmBackend) {
             wasmBackend.wasmPaths = TRANSFORMERS_V2_WASM_PATHS;
             const desiredThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
+            requestedThreads = desiredThreads;
             wasmBackend.numThreads = desiredThreads;
             wasmBackend.simd = true;
             configuredThreads = desiredThreads;
@@ -163,7 +165,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         device: configuredThreads == null
             ? 'wasm-default-unverified'
             : configuredThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
-        requestedThreads: MAX_WASM_THREADS,
+        requestedThreads,
         configuredThreads,
         // ORT v1.14 accepts numThreads configuration but does not expose an
         // independent effective-thread count. Never relabel configuration as proof.

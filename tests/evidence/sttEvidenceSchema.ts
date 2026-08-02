@@ -439,7 +439,7 @@ export function finalizeRow(
             if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
         }
         const runtime = row.runtime_capability;
-        if (runtime.requestedThreads !== 4) problems.push('Private v2 evidence did not request the four-thread policy ceiling');
+        if (runtime.requestedThreads !== 1) problems.push('Private v2 non-isolated evidence did not request the single-thread floor');
         if (runtime.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
         if (runtime.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
         if (runtime.crossOriginIsolated || runtime.sharedArrayBufferAvailable) {

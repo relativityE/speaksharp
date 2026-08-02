@@ -44,9 +44,9 @@ type WorkerResponse =
         loadTimeMs: number;
         model: string;
         device?: string;
-        requestedThreads?: number;
+        requestedThreads?: number | null;
         configuredThreads?: number | null;
-        workerReportedThreads?: number;
+        workerReportedThreads?: number | null;
         crossOriginIsolated?: boolean;
       }
     | {

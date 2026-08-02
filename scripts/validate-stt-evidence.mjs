@@ -282,7 +282,7 @@ function checkRow(row, index) {
             }
             if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
         }
-        if (rc?.requestedThreads !== 4) problems.push('Private v2 evidence did not request the four-thread policy ceiling');
+        if (rc?.requestedThreads !== 1) problems.push('Private v2 non-isolated evidence did not request the single-thread floor');
         if (rc?.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
         if (rc?.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
         if (rc?.crossOriginIsolated !== false || rc?.sharedArrayBufferAvailable !== false) {
