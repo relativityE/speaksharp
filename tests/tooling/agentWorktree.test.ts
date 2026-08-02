@@ -18,7 +18,7 @@ import os from 'node:os';
 const CLI = fileURLToPath(new URL('../../scripts/agent-worktree.mjs', import.meta.url));
 // The CLI guards main() behind a direct-execution check, so importing its pure parser does not run the CLI.
 // @ts-expect-error - the .mjs CLI module ships no type declarations
-import { parseWorktreeLockReason } from '../../scripts/agent-worktree.mjs';
+import { parseWorktreeLockReason, parseAnyWorktreeLocked } from '../../scripts/agent-worktree.mjs';
 
 let base: string;
 let repo: string;
@@ -355,6 +355,21 @@ describe('parseWorktreeLockReason (porcelain -z)', () => {
     });
 });
 
+describe('parseAnyWorktreeLocked (porcelain -z)', () => {
+    const rec = (path: string, attrs: string[] = []) =>
+        [`worktree ${path}`, 'HEAD ' + '0'.repeat(40), 'branch refs/heads/feat', ...attrs].join('\0') + '\0';
+    const stream = (...records: string[]) => records.join('\0');
+
+    it('returns the path of a locked worktree even when a DIFFERENT worktree is the caller', () => {
+        const out = stream(rec('/tmp/wt-a'), rec('/tmp/wt-b', ['locked foreign']));
+        expect(parseAnyWorktreeLocked(out)).toBe('/tmp/wt-b');
+    });
+
+    it('returns null when NO worktree carries a lock', () => {
+        expect(parseAnyWorktreeLocked(stream(rec('/tmp/wt-a'), rec('/tmp/wt-b')))).toBeNull();
+    });
+});
+
 // #1126 — durable repository initialization history, proven on a FRESH isolated repo per test so each
 // partial-state combination (sentinel-only, marker-only, lease-only, lock-only) is truly isolated: no other
 // worktree's marker/lease can confound the "pristine vs partial" decision. A first-ever claim succeeds only
@@ -478,6 +493,36 @@ describe('#1126 durable initialization history (isolated repo)', () => {
             expect(r.err).toMatch(/could not enumerate linked worktrees|fail closed/i);
         } finally {
             chmodSync(wtRoot, 0o755); // restore so afterEach cleanup can remove the tree
+        }
+    });
+
+    it('(#1126) a prune lock on ANOTHER linked worktree fails a fresh-repo claim closed', () => {
+        // Pristine repo (sentinel absent) + a foreign prune lock on a DIFFERENT linked worktree: initialization
+        // must enumerate ALL worktrees and refuse — not just inspect the claiming one.
+        const wt2 = path.join(ibase, 'wt2');
+        git(['worktree', 'add', '-q', '-B', 'feat2', wt2, 'main'], irepo);
+        git(['worktree', 'lock', '--reason', 'foreign', wt2], irepo);
+        expect(existsSync(isentinel)).toBe(false);
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/sentinel is absent but .* evidence exists|partial\/contradictory/i);
+        git(['worktree', 'unlock', wt2], irepo); // cleanup
+    });
+
+    it('(#1126) an UNREADABLE admin dir (I/O error, not ENOENT) fails closed — distinct from an absent marker', () => {
+        // A second worktree exists; make its admin dir unreadable so statSync throws EACCES (not ENOENT). An
+        // absent marker (ENOENT) is fine (pristine claim succeeds elsewhere); an inspection I/O error must NOT
+        // be read as "no marker here".
+        const wt2 = path.join(ibase, 'wt2');
+        git(['worktree', 'add', '-q', '-B', 'feat2', wt2, 'main'], irepo);
+        const admin2 = git(['rev-parse', '--absolute-git-dir'], wt2); // <common>/worktrees/<id2>
+        chmodSync(admin2, 0o000); // remove all perms → statSync(marker) throws EACCES, not ENOENT
+        try {
+            const r = claim();
+            expect(r.status).toBe(1);
+            expect(r.err).toMatch(/could not inspect worktree .* fail closed/i);
+        } finally {
+            chmodSync(admin2, 0o755); // restore for afterEach cleanup
         }
     });
 });

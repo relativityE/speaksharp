@@ -24,7 +24,7 @@
  * Exit codes: 0 = ok · 1 = ownership/state violation · 2 = usage error.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, unlinkSync, renameSync, realpathSync, readdirSync } from 'node:fs';
+import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, unlinkSync, renameSync, realpathSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -96,9 +96,17 @@ function anyMarkerAcrossWorktrees(commonDir) {
     // Fail CLOSED on an enumeration error: an unreadable worktrees/ dir is not evidence of "no markers".
     try { entries = readdirSync(wtRoot); }
     catch (e) { throw new OwnershipError(`could not enumerate linked worktrees for initialization evidence — fail closed: ${String(e.message ?? e)}`); }
-    // Inspect EVERY linked worktree's admin dir for an ownership marker.
+    // Inspect EVERY linked worktree's admin dir for an ownership marker. A marker is "absent" ONLY on
+    // ENOENT; a permission/I/O inspection failure (EACCES/EIO/…) is NOT "absent" and fails closed — we must
+    // never read an unreadable admin dir as "no marker here".
     for (const id of entries) {
-        if (existsSync(path.join(wtRoot, id, MARKER_NAME))) return true;
+        try {
+            statSync(path.join(wtRoot, id, MARKER_NAME));
+            return true; // marker present
+        } catch (e) {
+            if (e && e.code === 'ENOENT') continue; // genuinely absent
+            throw new OwnershipError(`could not inspect worktree '${id}' for a marker (${e && e.code ? e.code : 'I/O error'}) — fail closed`);
+        }
     }
     return false;
 }
@@ -260,6 +268,27 @@ function lockReason(worktreeRoot) {
 }
 
 /**
+ * Pure parser: does ANY worktree record in a `git worktree list --porcelain -z` listing carry a prune lock?
+ * Returns the first locked worktree path (for a precise message) or null if NONE are locked. Exported for
+ * deterministic unit tests. Used to reject a pre-existing lock ANYWHERE at repository-initialization time.
+ */
+export function parseAnyWorktreeLocked(out) {
+    for (const record of out.split('\0\0')) {
+        const attrs = record.split('\0').filter((a) => a.length > 0);
+        const wl = attrs.find((a) => a.startsWith('worktree '));
+        if (!wl) continue;
+        if (attrs.some((a) => a === 'locked' || a.startsWith('locked '))) return wl.slice('worktree '.length);
+    }
+    return null;
+}
+
+function anyLinkedWorktreeLocked(worktreeRoot) {
+    // THROWING git path (inspection failure fails closed). True iff ANY linked worktree carries a prune lock.
+    const out = git(['worktree', 'list', '--porcelain', '-z'], worktreeRoot);
+    return parseAnyWorktreeLocked(out);
+}
+
+/**
  * Full ownership proof for a mutation/handoff/release: current branch present, marker + registry lease
  * BOTH present and BOTH naming `agent` on the CURRENT branch. Returns the lease. Fails closed otherwise.
  */
@@ -316,7 +345,7 @@ function cmdClaim({ agent, task, cwd }) {
                 existsSync(registryFile) ||
                 existsSync(markerPath(ctx.gitDir)) ||
                 anyMarkerAcrossWorktrees(ctx.commonDir) ||
-                lockReason(ctx.worktreeRoot) !== null; // throwing git path — an absent record fails closed
+                anyLinkedWorktreeLocked(ctx.worktreeRoot) !== null; // a prune lock in ANY linked worktree is evidence (throwing git path — inspection failure fails closed)
             if (evidence) {
                 throw new OwnershipError('initialization sentinel is absent but lease/marker/lock evidence exists — partial/contradictory state; recovery requires explicit operator action (fail closed)');
             }
