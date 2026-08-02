@@ -1,11 +1,44 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute, programmaticLoginWithRoutes } from './helpers';
+import { isolateAuthStorageOncePerTab } from './helpers/authStorageIsolation';
 import { TEST_IDS } from '../constants';
 
 const MODEL_REQUEST = /(?:\/models\/|huggingface\.co|cdn-lfs\.huggingface)/i;
 const CLOUD_PROVIDER_REQUEST = /(?:assemblyai|api\.openai|speech-to-text|transcribe-audio)/i;
 
 test.describe('#1144 dependency-neutral responsive/accessibility foundation', () => {
+  test('stale auth is cleared once while newly seeded auth survives same-tab hard navigation', async ({ browser, baseURL }) => {
+    if (!baseURL) throw new Error('Device qualification requires an explicit baseURL');
+    const origin = new URL(baseURL).origin;
+    const staleKey = 'sb-stale-auth-token';
+    const seededKey = 'sb-seeded-auth-token';
+    const context = await browser.newContext({
+      storageState: {
+        cookies: [],
+        origins: [{
+          origin,
+          localStorage: [{ name: staleKey, value: 'stale' }],
+        }],
+      },
+    });
+
+    try {
+      await context.addInitScript(isolateAuthStorageOncePerTab);
+      const isolatedPage = await context.newPage();
+      await isolatedPage.goto(new URL('/private-dropin.html', baseURL).href);
+      expect(await isolatedPage.evaluate(key => localStorage.getItem(key), staleKey)).toBeNull();
+
+      await isolatedPage.evaluate(
+        ({ key, value }) => localStorage.setItem(key, value),
+        { key: seededKey, value: 'seeded-after-isolation' },
+      );
+      await isolatedPage.goto(new URL('/private-dropin.html?hard-navigation=1', baseURL).href);
+      expect(await isolatedPage.evaluate(key => localStorage.getItem(key), seededKey)).toBe('seeded-after-isolation');
+    } finally {
+      await context.close();
+    }
+  });
+
   test('session is idle, named, keyboard reachable, and makes no automatic provider request', async ({ page }, testInfo) => {
     const cloudProviderRequests: string[] = [];
     const cloudProviderSockets: string[] = [];
@@ -19,7 +52,15 @@ test.describe('#1144 dependency-neutral responsive/accessibility foundation', ()
     });
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await page.waitForURL(url => url.pathname === '/practice');
+    const authKeysBeforeHardNavigation = await page.evaluate(() =>
+      Object.keys(localStorage).filter(key => key.startsWith('sb-')).sort(),
+    );
+    expect(authKeysBeforeHardNavigation.length).toBeGreaterThan(0);
     await navigateToRoute(page, '/session');
+    expect(await page.evaluate(() =>
+      Object.keys(localStorage).filter(key => key.startsWith('sb-')).sort(),
+    )).toEqual(authKeysBeforeHardNavigation);
     await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'READY');
 
     const visibleRecordControl = page.locator(
