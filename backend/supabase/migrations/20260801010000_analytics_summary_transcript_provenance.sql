@@ -28,6 +28,10 @@ DECLARE
     v_weekly_sessions_count INT;
     v_total_sessions INT;
     v_total_duration_seconds INT;
+    -- #1047 review: the WPM/filler-rate DENOMINATOR must exclude not_captured rows. v_total_duration_seconds
+    -- stays all-session (it feeds only totalPracticeTime); this eligible-only duration feeds the rates so a
+    -- not_captured row's stale/sentinel duration can never dilute or inflate WPM or filler-per-minute.
+    v_eligible_duration_seconds INT;
     v_total_words INT;
     v_sum_clarity FLOAT8;
     v_clarity_contributors INT;
@@ -56,7 +60,11 @@ BEGIN
     SELECT
         count(*),
         coalesce(sum(duration), 0),
-        coalesce(sum(total_words), 0),
+        -- All-session duration for total-practice-time only.
+        coalesce(sum(duration) FILTER (WHERE transcript_state IS DISTINCT FROM 'not_captured'), 0),
+        -- Transcript-derived WPM numerator: provenance-eligible rows only (excludes not_captured sentinels;
+        -- keeps available + expired-with-persisted-metrics + legacy).
+        coalesce(sum(total_words) FILTER (WHERE transcript_state IS DISTINCT FROM 'not_captured'), 0),
         coalesce(sum(clarity_score) FILTER (
             WHERE clarity_score IS NOT NULL
               AND coalesce(total_words, 0) >= c_min_reliable_scoring_words
@@ -75,6 +83,7 @@ BEGIN
     INTO
         v_total_sessions,
         v_total_duration_seconds,
+        v_eligible_duration_seconds,
         v_total_words,
         v_sum_clarity,
         v_clarity_contributors,
@@ -83,11 +92,14 @@ BEGIN
     WHERE user_id = p_user_id;
 
     -- Total filler words (lower bound: rows with absent/malformed filler_words contribute nothing).
+    -- #1047 review: the filler-rate NUMERATOR excludes not_captured rows — their persisted filler_words are
+    -- a sentinel, so counting them would fabricate a rate against a transcript that was never captured.
     SELECT coalesce(sum((v.value->>'count')::int), 0)
     INTO v_total_filler_words
     FROM sessions s,
          jsonb_each(s.filler_words) AS v(key, value)
     WHERE s.user_id = p_user_id
+      AND s.transcript_state IS DISTINCT FROM 'not_captured'
       AND v.key != 'total';
 
     -- Clarity: average over CONTRIBUTORS, never over all sessions. NULL when nothing qualifies.
@@ -101,8 +113,8 @@ BEGIN
     -- BOTH a numerator and a denominator. "0 WPM" would read as "you spoke impossibly slowly" rather
     -- than "we transcribed nothing", so absence is reported as NULL.
     v_avg_wpm := CASE
-        WHEN v_total_duration_seconds > 0 AND v_total_words > 0
-            THEN round(v_total_words / (v_total_duration_seconds / 60.0))
+        WHEN v_eligible_duration_seconds > 0 AND v_total_words > 0
+            THEN round(v_total_words / (v_eligible_duration_seconds / 60.0))
         ELSE NULL
     END;
 
@@ -110,8 +122,8 @@ BEGIN
     -- "0.0/min" decoded to the POSITIVE label "Low" — silence praised as clean delivery. A real take
     -- with words and no fillers still reports 0.0; that is genuine evidence and stays.
     v_avg_filler_per_min := CASE
-        WHEN v_total_duration_seconds > 0 AND v_total_words > 0
-            THEN (v_total_filler_words / (v_total_duration_seconds / 60.0))::numeric(10,1)::text
+        WHEN v_eligible_duration_seconds > 0 AND v_total_words > 0
+            THEN (v_total_filler_words / (v_eligible_duration_seconds / 60.0))::numeric(10,1)::text
         ELSE NULL
     END;
 
@@ -161,10 +173,19 @@ BEGIN
     FROM (
         SELECT
             to_char(created_at, 'MM/DD/YYYY') as date,
-            CASE WHEN duration > 0 THEN (fw_count / (duration / 60.0))::numeric(10,2)::text ELSE '0.00' END as "FW/min",
+            -- #1047 review: a not_captured row's stale filler_words must NOT plot a rate — emit NULL (omitted
+            -- point), never a fabricated value, even when a nonzero sentinel count remains. An eligible row
+            -- (available / expired-with-persisted-metrics) with real duration still charts its rate.
+            CASE
+                WHEN transcript_state IS DISTINCT FROM 'not_captured' AND duration > 0
+                    THEN (fw_count / (duration / 60.0))::numeric(10,2)::text
+                ELSE NULL
+            END as "FW/min",
+            -- Same provenance gate on clarity: a not_captured row's stale clarity_score is never plotted.
             CASE
                 WHEN clarity_score IS NOT NULL
                  AND coalesce(total_words, 0) >= c_min_reliable_scoring_words
+                 AND transcript_state IS DISTINCT FROM 'not_captured'
                     THEN clarity_score
                 ELSE NULL
             END as clarity
@@ -174,6 +195,7 @@ BEGIN
                 s.duration,
                 s.clarity_score,
                 s.total_words,
+                s.transcript_state,
                 coalesce((SELECT sum((v.value->>'count')::int) FROM jsonb_each(s.filler_words) AS v(key, value) WHERE v.key != 'total'), 0) as fw_count
             FROM sessions s
             WHERE s.user_id = p_user_id

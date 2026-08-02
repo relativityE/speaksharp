@@ -574,5 +574,40 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             // avg clarity = (88 + 84)/2 = 86, NOT dragged down by the excluded not_captured clarity_score:40.
             expect(Number(overallStats.avgClarity)).toBeCloseTo(86.0, 1);
         });
+
+        it('(#1047) WPM/filler RATES and chart points exclude not_captured; total practice time stays all-session', async () => {
+            // Eligible rows (available + expired-persisted) sum to words=210, duration=120s (=2 min),
+            // fillers=3  ⇒  WPM = 210/2 = 105 and filler rate = 3/2 = 1.5. The not_captured row carries
+            // large STALE numbers (words 1000, duration 600s, fillers 50) that would drag WPM to ~101 and
+            // the filler rate to ~4.4 if its sentinel values leaked into the rate numerators/denominators.
+            const db = await makeDb();
+            await seed(db, [
+                fx('avail', { created_at: '2026-07-01T10:00:00Z', duration: 80, total_words: 140, wpm: 105, clarity_score: 88, transcript: words(140), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('nc-stale', { created_at: '2026-07-02T10:00:00Z', duration: 600, total_words: 1000, wpm: 100, clarity_score: 40, transcript: '', transcript_state: 'not_captured', filler_words: { um: { count: 50 }, total: { count: 50 } } }),
+                fx('exp-persisted', { created_at: '2026-07-03T10:00:00Z', duration: 40, total_words: 70, wpm: 105, clarity_score: 84, transcript: null, transcript_state: 'expired', filler_words: { um: { count: 1 }, total: { count: 1 } } }),
+            ]);
+            const { overallStats } = await callRpc(db, USER);
+
+            // Rates computed from provenance-eligible rows ONLY.
+            expect(overallStats.avgWpm).toBe(105);
+            expect(overallStats.avgFillerWordsPerMin).toBe('1.5');
+            // Total practice time still spans EVERY row (80+600+40 = 720s = 12 min) — truthful, not gated.
+            expect(overallStats.totalPracticeTime).toBe(12);
+            expect(overallStats.wpmContributorCount).toBe(2);
+            expect(overallStats.fillerRateContributorCount).toBe(2);
+
+            // Chart points: ordered ASC by created_at → [avail, nc-stale, exp-persisted].
+            const chart = overallStats.chartData as Array<{ date: string; clarity: number | null; 'FW/min': string | null }>;
+            expect(chart).toHaveLength(3);
+            // The not_captured row emits NULL for both rate/clarity chart values despite stale nonzero data.
+            expect(chart[1].clarity).toBeNull();
+            expect(chart[1]['FW/min']).toBeNull();
+            // Eligible rows keep genuine derived evidence (available FW/min = 2/(80/60) = 1.5; clarity 88).
+            expect(chart[0].clarity).toBe(88);
+            expect(chart[0]['FW/min']).toBe('1.50');
+            // Expired-with-persisted-metrics still contributes its point (FW/min = 1/(40/60) = 1.5).
+            expect(chart[2].clarity).toBe(84);
+            expect(chart[2]['FW/min']).toBe('1.50');
+        });
     });
 });

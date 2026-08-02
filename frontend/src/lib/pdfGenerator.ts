@@ -263,7 +263,11 @@ export const generateSessionPdf = async (
       14, 32, 180,
     );
 
-    if (session.ai_suggestions) {
+    // #1047 review: when the transcript cannot be rendered (expired / not_captured), suppress the persisted
+    // AI summary and coaching too — not just the transcript text. Those conclusions were derived from a
+    // transcript we can no longer show; printing them would contradict the dashboard, which gates AISuggestions
+    // on the same `aiAvailable` (=== canRenderTranscript) provenance. Match that unavailable-evidence behavior.
+    if (pdfTranscript.canRenderTranscript && session.ai_suggestions) {
       doc.addPage();
       doc.setFontSize(16);
       doc.text('AI Coaching Suggestions', 14, 22);

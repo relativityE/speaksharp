@@ -286,6 +286,39 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
   });
 
+  it('(#1047) suppresses persisted AI summary/coaching when the transcript is not_captured', async () => {
+    // The dashboard gates AISuggestions on the same provenance; the PDF must match — no coaching conclusions
+    // printed for a transcript we can no longer show. Stale ai_suggestions are present but must NOT render.
+    await generateSessionPdf({
+      ...mockSession,
+      transcript_state: 'not_captured',
+      transcript: '',
+      ai_suggestions: {
+        summary: 'You used a clear opening and can improve pacing.',
+        suggestions: [{ title: 'Pause with intent', description: 'Replace filler words with a short pause.' }],
+      },
+    });
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
+    expect(savedPdf.text).not.toContain('(You used a clear opening and can improve pacing.) Tj');
+    expect(savedPdf.text).not.toContain('(1. Pause with intent) Tj');
+  });
+
+  it('(#1047) suppresses AI coaching for an expired transcript too', async () => {
+    await generateSessionPdf({
+      ...mockSession,
+      transcript_state: 'expired',
+      transcript: null,
+      ai_suggestions: {
+        summary: 'Expired summary should not print.',
+        suggestions: [{ title: 'Stale tip', description: 'Should be suppressed.' }],
+      },
+    });
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
+    expect(savedPdf.text).not.toContain('(Expired summary should not print.) Tj');
+  });
+
   it.each([
     ['Free', false],
     ['Pro', true],
