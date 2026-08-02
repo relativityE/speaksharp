@@ -6,22 +6,21 @@ import {
     calculateRatePerMinute,
     calculateRoundedMinutes,
     getSessionAnalysisMetrics,
+    validatedFillerTotal,
+    isValidFillerCount,
 } from '@/utils/sessionAnalysis';
 import { resolveTranscriptState, transcriptDerivedMetricShowable } from '@/constants/transcriptState';
 
 const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /**
- * A session carries genuinely-persisted filler evidence: a real numeric count on ANY key (including a
- * `total` of 0 — a genuine zero-filler measurement). Mirrors the RPC's `filler_words <> '{}'` eligibility so
- * client and server agree on which rows may contribute the filler metric (matters only for expired/legacy;
- * an `available` row is always eligible regardless).
+ * A session carries genuinely-persisted filler evidence when it has a VALID filler count — a valid
+ * `total.count` (including a genuine 0 or a total-only snapshot) or at least one valid per-word count.
+ * #1131 corrections 2–4: "valid" means a finite non-negative integer, so empty `{}`, malformed `{um:{}}`,
+ * and fractional/negative counts are NOT evidence. Mirrors the RPC helper `_ss_valid_filler_total IS NOT NULL`
+ * so client and server agree on which rows may contribute the filler metric.
  */
-const hasRealFillerData = (s: PracticeSession): boolean => {
-    const fw = s.filler_words;
-    if (!fw || typeof fw !== 'object') return false;
-    return Object.values(fw).some((v) => isRealNumber((v as { count?: unknown })?.count));
-};
+const hasRealFillerData = (s: PracticeSession): boolean => validatedFillerTotal(s.filler_words) !== null;
 
 /**
  * #1047 U1 (review correction): provenance is METRIC-SPECIFIC, not all-or-nothing. `available` shows every
@@ -139,7 +138,9 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         }
         if (fillerMetricEligible(s)) {
             fillerDurationSeconds += duration;
-            totalFillerWords += sessionMetrics.fillerCount;
+            // #1131 correction 3: the filler NUMERATOR is the validated, total-authoritative count (honors a
+            // total-only snapshot); a row is only eligible when this is a real value, so it is never null here.
+            totalFillerWords += validatedFillerTotal(s.filler_words) ?? 0;
         }
         // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
         // carries no measurement. Only a structurally complete snapshot contributes. (Pause rhythm is
@@ -148,10 +149,13 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             totalPauses += getSessionPauseCount(s);
             pauseContributors += 1;
         }
-        // Single source of truth: aggregate the SAME per-session delivery-clarity used by session
-        // detail, PDF, Goals, and the clarity chart. Clarity contributes only when it is BOTH scorable AND
-        // its persisted-clarity provenance is showable (available; or expired/legacy with a real score).
-        if (metricEligible(s, sessionMetrics.isClarityScorable) && sessionMetrics.isClarityScorable) {
+        // #1131 correction 1: clarity contributes only when it is scorable AND its provenance is showable for a
+        // GENUINELY PERSISTED clarity_score. The showability flag is `isRealNumber(s.clarity_score)`, so an
+        // EXPIRED/legacy row (transcript removed) contributes clarity ONLY when a real clarity_score survived —
+        // it is never reconstructed from retained words. An `available` row may still recompute from its live
+        // transcript (documented client advantage over the RPC). getSessionAnalysisMetrics already prefers the
+        // persisted clarity_score, so an eligible expired row uses the persisted value, not a reconstruction.
+        if (metricEligible(s, isRealNumber(s.clarity_score)) && sessionMetrics.isClarityScorable) {
             totalClarity += sessionMetrics.clarityScore;
             clarityContributors += 1;
         }
@@ -204,16 +208,18 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
         const sessionMetrics = getSessionAnalysisMetrics(s);
-        const totalFillerCount = sessionMetrics.fillerCount;
+        // #1131 correction 3: the plotted filler count is the validated, total-authoritative value.
+        const totalFillerCount = validatedFillerTotal(s.filler_words) ?? 0;
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),
             // #1047 U1: metric-specific — plot a filler rate only when THIS row's filler evidence is persisted
             // (available; or expired/legacy with real filler data). Otherwise null (omitted point).
             'FW/min': fillerMetricEligible(s) ? calculateRatePerMinute(totalFillerCount, duration, 2) : null,
-            // #1091 + #1047 U1: plot clarity only when it is scorable AND its persisted-clarity provenance is
-            // showable. `null` is an omitted point (Recharts renders a gap); never a fabricated zero.
-            clarity: (metricEligible(s, sessionMetrics.isClarityScorable) && sessionMetrics.isClarityScorable) ? sessionMetrics.clarityScore : null
+            // #1091 + #1047 U1 + #1131 correction 1: plot clarity only when it is scorable AND a genuinely
+            // persisted clarity_score is showable for this provenance (expired → never reconstructed).
+            // `null` is an omitted point (Recharts renders a gap); never a fabricated zero.
+            clarity: (metricEligible(s, isRealNumber(s.clarity_score)) && sessionMetrics.isClarityScorable) ? sessionMetrics.clarityScore : null
         };
     }).reverse();
 
@@ -250,7 +256,8 @@ export const calculateFillerWordTrends = (allSessions: PracticeSession[]) => {
             if (totalMinutes <= 0) return {};
             window.forEach(s => {
                 Object.entries(getSessionAnalysisMetrics(s).fillerData || {}).forEach(([word, data]) => {
-                    if (word !== 'total') {
+                    // #1131 correction 4: only count per-word entries with a VALID non-negative integer count.
+                    if (word !== 'total' && isValidFillerCount(data?.count)) {
                         counts[word] = (counts[word] || 0) + data.count;
                     }
                 });
@@ -262,8 +269,17 @@ export const calculateFillerWordTrends = (allSessions: PracticeSession[]) => {
             return rates;
         };
 
-        const currentWindow = sessionHistory.slice(0, 5);
-        const previousWindow = sessionHistory.slice(5, 10);
+        // #1131 correction 2: split the most-recent (up to 10) eligible measurements into TWO NONEMPTY time
+        // windows. The old fixed 0–5 / 5–10 split left the "previous" window empty for a 2–5 measurement
+        // history, so a real current rate was compared against an INVENTED zero baseline (a fabricated
+        // "improvement/worsening"). Splitting at floor(k/2) keeps both windows nonempty for every k >= 2 and
+        // preserves the 5/5 split at k = 10. The RPC filler-trend applies the identical split.
+        const windowed = sessionHistory.slice(0, 10);
+        const k = windowed.length; // >= 2, guaranteed by the gate above
+        const previousCount = Math.floor(k / 2); // >= 1 for k >= 2
+        const currentCount = k - previousCount;  // >= previousCount >= 1
+        const currentWindow = windowed.slice(0, currentCount);
+        const previousWindow = windowed.slice(currentCount);
 
         const currentRates = getRatesForWindow(currentWindow);
         const previousRates = getRatesForWindow(previousWindow);
@@ -288,7 +304,8 @@ export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
     const counts = sessionHistory.filter(fillerMetricEligible).reduce((acc, s) => {
         const fillers = getSessionAnalysisMetrics(s).fillerData || {};
         for (const [word, data] of Object.entries(fillers)) {
-            if (word !== 'total' && data.count > 0) {
+            // #1131 correction 4: only a VALID non-negative integer count contributes to the top-filler list.
+            if (word !== 'total' && isValidFillerCount(data?.count) && data.count > 0) {
                 acc[word] = (acc[word] || 0) + data.count;
             }
         }

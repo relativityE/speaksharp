@@ -48,21 +48,51 @@ export const countTranscriptWords = (transcript: string): number =>
 export const countErrorMarkers = (transcript: string): number =>
     (transcript.match(ERROR_TAG_REGEX) || []).length;
 
+// #1131 correction 4: a valid filler count is a finite, NON-NEGATIVE INTEGER within a sane range. A
+// fractional (2.5), negative (-1), non-finite, or absurdly out-of-range count is malformed data — it must
+// never inflate/deflate a metric nor (on the RPC) crash an integer cast. 9 digits keeps it inside int range.
+const MAX_FILLER_COUNT = 999_999_999;
+export const isValidFillerCount = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_FILLER_COUNT;
+
+/**
+ * #1131 corrections 3 + 4: the AUTHORITATIVE total filler count for a session, honoring a total-only snapshot.
+ * A valid `total.count` wins (including a genuine 0, and a `{ total: { count: N } }` with no per-word breakdown).
+ * Otherwise sum the per-word entries that carry a VALID count. Returns null when there is no valid filler
+ * evidence at all (empty `{}`, malformed `{um:{}}`, fractional/negative-only), so callers can exclude the row
+ * rather than fabricate a flattering 0. Mirrors the RPC helper `_ss_valid_filler_total`.
+ */
+export const validatedFillerTotal = (
+    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+): number | null => {
+    if (!fillerWords || typeof fillerWords !== 'object') return null;
+    const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
+    if (isValidFillerCount(total)) return total; // total-authoritative
+    let sum = 0;
+    let sawValid = false;
+    for (const word in fillerWords) {
+        if (word === 'total') continue;
+        const c = (fillerWords as Record<string, { count?: unknown }>)[word]?.count;
+        if (isValidFillerCount(c)) { sum += c; sawValid = true; }
+    }
+    return sawValid ? sum : null;
+};
+
 export const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
     if (!fillerWords) return 0;
 
     let sum = 0;
     for (const word in fillerWords) {
         if (word === 'total') continue;
-        sum += fillerWords[word]?.count || 0;
+        const c = fillerWords[word]?.count;
+        if (isValidFillerCount(c)) sum += c; // #1131 correction 4: ignore malformed/fractional/negative counts
     }
     return sum;
 };
 
-export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
-    const persistedTotal = fillerWords?.total?.count;
-    return typeof persistedTotal === 'number' ? persistedTotal : sumFillerCounts(fillerWords);
-};
+export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number =>
+    // #1131 corrections 3 + 4: total-authoritative + validated; 0 when there is no valid evidence.
+    validatedFillerTotal(fillerWords) ?? 0;
 
 /**
  * #SSOT: is this a USABLE canonical filler-counts object? A valid ZERO count is usable (must stay zero);

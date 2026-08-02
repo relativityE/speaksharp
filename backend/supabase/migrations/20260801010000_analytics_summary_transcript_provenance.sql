@@ -12,6 +12,36 @@
 --
 -- NOT APPLIED TO PRODUCTION BY THIS PR — requires separate Product Owner migration approval before deploy.
 
+-- #1131 review corrections 3 + 4 — the AUTHORITATIVE, validated total filler count for one session.
+--  * Total-authoritative (correction 3): a valid `total.count` wins outright, INCLUDING a genuine 0 and a
+--    total-only snapshot `{ "total": { "count": N } }` with no per-word breakdown. Otherwise sum the per-word
+--    (non-total) entries that carry a valid count.
+--  * Validated (correction 4): a "valid" count is a NON-NEGATIVE INTEGER of at most 9 digits (kept inside int
+--    range). A fractional (2.5), negative (-1), non-numeric, or out-of-range value is malformed — excluded via
+--    a regex guard BEFORE any ::int cast, so a bad count can never crash the cast nor fabricate a flattering 0.
+-- Returns NULL when the session carries no valid filler evidence at all (null / non-object / empty {} /
+-- malformed), so callers EXCLUDE the row instead of inventing a measurement. Mirrors client validatedFillerTotal().
+-- Pure jsonb/text logic (no table access): IMMUTABLE with a pinned search_path, SECURITY INVOKER (default).
+CREATE OR REPLACE FUNCTION public._ss_valid_filler_total(fw JSONB)
+RETURNS INTEGER
+LANGUAGE sql
+IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT CASE
+    WHEN fw IS NULL OR jsonb_typeof(fw) <> 'object' THEN NULL
+    WHEN (fw->'total'->>'count') ~ '^[0-9]{1,9}$' THEN (fw->'total'->>'count')::int
+    WHEN EXISTS (
+      SELECT 1 FROM jsonb_each(fw) e
+      WHERE e.key <> 'total' AND (e.value->>'count') ~ '^[0-9]{1,9}$'
+    ) THEN (
+      SELECT sum((e.value->>'count')::int)::int FROM jsonb_each(fw) e
+      WHERE e.key <> 'total' AND (e.value->>'count') ~ '^[0-9]{1,9}$'
+    )
+    ELSE NULL
+  END
+$$;
+
 CREATE OR REPLACE FUNCTION public.get_analytics_summary(p_user_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -44,6 +74,10 @@ DECLARE
     -- #1047 U1: number of filler-metric-eligible rows. A "trend" is a comparison and needs at least TWO such
     -- measurements; with fewer we report NO trend (mirrors the client calculateFillerWordTrends >= 2 gate).
     v_eligible_filler_count INT;
+    -- #1131 correction 2: size of the "current" (more-recent) trend window. The most-recent min(eligible,10)
+    -- rows are split at floor(k/2) so BOTH windows are nonempty for every k >= 2 (never an invented zero
+    -- baseline); at k = 10 this is the classic 5/5 split. Mirrors client calculateFillerWordTrends.
+    v_trend_current_count INT;
     v_avg_clarity TEXT;
     v_avg_wpm NUMERIC;
     v_avg_filler_per_min TEXT;
@@ -79,7 +113,7 @@ BEGIN
         -- showable provenance). Matches the client hasRealFillerData gate (filler_words present, not '{}').
         coalesce(sum(duration) FILTER (
             WHERE transcript_state IS DISTINCT FROM 'not_captured'
-              AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false)), 0),
+              AND public._ss_valid_filler_total(filler_words) IS NOT NULL), 0),
         -- Transcript-derived WPM numerator: SAME eligibility as its denominator above, so numerator and
         -- denominator always describe the identical set of rows.
         coalesce(sum(total_words) FILTER (
@@ -106,7 +140,7 @@ BEGIN
         count(*) FILTER (
             WHERE coalesce(duration, 0) > 0
               AND transcript_state IS DISTINCT FROM 'not_captured'
-              AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false)
+              AND public._ss_valid_filler_total(filler_words) IS NOT NULL
         )
     INTO
         v_total_sessions,
@@ -121,22 +155,17 @@ BEGIN
     FROM sessions
     WHERE user_id = p_user_id;
 
-    -- Total filler words (lower bound: rows with absent/malformed filler_words contribute nothing).
-    -- #1047 review: the filler-rate NUMERATOR excludes not_captured rows — their persisted filler_words are
-    -- a sentinel, so counting them would fabricate a rate against a transcript that was never captured.
-    -- #1131 correction 2: draw the numerator from the SAME genuine-filler-evidence row set as the denominator
-    -- (v_filler_duration_seconds), and only sum keys whose `count` is genuinely numeric. This keeps numerator
-    -- and denominator describing one identical set of rows, and a malformed count (missing / null / a string)
-    -- contributes nothing rather than fabricating a value or aborting the cast.
-    SELECT coalesce(sum((v.value->>'count')::int), 0)
+    -- Total filler words — the filler-rate NUMERATOR. #1047 review: excludes not_captured rows (their
+    -- persisted filler_words are a sentinel). #1131 corrections 2–4: one validated, total-authoritative count
+    -- per session via _ss_valid_filler_total (a valid `total.count` wins, including a total-only snapshot;
+    -- else the sum of valid per-word counts; malformed/fractional/negative excluded, no crash). Drawn from
+    -- the SAME row set as the denominator — every eligible row has a non-null validated total, and only those.
+    SELECT coalesce(sum(public._ss_valid_filler_total(s.filler_words)), 0)
     INTO v_total_filler_words
-    FROM sessions s,
-         jsonb_each(s.filler_words) AS v(key, value)
+    FROM sessions s
     WHERE s.user_id = p_user_id
       AND s.transcript_state IS DISTINCT FROM 'not_captured'
-      AND s.filler_words @? '$.*.count ? (@.type() == "number")'
-      AND v.key != 'total'
-      AND jsonb_typeof(v.value->'count') = 'number';
+      AND public._ss_valid_filler_total(s.filler_words) IS NOT NULL;
 
     -- Clarity: average over CONTRIBUTORS, never over all sessions. NULL when nothing qualifies.
     v_avg_clarity := CASE
@@ -180,9 +209,10 @@ BEGIN
         'fillerRateContributorCount', v_filler_contributors
     );
 
-    -- Top 2 Filler Words
+    -- Top 2 Filler Words (per-word breakdown; a total-only snapshot legitimately has no per-word entries).
     -- #1047 review: a not_captured row's persisted filler map is a sentinel — exclude it so stale counts
-    -- never appear in the top-filler list.
+    -- never appear in the top-filler list. #1131 correction 4: the regex guards the ::int cast so a
+    -- fractional/negative/malformed per-word count never crashes it or fabricates a count.
     SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_top_filler_words
     FROM (
         SELECT v.key as word, sum((v.value->>'count')::int) as count
@@ -191,6 +221,7 @@ BEGIN
         WHERE s.user_id = p_user_id
           AND s.transcript_state IS DISTINCT FROM 'not_captured'
           AND v.key != 'total'
+          AND (v.value->>'count') ~ '^[0-9]{1,9}$'
         GROUP BY v.key
         ORDER BY count DESC
         LIMIT 2
@@ -244,8 +275,9 @@ BEGIN
                 -- key with a real numeric count. Mirrors client hasRealFillerData, so an empty `{}` or a
                 -- malformed `{um:{}}` / `{um:{count:null}}` is NOT evidence and never charts a fabricated 0.00.
                 (s.transcript_state IS DISTINCT FROM 'not_captured'
-                 AND COALESCE(s.filler_words @? '$.*.count ? (@.type() == "number")', false)) as filler_eligible,
-                coalesce((SELECT sum((v.value->>'count')::int) FROM jsonb_each(s.filler_words) AS v(key, value) WHERE v.key != 'total'), 0) as fw_count
+                 AND public._ss_valid_filler_total(s.filler_words) IS NOT NULL) as filler_eligible,
+                -- #1131 corrections 3 + 4: the plotted filler count is the validated, total-authoritative value.
+                coalesce(public._ss_valid_filler_total(s.filler_words), 0) as fw_count
             FROM sessions s
             WHERE s.user_id = p_user_id
             ORDER BY s.created_at DESC
@@ -307,20 +339,27 @@ BEGIN
     FROM sessions
     WHERE user_id = p_user_id
       AND transcript_state IS DISTINCT FROM 'not_captured'
-      AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false);
+      AND public._ss_valid_filler_total(filler_words) IS NOT NULL;
 
     IF v_eligible_filler_count >= 2 THEN
+        -- #1131 correction 2: split the most-recent min(eligible,10) rows into two NONEMPTY windows at
+        -- floor(k/2) — the "current" (more recent) window gets the larger half. Never an empty "previous"
+        -- window compared against an invented zero baseline. Integer division floors.
+        v_trend_current_count := LEAST(v_eligible_filler_count, 10) - (LEAST(v_eligible_filler_count, 10) / 2);
+
         WITH eligible_filler_sessions AS (
             SELECT id, row_number() OVER (ORDER BY created_at DESC) as rn
             FROM sessions
             WHERE user_id = p_user_id
               AND transcript_state IS DISTINCT FROM 'not_captured'
-              AND COALESCE(filler_words @? '$.*.count ? (@.type() == "number")', false)
+              AND public._ss_valid_filler_total(filler_words) IS NOT NULL
         ),
         last_10_sessions AS (
             SELECT id, rn FROM eligible_filler_sessions WHERE rn <= 10
         ),
         filler_counts AS (
+            -- #1131 correction 4: only per-word entries with a VALID non-negative integer count contribute;
+            -- the regex guards the ::int cast so a fractional/negative/malformed count never crashes it.
             SELECT
                 l.rn,
                 v.key as word,
@@ -329,12 +368,13 @@ BEGIN
             JOIN sessions s ON s.id = l.id
             CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
             WHERE v.key != 'total'
+              AND (v.value->>'count') ~ '^[0-9]{1,9}$'
         ),
         averages AS (
             SELECT
                 word,
-                avg(count) FILTER (WHERE rn <= 5) as current_avg,
-                avg(count) FILTER (WHERE rn > 5) as previous_avg
+                avg(count) FILTER (WHERE rn <= v_trend_current_count) as current_avg,
+                avg(count) FILTER (WHERE rn > v_trend_current_count) as previous_avg
             FROM filler_counts
             GROUP BY word
         )
@@ -380,3 +420,7 @@ REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_analytics_summary(UUID) FROM anon;
 GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_analytics_summary(UUID) TO service_role;
+
+-- #1131: the pure filler-count helper is invoked only from within get_analytics_summary (SECURITY DEFINER),
+-- so it runs as the function owner regardless of caller privileges. Least privilege: no one else needs it.
+REVOKE EXECUTE ON FUNCTION public._ss_valid_filler_total(JSONB) FROM PUBLIC;

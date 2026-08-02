@@ -108,14 +108,17 @@ describe('analyticsUtils', () => {
     });
 
     describe('calculateFillerWordTrends', () => {
-        it('normalizes filler word trends by speaking time', () => {
+        it('normalizes filler word trends by speaking time across TWO nonempty windows', () => {
+            // #1131 correction 2: two eligible measurements split into two nonempty windows (never a zero
+            // baseline). current = most-recent S1 (5 min: um 5, uh 3); previous = older S2 (10 min: um 10,
+            // like 5). Rates are per speaking minute within each window.
             const trends = calculateFillerWordTrends(mockSessionHistory);
-            expect(trends.um.current).toBe(1); // 15 ums / 15 speaking minutes
-            expect(trends.um.previous).toBe(0);
-            expect(trends.uh.current).toBe(0.2); // 3 uhs / 15 speaking minutes
-            expect(trends.uh.previous).toBe(0);
-            expect(trends.like.current).toBe(0.33); // 5 likes / 15 speaking minutes
-            expect(trends.like.previous).toBe(0);
+            expect(trends.um.current).toBe(1);       // 5 ums / 5 min (S1)
+            expect(trends.um.previous).toBe(1);      // 10 ums / 10 min (S2) — a REAL prior value, not 0
+            expect(trends.uh.current).toBe(0.6);     // 3 uhs / 5 min (S1)
+            expect(trends.uh.previous).toBe(0);      // S2 had no "uh"
+            expect(trends.like.current).toBe(0);     // S1 had no "like"
+            expect(trends.like.previous).toBe(0.5);  // 5 likes / 10 min (S2)
         });
     });
 
