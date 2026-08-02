@@ -439,13 +439,13 @@ export function finalizeRow(
             if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
         }
         const runtime = row.runtime_capability;
-        if (runtime.requestedThreads !== 1) problems.push('Private v2 non-isolated evidence did not request the single-thread floor');
-        if (runtime.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
+        if (runtime.requestedThreads !== 1) problems.push('Private v2 non-isolated evidence did not request one ORT thread');
+        if (runtime.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure one ORT thread');
         if (runtime.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
         if (runtime.crossOriginIsolated || runtime.sharedArrayBufferAvailable) {
             problems.push('Private v2 fallback evidence was not collected without cross-origin isolation/SharedArrayBuffer');
         }
-        if (runtime.runtimePath !== 'wasm') problems.push('Private v2 single-thread fallback must report runtimePath=wasm');
+        if (runtime.runtimePath !== 'wasm') problems.push('Private v2 non-isolated one-thread request/configuration must report runtimePath=wasm');
     }
 
     // WER is only admissible on a proven corpus route. Never estimated, never defaulted to zero.
@@ -484,6 +484,13 @@ export function rankableRows(rows: SttEvidenceRow[]): SttEvidenceRow[] {
         r.audio_route_proven &&
         r.attribution_status === 'verified' &&
         r.wer !== null);
+}
+
+/** An empty decode is a failed runtime diagnostic, never a successful empty evidence artifact. */
+export function privateWorkerTranscriptProblems(transcript: unknown): string[] {
+    if (typeof transcript !== 'string') return ['Private worker transcript must be a string'];
+    if (transcript.trim().length === 0) return ['Private worker returned an empty transcript'];
+    return [];
 }
 
 /**

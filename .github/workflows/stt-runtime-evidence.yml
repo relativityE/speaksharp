@@ -35,7 +35,7 @@ env:
 
 jobs:
   private-v2-production-worker:
-    name: private-v2-production-worker-single-thread
+    name: private-v2-production-worker-one-thread-request-config
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -65,7 +65,7 @@ jobs:
         run: |
           STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite preview --config frontend/vite.config.mjs --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
           pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:4173/private-dropin.html
-      - name: Prove production worker + single-thread fallback + PCM route
+      - name: Prove production worker + one-thread request/configuration + PCM route
         run: |
           pnpm evidence:stt:private-worker -- \
             --base-url http://127.0.0.1:4173 \

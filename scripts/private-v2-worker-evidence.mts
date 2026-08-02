@@ -12,7 +12,11 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve, join } from 'node:path';
-import { finalizeRow, unverifiedWorkerDiagnosticProblems } from '../tests/evidence/sttEvidenceSchema';
+import {
+  finalizeRow,
+  privateWorkerTranscriptProblems,
+  unverifiedWorkerDiagnosticProblems,
+} from '../tests/evidence/sttEvidenceSchema';
 import { NORMALIZATION_VERSION } from '../tests/evidence/werMetric';
 import { verifyModelAgainstManifest, type ExpectedModelManifest } from '../tests/evidence/modelProvenance';
 
@@ -178,6 +182,10 @@ async function main(): Promise<void> {
       console.error(`blocked external requests: ${JSON.stringify(externalRequests, null, 2)}`);
       throw error;
     }
+    const transcriptProblems = privateWorkerTranscriptProblems(transcript);
+    if (transcriptProblems.length > 0) {
+      throw new Error(`production worker transcript failed validation: ${transcriptProblems.join('; ')}`);
+    }
     const totalLatencyMs = Math.round(performance.now() - startedAt);
     const proof = await page.evaluate(() => ({
       runtime: window.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ ?? null,
@@ -266,7 +274,7 @@ async function main(): Promise<void> {
         crossOriginIsolated: proof.runtime.crossOriginIsolated,
         sharedArrayBufferAvailable: proof.sharedArrayBufferAvailable,
         fallbackReason: proof.runtime.configuredThreads === 1
-          ? 'crossOriginIsolated=false; production worker configured the single-thread WASM floor; ORT does not report an effective count'
+          ? 'crossOriginIsolated=false; production worker requested and configured one ORT thread; effective worker thread count is unreported'
           : null,
       },
       comparability_inputs: {
@@ -303,7 +311,7 @@ async function main(): Promise<void> {
     }
 
     const artifact = {
-      generatedFor: '#1037 production Private-v2 browser-worker single-thread fallback',
+      generatedFor: '#1037 production Private-v2 browser-worker: one thread requested/configured; effective worker threads unreported',
       releaseSha,
       classification: 'unverified-worker-diagnostic-non-rankable',
       persistedAttributionProven: false,

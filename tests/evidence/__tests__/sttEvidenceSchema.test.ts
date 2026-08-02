@@ -5,6 +5,7 @@ import {
     rankableRows,
     rankableCohorts,
     cohortKey,
+    privateWorkerTranscriptProblems,
     unverifiedWorkerDiagnosticProblems,
     PERCENTILE_POLICY,
     PRIVATE_V2_PROVENANCE_REQUIRED_FILES,
@@ -21,6 +22,15 @@ const PRIVATE_MODEL_HASH = 'e'.repeat(64);
 const PRIVATE_SAMPLES = 80_000;
 const PRIVATE_BYTES = PRIVATE_SAMPLES * Float32Array.BYTES_PER_ELEMENT;
 const PRIVATE_DURATION = PRIVATE_SAMPLES / 16_000;
+
+describe('#1037 Private worker transcript gate', () => {
+    it('rejects missing, non-string, and whitespace-only transcripts', () => {
+        expect(privateWorkerTranscriptProblems('spoken evidence')).toEqual([]);
+        expect(privateWorkerTranscriptProblems('   ')).toEqual(['Private worker returned an empty transcript']);
+        expect(privateWorkerTranscriptProblems('')).toEqual(['Private worker returned an empty transcript']);
+        expect(privateWorkerTranscriptProblems(null)).toEqual(['Private worker transcript must be a string']);
+    });
+});
 
 const route = (over: Partial<AudioRouteEvidence> = {}): AudioRouteEvidence => ({
     fixtureSha256: FIXTURE_HASH,

@@ -333,7 +333,8 @@ describe('documentation contract — product_release/', () => {
       'exactly `unverified`',
       '`audio_route_proven=false`',
       'production-worker runtime',
-      'single-thread fallback',
+      'one thread requested/configured',
+      'effective worker thread count is unreported',
       'no cross-lane ranking or winner',
       'retained for one day',
     ]) {
