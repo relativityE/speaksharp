@@ -75,6 +75,7 @@ interface LiveRecordingCardProps {
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
+import { isPrivatePrimaryEnabled, isCloudSttGloballyVisible } from '@/config/sttHierarchyFlags';
 
 /**
  * The main recording control panel with mode selector, mic indicator,
@@ -314,6 +315,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
+    // #1120 S1: when the hierarchy flag is ON, Private is the recommended primary and Cloud is customer-
+    // invisible (row + About entry hidden). Flag OFF = today's behavior (Cloud visible per entitlement).
+    const privatePrimary = isPrivatePrimaryEnabled();
+    const cloudVisible = isCloudSttGloballyVisible();
     // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
     const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
     const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
@@ -378,10 +383,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 <p className="font-semibold text-foreground">Browser</p>
                 <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-native">{nativeOptionDesc}</p>
             </div>
-            <div>
-                <p className="font-semibold text-foreground">Cloud — Pro</p>
-                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-cloud">{cloudOptionDesc}</p>
-            </div>
+            {/* #1120 S1: Cloud is customer-invisible when the hierarchy flag is ON. */}
+            {cloudVisible && (
+                <div>
+                    <p className="font-semibold text-foreground">Cloud — Pro</p>
+                    <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-cloud">{cloudOptionDesc}</p>
+                </div>
+            )}
         </div>
     );
 
@@ -504,6 +512,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                             aria-hidden="true"
                                             className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${canUsePrivate ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}
                                         >Stays local</span>
+                                        {/* #1120 S1: Private is the primary/recommended first experience. The badge is
+                                            visual only (aria-hidden); the accessible NAME stays "Private". */}
+                                        {privatePrimary && canUsePrivate && (
+                                            <span
+                                                data-testid="stt-mode-tag-recommended"
+                                                aria-hidden="true"
+                                                className="ml-1 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary-foreground"
+                                            >Recommended</span>
+                                        )}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -526,6 +543,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
                                     </span>
                                 </DropdownMenuRadioItem>
+                                {/* #1120 S1: Cloud is globally off + customer-invisible when the hierarchy flag is
+                                    ON — the row is not rendered (never merely disabled), so it cannot be selected. */}
+                                {cloudVisible && (
                                 <DropdownMenuRadioItem
                                     value="cloud"
                                     className={STT_MODE_ITEM_CLASS}
@@ -541,6 +561,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
                                     </span>
                                 </DropdownMenuRadioItem>
+                                )}
                             </DropdownMenuRadioGroup>
                             {/* #1041: the Browser option's accessible description — the "Quick preview" descriptor plus
                                 the approved explanation, available to screen readers without becoming part of the name. */}

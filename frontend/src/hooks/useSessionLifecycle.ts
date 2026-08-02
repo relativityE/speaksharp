@@ -22,6 +22,7 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
+import { isPrivatePrimaryEnabled, resolveDefaultSttMode } from '@/config/sttHierarchyFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -74,7 +75,9 @@ export const useSessionLifecycle = () => {
     const isProUser = isPro(effectiveSubscriptionStatus);
     const hasPrivateSampleEntitlement = hasActivePrivateSample(usageLimit);
     const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
-    const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
+    // #1120 S1: Cloud is globally off when the hierarchy flag is ON — entitlement is forced false so no
+    // policy/UI path can select Cloud or fall back to it silently (it stays implemented for a later re-enable).
+    const canUseCloudStt = !isPrivatePrimaryEnabled() && isProUser && hasCloudSttEntitlement(profile);
     const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
@@ -84,12 +87,12 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
-    // on the instant Browser/Native path so a new user never hits the Private model-
-    // setup wall before their first transcript. Private stays available as an explicit
-    // user-selected mode. No mode persistence in this release — every new session
-    // defaults to Native; a Pro user opts into Private per session.
-    const defaultMode: TranscriptionMode = 'native';
+    // #1120 S1: Private is the primary/recommended first experience. When the hierarchy flag is ON and the
+    // user can use Private, a new/unset session defaults to Private v2; otherwise it stays on the instant
+    // Browser path (flag OFF = today's behavior, or a user without Private access). sttMode is not persisted,
+    // so every new session is unset and picks up this default, while an explicit in-session Browser choice
+    // (which sets sttMode) is honored — the latch below only sets the default when sttMode is unset.
+    const defaultMode: TranscriptionMode = resolveDefaultSttMode(isPrivatePrimaryEnabled(), canUsePrivateStt);
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
@@ -135,6 +138,8 @@ export const useSessionLifecycle = () => {
         };
     }, []);
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
+    // #1120 S1: instrument the applied default at most once per mount (adoption + A/B of the hierarchy flag).
+    const defaultAppliedRef = useRef(false);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -723,8 +728,18 @@ export const useSessionLifecycle = () => {
         ) {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
+            // #1120 S1: content-free instrumentation — which default a new/unset session received and whether
+            // the Private-primary hierarchy flag drove it. Fired once per mount (closed enum values only).
+            if (!defaultAppliedRef.current) {
+                defaultAppliedRef.current = true;
+                analyticsBuffer.push('stt_default_applied', {
+                    default_mode: defaultMode,
+                    private_primary_flag: isPrivatePrimaryEnabled(),
+                    can_use_private: canUsePrivateStt,
+                });
+            }
         }
-    }, [profileReadyForStt, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, shouldPromoteNativeDefaultToPrivate, setSTTMode, setSTTStatus]);
+    }, [profileReadyForStt, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, shouldPromoteNativeDefaultToPrivate, canUsePrivateStt, setSTTMode, setSTTStatus]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {
