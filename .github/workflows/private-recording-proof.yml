@@ -49,12 +49,6 @@ jobs:
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
         run: pnpm exec playwright test tests/live/private-recording-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload proof artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: private-recording-proof
-          path: |
-            test-results/
-            playwright-report/
-          retention-days: 14
+      # P1.4: NO broad report/results/ZIP upload or long retention — the proof emits only content-free
+      # console evidence (ids, booleans), and trace/video/screenshots are disabled in the spec's test.use.
+      # Nothing credential-bearing is produced, so nothing is uploaded.
