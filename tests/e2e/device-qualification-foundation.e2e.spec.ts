@@ -8,9 +8,14 @@ const CLOUD_PROVIDER_REQUEST = /(?:assemblyai|api\.openai|speech-to-text|transcr
 test.describe('#1144 dependency-neutral responsive/accessibility foundation', () => {
   test('session is idle, named, keyboard reachable, and makes no automatic provider request', async ({ page }, testInfo) => {
     const cloudProviderRequests: string[] = [];
+    const cloudProviderSockets: string[] = [];
     page.on('request', request => {
       const url = request.url();
       if (CLOUD_PROVIDER_REQUEST.test(url)) cloudProviderRequests.push(url);
+    });
+    page.on('websocket', socket => {
+      const url = socket.url();
+      if (CLOUD_PROVIDER_REQUEST.test(url)) cloudProviderSockets.push(url);
     });
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
@@ -53,6 +58,7 @@ test.describe('#1144 dependency-neutral responsive/accessibility foundation', ()
     expect(reachedRecordControl, 'record control must be reachable by keyboard').toBe(true);
 
     expect(cloudProviderRequests, 'idle qualification must incur zero provider cost').toEqual([]);
+    expect(cloudProviderSockets, 'idle qualification must open no provider WebSocket').toEqual([]);
   });
 
   test('the real Private engine boundary does not download model bytes before explicit init', async ({ page, baseURL }) => {

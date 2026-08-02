@@ -34,6 +34,11 @@ const validRow = (): DeviceQualificationRow => ({
     sharedArrayBufferAvailable: true,
     webGpuAvailable: false,
     browserSpeechAvailable: true,
+    microphonePermission: null,
+    networkCondition: null,
+    memoryOutcome: null,
+    workerOutcome: null,
+    modelCacheState: null,
   },
   status: 'passed',
   blockingIssue: null,
@@ -51,12 +56,21 @@ const fullMatrixRows = (): DeviceQualificationRow[] => DEVICE_BROWSERS.flatMap(b
     row.browser = browser;
     row.viewport = { width: viewport.width, height: viewport.height, orientation: viewport.orientation };
     row.capabilityState = capabilityState;
-    if (capabilityState === 'shared-array-buffer-unavailable') {
-      row.capabilities.sharedArrayBufferAvailable = false;
-    }
-    if (capabilityState === 'browser-speech-unavailable') {
-      row.capabilities.browserSpeechAvailable = false;
-    }
+    const observations: Record<typeof capabilityState, () => void> = {
+      'shared-array-buffer-available': () => { row.capabilities.sharedArrayBufferAvailable = true; },
+      'shared-array-buffer-unavailable': () => { row.capabilities.sharedArrayBufferAvailable = false; },
+      'microphone-granted': () => { row.capabilities.microphonePermission = 'granted'; },
+      'microphone-denied': () => { row.capabilities.microphonePermission = 'denied'; },
+      'microphone-dismissed': () => { row.capabilities.microphonePermission = 'dismissed'; },
+      'offline-before-model-load': () => { row.capabilities.networkCondition = 'offline-before-model-load'; },
+      'offline-during-model-load': () => { row.capabilities.networkCondition = 'offline-during-model-load'; },
+      'low-memory-failure': () => { row.capabilities.memoryOutcome = 'low-memory-failure'; },
+      'worker-failure': () => { row.capabilities.workerOutcome = 'worker-failure'; },
+      'browser-speech-unavailable': () => { row.capabilities.browserSpeechAvailable = false; },
+      'cold-model-cache': () => { row.capabilities.modelCacheState = 'cold'; },
+      'warm-model-cache': () => { row.capabilities.modelCacheState = 'warm'; },
+    };
+    observations[capabilityState]();
     return row;
   })));
 
@@ -152,6 +166,23 @@ describe('#1144 device qualification contract', () => {
     expect(deviceQualificationProblems(row).join('\n')).toContain(`contradicts capabilities.${field}`);
   });
 
+  it.each([
+    ['microphone-granted', 'microphonePermission', null],
+    ['microphone-denied', 'microphonePermission', 'granted'],
+    ['microphone-dismissed', 'microphonePermission', 'denied'],
+    ['offline-before-model-load', 'networkCondition', null],
+    ['offline-during-model-load', 'networkCondition', 'online'],
+    ['low-memory-failure', 'memoryOutcome', 'normal'],
+    ['worker-failure', 'workerOutcome', 'ready'],
+    ['cold-model-cache', 'modelCacheState', 'warm'],
+    ['warm-model-cache', 'modelCacheState', null],
+  ] as const)('rejects %s without its matching observed %s', (capabilityState, field, observed) => {
+    const row = validRow();
+    row.capabilityState = capabilityState;
+    (row.capabilities[field] as unknown) = observed;
+    expect(deviceQualificationProblems(row).join('\n')).toContain(`contradicts capabilities.${field}`);
+  });
+
   it('requires an explicit reason for unavailable capability cells', () => {
     const row = validRow();
     row.status = 'unavailable';
@@ -203,6 +234,8 @@ describe('#1144 device qualification contract', () => {
       "- 'scripts/build.config.js'",
       "- 'scripts/serve-e2e.mjs'",
       "- 'tests/e2e/helpers.ts'",
+      "- 'tests/e2e/helpers/**'",
+      "- 'tests/e2e/mock-routes.ts'",
       "- 'tests/e2e/fixtures.ts'",
       "- 'tests/constants.ts'",
       "- 'pnpm-lock.yaml'",
@@ -217,6 +250,12 @@ describe('#1144 device qualification contract', () => {
     expect(journey).toContain('__PRIVATE_DROPIN__');
     expect(journey).toContain('hasRealInitBoundary');
     expect(journey).toContain("expect(modelRequests, 'real Private model download requires explicit user intent').toEqual([])");
+  });
+
+  it('monitors matching WebSocket connections as provider-cost activity', () => {
+    const journey = readFileSync(resolve('tests/e2e/device-qualification-foundation.e2e.spec.ts'), 'utf8');
+    expect(journey).toContain("page.on('websocket'");
+    expect(journey).toContain("expect(cloudProviderSockets, 'idle qualification must open no provider WebSocket')");
   });
 
   it('rejects mixed release identities and duplicate cells', () => {

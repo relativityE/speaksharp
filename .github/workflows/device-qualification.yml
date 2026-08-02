@@ -11,6 +11,8 @@ on:
       - 'scripts/build.config.js'
       - 'scripts/serve-e2e.mjs'
       - 'tests/e2e/helpers.ts'
+      - 'tests/e2e/helpers/**'
+      - 'tests/e2e/mock-routes.ts'
       - 'tests/e2e/fixtures.ts'
       - 'tests/constants.ts'
       - '.github/actions/setup-environment/**'

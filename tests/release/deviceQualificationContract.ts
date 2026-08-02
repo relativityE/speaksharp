@@ -82,6 +82,11 @@ export interface DeviceCapabilityMetadata {
   sharedArrayBufferAvailable: boolean;
   webGpuAvailable: boolean;
   browserSpeechAvailable: boolean;
+  microphonePermission: 'granted' | 'denied' | 'dismissed' | null;
+  networkCondition: 'online' | 'offline-before-model-load' | 'offline-during-model-load' | null;
+  memoryOutcome: 'normal' | 'low-memory-failure' | null;
+  workerOutcome: 'ready' | 'worker-failure' | null;
+  modelCacheState: 'cold' | 'warm' | null;
 }
 
 export interface DeviceQualificationRow {
@@ -165,17 +170,40 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
       problems.push(`capabilities.${key} must be ${key === 'crossOriginIsolated' ? 'boolean or null' : 'boolean'}`);
     }
   }
-  if (row.capabilityState === 'shared-array-buffer-available'
-    && row.capabilities.sharedArrayBufferAvailable !== true) {
-    problems.push('shared-array-buffer-available contradicts capabilities.sharedArrayBufferAvailable');
+  const allowedCapabilityObservations = {
+    microphonePermission: ['granted', 'denied', 'dismissed'],
+    networkCondition: ['online', 'offline-before-model-load', 'offline-during-model-load'],
+    memoryOutcome: ['normal', 'low-memory-failure'],
+    workerOutcome: ['ready', 'worker-failure'],
+    modelCacheState: ['cold', 'warm'],
+  } as const;
+  for (const [key, allowed] of Object.entries(allowedCapabilityObservations)) {
+    const value = row.capabilities[key as keyof typeof allowedCapabilityObservations];
+    if (value !== null && !(allowed as readonly unknown[]).includes(value)) {
+      problems.push(`capabilities.${key} has unsupported observation: ${String(value)}`);
+    }
   }
-  if (row.capabilityState === 'shared-array-buffer-unavailable'
-    && row.capabilities.sharedArrayBufferAvailable !== false) {
-    problems.push('shared-array-buffer-unavailable contradicts capabilities.sharedArrayBufferAvailable');
-  }
-  if (row.capabilityState === 'browser-speech-unavailable'
-    && row.capabilities.browserSpeechAvailable !== false) {
-    problems.push('browser-speech-unavailable contradicts capabilities.browserSpeechAvailable');
+
+  const expectedObservation: Partial<Record<DeviceCapabilityState, [keyof DeviceCapabilityMetadata, unknown]>> = {
+    'shared-array-buffer-available': ['sharedArrayBufferAvailable', true],
+    'shared-array-buffer-unavailable': ['sharedArrayBufferAvailable', false],
+    'microphone-granted': ['microphonePermission', 'granted'],
+    'microphone-denied': ['microphonePermission', 'denied'],
+    'microphone-dismissed': ['microphonePermission', 'dismissed'],
+    'offline-before-model-load': ['networkCondition', 'offline-before-model-load'],
+    'offline-during-model-load': ['networkCondition', 'offline-during-model-load'],
+    'low-memory-failure': ['memoryOutcome', 'low-memory-failure'],
+    'worker-failure': ['workerOutcome', 'worker-failure'],
+    'browser-speech-unavailable': ['browserSpeechAvailable', false],
+    'cold-model-cache': ['modelCacheState', 'cold'],
+    'warm-model-cache': ['modelCacheState', 'warm'],
+  };
+  const observation = expectedObservation[row.capabilityState];
+  if (observation) {
+    const [field, expected] = observation;
+    if (row.capabilities[field] !== expected) {
+      problems.push(`${row.capabilityState} contradicts capabilities.${String(field)}; expected observed ${String(expected)}`);
+    }
   }
 
   if (row.status === 'blocked') {
