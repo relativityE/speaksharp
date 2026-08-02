@@ -25,6 +25,7 @@ import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
 import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
+import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
@@ -32,13 +33,31 @@ type UnknownRecord = Record<string, unknown>;
 type WhisperDecodeOptions = Record<string, unknown>;
 type WorkerRequest =
     | { type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
-    | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
+    | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions; captureEvidence?: boolean }
     | { type: 'destroy' };
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device?: string; threads?: number; crossOriginIsolated?: boolean }
-    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | {
+        id: number;
+        type: 'loaded';
+        loadTimeMs: number;
+        model: string;
+        device?: string;
+        requestedThreads?: number | null;
+        configuredThreads?: number | null;
+        workerReportedThreads?: number | null;
+        crossOriginIsolated?: boolean;
+      }
+    | {
+        id: number;
+        type: 'result';
+        transcript: string;
+        latencyMs: number;
+        audioLengthSeconds: number;
+        resultShape: string;
+        inputEvidence?: { sha256: string; samples: number; bytes: number };
+      }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
 
@@ -60,6 +79,26 @@ declare global {
          * generation options without changing product defaults. Ignored unless set.
          */
         __PRIVATE_STT_DECODE_OPTIONS__?: UnknownRecord;
+        /** Explicit diagnostic opt-in; false/absent in the product journey. */
+        __PRIVATE_V2_WORKER_EVIDENCE_ENABLED__?: boolean;
+        /** Worker-origin runtime identity for #1037 release evidence. */
+        __PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__?: {
+            model: string;
+            device: string | null;
+            requestedThreads: number | null;
+            configuredThreads: number | null;
+            workerReportedThreads: number | null;
+            crossOriginIsolated: boolean;
+            modelLoadTimeMs: number;
+        };
+        /** Hash/count proof for the last PCM payload decoded by the production worker. */
+        __PRIVATE_V2_WORKER_INPUT_EVIDENCE__?: {
+            sha256: string;
+            samples: number;
+            bytes: number;
+            audioLengthSeconds: number;
+            latencyMs: number;
+        };
     }
 }
 
@@ -221,6 +260,9 @@ export class TransformersJSEngine extends STTEngine {
             // engine's whole lifetime (matches transformers-js.worker.ts), so a missing/misnamed local
             // model fails closed with a clear error instead of silently fetching from huggingface.co.
             env.allowRemoteModels = false;
+            if (env.backends?.onnx?.wasm) {
+                env.backends.onnx.wasm.wasmPaths = TRANSFORMERS_V2_WASM_PATH_PREFIX;
+            }
 
             // Browser cache is only available in a real browser, not Happy-DOM/Node
             const isBrowser = typeof window !== 'undefined' &&
@@ -403,12 +445,24 @@ export class TransformersJSEngine extends STTEngine {
             if (this.worker) {
                 const workerAudio = audio.slice(0);
                 const decodeOptions = readPrivateDecodeOptionsOverride();
+                const captureEvidence = window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__ === true;
                 const response = await this.sendWorkerRequest(
-                    { type: 'transcribe', audio: workerAudio, decodeOptions },
+                    { type: 'transcribe', audio: workerAudio, decodeOptions, captureEvidence },
                     [workerAudio.buffer],
                 );
                 if (response.type !== 'result') {
                     throw new Error(`Unexpected TransformersJS worker response: ${response.type}`);
+                }
+
+                if (captureEvidence) {
+                    if (!response.inputEvidence) {
+                        throw new Error('TransformersJS worker evidence was requested but not returned.');
+                    }
+                    window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__ = {
+                        ...response.inputEvidence,
+                        audioLengthSeconds: response.audioLengthSeconds,
+                        latencyMs: response.latencyMs,
+                    };
                 }
 
                 logger.info({
@@ -536,9 +590,20 @@ export class TransformersJSEngine extends STTEngine {
                     load_time_ms: response.loadTimeMs,
                     engine: 'transformersjs-worker',
                     device: response.device,
-                    threads: response.threads,
+                    requestedThreads: response.requestedThreads,
+                    configuredThreads: response.configuredThreads,
+                    workerReportedThreads: response.workerReportedThreads,
                     crossOriginIsolated: response.crossOriginIsolated,
                 }, '[TransformersJS] Worker engine initialized successfully.');
+                window.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ = {
+                    model: response.model,
+                    device: response.device ?? null,
+                    requestedThreads: response.requestedThreads ?? null,
+                    configuredThreads: response.configuredThreads ?? null,
+                    workerReportedThreads: response.workerReportedThreads ?? null,
+                    crossOriginIsolated: response.crossOriginIsolated === true,
+                    modelLoadTimeMs: response.loadTimeMs,
+                };
                 // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
                 const loadedModelKey = resolvePrivateModel();
                 publishPrivateModelTelemetry({

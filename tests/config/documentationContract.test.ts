@@ -326,6 +326,23 @@ describe('documentation contract — product_release/', () => {
     expect(LEDGER).toContain('archive/attribution-sanitation-crosswalk.md');
   });
 
+  it('#1037 evidence classes remain truthful and non-comparable in the canonical index', () => {
+    for (const phrase of [
+      'corpus_fixture',
+      'browser_journey',
+      'exactly `unverified`',
+      '`audio_route_proven=false`',
+      'production-worker runtime',
+      'one thread requested/configured',
+      'effective worker thread count is unreported',
+      'no cross-lane ranking or winner',
+      'retained for one day',
+    ]) {
+      expect(EVIDENCE_INDEX, `EVIDENCE_INDEX must preserve #1037 boundary: ${phrase}`).toContain(phrase);
+    }
+    expect(EVIDENCE_INDEX).toContain('Current pass/fail, deployed SHA, run IDs, and #1037 closure status belong only in `RELEASE_STATUS.md`');
+  });
+
   it('the resolved #1033 attribution gap is not preserved as an open/unmerged claim', () => {
     // #1033 is merged, migrated, deployed, and live-proven — the ledger must not carry the stale
     // "still open / unmerged" phrasings that once described it. (Accurate #1033 status lives in

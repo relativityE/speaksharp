@@ -15,7 +15,9 @@ type DropInState = {
   capturedSamples: number;
   capturedSeconds: number;
   modelReady: boolean;
+  modelReadyLatencyMs: number | null;
   recording: boolean;
+  adapterInputSha256: string | null;
 };
 
 declare global {
@@ -24,6 +26,7 @@ declare global {
       initModel: () => Promise<void>;
       startCapture: () => Promise<void>;
       stopAndTranscribe: () => Promise<string>;
+      transcribePcmBase64: (pcmBase64: string) => Promise<string>;
     };
   }
 }
@@ -36,8 +39,15 @@ const state: DropInState = {
   capturedSamples: 0,
   capturedSeconds: 0,
   modelReady: false,
+  modelReadyLatencyMs: null,
   recording: false,
+  adapterInputSha256: null,
 };
+
+// The production worker performs route hashing only for this explicit diagnostic
+// query. The ordinary app never sets the flag and pays no evidence-capture cost.
+window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__ =
+  new URLSearchParams(window.location.search).get('privateWorkerEvidence') === '1';
 
 const engine = new TransformersJSEngine();
 const chunks: Float32Array[] = [];
@@ -48,6 +58,53 @@ let processorNode: ScriptProcessorNode | null = null;
 
 function compact(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+async function sha256Float32(audio: Float32Array): Promise<string> {
+  const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
+  const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function float32FromBase64(value: string): Float32Array {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error('PCM payload byte length is not aligned to Float32.');
+  }
+  return new Float32Array(bytes.buffer);
+}
+
+async function transcribePcm(audio16k: Float32Array): Promise<string> {
+  await initModel();
+  state.capturedSamples = audio16k.length;
+  state.capturedSeconds = audio16k.length / 16_000;
+  state.adapterInputSha256 = await sha256Float32(audio16k);
+  state.status = 'transcribing';
+  log('transcribe:start', {
+    samples16k: audio16k.length,
+    seconds: Number(state.capturedSeconds.toFixed(3)),
+    adapterInputSha256: state.adapterInputSha256,
+  });
+
+  const result = await engine.transcribe(audio16k);
+  if (!result.isOk) {
+    state.status = `transcribe error: ${result.error.message}`;
+    log('transcribe:error', { error: result.error.message });
+    throw result.error;
+  }
+
+  state.transcript = compact(result.data);
+  state.status = 'done';
+  log('transcribe:done', {
+    transcriptLength: state.transcript.length,
+    transcript: state.transcript,
+  });
+  return state.transcript;
+}
+
+async function transcribePcmBase64(pcmBase64: string): Promise<string> {
+  return transcribePcm(float32FromBase64(pcmBase64));
 }
 
 function render(): void {
@@ -97,6 +154,7 @@ async function initModel(): Promise<void> {
   if (state.modelReady) return;
   state.status = 'loading model';
   log('model:init:start');
+  const startedAt = performance.now();
   const result = await engine.init();
   if (!result.isOk) {
     state.status = `model error: ${result.error.message}`;
@@ -104,8 +162,9 @@ async function initModel(): Promise<void> {
     throw result.error;
   }
   state.modelReady = true;
+  state.modelReadyLatencyMs = Math.round(performance.now() - startedAt);
   state.status = 'model ready';
-  log('model:init:ready');
+  log('model:init:ready', { modelReadyLatencyMs: state.modelReadyLatencyMs });
 }
 
 async function startCapture(): Promise<void> {
@@ -156,34 +215,14 @@ async function stopAndTranscribe(): Promise<string> {
   const audio16k = resampleLinear(input, sourceRate, 16_000);
   state.capturedSamples = audio16k.length;
   state.capturedSeconds = audio16k.length / 16_000;
-  state.status = 'transcribing';
-  log('transcribe:start', {
-    sourceSamples: input.length,
-    sourceRate,
-    samples16k: audio16k.length,
-    seconds: Number(state.capturedSeconds.toFixed(3)),
-  });
-
-  const result = await engine.transcribe(audio16k);
-  if (!result.isOk) {
-    state.status = `transcribe error: ${result.error.message}`;
-    log('transcribe:error', { error: result.error.message });
-    throw result.error;
-  }
-
-  state.transcript = compact(result.data);
-  state.status = 'done';
-  log('transcribe:done', {
-    transcriptLength: state.transcript.length,
-    transcript: state.transcript,
-  });
-  return state.transcript;
+  return transcribePcm(audio16k);
 }
 
 window.__PRIVATE_DROPIN__ = Object.assign(state, {
   initModel,
   startCapture,
   stopAndTranscribe,
+  transcribePcmBase64,
 });
 
 document.querySelector<HTMLButtonElement>('#init')!.addEventListener('click', () => {

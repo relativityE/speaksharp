@@ -83,6 +83,19 @@ Point-in-time STT accuracy/latency and UX-resilience reproofs. STT interpretatio
 | `product_release/evidence/ux_private_rapid_start_stop_reproof_2026-06-05.json` | 2026-06-05 | UX: Private rapid start/stop reproof. |
 | `product_release/evidence/ux_release_proof_sweep_2026-06-05.json` | 2026-06-05 | UX release-proof sweep. |
 
+### #1037 STT evidence producers and closure-proof boundaries
+
+The #1037 evidence program deliberately keeps its contract, controlled corpus, Browser journey, and production-worker runtime observations separate. These rows index the producer/protocol locations and the permitted interpretation; they do not retain generated payloads or assert current pass/fail status.
+
+| Indexed source | Evidence class | Permitted claim | Mandatory limitation |
+|---|---|---|---|
+| `tests/evidence/**` + `scripts/validate-stt-evidence.mjs` (PR #1112) | Evidence contract | Fail-closed schema, cohort, attribution, and admissibility rules | A contract is not a runtime observation. |
+| `.github/workflows/stt-corpus-lane.yml` + `scripts/stt-corpus-lane.ts` (PR #1119) | `corpus_fixture` | Controlled Private-v2 Node/model-equivalent quality corpus and immutable model-byte provenance | Not the production browser worker; no cross-route latency or ranking claim. |
+| `scripts/browser-webspeech-evidence.mts` + `tests/evidence/browserJourney.ts` (PR #1124) | `browser_journey` | Release-proof-eligible system-Chrome journey where recognition starts, the timer advances, and transcript/session production completes with forbidden-engine tripwires | Attribution remains exactly `unverified`; `audio_route_proven=false`; no recognizer-input, provider/model, WER, on-device, or ranking claim. |
+| `.github/workflows/stt-runtime-evidence.yml` + `scripts/private-v2-worker-evidence.mts` (PR #1127) | Private-v2 production-worker runtime | Emitted production worker/WASM, self-hosted immutable model/config equality, coherent PCM boundary, one thread requested/configured under non-isolated WASM, and zero external/application writes for the fixed fixture | The effective worker thread count is unreported (`workerReportedThreads=null`). This is not a microphone journey, p95, minimum-device study, or broad accuracy result; requested, configured, and worker-reported thread counts remain distinct; the sanitized diagnostic artifact is retained for one day. |
+
+Browser, corpus, and production-worker evidence are separate comparability classes and support **no cross-lane ranking or winner**. Generated JSON, audio, screenshots, archives, local-machine paths, and other raw run payloads do not enter Git. Current pass/fail, deployed SHA, run IDs, and #1037 closure status belong only in `RELEASE_STATUS.md`, not this index.
+
 ---
 
 ## 5. Beta-50 packets & audits (dated)

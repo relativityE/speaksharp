@@ -2,10 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifyModelProvenance } from '../modelProvenance';
+import { createHash } from 'node:crypto';
+import { verifyModelAgainstManifest, verifyModelProvenance, type ExpectedModelManifest } from '../modelProvenance';
 
 let root: string;
 const REL = ['onnx/a.onnx', 'onnx/b.onnx'];
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 function seed(dir: string, contents: Record<string, string>) {
     mkdirSync(join(dir, 'onnx'), { recursive: true });
@@ -41,5 +43,36 @@ describe('#1037 verifyModelProvenance — fail-closed model identity', () => {
 
     it('verdict = unverifiable when no files are requested (never vacuously identical)', () => {
         expect(verifyModelProvenance(root, root, []).verdict).toBe('unverifiable');
+    });
+});
+
+describe('#1037 verifyModelAgainstManifest — immutable production bytes', () => {
+    const manifest = (files: Record<string, string>): ExpectedModelManifest => ({
+        schemaVersion: 1,
+        modelId: 'Xenova/whisper-base.en',
+        modelRevision: '95bf40a508535962c6483ead40270b2e32267508',
+        files,
+    });
+
+    it('verifies model and config bytes against immutable SHA-256 values', () => {
+        const prod = join(root, 'manifest-prod');
+        seed(prod, { 'onnx/a.onnx': 'AAA', 'onnx/b.onnx': 'BBB', 'config.json': 'CFG' });
+        const result = verifyModelAgainstManifest(prod, manifest({
+            'onnx/a.onnx': hash('AAA'),
+            'onnx/b.onnx': hash('BBB'),
+            'config.json': hash('CFG'),
+        }));
+        expect(result.verdict).toBe('identical');
+        expect(result.files.every(file => file.identical)).toBe(true);
+    });
+
+    it('fails closed on changed, missing, malformed, unsafe, or empty manifest inputs', () => {
+        const prod = join(root, 'manifest-bad');
+        seed(prod, { 'onnx/a.onnx': 'AAA' });
+        expect(verifyModelAgainstManifest(prod, manifest({ 'onnx/a.onnx': hash('DIFFERENT') })).verdict).toBe('differs');
+        expect(verifyModelAgainstManifest(prod, manifest({ 'onnx/missing.onnx': hash('BBB') })).verdict).toBe('unverifiable');
+        expect(verifyModelAgainstManifest(prod, manifest({ 'onnx/a.onnx': 'not-a-hash' })).verdict).toBe('unverifiable');
+        expect(verifyModelAgainstManifest(prod, manifest({ '../escape': hash('AAA') })).verdict).toBe('unverifiable');
+        expect(verifyModelAgainstManifest(prod, manifest({})).verdict).toBe('unverifiable');
     });
 });

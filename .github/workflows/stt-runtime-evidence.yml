@@ -1,0 +1,81 @@
+name: STT Runtime Evidence (Private v2 worker, no Cloud)
+
+# #1037 runtime closure. Browser/Web Speech remains a manual-assisted system-
+# Chrome gate because hosted headless runners cannot provide truthful live-mic
+# Web Speech evidence. This workflow proves the deterministic production worker
+# lane only and never invokes Cloud.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/benchmark/private-browser-dropin.ts'
+      - 'frontend/private-dropin.html'
+      - 'frontend/src/services/transcription/engines/**'
+      - 'frontend/src/services/transcription/utils/**'
+      - 'frontend/src/services/transcription/sttConstants.ts'
+      - 'frontend/src/services/transcription/modes/types.ts'
+      - 'frontend/src/contracts/STTEngine.ts'
+      - 'frontend/src/contracts/IPrivateSTTEngine.ts'
+      - 'frontend/src/config/TestFlags.ts'
+      - 'frontend/vite.config.mjs'
+      - 'frontend/public/models/whisper-base.en/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'scripts/private-v2-worker-evidence.mts'
+      - 'scripts/validate-stt-evidence.mjs'
+      - 'tests/evidence/**'
+      - '.github/workflows/stt-runtime-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EVIDENCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  private-v2-production-worker:
+    name: private-v2-production-worker-one-thread-request-config
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # This isolated drop-in never initializes auth and blocks all non-local
+      # requests. Explicit mock build values satisfy the frontend build contract
+      # without injecting or contacting a Supabase project.
+      VITE_SUPABASE_URL: https://mock.supabase.co
+      VITE_SUPABASE_ANON_KEY: mock_anon_key
+      VITE_AUTH_MODE: mock
+      VITE_USE_MOCK_AUTH: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVIDENCE_SHA }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm pw:install
+      - name: Build exact-head production bundle without cross-origin isolation
+        run: |
+          BUILD_ID="${{ env.EVIDENCE_SHA }}" STT_CROSS_ORIGIN_ISOLATED=0 pnpm build:test
+      - name: Start non-isolated production preview
+        run: |
+          STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite preview --config frontend/vite.config.mjs --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
+          pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:4173/private-dropin.html
+      - name: Prove production worker + one-thread request/configuration + PCM route
+        run: |
+          pnpm evidence:stt:private-worker -- \
+            --base-url http://127.0.0.1:4173 \
+            --release-sha "${{ env.EVIDENCE_SHA }}" \
+            --out stt-evidence-artifacts/private-v2-worker.json
+      - name: Upload validated unverified diagnostic evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stt-private-v2-worker-evidence-${{ env.EVIDENCE_SHA }}
+          path: stt-evidence-artifacts/private-v2-worker.json
+          if-no-files-found: error
+          retention-days: 1

@@ -35,7 +35,14 @@ const FAILURE_CLASSES = new Set(['none', 'model_load_failed', 'decode_failed', '
 const MUTABLE_REVISIONS = new Set(['main', 'master', 'latest', 'head', 'HEAD', '']);
 /** Release evidence must identify the EXACT deployed commit — an abbreviated SHA is ambiguous. */
 const SHA_RE = /^[0-9a-f]{40}$/i;
-const HASH_RE = /^[0-9a-f]{16,128}$/i;
+const SHA256_RE = /^[0-9a-f]{64}$/i;
+const PRIVATE_PCM_SAMPLE_RATE_HZ = 16_000;
+const PRIVATE_PCM_DURATION_TOLERANCE_SECONDS = 1e-6;
+const PRIVATE_V2_PROVENANCE_REQUIRED_FILES = [
+    'added_tokens.json', 'config.json', 'generation_config.json', 'merges.txt', 'normalizer.json',
+    'onnx/decoder_model_merged_quantized.onnx', 'onnx/encoder_model_quantized.onnx',
+    'preprocessor_config.json', 'special_tokens_map.json', 'tokenizer.json', 'tokenizer_config.json', 'vocab.json',
+];
 
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
 const isStr = v => typeof v === 'string' && v.trim() !== '';
@@ -182,11 +189,15 @@ function checkRow(row, index) {
             if (!isStr(v)) problems.push(`runtimeVersions.${k} must be a non-empty version string`);
         }
     }
-    for (const [k, re] of [['fixtureHash', HASH_RE]]) {
+    for (const [k, re] of [['fixtureHash', SHA256_RE]]) {
         if (ci[k] && !re.test(String(ci[k]))) problems.push(`${k} '${ci[k]}' is not a hash`);
     }
-    if (row.audio_route_evidence?.fixtureSha256 && !HASH_RE.test(String(row.audio_route_evidence.fixtureSha256))) {
+    if (row.audio_route_evidence?.fixtureSha256 && !SHA256_RE.test(String(row.audio_route_evidence.fixtureSha256))) {
         problems.push('audio_route_evidence.fixtureSha256 is not a hash');
+    }
+    if (row.audio_route_evidence?.adapterInputPayloadSha256 &&
+        !SHA256_RE.test(String(row.audio_route_evidence.adapterInputPayloadSha256))) {
+        problems.push('audio_route_evidence.adapterInputPayloadSha256 is not a SHA-256 hash');
     }
     if (ci.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
         ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
@@ -201,6 +212,83 @@ function checkRow(row, index) {
     if (rc && rc.workerReportedThreads !== null && rc.workerReportedThreads !== undefined
         && typeof rc.workerReportedThreads !== 'number') {
         problems.push('workerReportedThreads must be a number or null');
+    }
+    if (row.engine === 'private-v2-browser-worker') {
+        const worker = row.private_worker_evidence;
+        if (!worker) {
+            problems.push('Private browser-worker row missing private_worker_evidence');
+        } else {
+            if (worker.workerUsed !== true) problems.push('Private evidence did not use the production browser worker');
+            if (worker.modelSource !== 'self-hosted') problems.push('Private evidence did not use self-hosted model assets');
+            if (!isStr(worker.modelLoaded)) problems.push('Private worker did not report a loaded model');
+            if (worker.inputHashesMatch !== true || worker.mainThreadInputSha256 !== worker.workerInputSha256) {
+                problems.push('Private main-thread and worker PCM hashes do not match');
+            }
+            if (!SHA256_RE.test(String(worker.mainThreadInputSha256 ?? '')) ||
+                !SHA256_RE.test(String(worker.workerInputSha256 ?? ''))) {
+                problems.push('Private worker PCM hashes must be 64-character SHA-256 values');
+            }
+            const provenance = worker.modelProvenance;
+            if (!provenance || provenance.verdict !== 'identical' || !Array.isArray(provenance.files) || provenance.files.length === 0) {
+                problems.push('Private model provenance is not byte-identical to the immutable manifest');
+            } else {
+                if (provenance.modelRevision !== ci.modelRevision) {
+                    problems.push('Private model provenance revision does not match the comparison cohort');
+                }
+                if (provenance.modelId !== 'Xenova/whisper-base.en') {
+                    problems.push('Private model provenance ID does not match the production v2 model');
+                }
+                for (const file of provenance.files) {
+                    if (String(file.file ?? '').startsWith('/') || String(file.file ?? '').split('/').includes('..') ||
+                        file.identical !== true || !SHA256_RE.test(String(file.expectedSha256 ?? '')) ||
+                        !SHA256_RE.test(String(file.actualSha256 ?? ''))) {
+                        problems.push(`Private model provenance file '${file.file}' is not byte-identical`);
+                    }
+                }
+                const provenFiles = new Set(provenance.files.map(file => file.file));
+                for (const requiredFile of PRIVATE_V2_PROVENANCE_REQUIRED_FILES) {
+                    if (!provenFiles.has(requiredFile)) {
+                        problems.push(`Private model provenance is missing required file '${requiredFile}'`);
+                    }
+                }
+            }
+            if (worker.mainThreadInputSamples !== worker.workerInputSamples) {
+                problems.push('Private main-thread and worker PCM sample counts do not match');
+            }
+            if (worker.mainThreadInputBytes !== worker.workerInputBytes) {
+                problems.push('Private main-thread and worker PCM byte counts do not match');
+            }
+            if (!Number.isInteger(worker.mainThreadInputSamples) || worker.mainThreadInputSamples <= 0 ||
+                !Number.isInteger(worker.workerInputSamples) || worker.workerInputSamples <= 0 ||
+                !Number.isInteger(worker.mainThreadInputBytes) || worker.mainThreadInputBytes <= 0 ||
+                !Number.isInteger(worker.workerInputBytes) || worker.workerInputBytes <= 0 ||
+                !Number.isFinite(worker.mainThreadInputDurationSeconds) || worker.mainThreadInputDurationSeconds <= 0 ||
+                !Number.isFinite(worker.workerInputDurationSeconds) || worker.workerInputDurationSeconds <= 0) {
+                problems.push('Private PCM tuple contains missing or invalid numeric values');
+            }
+            const expectedBytes = worker.mainThreadInputSamples * Float32Array.BYTES_PER_ELEMENT;
+            if (worker.mainThreadInputBytes !== expectedBytes || worker.workerInputBytes !== expectedBytes) {
+                problems.push('Private PCM byte counts are inconsistent with Float32 sample counts');
+            }
+            const expectedDuration = worker.mainThreadInputSamples / PRIVATE_PCM_SAMPLE_RATE_HZ;
+            if (Math.abs(worker.mainThreadInputDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS ||
+                Math.abs(worker.workerInputDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS) {
+                problems.push('Private PCM duration is inconsistent with samples / 16000');
+            }
+            if (row.audio_route_evidence?.adapterInputBytes !== worker.mainThreadInputBytes ||
+                row.audio_route_evidence?.decodedSampleCount !== worker.mainThreadInputSamples ||
+                Math.abs(row.audio_route_evidence?.decodedDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS) {
+                problems.push('Private audio-route tuple does not match the main-thread PCM input');
+            }
+            if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
+        }
+        if (rc?.requestedThreads !== 1) problems.push('Private v2 non-isolated evidence did not request the single-thread floor');
+        if (rc?.configuredThreads !== 1) problems.push('Private v2 non-isolated evidence did not configure the single-thread floor');
+        if (rc?.workerReportedThreads !== null) problems.push('ORT v1.14 does not report effective threads; workerReportedThreads must be null');
+        if (rc?.crossOriginIsolated !== false || rc?.sharedArrayBufferAvailable !== false) {
+            problems.push('Private v2 fallback evidence was not collected without cross-origin isolation/SharedArrayBuffer');
+        }
+        if (rc?.runtimePath !== 'wasm') problems.push('Private v2 single-thread fallback must report runtimePath=wasm');
     }
     return { index, fixture_id: row.fixture_id ?? `#${index}`, problems };
 }

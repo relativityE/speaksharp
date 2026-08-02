@@ -96,6 +96,67 @@ describe('transformers-js.worker protocol contract', () => {
         expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 6, type: 'ready' }));
     });
 
+    it.each([
+        ['missing WASM configuration object', {}, null],
+        ['throwing WASM thread assignment', {
+            backends: {
+                onnx: {
+                    wasm: Object.defineProperty({ wasmPaths: '', simd: false }, 'numThreads', {
+                        set: () => { throw new Error('thread configuration rejected'); },
+                    }),
+                },
+            },
+        }, 1],
+    ])('contract: reports unknown configured threads for %s', async (_label, env, expectedRequest) => {
+        const transcriber = vi.fn(async () => ({ text: '' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@xenova/transformers', () => ({ env, pipeline }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 9, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 9,
+                type: 'loaded',
+                device: 'wasm-default-unverified',
+                requestedThreads: expectedRequest,
+                configuredThreads: null,
+                workerReportedThreads: null,
+            }));
+            expect(postedMessages).toContainEqual({ id: 9, type: 'ready' });
+        });
+    });
+
+    it('contract: reports the non-isolated thread count actually assigned to ORT', async () => {
+        const wasm = { wasmPaths: '', numThreads: 0, simd: false };
+        const transcriber = vi.fn(async () => ({ text: '' }));
+        const pipeline = vi.fn(async () => transcriber);
+        vi.doMock('@xenova/transformers', () => ({
+            env: { backends: { onnx: { wasm } } },
+            pipeline,
+        }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 10, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 10,
+                type: 'loaded',
+                device: 'wasm-singlethread',
+                requestedThreads: 1,
+                configuredThreads: 1,
+                workerReportedThreads: null,
+                crossOriginIsolated: false,
+            }));
+            expect(postedMessages).toContainEqual({ id: 10, type: 'ready' });
+        });
+        expect(wasm.numThreads).toBe(1);
+        expect(wasm.wasmPaths).toEqual(expect.stringMatching(/\/$/));
+        expect(typeof wasm.wasmPaths).toBe('string');
+    });
+
     it('contract: initialized worker returns a result message for transcribe requests', async () => {
         let observedAudio: Float32Array | null = null;
         let observedOptions: Record<string, unknown> | null = null;
@@ -127,6 +188,21 @@ describe('transformers-js.worker protocol contract', () => {
                 type: 'result',
                 transcript: 'the stale smell of old beer',
                 audioLengthSeconds: 1,
+            }));
+        });
+        const ordinaryResult = postedMessages.find(message => message.id === 4 && message.type === 'result');
+        expect(ordinaryResult).not.toHaveProperty('inputEvidence');
+
+        dispatchWorkerMessage({ id: 5, type: 'transcribe', audio, captureEvidence: true });
+        await vi.waitFor(() => {
+            expect(postedMessages).toContainEqual(expect.objectContaining({
+                id: 5,
+                type: 'result',
+                inputEvidence: {
+                    sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+                    samples: 16_000,
+                    bytes: 64_000,
+                },
             }));
         });
 

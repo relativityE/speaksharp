@@ -20,6 +20,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EVIDENCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   corpus-lane:
     name: corpus-lane
@@ -27,6 +30,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVIDENCE_SHA }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
@@ -38,13 +43,11 @@ jobs:
           # Guaranteed-writable cache so the model files land on disk for the provenance hash check.
           HF_CACHE_DIR: ${{ runner.temp }}/hf-cache
         run: |
-          # On pull_request, github.sha is the synthetic merge ref — record the PR HEAD commit instead;
-          # fall back to github.sha for push/workflow_dispatch.
           node_modules/.bin/tsx scripts/stt-corpus-lane.ts \
             --manifest tests/evidence/fixtures/corpus/manifest.json \
             --out stt-evidence-artifacts/corpus.json \
             --runs 3 \
-            --release-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+            --release-sha "${{ env.EVIDENCE_SHA }}"
       - name: Upload corpus evidence artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,3 +55,4 @@ jobs:
           name: stt-corpus-evidence
           path: stt-evidence-artifacts/corpus.json
           if-no-files-found: warn
+          retention-days: 1

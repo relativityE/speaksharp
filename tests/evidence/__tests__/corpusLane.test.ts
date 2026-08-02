@@ -6,7 +6,7 @@ import { NORMALIZATION_VERSION } from '../werMetric';
 const SHA = 'a'.repeat(40);
 const provenRoute: AudioRouteEvidence = {
     fixtureSha256: 'f'.repeat(64),
-    adapterInputPayloadSha256: 'p'.repeat(64),
+    adapterInputPayloadSha256: 'b'.repeat(64),
     adapterInputBytes: 32000,
     decodedSampleCount: 16000,
     decodedDurationSeconds: 1.0,
