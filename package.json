@@ -34,6 +34,7 @@
     "test:unit": "cross-env CI=true vitest run --config frontend/vitest.config.mjs",
     "test:edge": "deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions",
     "test:e2e": "pnpm build:test && playwright test",
+    "test:device-qualification": "playwright test --config=playwright.device-qualification.config.ts",
     "test:int:local": "node scripts/pnpm-only.mjs && cross-env VITE_USE_LIVE_DB=true playwright test tests/live/auth.live.spec.ts tests/live/upgrade.live.spec.ts tests/live/analytics-journey.live.spec.ts --config=playwright.live.config.ts",
     "test:system:local:headed": "cross-env VITE_USE_LIVE_DB=true playwright test tests/live --config=playwright.live.config.ts",
     "test:deploy": "pnpm test:deploy:prod",
