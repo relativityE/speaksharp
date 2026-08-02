@@ -10,7 +10,7 @@
  */
 import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, realpathSync, chmodSync, symlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
@@ -524,5 +524,50 @@ describe('#1126 durable initialization history (isolated repo)', () => {
         } finally {
             chmodSync(admin2, 0o755); // restore for afterEach cleanup
         }
+    });
+
+    it('(#1126) a SYMLINK marker is not followed — assert-owner fails closed', () => {
+        expect(claim().status).toBe(0);
+        const mf = imarker();
+        const saved = readFileSync(mf, 'utf8');
+        const decoy = path.join(ibase, 'decoy-owner.json');
+        writeFileSync(decoy, saved); // a perfectly valid marker JSON, elsewhere
+        rmSync(mf);
+        symlinkSync(decoy, mf); // marker is now a symlink to a valid JSON
+        const r = run(['assert-owner', '--agent', 'alpha'], iwt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/not a regular file|fail closed/i);
+    });
+
+    it('(#1126) a DANGLING symlink marker fails a claim closed and never writes through it', () => {
+        const mf = imarker();
+        const target = path.join(ibase, 'symlink-target-should-stay-absent.json');
+        symlinkSync(target, mf); // dangling: target does not exist
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/not a regular file|fail closed/i);
+        // The write-through hazard: a first claim must NOT create the symlink target.
+        expect(existsSync(target)).toBe(false);
+    });
+
+    it('(#1126) failing closed on a non-regular marker mutates NO sentinel / lease / prune-lock', () => {
+        const mf = imarker();
+        symlinkSync(path.join(ibase, 'nowhere.json'), mf); // dangling symlink marker on a pristine repo
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(existsSync(isentinel)).toBe(false);           // sentinel not created
+        expect(existsSync(ireg)).toBe(false);                // registry/lease not created
+        expect(lockReasonOf(iwt)).toBeNull();                // prune lock not taken
+    });
+
+    it('(#1126) a non-regular marker on ANOTHER linked worktree fails a fresh-repo claim closed', () => {
+        const wt2 = path.join(ibase, 'wt2');
+        git(['worktree', 'add', '-q', '-B', 'feat2', wt2, 'main'], irepo);
+        const admin2 = git(['rev-parse', '--absolute-git-dir'], wt2);
+        symlinkSync(path.join(ibase, 'foreign-nowhere.json'), path.join(admin2, 'agent-owner.json'));
+        expect(existsSync(isentinel)).toBe(false);
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/not a regular file|fail closed/i);
     });
 });

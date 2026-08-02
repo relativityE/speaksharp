@@ -24,7 +24,7 @@
  * Exit codes: 0 = ok · 1 = ownership/state violation · 2 = usage error.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, unlinkSync, renameSync, realpathSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, unlinkSync, renameSync, realpathSync, readdirSync, lstatSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -101,9 +101,13 @@ function anyMarkerAcrossWorktrees(commonDir) {
     // never read an unreadable admin dir as "no marker here".
     for (const id of entries) {
         try {
-            statSync(path.join(wtRoot, id, MARKER_NAME));
-            return true; // marker present
+            // NO-FOLLOW: lstat, so a dangling/foreign symlink marker is NOT read as absent. A non-regular
+            // marker (symlink/special) is contradictory state and fails closed.
+            const st = lstatSync(path.join(wtRoot, id, MARKER_NAME));
+            if (!st.isFile()) throw new OwnershipError(`worktree '${id}' owner marker is not a regular file (symlink/special) — fail closed`);
+            return true; // regular-file marker present
         } catch (e) {
+            if (e instanceof OwnershipError) throw e;
             if (e && e.code === 'ENOENT') continue; // genuinely absent
             throw new OwnershipError(`could not inspect worktree '${id}' for a marker (${e && e.code ? e.code : 'I/O error'}) — fail closed`);
         }
@@ -179,9 +183,15 @@ function markerPath(gitDir) { return path.join(gitDir, MARKER_NAME); }
 /** Read the marker; a malformed marker fails closed (never silently repaired). null = absent. */
 function readMarker(gitDir) {
     const p = markerPath(gitDir);
-    // ABSENT (no file) is a legitimate "no marker" — a first claim is allowed. Anything PRESENT but not a
-    // valid object with every authoritative field fails closed (never silently treated as absent).
-    if (!existsSync(p)) return null;
+    // NO-FOLLOW inspection: use lstat, never existsSync (which FOLLOWS a symlink — a dangling
+    // agent-owner.json symlink would read as absent and then a first-claim `writeFileSync` would write
+    // THROUGH the symlink to an arbitrary target). ENOENT → genuinely absent (first claim allowed). Anything
+    // PRESENT that is not a REGULAR file (symlink / dir / fifo / socket / device) fails closed WITHOUT
+    // reading or writing through it — the marker target, sentinel, lease, and prune-lock are untouched.
+    let st;
+    try { st = lstatSync(p); }
+    catch (e) { if (e && e.code === 'ENOENT') return null; throw new OwnershipError(`could not inspect owner marker (${e && e.code ? e.code : 'I/O error'}) — fail closed`); }
+    if (!st.isFile()) throw new OwnershipError('owner marker is not a regular file (symlink/special) — fail closed');
     let parsed;
     try { parsed = JSON.parse(readFileSync(p, 'utf8')); }
     catch { throw new OwnershipError('owner marker is malformed JSON — refusing to proceed (fail closed)'); }
