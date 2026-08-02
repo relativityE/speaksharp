@@ -244,6 +244,49 @@ describe('useSessionStore', () => {
         });
     });
 
+    // #1089 (adversarial-review current-main gap): republishing the SAME Ready status must NOT bypass the
+    // Ready/Idle timer-normalization invariant. The reducer's duplicate-status early return previously ran
+    // before the invariant, so a same-status Ready republish preserved a stale elapsedTime/startTime.
+    describe('#1089 Ready/Idle timer normalization on same-status republish', () => {
+        it('normalizes a stale live timer even when the identical Ready status is republished', () => {
+            const ready = { type: 'ready' as const, message: 'Ready to record' };
+            useSessionStore.setState({ runtimeState: 'READY', sttStatus: ready, elapsedTime: 9, startTime: 1_000 });
+            useSessionStore.getState().setSTTStatus({ ...ready }); // duplicate status, stale timer
+            const s = useSessionStore.getState();
+            expect(s.elapsedTime).toBe(0);
+            expect(s.startTime).toBeNull();
+            expect(s.sttStatus.type).toBe('ready');
+        });
+
+        it('zeroes ONLY the live timer — completed-session duration, transcript and saved identity survive (Ready projects 00:00)', () => {
+            const ready = { type: 'ready' as const, message: 'Ready to record' };
+            useSessionStore.setState({
+                runtimeState: 'READY', sttStatus: ready, elapsedTime: 303, startTime: 2_000,
+                completedSessionDurationSeconds: 303, sessionSaved: true,
+                transcript: { transcript: 'completed take transcript', partial: '' },
+            });
+            useSessionStore.getState().setSTTStatus({ ...ready });
+            const s = useSessionStore.getState();
+            expect(s.elapsedTime).toBe(0);
+            expect(s.startTime).toBeNull();
+            expect(s.completedSessionDurationSeconds).toBe(303); // review duration preserved
+            expect(s.transcript.transcript).toBe('completed take transcript');
+            expect(s.sessionSaved).toBe(true);
+        });
+
+        it('never zeroes a LIVE recording (the RECORDING guard wins over normalization)', () => {
+            useSessionStore.setState({
+                runtimeState: 'RECORDING', sttStatus: { type: 'recording', message: 'Recording active' },
+                elapsedTime: 42, startTime: 3_000,
+            });
+            useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready' });
+            const s = useSessionStore.getState();
+            expect(s.elapsedTime).toBe(42);
+            expect(s.startTime).toBe(3_000);
+            expect(s.sttStatus.type).toBe('recording');
+        });
+    });
+
     // PR 1a / #772 regression guard: setSTTMode's GLOBAL behavior must stay unchanged. The B fix
     // (clearing a stale transcript on a MANUAL mode switch) lives in the user-initiated setMode
     // handler, NOT in setSTTMode. So setSTTMode must still PRESERVE a just-saved transcript across

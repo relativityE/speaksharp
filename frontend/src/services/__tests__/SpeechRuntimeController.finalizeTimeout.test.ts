@@ -127,4 +127,70 @@ describe('#1089 bounded finalization', () => {
         expect(outcome).not.toBeInstanceOf(FinalizationTimeoutError);
         expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
     });
+
+    it('#1089: a same-turn double stop yields ONE stop/finalize/save and zero restart', async () => {
+        let releaseStop!: (v: unknown) => void;
+        const stopTranscription = vi.fn(() => new Promise((resolve) => { releaseStop = resolve; }));
+        const svc = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 10_000),
+            stopTranscription,
+            destroy: vi.fn().mockResolvedValue(undefined),
+            isServiceDestroyed: () => false,
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            subscribe: vi.fn(() => vi.fn()),
+            fsm: { is: vi.fn().mockReturnValue(false) },
+        } as unknown as ITranscriptionService;
+        (controller as unknown as { service: unknown }).service = svc;
+
+        // Two invocations in the SAME turn (a user double-click). enqueue serialises them; the finalize is
+        // held pending so both are in flight before either resolves.
+        const p1 = controller.stopRecording().catch((e: unknown) => e);
+        const p2 = controller.stopRecording().catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Exactly one stop/finalize is underway; the control is latched finalizing (not Ready yet).
+        expect(stopTranscription).toHaveBeenCalledTimes(1);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(true);
+
+        // Complete the single finalize.
+        releaseStop({ success: true, transcript: 'the finished take', stats: { total_words: 3 } });
+        const [, r2] = await Promise.all([p1, p2]);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(stopTranscription).toHaveBeenCalledTimes(1);      // one stop/finalize despite the double action
+        expect(r2).toBeNull();                                   // the 2nd invocation was a no-op — no second session/identity
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false); // Ready ONLY after completion
+        expect(useSessionStore.getState().runtimeState).not.toBe('RECORDING'); // zero restart
+        expect(useSessionStore.getState().isListening).toBe(false);
+    });
+
+    // #1089: freezeTranscriptLifecycleAtStop latches finalization TRUE before the STOPPING transition. If
+    // that transition is rejected, the latch must be cleared (control re-enabled) and the frozen snapshot
+    // dropped — never left hung — rather than stranding the user behind a disabled record control.
+    it('clears the finalizing latch when the STOPPING transition is rejected (recovery, not a lockout)', async () => {
+        const svc = {
+            getMode: vi.fn().mockReturnValue('private'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 10_000),
+            stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: 'x', stats: {} }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+            isServiceDestroyed: () => false,
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            subscribe: vi.fn(() => vi.fn()),
+            fsm: { is: vi.fn().mockReturnValue(false) },
+        } as unknown as ITranscriptionService;
+        (controller as unknown as { service: unknown }).service = svc;
+
+        // Reject the STOPPING transition AFTER finalization has latched true.
+        const rejection = new Error('STOPPING transition rejected');
+        (controller as unknown as { transition: (t: string) => Promise<void> }).transition =
+            vi.fn(async (target: string) => { if (target === 'STOPPING') throw rejection; });
+
+        const outcome = await controller.stopRecording().catch((e: unknown) => e);
+
+        expect(outcome).toBe(rejection);                                       // rejection propagated, not swallowed
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false); // latch cleared → control usable
+        expect(useSessionStore.getState().frozenTranscriptAtStop).toBeNull();  // frozen snapshot dropped
+        expect(svc.stopTranscription).not.toHaveBeenCalled();                  // never reached finalize/save
+    });
 });
