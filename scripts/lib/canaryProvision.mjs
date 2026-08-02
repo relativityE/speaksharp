@@ -132,17 +132,29 @@ export async function recoverCanaryAccount(admin, { email, password }) {
 }
 
 /** BEST-EFFORT ceiling (used by a SEPARATE hygiene step): 'ok' | 'warn' | 'exceeded' | 'skipped'. */
-export async function enforceCeiling(admin, { max = 1, enforce = false, emailRe = CANARY_EMAIL_RE } = {}) {
+export async function enforceCeiling(admin, { max = 1, enforce = false, emailRe = CANARY_EMAIL_RE, exclude = [] } = {}) {
+  // #1148 P1: the ACTIVE canary invariant is separate from the deferred #1146 legacy-account cleanup. An
+  // explicitly-deferred legacy canary (e.g. the old third-party-domain account, still awaiting authorized
+  // deletion) must NOT be counted against CANARY_MAX — otherwise the ceiling fails every run. Exclusion is by
+  // EXACT identity (an injected, bounded allowlist of email addresses), NOT a broad domain bypass, so the
+  // ceiling still catches any genuinely NEW canary accumulation. Excluded candidates are reported separately.
+  const excluded = new Set((exclude || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean));
   const emails = [];
+  const deferred = [];
   for (let page = 1; page <= 25; page++) {
     const { data, error } = await withRetry(() => admin.auth.admin.listUsers({ page, perPage: 200 }));
     if (error) return { status: 'skipped', reason: classifyError(error).category };
     const users = data?.users || [];
-    for (const u of users) if (u.email && emailRe.test(u.email)) emails.push(u.email.toLowerCase());
+    for (const u of users) {
+      if (!u.email || !emailRe.test(u.email)) continue;
+      const e = u.email.toLowerCase();
+      if (excluded.has(e)) { deferred.push(e); continue; } // deferred #1146 debt — not counted, reported
+      emails.push(e);
+    }
     if (users.length < 200) break;
   }
-  if (emails.length > max) return { status: enforce ? 'exceeded' : 'warn', count: emails.length, max };
-  return { status: 'ok', count: emails.length, max };
+  if (emails.length > max) return { status: enforce ? 'exceeded' : 'warn', count: emails.length, max, deferred };
+  return { status: 'ok', count: emails.length, max, deferred };
 }
 
 /**

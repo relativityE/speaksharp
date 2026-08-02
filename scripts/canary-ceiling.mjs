@@ -16,6 +16,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const CANARY_MAX = Number(process.env.CANARY_MAX || '1');
 const ENFORCE = (process.env.CANARY_ENFORCE || 'warn').toLowerCase() === 'fail';
+// #1148 P1: EXACT, injected legacy-canary exclusions (comma-separated emails) explicitly deferred to the
+// authorized #1146 cleanup. These are NOT counted against CANARY_MAX (they would otherwise fail the ceiling
+// every run), but they ARE reported as sanitation debt. Bounded by exact identity — never a domain wildcard.
+const CANARY_CEILING_EXCLUDE = (process.env.CANARY_CEILING_EXCLUDE || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   const msg = 'Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY for the ceiling check';
@@ -26,8 +30,9 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
 console.log('🧹 Canary account-ceiling hygiene');
-const res = await enforceCeiling(admin, { max: CANARY_MAX, enforce: ENFORCE });
+const res = await enforceCeiling(admin, { max: CANARY_MAX, enforce: ENFORCE, exclude: CANARY_CEILING_EXCLUDE });
 
+if (res.deferred?.length) console.log(`  (deferred #1146 legacy debt, not counted: ${res.deferred.length} account(s))`);
 if (res.status === 'ok') { console.log(`  [OK] ${res.count}/${res.max} canary-like accounts.`); process.exit(0); }
 if (res.status === 'warn') { console.warn(`  ⚠️  ceiling exceeded (${res.count} > ${res.max}) — warn-only; set CANARY_ENFORCE=fail to make it hard.`); process.exit(0); }
 if (res.status === 'exceeded') { console.error(`  ❌ ceiling exceeded: ${res.count} > ${res.max} (CANARY_ENFORCE=fail). Delete stray canary-* accounts.`); process.exit(1); }

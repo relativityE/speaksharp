@@ -82,6 +82,20 @@ describe('enforceCeiling', () => {
     expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true })).status).toBe('exceeded');
     expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true })).status).toBe('skipped');
   });
+
+  it('(#1148) excludes EXACT deferred legacy identities from the count — not a domain bypass', async () => {
+    const withLegacy = [{ users: [{ email: CANARY }, { email: 'canary-legacy@example.com' }] }];
+    // Without exclusion: the deferred #1146 legacy account would break the ceiling every run.
+    expect((await enforceCeiling(makeAdmin({ listUsers: withLegacy }), { max: 1, enforce: true })).status).toBe('exceeded');
+    // Excluded by EXACT email → only the active canary counts; the legacy one is reported as deferred debt.
+    const res = await enforceCeiling(makeAdmin({ listUsers: withLegacy }), { max: 1, enforce: true, exclude: ['canary-legacy@example.com'] });
+    expect(res.status).toBe('ok');
+    expect(res.count).toBe(1);
+    expect(res.deferred).toContain('canary-legacy@example.com');
+    // A NON-excluded extra canary still trips the ceiling (exclusion is exact, not a blanket bypass).
+    const two = [{ users: [{ email: CANARY }, { email: 'canary-x@example.com' }] }];
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true, exclude: ['canary-legacy@example.com'] })).status).toBe('exceeded');
+  });
 });
 
 describe('provisionCanary — health only, fail-closed', () => {

@@ -25,6 +25,15 @@ describe('#1148 no-third-party-domain scanner — deny/allow authority', () => {
         expect(scanText(forbidden().toUpperCase()).length).toBe(1); // case-insensitive
     });
 
+    it('DENIES regex-escaped and JavaScript hostname dot escapes (\\., \\u002e, \\x2e)', () => {
+        expect(scanText(forbidden('\\.')).length).toBe(1);       // RegExp-source escaped dot
+        expect(scanText(forbidden('\\u002e')).length).toBe(1);   // JS unicode escape
+        expect(scanText(forbidden('\\x2e')).length).toBe(1);     // JS hex escape
+        expect(scanText(forbidden('\\u002E')).length).toBe(1);   // case-insensitive
+        // Allowed control: separate tokens with no joining dot must NOT match.
+        expect(scanText(`${BRAND} ${TLD} store`).length).toBe(0);
+    });
+
     it('ALLOWS the approved Vercel release-proof host (brand not immediately followed by the dot+TLD)', () => {
         expect(scanText('https://speaksharp-public.vercel.app/session').length).toBe(0);
         expect(FORBIDDEN.test('speaksharp-public.vercel.app')).toBe(false);

@@ -79,6 +79,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_MAX: '1'
           CANARY_ENFORCE: fail
+          # #1148 P1: exact, injected legacy canary identities explicitly deferred to the #1146 cleanup — NOT
+          # counted against CANARY_MAX (they would otherwise fail every run) but reported as sanitation debt.
+          CANARY_CEILING_EXCLUDE: ${{ vars.CANARY_CEILING_EXCLUDE }}
         run: node scripts/canary-ceiling.mjs
 
       - name: Upload Test Results

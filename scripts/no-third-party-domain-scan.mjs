@@ -17,9 +17,13 @@ import { readFileSync } from 'node:fs';
 
 const BRAND = 'speak' + 'sharp';   // SpeakSharp brand token (also present, legitimately, in the approved host)
 const TLD = 'a' + 'pp';            // the third-party TLD
-// The dot between brand and TLD: a plain dot, a regex-source ESCAPED dot (`\.` — how the domain hid inside a
-// RegExp literal and evaded the naive audit), or common URL/HTML encodings (%2e, &#46;, &#x2e;).
-const DOT = '(?:\\\\?\\.|%2e|&#46;|&#x2e;)';
+// The dot between brand and TLD, in every form it can hide in tracked text:
+//   - a plain dot `.`
+//   - a regex-source ESCAPED dot `\.` (how the domain hid inside a RegExp literal, evading the naive audit)
+//   - URL/HTML encodings: %2e, &#46;, &#x2e;
+//     JavaScript string escapes for the dot: . (unicode) and \x2e (hex) — an executable hostname could
+//     be assembled from the brand + one of these + the TLD. Matched literally; the `i` flag covers case.
+const DOT = '(?:\\\\?\\.|%2e|&#46;|&#x2e;|\\\\u002e|\\\\x2e)';
 // DENY = brand immediately followed by dot+TLD. `www.`/`alpha.` prefixes still contain this substring, so
 // they are caught; the approved `-public.vercel.` host does not (brand is not immediately followed by the dot).
 export const FORBIDDEN = new RegExp(BRAND + DOT + TLD, 'i');
