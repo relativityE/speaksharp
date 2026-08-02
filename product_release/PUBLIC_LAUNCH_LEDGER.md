@@ -91,7 +91,7 @@ The first PL-003 run proved the checkout success URL was using the wrong app ori
 
 | Previous Result | Fix Applied |
 |---|---|
-| Stripe returned to `https://speaksharp-public.vercel.app/session?checkout=success`, which served `{"detail":"Not Found"}`. | Updated deployed Supabase Edge Function secret `SITE_URL=https://speaksharp-public.vercel.app`. |
+| Stripe returned to `https://[third-party origin redacted #1148]/session?checkout=success`, which served `{"detail":"Not Found"}` — the return origin was the unowned third-party host (the actual defect; provenance preserved, not rewritten to the approved host). | Updated deployed Supabase Edge Function secret `SITE_URL=https://speaksharp-public.vercel.app`. |
 
 ### Remaining Production Requirement
 

@@ -1891,7 +1891,7 @@ stripe listen --forward-to localhost:5173/api/webhook
 ```
 
 **Why Needed:**
-- Production: Stripe sends webhooks to `https://speaksharp-public.vercel.app/api/webhook`
+- Production: Stripe sends webhooks to `https://[third-party origin redacted #1148]/api/webhook` (historical: the unowned third-party host)
 - Local: Stripe cannot reach `localhost:5173` directly
 - Solution: CLI creates tunnel: `Stripe Cloud → stripe listen → localhost`
 

@@ -25,13 +25,25 @@ describe('#1148 no-third-party-domain scanner — deny/allow authority', () => {
         expect(scanText(forbidden().toUpperCase()).length).toBe(1); // case-insensitive
     });
 
-    it('DENIES regex-escaped and JavaScript hostname dot escapes (\\., \\u002e, \\x2e)', () => {
+    it('DENIES regex-escaped and JavaScript hostname dot escapes (\\., \\u002e, \\u{2e}, \\x2e)', () => {
         expect(scanText(forbidden('\\.')).length).toBe(1);       // RegExp-source escaped dot
-        expect(scanText(forbidden('\\u002e')).length).toBe(1);   // JS unicode escape
+        expect(scanText(forbidden('\\u002e')).length).toBe(1);   // JS 4-hex unicode escape
+        expect(scanText(forbidden('\\u{2e}')).length).toBe(1);   // JS ES6 code-point escape
+        expect(scanText(forbidden('\\u{02e}')).length).toBe(1);  // ...with leading zero
         expect(scanText(forbidden('\\x2e')).length).toBe(1);     // JS hex escape
         expect(scanText(forbidden('\\u002E')).length).toBe(1);   // case-insensitive
         // Allowed control: separate tokens with no joining dot must NOT match.
         expect(scanText(`${BRAND} ${TLD} store`).length).toBe(0);
+    });
+
+    it('DENIES alternate valid HTML dot entities browsers decode to "." (&#046;, &#x02e;, &period;)', () => {
+        expect(scanText(forbidden('&#046;')).length).toBe(1);    // decimal leading-zero
+        expect(scanText(forbidden('&#0046;')).length).toBe(1);   // more leading zeros
+        expect(scanText(forbidden('&#x02e;')).length).toBe(1);   // hex leading-zero
+        expect(scanText(forbidden('&#x2E;')).length).toBe(1);    // hex uppercase
+        expect(scanText(forbidden('&period;')).length).toBe(1);  // named entity
+        // Allowed control: an unrelated numeric entity must NOT match.
+        expect(scanText(`${BRAND}&#038;${TLD}`).length).toBe(0); // &#038; = '&', not a dot
     });
 
     it('ALLOWS the approved Vercel release-proof host (brand not immediately followed by the dot+TLD)', () => {

@@ -7,6 +7,19 @@
  * TRUTHFUL enforcement: with CANARY_ENFORCE=fail, this step fails (exit 1) if the ceiling is exceeded
  * OR cannot be checked (admin error). Warn-only (default) never fails. Uses the admin/service-role
  * client only. No secrets/tokens/user records logged.
+ *
+ * #1148 — CANONICAL INJECTED-IDENTITY ENV INVENTORY (names only; values live in GitHub, never in the repo).
+ * The domain purge replaced all hard-coded third-party-domain identities with INJECTED configuration:
+ *   • CANARY_EMAIL            — defined: `vars.CANARY_EMAIL` (GitHub repo variable);
+ *                               consumed: .github/workflows/canary.yml (provision + smoke steps) →
+ *                               scripts/provision-canary.mjs (process.env.CANARY_EMAIL). One maintained canary.
+ *   • CANARY_CEILING_EXCLUDE  — defined: `vars.CANARY_CEILING_EXCLUDE` (comma-separated exact emails);
+ *                               consumed: .github/workflows/canary.yml (ceiling step) → this file →
+ *                               enforceCeiling({ exclude }). Exact-identity exclusion of #1146-deferred legacy
+ *                               accounts; never a domain wildcard.
+ *   • LIVE_TEST_EMAIL_DOMAIN  — defined: `vars.LIVE_TEST_EMAIL_DOMAIN` (reserved example.com fallback);
+ *                               consumed: tests/live/*.live.spec.ts + scripts/manual-stt-corpus-proof.mjs.
+ * No third-party domain appears in the repository; the zero-reference scanner enforces this on every push.
  */
 
 import { createClient } from '@supabase/supabase-js';
