@@ -96,21 +96,15 @@ export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | F
 
 /**
  * #SSOT: is this a USABLE canonical filler-counts object? A valid ZERO count is usable (must stay zero);
- * only null / non-object / empty {} / malformed (no numeric total and no numeric entry) is NOT usable —
- * that is the ONLY case where a transcript-recount fallback is allowed. Never falls back merely because a
- * recount would be larger.
+ * null / non-object / empty {} / malformed is NOT usable — the ONLY case where a transcript-recount fallback
+ * is allowed. #1131 review (#31): "usable" is now EXACTLY "has a VALID filler count" (validatedFillerTotal
+ * !== null). Previously it accepted any finite number, so a snapshot whose only signal was an invalid total
+ * such as `{ total: { count: 2.5 } }` or `{ total: { count: -1 } }` was deemed usable and then coerced to a
+ * confident zero by getFillerTotal. Aligning the predicate keeps malformed evidence UNAVAILABLE, never a 0.
  */
 export const isUsableFillerCounts = (
     fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
-): boolean => {
-    if (!fillerWords || typeof fillerWords !== 'object') return false;
-    const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
-    if (typeof total === 'number' && Number.isFinite(total)) return true;
-    // No numeric total: usable only if it carries at least one entry with a finite numeric count.
-    return Object.values(fillerWords as Record<string, { count?: unknown }>).some(
-        (v) => !!v && typeof v === 'object' && Number.isFinite((v as { count?: unknown }).count as number),
-    );
-};
+): boolean => validatedFillerTotal(fillerWords) !== null;
 
 /**
  * #SSOT: normalize an accepted canonical filler-counts object so it ALWAYS exposes a numeric `total.count`.
@@ -121,7 +115,9 @@ export const isUsableFillerCounts = (
  */
 export const normalizeFillerCounts = (fillerWords: FillerCounts): FillerCounts => {
     const existingTotal = fillerWords?.total?.count;
-    if (typeof existingTotal === 'number' && Number.isFinite(existingTotal)) return fillerWords;
+    // #1131 review (#31): only a VALID total is preserved as-is; an invalid finite total (2.5 / -1) is
+    // replaced by the validated sum of per-word counts rather than trusted.
+    if (isValidFillerCount(existingTotal)) return fillerWords;
     return { ...fillerWords, total: { count: sumFillerCounts(fillerWords), color: fillerWords?.total?.color ?? '' } };
 };
 

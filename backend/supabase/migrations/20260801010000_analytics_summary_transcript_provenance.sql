@@ -12,31 +12,41 @@
 --
 -- NOT APPLIED TO PRODUCTION BY THIS PR — requires separate Product Owner migration approval before deploy.
 
--- #1131 review corrections 3 + 4 — the AUTHORITATIVE, validated total filler count for one session.
+-- #1131 review corrections 3 + 4 (+ round-3 threads #30/#32/#33) — the AUTHORITATIVE, validated total filler
+-- count for one session.
 --  * Total-authoritative (correction 3): a valid `total.count` wins outright, INCLUDING a genuine 0 and a
 --    total-only snapshot `{ "total": { "count": N } }` with no per-word breakdown. Otherwise sum the per-word
 --    (non-total) entries that carry a valid count.
---  * Validated (correction 4): a "valid" count is a NON-NEGATIVE INTEGER of at most 9 digits (kept inside int
---    range). A fractional (2.5), negative (-1), non-numeric, or out-of-range value is malformed — excluded via
---    a regex guard BEFORE any ::int cast, so a bad count can never crash the cast nor fabricate a flattering 0.
+--  * Validated (correction 4 + #32): a "valid" count must be a JSON NUMBER (jsonb_typeof = 'number' — NOT a
+--    JSON string like `"5"`, which `->>` would otherwise coerce to text that passes the regex) AND a
+--    NON-NEGATIVE INTEGER of at most 9 digits. Fractional (2.5), negative (-1), non-numeric (`"unknown"`),
+--    string-typed, or out-of-range values are malformed — the jsonb_typeof + regex guard runs BEFORE any cast,
+--    so a bad count can never crash the cast (#30) nor fabricate a flattering 0.
+--  * Overflow-safe (#33): accumulate and return BIGINT. Each entry is ≤9 digits, but their sum (e.g. three
+--    counts of 999999999 = 2999999997) exceeds int; bigint keeps the aggregate integer-safe.
 -- Returns NULL when the session carries no valid filler evidence at all (null / non-object / empty {} /
 -- malformed), so callers EXCLUDE the row instead of inventing a measurement. Mirrors client validatedFillerTotal().
 -- Pure jsonb/text logic (no table access): IMMUTABLE with a pinned search_path, SECURITY INVOKER (default).
 CREATE OR REPLACE FUNCTION public._ss_valid_filler_total(fw JSONB)
-RETURNS INTEGER
+RETURNS BIGINT
 LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
   SELECT CASE
     WHEN fw IS NULL OR jsonb_typeof(fw) <> 'object' THEN NULL
-    WHEN (fw->'total'->>'count') ~ '^[0-9]{1,9}$' THEN (fw->'total'->>'count')::int
+    WHEN jsonb_typeof(fw->'total'->'count') = 'number' AND (fw->'total'->>'count') ~ '^[0-9]{1,9}$'
+      THEN (fw->'total'->>'count')::bigint
     WHEN EXISTS (
       SELECT 1 FROM jsonb_each(fw) e
-      WHERE e.key <> 'total' AND (e.value->>'count') ~ '^[0-9]{1,9}$'
+      WHERE e.key <> 'total'
+        AND jsonb_typeof(e.value->'count') = 'number'
+        AND (e.value->>'count') ~ '^[0-9]{1,9}$'
     ) THEN (
-      SELECT sum((e.value->>'count')::int)::int FROM jsonb_each(fw) e
-      WHERE e.key <> 'total' AND (e.value->>'count') ~ '^[0-9]{1,9}$'
+      SELECT sum((e.value->>'count')::bigint) FROM jsonb_each(fw) e
+      WHERE e.key <> 'total'
+        AND jsonb_typeof(e.value->'count') = 'number'
+        AND (e.value->>'count') ~ '^[0-9]{1,9}$'
     )
     ELSE NULL
   END
@@ -70,7 +80,7 @@ DECLARE
     -- #1047 U1: per-metric contributor counts (rows whose duration enters each rate's denominator).
     v_wpm_contributors INT;
     v_filler_contributors INT;
-    v_total_filler_words INT;
+    v_total_filler_words BIGINT; -- #1131 #33: overflow-safe accumulator for summed filler counts
     -- #1047 U1: number of filler-metric-eligible rows. A "trend" is a comparison and needs at least TWO such
     -- measurements; with fewer we report NO trend (mirrors the client calculateFillerWordTrends >= 2 gate).
     v_eligible_filler_count INT;
@@ -191,7 +201,9 @@ BEGIN
     -- words and genuinely zero fillers still reports 0.0 — that is evidence and stays.
     v_avg_filler_per_min := CASE
         WHEN v_filler_duration_seconds > 0
-            THEN (v_total_filler_words / (v_filler_duration_seconds / 60.0))::numeric(10,1)::text
+            -- #1131 #33: round() (unbounded numeric), NOT ::numeric(10,1) — an overflow-safe bigint numerator
+            -- can exceed a 10-digit fixed precision, which would itself raise "numeric field overflow".
+            THEN round(v_total_filler_words / (v_filler_duration_seconds / 60.0), 1)::text
         ELSE NULL
     END;
 
@@ -215,12 +227,13 @@ BEGIN
     -- fractional/negative/malformed per-word count never crashes it or fabricates a count.
     SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_top_filler_words
     FROM (
-        SELECT v.key as word, sum((v.value->>'count')::int) as count
+        SELECT v.key as word, sum((v.value->>'count')::bigint) as count
         FROM sessions s,
              jsonb_each(s.filler_words) AS v(key, value)
         WHERE s.user_id = p_user_id
           AND s.transcript_state IS DISTINCT FROM 'not_captured'
           AND v.key != 'total'
+          AND jsonb_typeof(v.value->'count') = 'number'
           AND (v.value->>'count') ~ '^[0-9]{1,9}$'
         GROUP BY v.key
         ORDER BY count DESC
@@ -252,7 +265,7 @@ BEGIN
             -- emits NULL (omitted point), never a fabricated 0.00.
             CASE
                 WHEN filler_eligible AND duration > 0
-                    THEN (fw_count / (duration / 60.0))::numeric(10,2)::text
+                    THEN round(fw_count / (duration / 60.0), 2)::text  -- #1131 #33: unbounded round, overflow-safe
                 ELSE NULL
             END as "FW/min",
             -- Same provenance gate on clarity: a not_captured row's stale clarity_score is never plotted.
@@ -363,11 +376,12 @@ BEGIN
             SELECT
                 l.rn,
                 v.key as word,
-                (v.value->>'count')::int as count
+                (v.value->>'count')::bigint as count
             FROM last_10_sessions l
             JOIN sessions s ON s.id = l.id
             CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
             WHERE v.key != 'total'
+              AND jsonb_typeof(v.value->'count') = 'number'
               AND (v.value->>'count') ~ '^[0-9]{1,9}$'
         ),
         averages AS (

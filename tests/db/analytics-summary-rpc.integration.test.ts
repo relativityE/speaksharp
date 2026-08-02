@@ -883,4 +883,56 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             }
         });
     });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1131 round-3 — exact-head review threads #31/#32/#33. client ≡ RPC parity on real Postgres.
+    // ---------------------------------------------------------------------------------------------
+    describe('(#1131 round-3) invalid totals / JSON-string counts / aggregate overflow — parity falsification', () => {
+        it('#31: an invalid-ONLY total ({total:{count:2.5}} or {count:-1}) is unavailable — never coerced to a confident zero', async () => {
+            for (const bad of [{ total: { count: 2.5 } }, { total: { count: -1 } }] as Array<Record<string, { count: number }>>) {
+                const rows: Fixture[] = [
+                    fx('bad-total', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: bad }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                const { overallStats } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();     // NOT '0.0'
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(client.avgFillerWordsPerMin).toBeNull();           // client agrees (isUsableFillerCounts aligned)
+            }
+        });
+
+        it('#32: a JSON STRING count ({total:{count:"5"}}) is NOT accepted as a number — RPC excludes it, matching the client', async () => {
+            const rows: Fixture[] = [
+                fx('string-count', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { total: { count: '5' } } as unknown as Record<string, { count: number }> }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            // Old RPC: `->>` coerces "5" to text that passes the regex → reported 5/min. Corrected: jsonb_typeof
+            // requires a JSON number → excluded. The client already required typeof === 'number' → both null.
+            expect(overallStats.avgFillerWordsPerMin).toBeNull();
+            expect(client.avgFillerWordsPerMin).toBeNull();
+        });
+
+        it('#33: three max-valid per-word counts sum WITHOUT integer overflow — RPC returns the bigint total, matching the client', async () => {
+            // 3 × 999,999,999 = 2,999,999,997 > int max (2,147,483,647). Old ::int sum aborted the RPC.
+            const rows: Fixture[] = [
+                fx('overflow', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available',
+                    filler_words: { a: { count: 999999999 }, b: { count: 999999999 }, c: { count: 999999999 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            // Must not throw (bigint accumulator + unbounded round()).
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgFillerWordsPerMin).toBe('2999999997.0'); // 2,999,999,997 / 1 min
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(2999999997.0, 1);
+        });
+    });
 });

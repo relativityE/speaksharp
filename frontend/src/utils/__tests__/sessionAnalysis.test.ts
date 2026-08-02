@@ -6,6 +6,7 @@ import {
     getFillerExplanation,
     getClarityExplanation,
     isUsableFillerCounts,
+    validatedFillerTotal,
     normalizeFillerCounts,
     FILLER_TRANSCRIPT_DISCLOSURE,
 } from '../sessionAnalysis';
@@ -271,6 +272,17 @@ describe('isUsableFillerCounts — valid-zero is usable; only absent/malformed i
     });
     it('malformed (non-numeric total, no numeric entry) is NOT usable', () => {
         expect(isUsableFillerCounts({ total: { count: 'x' } } as never)).toBe(false);
+    });
+    it('#1131 (#31): a finite but INVALID total (fractional / negative) is NOT usable — never coerced to zero', () => {
+        // Previously these were "usable" (Number.isFinite) then getFillerTotal coerced them to a confident 0.
+        expect(isUsableFillerCounts({ total: { count: 2.5 } } as never)).toBe(false);
+        expect(isUsableFillerCounts({ total: { count: -1 } } as never)).toBe(false);
+        // …and validatedFillerTotal returns null for them (the aligned predicate), not 0.
+        expect(validatedFillerTotal({ total: { count: 2.5 } } as never)).toBeNull();
+        expect(validatedFillerTotal({ total: { count: -1 } } as never)).toBeNull();
+        // A genuine zero total remains usable and authoritative.
+        expect(isUsableFillerCounts({ total: { count: 0, color: '' } })).toBe(true);
+        expect(validatedFillerTotal({ total: { count: 0, color: '' } })).toBe(0);
     });
 });
 
