@@ -10,6 +10,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
+import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError } from './helpers/proofAuthority';
 
 // #1089 / #1129 — exact-production-SHA Private recording proof (rigorous).
 //
@@ -44,17 +45,6 @@ const admin = (SUPABASE_URL && SERVICE_ROLE_KEY)
     ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
     : null;
 
-async function findUidByEmail(email: string): Promise<string> {
-    if (!admin) throw new Error('no admin client for UID capture (fail closed)');
-    for (let p = 1; p <= 50; p++) {
-        const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
-        if (error) throw new Error(`UID lookup failed (fail closed): ${error.message}`);
-        const u = (data?.users ?? []).find((x) => x.email?.toLowerCase() === email.toLowerCase());
-        if (u) return u.id;
-        if ((data?.users ?? []).length < 200) break;
-    }
-    throw new Error('created account not found for UID capture (fail closed)');
-}
 
 test.use({
     permissions: ['microphone'],
@@ -85,9 +75,17 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         if (!/^private-proof-/.test(foundEmail)) throw new Error(`refusing to delete a non-run-owned account (${foundEmail})`);
         const { error: delErr } = await admin.auth.admin.deleteUser(capturedUid);
         if (delErr) throw new Error(`cleanup deleteUser failed (fail closed): ${delErr.message}`);
-        // Prove no residue: auth user gone AND no run-owned session rows remain.
-        const { data: after } = await admin.auth.admin.getUserById(capturedUid);
-        expect(after?.user ?? null, 'auth user must be gone after cleanup').toBeNull();
+        // Prove deletion: ONLY an expected not-found re-fetch is proof. A returned user = still exists (fail);
+        // any OTHER error (network/auth/rate-limit) is NOT proof of deletion and must fail closed.
+        const { data: after, error: afterErr } = await admin.auth.admin.getUserById(capturedUid);
+        if (afterErr) {
+            if (!isNotFoundError(afterErr as { status?: number; code?: string; message?: string })) {
+                throw new Error(`post-delete verify returned a non-not-found error — deletion UNPROVEN (fail closed): ${afterErr.message}`);
+            }
+            // not-found → confirmed deleted
+        } else {
+            expect(after?.user ?? null, 'auth user must be gone after cleanup (returned a user)').toBeNull();
+        }
         const { data: leftover, error: sErr } = await admin.from('sessions').select('id').eq('user_id', capturedUid);
         if (sErr) throw new Error(`cleanup residue query failed (fail closed): ${sErr.message}`);
         expect(leftover?.length ?? 0, 'no run-owned session residue').toBe(0);
@@ -119,15 +117,28 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(surface.testMode, 'runtime config must not be test-mode').toBe(false);
         });
 
-        await test.step('Fresh signup', async () => {
+        await test.step('Fresh signup — capture cleanup UID from the session BEFORE any nav/list assertion', async () => {
             const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
             createdEmail = `private-proof-${unique}@${TEST_EMAIL_DOMAIN}`;
             await page.getByTestId('email-input').fill(createdEmail);
             await page.getByTestId('password-input').fill(`SpeakSharpProof-${unique}!`);
             await page.getByTestId('sign-up-submit').click();
+            // P1.2(new): the instant the session exists, capture cleanup authority from auth storage — before
+            // the /practice nav assertion or any admin list-users call — so ANY later failure still deletes
+            // exactly this run's account.
+            await expect.poll(async () => {
+                const entries = await page.evaluate(() => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })));
+                return extractUidFromAuthStorage(entries);
+            }, { timeout: 45_000, message: 'must capture session UID immediately after signup' }).toBeTruthy();
+            const entries = await page.evaluate(() => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })));
+            capturedUid = extractUidFromAuthStorage(entries) ?? '';
+            expect(capturedUid, 'cleanup UID captured from session').toBeTruthy();
+            // Cross-check UID/email agreement via admin (fail closed).
+            const { data: got, error } = await admin!.auth.admin.getUserById(capturedUid);
+            if (error) throw new Error(`UID/email cross-check failed (fail closed): ${error.message}`);
+            if ((got?.user?.email ?? '').toLowerCase() !== createdEmail.toLowerCase()) throw new Error('captured UID does not match the created email (fail closed)');
             await expect(page).toHaveURL(/\/practice/, { timeout: 45_000 });
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 20_000 });
-            capturedUid = await findUidByEmail(createdEmail); // P1.3 retain exact UID
         });
 
         await test.step('Click the visible practice entry → /session, select Private (never Cloud)', async () => {
@@ -180,7 +191,7 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(row!.attribution_status, 'verified Private attribution').toBe('verified');
             expect(row!.engine_version, 'Private-v2 identity: engine_version').toBeTruthy();
             expect(row!.model_name, 'Private-v2 identity: model_name').toBeTruthy();
-            expect(String(row!.device_type ?? '').toLowerCase(), 'Private-v2 identity: wasm device').toContain('wasm');
+            expect(isPrivateV2PersistedDeviceType(row!.device_type), `Private-v2 persisted device_type must be exactly 'browser', got ${JSON.stringify(row!.device_type)}`).toBe(true);
             // Content-free evidence: ids only, never transcript/email/credentials.
             console.log(`PRIVATE_RECORDING_PROOF_EVIDENCE ${JSON.stringify({
                 release: EXPECT_RELEASE_SHA, sessionId: row!.id, engine: row!.engine,
