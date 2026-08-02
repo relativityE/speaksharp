@@ -142,6 +142,16 @@ describe('#1132 ephemeral review-evidence policy', () => {
         expect(benchmarkWorkflow).not.toMatch(/path:\s*\/tmp\/speaksharp-private-h1_6-exact-buffer-current\.json/);
         expect(benchmarkWorkflow).toMatch(/name: Scan AssemblyAI streaming A\/B proof[\s\S]*?if: \$\{\{ always\(\) && inputs\.run_cloud_streaming_ab != false \}\}/);
         expect(benchmarkWorkflow).toMatch(/name: Scan generated review evidence[\s\S]*?if: \$\{\{ always\(\) && inputs\.run_private_browser != false \}\}/);
+        expect(benchmarkWorkflow).toMatch(/run_private_browser:[\s\S]*?default: true/);
+        expect(benchmarkWorkflow).toContain("STT_INCLUDE_AUDIO_DATA_URL: 'true'");
+        const benchmarkHelper = readFileSync(join(repoRoot, 'tests/live/helpers/benchmark-utils.ts'), 'utf8');
+        const privateEvidenceHelper = benchmarkHelper.slice(
+            benchmarkHelper.indexOf('export async function attachPrivateBenchmarkEvidence'),
+            benchmarkHelper.indexOf('export const PRIVATE_WASM_SMOKE_CAVEAT'),
+        );
+        expect(privateEvidenceHelper).toContain('sanitizePrivateBenchmarkEvidence(evidence, label)');
+        expect(privateEvidenceHelper).toContain('JSON.stringify(sanitizedEvidence, null, 2)');
+        expect(privateEvidenceHelper).not.toContain('JSON.stringify(evidence, null, 2)');
     });
 
     it('requires the current unit coverage output and rejects an empty green artifact', () => {

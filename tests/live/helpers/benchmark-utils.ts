@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
 import { expect, Page, TestInfo } from '@playwright/test';
 
 type BenchmarkPreconditionSnapshot = {
@@ -527,6 +528,87 @@ export async function expectBenchmarkTranscriptOutput(page: Page, label: string,
     }
 }
 
+type PrivateBenchmarkRawEvidence = {
+    root?: Record<string, unknown>;
+    transcriptText?: unknown;
+    runtime?: unknown;
+    privateTimeline?: unknown;
+    privateTranscriptTrace?: unknown;
+    privateAudioChunks?: unknown;
+    privateUtteranceAudioChunks?: unknown;
+};
+
+function finiteMetric(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function audioSha256(value: unknown): string | null {
+    if (value == null) return null;
+    if (typeof value !== 'string') throw new Error('Private benchmark audio payload must be a string');
+    const match = value.match(/^data:audio\/[A-Za-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) throw new Error('Private benchmark audio payload must be a base64 audio data URL');
+    const bytes = Buffer.from(match[1], 'base64');
+    if (bytes.length === 0) throw new Error('Private benchmark audio payload is empty');
+    return createHash('sha256').update(bytes).digest('hex');
+}
+
+function summarizePrivateAudioChunks(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value.map((chunk, index) => {
+        if (!chunk || typeof chunk !== 'object' || Array.isArray(chunk)) {
+            throw new Error(`Private benchmark audio chunk ${index} must be an object`);
+        }
+        const raw = chunk as Record<string, unknown>;
+        return {
+            samples: finiteMetric(raw.samples),
+            durationSec: finiteMetric(raw.durationSec),
+            rms: finiteMetric(raw.rms),
+            peak: finiteMetric(raw.peak),
+            wavDataUrlBytes: finiteMetric(raw.wavDataUrlBytes),
+            audioSha256: audioSha256(raw.wavDataUrl),
+        };
+    });
+}
+
+/**
+ * Convert the in-memory browser diagnostic into the only representation that
+ * may enter Playwright output or an Actions artifact. Raw transcript, URL,
+ * runtime payloads, traces, identifiers, and audio data URLs are deliberately
+ * excluded; fixture audio is represented only by content hashes and metrics.
+ */
+export function sanitizePrivateBenchmarkEvidence(
+    rawEvidence: PrivateBenchmarkRawEvidence,
+    label: string,
+) {
+    const root = rawEvidence.root && typeof rawEvidence.root === 'object'
+        ? rawEvidence.root
+        : {};
+    const transcriptWordCount = typeof rawEvidence.transcriptText === 'string'
+        ? rawEvidence.transcriptText.trim().split(/\s+/).filter(Boolean).length
+        : 0;
+    return {
+        schemaVersion: 1,
+        kind: 'private-browser-benchmark-summary',
+        label,
+        root: {
+            appReady: typeof root.appReady === 'string' ? root.appReady : null,
+            runtimeState: typeof root.runtimeState === 'string' ? root.runtimeState : null,
+            sttReady: typeof root.sttReady === 'string' ? root.sttReady : null,
+            modelStatus: typeof root.modelStatus === 'string' ? root.modelStatus : null,
+            sessionPersisted: typeof root.sessionPersisted === 'string' ? root.sessionPersisted : null,
+            transcriptState: typeof root.transcriptState === 'string' ? root.transcriptState : null,
+        },
+        transcriptWordCount,
+        runtimePresent: rawEvidence.runtime != null,
+        privateTimelineEventCount: Array.isArray(rawEvidence.privateTimeline) ? rawEvidence.privateTimeline.length : 0,
+        privateTranscriptTraceEventCount: Array.isArray(rawEvidence.privateTranscriptTrace)
+            ? rawEvidence.privateTranscriptTrace.length
+            : 0,
+        privateAudioChunks: summarizePrivateAudioChunks(rawEvidence.privateAudioChunks),
+        privateUtteranceAudioChunks: summarizePrivateAudioChunks(rawEvidence.privateUtteranceAudioChunks),
+    };
+}
+
 type BenchmarkSaveCandidate = {
     selectedForSave?: string;
     saveCandidateReason?: string;
@@ -598,7 +680,10 @@ export async function attachPrivateBenchmarkEvidence(
         url: page.url(),
     }));
 
-    const evidenceJson = JSON.stringify(evidence, null, 2);
+    // The raw object may contain replayable audio and user/session text. Keep it
+    // in memory only; never write or attach it beneath Playwright upload roots.
+    const sanitizedEvidence = sanitizePrivateBenchmarkEvidence(evidence, label);
+    const evidenceJson = JSON.stringify(sanitizedEvidence, null, 2);
     const evidencePath = testInfo.outputPath(`${label}-private-benchmark-evidence.json`);
     fs.writeFileSync(evidencePath, evidenceJson);
 
