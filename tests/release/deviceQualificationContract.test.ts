@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   DEVICE_ACCESSIBILITY_ASSERTIONS,
   DEVICE_BROWSERS,
@@ -44,12 +46,19 @@ const validRow = (): DeviceQualificationRow => ({
 });
 
 const fullMatrixRows = (): DeviceQualificationRow[] => DEVICE_BROWSERS.flatMap(browser =>
-  DEVICE_VIEWPORTS.flatMap(viewport => DEVICE_CAPABILITY_STATES.map(capabilityState => ({
-    ...validRow(),
-    browser,
-    viewport: { width: viewport.width, height: viewport.height, orientation: viewport.orientation },
-    capabilityState,
-  }))));
+  DEVICE_VIEWPORTS.flatMap(viewport => DEVICE_CAPABILITY_STATES.map(capabilityState => {
+    const row = validRow();
+    row.browser = browser;
+    row.viewport = { width: viewport.width, height: viewport.height, orientation: viewport.orientation };
+    row.capabilityState = capabilityState;
+    if (capabilityState === 'shared-array-buffer-unavailable') {
+      row.capabilities.sharedArrayBufferAvailable = false;
+    }
+    if (capabilityState === 'browser-speech-unavailable') {
+      row.capabilities.browserSpeechAvailable = false;
+    }
+    return row;
+  })));
 
 const report = (rows: DeviceQualificationRow[]): DeviceQualificationReport => ({
   schemaVersion: 1,
@@ -132,10 +141,22 @@ describe('#1144 device qualification contract', () => {
     expect(deviceQualificationProblems(row)).toContain('passed row lacks observed metrics.private-model-load-ms');
   });
 
+  it.each([
+    ['shared-array-buffer-available', 'sharedArrayBufferAvailable', false],
+    ['shared-array-buffer-unavailable', 'sharedArrayBufferAvailable', true],
+    ['browser-speech-unavailable', 'browserSpeechAvailable', true],
+  ] as const)('rejects %s when observed %s is %s', (capabilityState, field, observed) => {
+    const row = validRow();
+    row.capabilityState = capabilityState;
+    row.capabilities[field] = observed;
+    expect(deviceQualificationProblems(row).join('\n')).toContain(`contradicts capabilities.${field}`);
+  });
+
   it('requires an explicit reason for unavailable capability cells', () => {
     const row = validRow();
     row.status = 'unavailable';
     row.capabilityState = 'browser-speech-unavailable';
+    row.capabilities.browserSpeechAvailable = false;
     expect(deviceQualificationProblems(row)).toContain('unavailable rows must name an unavailableReason');
 
     row.unavailableReason = 'system browser does not expose Web Speech';
@@ -173,6 +194,29 @@ describe('#1144 device qualification contract', () => {
     const problems = deviceQualificationReportProblems(report([validRow()]));
     expect(problems.join('\n')).toContain('report missing 179 required browser/viewport/capability cells');
     expect(deviceQualificationDisposition(report([validRow()]))).toBe('failed');
+  });
+
+  it('runs qualification when application, Private, build, or harness dependencies change', () => {
+    const workflow = readFileSync(resolve('.github/workflows/device-qualification.yml'), 'utf8');
+    for (const requiredPath of [
+      "- 'frontend/**'",
+      "- 'scripts/build.config.js'",
+      "- 'scripts/serve-e2e.mjs'",
+      "- 'tests/e2e/helpers.ts'",
+      "- 'tests/e2e/fixtures.ts'",
+      "- 'tests/constants.ts'",
+      "- 'pnpm-lock.yaml'",
+    ]) {
+      expect(workflow, `missing qualification trigger ${requiredPath}`).toContain(requiredPath);
+    }
+  });
+
+  it('keeps the no-download assertion on the real Private initialization boundary', () => {
+    const journey = readFileSync(resolve('tests/e2e/device-qualification-foundation.e2e.spec.ts'), 'utf8');
+    expect(journey).toContain("new URL('/private-dropin.html', baseURL)");
+    expect(journey).toContain('__PRIVATE_DROPIN__');
+    expect(journey).toContain('hasRealInitBoundary');
+    expect(journey).toContain("expect(modelRequests, 'real Private model download requires explicit user intent').toEqual([])");
   });
 
   it('rejects mixed release identities and duplicate cells', () => {

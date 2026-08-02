@@ -4,12 +4,23 @@ on:
   pull_request:
     branches: [main]
     paths:
+      # The matrix exercises real application markup/CSS and the real Private
+      # drop-in boundary. Keep this broad enough that a qualified surface or
+      # engine change cannot bypass its three-browser/five-viewport lane.
+      - 'frontend/**'
+      - 'scripts/build.config.js'
+      - 'scripts/serve-e2e.mjs'
+      - 'tests/e2e/helpers.ts'
+      - 'tests/e2e/fixtures.ts'
+      - 'tests/constants.ts'
+      - '.github/actions/setup-environment/**'
       - 'playwright.device-qualification.config.ts'
       - 'tests/e2e/device-qualification-foundation.e2e.spec.ts'
       - 'tests/release/deviceQualificationContract.ts'
       - 'tests/release/deviceQualificationContract.test.ts'
       - '.github/workflows/device-qualification.yml'
       - 'package.json'
+      - 'pnpm-lock.yaml'
   workflow_dispatch:
 
 permissions:
@@ -49,4 +60,3 @@ jobs:
         env:
           DEVICE_BROWSER: ${{ matrix.browser }}
         run: pnpm test:device-qualification
-

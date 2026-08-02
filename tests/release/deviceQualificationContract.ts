@@ -165,6 +165,18 @@ export function deviceQualificationProblems(row: DeviceQualificationRow): string
       problems.push(`capabilities.${key} must be ${key === 'crossOriginIsolated' ? 'boolean or null' : 'boolean'}`);
     }
   }
+  if (row.capabilityState === 'shared-array-buffer-available'
+    && row.capabilities.sharedArrayBufferAvailable !== true) {
+    problems.push('shared-array-buffer-available contradicts capabilities.sharedArrayBufferAvailable');
+  }
+  if (row.capabilityState === 'shared-array-buffer-unavailable'
+    && row.capabilities.sharedArrayBufferAvailable !== false) {
+    problems.push('shared-array-buffer-unavailable contradicts capabilities.sharedArrayBufferAvailable');
+  }
+  if (row.capabilityState === 'browser-speech-unavailable'
+    && row.capabilities.browserSpeechAvailable !== false) {
+    problems.push('browser-speech-unavailable contradicts capabilities.browserSpeechAvailable');
+  }
 
   if (row.status === 'blocked') {
     if (!Number.isInteger(row.blockingIssue) || !DEVICE_DEPENDENCY_ISSUES.has(Number(row.blockingIssue))) {
