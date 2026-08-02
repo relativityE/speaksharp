@@ -40,12 +40,38 @@ export function extractUidFromAuthStorage(entries: Array<{ key: string; value: s
 }
 
 /**
- * After deleting the run-owned UID, ONLY an expected not-found re-fetch proves deletion. Network / auth /
- * rate-limit / any other error must NOT be treated as proof of deletion (fail closed).
+ * After deleting the run-owned UID, ONLY the expected GoTrue not-found shape proves deletion: HTTP status
+ * 404 AND a not-found code/message. A 500/401/429 that merely contains "user not found" text is NOT proof
+ * (fail closed); network/auth/rate-limit errors likewise fail the run.
  */
 export function isNotFoundError(error: { status?: number; code?: string; message?: string } | null | undefined): boolean {
     if (!error) return false;
-    if (error.status === 404) return true;
+    if (error.status !== 404) return false; // the documented not-found status is REQUIRED
     const s = `${error.code ?? ''} ${error.message ?? ''}`.toLowerCase();
     return /user_not_found|not[_\s-]?found|does not exist|no user/i.test(s);
+}
+
+/**
+ * Structured Private producing-identity check for a LIVE recording. Uses the authoritative producing-mode
+ * (`serviceMode` from `__SPEECH_RUNTIME_DEBUG__`) plus the Private model identity — NOT a stringify that would
+ * wrongly reject the valid `device_type='browser'`. Requires: producing mode Private; the default (non-tiny)
+ * Private model, i.e. NOT the emergency `whisper-tiny.en` fallback; and no v4 runtime fallback. Device type is
+ * intentionally NOT constrained here (the persisted row separately proves `device_type='browser'`).
+ */
+export function isPrivateRuntimeIdentity(input: {
+    serviceMode?: unknown;
+    privateModelKey?: unknown;
+    fallbackOccurred?: unknown;
+}): { ok: boolean; serviceMode: string; privateModelKey: string | null; reason: string } {
+    const serviceMode = String(input?.serviceMode ?? '').toLowerCase();
+    const privateModelKey = input?.privateModelKey != null ? String(input.privateModelKey) : null;
+    const isPrivate = serviceMode === 'private';
+    const notFallbackModel = !!privateModelKey && !/tiny/i.test(privateModelKey);
+    const noV4Fallback = input?.fallbackOccurred !== true;
+    const ok = isPrivate && notFallbackModel && noV4Fallback;
+    const reason = ok ? ''
+        : !isPrivate ? `producing serviceMode is '${serviceMode}', expected 'private'`
+            : !notFallbackModel ? `private model '${privateModelKey}' is the emergency tiny fallback, not the default`
+                : 'a v4 runtime fallback occurred';
+    return { ok, serviceMode, privateModelKey, reason };
 }

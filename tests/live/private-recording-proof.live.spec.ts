@@ -66,8 +66,26 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
 
     test.afterEach(async () => {
         // P1.3 — UID-scoped, fail-closed cleanup. Delete ONLY the exact run-owned UID; prove no residue.
-        if (!capturedUid) return;
+        // NEVER return silently after a signup that may have created an account.
+        if (!capturedUid && !createdEmail) return; // no signup was attempted
         if (!admin) throw new Error('cleanup requires admin client (fail closed)');
+        // Recovery: signup can create the user before the in-page UID capture times out. If the UID is
+        // missing but an email was attempted, recover it by an EXACT-email, unique-result admin lookup
+        // (pagination/errors fail closed) so the account is never orphaned.
+        if (!capturedUid) {
+            let matches = [];
+            for (let p = 1; p <= 50; p++) {
+                const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
+                if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
+                const users = data?.users ?? [];
+                matches = matches.concat(users.filter((u) => u.email?.toLowerCase() === createdEmail.toLowerCase()));
+                if (users.length < 200) break;
+            }
+            if (matches.length === 0) return; // signup did not create an account — nothing to clean
+            if (matches.length > 1) throw new Error(`cleanup recovery found ${matches.length} accounts for the run email — refusing ambiguous delete (fail closed)`);
+            if (!/^private-proof-/.test(createdEmail.toLowerCase())) throw new Error(`recovered account is not run-owned (${createdEmail}) — refusing to delete`);
+            capturedUid = matches[0].id;
+        }
         const { data: got, error: getErr } = await admin.auth.admin.getUserById(capturedUid);
         if (getErr) throw new Error(`cleanup getUserById failed (fail closed): ${getErr.message}`);
         const foundEmail = got?.user?.email?.toLowerCase() ?? '';
@@ -155,16 +173,26 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             await expect(startStop).toBeEnabled({ timeout: 60_000 });
             await startStop.click();
             await expectBenchmarkRecordingStarted(page, 'private-proof');
-            // P1.2 runtime identity during recording: Private service mode + Transformers.js/WASM, no fallback.
-            const runtime = await page.evaluate(() => {
-                const w = window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown> };
-                return typeof w.__SPEECH_RUNTIME_DEBUG__ === 'function' ? w.__SPEECH_RUNTIME_DEBUG__() : null;
+            // P1.2 runtime identity during recording — STRUCTURED (not a stringify that would wrongly reject
+            // the valid device_type='browser'). Read the authoritative producing mode (serviceMode) + the
+            // Private model identity + v4 fallback flag, and assert Private + default (non-tiny) model + no
+            // fallback. Device type is NOT constrained here (the persisted row proves device_type='browser').
+            const identity = await page.evaluate(() => {
+                const w = window as unknown as {
+                    __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
+                    __STT_IDENTITY__?: () => Record<string, unknown>;
+                    __PRIVATE_V4_RUNTIME__?: { fallbackOccurred?: boolean };
+                };
+                const dbg = typeof w.__SPEECH_RUNTIME_DEBUG__ === 'function' ? w.__SPEECH_RUNTIME_DEBUG__() : null;
+                const id = typeof w.__STT_IDENTITY__ === 'function' ? w.__STT_IDENTITY__() : null;
+                return {
+                    serviceMode: (dbg?.serviceMode ?? id?.mode) ?? null,
+                    privateModelKey: id?.privateModelKey ?? null,
+                    fallbackOccurred: w.__PRIVATE_V4_RUNTIME__?.fallbackOccurred ?? false,
+                };
             });
-            expect(runtime, 'runtime debug must be present while recording').toBeTruthy();
-            const runtimeStr = JSON.stringify(runtime).toLowerCase();
-            expect(runtimeStr, `Private runtime identity expected: ${runtimeStr}`).toMatch(/private/);
-            expect(runtimeStr).toMatch(/wasm|transformers/);
-            expect(runtimeStr, 'no Browser/Cloud/native engine during a Private recording').not.toMatch(/"cloud"|"browser"|"native"|assemblyai|gemini/);
+            const runtimeVerdict = isPrivateRuntimeIdentity(identity);
+            expect(runtimeVerdict.ok, `Private runtime identity: ${runtimeVerdict.reason} (${JSON.stringify(identity)})`).toBe(true);
             await expectBenchmarkTranscriptOutput(page, 'private-proof', 60_000, 3);
             await startStop.click();
             await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 120_000 });
@@ -192,9 +220,10 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(row!.engine_version, 'Private-v2 identity: engine_version').toBeTruthy();
             expect(row!.model_name, 'Private-v2 identity: model_name').toBeTruthy();
             expect(isPrivateV2PersistedDeviceType(row!.device_type), `Private-v2 persisted device_type must be exactly 'browser', got ${JSON.stringify(row!.device_type)}`).toBe(true);
-            // Content-free evidence: ids only, never transcript/email/credentials.
+            // Content-free evidence: NO identifiers (no session id / UID / email). Booleans + release SHA +
+            // engine identity + provider-call count only. The exact row was asserted above.
             console.log(`PRIVATE_RECORDING_PROOF_EVIDENCE ${JSON.stringify({
-                release: EXPECT_RELEASE_SHA, sessionId: row!.id, engine: row!.engine,
+                release: EXPECT_RELEASE_SHA, engine: row!.engine,
                 engineVersion: row!.engine_version, deviceType: row!.device_type, attribution: row!.attribution_status,
                 transcriptPersisted: (row!.transcript ?? '').trim().length > 0, providerRequests: providerHits.length,
             })}`);

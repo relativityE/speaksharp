@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError } from '../live/helpers/proofAuthority.ts';
+import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity } from '../live/helpers/proofAuthority.ts';
 
 describe('#1151 proof-authority decisions (falsification)', () => {
     describe('persisted Private-v2 device_type', () => {
@@ -30,18 +30,34 @@ describe('#1151 proof-authority decisions (falsification)', () => {
         });
     });
 
-    describe('deletion proof = only not-found', () => {
-        it('treats 404 / not-found messages as deletion proof', () => {
-            expect(isNotFoundError({ status: 404 })).toBe(true);
-            expect(isNotFoundError({ code: 'user_not_found' })).toBe(true);
-            expect(isNotFoundError({ message: 'User not found' })).toBe(true);
+    describe('deletion proof = ONLY the documented 404 not-found shape', () => {
+        it('requires status 404 AND a not-found code/message', () => {
+            expect(isNotFoundError({ status: 404, code: 'user_not_found' })).toBe(true);
+            expect(isNotFoundError({ status: 404, message: 'User not found' })).toBe(true);
+            expect(isNotFoundError({ status: 404 })).toBe(false);               // 404 but no not-found text → ambiguous, fail closed
         });
-        it('does NOT treat network/auth/rate-limit/other errors as deletion proof', () => {
-            expect(isNotFoundError({ status: 500, message: 'internal' })).toBe(false);
-            expect(isNotFoundError({ status: 429, message: 'rate limited' })).toBe(false);
+        it('rejects non-404 errors that merely contain "user not found" text', () => {
+            expect(isNotFoundError({ status: 500, message: 'user not found (transient)' })).toBe(false);
+            expect(isNotFoundError({ status: 401, message: 'user not found' })).toBe(false);
+            expect(isNotFoundError({ status: 429, message: 'user not found' })).toBe(false);
+            expect(isNotFoundError({ code: 'user_not_found' })).toBe(false);    // no status
             expect(isNotFoundError({ message: 'fetch failed' })).toBe(false);
             expect(isNotFoundError(null)).toBe(false);
             expect(isNotFoundError(undefined)).toBe(false);
+        });
+    });
+
+    describe('structured Private runtime identity (allows device browser)', () => {
+        it('accepts private serviceMode + default (non-tiny) model + no v4 fallback', () => {
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'private', privateModelKey: 'whisper-base.en', fallbackOccurred: false }).ok).toBe(true);
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'PRIVATE', privateModelKey: 'whisper-base.en' }).ok).toBe(true);
+        });
+        it('rejects cloud/native producing mode, the tiny emergency fallback model, and v4 fallback', () => {
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'cloud', privateModelKey: 'whisper-base.en' }).ok).toBe(false);
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'native', privateModelKey: 'whisper-base.en' }).ok).toBe(false);
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'private', privateModelKey: 'whisper-tiny.en' }).ok).toBe(false);
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'private', privateModelKey: 'whisper-base.en', fallbackOccurred: true }).ok).toBe(false);
+            expect(isPrivateRuntimeIdentity({ serviceMode: '', privateModelKey: null }).ok).toBe(false);
         });
     });
 });

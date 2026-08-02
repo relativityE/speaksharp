@@ -30,8 +30,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout Code
+      # #1151 P1.5(new): default-branch authority — a selectable feature-branch workflow must NEVER become
+      # production-proof authority. Fail closed (exit 1, not a silent skip) unless dispatched from main.
+      - name: Assert default-branch (main) authority
+        run: |
+          echo "ref=${{ github.ref }} sha=${{ github.sha }}"
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::production proof must be dispatched from refs/heads/main, got ${{ github.ref }}"; exit 1
+          fi
+
+      - name: Checkout Code (pinned to the exact dispatch commit)
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Prove checked-out commit equals the dispatch SHA
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          echo "checked-out=$HEAD_SHA dispatch=${{ github.sha }}"
+          if [ "$HEAD_SHA" != "${{ github.sha }}" ]; then
+            echo "::error::checked-out commit $HEAD_SHA != dispatch ${{ github.sha }}"; exit 1
+          fi
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
