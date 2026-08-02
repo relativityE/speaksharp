@@ -620,4 +620,40 @@ describe('#1126 durable initialization history (isolated repo)', () => {
         expect(existsSync(isentinel)).toBe(true);
         expect(readFileSync(isentinel, 'utf8')).toBe(before);
     });
+
+    // ---- Registry DIRECTORY + leases.json: NO-FOLLOW, so writes can never escape the git common dir. ----
+
+    it('(#1126) a SYMLINKED registry directory (agent-worktrees) fails a claim closed and never writes outside the common dir', () => {
+        const escapeTarget = path.join(ibase, 'escape-registry');
+        mkdirSync(escapeTarget);
+        symlinkSync(escapeTarget, iregDir); // agent-worktrees is now a symlink to an external directory
+        const r = claim();
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/not a real directory|fail closed/i);
+        // The write-escape hazard: neither the registry nor the lock may be created through the symlink.
+        expect(existsSync(path.join(escapeTarget, 'leases.json'))).toBe(false);
+        expect(existsSync(path.join(escapeTarget, '.lock'))).toBe(false);
+    });
+
+    it('(#1126) a DANGLING symlink leases.json fails closed — genuine ENOENT is the ONLY "absent"', () => {
+        expect(claim().status).toBe(0);
+        rmSync(ireg);
+        symlinkSync(path.join(ibase, 'leases-target-should-stay-absent.json'), ireg); // dangling
+        // A read must NOT treat the dangling symlink as absent (which would look like a vanished registry or
+        // a fresh run); it must fail closed on the non-regular entry.
+        const r = run(['release', '--agent', 'alpha'], iwt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/not a regular file|fail closed/i);
+    });
+
+    it('(#1126) a VALID symlink leases.json (points at real content) is NOT accepted as authority', () => {
+        expect(claim().status).toBe(0);
+        const decoy = path.join(ibase, 'decoy-leases.json');
+        writeFileSync(decoy, readFileSync(ireg, 'utf8')); // a perfectly valid registry, elsewhere
+        rmSync(ireg);
+        symlinkSync(decoy, ireg); // leases.json is now a symlink to valid content
+        const r = run(['release', '--agent', 'alpha'], iwt);
+        expect(r.status).toBe(1);
+        expect(r.err).toMatch(/not a regular file|fail closed/i);
+    });
 });

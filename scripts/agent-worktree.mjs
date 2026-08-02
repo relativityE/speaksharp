@@ -120,7 +120,9 @@ function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0,
 /** Serialize concurrent writers via an atomic mkdir lock under the shared common dir. */
 function withLock(commonDir, fn) {
     const { dir, lock } = registryPaths(commonDir);
-    mkdirSync(dir, { recursive: true });
+    // NO-FOLLOW: refuse a symlinked/non-directory agent-worktrees so the lock is never taken outside the
+    // git common dir.
+    ensureRegistryDir(dir);
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
     for (;;) {
         try { mkdirSync(lock); break; }
@@ -159,17 +161,50 @@ function sentinelPresent(sentinel) {
 }
 
 /**
+ * Ensure the registry directory (`$GIT_COMMON_DIR/agent-worktrees`) exists AS A REAL DIRECTORY before any
+ * lock/registry write. NEVER `mkdirSync(dir, { recursive: true })` blindly: on an existing symlink that call
+ * silently succeeds (EEXIST is swallowed by `recursive`), so the lock and leases.json would then be written
+ * THROUGH the symlink — escaping the Git common directory. lstat first (no-follow): ENOENT → create it; a real
+ * directory → reuse; a symlink / file / special entry, or any inspection error → fail closed with no write.
+ */
+function ensureRegistryDir(dir) {
+    let st;
+    try { st = lstatSync(dir); }
+    catch (e) {
+        if (e && e.code === 'ENOENT') { mkdirSync(dir, { recursive: true }); return; }
+        throw new OwnershipError(`could not inspect the registry directory (${e && e.code ? e.code : 'I/O error'}) — fail closed`);
+    }
+    if (!st.isDirectory()) {
+        throw new OwnershipError('registry path agent-worktrees is not a real directory (symlink/file/special) — refusing to write outside the git common dir (fail closed)');
+    }
+    // real directory → reuse as-is
+}
+
+/**
  * Read + VALIDATE the registry. Parsing an array is not enough authority: the version, every lease's
  * required fields/types, and path/branch uniqueness are all checked. Any violation — malformed JSON, a
  * bad record, a duplicate, or a registry file that was initialized and then DISAPPEARED — fails closed.
  */
 function readLeases(commonDir) {
     const { file, sentinel } = registryPaths(commonDir);
-    if (!existsSync(file)) {
-        // NO-FOLLOW sentinel inspection: a non-regular sentinel throws (fail closed) rather than being read
-        // through; a regular sentinel means the registry was initialized then vanished → fail closed.
-        if (sentinelPresent(sentinel)) throw new OwnershipError('lease registry file is missing though the registry was initialized — refusing to proceed (fail closed)');
-        return []; // genuine first run
+    // NO-FOLLOW inspection of leases.json (same discipline as readMarker/sentinelPresent). NEVER
+    // `existsSync(file)`: it FOLLOWS a symlink, so a dangling leases.json symlink reads as absent (silently
+    // treated as a first run / registry-vanished) and a VALID symlink is read THROUGH — accepting an
+    // attacker-controlled target as lease authority. lstat instead: ONLY genuine ENOENT is "absent"; a
+    // symlink / directory / special entry or any inspection error fails closed without repair or mutation.
+    let fst;
+    try { fst = lstatSync(file); }
+    catch (e) {
+        if (e && e.code === 'ENOENT') {
+            // Genuinely absent. A non-regular sentinel throws (fail closed); a regular sentinel means the
+            // registry was initialized and then vanished → fail closed.
+            if (sentinelPresent(sentinel)) throw new OwnershipError('lease registry file is missing though the registry was initialized — refusing to proceed (fail closed)');
+            return []; // genuine first run
+        }
+        throw new OwnershipError(`could not inspect the lease registry file (${e && e.code ? e.code : 'I/O error'}) — fail closed`);
+    }
+    if (!fst.isFile()) {
+        throw new OwnershipError('lease registry file is not a regular file (symlink/dir/special) — refusing to read through it (fail closed)');
     }
     let parsed;
     try { parsed = JSON.parse(readFileSync(file, 'utf8')); }
@@ -200,7 +235,8 @@ function writeLeases(commonDir, leases) {
     // no temp file is written, and the sentinel target is never followed. `existsSync` would instead follow a
     // dangling symlink and let the later `writeFileSync` create/overwrite an arbitrary target.
     const alreadyInitialized = sentinelPresent(sentinel);
-    mkdirSync(dir, { recursive: true });
+    // NO-FOLLOW: a symlinked/non-directory agent-worktrees fails closed here too — no write through it.
+    ensureRegistryDir(dir);
     // Durable sentinel (at the common-dir root, OUTSIDE agent-worktrees/) written BEFORE the registry rename:
     // a crash mid-write — or a later `rm -rf agent-worktrees/` — still leaves the initialization mark, so a
     // subsequent disappearance of leases.json is never mistaken for a genuine first run (readLeases throws).
