@@ -7,6 +7,17 @@ import {
     calculateRoundedMinutes,
     getSessionAnalysisMetrics,
 } from '@/utils/sessionAnalysis';
+import { resolveTranscriptState, TRANSCRIPT_STATE } from '@/constants/transcriptState';
+
+/**
+ * #1047: a session contributes to TRANSCRIPT-DERIVED aggregates (words, filler counts/rates, clarity,
+ * accuracy, chart points and any coaching derived from them) only when its server-owned provenance is not
+ * `not_captured`. Mirrors the RPC's `transcript_state IS DISTINCT FROM 'not_captured'`: available + expired +
+ * legacy contribute; a not_captured row's persisted words/fillers/clarity/accuracy are sentinels, never
+ * evidence. Total practice TIME is deliberately NOT gated here — it still spans every session.
+ */
+const isTranscriptDerivedEligible = (s: PracticeSession): boolean =>
+    resolveTranscriptState(s.transcript_state, s.transcript) !== TRANSCRIPT_STATE.NOT_CAPTURED;
 
 /**
  * P1 TECH DEBT: Client-side Aggregation
@@ -60,6 +71,10 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 
     // P1 FIX: Single-pass aggregation for efficiency
     let totalDurationSeconds = 0;
+    // #1047: transcript-derived rate DENOMINATOR excludes not_captured rows. totalDurationSeconds stays
+    // all-session (it feeds only total practice time / average session length); this eligible-only duration
+    // feeds WPM and filler rate so a not_captured row's sentinel duration never dilutes or inflates them.
+    let eligibleDurationSeconds = 0;
     let totalWords = 0;
     let totalFillerWords = 0;
     let totalClarity = 0;
@@ -74,14 +89,20 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 
     for (const s of sessionHistory) {
         const duration = s.duration || 0;
-        totalDurationSeconds += duration;
+        totalDurationSeconds += duration; // all-session (total practice time only)
 
+        // #1047: only provenance-eligible rows contribute transcript-derived words/fillers/clarity and the
+        // eligible rate denominator. A not_captured row's persisted numbers are sentinels, not evidence.
+        const eligible = isTranscriptDerivedEligible(s);
         const sessionMetrics = getSessionAnalysisMetrics(s);
-        totalWords += sessionMetrics.wordCount;
-
-        totalFillerWords += sessionMetrics.fillerCount;
+        if (eligible) {
+            eligibleDurationSeconds += duration;
+            totalWords += sessionMetrics.wordCount;
+            totalFillerWords += sessionMetrics.fillerCount;
+        }
         // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
-        // carries no measurement. Only a structurally complete snapshot contributes.
+        // carries no measurement. Only a structurally complete snapshot contributes. (Pause rhythm is
+        // audio-timing evidence, independent of transcript provenance, so it is not gated on not_captured.)
         if (hasValidPauseEvidence(s.pause_metrics)) {
             totalPauses += getSessionPauseCount(s);
             pauseContributors += 1;
@@ -89,7 +110,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         // Single source of truth: aggregate the SAME per-session delivery-clarity used by session
         // detail, PDF, Goals, and the clarity chart. The unrelated STT `accuracy` field is NOT
         // clarity; mixing it made the aggregate card read 0% while individual sessions read nonzero.
-        if (sessionMetrics.isClarityScorable) {
+        if (eligible && sessionMetrics.isClarityScorable) {
             totalClarity += sessionMetrics.clarityScore;
             clarityContributors += 1;
         }
@@ -101,15 +122,16 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // #1045: exact seconds so the display layer can say "<1 min" instead of rounding a real 25-second
     // average down to the flatly false "0 mins".
     const averageSessionLengthSeconds = totalSessions > 0 ? totalDurationSeconds / totalSessions : null;
-    // totalPracticeTimeMinutes: precise for rate calculations (industry standard)
-    const totalPracticeTimeMinutes = totalDurationSeconds / 60;
+    // #1047: rate calculations use the provenance-ELIGIBLE speaking time, not all-session duration, so a
+    // not_captured row's sentinel seconds never enter the WPM/filler denominator.
+    const eligiblePracticeTimeMinutes = eligibleDurationSeconds / 60;
 
     // Speaking-rate standard: aggregate words over aggregate speaking time.
     // Averaging per-session WPM lets very short sessions distort the result.
     // #1045: pace needs both a denominator (speaking time) and a numerator (words). Wordless takes
     // give neither, and "0 WPM" reads as "you spoke impossibly slowly" rather than "we heard nothing".
-    const averageWPM = totalPracticeTimeMinutes > 0 && totalWords > 0
-        ? Math.round(totalWords / totalPracticeTimeMinutes)
+    const averageWPM = eligiblePracticeTimeMinutes > 0 && totalWords > 0
+        ? Math.round(totalWords / eligiblePracticeTimeMinutes)
         : null;
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
     // A rate with no time denominator is not zero, it is unknown. A genuine zero-filler minute of
@@ -119,8 +141,8 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // which decodes to the POSITIVE label "Low" — i.e. silence was being praised as clean delivery
     // and could become the user's "What worked". A genuine take with words and no fillers still
     // reports 0.0; that is real evidence.
-    const avgFillerWordsPerMin = totalDurationSeconds > 0 && totalWords > 0
-        ? calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1)
+    const avgFillerWordsPerMin = eligibleDurationSeconds > 0 && totalWords > 0
+        ? calculateRatePerMinute(totalFillerWords, eligibleDurationSeconds, 1)
         : null;
     const avgClarity = clarityContributors > 0
         ? (totalClarity / clarityContributors).toFixed(1)
@@ -134,17 +156,21 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
+        const eligible = isTranscriptDerivedEligible(s);
         const sessionMetrics = getSessionAnalysisMetrics(s);
         const totalFillerCount = sessionMetrics.fillerCount;
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),
-            'FW/min': calculateRatePerMinute(totalFillerCount, duration, 2),
+            // #1047: a not_captured row's stale filler count must not plot a rate — emit null (omitted
+            // point), matching the RPC chart-point gate. Eligible rows keep their genuine derived rate.
+            'FW/min': eligible ? calculateRatePerMinute(totalFillerCount, duration, 2) : null,
             // #1091: an unscorable session's `clarityScore` is 0 BY DESIGN — plotting it charted a
             // fabricated zero, the same defect the aggregate above was fixed for. Gate the point on the
             // clarity contributor rule so a session can never be plotted as scorable while being excluded
             // from the average. `null` is an omitted point; Recharts renders it as a gap.
-            clarity: sessionMetrics.isClarityScorable ? sessionMetrics.clarityScore : null
+            // #1047: also omit not_captured rows regardless of a stale scorable-looking clarity value.
+            clarity: eligible && sessionMetrics.isClarityScorable ? sessionMetrics.clarityScore : null
         };
     }).reverse();
 
@@ -162,8 +188,11 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     };
 };
 
-export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {
+export const calculateFillerWordTrends = (allSessions: PracticeSession[]) => {
     const trendData: { [key: string]: { current: number; previous: number } } = {};
+    // #1047: exclude not_captured rows before windowing so their stale filler counts never occupy a trend
+    // slot. Windows are recency slices of the ELIGIBLE history, matching the RPC filler-trend gate.
+    const sessionHistory = allSessions.filter(isTranscriptDerivedEligible);
     if (sessionHistory.length > 0) {
         // Use a 5-session rolling window, but normalize by speaking time so
         // short sessions do not distort filler trends.
@@ -208,7 +237,8 @@ export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => 
 };
 
 export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
-    const counts = sessionHistory.reduce((acc, s) => {
+    // #1047: a not_captured row's persisted filler map is a sentinel — never count it toward top fillers.
+    const counts = sessionHistory.filter(isTranscriptDerivedEligible).reduce((acc, s) => {
         const fillers = getSessionAnalysisMetrics(s).fillerData || {};
         for (const [word, data] of Object.entries(fillers)) {
             if (word !== 'total' && data.count > 0) {
@@ -225,7 +255,8 @@ export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
 
 export const calculateAccuracyData = (sessionHistory: PracticeSession[]) => {
     return sessionHistory
-        .filter(s => s.ground_truth && s.transcript && s.engine)
+        // #1047: exclude not_captured rows — their retained accuracy/transcript is a sentinel, not evidence.
+        .filter(s => isTranscriptDerivedEligible(s) && s.ground_truth && s.transcript && s.engine)
         .map(s => {
             const wer = calculateWordErrorRate(s.ground_truth!, s.transcript!);
             return {

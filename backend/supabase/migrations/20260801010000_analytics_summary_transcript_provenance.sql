@@ -142,12 +142,15 @@ BEGIN
     );
 
     -- Top 2 Filler Words
+    -- #1047 review: a not_captured row's persisted filler map is a sentinel — exclude it so stale counts
+    -- never appear in the top-filler list.
     SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_top_filler_words
     FROM (
         SELECT v.key as word, sum((v.value->>'count')::int) as count
         FROM sessions s,
              jsonb_each(s.filler_words) AS v(key, value)
         WHERE s.user_id = p_user_id
+          AND s.transcript_state IS DISTINCT FROM 'not_captured'
           AND v.key != 'total'
         GROUP BY v.key
         ORDER BY count DESC
@@ -224,6 +227,8 @@ BEGIN
         WHERE user_id = p_user_id
           AND engine IS NOT NULL
           AND accuracy IS NOT NULL
+          -- #1047 review: a not_captured row's retained accuracy is a sentinel, not a measurement.
+          AND transcript_state IS DISTINCT FROM 'not_captured'
         ORDER BY created_at DESC
         LIMIT 10
     ) d;
@@ -247,10 +252,13 @@ BEGIN
     ) d;
 
     -- Filler Word Trends (Last 10 sessions, compare 0-5 and 5-10)
+    -- #1047 review: exclude not_captured rows so their stale filler counts never occupy a trend window slot;
+    -- the windows are recency slices of the provenance-eligible history (mirrors the client filler-trend gate).
     WITH last_10_sessions AS (
         SELECT id, created_at, row_number() OVER (ORDER BY created_at DESC) as rn
         FROM sessions
         WHERE user_id = p_user_id
+          AND transcript_state IS DISTINCT FROM 'not_captured'
         LIMIT 10
     ),
     filler_counts AS (

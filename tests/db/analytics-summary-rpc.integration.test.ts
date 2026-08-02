@@ -609,5 +609,39 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             expect(chart[2].clarity).toBe(84);
             expect(chart[2]['FW/min']).toBe('1.50');
         });
+
+        it('(#1047) >20-session history: overall rates, top fillers, filler trends and accuracy all exclude a not_captured row', async () => {
+            const db = await makeDb();
+            // 21 genuine sessions (words=120, duration=60s, um:2, clarity 90, accuracy 0.9) + 1 MOST-RECENT
+            // not_captured row with huge stale values that would dominate every series if it leaked in.
+            const many = Array.from({ length: 21 }, (_, i) => fx(`v${i}`, {
+                created_at: `2026-06-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+                duration: 60, total_words: 120, clarity_score: 90, accuracy: 0.9, engine: 'private-v2',
+                transcript: words(120), filler_words: { um: { count: 2 }, total: { count: 2 } },
+            }));
+            const ncStale = fx('nc-stale', {
+                created_at: '2026-07-31T10:00:00Z', // most recent → would top every recency-limited series
+                duration: 600, total_words: 99999, clarity_score: 5, accuracy: 0.01, engine: 'private-v2',
+                transcript: '', transcript_state: 'not_captured',
+                filler_words: { zzz: { count: 999 }, total: { count: 999 } },
+            });
+            await seed(db, [...many, ncStale]);
+            const { overallStats, topFillerWords, fillerWordTrends, accuracyData } = await callRpc(db, USER);
+
+            expect(overallStats.totalSessions).toBe(22);                       // the row is still a session
+            // Rates from the 21 eligible rows only: 21*120 words / 21 min = 120 WPM; 21*2 fillers / 21 min = 2.0.
+            expect(overallStats.avgWpm).toBe(120);
+            expect(overallStats.avgFillerWordsPerMin).toBe('2.0');
+            // Total practice time is all-session (21*60 + 600 = 1860s = 31 min), truthful.
+            expect(overallStats.totalPracticeTime).toBe(31);
+            // Top fillers exclude the stale 'zzz':999.
+            const topWords = (topFillerWords as Array<{ word: string; count: number }>).map(w => w.word);
+            expect(topWords).toContain('um');
+            expect(topWords).not.toContain('zzz');
+            // Filler trends exclude 'zzz'.
+            expect(Object.keys(fillerWordTrends as Record<string, unknown>)).not.toContain('zzz');
+            // Accuracy series excludes the not_captured row's retained 0.01 (→ 1%) despite it being most recent.
+            expect(accuracyData.map(d => Math.round(d.accuracy))).not.toContain(1);
+        });
     });
 });

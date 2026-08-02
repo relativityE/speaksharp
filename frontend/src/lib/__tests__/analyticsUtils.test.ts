@@ -160,6 +160,9 @@ describe('analyticsUtils', () => {
         it('correctly aggregates filler words and returns sorted results', () => {
             const sessionHistory = [
                 {
+                    // #1047: genuine captured sessions (transcript_state 'available') so the aggregation logic
+                    // is what's under test, not the provenance gate.
+                    transcript_state: 'available',
                     filler_words: {
                         um: { count: 10 },
                         like: { count: 5 },
@@ -167,6 +170,7 @@ describe('analyticsUtils', () => {
                     }
                 },
                 {
+                    transcript_state: 'available',
                     filler_words: {
                         um: { count: 5 },
                         basically: { count: 20 },
@@ -209,5 +213,60 @@ describe('analyticsUtils', () => {
             const result = calculateTopFillerWords(sessionHistory);
             expect(result).toEqual([]);
         });
+    });
+});
+
+describe('(#1047) transcript provenance — not_captured excluded from every transcript-derived aggregate', () => {
+    // Two genuine sessions (no server state → derived available) + one not_captured row carrying LARGE stale
+    // words/fillers/clarity/accuracy. Every transcript-derived aggregate on the mixed history must EQUAL the
+    // valid-only result; only total practice TIME is allowed to include the not_captured row's duration.
+    const validOnly: PracticeSession[] = mockSessionHistory;
+    const notCaptured: PracticeSession = {
+        id: 'nc', created_at: '2023-10-28T10:00:00.000Z', user_id: 'user-1',
+        duration: 600, total_words: 9999, clarity_score: 99, accuracy: 0.99,
+        filler_words: { um: { count: 999 }, total: { count: 999 } },
+        title: 'Never captured', transcript: '', transcript_state: 'not_captured',
+        pause_metrics: { silencePercentage: 0, transitionPauses: 0, extendedPauses: 0, longestPause: 0 },
+    };
+    const mixed: PracticeSession[] = [...validOnly, notCaptured];
+
+    it('overall rates (WPM, filler rate, clarity) equal the valid-only result', () => {
+        const v = calculateOverallStats(validOnly);
+        const m = calculateOverallStats(mixed);
+        expect(m.averageWPM).toBe(v.averageWPM);                       // 100 — stale 9999 words excluded
+        expect(m.avgFillerWordsPerMin).toBe(v.avgFillerWordsPerMin);   // '1.5' — stale 999 fillers excluded
+        expect(m.avgClarity).toBe(v.avgClarity);                       // '92.5' — stale clarity 99 excluded
+    });
+
+    it('total practice TIME stays all-session (the one metric that includes not_captured duration)', () => {
+        const v = calculateOverallStats(validOnly);
+        const m = calculateOverallStats(mixed);
+        expect(v.totalPracticeTime).toBe(15);                          // 900s
+        expect(m.totalPracticeTime).toBe(25);                         // 900s + 600s = 1500s = 25 min
+        expect(m.totalSessions).toBe(3);                              // the not_captured row is still a session
+    });
+
+    it('top fillers, filler trends and chart points exclude the not_captured stale counts', () => {
+        expect(calculateTopFillerWords(mixed)).toEqual(calculateTopFillerWords(validOnly));
+        expect(calculateFillerWordTrends(mixed)).toEqual(calculateFillerWordTrends(validOnly));
+        // The not_captured chart point (most recent) carries null rate + null clarity, never stale values.
+        const ncPoint = calculateOverallStats(mixed).chartData.find(p => p.date === new Date(notCaptured.created_at).toLocaleDateString());
+        expect(ncPoint?.['FW/min']).toBeNull();
+        expect(ncPoint?.clarity).toBeNull();
+    });
+
+    it('accuracy series excludes a not_captured row even with retained accuracy/transcript', () => {
+        const validAcc: PracticeSession = {
+            id: 'va', created_at: '2023-10-27T10:00:00.000Z', user_id: 'user-1', duration: 60,
+            total_words: 4, engine: 'private-v2', ground_truth: 'the quick brown fox',
+            transcript: 'the quick brown fox', accuracy: 0.95, transcript_state: 'available',
+        };
+        const ncAcc: PracticeSession = {
+            id: 'nca', created_at: '2023-10-28T10:00:00.000Z', user_id: 'user-1', duration: 60,
+            total_words: 4, engine: 'private-v2', ground_truth: 'the quick brown fox',
+            transcript: 'totally different stale words', accuracy: 0.10, transcript_state: 'not_captured',
+        };
+        expect(calculateAccuracyData([validAcc, ncAcc])).toEqual(calculateAccuracyData([validAcc]));
+        expect(calculateAccuracyData([validAcc, ncAcc])).toHaveLength(1);
     });
 });
