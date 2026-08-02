@@ -544,5 +544,22 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             // Duration is still real evidence and must survive.
             expect(Number(overallStats.totalPracticeTime)).toBeGreaterThan(0);
         });
+
+        it('(#1047) a not_captured-shaped session (total_words:0, empty filler) contributes to NO aggregate — only real sessions set the averages', async () => {
+            // A not_captured row's persisted evidence IS total_words:0 / empty filler_words. The server
+            // contributor rules (words > 0, clarity_score NOT NULL AND words >= 3) reject it, so it never
+            // drags an average toward a fabricated zero. An available session sets the averages; an
+            // expired-with-persisted row (real words) would legitimately contribute.
+            const db = await makeDb();
+            await seed(db, [
+                fx('available', { created_at: '2026-07-01T10:00:00Z', total_words: 120, wpm: 120, clarity_score: 88, transcript: words(120), filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('not_captured', { created_at: '2026-07-02T10:00:00Z', duration: 6, total_words: 0, wpm: null, clarity_score: null, transcript: '', filler_words: {}, pause_metrics: null }),
+            ]);
+            const { overallStats } = await callRpc(db, USER);
+            expect(overallStats.totalSessions).toBe(2);                 // both are sessions
+            expect(overallStats.wpmContributorCount).toBe(1);          // only the available one
+            expect(overallStats.clarityContributorCount).toBe(1);
+            expect(Number(overallStats.avgClarity)).toBeCloseTo(88.0, 1); // not dragged toward 0
+        });
     });
 });

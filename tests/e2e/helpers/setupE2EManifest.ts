@@ -234,7 +234,6 @@ export async function setupE2EManifest(
         title: 'Test Session',
         duration: 300,
         total_words: 150,
-        transcript: 'the birch canoe slid on the smooth planks',
         filler_words: { um: { count: 2 }, uh: { count: 3 } },
         accuracy: 0.92,
         clarity_score: 88,
@@ -250,6 +249,12 @@ export async function setupE2EManifest(
         pause_metrics: null,
         ...overrides,
       };
+      // #1047: preserve an OMITTED transcript as absent for ordinary CLIENT writes — the mock must not
+      // synthesize content the client never supplied. Only AUTHORITATIVE fixtures (seed + default history)
+      // get the canned transcript, and only when they didn't specify one themselves.
+      if (opts.authoritative && !('transcript' in overrides)) {
+        row.transcript = 'the birch canoe slid on the smooth planks';
+      }
       return reconcileTranscriptState(row, { authoritative: opts.authoritative });
     };
 

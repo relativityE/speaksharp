@@ -135,6 +135,17 @@ test.describe('#1047 U1 E2E mock fidelity — a client cannot self-assert `expir
     await expect(el).not.toContainText('the original words');
   });
 
+  test('an ordinary client INSERT that omits transcript keeps it ABSENT (→ not_captured), never a synthesized default', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    const row = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      const res = await sb.from('sessions').insert({ id: 'fx-omit', title: 'omit', total_words: 0 }); // NO transcript field
+      return res.data[0];
+    });
+    expect(row.transcript_state).toBe('not_captured');
+    expect(row.transcript == null).toBe(true); // absent (null/undefined) — the mock must not invent content
+  });
+
   test('an authoritative expired fixture seed persists as `expired` with transcript null', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'fx-seed', transcript: 'original text', transcript_state: 'expired' as const, engine: 'private' as const }] });
     const row = await page.evaluate(async () => {

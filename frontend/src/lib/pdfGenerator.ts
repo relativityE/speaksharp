@@ -55,6 +55,11 @@ const formatDuration = (seconds: number): string => {
 };
 
 export const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
+  // #1047: transcript-state provenance gates the whole detailed filler table. A not_captured row (sentinel
+  // filler map) or an expired row without genuinely-persisted filler evidence yields NO table — never a
+  // fabricated zero-count table nor a transcript recount from absent text.
+  const state = presentTranscript(session.transcript_state, session.transcript).state;
+  if (!transcriptDerivedMetricShowable(state, isUsableFillerCounts(session.filler_words))) return [];
   // #SSOT: persisted canonical filler data is authoritative. When it exists (even a valid ZERO), use it
   // and DO NOT recount — a saved zero must render as no fillers. Recount the transcript ONLY when the
   // saved filler data is absent/malformed.
@@ -213,7 +218,9 @@ export const generateSessionPdf = async (
       ['Clear Delivery', clarityCell],
       ['Total Filler Words', fillerCell],
       ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
-      ['Custom Words Detected', `${customWordsDetected}`],
+      // #1047: "detected" is transcript-derived — gate on provenance so a not_captured/expired-unpersisted
+      // row shows N/A, never a fabricated 0 detected.
+      ['Custom Words Detected', transcriptDerivedMetricShowable(transcriptState, isUsableFillerCounts(session.filler_words)) ? `${customWordsDetected}` : 'N/A'],
       ['Transcription Mode', formatSessionRecordingMode(session)],
       ['Engine Details', engineDetails || 'Not recorded'],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],

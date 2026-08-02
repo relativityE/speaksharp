@@ -332,6 +332,31 @@ describe('getPdfFillerTableData — SSOT: persisted canonical wins, no recount o
     expect(rows.length).toBeGreaterThan(0);
   });
 
+  it('(#1047) a not_captured session yields NO filler table even with a stale/sentinel filler map', () => {
+    const rows = getPdfFillerTableData({
+      ...base,
+      transcript: '',
+      transcript_state: 'not_captured',
+      filler_words: { total: { count: 0, color: '' }, um: { count: 4, color: '' } }, // stale sentinel data
+    } as unknown as Session);
+    expect(rows).toEqual([]); // provenance gate: not_captured never renders a filler table
+  });
+
+  it('(#1047) an expired session without persisted filler evidence yields NO filler table', () => {
+    const rows = getPdfFillerTableData({
+      ...base, transcript: null, transcript_state: 'expired', filler_words: {},
+    } as unknown as Session);
+    expect(rows).toEqual([]);
+  });
+
+  it('(#1047) an expired session WITH genuinely persisted filler evidence still renders it', () => {
+    const rows = getPdfFillerTableData({
+      ...base, transcript: null, transcript_state: 'expired',
+      filler_words: { total: { count: 2, color: '' }, um: { count: 2, color: '' } },
+    } as unknown as Session);
+    expect(rows).toEqual([['um', 2]]); // expired keeps its genuinely-persisted measurements
+  });
+
   // #1047 PR-U1: the PDF must print the honest transcript-state reason, never an ordinary empty transcript
   // and never the removed text. Self-contained session (this describe is outside mockSession's scope).
   const u1Session = (over: Partial<Session>): Session => ({
