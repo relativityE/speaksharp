@@ -58,4 +58,15 @@ describe('#1132 Private browser benchmark evidence sanitization', () => {
             privateAudioChunks: [{ wavDataUrl: 'data:audio/wav;base64,' }],
         }, 'private-cpu')).toThrow(/empty|base64 audio data URL/);
     });
+
+    it('fails closed when the browser capture globals produce no hashed audio route', () => {
+        expect(() => sanitizePrivateBenchmarkEvidence({
+            privateAudioChunks: [],
+            privateUtteranceAudioChunks: [],
+        }, 'private-cpu')).toThrow(/at least one valid captured-audio hash/);
+
+        expect(() => sanitizePrivateBenchmarkEvidence({
+            privateAudioChunks: [{ samples: 16_000, durationSec: 1 }],
+        }, 'private-cpu')).toThrow(/at least one valid captured-audio hash/);
+    });
 });

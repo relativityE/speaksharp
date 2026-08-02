@@ -586,6 +586,14 @@ export function sanitizePrivateBenchmarkEvidence(
     const transcriptWordCount = typeof rawEvidence.transcriptText === 'string'
         ? rawEvidence.transcriptText.trim().split(/\s+/).filter(Boolean).length
         : 0;
+    const privateAudioChunks = summarizePrivateAudioChunks(rawEvidence.privateAudioChunks);
+    const privateUtteranceAudioChunks = summarizePrivateAudioChunks(rawEvidence.privateUtteranceAudioChunks);
+    const capturedAudioHashes = [...privateAudioChunks, ...privateUtteranceAudioChunks]
+        .map(chunk => chunk.audioSha256)
+        .filter((hash): hash is string => hash != null);
+    if (capturedAudioHashes.length === 0) {
+        throw new Error('Private benchmark evidence requires at least one valid captured-audio hash');
+    }
     return {
         schemaVersion: 1,
         kind: 'private-browser-benchmark-summary',
@@ -604,8 +612,8 @@ export function sanitizePrivateBenchmarkEvidence(
         privateTranscriptTraceEventCount: Array.isArray(rawEvidence.privateTranscriptTrace)
             ? rawEvidence.privateTranscriptTrace.length
             : 0,
-        privateAudioChunks: summarizePrivateAudioChunks(rawEvidence.privateAudioChunks),
-        privateUtteranceAudioChunks: summarizePrivateAudioChunks(rawEvidence.privateUtteranceAudioChunks),
+        privateAudioChunks,
+        privateUtteranceAudioChunks,
     };
 }
 
@@ -673,12 +681,7 @@ export async function attachPrivateBenchmarkEvidence(
             privateAudioChunks: (debugWindow.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
             privateUtteranceAudioChunks: (debugWindow.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
         };
-    }, { evidenceLabel: label, includeAudioDataUrl }).catch((error) => ({
-        label,
-        capturedAt: new Date().toISOString(),
-        error: error instanceof Error ? error.message : String(error),
-        url: page.url(),
-    }));
+    }, { evidenceLabel: label, includeAudioDataUrl });
 
     // The raw object may contain replayable audio and user/session text. Keep it
     // in memory only; never write or attach it beneath Playwright upload roots.
