@@ -15,6 +15,34 @@
 /** Evidence class. Corpus and browser-journey rows must never share a WER ranking. */
 export type ComparabilityClass = 'corpus_fixture' | 'browser_journey';
 
+/** Closed set of how a browser_journey may be driven — enforced at RUNTIME (types are erased). */
+export const BROWSER_EXECUTION_MODES = new Set(['automated', 'manual-assisted']);
+
+/** Cloud/Private engine keys a browser_journey MUST prove its guard protected (installed before app code). */
+export const REQUIRED_FORBIDDEN_ENGINE_KEYS = ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'];
+
+/**
+ * #1037: a browser_journey row must declare an HONEST runtime_capability (the Browser/Web-Speech runtime
+ * path + a well-typed capability shape), validated at runtime rather than skipped. Returns problems (empty
+ * = admissible). Mirrors scripts/validate-stt-evidence.mjs.
+ */
+function browserRuntimeCapabilityProblems(rc: unknown): string[] {
+    if (typeof rc !== 'object' || rc === null || Array.isArray(rc)) {
+        return ['browser_journey runtime_capability must be an object'];
+    }
+    const cap = rc as Record<string, unknown>;
+    const problems: string[] = [];
+    if (cap.runtimePath !== 'browser-webspeech') problems.push(`browser_journey runtime_capability.runtimePath must be 'browser-webspeech', got '${String(cap.runtimePath)}'`);
+    for (const k of ['requestedThreads', 'configuredThreads', 'workerReportedThreads']) {
+        if (!(cap[k] === null || (typeof cap[k] === 'number' && Number.isFinite(cap[k])))) problems.push(`browser_journey runtime_capability.${k} must be a finite number or null`);
+    }
+    for (const k of ['crossOriginIsolated', 'sharedArrayBufferAvailable']) {
+        if (typeof cap[k] !== 'boolean') problems.push(`browser_journey runtime_capability.${k} must be a boolean`);
+    }
+    if (!(cap.fallbackReason === null || typeof cap.fallbackReason === 'string')) problems.push('browser_journey runtime_capability.fallbackReason must be a string or null');
+    return problems;
+}
+
 export type RunValidity = 'valid' | 'invalid';
 
 /** Closed set — an unrecognized failure is `unknown`, never invented. */
@@ -67,11 +95,51 @@ export interface RuntimeCapability {
      * `node-onnxruntime` is the Node corpus harness (onnxruntime-node native bindings) — model-equivalent
      * to, but NOT the same runtime as, the production browser worker (`wasm`/`wasm-multithread`/`webgpu`).
      */
-    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime';
+    runtimePath: 'wasm' | 'wasm-multithread' | 'webgpu' | 'node-onnxruntime' | 'browser-webspeech';
     crossOriginIsolated: boolean;
     sharedArrayBufferAvailable: boolean;
     /** Populated when the achieved configuration differs from the requested one. */
     fallbackReason: string | null;
+}
+
+/** Browser/Web Speech assertions that distinguish a real recording from an availability smoke. */
+export interface BrowserJourneyEvidence {
+    supportState: 'supported' | 'unavailable' | 'start-failure';
+    executionMode: 'automated' | 'manual-assisted';
+    recognitionStarted: boolean;
+    timerAdvanced: boolean;
+    transcriptProduced: boolean;
+    sessionProduced: boolean;
+    browserManagedTranscription: true;
+    applicationServerWrites: number;
+    cloudProviderCalls: number;
+    /**
+     * SHA-256 of the PROMPT/utterance text the operator spoke — informational provenance only. It is NOT
+     * an audio-fixture hash and never proves an audio route (attended speech is played through a physical
+     * speaker/mic; Web Speech's capture is opaque). Kept off `fixtureHash` deliberately.
+     */
+    promptSha256?: string;
+    /**
+     * Forbidden-engine tripwire result carried IN THE ROW (not just the artifact envelope) so the offline
+     * validator — the runtime boundary for arbitrary JSON — can independently enforce it. Each entry records
+     * a Cloud/Private engine that was constructed/started during the journey. Admissibility REQUIRES this to
+     * be present and EMPTY: a missing field cannot prove the guard ran, and a non-empty list proves a
+     * forbidden engine fired. See scripts/browser-webspeech-evidence.mts.
+     */
+    forbiddenEngineInvocations: Array<{ key: string; phase: string; at: number }>;
+    /**
+     * Proof the forbidden-engine guard was INSTALLED (atomically, before any application module could
+     * resolve an engine) and the exact key set it protected. An empty invocation list is only meaningful if
+     * the guard is proven installed and covers every required Cloud/Private key — so admissibility REQUIRES
+     * `installed === true` and `protectedKeys ⊇ REQUIRED_FORBIDDEN_ENGINE_KEYS`.
+     */
+    forbiddenEngineGuard: { installed: boolean; protectedKeys: string[] };
+    /**
+     * Release-proof eligibility as the LOADED build reported it (`__APP_RUNTIME_CONFIG__.releaseProofEligible`).
+     * Admissibility REQUIRES `true` — a diagnostic/mock runtime (which reports false) cannot back release
+     * evidence even if it exposes a 40-char `__APP_RELEASE__`.
+     */
+    releaseProofEligible: boolean;
 }
 
 /**
@@ -126,6 +194,7 @@ export interface SttEvidenceRow {
     audio_route_evidence: AudioRouteEvidence;
     runtime_capability: RuntimeCapability;
     comparability_inputs: ComparabilityInputs;
+    browser_journey_evidence?: BrowserJourneyEvidence;
 }
 
 /**
@@ -176,44 +245,96 @@ export function finalizeRow(
         problems.push(`release_sha '${row.release_sha}' must be the FULL 40-character commit SHA`);
     }
 
-    const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);
-    if (!route.proven) problems.push(`audio route unproven: ${route.reason}`);
+    // Two distinct admissibility contracts. A corpus row is admissible on a PROVEN audio route +
+    // VERIFIED engine attribution + comparability inputs. A browser_journey row cannot prove either — Web
+    // Speech's recognizer capture is opaque and it exposes no trustworthy provider/model identity — so it
+    // is admissible on JOURNEY evidence instead (recognition actually started, timer advanced, transcript
+    // + session produced, zero app-server/Cloud calls), stays honestly `unverified`, carries no WER, and
+    // is never ranked (see rankableRows). Its `audio_route_proven` is false by construction, which for a
+    // browser_journey is expected — NOT a failure.
+    const isBrowser = row.comparability_class === 'browser_journey';
+    let routeProven = false;
 
-    if (row.attribution_status !== 'verified') {
-        problems.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+    if (isBrowser) {
+        const journey = row.browser_journey_evidence;
+        if (!journey) {
+            problems.push('browser_journey row missing browser_journey_evidence');
+        } else {
+            if (journey.supportState !== 'supported') problems.push(`Browser support state is '${journey.supportState}', not supported`);
+            if (!journey.recognitionStarted) problems.push('Browser recognition did not actually start');
+            if (!journey.timerAdvanced) problems.push('Browser recording timer did not advance beyond 00:00');
+            if (!journey.transcriptProduced) problems.push('Browser journey produced no transcript');
+            if (!journey.sessionProduced) problems.push('Browser journey produced no session');
+            if (journey.applicationServerWrites !== 0) problems.push('Browser evidence made an application-server write');
+            if (journey.cloudProviderCalls !== 0) problems.push('Browser evidence invoked a SpeakSharp Cloud provider');
+            if (journey.browserManagedTranscription !== true) problems.push('browser_journey must affirm browserManagedTranscription === true');
+            if (!BROWSER_EXECUTION_MODES.has(journey.executionMode)) problems.push(`browser_journey executionMode must be one of ${[...BROWSER_EXECUTION_MODES].join('/')}, got '${journey.executionMode}'`);
+            // Forbidden-engine guard proof must be IN the row: present (guard ran) and empty (no Cloud/Private
+            // engine constructed or started). A missing field or any invocation is inadmissible.
+            if (!Array.isArray(journey.forbiddenEngineInvocations)) problems.push('browser_journey must carry a forbiddenEngineInvocations array (tripwire proof)');
+            else if (journey.forbiddenEngineInvocations.length !== 0) problems.push(`browser_journey recorded a forbidden engine construction/start: ${JSON.stringify(journey.forbiddenEngineInvocations)}`);
+            // Guard-installation proof: an empty invocation list is only meaningful if the guard is proven
+            // installed (atomically, before app code) and protected every required Cloud/Private key.
+            const guard = journey.forbiddenEngineGuard;
+            if (!guard || guard.installed !== true) problems.push('browser_journey must prove forbiddenEngineGuard.installed === true (guard authoritative before app execution)');
+            else {
+                const missing = REQUIRED_FORBIDDEN_ENGINE_KEYS.filter(k => !Array.isArray(guard.protectedKeys) || !guard.protectedKeys.includes(k));
+                if (missing.length) problems.push(`browser_journey guard did not protect required forbidden engines: ${missing.join(', ')}`);
+            }
+            // Release-proof attestation: a diagnostic/mock runtime (releaseProofEligible=false) cannot back
+            // release evidence even with a valid __APP_RELEASE__.
+            if (journey.releaseProofEligible !== true) problems.push('browser_journey must be produced by a release-proof runtime (releaseProofEligible === true)');
+        }
+        // Runtime capability is validated for Browser rows too (not skipped): Browser/Web-Speech runtime
+        // path + a well-typed capability shape.
+        problems.push(...browserRuntimeCapabilityProblems(row.runtime_capability));
+        // Honesty guards: browser_journey is the canonical Browser engine, exactly 'unverified', never
+        // rankable — a class label alone must not admit another engine's row.
+        if (row.engine !== 'browser-webspeech') problems.push(`browser_journey requires engine 'browser-webspeech', got '${row.engine}'`);
+        if (row.attribution_status !== 'unverified') problems.push(`browser_journey attribution must be exactly 'unverified', got '${row.attribution_status}'`);
+        if (row.wer !== null && row.wer !== undefined) problems.push('browser_journey is non-rankable — wer must be null');
+    } else {
+        const route = deriveAudioRouteProven(row.audio_route_evidence, row.engine);
+        routeProven = route.proven;
+        if (!route.proven) problems.push(`audio route unproven: ${route.reason}`);
+
+        if (row.attribution_status !== 'verified') {
+            problems.push(`attribution_status is '${row.attribution_status}', not 'verified' — engine evidence inadmissible`);
+        }
+
+        const ci = row.comparability_inputs;
+        for (const [k, v] of Object.entries({
+            fixtureHash: ci?.fixtureHash, groundTruthVersion: ci?.groundTruthVersion,
+            normalizationVersion: ci?.normalizationVersion, decodeConfiguration: ci?.decodeConfiguration,
+            modelRevision: ci?.modelRevision,
+        })) {
+            if (!v) problems.push(`missing comparability input ${k}`);
+        }
+        if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
+            problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
+        }
+        if (!ci?.runtimeVersions || Object.keys(ci.runtimeVersions).length === 0) {
+            problems.push('runtimeVersions must be a non-empty map — a silent runtime upgrade would invalidate any ranking');
+        }
+        // One canonical fixture hash: the comparability input must be the same value the route proved.
+        if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
+            ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
+            problems.push('fixtureHash does not match the routed fixture');
+        }
     }
 
-    const ci = row.comparability_inputs;
-    for (const [k, v] of Object.entries({
-        fixtureHash: ci?.fixtureHash, groundTruthVersion: ci?.groundTruthVersion,
-        normalizationVersion: ci?.normalizationVersion, decodeConfiguration: ci?.decodeConfiguration,
-        modelRevision: ci?.modelRevision,
-    })) {
-        if (!v) problems.push(`missing comparability input ${k}`);
-    }
-    if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
-        problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
-    }
-    if (!ci?.runtimeVersions || Object.keys(ci.runtimeVersions).length === 0) {
-        problems.push('runtimeVersions must be a non-empty map — a silent runtime upgrade would invalidate any ranking');
-    }
-    // One canonical fixture hash: the comparability input must be the same value the route proved.
-    if (ci?.fixtureHash && row.audio_route_evidence?.fixtureSha256 &&
-        ci.fixtureHash !== row.audio_route_evidence.fixtureSha256) {
-        problems.push('fixtureHash does not match the routed fixture');
-    }
-
-    // WER is only admissible on a proven route. Never estimated, never defaulted to zero.
-    const wer = route.proven ? (row.wer ?? null) : null;
+    // WER is only admissible on a proven corpus route. Never estimated, never defaulted to zero.
+    const wer = routeProven ? (row.wer ?? null) : null;
 
     const invalid = problems.length > 0 || row.invalid_reason != null;
     return {
         ...row,
         wer,
-        audio_route_proven: route.proven,
+        audio_route_proven: routeProven,
         run_validity: invalid ? 'invalid' : 'valid',
         invalid_reason: invalid ? [row.invalid_reason, ...problems].filter(Boolean).join('; ') : null,
-        failure_class: !route.proven && row.failure_class === 'none' ? 'audio_route_unproven' : row.failure_class,
+        // An unproven route is a failure only for corpus rows; for browser_journey it is expected.
+        failure_class: !isBrowser && !routeProven && row.failure_class === 'none' ? 'audio_route_unproven' : row.failure_class,
     };
 }
 

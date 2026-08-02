@@ -151,6 +151,153 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.runtime_capability.fallbackReason).toContain('crossOriginIsolated');
     });
 
+    /** A valid browser_journey: honestly UNVERIFIED, no audio route, wer null, admissible on journey proof. */
+    const browserBase = (journey: Partial<import('../sttEvidenceSchema').BrowserJourneyEvidence> = {}) => base({
+        comparability_class: 'browser_journey',
+        engine: 'browser-webspeech',
+        attribution_status: 'unverified',
+        wer: null,
+        runtime_capability: {
+            requestedThreads: null, configuredThreads: null, workerReportedThreads: null,
+            runtimePath: 'browser-webspeech', crossOriginIsolated: false,
+            sharedArrayBufferAvailable: false, fallbackReason: null,
+        },
+        browser_journey_evidence: {
+            supportState: 'supported', executionMode: 'manual-assisted',
+            recognitionStarted: true, timerAdvanced: true, transcriptProduced: true,
+            sessionProduced: true, browserManagedTranscription: true,
+            applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [],
+            forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] }, releaseProofEligible: true,
+            ...journey,
+        },
+    });
+
+    it('a Browser journey is admissible on journey proof alone — unverified, no audio route, wer null', () => {
+        const r = finalizeRow(browserBase());
+        expect(r.run_validity).toBe('valid');
+        expect(r.audio_route_proven).toBe(false); // Web Speech route is opaque — never claimed
+        expect(r.attribution_status).toBe('unverified');
+        expect(r.wer).toBeNull();
+    });
+
+    it.each(['verified', 'pending', 'legacy_unknown'] as const)(
+        'a Browser journey with attribution %s is rejected — must be exactly unverified',
+        (status) => {
+            const r = finalizeRow({ ...browserBase(), attribution_status: status });
+            expect(r.run_validity).toBe('invalid');
+            expect(r.invalid_reason).toMatch(/attribution must be exactly 'unverified'/i);
+        },
+    );
+
+    it('a browser_journey with a non-canonical engine is rejected (a class label cannot launder another engine)', () => {
+        const r = finalizeRow({ ...browserBase(), engine: 'cloud' });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/requires engine 'browser-webspeech'/i);
+    });
+
+    it('a Browser journey that carries a WER is rejected (non-rankable)', () => {
+        const r = finalizeRow({ ...browserBase(), wer: 0.05 });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/non-rankable — wer must be null/i);
+    });
+
+    it.each([
+        ['recognitionStarted', false, /recognition did not actually start/i],
+        ['timerAdvanced', false, /timer did not advance/i],
+        ['transcriptProduced', false, /no transcript/i],
+        ['sessionProduced', false, /no session/i],
+    ] as const)('Browser journey fails closed when %s is not proven', (field, value, reason) => {
+        const r = finalizeRow(browserBase({ [field]: value }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(reason);
+    });
+
+    it('a Browser journey that does not affirm browserManagedTranscription is rejected', () => {
+        const r = finalizeRow(browserBase({ browserManagedTranscription: false as unknown as true }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/browserManagedTranscription === true/i);
+    });
+
+    it('a Browser journey with an executionMode outside the closed set is rejected', () => {
+        const r = finalizeRow(browserBase({ executionMode: 'totally-made-up' as unknown as 'automated' }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/executionMode must be one of/i);
+    });
+
+    it('a Browser journey missing the forbidden-engine tripwire proof is rejected', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineInvocations: undefined as unknown as [] }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/forbiddenEngineInvocations array/i);
+    });
+
+    it('a Browser journey that recorded a forbidden-engine construction is rejected', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineInvocations: [{ key: 'transformers-js', phase: 'construct', at: 1 }] }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/recorded a forbidden engine/i);
+    });
+
+    it('a Browser journey whose guard was NOT installed is rejected (empty invocations alone is insufficient)', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineGuard: { installed: false, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] } }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/forbiddenEngineGuard\.installed === true/i);
+    });
+
+    it('a Browser journey whose guard omits a required Cloud/Private key is rejected', () => {
+        const r = finalizeRow(browserBase({ forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai'] } }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/did not protect required forbidden engines/i);
+    });
+
+    it('a Browser journey from a non-release-proof runtime is rejected', () => {
+        const r = finalizeRow(browserBase({ releaseProofEligible: false }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/release-proof runtime/i);
+    });
+
+    it.each([
+        ['string "true"', 'true'],
+        ['string "false"', 'false'],
+        ['numeric 1', 1],
+        ['null', null],
+    ] as const)('rejects a malformed truthy releaseProofEligible (%s) — must be exactly boolean true', (_label, value) => {
+        const r = finalizeRow(browserBase({ releaseProofEligible: value as unknown as boolean }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/release-proof runtime/i);
+    });
+
+    it('admits OBSERVED capability values — true and false are both valid (not manufactured)', () => {
+        const observedTrue = finalizeRow({
+            ...browserBase(),
+            runtime_capability: { ...browserBase().runtime_capability, crossOriginIsolated: true, sharedArrayBufferAvailable: true },
+        });
+        expect(observedTrue.run_validity).toBe('valid');
+        expect(finalizeRow(browserBase()).run_validity).toBe('valid'); // observed false also valid
+    });
+
+    it('a Browser journey missing runtime_capability is rejected (capability is validated, not skipped)', () => {
+        const r = finalizeRow({ ...browserBase(), runtime_capability: undefined as unknown as RawRow['runtime_capability'] });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/runtime_capability must be an object/i);
+    });
+
+    it('a Browser journey declaring a non-Browser runtime path is rejected', () => {
+        const r = finalizeRow({
+            ...browserBase(),
+            runtime_capability: { ...browserBase().runtime_capability, runtimePath: 'wasm' as const },
+        });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/runtimePath must be 'browser-webspeech'/i);
+    });
+
+    it('a Browser journey with a mistyped capability field is rejected', () => {
+        const r = finalizeRow({
+            ...browserBase(),
+            runtime_capability: { ...browserBase().runtime_capability, crossOriginIsolated: 'nope' as unknown as boolean },
+        });
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/crossOriginIsolated must be a boolean/i);
+    });
+
     it('thread reporting distinguishes requested / configured / worker-reported; unreported is null not inferred', () => {
         const r = finalizeRow(base({
             runtime_capability: { ...base().runtime_capability, configuredThreads: 4, workerReportedThreads: null },
