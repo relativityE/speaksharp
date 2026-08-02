@@ -40,7 +40,8 @@ describe('Analytics Math Integrity', () => {
                 total_words: 150,
                 duration: 60, // 1 minute
                 created_at: new Date().toISOString(),
-                filler_words: {}
+                filler_words: {},
+                transcript_state: 'available', // #1047: a genuine captured session — math contract under test
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
@@ -52,7 +53,8 @@ describe('Analytics Math Integrity', () => {
                 total_words: 100,
                 duration: 30, // 0.5 minutes
                 created_at: new Date().toISOString(),
-                filler_words: {}
+                filler_words: {},
+                transcript_state: 'available',
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
@@ -69,7 +71,8 @@ describe('Analytics Math Integrity', () => {
                 filler_words: {
                     um: { count: 5 },
                     total: { count: 5 }
-                }
+                },
+                transcript_state: 'available',
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
@@ -82,13 +85,15 @@ describe('Analytics Math Integrity', () => {
                     created_at: new Date().toISOString(),
                     filler_words: { um: { count: 5 }, total: { count: 5 } },
                     duration: 60,
-                    total_words: 100
+                    total_words: 100,
+                    transcript_state: 'available',
                 },
                 {
                     created_at: new Date().toISOString(),
                     filler_words: { like: { count: 2 }, total: { count: 2 } },
                     duration: 60,
-                    total_words: 100
+                    total_words: 100,
+                    transcript_state: 'available',
                 }
             ] as Partial<PracticeSession>[];
 
@@ -104,6 +109,7 @@ describe('Analytics Math Integrity', () => {
             const sessions = Array.from({ length: 10 }).map((_, i) => ({
                 created_at: new Date(2023, 9, i + 1).toISOString(),
                 duration: 60,
+                transcript_state: 'available', // #1047: genuine captured sessions — trend math under test
                 filler_words: {
                     um: { count: i < 5 ? 5 : 10 }, // 10, 10, 10, 10, 10 (prev) vs 5, 5, 5, 5, 5 (curr)
                     total: { count: i < 5 ? 5 : 10 }
