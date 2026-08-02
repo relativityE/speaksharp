@@ -39,6 +39,12 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
 
     const config = metricConfig[metric];
 
+    // #1047: sufficiency is per-metric NON-NULL points, not total session count. A provenance-gated metric
+    // is null for not_captured/expired sessions, so a history of 5 sessions may carry <2 real WPM points —
+    // charting that would draw a misleading near-empty trend. Require ≥2 genuine (non-null) points.
+    const nonNullPoints = data.filter((d) => d[metric] != null).length;
+    const insufficient = nonNullPoints < 2;
+
     return (
         <Card className="rounded-xl p-6" data-testid={`${metric}-trend-chart`}>
             <div className="mb-6">
@@ -47,7 +53,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
             </div>
 
             <div ref={chartContainer.ref} className="h-[240px] w-full">
-                {data.length < 2 ? (
+                {insufficient ? (
                     <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-foreground/75">
                         <p className="font-bold text-foreground">Not enough data yet</p>
                         <p className="text-sm font-medium">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>

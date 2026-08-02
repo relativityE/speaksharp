@@ -26,9 +26,15 @@ const MIGRATION_PATH = resolve(
     process.cwd(), 'backend', 'supabase', 'migrations',
     '20260729130000_analytics_summary_evidence_validity.sql',
 );
+// #1047: the additive redefinition gating contributors on explicit transcript_state.
+const PROVENANCE_MIGRATION_PATH = resolve(
+    process.cwd(), 'backend', 'supabase', 'migrations',
+    '20260801010000_analytics_summary_transcript_provenance.sql',
+);
 const BOOTSTRAP_PATH = resolve(process.cwd(), 'tests', 'db', 'analytics-summary-bootstrap.sql');
 
 const migrationSql = readFileSync(MIGRATION_PATH, 'utf8');
+const provenanceMigrationSql = readFileSync(PROVENANCE_MIGRATION_PATH, 'utf8');
 const bootstrapSql = readFileSync(BOOTSTRAP_PATH, 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -47,6 +53,7 @@ interface Fixture {
     transcript: string | null;
     filler_words: Record<string, { count: number }> | null;
     pause_metrics: Record<string, number> | null;
+    transcript_state?: string; // #1047: server-owned provenance; defaults to 'available' for existing fixtures
 }
 
 const fx = (label: string, over: Partial<Fixture> = {}): Fixture => ({
@@ -61,6 +68,7 @@ const fx = (label: string, over: Partial<Fixture> = {}): Fixture => ({
     transcript: null,
     filler_words: { um: { count: 2 }, total: { count: 2 } },
     pause_metrics: { transitionPauses: 1, extendedPauses: 1, averagePauseMs: 800, totalPauseMs: 1600 },
+    transcript_state: 'available',
     ...over,
 });
 
@@ -124,6 +132,7 @@ const makeDb = async (): Promise<PGlite> => {
     const db = new PGlite();
     await db.exec(bootstrapSql);
     await db.exec(migrationSql);
+    await db.exec(provenanceMigrationSql); // #1047: redefine get_analytics_summary to gate on transcript_state
     await db.exec(`INSERT INTO auth.users (id) VALUES ('${USER}'), ('${OTHER_USER}')`);
     return db;
 };
@@ -133,14 +142,14 @@ const seed = async (db: PGlite, rows: Fixture[], userId = USER) => {
         await db.query(
             `INSERT INTO public.sessions
                 (user_id, created_at, duration, total_words, clarity_score, wpm, accuracy, engine,
-                 transcript, filler_words, pause_metrics, title)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                 transcript, filler_words, pause_metrics, title, transcript_state)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [
                 userId, r.created_at, r.duration, r.total_words, r.clarity_score, r.wpm, r.accuracy,
                 r.engine, r.transcript,
                 r.filler_words === null ? null : JSON.stringify(r.filler_words),
                 r.pause_metrics === null ? null : JSON.stringify(r.pause_metrics),
-                r.label,
+                r.label, r.transcript_state ?? 'available',
             ],
         );
     }
@@ -545,21 +554,25 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             expect(Number(overallStats.totalPracticeTime)).toBeGreaterThan(0);
         });
 
-        it('(#1047) a not_captured-shaped session (total_words:0, empty filler) contributes to NO aggregate — only real sessions set the averages', async () => {
-            // A not_captured row's persisted evidence IS total_words:0 / empty filler_words. The server
-            // contributor rules (words > 0, clarity_score NOT NULL AND words >= 3) reject it, so it never
-            // drags an average toward a fabricated zero. An available session sets the averages; an
-            // expired-with-persisted row (real words) would legitimately contribute.
+        it('(#1047) the aggregate gates on EXPLICIT transcript_state — a not_captured row with real words/clarity is EXCLUDED (proves it, not total_words>0)', async () => {
+            // The discriminating case: a row carrying genuine total_words + clarity_score but
+            // transcript_state='not_captured'. The OLD `total_words > 0` rule would count it; the explicit
+            // transcript_state gate must EXCLUDE it (a not_captured row's numbers are sentinels, not evidence).
             const db = await makeDb();
             await seed(db, [
-                fx('available', { created_at: '2026-07-01T10:00:00Z', total_words: 120, wpm: 120, clarity_score: 88, transcript: words(120), filler_words: { um: { count: 2 }, total: { count: 2 } } }),
-                fx('not_captured', { created_at: '2026-07-02T10:00:00Z', duration: 6, total_words: 0, wpm: null, clarity_score: null, transcript: '', filler_words: {}, pause_metrics: null }),
+                fx('available', { created_at: '2026-07-01T10:00:00Z', total_words: 120, wpm: 120, clarity_score: 88, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('not_captured-with-numbers', { created_at: '2026-07-02T10:00:00Z', total_words: 200, wpm: 200, clarity_score: 40, transcript: '', transcript_state: 'not_captured', filler_words: { um: { count: 9 }, total: { count: 9 } } }),
+                // expired but with genuinely-persisted measurements → still contributes (transcript NULL).
+                fx('expired-persisted', { created_at: '2026-07-03T10:00:00Z', total_words: 90, wpm: 96, clarity_score: 84, transcript: null, transcript_state: 'expired', filler_words: { um: { count: 1 }, total: { count: 1 } } }),
             ]);
             const { overallStats } = await callRpc(db, USER);
-            expect(overallStats.totalSessions).toBe(2);                 // both are sessions
-            expect(overallStats.wpmContributorCount).toBe(1);          // only the available one
-            expect(overallStats.clarityContributorCount).toBe(1);
-            expect(Number(overallStats.avgClarity)).toBeCloseTo(88.0, 1); // not dragged toward 0
+            expect(overallStats.totalSessions).toBe(3);                 // all three are sessions
+            // Only available + expired-persisted contribute; the not_captured-with-numbers row is excluded
+            // despite total_words:200 — proof the gate is transcript_state, not total_words>0.
+            expect(overallStats.wpmContributorCount).toBe(2);
+            expect(overallStats.clarityContributorCount).toBe(2);
+            // avg clarity = (88 + 84)/2 = 86, NOT dragged down by the excluded not_captured clarity_score:40.
+            expect(Number(overallStats.avgClarity)).toBeCloseTo(86.0, 1);
         });
     });
 });

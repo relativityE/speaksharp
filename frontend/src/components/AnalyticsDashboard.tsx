@@ -929,7 +929,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 // actually readable — withholding the text disables "Get Suggestions".
                                 transcript={targetTranscript?.aiAvailable ? (targetSession.transcript || "") : ""}
                                 sessionId={targetSession.id}
-                                initialSuggestions={targetSession.ai_suggestions}
+                                // #1047: withhold STALE persisted AI suggestions when the transcript is not
+                                // readable (not_captured / expired) — a coaching conclusion tied to removed or
+                                // never-captured text must not resurface.
+                                initialSuggestions={targetTranscript?.aiAvailable ? targetSession.ai_suggestions : undefined}
                                 metrics={{
                                     wpm: targetSession.wpm,
                                     clarity_score: targetSession.clarity_score,
