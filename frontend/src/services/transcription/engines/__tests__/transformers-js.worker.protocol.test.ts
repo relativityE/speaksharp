@@ -153,6 +153,8 @@ describe('transformers-js.worker protocol contract', () => {
             expect(postedMessages).toContainEqual({ id: 10, type: 'ready' });
         });
         expect(wasm.numThreads).toBe(1);
+        expect(wasm.wasmPaths).toEqual(expect.stringMatching(/\/$/));
+        expect(typeof wasm.wasmPaths).toBe('string');
     });
 
     it('contract: initialized worker returns a result message for transcribe requests', async () => {

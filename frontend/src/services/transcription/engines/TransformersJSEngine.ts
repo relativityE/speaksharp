@@ -25,7 +25,7 @@ import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
 import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
-import { TRANSFORMERS_V2_WASM_PATHS } from './transformersV2WasmAssets';
+import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
@@ -261,7 +261,7 @@ export class TransformersJSEngine extends STTEngine {
             // model fails closed with a clear error instead of silently fetching from huggingface.co.
             env.allowRemoteModels = false;
             if (env.backends?.onnx?.wasm) {
-                env.backends.onnx.wasm.wasmPaths = TRANSFORMERS_V2_WASM_PATHS;
+                env.backends.onnx.wasm.wasmPaths = TRANSFORMERS_V2_WASM_PATH_PREFIX;
             }
 
             // Browser cache is only available in a real browser, not Happy-DOM/Node

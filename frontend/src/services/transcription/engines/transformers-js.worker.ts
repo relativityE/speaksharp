@@ -1,7 +1,7 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
-import { TRANSFORMERS_V2_WASM_PATHS } from './transformersV2WasmAssets';
+import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type WhisperDecodeOptions = Record<string, unknown>;
@@ -105,7 +105,7 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     try {
         const wasmBackend = env.backends?.onnx?.wasm;
         if (wasmBackend) {
-            wasmBackend.wasmPaths = TRANSFORMERS_V2_WASM_PATHS;
+            wasmBackend.wasmPaths = TRANSFORMERS_V2_WASM_PATH_PREFIX;
             const desiredThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
             requestedThreads = desiredThreads;
             wasmBackend.numThreads = desiredThreads;

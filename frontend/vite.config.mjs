@@ -56,6 +56,19 @@ export default defineConfig(({ mode }) => {
 
   const assetFileName = (assetInfo) => {
     const sourceName = assetInfo.names?.[0] ?? assetInfo.name ?? '';
+    const sourceBaseName = path.basename(sourceName);
+    const transformersV2OrtAssets = new Set([
+      'ort-wasm.wasm',
+      'ort-wasm-threaded.wasm',
+      'ort-wasm-simd.wasm',
+      'ort-wasm-simd-threaded.wasm',
+    ]);
+    if (transformersV2OrtAssets.has(sourceBaseName)) {
+      // ORT 1.14 receives a directory prefix, then chooses one of these exact
+      // filenames. Keep the runtime files stable while all other assets remain
+      // content-addressed.
+      return `assets/transformers-v2-ort/${sourceBaseName}`;
+    }
     const ext = sourceName.endsWith('.ts') ? 'js' : '[ext]';
     return `assets/[name]-[hash].${ext}`;
   };
@@ -108,7 +121,15 @@ export default defineConfig(({ mode }) => {
     assetsInclude: ['**/*.onnx'],
     assetsInlineLimit: 0, // Prevent WASM from being base64 encoded
     worker: {
-      format: 'es'
+      format: 'es',
+      rollupOptions: {
+        output: {
+          // Workers are a separate Rollup build. Apply the same ORT 1.14
+          // stable-filename contract there or their prefix would point at
+          // hashed files that ORT cannot derive.
+          assetFileNames: assetFileName,
+        },
+      },
     },
     server: {
       port: isTestMode ? PORTS.TEST : PORTS.PROD,
