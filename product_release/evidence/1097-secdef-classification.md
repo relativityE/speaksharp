@@ -73,8 +73,9 @@ grant), but the exposure is inert: it is a **trigger** on `auth.users`, not dire
 mutate state. Its surplus PUBLIC/anon EXECUTE grant should still be revoked.
 
 ### B. Authenticated / owner context (no PUBLIC), REVOKEd from PUBLIC — 14 functions
-Grantees are per-function from the actual `proacl`; there is **no blanket `service_role` grant** — most carry
-only `authenticated` (+ the owner). `check_usage_limit()`, `update_user_usage(integer,text,uuid)`,
+Grantees are per-function from the actual `proacl`; there is **no blanket `service_role` grant**. The split is
+**exactly half**: **7 of the 14** carry an explicit `service_role` grant (enumerated below), the **other 7**
+carry only `authenticated` (+ the owner). `check_usage_limit()`, `update_user_usage(integer,text,uuid)`,
 `create_session_and_update_usage(...)`, `complete_session(...)`, `heartbeat_session(uuid,integer)`,
 `consume_ai_suggestion_quota(...)`, `consume_formatter_quota(...)`, `get_analytics_summary(uuid)`,
 `set_user_timezone(text)`, `record_progress_evaluation(uuid)`, `record_progress_recommendation(...)`,
@@ -162,6 +163,12 @@ Direction (bounded; do NOT broaden into a general category-B/C `search_path` swe
   committed source**; whether a deployed edge function or external client calls one with the `service_role`
   key is **`deployed-unverified`** — PR-A does not read production — so PR-B must confirm the hosted caller set
   before removing any existing `service_role` grant.
+- **Preserve legitimate `service_role` access before revoking PUBLIC.** The seven Category-A functions have no
+  *explicit* `service_role` grant — `service_role` reaches them **through the default PUBLIC EXECUTE**. So
+  `REVOKE … FROM PUBLIC` also strips `service_role`'s (PUBLIC-inherited) access. Before revoking, PR-B must
+  confirm the **hosted** caller set (`deployed-unverified` here — PR-A does not read production), and wherever a
+  real `service_role` caller exists it must add the **minimum explicit** `GRANT EXECUTE … TO service_role` to
+  preserve it. Revoke-from-PUBLIC must not silently remove a `service_role` path that a deployed caller relies on.
 - Give the two cleanup workers a pg_temp-safe `search_path` (they have none) — the acute item, since they are
   **not** owner-scoped (see the ownership-enforcement correction above).
 

@@ -3,8 +3,10 @@ name: "SECURITY DEFINER classification (disposable Postgres)"
 # #1097 PR-A — read-only classification evidence, NOT a permanent CI system.
 #
 # Stands up throwaway `postgres` service containers, applies the classification prelude and then EVERY
-# committed migration under backend/supabase/migrations/*.sql VERBATIM (timestamp-prefixed files, in order),
-# and runs the portable psql classification matrix. It records, per SECURITY DEFINER function, the effective
+# committed migration under backend/supabase/migrations/*.sql (timestamp-prefixed files, in order) — VERBATIM
+# EXCEPT the single allowlisted RLS-policy normalization documented below (scripts/secdef-normalize-migration.mjs;
+# function / GRANT / REVOKE / table DDL is never transformed) — and runs the portable psql classification
+# matrix. It records, per SECURITY DEFINER function, the effective
 # EXECUTE authority (PUBLIC/anon/authenticated) and search_path (incl. pg_temp exposure) that the committed
 # migrations PRODUCE on the PostgreSQL major versions Supabase plausibly runs.
 #
@@ -89,7 +91,7 @@ jobs:
       - name: Apply the classification prelude (throwaway environment only)
         run: psql -v ON_ERROR_STOP=1 -f tests/db/secdef-classification-prelude.sql
 
-      - name: Apply every committed migration VERBATIM (timestamp-prefixed, in order)
+      - name: Apply every committed migration (timestamp-prefixed, in order) — verbatim except allowlisted RLS-policy normalization
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -121,7 +123,7 @@ jobs:
             rm -f "$norm"
             applied=$((applied+1))
           done
-          echo "applied $applied timestamped migrations verbatim" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "applied $applied timestamped migrations verbatim (except the allowlisted RLS-policy normalization)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Run the SECURITY DEFINER classification matrix
         run: |
