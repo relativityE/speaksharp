@@ -84,23 +84,26 @@ only `authenticated` (+ the owner). `check_usage_limit()`, `update_user_usage(in
 one — never asserted blanket. (`ensure_trial_profile_for_new_user()` moved to A: it carries an anon/PUBLIC
 EXECUTE grant, so the grant-based partition places it there.)
 
-#### `service_role` explicit-EXECUTE grantees — measured, not seven
-The review anticipated **seven** functions with an explicit `service_role` EXECUTE grant. Two independent
-measurements disagree, and I report the measurement rather than force the count:
+#### `service_role` explicit-EXECUTE grantees — 7 in B, 3 signatures in C (no drift)
+The "seven" refers to **Category B**, and it is exact. The explicit `service_role` EXECUTE grants split
+cleanly across the two non-anon categories, so the combined count is fully explained by the partition — it is
+**not** a drift signal:
 
-- **Committed-migration grep** — `GRANT EXECUTE ON FUNCTION … TO service_role` in `backend/supabase/migrations/`
-  resolves to **9 distinct function names** (10 signatures, counting `process_stripe_webhook_event`'s two
-  overloads):
+- **Category B — exactly 7 functions** with an explicit `service_role` EXECUTE grant:
   `check_usage_limit`, `complete_session`, `create_session_and_update_usage`,
-  `enforce_report_session_ownership`, `get_analytics_summary`, `get_user_id_by_email`, `heartbeat_session`,
-  `process_stripe_webhook_event` (×2 overloads), `update_user_usage(integer,text,uuid)`.
-- **Disposable-replay `aclexplode` (grantee = `service_role`)** — agrees: **10 signatures / 9 names**, the same
-  set.
+  `enforce_report_session_ownership`, `get_analytics_summary`, `heartbeat_session`,
+  `update_user_usage(integer,text,uuid)`.
+- **Category C — 3 signatures** (2 names) with an explicit `service_role` EXECUTE grant:
+  `get_user_id_by_email(text)` and `process_stripe_webhook_event(...)` (both overloads).
+- **Combined = 10 signatures across 9 names** (`process_stripe_webhook_event` contributes two signatures under
+  one name). Both measurements agree on this set: the committed-migration grep of
+  `GRANT EXECUTE ON FUNCTION … TO service_role` in `backend/supabase/migrations/`, and the disposable-replay
+  `aclexplode` filtered to `grantee = service_role`.
 
-Neither source yields seven. This is stated **`deployed-unverified`**: the counts above are the *committed
-source of truth*; the hosted database ACL may differ (drift), and PR-A does not read production. The delta
-from the anticipated "seven" is flagged for the PO to reconcile — most likely committed-vs-hosted drift or a
-narrower intended target set — and is **not** silently reconciled to seven here.
+There is **no contradiction and no evidence of hosted drift from this count alone** — B's 7 plus C's 3
+signatures is precisely the 10-signatures/9-names total. The classification remains `source-applied;
+deployed-unverified` only in the general sense that PR-A reads the committed migrations, not the hosted ACL;
+the grantee **count** itself is reconciled and requires no hosted comparison.
 (`normalize_user_filler_word` and `rotate_user_sessions` are NOT `SECURITY DEFINER` in the deployed set —
 `pg_proc.prosecdef` shows neither — so they are excluded.)
 Hardened subset (explicit `pg_temp` last): `get_analytics_summary`, `set_user_timezone`, `record_progress_*`,
@@ -152,9 +155,13 @@ in this file. **Remediation RISK is routed to the roadmap** (#1128) and its reme
 
 Direction (bounded; do NOT broaden into a general category-B/C `search_path` sweep):
 - Revoke `PUBLIC`/`anon` EXECUTE from the seven exposed functions — none has a legitimate anon caller
-  (§caller matrix). No speculative grants: the recording-lease trio has **no** live caller (dead/deprecation
-  candidate, wire-or-drop); the cleanup workers run privileged cron / no caller; the trigger + internal-helper
-  functions need no direct grant; no deployed `service_role` caller exists today.
+  **in the repository call sites** (§caller matrix: `frontend/`, `backend/supabase/functions/`, `migrations/`,
+  `scripts/`, `.github/`). No speculative grants: the recording-lease trio has **no** caller in those call
+  sites (dead/deprecation candidate, wire-or-drop); the cleanup workers run privileged cron / no repo caller;
+  the trigger + internal-helper functions need no direct grant. **No `service_role` caller appears in the
+  committed source**; whether a deployed edge function or external client calls one with the `service_role`
+  key is **`deployed-unverified`** — PR-A does not read production — so PR-B must confirm the hosted caller set
+  before removing any existing `service_role` grant.
 - Give the two cleanup workers a pg_temp-safe `search_path` (they have none) — the acute item, since they are
   **not** owner-scoped (see the ownership-enforcement correction above).
 
