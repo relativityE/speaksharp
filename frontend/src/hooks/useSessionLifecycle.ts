@@ -33,6 +33,11 @@ import {
     buildSampleEnvProps,
 } from '@/services/transcription/privateSampleTelemetry';
 
+// #1120 S1: bounded wait for PostHog STT-hierarchy flags before latching the default mode. If flags never
+// arrive (uninitialized/offline/blocked PostHog, or a no-key build incl. E2E), proceed with the safe default
+// after this window so a session can never strand at the unset mode.
+const STT_FLAGS_READY_FALLBACK_MS = 1500;
+
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
     const rawMessage = err?.message?.trim() || '';
@@ -150,7 +155,15 @@ export const useSessionLifecycle = () => {
     const [sttFlagsReady, setSttFlagsReady] = useState<boolean>(() => sttFlagsReadyInitial());
     const [, setFlagTick] = useState(0);
     useEffect(() => {
-        return onSttFlagsReady(() => { setSttFlagsReady(true); setFlagTick((t) => t + 1); });
+        const unsubscribe = onSttFlagsReady(() => { setSttFlagsReady(true); setFlagTick((t) => t + 1); });
+        // #1120 S1 (review round-2): RESILIENCE FALLBACK. Waiting for the PostHog flag callback avoids latching a
+        // premature default before the cohort assignment arrives — but PostHog may be present-but-uninitialized or
+        // simply never deliver flags (offline, blocked, or a build with no PostHog key, incl. E2E). Without a
+        // fallback the session would strand at the unset mode forever. After a bounded wait, proceed with the safe
+        // resolved default (the flag reads OFF/fail-closed until it loads); a later real assignment still re-latches
+        // a default-owned mode via the persistent subscription above.
+        const fallback = setTimeout(() => setSttFlagsReady(true), STT_FLAGS_READY_FALLBACK_MS);
+        return () => { unsubscribe(); clearTimeout(fallback); };
     }, []);
 
     const speechConfig = useMemo(() => ({
