@@ -96,12 +96,13 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **#979 RPC grant lockdown**: Migration `20260714000000_harden_get_user_id_by_email_grant.sql` deployed; `db-grant-check.yml` reports EXECUTE on `public.get_user_id_by_email(text)` granted to **service_role only** (PUBLIC/anon/authenticated = none).
 
 ## 8. STT feature flags & runtime toggles (verify live build)
-- [ ] **STT hierarchy + Cloud launch preflight (#1120 S1)** — run the executable gate against the LIVE configured values:
+- [ ] **STT hierarchy + Cloud launch preflight (#1120 S1)** — run the executable gate against the LIVE configured values. The Private-primary hierarchy is a PostHog **runtime** flag (`stt_private_primary_v1`) not readable from the build env, so a launch/rollback verdict requires you to **first verify the deployed assignment in PostHog** and then pass it explicitly (`--launch` / `--rollback`); with no flag the gate validates the Cloud invariant only and reports the hierarchy **UNVERIFIED**:
   ```bash
-  node scripts/stt-launch-preflight.mjs            # launch posture (hierarchy expected ON)
-  node scripts/stt-launch-preflight.mjs --rollback # hierarchy-rollback posture (Browser default)
+  node scripts/stt-launch-preflight.mjs            # Cloud invariant only; hierarchy UNVERIFIED (confirm in PostHog)
+  node scripts/stt-launch-preflight.mjs --launch   # certify launch AFTER verifying stt_private_primary_v1 is ON
+  node scripts/stt-launch-preflight.mjs --rollback # certify hierarchy-rollback (Browser default), Cloud still OFF
   ```
-  It exits **nonzero** if the client (`VITE_CLOUD_STT_ENABLED`) and Edge (`CLOUD_STT_ENABLED`) Cloud gates disagree, or if either/both are ON. It also runs automatically inside `pnpm rc:gate:2:sast` (production hardening). Launch requires **both Cloud gates OFF**; rollback (hierarchy OFF) keeps Cloud OFF too.
+  It exits **nonzero** if the client (`VITE_CLOUD_STT_ENABLED`) and Edge (`CLOUD_STT_ENABLED`) Cloud gates disagree, if either/both are ON, or if `--launch` is asserted while the hierarchy is hard-disabled (contradiction). It also runs automatically inside `pnpm rc:gate:2:sast` (production hardening), where — with no operator flag — it validates the **Cloud invariant only** (CI cannot read the PostHog runtime flag, so it never *claims* the launch posture). Launch requires operator-verified hierarchy ON **plus both Cloud gates OFF**; rollback (hierarchy OFF) keeps Cloud OFF too.
 - [ ] **Cloud gates OFF (fail-closed)**: `VITE_CLOUD_STT_ENABLED` (Vercel) and `CLOUD_STT_ENABLED` (Supabase Edge) are unset or not exactly `"true"` — Cloud is absent from every customer surface and denied before provider cost. Only the exact string `"true"` enables; the preflight above surfaces a typo/enable-attempt that is not exactly `"true"`.
 - [ ] **Hierarchy = launch (Private primary)**: PostHog `stt_private_primary_v1` ON for the launch cohort, and `VITE_STT_PRIVATE_PRIMARY_DISABLED` unset/not `"true"` (that build kill is rollback-only and never enables Cloud).
 - [ ] **Native punctuation restore**: `VITE_NATIVE_PUNCTUATION_RESTORE` unset or `true` in the prod Vercel build (default-on word-preserving restore).

@@ -55,8 +55,10 @@ for (const check of forbiddenChecks) {
 }
 
 // #1120 S1 (PR #1155): executable STT launch preflight. Fail the release if the STT Cloud gates are
-// misconfigured for the launch posture — client/Edge disagreement, or either/both Cloud gates ON. Reads
-// the REAL configured release env; hierarchy rollback (Cloud still OFF) is independently acceptable.
+// misconfigured — client/Edge disagreement, or either/both Cloud gates ON. Reads the REAL configured release
+// env. No operator hierarchy flag is passed here on purpose: the Private-primary posture is a PostHog RUNTIME
+// flag that CI cannot read, so this call validates ONLY the env-readable Cloud invariant and never *claims* the
+// launch posture — the operator certifies hierarchy ON separately via `stt-launch-preflight.mjs --launch`.
 const sttPreflight = evaluatePreflight(process.env);
 if (sttPreflight.publicReleaseBlocked) {
   findings.push(`STT launch preflight BLOCKED (${sttPreflight.state}): ${sttPreflight.reasons.join('; ')}`);
