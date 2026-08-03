@@ -115,7 +115,9 @@ async function dispute(db: Sql, uid: string, actionId: string): Promise<string> 
 async function setup(db: Sql, uid: string, o: {
     budget: number; points: PointSpec[]; detector?: string; duration?: number; idem?: string;
 }): Promise<{ rec: string; proj: string; brief: string; pointIds: string[]; s: string }> {
-    const rec = await seedRecording(db, uid, { duration: o.duration ?? 0 });
+    // Default a small positive duration so a valid `detected()` offset falls within [0, duration] and no
+    // overtime triggers (well under budget). Overtime tests pass an explicit duration to override this.
+    const rec = await seedRecording(db, uid, { duration: o.duration ?? 30 });
     const { proj, brief, pointIds } = await seedBrief(db, uid, { budget: o.budget, points: o.points });
     const s = await startSession(db, uid, { proj, brief, source: rec, detector: o.detector, idem: o.idem });
     return { rec, proj, brief, pointIds, s };
@@ -266,6 +268,31 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect(nextRow.lifecycle).toBe('active');
         expect(nextRow.kind).toBe('unmet_required');
         expect(nextRow.target_brief_point_id).toBe(pointIds[1]);
+    });
+
+    it('detection-beyond-duration-not-counted: an offset past the recording duration cannot manufacture detected', async () => {
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        // Impossible signal: offset 999 > duration 50 → must be ignored (not a valid detection).
+        await finalize(db, USER, s, [{ brief_point_id: pointIds[0], detected_at_seconds: 999 }]);
+        const v = (await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
+        expect(v).toBe('not_detected'); // impossible offset ignored under the approved predicate
+        const a = await getAction(db, await selectAction(db, USER, s));
+        expect(a.kind).toBe('unmet_required'); // the required point is NOT suppressed by the impossible signal
+    });
+
+    it('dispute-retry-idempotent: retrying a dispute on an already-abandoned action returns the current successor', async () => {
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, {
+            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: true }],
+        });
+        await finalize(db, USER, s, [missing(pointIds[0]), missing(pointIds[1])]);
+        const first = await selectAction(db, USER, s);
+        const successor = await dispute(db, USER, first); // first dispute abandons `first`, advances to point[1]
+        const retry = await dispute(db, USER, first);      // lost-response retry on the SAME action id
+        expect(retry).toBe(successor);                     // idempotent: same successor, no throw
+        const disputes = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_action_dispute WHERE action_id=$1`, [first])).rows[0].n;
+        expect(Number(disputes)).toBe(1);                  // no duplicate dispute row
     });
 
     it('dispute-on-neutral-rejected: the terminal neutral action cannot be disputed (no infinite loop)', async () => {

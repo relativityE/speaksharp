@@ -421,6 +421,11 @@ BEGIN
             FROM jsonb_array_elements(COALESCE(p_signals, '[]'::jsonb)) s
             WHERE (s->>'brief_point_id')::uuid = bp.id
               AND (s->>'detected_at_seconds') IS NOT NULL
+              -- Offset must be within the authoritative recording window [0, duration]. An impossible offset
+              -- (negative, or after the recording ended) is NOT a valid detection — it is ignored so it cannot
+              -- manufacture a 'detected' verdict, suppress an unmet_required action, or violate the row CHECK.
+              AND (s->>'detected_at_seconds')::int >= 0
+              AND (s->>'detected_at_seconds')::int <= v_session.actual_duration_seconds
             LIMIT 1
         ) sig ON true
         WHERE bp.brief_id = v_session.brief_id;
@@ -536,6 +541,12 @@ BEGIN
     END IF;
     SELECT * INTO v_action FROM public.guided_action WHERE id = p_action_id AND user_id = v_uid;
     IF NOT FOUND THEN RAISE EXCEPTION 'action not found for owner' USING errcode = '42501'; END IF;
+    -- Idempotent dispute retry: if this action was ALREADY disputed (now abandoned, with a dispute row), a
+    -- lost-response retry must not throw — return the session's current active successor, exactly as the first
+    -- call did, so the client can always learn the next action.
+    IF EXISTS (SELECT 1 FROM public.guided_action_dispute WHERE action_id = p_action_id) THEN
+        RETURN public.guided_select_action_v1(v_action.session_id);
+    END IF;
     IF v_action.lifecycle <> 'active' THEN
         RAISE EXCEPTION 'action is not active' USING errcode = '55000';
     END IF;
