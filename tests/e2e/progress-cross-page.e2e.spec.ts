@@ -15,11 +15,31 @@ const VIEWPORTS = [
 ] as const;
 
 async function assertNoOverflow(page: Page): Promise<void> {
-  const overflow = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth,
-    body: document.body.scrollWidth,
-  }));
+  const overflow = await page.evaluate(() => {
+    const viewport = document.documentElement.clientWidth;
+    const offenders = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          testid: element.dataset.testid ?? null,
+          className: typeof element.className === 'string' ? element.className.slice(0, 160) : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          text: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 80) ?? '',
+        };
+      })
+      .filter(({ left, right, width }) => width > 0 && (right > viewport + 1 || left < -1))
+      .slice(0, 12);
+    return {
+      viewport,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+      offenders,
+    };
+  });
   expect(overflow.document, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.viewport);
   expect(overflow.body, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.viewport);
 }
