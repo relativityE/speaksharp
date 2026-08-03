@@ -96,6 +96,14 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **#979 RPC grant lockdown**: Migration `20260714000000_harden_get_user_id_by_email_grant.sql` deployed; `db-grant-check.yml` reports EXECUTE on `public.get_user_id_by_email(text)` granted to **service_role only** (PUBLIC/anon/authenticated = none).
 
 ## 8. STT feature flags & runtime toggles (verify live build)
+- [ ] **STT hierarchy + Cloud launch preflight (#1120 S1)** — run the executable gate against the LIVE configured values:
+  ```bash
+  node scripts/stt-launch-preflight.mjs            # launch posture (hierarchy expected ON)
+  node scripts/stt-launch-preflight.mjs --rollback # hierarchy-rollback posture (Browser default)
+  ```
+  It exits **nonzero** if the client (`VITE_CLOUD_STT_ENABLED`) and Edge (`CLOUD_STT_ENABLED`) Cloud gates disagree, or if either/both are ON. It also runs automatically inside `pnpm rc:gate:2:sast` (production hardening). Launch requires **both Cloud gates OFF**; rollback (hierarchy OFF) keeps Cloud OFF too.
+- [ ] **Cloud gates OFF (fail-closed)**: `VITE_CLOUD_STT_ENABLED` (Vercel) and `CLOUD_STT_ENABLED` (Supabase Edge) are unset or not exactly `"true"` — Cloud is absent from every customer surface and denied before provider cost. Only the exact string `"true"` enables; the preflight above surfaces a typo/enable-attempt that is not exactly `"true"`.
+- [ ] **Hierarchy = launch (Private primary)**: PostHog `stt_private_primary_v1` ON for the launch cohort, and `VITE_STT_PRIVATE_PRIMARY_DISABLED` unset/not `"true"` (that build kill is rollback-only and never enables Cloud).
 - [ ] **Native punctuation restore**: `VITE_NATIVE_PUNCTUATION_RESTORE` unset or `true` in the prod Vercel build (default-on word-preserving restore).
 - [ ] **v4 disabled for release**: v4 WebGPU is OFF — PostHog `private_stt_v4_*` flags at 0%/off, and (if used) `VITE_PRIVATE_STT_V4_DISABLED='true'` build kill confirmed. Default Private saves `private_v2:whisper-base.en`.
 - [ ] **Developer premium access**: `VITE_DEV_PREMIUM_ACCESS` is NOT relied on in production — it is unused in `src`; entitlement is server-driven (`stripe_subscription_id` required). No env Pro bypass in the prod build.

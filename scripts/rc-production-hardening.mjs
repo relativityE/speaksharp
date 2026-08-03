@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
+import { evaluatePreflight } from './stt-launch-preflight.mjs';
 
 const checks = [
   {
@@ -51,6 +52,14 @@ for (const check of forbiddenChecks) {
   if (check.pattern.test(source)) {
     findings.push(`${check.file}: ${check.description}`);
   }
+}
+
+// #1120 S1 (PR #1155): executable STT launch preflight. Fail the release if the STT Cloud gates are
+// misconfigured for the launch posture — client/Edge disagreement, or either/both Cloud gates ON. Reads
+// the REAL configured release env; hierarchy rollback (Cloud still OFF) is independently acceptable.
+const sttPreflight = evaluatePreflight(process.env);
+if (sttPreflight.publicReleaseBlocked) {
+  findings.push(`STT launch preflight BLOCKED (${sttPreflight.state}): ${sttPreflight.reasons.join('; ')}`);
 }
 
 if (findings.length > 0) {
