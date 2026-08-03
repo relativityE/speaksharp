@@ -132,10 +132,19 @@ describe('TranscriptionPolicy', () => {
         it('should build pro tier policy correctly', () => {
             const policy = buildPolicyForUser(true);
             expect(policy.allowNative).toBe(PROD_PRO_POLICY.allowNative);
-            expect(policy.allowCloud).toBe(PROD_PRO_POLICY.allowCloud);
+            // #1120 S1 (review round-2): an OMITTED allowCloud is now FAIL-CLOSED (false), not the base default.
+            expect(policy.allowCloud).toBe(false);
             expect(policy.allowPrivate).toBe(PROD_PRO_POLICY.allowPrivate);
             expect(policy.allowFallback).toBe(false);
             expect(policy.executionIntent).toContain('prod-pro');
+        });
+
+        it('#1120 S1: Cloud is allowed ONLY when explicitly options.allowCloud === true (fail-closed)', () => {
+            expect(buildPolicyForUser(true, 'cloud', { allowCloud: true }).allowCloud).toBe(true);
+            expect(buildPolicyForUser(true, 'cloud', { allowCloud: false }).allowCloud).toBe(false);
+            expect(buildPolicyForUser(true, 'cloud').allowCloud).toBe(false); // omitted → denied
+            // A denied Cloud selection also never resolves to 'cloud' — the coercion picks the base preferred mode.
+            expect(buildPolicyForUser(true, 'cloud', { allowCloud: false }).preferredMode).not.toBe('cloud');
         });
 
         it('should apply UI mode override', () => {
@@ -196,9 +205,10 @@ describe('TranscriptionPolicy', () => {
             expect(PROD_FREE_POLICY.allowPrivate).toBe(false);
         });
 
-        it('PROD_PRO_POLICY should allow all', () => {
+        it('PROD_PRO_POLICY allows Native+Private but FAIL-CLOSES Cloud (#1120 S1 round-2)', () => {
             expect(PROD_PRO_POLICY.allowNative).toBe(true);
-            expect(PROD_PRO_POLICY.allowCloud).toBe(true);
+            // Cloud is a build/release-gated capability, never granted by tier alone — the exported policy denies it.
+            expect(PROD_PRO_POLICY.allowCloud).toBe(false);
             expect(PROD_PRO_POLICY.allowPrivate).toBe(true);
             expect(PROD_PRO_POLICY.allowFallback).toBe(false);
         });

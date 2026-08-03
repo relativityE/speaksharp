@@ -21,6 +21,7 @@ import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
+import { isCloudSttEnabled } from '@/config/sttHierarchyFlags';
 
 function getCloudTokenFailureMessage(err: unknown): string {
     const errorLike = err as {
@@ -105,7 +106,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     } = store;
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
-    const canUseCloudStt = isEffectiveProUser && hasCloudSttEntitlement(profile);
+    // #1120 S1 (review #5): independent, fail-closed Cloud gate on this grant path too (token callback + policy).
+    const canUseCloudStt = isCloudSttEnabled() && isEffectiveProUser && hasCloudSttEntitlement(profile);
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';
@@ -139,6 +141,15 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
     // 2. Specialized Callbacks (Controller Auth)
     const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
+        // #1120 S1 (review round-2 #3): INVOCATION-TIME Cloud denial. The callback is memoized with [] and can
+        // be invoked by an already-constructed Cloud engine on connect/reconnect. Re-check the fail-closed gate
+        // at call time so a Cloud engine can never mint another paid token once Cloud is off — updating the
+        // policy alone does not stop an existing engine. The Edge fn denies independently as a second layer.
+        if (!isCloudSttEnabled()) {
+            logger.warn('[useSpeechRecognition] Cloud token requested while Cloud STT is disabled — denied at invocation.');
+            return null;
+        }
+
         const rateCheck = checkRateLimit('ASSEMBLYAI_TOKEN');
         if (!rateCheck.allowed && rateCheck.retryAfterMs && rateCheck.retryAfterMs > 0) {
             const seconds = Math.ceil(rateCheck.retryAfterMs / 1000);

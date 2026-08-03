@@ -24,9 +24,23 @@ function spies() {
   }) as unknown as typeof fetch;
   const getEnv = (k: string) => {
     calls.getEnv++;
-    return k === "ASSEMBLYAI_API_KEY" ? "test-key" : undefined;
+    if (k === "ASSEMBLYAI_API_KEY") return "test-key";
+    // #1120 S1: Cloud ON here so the CORS auth-error tests exercise the function's own 401 path.
+    // The fail-closed 503 gate (CLOUD_STT_ENABLED !== "true") is covered separately below and in index.test.ts.
+    if (k === "CLOUD_STT_ENABLED") return "true";
+    return undefined;
   };
   return { calls, createSupabase, fetchImpl, getEnv };
+}
+
+// getEnv variant with Cloud DISABLED — everything else identical to spies().
+function spiesCloudDisabled() {
+  const s = spies();
+  const getEnv = (k: string) => {
+    s.calls.getEnv++;
+    return k === "ASSEMBLYAI_API_KEY" ? "test-key" : undefined; // CLOUD_STT_ENABLED absent → fail-closed
+  };
+  return { ...s, getEnv };
 }
 
 Deno.test("assemblyai-token CORS: approved OPTIONS → 204 + exact ACAO + Vary", async () => {
@@ -100,4 +114,35 @@ Deno.test("assemblyai-token CORS: no-Origin request is not CORS-rejected, no fab
   // Reaches its own auth (401 missing header) rather than a 403 origin rejection.
   assertEquals(res.status, 401);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), null); // no fabricated ACAO
+});
+
+// #1120 S1 (review round-2): the fail-closed 503 gate must PRESERVE the CORS invariant — an approved origin
+// still gets its exact ACAO, a no-Origin request still gets none — and must fire BEFORE any Supabase/provider
+// side effect. This proves the new gate cannot drop or fabricate CORS while denying Cloud.
+Deno.test("assemblyai-token gate: Cloud disabled → 503 for an APPROVED origin retains exact ACAO, no side effects", async () => {
+  const s = spiesCloudDisabled();
+  const res = await handler(
+    req("POST", APPROVED, "Bearer x"),
+    s.createSupabase,
+    s.fetchImpl,
+    s.getEnv,
+  );
+  assertEquals(res.status, 503);
+  assertEquals(res.headers.get("Access-Control-Allow-Origin"), APPROVED);
+  assertEquals(s.calls.createSupabase, 0); // denied before building the client
+  assertEquals(s.calls.fetch, 0); // no AssemblyAI provider call
+});
+
+Deno.test("assemblyai-token gate: Cloud disabled → 503 for a no-Origin request does not fabricate ACAO", async () => {
+  const s = spiesCloudDisabled();
+  const res = await handler(
+    req("POST", undefined, "Bearer x"),
+    s.createSupabase,
+    s.fetchImpl,
+    s.getEnv,
+  );
+  assertEquals(res.status, 503);
+  assertEquals(res.headers.get("Access-Control-Allow-Origin"), null); // no fabricated ACAO
+  assertEquals(s.calls.createSupabase, 0);
+  assertEquals(s.calls.fetch, 0);
 });

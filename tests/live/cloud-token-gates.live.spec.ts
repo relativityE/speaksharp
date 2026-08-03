@@ -8,6 +8,14 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RUN_ID = Date.now();
 const PASSWORD = `SpeakSharp-Live-${RUN_ID}!`;
 
+// #1120 S1 (PR #1155): the public-launch posture is Cloud OFF — the Edge fn returns 503 (Cloud unavailable)
+// for EVERY request BEFORE auth/entitlement/quota/mint when `CLOUD_STT_ENABLED !== "true"`. This suite asserts
+// that disabled posture by DEFAULT (the state that actually ships). The enabled-Cloud abuse-gate characterization
+// (401/403/200/429) is a SEPARATELY-CONFIGURED lane that runs ONLY when the deployment under test is explicitly
+// Cloud-enabled (`CLOUD_STT_ENABLED === "true"`) — so the shipping Cloud-off release passes Gate 3, and the
+// enabled matrix still exists for the day Cloud is turned on. Only the exact string "true" enables the lane.
+const EXPECT_CLOUD_ENABLED = process.env.CLOUD_STT_ENABLED === 'true';
+
 type CreatedUser = {
   id: string;
   email: string;
@@ -30,7 +38,44 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     );
   });
 
-  test('denies missing auth before minting AssemblyAI token', async () => {
+  // ── Cloud-OFF launch posture (default, the state that ships) ──
+  test('Cloud OFF launch posture: EVERY token path is denied 503 before auth, entitlement, quota, or mint', async () => {
+    test.skip(EXPECT_CLOUD_ENABLED, 'Cloud-OFF posture assertion; skipped in the Cloud-enabled characterization lane.');
+
+    // Missing auth: 503 proves the Cloud gate fires BEFORE the 401 auth check — Cloud is unreachable regardless.
+    const missingAuth = await requestAssemblyTokenWithoutAuth();
+
+    // A fully-entitled paid Pro (would be 200 if Cloud were ON) still gets 503 — identity never reaches cost.
+    const paidProUser = await createLiveUser(admin, `cloud-off-pro-${RUN_ID}@example.com`, {
+      subscription_status: 'pro',
+      trial_started_at: null,
+      trial_expires_at: null,
+      daily_usage_seconds: 0,
+      native_usage_seconds: 0,
+      cloud_usage_seconds: 0,
+      stripe_subscription_id: `sub_live_cloud_off_${RUN_ID}`,
+      subscription_id: null,
+    });
+    createdUsers.push(paidProUser);
+    const paidPro = await requestAssemblyToken(paidProUser.email);
+
+    const evidence = {
+      missingAuth: summarizeTokenResult(missingAuth),
+      paidPro: summarizeTokenResult(paidPro),
+    };
+    console.log(`LIVE_CLOUD_OFF_POSTURE_EVIDENCE ${JSON.stringify(evidence)}`);
+
+    expect(missingAuth.status, JSON.stringify(evidence)).toBe(503);
+    expect(missingAuth.body?.token, JSON.stringify(evidence)).toBeFalsy();
+    expect(missingAuth.body?.error, JSON.stringify(evidence)).toMatch(/unavailable/i);
+    expect(paidPro.status, JSON.stringify(evidence)).toBe(503);
+    expect(paidPro.body?.token, JSON.stringify(evidence)).toBeFalsy();
+    expect(paidPro.body?.error, JSON.stringify(evidence)).toMatch(/unavailable/i);
+  });
+
+  // ── Enabled-Cloud characterization (separately-configured lane; runs only when Cloud is deployed ON) ──
+  test('Cloud-enabled lane: denies missing auth before minting AssemblyAI token', async () => {
+    test.skip(!EXPECT_CLOUD_ENABLED, 'Enabled-Cloud characterization lane (CLOUD_STT_ENABLED === "true") only.');
     const result = await requestAssemblyTokenWithoutAuth();
     const evidence = {
       missingAuth: summarizeTokenResult(result),
@@ -41,7 +86,8 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(result.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
 
-  test('allows subscribed Pro and denies Free, Private-sample, and over-quota Pro before minting AssemblyAI token', async () => {
+  test('Cloud-enabled lane: allows subscribed Pro and denies Free, Private-sample, and over-quota Pro before minting AssemblyAI token', async () => {
+    test.skip(!EXPECT_CLOUD_ENABLED, 'Enabled-Cloud characterization lane (CLOUD_STT_ENABLED === "true") only.');
     const freeUser = await createLiveUser(admin, `cloud-free-${RUN_ID}@example.com`, {
       subscription_status: 'free',
       trial_started_at: '2024-01-01T00:00:00.000Z',

@@ -1,16 +1,13 @@
 /**
- * Primary User Journey Matrix
- * 
- * This spec handles the complete lifecycle (Auth -> Session -> Analytics)
- * for both Free and Pro tiers using a parameterized matrix. It ensures 
- * deterministic tier-gating and persistent data flow using behavioral signals.
- * 
- * Coverage:
- * - Core Features: Recording lifecycle, deterministic persistence, and session history.
- * - Free Features: Native Browser STT, Marketing/Upgrade funnels, and simplified analytics.
- * - Pro Features: Engine toggling (Whisper/Cloud), advanced analytics details, and PDF exports.
+ * Primary User Journey Matrix — #1120 S1 (PR #1155) launch state.
+ *
+ * Full lifecycle (Auth → Session → Analytics) for Free and Pro tiers. Cloud is globally OFF and
+ * customer-invisible: it is never a selectable mode, never appears in the picker, and is never contacted
+ * (zero Cloud token/provider/network request) across the whole journey. Launch hierarchy is forced ON via
+ * the bounded E2E override so Private is the Pro default; a Free user (no Private entitlement) uses Browser.
  */
 import { test, expect } from './fixtures';
+import type { Page, Request } from '@playwright/test';
 import {
   navigateToRoute,
   mockLiveTranscript,
@@ -20,123 +17,86 @@ import {
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS_WITH_FILLERS } from './fixtures/mockData';
 
+const CLOUD_HOSTS = /assemblyai\.com|assemblyai-token|\/functions\/v1\/assemblyai/i;
+function trackCloudRequests(page: Page): string[] {
+  const hits: string[] = [];
+  page.on('request', (r: Request) => { if (CLOUD_HOSTS.test(r.url())) hits.push(r.url()); });
+  return hits;
+}
+
 const SCENARIOS = [
-  {
-    name: 'Free Tier (Native)',
-    userType: 'free' as const,
-    mode: 'native' as const,
-    expectedModePattern: /native|browser/i
-  },
-  {
-    name: 'Pro Tier (Cloud)',
-    userType: 'pro' as const,
-    mode: 'cloud' as const,
-    expectedModePattern: /cloud/i
-  },
-  {
-    name: 'Pro Tier (Private)',
-    userType: 'pro' as const,
-    mode: 'private' as const,
-    expectedModePattern: /private|on-device/i
-  }
+  { name: 'Free Tier (Browser)', userType: 'free' as const, mode: 'native' as const, expectedModePattern: /browser/i },
+  { name: 'Pro Tier (Private launch)', userType: 'pro' as const, mode: 'private' as const, expectedModePattern: /private|on-device/i },
 ];
 
-test.describe('Primary User Journey Matrix', () => {
+test.describe('Primary User Journey Matrix (Cloud absent + unreachable)', () => {
   for (const scenario of SCENARIOS) {
     test(`should complete full journey for ${scenario.name}`, async ({ page }) => {
-      // 1. Boot explicitly for the tier (preventing Playwright fixture-overlap contamination)
-      await programmaticLoginWithRoutes(page, { userType: scenario.userType });
+      const cloudHits = trackCloudRequests(page);
+      // Launch hierarchy ON (Private-primary). Free users still resolve to Browser (no Private entitlement).
+      await programmaticLoginWithRoutes(page, { userType: scenario.userType, sttPrivatePrimary: true });
 
-      // 2. Navigation & Boot (Visual Heartbeat Signal)
       await navigateToRoute(page, '/session');
       await expect(page.getByText(/Practice Session/i)).toBeVisible();
 
-
-
-      // 3. Verify Tier Gating & Mode Selection (SUBTLE UX BRANCHING)
       const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
       await expect(modeButton).toBeVisible();
 
       if (scenario.userType === 'pro') {
-        // Pro users: Verify full engine toggling logic
+        // Pro: Private is the launch default. Selecting it is honored; Cloud is not a choice.
         await selectTranscriptionEngine(page, scenario.mode);
-        // Verify selected mode persistence on the authoritative control.
         await expect(modeButton).toHaveAttribute('data-state', scenario.mode, { timeout: 10000 });
-      } else {
-        // Free users: Verify Marketing Funnel (Options are visible but disabled)
+        // Cloud is absent from the picker entirely.
         await modeButton.click();
-        const privateOption = page.getByRole('menuitemradio', { name: /private/i });
-        const cloudOption = page.getByRole('menuitemradio', { name: /cloud/i });
-
-        await expect(privateOption).toBeVisible();
-        await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
-        await expect(cloudOption).toHaveAttribute('aria-disabled', 'true');
-
-        // Close menu & verify current selection is the only one allowed
+        await expect(page.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveCount(0);
+        await expect(page.getByRole('menuitemradio', { name: /cloud/i })).toHaveCount(0);
+        await page.keyboard.press('Escape');
+      } else {
+        // Free: Browser is the resolved default; Private is present (entitlement-gated); Cloud is ABSENT.
+        await modeButton.click();
+        await expect(page.getByRole('menuitemradio', { name: /private/i })).toBeVisible();
+        await expect(page.getByRole('menuitemradio', { name: /cloud/i })).toHaveCount(0);
+        await expect(page.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveCount(0);
         await page.keyboard.press('Escape');
         const buttonText = await modeButton.textContent();
         expect(buttonText).toMatch(scenario.expectedModePattern);
       }
 
-      // 4. Recording Lifecycle (Accessibility Label Logic)
+      // Recording lifecycle.
       const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
       await expect(page.getByLabel(/Start Recording/i)).toBeVisible();
-
-      // Deterministic Sync: Wait for engine handshake before clicking start
       await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-
       await startButton.click();
-
-      // Verify recording state via attribute & Accessibility Label
       await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
       await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
 
-      // 5. Simulate Speech using the central file transcript fixture
-      // #1047: this fixture carries real tracked fillers. The assertion below is that the evidence
-      // band EXPANDS because the user produced filler evidence — previously it passed against a grid
-      // of thirteen `0` chips, which proved only that the grid rendered, not that anything was
-      // detected. Driving a real count makes the proof mean what it claims.
       await mockLiveTranscript(page, MOCK_TRANSCRIPTS_WITH_FILLERS as unknown as string[]);
-
-      // Verify the session page story is live: transcript plus the current
-      // evidence band, rather than the legacy standalone metric cards.
       await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
       await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
       await expect(page.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'counts', { timeout: 15000 });
       await expect(page.getByTestId('filler-words-list')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).not.toHaveText('', { timeout: 15000 });
 
-      // The product intentionally refuses to persist sub-5-second sessions.
-      // Keep this proof aligned with the user-facing save contract instead of
-      // expecting persistence from an invalidly short recording.
       await page.waitForTimeout(5200);
-
-      // 6. Stop Recording
       await startButton.click();
       await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 10000 });
 
-      // 7. Verify Deterministic Persistence Signal
       const html = page.locator('html');
       await expect(html).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
-      // 8. Navigation to Analytics through the canonical route helper. The
-      // persistence signal above proves the session write path completed; this
-      // avoids racing the route-transition shell under parallel workers.
       await navigateToRoute(page, '/analytics');
 
-      // 9. Tier-Aware Visibility (Lean Smoke Test)
       if (scenario.userType === 'free') {
-        // In test/non-live Stripe mode, checkout surfaces must stay hidden so
-        // Free users do not see dead upgrade buttons.
         await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
       } else {
         await expect(page.getByText(/Pro active/i)).toBeVisible();
       }
 
-      // 10. Persistence Check (History count increment)
       await page.getByTestId('analytics-focus-trigger').click();
       await page.getByText('Track Progress').click();
-      const totalSessions = page.getByTestId(TEST_IDS.STAT_CARD_TOTAL_SESSIONS);
-      await expect(totalSessions).toContainText('6');
+      await expect(page.getByTestId(TEST_IDS.STAT_CARD_TOTAL_SESSIONS)).toContainText('6');
+
+      // Cloud was never contacted anywhere in the journey.
+      expect(cloudHits, `no Cloud requests allowed: ${cloudHits.join(',')}`).toEqual([]);
     });
   }
 });

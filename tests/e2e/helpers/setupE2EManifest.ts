@@ -97,7 +97,7 @@ export async function setupE2EManifest(
   config: {
     engineType?: 'mock' | 'real' | 'system';
     enableRealEngine?: boolean;
-    flags?: { bypassMutex?: boolean; fastTimers?: boolean };
+    flags?: { bypassMutex?: boolean; fastTimers?: boolean; sttPrivatePrimary?: boolean };
     debug?: boolean;
     realEngineRegistryKeys?: string[];
     /**

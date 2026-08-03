@@ -74,7 +74,9 @@ test.describe('Session recovery draft', () => {
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
 
     // Switch STT mode -> the prior transcript must NOT be carried into the new mode/session.
-    await selectTranscriptionEngine(page, 'cloud');
+    // #1120 S1 (PR #1155): Cloud is globally off + unselectable; switch to a non-Cloud mode (Private) to
+    // exercise the same mode-switch clearing behavior.
+    await selectTranscriptionEngine(page, 'private');
     await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText(/simulating multiple lines/i);
   });
 });

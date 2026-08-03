@@ -87,7 +87,18 @@ const DEFAULT_LIFECYCLE_MOCK = {
     sunsetModal: { type: 'daily', open: false }
 };
 
-describe('SessionPage - STT Mode Selection UI', () => {
+// #1120 S1: pin TODAY's behavior (hierarchy OFF; Cloud available/fail-closed-but-enabled here) so these
+// pre-S1 tests validate unchanged. S1-ON behavior is covered by dedicated S1 tests.
+vi.mock('@/config/sttHierarchyFlags', () => ({
+    isPrivatePrimaryEnabled: () => false,
+    isCloudSttEnabled: () => true,
+    isCloudSttGloballyVisible: () => true,
+    resolveDefaultSttMode: (p: boolean, c: boolean) => (p && c ? 'private' : 'native'),
+    sttFlagsReadyInitial: () => true,
+    onSttFlagsReady: () => () => {},
+    STT_HIERARCHY_FLAG_KEY: 'stt_private_primary_v1',
+    CLOUD_STT_FLAG_KEY: 'cloud_stt_enabled',
+}));describe('SessionPage - STT Mode Selection UI', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();

@@ -393,7 +393,7 @@ export const SessionPage: React.FC = () => {
                         <div className="flex flex-col gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
-                                    mode={mode || 'native'}
+                                    mode={mode}
                                     isListening={isListening}
                                     isReady={isReady}
                                     isPaused={sttStatus.type === 'paused'}
@@ -464,7 +464,7 @@ export const SessionPage: React.FC = () => {
                                 // review, not the live timer that resets to 0 for the next recording.
                                 elapsedSeconds={scoringDurationSeconds}
                                 pauseMetrics={pauseMetrics}
-                                engine={mode || 'native'}
+                                engine={mode}
                                 isListening={isListening}
                                 experimentAssignment={coachingAssignment}
                                 // #1047: sizes to content, never stretched to match the recorder+transcript

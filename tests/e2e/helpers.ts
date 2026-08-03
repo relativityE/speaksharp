@@ -410,6 +410,12 @@ export async function programmaticLoginWithRoutes(
     mockProfile?: Record<string, unknown>;
     /** #1047: seed a specific saved-session set (e.g. transcript_state variants). */
     sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
+    /**
+     * #1120 S1 (PR #1155): bounded E2E-only STT hierarchy override, established BEFORE app init via the
+     * manifest. `true` = launch (Private-primary), `false` = hierarchy-rollback (Browser-default),
+     * omitted = normal resolver. Hierarchy only — never Cloud.
+     */
+    sttPrivatePrimary?: boolean;
   } = {}
 ) {
   const {
@@ -419,7 +425,8 @@ export async function programmaticLoginWithRoutes(
     emptySessions = false,
     debug = false,
     mockProfile,
-    sessions
+    sessions,
+    sttPrivatePrimary
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -462,7 +469,9 @@ export async function programmaticLoginWithRoutes(
     // #1047: the app (mock engine) reads sessions from the manifest's in-browser DB, so the seed must reach
     // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
     sessions,
-    storage: authStorage
+    storage: authStorage,
+    // #1120 S1 (PR #1155): forward the bounded hierarchy override into the manifest flags (T=0, before app init).
+    ...(sttPrivatePrimary === undefined ? {} : { flags: { sttPrivatePrimary } }),
   });
 
   await page.goto('/');

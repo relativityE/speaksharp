@@ -15,7 +15,8 @@ const transcript = [
   'basically we can compare clarity pace like filler trends today',
 ].join(' ');
 
-for (const mode of ['native', 'cloud'] as const) {
+// #1120 S1 (PR #1155): Cloud is globally off + unselectable. Exercise the two AVAILABLE modes (Browser + Private).
+for (const mode of ['native', 'private'] as const) {
 test(`Gate 2 mocked ${mode}: analytics values change from transcript events and survive reload/export`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
   const expectedEngineLabel = mode === 'native' ? /browser/i : new RegExp(mode, 'i');
@@ -62,7 +63,8 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
 });
 }
 
-for (const mode of ['native', 'cloud'] as const) {
+// #1120 S1 (PR #1155): Cloud is globally off + unselectable. Exercise the two AVAILABLE modes (Browser + Private).
+for (const mode of ['native', 'private'] as const) {
 test(`Gate 2 mocked ${mode}: session detail can return to dashboard`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
   await navigateToRoute(page, '/analytics');

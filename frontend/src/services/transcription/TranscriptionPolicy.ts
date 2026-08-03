@@ -50,11 +50,15 @@ export const PROD_FREE_POLICY: TranscriptionPolicy = {
 
 /**
  * Pro tier production policy.
- * All modes available, user preference or UI selection determines mode.
+ * Native + Private available; Cloud is FAIL-CLOSED at the policy layer. Cloud is a build/release-gated
+ * capability (canonical `VITE_CLOUD_STT_ENABLED` client mirror + Edge `CLOUD_STT_ENABLED`), NEVER granted by
+ * tier alone — so the exported production policy denies it. A caller that has verified the gate opts in
+ * explicitly via `buildPolicyForUser(..., { allowCloud: true })`; user preference or UI selection then
+ * determines the mode among the allowed set.
  */
 export const PROD_PRO_POLICY: TranscriptionPolicy = {
     allowNative: true,
-    allowCloud: true,
+    allowCloud: false,
     allowPrivate: true,
     preferredMode: 'private', // Optimized for zero variable cost
     allowFallback: false,
@@ -192,7 +196,11 @@ export function buildPolicyForUser(
     options?: { allowCloud?: boolean }
 ): TranscriptionPolicy {
     const base = hasPrivateSttAccess ? PROD_PRO_POLICY : PROD_FREE_POLICY;
-    const allowCloud = hasPrivateSttAccess ? options?.allowCloud ?? base.allowCloud : false;
+    // #1120 S1 (review round-2): FAIL-CLOSED on an omitted allowCloud. Previously an omitted `options.allowCloud`
+    // fell back to `base.allowCloud` (true for Pro), so a caller that did not pass the gate silently allowed
+    // Cloud. Cloud is now allowed ONLY when it is EXPLICITLY true (and the user is Private-capable); undefined /
+    // false / any non-true value denies it, and resolveMode's `allowCloud` fallback can never reach 'cloud'.
+    const allowCloud = hasPrivateSttAccess && options?.allowCloud === true;
     const hasExplicitMode = uiMode !== undefined && uiMode !== null;
     const preferredMode = uiMode === 'cloud' && !allowCloud
         ? base.preferredMode

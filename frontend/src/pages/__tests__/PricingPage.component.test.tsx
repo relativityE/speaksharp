@@ -85,8 +85,20 @@ describe('PricingPage', () => {
             expect(screen.getByText('Practice analytics, trends, and coaching reports')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
             expect(screen.getByText('Private transcription after one-time local model setup')).toBeInTheDocument();
-            expect(screen.getByText('Cloud transcription when enabled for Pro workflows')).toBeInTheDocument();
             expect(screen.getByText('Semantic AI coaching and expanded PDF export capacity')).toBeInTheDocument();
+        });
+
+        it('#1120 S1: the Pricing surface carries NO ordinary Cloud copy — UNCONDITIONALLY (customer-surface contract)', () => {
+            // Cloud is not a customer feature. The Pricing surface never advertises Cloud, independent of any
+            // lower-level Cloud gate — even with the client gate forced ON (that is internal characterization,
+            // exercised at the policy/parser/factory/token layers, NOT on this customer surface).
+            vi.stubEnv('VITE_CLOUD_STT_ENABLED', 'true');
+            try {
+                renderPricingPage();
+                expect(screen.queryByText(/\bcloud\b/i)).not.toBeInTheDocument();
+            } finally {
+                vi.unstubAllEnvs();
+            }
         });
 
         it('should render CTA buttons', () => {

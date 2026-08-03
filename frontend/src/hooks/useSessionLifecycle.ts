@@ -22,6 +22,7 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
+import { isPrivatePrimaryEnabled, resolveDefaultSttMode, isCloudSttEnabled, sttFlagsReadyInitial, onSttFlagsReady } from '@/config/sttHierarchyFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -31,6 +32,11 @@ import {
     clearPrivateSampleContext,
     buildSampleEnvProps,
 } from '@/services/transcription/privateSampleTelemetry';
+
+// #1120 S1: bounded wait for PostHog STT-hierarchy flags before latching the default mode. If flags never
+// arrive (uninitialized/offline/blocked PostHog, or a no-key build incl. E2E), proceed with the safe default
+// after this window so a session can never strand at the unset mode.
+const STT_FLAGS_READY_FALLBACK_MS = 1500;
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -74,7 +80,11 @@ export const useSessionLifecycle = () => {
     const isProUser = isPro(effectiveSubscriptionStatus);
     const hasPrivateSampleEntitlement = hasActivePrivateSample(usageLimit);
     const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
-    const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
+    // #1120 S1 (review #3/#5): Cloud is gated by the INDEPENDENT, fail-closed Cloud flag — never by the
+    // hierarchy flag's inverse. With the Cloud flag missing/OFF, entitlement is denied here so no policy/UI
+    // path selects Cloud or falls back to it silently (it stays implemented for a later, separately-authorized
+    // re-enable). Every other client grant path (provider, prod hook, engine factory) applies the same gate.
+    const canUseCloudStt = isCloudSttEnabled() && isProUser && hasCloudSttEntitlement(profile);
     const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
@@ -84,12 +94,12 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
-    // on the instant Browser/Native path so a new user never hits the Private model-
-    // setup wall before their first transcript. Private stays available as an explicit
-    // user-selected mode. No mode persistence in this release — every new session
-    // defaults to Native; a Pro user opts into Private per session.
-    const defaultMode: TranscriptionMode = 'native';
+    // #1120 S1: Private is the primary/recommended first experience. When the hierarchy flag is ON and the
+    // user can use Private, a new/unset session defaults to Private v2; otherwise it stays on the instant
+    // Browser path (flag OFF = today's behavior, or a user without Private access). sttMode is not persisted,
+    // so every new session is unset and picks up this default, while an explicit in-session Browser choice
+    // (which sets sttMode) is honored — the latch below only sets the default when sttMode is unset.
+    const defaultMode: TranscriptionMode = resolveDefaultSttMode(isPrivatePrimaryEnabled(), canUsePrivateStt);
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
@@ -135,6 +145,26 @@ export const useSessionLifecycle = () => {
         };
     }, []);
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
+    // #1120 S1: instrument the applied default at most once per mount (adoption + A/B of the hierarchy flag).
+    const defaultAppliedRef = useRef(false);
+    // #1120 S1 (review round-2 #1/#4): don't latch the default until PostHog flags have loaded (no premature
+    // persisted 'native'), and keep a PERSISTENT subscription for the whole mount. The first onFeatureFlags
+    // may carry cached/anonymous flags; a later AuthProvider identify() → reloadFeatureFlags() delivers the
+    // account-targeted assignment, which must still re-render (flag tick) so a default-owned mode re-latches
+    // to the authenticated user's Private assignment. Unsubscribe only on unmount — never on first-ready.
+    const [sttFlagsReady, setSttFlagsReady] = useState<boolean>(() => sttFlagsReadyInitial());
+    const [, setFlagTick] = useState(0);
+    useEffect(() => {
+        const unsubscribe = onSttFlagsReady(() => { setSttFlagsReady(true); setFlagTick((t) => t + 1); });
+        // #1120 S1 (review round-2): RESILIENCE FALLBACK. Waiting for the PostHog flag callback avoids latching a
+        // premature default before the cohort assignment arrives — but PostHog may be present-but-uninitialized or
+        // simply never deliver flags (offline, blocked, or a build with no PostHog key, incl. E2E). Without a
+        // fallback the session would strand at the unset mode forever. After a bounded wait, proceed with the safe
+        // resolved default (the flag reads OFF/fail-closed until it loads); a later real assignment still re-latches
+        // a default-owned mode via the persistent subscription above.
+        const fallback = setTimeout(() => setSttFlagsReady(true), STT_FLAGS_READY_FALLBACK_MS);
+        return () => { unsubscribe(); clearTimeout(fallback); };
+    }, []);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -704,6 +734,9 @@ export const useSessionLifecycle = () => {
     // for Pro users after profile hydration.
     useEffect(() => {
         if (!profileReadyForStt) return;
+        // #1120 S1 (review #1): wait for PostHog flags before latching, so a cold session cannot persist a
+        // premature default that ignores the arriving cohort assignment.
+        if (!sttFlagsReady) return;
 
         if (isVerified && !isListening && shouldForceNativeMode && sttMode && sttMode !== 'native') {
             modeSourceRef.current = 'default';
@@ -714,17 +747,40 @@ export const useSessionLifecycle = () => {
             return;
         }
 
+        // #1120 S1 (review #6): a stale 'cloud' selection (in the SPA store from before the gate resolved)
+        // must be normalized to the default BEFORE warm-up, or the warm-up effect would install a Cloud policy
+        // and construct the Cloud engine. Coerce any cloud mode away when the fail-closed Cloud gate is off.
+        if (isVerified && !isListening && sttMode === 'cloud' && !canUseCloudStt) {
+            modeSourceRef.current = 'default';
+            setSTTMode(defaultMode);
+            return;
+        }
+
+        // Latch the default for a new/unset session; also RE-LATCH a still-default (non-user-chosen) mode when
+        // the resolved default changed — e.g. the hierarchy flag arrived after a cold 'native' was set (#1). An
+        // explicit user choice (modeSourceRef==='user') is always preserved.
+        // Only a mode THIS effect latched (=== 'default') may be re-latched when the resolved default changes.
+        // A store-provided or user-chosen mode (ref null / 'user') is preserved — never clobbered on mount.
+        const modeIsDefaultOwned = modeSourceRef.current === 'default';
         if (
             isVerified &&
             !isListening &&
-            (
-                !sttMode || shouldPromoteNativeDefaultToPrivate
-            )
+            (!sttMode || (modeIsDefaultOwned && sttMode !== defaultMode))
         ) {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
+            // #1120 S1: content-free instrumentation — which default a new/unset session received and whether
+            // the Private-primary hierarchy flag drove it. Fired once per mount (closed enum values only).
+            if (!defaultAppliedRef.current) {
+                defaultAppliedRef.current = true;
+                analyticsBuffer.push('stt_default_applied', {
+                    default_mode: defaultMode,
+                    private_primary_flag: isPrivatePrimaryEnabled(),
+                    can_use_private: canUsePrivateStt,
+                });
+            }
         }
-    }, [profileReadyForStt, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, shouldPromoteNativeDefaultToPrivate, setSTTMode, setSTTStatus]);
+    }, [profileReadyForStt, sttFlagsReady, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, canUseCloudStt, canUsePrivateStt, setSTTMode, setSTTStatus]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {
@@ -740,6 +796,11 @@ export const useSessionLifecycle = () => {
 
         if (!profileReadyForStt) return;
         if (shouldPromoteNativeDefaultToPrivate) return;
+        // #1120 S1 (review round-2 #2): SAME-RENDER stale-Cloud prevention. A stored 'cloud' selection that the
+        // fail-closed gate denies must NEVER be warmed — warmUp('cloud') installs a Cloud-allowing policy and
+        // constructs the Cloud engine before the latch effect's store coercion lands. Skip warming a denied
+        // Cloud (the latch effect normalizes the store separately); the safe default is warmed once normalized.
+        if (sttMode === 'cloud' && !canUseCloudStt) return;
 
         if (sttMode && !isListening && warmUpTriggered.current !== sttMode) {
             warmUpTriggered.current = sttMode;
@@ -747,7 +808,7 @@ export const useSessionLifecycle = () => {
             logger.info(`[useSessionLifecycle] Mode set to ${sttMode} - triggering warm-up`);
             void speechRuntimeController.warmUp(sttMode);
         }
-    }, [effectiveMode, sttMode, isListening, profileReadyForStt, shouldPromoteNativeDefaultToPrivate]);
+    }, [effectiveMode, sttMode, isListening, profileReadyForStt, shouldPromoteNativeDefaultToPrivate, canUseCloudStt]);
 
     useEffect(() => {
         return () => {

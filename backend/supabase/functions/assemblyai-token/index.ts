@@ -37,6 +37,21 @@ export async function handler(
   if (corsRejection) return corsRejection;
 
   try {
+    // #1120 S1 (review #4): server-side, FAIL-CLOSED Cloud gate. Cloud is denied unless CLOUD_STT_ENABLED is
+    // exactly "true", BEFORE any JWT auth, Supabase access, or AssemblyAI provider/token call — so a stale or
+    // direct client cannot mint a paid provider token while Cloud is globally off. Independent of the client
+    // hierarchy flag; a stable "unavailable" response, never a partial/misleading one.
+    if (getEnv("CLOUD_STT_ENABLED") !== "true") {
+      console.warn("🚫 Token request rejected: Cloud STT is disabled (CLOUD_STT_ENABLED not 'true')");
+      return new Response(
+        JSON.stringify({ error: "Cloud transcription is unavailable." }),
+        {
+          status: 503,
+          headers: { "Content-Type": "application/json", ...corsHeaders(req) },
+        },
+      );
+    }
+
     const ASSEMBLYAI_KEY = getEnv("ASSEMBLYAI_API_KEY");
     if (!ASSEMBLYAI_KEY) {
       throw new Error("Missing ASSEMBLYAI_API_KEY environment variable.");

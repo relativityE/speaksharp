@@ -75,6 +75,7 @@ interface LiveRecordingCardProps {
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
+import { isPrivatePrimaryEnabled, isCloudSttGloballyVisible } from '@/config/sttHierarchyFlags';
 
 /**
  * The main recording control panel with mode selector, mic indicator,
@@ -314,6 +315,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
+    // #1120 S1: TWO INDEPENDENT gates.
+    //  • privatePrimary (hierarchy flag) — when ON, Private is the recommended primary and Browser is the
+    //    explicit fallback; when OFF, Browser-default ordering. It controls ONLY Private/Browser ordering.
+    //  • cloudVisible (canonical Cloud release gate `VITE_CLOUD_STT_ENABLED`, via isCloudSttGloballyVisible)
+    //    — when the gate is OFF, the Cloud row + About-Cloud entry are NOT rendered (customer-invisible),
+    //    independent of the hierarchy flag. The hierarchy flag never restores Cloud in either state.
+    const privatePrimary = isPrivatePrimaryEnabled();
+    const cloudVisible = isCloudSttGloballyVisible();
     // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
     const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
     const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
@@ -331,7 +340,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const cloudOptionDesc = canUseCloudStt
         ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
         : cloudModeDescription;
-    const nativeOptionDesc = "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
+    // #1120 S1 (review #8): when Private is primary, Browser is the explicit COMPATIBILITY FALLBACK, not an
+    // attractive fast peer — the descriptor says so while preserving the browser/provider-managed disclosure.
+    const nativeOptionDesc = privatePrimary
+        ? "Compatibility fallback — uses your browser's built-in speech recognition. Availability and accuracy vary by browser (Chrome recommended); use it if Private isn't available on your device."
+        : "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
     // #1064: the concise privacy explanation for the AVAILABLE Private option (tooltip / About body /
     // flyout). The operational details (beta cap, sample-session limit, auto-save, entitlement) stay in
     // privateModeDescription — do NOT fold them into this sentence. When unavailable, fall back to the
@@ -378,10 +391,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 <p className="font-semibold text-foreground">Browser</p>
                 <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-native">{nativeOptionDesc}</p>
             </div>
-            <div>
-                <p className="font-semibold text-foreground">Cloud — Pro</p>
-                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-cloud">{cloudOptionDesc}</p>
-            </div>
+            {/* #1120 S1: Cloud is customer-invisible whenever the canonical Cloud gate is OFF (independent of
+                the hierarchy flag). */}
+            {cloudVisible && (
+                <div>
+                    <p className="font-semibold text-foreground">Cloud — Pro</p>
+                    <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-cloud">{cloudOptionDesc}</p>
+                </div>
+            )}
         </div>
     );
 
@@ -504,6 +521,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                             aria-hidden="true"
                                             className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${canUsePrivate ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}
                                         >Stays local</span>
+                                        {/* #1120 S1: Private is the primary/recommended first experience. The badge is
+                                            visual only (aria-hidden); the accessible NAME stays "Private". */}
+                                        {privatePrimary && canUsePrivate && (
+                                            <span
+                                                data-testid="stt-mode-tag-recommended"
+                                                aria-hidden="true"
+                                                className="ml-1 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary-foreground"
+                                            >Recommended</span>
+                                        )}
                                     </span>
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
@@ -523,9 +549,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         Browser
                                         {/* #1041: secondary descriptor badge for the Browser method — visual only
                                             (aria-hidden); its text is announced via the accessible description above. */}
-                                        <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
+                                        <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{privatePrimary ? 'Fallback' : 'Quick preview'}</span>
                                     </span>
                                 </DropdownMenuRadioItem>
+                                {/* #1120 S1: Cloud is globally off + customer-invisible whenever the canonical Cloud
+                                    gate is OFF (independent of the hierarchy flag) — the row is not rendered (never
+                                    merely disabled), so it cannot be selected. */}
+                                {cloudVisible && (
                                 <DropdownMenuRadioItem
                                     value="cloud"
                                     className={STT_MODE_ITEM_CLASS}
@@ -541,10 +571,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
                                     </span>
                                 </DropdownMenuRadioItem>
+                                )}
                             </DropdownMenuRadioGroup>
                             {/* #1041: the Browser option's accessible description — the "Quick preview" descriptor plus
                                 the approved explanation, available to screen readers without becoming part of the name. */}
-                            <span id="stt-native-descriptor" className="sr-only">{`Quick preview. ${nativeOptionDesc}`}</span>
+                            <span id="stt-native-descriptor" className="sr-only">{`${privatePrimary ? 'Compatibility fallback.' : 'Quick preview.'} ${nativeOptionDesc}`}</span>
                             {/* #1064: the Private option's accessible description — "Stays local" plus the approved
                                 privacy sentence, exposed to screen readers as the description (not part of the name). */}
                             <span id="stt-private-descriptor" className="sr-only">Stays local. Transcription runs on this device; audio is not uploaded.</span>

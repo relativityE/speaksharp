@@ -55,7 +55,6 @@ const tiers: Tier[] = [
       'Practice analytics, trends, and coaching reports',
       'Save all sessions',
       'Private transcription after one-time local model setup',
-      'Cloud transcription when enabled for Pro workflows',
       'Semantic AI coaching and expanded PDF export capacity',
     ],
     cta: 'Upgrade to Pro',
@@ -128,6 +127,9 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
       </CardHeader>
       <CardContent className="flex-grow px-6">
         <ul className="space-y-2">
+          {/* #1120 S1: Cloud is not a customer feature. The Pricing surface carries NO ordinary Cloud copy —
+              unconditionally, independent of any lower-level Cloud gate (a future authorized customer Cloud
+              control would be a separately audited change; #1155 does not create one). */}
           {tier.features.map((feature, i) => (
             <li key={i} className="flex items-start gap-2 text-sm leading-relaxed">
               <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />
