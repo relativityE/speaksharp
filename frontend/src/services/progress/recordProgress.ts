@@ -102,6 +102,32 @@ export async function advanceRecommendationAttempt(args: {
     return (data as string | null) ?? null;
 }
 
+type AttemptAdvanceResult =
+    | { ok: true; outcome: string }
+    | { ok: false; kind: 'not_comparable' | 'technical' };
+
+async function advanceRecommendationAttemptResult(args: Parameters<typeof advanceRecommendationAttempt>[0]): Promise<AttemptAdvanceResult> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('advance_recommendation_attempt', {
+        p_attempt_id: args.attemptId,
+        p_lifecycle: args.lifecycle,
+        p_practice_session_id: args.practiceSessionId ?? null,
+        p_next_comparable_session_id: args.nextComparableSessionId ?? null,
+    });
+    if (!error && data) return { ok: true, outcome: data as string };
+    const message = typeof error === 'object' && error && 'message' in error ? String(error.message) : '';
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    const authoritativeMismatch = code === '22023' && message.includes('use not_comparable');
+    logger.warn({ error, attemptId: args.attemptId }, '[progress] advance_recommendation_attempt failed');
+    return { ok: false, kind: authoritativeMismatch ? 'not_comparable' : 'technical' };
+}
+
+/** Terminally abandon a server attempt when its local handoff could not be established. */
+export async function abandonRecommendationAttempt(attemptId: string): Promise<boolean> {
+    const result = await advanceRecommendationAttemptResult({ attemptId, lifecycle: 'abandoned' });
+    return result.ok;
+}
+
 /** #1033 attribution reaches a TERMINAL state at `verified` or `unverified` (`pending` is not terminal). */
 function isTerminalAttribution(status: string | null | undefined): boolean {
     return status === 'verified' || status === 'unverified';
@@ -210,22 +236,23 @@ export async function wireProgressEvaluationOnSave(ctx: {
 async function resolveOpenAttemptWith(userId: string, newSessionId: string): Promise<void> {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
-    const outcome = await advanceRecommendationAttempt({
+    const result = await advanceRecommendationAttemptResult({
         attemptId: open.attemptId,
         lifecycle: 'completed',
         practiceSessionId: newSessionId,
         nextComparableSessionId: newSessionId,
     });
-    if (!outcome) {
-        // Not an eligible, same-cohort comparison (or a transient error) — record it as not_comparable,
-        // still associating the practice session the user actually did.
-        await advanceRecommendationAttempt({
+    if (!result.ok && result.kind === 'not_comparable') {
+        const terminal = await advanceRecommendationAttemptResult({
             attemptId: open.attemptId,
             lifecycle: 'not_comparable',
             practiceSessionId: newSessionId,
         });
+        if (terminal.ok) clearOpenAttempt();
+        return;
     }
-    clearOpenAttempt();
+    // Technical/storage/network failure remains pending and retryable; never falsify it as a speaking result.
+    if (result.ok) clearOpenAttempt();
 }
 
 /**

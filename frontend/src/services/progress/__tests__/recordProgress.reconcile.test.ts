@@ -106,4 +106,35 @@ describe('#1045 "Practice this next" loop closure', () => {
         expect(rpcNames()).not.toContain('advance_recommendation_attempt');
         expect(getOpenAttemptForUser(USER)).not.toBeNull(); // still open
     });
+
+    it('keeps a technical resolution failure pending and retryable', async () => {
+        setOpenAttempt({ attemptId: 'att-technical', userId: USER, sourceSessionId: 's-source' });
+        rpc.mockImplementation(async (name: string) => name === 'advance_recommendation_attempt'
+            ? { data: null, error: { code: '57014', message: 'network timeout' } }
+            : { data: 'ok-id', error: null });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-next', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        expect(rpcNames().filter((name) => name === 'advance_recommendation_attempt')).toHaveLength(1);
+        expect(getOpenAttemptForUser(USER)?.attemptId).toBe('att-technical');
+    });
+
+    it('uses not_comparable only after the server authoritatively rejects comparability', async () => {
+        setOpenAttempt({ attemptId: 'att-mismatch', userId: USER, sourceSessionId: 's-source' });
+        let advanceCalls = 0;
+        rpc.mockImplementation(async (name: string) => {
+            if (name !== 'advance_recommendation_attempt') return { data: 'ok-id', error: null };
+            advanceCalls++;
+            return advanceCalls === 1
+                ? { data: null, error: { code: '22023', message: 'next session is not an eligible, same-cohort evaluation; use not_comparable' } }
+                : { data: 'not_comparable', error: null };
+        });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-next', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        const calls = rpc.mock.calls.filter((call) => call[0] === 'advance_recommendation_attempt');
+        expect(calls).toHaveLength(2);
+        expect(calls[1][1]).toMatchObject({ p_lifecycle: 'not_comparable', p_practice_session_id: 's-next' });
+        expect(getOpenAttemptForUser(USER)).toBeNull();
+    });
 });

@@ -14,10 +14,15 @@ export interface OpenAttempt {
     sourceSessionId: string;
 }
 
-export function setOpenAttempt(a: OpenAttempt): void {
-    if (typeof localStorage === 'undefined') return;
-    try { localStorage.setItem(KEY, JSON.stringify(a)); }
-    catch (err) { logger.warn({ err }, '[progress] open-attempt write failed'); }
+export function setOpenAttempt(a: OpenAttempt): boolean {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        localStorage.setItem(KEY, JSON.stringify(a));
+        return localStorage.getItem(KEY) === JSON.stringify(a);
+    } catch (err) {
+        logger.warn({ err }, '[progress] open-attempt write failed');
+        return false;
+    }
 }
 
 export function getOpenAttemptForUser(userId: string): OpenAttempt | null {
