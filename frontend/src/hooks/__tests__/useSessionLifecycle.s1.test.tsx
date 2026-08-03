@@ -215,6 +215,7 @@ const s1 = vi.hoisted(() => ({
     cloudEnabled: true,
     flagsReady: true,
     readyCbs: [] as Array<() => void>,
+    unsubCalls: 0,
 }));
 vi.mock('@/config/sttHierarchyFlags', () => ({
     isPrivatePrimaryEnabled: () => s1.privatePrimary,
@@ -222,10 +223,13 @@ vi.mock('@/config/sttHierarchyFlags', () => ({
     isCloudSttGloballyVisible: () => s1.cloudEnabled,
     resolveDefaultSttMode: (p: boolean, c: boolean) => (p && c ? 'private' : 'native'),
     sttFlagsReadyInitial: () => s1.flagsReady,
-    onSttFlagsReady: (cb: () => void) => { s1.readyCbs.push(cb); return () => {}; },
+    onSttFlagsReady: (cb: () => void) => { s1.readyCbs.push(cb); return () => { s1.unsubCalls += 1; }; },
     STT_HIERARCHY_FLAG_KEY: 'stt_private_primary_v1',
     CLOUD_STT_FLAG_KEY: 'cloud_stt_enabled',
 }));
+
+const analyticsPush = vi.hoisted(() => vi.fn());
+vi.mock('@/services/AnalyticsBuffer', () => ({ analyticsBuffer: { push: analyticsPush, flush: vi.fn() } }));
 
 const asProUsage = (over: Partial<UsageLimitCheck> = {}) => ({
     data: { ...baseUsageLimit, subscription_status: 'pro', is_pro: true, ...over } as UsageLimitCheck,
@@ -309,5 +313,79 @@ describe('#1120 S1 — hook-level Cloud fail-closed + late-flag re-latch (operat
         await waitFor(() => {
             expect(store.getState().sttMode).toBe('private');
         }, { timeout: 2000 });
+    });
+});
+
+// #1120 S1 (PR #1155) — FALLBACK SAFETY falsifications for the bounded 1.5s flag-readiness fail-safe.
+// Timing is exercised with FAKE timers (no sleep-based flake). Covers all six required proofs.
+describe('#1120 S1 — flag-readiness fallback safety (fake timers)', () => {
+    const wrap = ({ children }: { children: React.ReactNode }) => <TranscriptionProvider>{children}</TranscriptionProvider>;
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.useFakeTimers();
+        s1.privatePrimary = false; s1.cloudEnabled = true; s1.flagsReady = false; s1.readyCbs = []; s1.unsubCalls = 0;
+        delete window.__SS_E2E__;
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'test-user', subscription_status: 'pro', email: 'pro@example.com' } as UserProfile,
+            isVerified: true,
+        });
+        vi.mocked(useUsageLimit).mockReturnValue(asProUsage());
+    });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('#1/#2 uninitialized/pending flags fall back to the safe rollback default after the bounded timeout — no strand', () => {
+        const store = installStore({ sttMode: null, isListening: false });
+        renderHook(() => useSessionLifecycle(), { wrapper: wrap });
+        // Before the timeout nothing is latched (waiting for flags).
+        expect(store.getState().sttMode).toBeNull();
+        act(() => { vi.advanceTimersByTime(1600); });
+        // Fallback fired → safe resolved default (hierarchy OFF ⇒ 'native'); the session is no longer stranded.
+        expect(store.getState().sttMode).toBe('native');
+    });
+
+    it('#3 a real ON result arriving while idle + default-owned resolves to Private (before the timeout)', () => {
+        const store = installStore({ sttMode: null, isListening: false });
+        renderHook(() => useSessionLifecycle(), { wrapper: wrap });
+        s1.privatePrimary = true;
+        act(() => { s1.readyCbs.forEach((cb) => cb()); });
+        expect(store.getState().sttMode).toBe('private');
+    });
+
+    it('#4 a late ON result AFTER recording started never switches mode mid-recording', () => {
+        const store = installStore({ sttMode: 'native', isListening: true, runtimeState: 'RECORDING' });
+        renderHook(() => useSessionLifecycle(), { wrapper: wrap });
+        s1.privatePrimary = true;
+        act(() => { s1.readyCbs.forEach((cb) => cb()); vi.advanceTimersByTime(1600); });
+        expect(store.getState().sttMode).toBe('native'); // unchanged while recording
+    });
+
+    it('#5 a persisted (non-default-owned) Browser choice is never overwritten by a late Private-primary result', () => {
+        const store = installStore({ sttMode: 'native', isListening: false });
+        renderHook(() => useSessionLifecycle(), { wrapper: wrap });
+        s1.privatePrimary = true;
+        act(() => { s1.readyCbs.forEach((cb) => cb()); vi.advanceTimersByTime(1600); });
+        expect(store.getState().sttMode).toBe('native'); // preserved
+    });
+
+    it('#6 unmount clears the fallback timeout AND unsubscribes — no post-unmount latch or default telemetry', () => {
+        installStore({ sttMode: null, isListening: false });
+        const { unmount } = renderHook(() => useSessionLifecycle(), { wrapper: wrap });
+        const unsubBefore = s1.unsubCalls;
+        unmount();
+        expect(s1.unsubCalls).toBe(unsubBefore + 1);
+        analyticsPush.mockClear();
+        act(() => { vi.advanceTimersByTime(3000); });
+        expect(analyticsPush).not.toHaveBeenCalled();
+    });
+
+    it('#6 default telemetry is emitted at most once even when the fallback AND a late result both latch', () => {
+        installStore({ sttMode: null, isListening: false });
+        renderHook(() => useSessionLifecycle(), { wrapper: wrap });
+        analyticsPush.mockClear();
+        act(() => { vi.advanceTimersByTime(1600); });      // fallback latches the default → telemetry once
+        s1.privatePrimary = true;
+        act(() => { s1.readyCbs.forEach((cb) => cb()); });  // late result re-latches; must NOT re-emit
+        const defaultApplied = analyticsPush.mock.calls.filter((c) => c[0] === 'stt_default_applied');
+        expect(defaultApplied.length).toBe(1);
     });
 });

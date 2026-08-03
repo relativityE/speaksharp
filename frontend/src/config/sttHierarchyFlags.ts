@@ -26,6 +26,7 @@
  */
 import posthog from 'posthog-js';
 import logger from '@/lib/logger';
+import { ENV } from '@/config/TestFlags';
 
 /** PostHog flag key. Keep in sync with the PostHog project. */
 export const STT_HIERARCHY_FLAG_KEY = 'stt_private_primary_v1' as const;
@@ -55,6 +56,11 @@ function readFlag(key: string): boolean {
  */
 export function isPrivatePrimaryEnabled(): boolean {
   if (typeof window === 'undefined') return false;
+  // #1120 S1 (PR #1155): bounded E2E-only hierarchy override, resolved BEFORE the PostHog read so launch
+  // (true) and hierarchy-rollback (false) are deterministic at T=0. Prod-inert — `e2eSttHierarchyOverride`
+  // is `undefined` unless the E2E manifest is active and `ENV.isE2E`. Hierarchy only; never affects Cloud.
+  const e2eOverride = ENV.e2eSttHierarchyOverride;
+  if (e2eOverride !== undefined) return e2eOverride;
   if (HARD_DISABLED) return false;
   return readFlag(STT_HIERARCHY_FLAG_KEY);
 }
@@ -102,6 +108,9 @@ export function isCloudSttGloballyVisible(): boolean {
 export function sttFlagsReadyInitial(): boolean {
   if (typeof window === 'undefined') return true;
   try {
+    // #1120 S1 (PR #1155): a bounded E2E hierarchy override makes the state deterministic at T=0 — nothing to
+    // wait for, so report ready immediately (never strand behind an uninitialized PostHog in E2E).
+    if (ENV.e2eSttHierarchyOverride !== undefined) return true;
     return !posthog || typeof posthog.onFeatureFlags !== 'function';
   } catch {
     return true;

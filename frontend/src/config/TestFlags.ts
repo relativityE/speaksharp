@@ -27,6 +27,14 @@ export interface SSE2EManifest {
     bypassMutex?: boolean;
     fastTimers?: boolean;
     DEBUG_ENABLED?: boolean;
+    /**
+     * #1120 S1 (PR #1155, bounded E2E-only exception): force the STT Private-primary hierarchy state so
+     * Playwright can deterministically exercise launch (Private-primary) vs hierarchy-rollback (Browser-default)
+     * at T=0. `true` = launch/hierarchy ON, `false` = rollback/hierarchy OFF, `undefined` = normal resolver.
+     * This is ONLY the hierarchy flag — it never overrides Cloud visibility/entitlement. Prod-inert: read only
+     * via `ENV.e2eSttHierarchyOverride`, effective only when the manifest is active and `ENV.isE2E`.
+     */
+    sttPrivatePrimary?: boolean;
   };
   registry?: Record<string, unknown>;
 }
@@ -75,6 +83,16 @@ export const ENV = {
   },
   get debug(): boolean {
     return this.isE2E && !!getWindow().__SS_E2E__?.debug;
+  },
+  /**
+   * #1120 S1 (PR #1155): the bounded E2E-only STT hierarchy override. Returns `true`/`false` ONLY when the
+   * manifest is active AND `ENV.isE2E`; `undefined` in every other case (including production, where it is
+   * unreachable and the S1 resolver falls through to the normal PostHog read). Hierarchy-only — never Cloud.
+   */
+  get e2eSttHierarchyOverride(): boolean | undefined {
+    if (!this.isE2E) return undefined;
+    const v = getWindow().__SS_E2E__?.flags?.sttPrivatePrimary;
+    return typeof v === 'boolean' ? v : undefined;
   },
 
   // --- COMPATIBILITY SHIM (Legacy Mapping) ---
