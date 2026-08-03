@@ -13,6 +13,16 @@ import os from 'node:os';
 
 const VALIDATOR = fileURLToPath(new URL('../../../scripts/validate-stt-evidence.mjs', import.meta.url));
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
+const PRIVATE_INPUT_HASH = 'c'.repeat(64);
+const PRIVATE_MODEL_HASH = 'e'.repeat(64);
+const PRIVATE_SAMPLES = 80_000;
+const PRIVATE_BYTES = PRIVATE_SAMPLES * Float32Array.BYTES_PER_ELEMENT;
+const PRIVATE_DURATION = PRIVATE_SAMPLES / 16_000;
+const PRIVATE_MODEL_FILES = [
+    'added_tokens.json', 'config.json', 'generation_config.json', 'merges.txt', 'normalizer.json',
+    'onnx/decoder_model_merged_quantized.onnx', 'onnx/encoder_model_quantized.onnx',
+    'preprocessor_config.json', 'special_tokens_map.json', 'tokenizer.json', 'tokenizer_config.json', 'vocab.json',
+];
 
 function browserRow(over: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -27,6 +37,48 @@ function browserRow(over: Record<string, unknown> = {}): Record<string, unknown>
         runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: false, sharedArrayBufferAvailable: false, fallbackReason: null },
         comparability_inputs: { fixtureHash: '', groundTruthVersion: 'not-scored', normalizationVersion: 'not-scored', decodeConfiguration: 'system-chrome/web-speech/browser-managed/live-mic', modelRevision: 'browser-managed-unreported-v1', runtimeVersions: { chrome: '148.0', 'web-speech-api': 'browser-managed' } },
         browser_journey_evidence: { supportState: 'supported', executionMode: 'manual-assisted', recognitionStarted: true, timerAdvanced: true, transcriptProduced: true, sessionProduced: true, browserManagedTranscription: true, applicationServerWrites: 0, cloudProviderCalls: 0, forbiddenEngineInvocations: [], forbiddenEngineGuard: { installed: true, protectedKeys: ['assemblyai', 'transformers-js', 'transformers-js-v4', 'whisper-turbo'] }, releaseProofEligible: true },
+        ...over,
+    };
+}
+
+function privateWorkerRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        comparability_class: 'corpus_fixture', engine: 'private-v2-browser-worker',
+        engine_version: 'whisper-base.en@v2', model_name: 'whisper-base.en',
+        attribution_status: 'verified', browser: 'Google Chrome', browser_version: '148.0',
+        os: 'macOS 15.0', device: 'arm64 desktop', network_condition: 'unthrottled',
+        fixture_id: 'harvard-01', audio_route_proven: true, run_validity: 'valid',
+        invalid_reason: null, wer: 0.05, first_partial_latency_ms: 800, finalization_latency_ms: 4200,
+        failure_class: 'none', release_sha: 'a'.repeat(40),
+        audio_route_evidence: {
+            fixtureSha256: 'b'.repeat(64), adapterInputPayloadSha256: PRIVATE_INPUT_HASH,
+            adapterInputBytes: PRIVATE_BYTES, decodedSampleCount: PRIVATE_SAMPLES,
+            decodedDurationSeconds: PRIVATE_DURATION,
+        },
+        runtime_capability: {
+            requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
+            runtimePath: 'wasm', crossOriginIsolated: false, sharedArrayBufferAvailable: false,
+            fallbackReason: 'crossOriginIsolated=false; single-thread floor',
+        },
+        comparability_inputs: {
+            fixtureHash: 'b'.repeat(64), groundTruthVersion: 'gt-v1', normalizationVersion: 'norm-v1',
+            decodeConfiguration: 'q8/q8/wasm/worker/1', modelRevision: 'e7f3c1a9b2d4',
+            runtimeVersions: { onnxruntime: '1.14.0', transformers: '2.17.2' },
+        },
+        private_worker_evidence: {
+            workerUsed: true, modelSource: 'self-hosted', modelLoaded: 'whisper-base.en',
+            modelProvenance: {
+                modelId: 'Xenova/whisper-base.en', modelRevision: 'e7f3c1a9b2d4', verdict: 'identical',
+                files: PRIVATE_MODEL_FILES.map(file => ({
+                    file, expectedSha256: PRIVATE_MODEL_HASH, actualSha256: PRIVATE_MODEL_HASH, identical: true,
+                })),
+            },
+            mainThreadInputSha256: PRIVATE_INPUT_HASH, mainThreadInputSamples: PRIVATE_SAMPLES,
+            mainThreadInputBytes: PRIVATE_BYTES, mainThreadInputDurationSeconds: PRIVATE_DURATION,
+            workerInputSha256: PRIVATE_INPUT_HASH, workerInputSamples: PRIVATE_SAMPLES,
+            workerInputBytes: PRIVATE_BYTES, workerInputDurationSeconds: PRIVATE_DURATION,
+            inputHashesMatch: true, cloudProviderCalls: 0,
+        },
         ...over,
     };
 }
@@ -77,5 +129,32 @@ describe('#1037 validate-stt-evidence — browser_journey runtime boundary', () 
 
     it('admits OBSERVED capability values (crossOriginIsolated / SharedArrayBuffer true) — observed, not manufactured', () => {
         expect(validate([browserRow({ runtime_capability: { requestedThreads: null, configuredThreads: null, workerReportedThreads: null, runtimePath: 'browser-webspeech', crossOriginIsolated: true, sharedArrayBufferAvailable: true, fallbackReason: null } })]).status).toBe(0);
+    });
+});
+
+describe('#1037 validate-stt-evidence — Private-worker integrity boundary', () => {
+    it('admits existing valid Private-v2 evidence', () => {
+        expect(validate([privateWorkerRow()]).status).toBe(0);
+    });
+
+    it('rejects identical=true when expected and actual model hashes differ', () => {
+        const row = privateWorkerRow();
+        const worker = row.private_worker_evidence as Record<string, unknown>;
+        const provenance = worker.modelProvenance as { files: Array<Record<string, unknown>> };
+        provenance.files[0] = { ...provenance.files[0], actualSha256: 'f'.repeat(64), identical: true };
+
+        expect(validate([row]).status).toBe(1);
+    });
+
+    it('rejects a valid-looking route tuple when the adapter-input hash differs from worker input', () => {
+        const row = privateWorkerRow({
+            audio_route_evidence: {
+                fixtureSha256: 'b'.repeat(64), adapterInputPayloadSha256: 'd'.repeat(64),
+                adapterInputBytes: PRIVATE_BYTES, decodedSampleCount: PRIVATE_SAMPLES,
+                decodedDurationSeconds: PRIVATE_DURATION,
+            },
+        });
+
+        expect(validate([row]).status).toBe(1);
     });
 });

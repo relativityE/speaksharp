@@ -241,7 +241,8 @@ function checkRow(row, index) {
                 for (const file of provenance.files) {
                     if (String(file.file ?? '').startsWith('/') || String(file.file ?? '').split('/').includes('..') ||
                         file.identical !== true || !SHA256_RE.test(String(file.expectedSha256 ?? '')) ||
-                        !SHA256_RE.test(String(file.actualSha256 ?? ''))) {
+                        !SHA256_RE.test(String(file.actualSha256 ?? '')) ||
+                        file.expectedSha256 !== file.actualSha256) {
                         problems.push(`Private model provenance file '${file.file}' is not byte-identical`);
                     }
                 }
@@ -279,6 +280,10 @@ function checkRow(row, index) {
                 row.audio_route_evidence?.decodedSampleCount !== worker.mainThreadInputSamples ||
                 Math.abs(row.audio_route_evidence?.decodedDurationSeconds - expectedDuration) > PRIVATE_PCM_DURATION_TOLERANCE_SECONDS) {
                 problems.push('Private audio-route tuple does not match the main-thread PCM input');
+            }
+            if (row.audio_route_evidence?.adapterInputPayloadSha256 !== worker.mainThreadInputSha256 ||
+                row.audio_route_evidence?.adapterInputPayloadSha256 !== worker.workerInputSha256) {
+                problems.push('Private adapter-input, main-thread, and worker PCM hashes do not match');
             }
             if (worker.cloudProviderCalls !== 0) problems.push('Private evidence invoked a Cloud provider');
         }

@@ -441,6 +441,49 @@ describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
         expect(r.invalid_reason).toMatch(/audio-route tuple does not match/i);
     });
 
+    it('rejects a self-attested identical model file when its expected and actual hashes differ', () => {
+        const evidence = privateWorkerEvidence();
+        evidence.modelProvenance.files[0] = {
+            ...evidence.modelProvenance.files[0],
+            actualSha256: 'f'.repeat(64),
+            identical: true,
+        };
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: {
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            audio_route_evidence: privateRoute(),
+            private_worker_evidence: evidence,
+        }));
+
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/model provenance file .* is not byte-identical/i);
+    });
+
+    it('rejects a valid-looking Private route tuple whose adapter-input hash differs from worker input', () => {
+        const r = finalizeRow(base({
+            engine: 'private-v2-browser-worker',
+            runtime_capability: {
+                requestedThreads: 1, configuredThreads: 1, workerReportedThreads: null,
+                runtimePath: 'wasm', crossOriginIsolated: false,
+                sharedArrayBufferAvailable: false, fallbackReason: 'single-thread floor',
+            },
+            audio_route_evidence: route({
+                adapterInputPayloadSha256: 'd'.repeat(64),
+                adapterInputBytes: PRIVATE_BYTES,
+                decodedSampleCount: PRIVATE_SAMPLES,
+                decodedDurationSeconds: PRIVATE_DURATION,
+            }),
+            private_worker_evidence: privateWorkerEvidence(),
+        }));
+
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason).toMatch(/adapter-input, main-thread, and worker PCM hashes do not match/i);
+    });
+
     it('accepts an isolated Private-worker measurement only as unverified, WER-free, and non-rankable', () => {
         const r = finalizeRow(base({
             engine: 'private-v2-browser-worker',
