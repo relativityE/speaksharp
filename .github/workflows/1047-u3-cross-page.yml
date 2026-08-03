@@ -1,6 +1,8 @@
 name: '#1047 U3 Cross-page Evidence'
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       pr:
@@ -14,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: 1047-u3-cross-page-${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}
+  group: 1047-u3-cross-page-${{ inputs.pr || github.event.pull_request.number }}-${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -25,12 +27,12 @@ jobs:
       - name: Checkout reviewed commit
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.reviewed_sha }}
+          ref: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
 
       - name: Validate exact reviewed SHA
         shell: bash
         env:
-          REVIEWED_SHA: ${{ github.event.inputs.reviewed_sha }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
@@ -65,8 +67,8 @@ jobs:
         if: always()
         shell: bash
         env:
-          REVIEWED_SHA: ${{ github.event.inputs.reviewed_sha }}
-          REVIEW_PR: ${{ github.event.inputs.pr }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+          REVIEW_PR: ${{ inputs.pr || github.event.pull_request.number }}
         run: |
           set -euo pipefail
           mkdir -p evidence
@@ -96,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-1047-u3-cross-page
+          name: pr${{ inputs.pr || github.event.pull_request.number }}-${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}-1047-u3-cross-page
           path: evidence/
           retention-days: 1
           if-no-files-found: error

@@ -19,12 +19,13 @@ describe('#1047 U3 review-evidence authority', () => {
 
   it('uploads only explicit U3 screenshots plus a sanitized manifest under the exact contract name', () => {
     expect(workflow).toContain('tests/e2e/progress-cross-page.e2e.spec.ts');
+    expect(workflow).toContain('inputs.reviewed_sha || github.event.pull_request.head.sha');
     expect(workflow).toContain("find test-results/1047-u3-cross-page -maxdepth 1 -type f -name '*.png'");
     expect(workflow).toContain('No approved U3 screenshots were produced');
     expect(workflow).not.toContain("find test-results -name '*.png'");
     expect(workflow).toContain('evidence/manifest.json');
     expect(workflow).toContain('schema: "speaksharp.review-evidence.v1"');
-    expect(workflow).toContain('name: pr${{ github.event.inputs.pr }}-${{ github.event.inputs.reviewed_sha }}-1047-u3-cross-page');
+    expect(workflow).toContain('name: pr${{ inputs.pr || github.event.pull_request.number }}-${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}-1047-u3-cross-page');
     expect(workflow).toContain('retention-days: 1');
   });
 });
