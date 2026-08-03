@@ -1,8 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
-import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { useSpeechRecognition } from '../useSpeechRecognition';
 import { useUsageLimit } from '../useUsageLimit';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { TranscriptStats } from '../useSpeechRecognition/types';
@@ -11,7 +10,6 @@ import { SttStatus } from '@/types/transcription';
 import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import type { UserProfile } from '@/types/user';
-import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 // Mock ALL hooks used inside useSessionLifecycle
 vi.mock('@/hooks/useProfile', () => ({
@@ -32,8 +30,6 @@ vi.mock('@/providers/useTranscriptionContext', () => ({
         },
     })),
 }));
-
-import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 vi.mock('@/providers/TranscriptionProvider', () => ({
     TranscriptionProvider: ({ children }: { children: React.ReactNode }) => children,
