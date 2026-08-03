@@ -25,7 +25,7 @@ const bootstrapSql = readFileSync(BOOTSTRAP_PATH, 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
-const APPROVED_PREDICATE = 'cue_v1';
+const APPROVED_DETECTOR = 'cue_v1';
 
 type Sql = PGlite;
 
@@ -34,7 +34,6 @@ async function makeDb(grantUsers: string[] = [USER]): Promise<Sql> {
     await db.exec(bootstrapSql);
     await db.exec(migrationSql);
     await db.query(`INSERT INTO auth.users (id) VALUES ($1), ($2)`, [USER, OTHER]);
-    // Server-derived capability grant (service role would write this; NO client path exists).
     for (const u of grantUsers) {
         await db.query(
             `INSERT INTO public.guided_account_capability (user_id, enabled) VALUES ($1, true)
@@ -44,6 +43,17 @@ async function makeDb(grantUsers: string[] = [USER]): Promise<Sql> {
 }
 
 const act = (db: Sql, uid: string) => db.query(`SELECT set_config('request.jwt.claim.sub', $1, false)`, [uid]);
+
+/** A verified Private recording — the only kind a Guided session may derive its identity from. */
+async function seedRecording(
+    db: Sql, uid: string, over: { engine?: string; attribution?: string } = {},
+): Promise<string> {
+    return (await db.query<{ id: string }>(
+        `INSERT INTO public.sessions (user_id, engine, engine_version, attribution_status)
+         VALUES ($1, $2, 'v2', $3) RETURNING id`,
+        [uid, over.engine ?? 'private-v2', over.attribution ?? 'verified'],
+    )).rows[0].id;
+}
 
 interface PointSpec { order: number; required: boolean; id?: string }
 async function seedBrief(
@@ -68,30 +78,22 @@ async function seedBrief(
     return { proj, brief, pointIds };
 }
 
-async function seedRecording(db: Sql, uid: string): Promise<string> {
-    return (await db.query<{ id: string }>(
-        `INSERT INTO public.sessions (user_id) VALUES ($1) RETURNING id`, [uid],
-    )).rows[0].id;
-}
-
 async function startSession(db: Sql, uid: string, o: {
-    proj: string; brief: string; source?: string | null; runtime?: string; duration: number; idem?: string;
+    proj: string; brief: string; source: string; detector?: string; duration: number; idem?: string;
 }): Promise<string> {
     await act(db, uid);
     const r = await db.query<{ id: string }>(
-        `SELECT public.guided_start_session_v1($1,$2,$3,$4,'ev1','dv1','guided_action_v1',$5,$6) AS id`,
-        [o.proj, o.brief, o.source ?? null, o.runtime ?? 'private', o.duration, o.idem ?? 'idem-1'],
+        `SELECT public.guided_start_session_v1($1,$2,$3,$4,'guided_action_v1',$5,$6) AS id`,
+        [o.proj, o.brief, o.source, o.detector ?? APPROVED_DETECTOR, o.duration, o.idem ?? 'idem-1'],
     );
     return r.rows[0].id;
 }
 
 type Signal = { brief_point_id: string; detected_at_seconds: number | null };
-async function finalize(db: Sql, uid: string, sessionId: string, predicate: string, signals: Signal[]): Promise<number> {
+async function finalize(db: Sql, uid: string, sessionId: string, signals: Signal[]): Promise<number> {
     await act(db, uid);
     const r = await db.query<{ c: number }>(
-        `SELECT public.guided_finalize_evidence_v1($1,$2,$3::jsonb) AS c`,
-        [sessionId, predicate, JSON.stringify(signals)],
-    );
+        `SELECT public.guided_finalize_evidence_v1($1,$2::jsonb) AS c`, [sessionId, JSON.stringify(signals)]);
     return Number(r.rows[0].c);
 }
 
@@ -100,15 +102,23 @@ async function selectAction(db: Sql, uid: string, sessionId: string): Promise<st
     const r = await db.query<{ id: string }>(`SELECT public.guided_select_action_v1($1) AS id`, [sessionId]);
     return r.rows[0].id;
 }
-
 async function getAction(db: Sql, actionId: string) {
     return (await db.query<Record<string, unknown>>(`SELECT * FROM public.guided_action WHERE id = $1`, [actionId])).rows[0];
 }
-
 async function dispute(db: Sql, uid: string, actionId: string): Promise<string> {
     await act(db, uid);
     const r = await db.query<{ id: string }>(`SELECT public.guided_dispute_action_v1($1) AS id`, [actionId]);
     return r.rows[0].id;
+}
+
+/** Seed a verified-Private recording + brief and start a session — the common happy-path setup. */
+async function setup(db: Sql, uid: string, o: {
+    budget: number; points: PointSpec[]; detector?: string; duration: number; idem?: string;
+}): Promise<{ rec: string; proj: string; brief: string; pointIds: string[]; s: string }> {
+    const rec = await seedRecording(db, uid);
+    const { proj, brief, pointIds } = await seedBrief(db, uid, { budget: o.budget, points: o.points });
+    const s = await startSession(db, uid, { proj, brief, source: rec, detector: o.detector, duration: o.duration, idem: o.idem });
+    return { rec, proj, brief, pointIds, s };
 }
 
 const detected = (id: string, at = 3): Signal => ({ brief_point_id: id, detected_at_seconds: at });
@@ -118,44 +128,44 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
     // ── EVIDENCE: server-derived only ──
     it('client-chosen-verdict-rejected: verdict is computed from the offset, not any client-sent field', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        // A hostile client sends BOTH a null offset AND a "verdict":"detected" — the RPC has no verdict param,
-        // so the extra key is ignored and the honest not_detected (approved predicate) is recorded.
-        await finalize(db, USER, s, APPROVED_PREDICATE,
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await finalize(db, USER, s,
             [{ brief_point_id: pointIds[0], detected_at_seconds: null, verdict: 'detected' } as unknown as Signal]);
-        const v = (await db.query<{ verdict: string }>(
-            `SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
+        const v = (await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
         expect(v).toBe('not_detected');
     });
 
-    it('not_detected-without-versioned-predicate→unavailable', async () => {
+    it('not_detected-without-versioned-predicate→unavailable: a non-approved FROZEN detector yields unavailable', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        await finalize(db, USER, s, 'unknown_predicate_v9', [missing(pointIds[0])]);
-        const v = (await db.query<{ verdict: string }>(
-            `SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], detector: 'unknown_predicate_v9', duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
+        const v = (await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
         expect(v).toBe('unavailable');
+    });
+
+    it('predicate-bound-to-frozen-detector: the caller cannot override the session detector at finalize', async () => {
+        // detector is frozen at start; finalize takes NO predicate parameter, so an old-detector session can
+        // never be coerced into authoritative not_detected. Approved detector → not_detected.
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], detector: APPROVED_DETECTOR, duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
+        const v = (await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
+        expect(v).toBe('not_detected');
     });
 
     // ── TIME BOUNDARY ──
     it('overtime-equality-not-material: overtime == max(15s,10%) is NOT material', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 115 }); // overtime 15 == max(15,10)
-        await finalize(db, USER, s, APPROVED_PREDICATE, [detected(pointIds[0])]); // required covered
-        const a = await getAction(db, await selectAction(db, USER, s));
-        expect(a.kind).toBe('neutral_repeat'); // fell through — 15 is not strictly greater
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 115 });
+        await finalize(db, USER, s, [detected(pointIds[0])]);
+        expect((await getAction(db, await selectAction(db, USER, s))).kind).toBe('neutral_repeat');
     });
 
     it('overtime-just-over-is-material: overtime one second past the threshold IS material', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 116 }); // overtime 16 > 15
-        await finalize(db, USER, s, APPROVED_PREDICATE, [detected(pointIds[0])]);
-        const a = await getAction(db, await selectAction(db, USER, s));
-        expect(a.kind).toBe('material_time');
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 116 });
+        await finalize(db, USER, s, [detected(pointIds[0])]);
+        expect((await getAction(db, await selectAction(db, USER, s))).kind).toBe('material_time');
     });
 
     // ── DETERMINISTIC ACTION PRIORITY ──
@@ -164,10 +174,10 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         const rec = await seedRecording(db, USER);
         await db.query(
             `INSERT INTO public.progress_recommendations (user_id, source_session_id, target_metric, target_value, source_metric_value)
-             VALUES ($1,$2,'filler_rate', 2, 12)`, [USER, rec]); // large-impact clarity present
+             VALUES ($1,$2,'filler_rate', 2, 12)`, [USER, rec]);
         const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, source: rec, duration: 400 }); // material overtime too
-        await finalize(db, USER, s, APPROVED_PREDICATE, [missing(pointIds[0])]); // required unmet
+        const s = await startSession(db, USER, { proj, brief, source: rec, duration: 400 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
         const a = await getAction(db, await selectAction(db, USER, s));
         expect(a.kind).toBe('unmet_required');
         expect(a.target_brief_point_id).toBe(pointIds[0]);
@@ -175,47 +185,57 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
 
     it('required-tie-by-brief-order-then-id: the lowest brief order is chosen', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, {
-            budget: 100, points: [{ order: 1, required: true }, { order: 0, required: true }],
+        const { s, pointIds } = await setup(db, USER, {
+            budget: 100, points: [{ order: 1, required: true }, { order: 0, required: true }], duration: 50,
         });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        await finalize(db, USER, s, APPROVED_PREDICATE, [missing(pointIds[0]), missing(pointIds[1])]);
-        const a = await getAction(db, await selectAction(db, USER, s));
-        expect(a.target_brief_point_id).toBe(pointIds[1]); // the order-0 point
+        await finalize(db, USER, s, [missing(pointIds[0]), missing(pointIds[1])]);
+        expect((await getAction(db, await selectAction(db, USER, s))).target_brief_point_id).toBe(pointIds[1]);
     });
 
     it('optional-never-outranks-required: an unmet OPTIONAL point never becomes the action', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, {
-            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: false }],
+        const { s, pointIds } = await setup(db, USER, {
+            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: false }], duration: 116,
         });
-        const s = await startSession(db, USER, { proj, brief, duration: 116 }); // material overtime present
-        // required covered, optional NOT covered → optional must not trigger unmet_required; material time wins.
-        await finalize(db, USER, s, APPROVED_PREDICATE, [detected(pointIds[0]), missing(pointIds[1])]);
+        await finalize(db, USER, s, [detected(pointIds[0]), missing(pointIds[1])]);
+        expect((await getAction(db, await selectAction(db, USER, s))).kind).toBe('material_time');
+    });
+
+    it('clarity-recommendation-delete-keeps-action-valid: SET NULL never violates the shape constraint', async () => {
+        const db = await makeDb();
+        const rec = await seedRecording(db, USER);
+        const recId = (await db.query<{ id: string }>(
+            `INSERT INTO public.progress_recommendations (user_id, source_session_id, target_metric, target_value, source_metric_value)
+             VALUES ($1,$2,'pace', 3, 9) RETURNING id`, [USER, rec])).rows[0].id;
+        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        const s = await startSession(db, USER, { proj, brief, source: rec, duration: 50 }); // no overtime, required covered
+        await finalize(db, USER, s, [detected(pointIds[0])]);
         const a = await getAction(db, await selectAction(db, USER, s));
-        expect(a.kind).toBe('material_time');
+        expect(a.kind).toBe('clarity_improvement');
+        // Deleting the underlying #1045 recommendation must NOT be blocked and must keep the action valid.
+        await db.query(`DELETE FROM public.progress_recommendations WHERE id = $1`, [recId]);
+        const after = await getAction(db, a.id as string);
+        expect(after.clarity_recommendation_id).toBeNull();
+        expect(after.clarity_metric).toBe('pace'); // retained snapshot keeps the action meaningful
     });
 
     // ── DISPUTE ──
     it('dispute-does-not-rewrite-evidence: the recorded verdicts are unchanged after a dispute', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        await finalize(db, USER, s, APPROVED_PREDICATE, [missing(pointIds[0])]);
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
         const before = (await db.query(`SELECT verdict, predicate_version FROM public.guided_evidence WHERE session_id=$1`, [s])).rows;
-        const a = await selectAction(db, USER, s);
-        await dispute(db, USER, a);
+        await dispute(db, USER, await selectAction(db, USER, s));
         const after = (await db.query(`SELECT verdict, predicate_version FROM public.guided_evidence WHERE session_id=$1`, [s])).rows;
         expect(after).toEqual(before);
     });
 
     it('dispute-abandons-and-advances: the disputed action is abandoned and the next eligible is selected', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, {
-            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: true }],
+        const { s, pointIds } = await setup(db, USER, {
+            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: true }], duration: 50,
         });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        await finalize(db, USER, s, APPROVED_PREDICATE, [missing(pointIds[0]), missing(pointIds[1])]);
+        await finalize(db, USER, s, [missing(pointIds[0]), missing(pointIds[1])]);
         const first = await selectAction(db, USER, s);
         expect((await getAction(db, first)).target_brief_point_id).toBe(pointIds[0]);
         const next = await dispute(db, USER, first);
@@ -223,7 +243,7 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         const nextRow = await getAction(db, next);
         expect(nextRow.lifecycle).toBe('active');
         expect(nextRow.kind).toBe('unmet_required');
-        expect(nextRow.target_brief_point_id).toBe(pointIds[1]); // advanced to the next required point
+        expect(nextRow.target_brief_point_id).toBe(pointIds[1]);
     });
 
     // ── DOMAIN ISOLATION ──
@@ -233,74 +253,90 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         await act(db, USER);
         await expect(
-            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'private','ev1','dv1','guided_action_v1',50,'idem-x') AS id`,
-                [proj, brief, otherRec]),
+            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'idem-x') AS id`, [proj, brief, otherRec]),
         ).rejects.toThrow(/source session not owned/i);
+    });
+
+    it('source-must-be-verified-Private: unverified attribution and non-Private engines are rejected', async () => {
+        const db = await makeDb();
+        const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        const unverified = await seedRecording(db, USER, { attribution: 'unverified' });
+        const browser = await seedRecording(db, USER, { engine: 'native', attribution: 'verified' });
+        await act(db, USER);
+        await expect(
+            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'a') AS id`, [proj, brief, unverified]),
+        ).rejects.toThrow(/attribution is not verified/i);
+        await expect(
+            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'b') AS id`, [proj, brief, browser]),
+        ).rejects.toThrow(/not a verified Private engine/i);
     });
 
     it('Guided-cannot-enter-Freestyle-eval: a full Guided flow writes zero Freestyle recommendation rows', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        await finalize(db, USER, s, APPROVED_PREDICATE, [missing(pointIds[0])]);
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
         await selectAction(db, USER, s);
         const recs = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.progress_recommendations`)).rows[0].n;
-        expect(Number(recs)).toBe(0); // Guided never contaminates the #1045 Freestyle recommendation table
+        expect(Number(recs)).toBe(0);
     });
 
     // ── FINALIZATION / IDEMPOTENCY / CONCURRENCY ──
     it('idempotent-finalize-no-duplicate: finalizing twice produces exactly one evidence set', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, {
-            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: false }],
+        const { s, pointIds } = await setup(db, USER, {
+            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: false }], duration: 50,
         });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        const c1 = await finalize(db, USER, s, APPROVED_PREDICATE, [detected(pointIds[0]), missing(pointIds[1])]);
-        const c2 = await finalize(db, USER, s, APPROVED_PREDICATE, [detected(pointIds[0]), missing(pointIds[1])]);
+        const c1 = await finalize(db, USER, s, [detected(pointIds[0]), missing(pointIds[1])]);
+        const c2 = await finalize(db, USER, s, [detected(pointIds[0]), missing(pointIds[1])]);
         expect(c1).toBe(2);
-        expect(c2).toBe(2); // latch made the second call a no-op — no duplicate rows
+        expect(c2).toBe(2);
     });
 
     it('concurrent-finalize-no-partial: racing finalize calls yield one complete evidence set, never partial', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, {
-            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: true }],
+        const { s, pointIds } = await setup(db, USER, {
+            budget: 100, points: [{ order: 0, required: true }, { order: 1, required: true }], duration: 50,
         });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
         await act(db, USER);
         const sig = JSON.stringify([missing(pointIds[0]), missing(pointIds[1])]);
-        // Fire both without awaiting between; the finalize latch (UPDATE ... WHERE finalized_at IS NULL) admits
-        // exactly one writer, so the loser inserts nothing — the set is complete (2), never partial or doubled.
         await Promise.all([
-            db.query(`SELECT public.guided_finalize_evidence_v1($1,$2,$3::jsonb)`, [s, APPROVED_PREDICATE, sig]),
-            db.query(`SELECT public.guided_finalize_evidence_v1($1,$2,$3::jsonb)`, [s, APPROVED_PREDICATE, sig]),
+            db.query(`SELECT public.guided_finalize_evidence_v1($1,$2::jsonb)`, [s, sig]),
+            db.query(`SELECT public.guided_finalize_evidence_v1($1,$2::jsonb)`, [s, sig]),
         ]);
         const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].n;
         expect(Number(n)).toBe(2);
     });
 
-    it('idempotent-start: replaying the same idempotency key returns the same session, never a duplicate', async () => {
+    it('idempotent-start: replaying the same key + identity returns the same session, never a duplicate', async () => {
         const db = await makeDb();
+        const rec = await seedRecording(db, USER);
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const a = await startSession(db, USER, { proj, brief, duration: 50, idem: 'same-key' });
-        const b = await startSession(db, USER, { proj, brief, duration: 50, idem: 'same-key' });
+        const a = await startSession(db, USER, { proj, brief, source: rec, duration: 50, idem: 'same-key' });
+        const b = await startSession(db, USER, { proj, brief, source: rec, duration: 50, idem: 'same-key' });
         expect(a).toBe(b);
         const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_session WHERE user_id=$1`, [USER])).rows[0].n;
         expect(Number(n)).toBe(1);
     });
 
+    it('idempotency-key-reuse-different-identity-rejected: a reused key with changed inputs is an error', async () => {
+        const db = await makeDb();
+        const rec = await seedRecording(db, USER);
+        const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        await startSession(db, USER, { proj, brief, source: rec, duration: 50, idem: 'k' });
+        await act(db, USER);
+        await expect(
+            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',999,'k') AS id`, [proj, brief, rec]),
+        ).rejects.toThrow(/different session identity/i);
+    });
+
     // ── DELETION ──
     it('owner-delete-cascades-all: deleting the owner removes every Guided row and preserves others', async () => {
         const db = await makeDb([USER, OTHER]);
-        // USER runs a full Guided flow.
-        const u = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const su = await startSession(db, USER, { proj: u.proj, brief: u.brief, duration: 50, idem: 'u' });
-        await finalize(db, USER, su, APPROVED_PREDICATE, [missing(u.pointIds[0])]);
-        await selectAction(db, USER, su);
-        // OTHER runs a flow too — must survive.
-        const o = await seedBrief(db, OTHER, { budget: 100, points: [{ order: 0, required: true }] });
-        const so = await startSession(db, OTHER, { proj: o.proj, brief: o.brief, duration: 50, idem: 'o' });
-        await finalize(db, OTHER, so, APPROVED_PREDICATE, [missing(o.pointIds[0])]);
+        const u = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50, idem: 'u' });
+        await finalize(db, USER, u.s, [missing(u.pointIds[0])]);
+        await selectAction(db, USER, u.s);
+        const o = await setup(db, OTHER, { budget: 100, points: [{ order: 0, required: true }], duration: 50, idem: 'o' });
+        await finalize(db, OTHER, o.s, [missing(o.pointIds[0])]);
 
         await db.query(`DELETE FROM auth.users WHERE id = $1`, [USER]);
 
@@ -309,19 +345,19 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
             expect(Number(n), `${t} rows for deleted owner`).toBe(0);
         }
         const otherLeft = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_session WHERE user_id=$1`, [OTHER])).rows[0].n;
-        expect(Number(otherLeft)).toBe(1); // other owner's Guided data preserved
+        expect(Number(otherLeft)).toBe(1);
     });
 
     // ── CAPABILITY / PRIVILEGE ──
     it('capability-required-server-derived: a user without capability cannot start, and cannot self-grant', async () => {
         const db = await makeDb([]); // NOBODY granted capability
+        const rec = await seedRecording(db, USER);
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         await act(db, USER);
         await expect(
-            db.query(`SELECT public.guided_start_session_v1($1,$2,NULL,'private','ev1','dv1','guided_action_v1',50,'idem') AS id`, [proj, brief]),
+            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'idem') AS id`, [proj, brief, rec]),
         ).rejects.toThrow(/capability required/i);
 
-        // The client role has no INSERT grant on the capability table — it cannot grant itself.
         await db.query(`SET ROLE authenticated`);
         await act(db, USER);
         await expect(
@@ -332,14 +368,12 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
 
     it('privilege/RLS: SELECT is owner-scoped — another authenticated user sees zero of my rows', async () => {
         const db = await makeDb();
-        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        const s = await startSession(db, USER, { proj, brief, duration: 50 });
-        await finalize(db, USER, s, APPROVED_PREDICATE, [missing(pointIds[0])]);
-
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
         await db.query(`SET ROLE authenticated`);
         await act(db, OTHER);
         const mine = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_session`)).rows[0].n;
-        expect(Number(mine)).toBe(0); // RLS hides USER's session from OTHER
+        expect(Number(mine)).toBe(0);
         await db.query(`RESET ROLE`);
     });
 });

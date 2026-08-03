@@ -32,17 +32,19 @@ CREATE POLICY "guided_capability_select_own" ON public.guided_account_capability
     FOR SELECT TO authenticated USING (auth.uid() = user_id);
 GRANT SELECT ON public.guided_account_capability TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.has_guided_capability(p_uid uuid DEFAULT auth.uid())
+-- No UID parameter: a SECURITY DEFINER function that accepted an arbitrary uid would let any authenticated
+-- caller enumerate other users' capability state (bypassing the owner-only RLS). It ALWAYS resolves auth.uid().
+CREATE OR REPLACE FUNCTION public.has_guided_capability()
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-    SELECT COALESCE((SELECT enabled FROM public.guided_account_capability WHERE user_id = p_uid), false);
+    SELECT COALESCE((SELECT enabled FROM public.guided_account_capability WHERE user_id = auth.uid()), false);
 $$;
-REVOKE ALL ON FUNCTION public.has_guided_capability(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.has_guided_capability(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.has_guided_capability() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.has_guided_capability() TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 1. Owner-scoped Guided project (visible owner-deletion contract via ON DELETE CASCADE from the owner).
@@ -119,9 +121,10 @@ CREATE TABLE IF NOT EXISTS public.guided_session (
     -- Snapshot of the brief VERSION used (immutable identity; the guarded RPC copies it from the brief row,
     -- so the recorded identity survives even conceptual reasoning about "which version was practiced").
     brief_version           integer NOT NULL,
-    -- Optional link to the underlying practice recording (public.sessions). NULLable so Guided has no hard
-    -- dependency on a Freestyle-shaped row, but when present it is the caller's OWN session (RPC-verified).
-    source_session_id       uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
+    -- REQUIRED link to the underlying practice recording (public.sessions). The "verified Private engine"
+    -- identity is DERIVED from this row's persisted attribution (attribution_status='verified' + Private engine),
+    -- never from a caller-provided string — so a Guided session cannot claim Private without server-side proof.
+    source_session_id       uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
     -- Domain isolation: Guided identity is ALWAYS 'guided'. Freestyle data lives in its own tables and can
     -- never be attached here (CHECK + the RPC refusing any non-'guided' domain).
     practice_domain         text NOT NULL DEFAULT 'guided',
@@ -216,11 +219,13 @@ CREATE TABLE IF NOT EXISTS public.guided_action (
     lifecycle              text NOT NULL DEFAULT 'active',
     created_at             timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT guided_action_lifecycle_check CHECK (lifecycle IN ('active', 'abandoned')),
-    -- Shape integrity per kind: unmet_required must name a point; clarity must name a recommendation+metric.
+    -- Shape integrity per kind. A clarity action requires the RETAINED `clarity_metric` snapshot to be non-null;
+    -- `clarity_recommendation_id` is a nullable live link (ON DELETE SET NULL), so deleting the underlying #1045
+    -- recommendation nulls the link WITHOUT violating this constraint or blocking the recording's deletion.
     CONSTRAINT guided_action_kind_shape CHECK (
-        (kind = 'unmet_required'      AND target_brief_point_id IS NOT NULL AND clarity_recommendation_id IS NULL)
-     OR (kind = 'clarity_improvement' AND clarity_recommendation_id IS NOT NULL AND clarity_metric IS NOT NULL AND target_brief_point_id IS NULL)
-     OR (kind IN ('material_time', 'neutral_repeat') AND target_brief_point_id IS NULL AND clarity_recommendation_id IS NULL)
+        (kind = 'unmet_required'      AND target_brief_point_id IS NOT NULL AND clarity_recommendation_id IS NULL AND clarity_metric IS NULL)
+     OR (kind = 'clarity_improvement' AND clarity_metric IS NOT NULL AND target_brief_point_id IS NULL)
+     OR (kind IN ('material_time', 'neutral_repeat') AND target_brief_point_id IS NULL AND clarity_recommendation_id IS NULL AND clarity_metric IS NULL)
     )
 );
 ALTER TABLE public.guided_action ENABLE ROW LEVEL SECURITY;
@@ -262,19 +267,25 @@ CREATE OR REPLACE FUNCTION public.guided_approved_predicate_version()
 RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT 'cue_v1'::text $$;
 
 -- ── guided_start_session_v1 — insert-once immutable identity; idempotent by (user, idempotency_key) ──
+-- The verified-Private engine identity is DERIVED from the persisted source recording (attribution_status
+-- ='verified' + Private engine) — NOT from any caller string, so a Guided session cannot claim Private without
+-- proof. A replayed idempotency key must carry the SAME immutable identity or it is rejected.
 CREATE OR REPLACE FUNCTION public.guided_start_session_v1(
     p_project_id uuid, p_brief_id uuid, p_source_session_id uuid,
-    p_speech_runtime text, p_engine_version text, p_detector_version text, p_formula_version text,
+    p_detector_version text, p_formula_version text,
     p_actual_duration_seconds integer, p_idempotency_key text
 ) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
     v_uid uuid := auth.uid();
     v_brief public.guided_brief%ROWTYPE;
+    v_src RECORD;
+    v_engine_version text;
+    v_existing public.guided_session%ROWTYPE;
     v_session_id uuid;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
-    IF NOT public.has_guided_capability(v_uid) THEN
+    IF NOT public.has_guided_capability() THEN
         RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
     END IF;
     -- Brief must belong to the caller AND to the named project (server-verified; no cross-owner spoofing).
@@ -284,13 +295,32 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM public.guided_project WHERE id = p_project_id AND user_id = v_uid) THEN
         RAISE EXCEPTION 'project not found for owner' USING errcode = '42501';
     END IF;
-    -- An optional practice recording must be the caller's OWN session — a Freestyle/other-user row cannot attach.
-    IF p_source_session_id IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM public.sessions WHERE id = p_source_session_id AND user_id = v_uid) THEN
-        RAISE EXCEPTION 'source session not owned by caller' USING errcode = '42501';
+
+    -- Derive the verified Private identity from the persisted recording (never caller input). Verification is
+    -- the authoritative attribution_status='verified' (NOT an engine_version string heuristic); the engine
+    -- IDENTITY (which engine) must be Private. A Freestyle/other-user/unverified recording cannot attach.
+    SELECT engine, engine_version, attribution_status INTO v_src
+        FROM public.sessions WHERE id = p_source_session_id AND user_id = v_uid;
+    IF NOT FOUND THEN RAISE EXCEPTION 'source session not owned by caller' USING errcode = '42501'; END IF;
+    IF v_src.attribution_status IS DISTINCT FROM 'verified' THEN
+        RAISE EXCEPTION 'source recording attribution is not verified' USING errcode = '42501';
     END IF;
-    IF p_speech_runtime <> 'private' THEN
-        RAISE EXCEPTION 'guided requires the on-device Private engine' USING errcode = '22023';
+    IF v_src.engine IS NULL OR lower(v_src.engine) NOT LIKE 'private%' THEN
+        RAISE EXCEPTION 'source recording is not a verified Private engine' USING errcode = '42501';
+    END IF;
+    v_engine_version := COALESCE(v_src.engine_version, v_src.engine);
+
+    -- Idempotent replay MUST match the original immutable identity; a reused key with different inputs is an error.
+    SELECT * INTO v_existing FROM public.guided_session
+        WHERE user_id = v_uid AND idempotency_key = p_idempotency_key;
+    IF FOUND THEN
+        IF v_existing.project_id <> p_project_id OR v_existing.brief_id <> p_brief_id
+           OR v_existing.brief_version <> v_brief.version OR v_existing.source_session_id <> p_source_session_id
+           OR v_existing.detector_version <> p_detector_version OR v_existing.formula_version <> p_formula_version
+           OR v_existing.actual_duration_seconds <> p_actual_duration_seconds THEN
+            RAISE EXCEPTION 'idempotency key reused with a different session identity' USING errcode = '23505';
+        END IF;
+        RETURN v_existing.id;  -- true idempotent replay: same identity, same row.
     END IF;
 
     INSERT INTO public.guided_session (
@@ -299,38 +329,41 @@ BEGIN
         time_budget_seconds, actual_duration_seconds, idempotency_key
     ) VALUES (
         v_uid, p_project_id, p_brief_id, v_brief.version, p_source_session_id, 'guided',
-        p_speech_runtime, p_engine_version, p_detector_version, p_formula_version,
+        'private', v_engine_version, p_detector_version, p_formula_version,
         v_brief.time_budget_seconds, p_actual_duration_seconds, p_idempotency_key
     )
     ON CONFLICT (user_id, idempotency_key) DO NOTHING
     RETURNING id INTO v_session_id;
 
-    IF v_session_id IS NULL THEN  -- idempotent replay: return the existing identity, never a duplicate.
+    IF v_session_id IS NULL THEN  -- lost a concurrent insert race on the same key: return the now-existing row.
         SELECT id INTO v_session_id FROM public.guided_session
             WHERE user_id = v_uid AND idempotency_key = p_idempotency_key;
     END IF;
     RETURN v_session_id;
 END $$;
-REVOKE ALL ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text,text,integer,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text,text,integer,text) TO authenticated;
+REVOKE ALL ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,integer,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,integer,text) TO authenticated;
 
 -- ── guided_finalize_evidence_v1 — server-derives one verdict per point, exactly once (finalize latch) ──
 -- The client supplies RAW signals only ([{brief_point_id, detected_at_seconds|null}]); it can NEVER assert a
--- verdict/provenance. detected ⇐ a signal offset is present; not_detected ⇐ no signal AND the approved
--- predicate; otherwise unavailable. Concurrent/retry callers that lose the latch never re-insert (no partial).
+-- verdict/provenance NOR the predicate. The predicate is the session's FROZEN detector_version: detected ⇐ a
+-- signal offset is present; not_detected ⇐ no signal AND the frozen detector is the approved version; otherwise
+-- unavailable. Concurrent/retry callers that lose the latch never re-insert (no partial/duplicate).
 CREATE OR REPLACE FUNCTION public.guided_finalize_evidence_v1(
-    p_session_id uuid, p_predicate_version text, p_signals jsonb
+    p_session_id uuid, p_signals jsonb
 ) RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
     v_uid uuid := auth.uid();
     v_session public.guided_session%ROWTYPE;
     v_approved text := public.guided_approved_predicate_version();
+    v_predicate text;
     v_count integer;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
     SELECT * INTO v_session FROM public.guided_session WHERE id = p_session_id AND user_id = v_uid;
     IF NOT FOUND THEN RAISE EXCEPTION 'session not found for owner' USING errcode = '42501'; END IF;
+    v_predicate := v_session.detector_version;  -- the immutable predicate captured at session start.
 
     UPDATE public.guided_session SET finalized_at = now()
         WHERE id = p_session_id AND finalized_at IS NULL;
@@ -340,10 +373,10 @@ BEGIN
             p_session_id, v_uid, bp.id,
             CASE
                 WHEN sig.detected_at_seconds IS NOT NULL THEN 'detected'::public.guided_evidence_verdict
-                WHEN p_predicate_version = v_approved THEN 'not_detected'::public.guided_evidence_verdict
+                WHEN v_predicate = v_approved THEN 'not_detected'::public.guided_evidence_verdict
                 ELSE 'unavailable'::public.guided_evidence_verdict
             END,
-            p_predicate_version,
+            v_predicate,
             sig.detected_at_seconds
         FROM public.guided_brief_point bp
         LEFT JOIN LATERAL (
@@ -359,8 +392,8 @@ BEGIN
     SELECT count(*) INTO v_count FROM public.guided_evidence WHERE session_id = p_session_id;
     RETURN v_count;
 END $$;
-REVOKE ALL ON FUNCTION public.guided_finalize_evidence_v1(uuid,text,jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.guided_finalize_evidence_v1(uuid,text,jsonb) TO authenticated;
+REVOKE ALL ON FUNCTION public.guided_finalize_evidence_v1(uuid,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.guided_finalize_evidence_v1(uuid,jsonb) TO authenticated;
 
 -- ── guided_select_action_v1 — the deterministic single-action selector ──
 -- Priority: (1) next unmet REQUIRED point (verdict<>detected), lowest brief order then id, not already actioned;
@@ -380,7 +413,10 @@ DECLARE
     v_metric text;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
-    SELECT * INTO v_session FROM public.guided_session WHERE id = p_session_id AND user_id = v_uid;
+    -- FOR UPDATE serializes concurrent selection/dispute for this session: a racing caller blocks here until
+    -- the first commits, then observes the active action below — so idempotency holds instead of one caller
+    -- hitting the partial-unique-index violation.
+    SELECT * INTO v_session FROM public.guided_session WHERE id = p_session_id AND user_id = v_uid FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'session not found for owner' USING errcode = '42501'; END IF;
     IF v_session.finalized_at IS NULL THEN
         RAISE EXCEPTION 'evidence not finalized' USING errcode = '55000';

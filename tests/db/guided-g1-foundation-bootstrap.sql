@@ -22,11 +22,17 @@ GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon, service_role;
 GRANT USAGE ON SCHEMA public TO authenticated, anon, service_role;
 
--- public.sessions — G1 only needs (id, user_id) for the optional source-recording link + ownership check.
+-- public.sessions — G1 reads (id, user_id) for ownership plus (engine, engine_version, attribution_status) to
+-- DERIVE the verified Private identity. attribution_status mirrors the production CHECK vocabulary
+-- ('pending','verified','unverified','legacy_unknown'); 'verified' is the authoritative attribution marker.
 CREATE TABLE IF NOT EXISTS public.sessions (
-    id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    created_at timestamptz DEFAULT now()
+    id                 uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id            uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    engine             text,
+    engine_version     text,
+    attribution_status text DEFAULT 'pending'
+        CHECK (attribution_status IN ('pending', 'verified', 'unverified', 'legacy_unknown')),
+    created_at         timestamptz DEFAULT now()
 );
 
 -- public.progress_recommendations — #1045 clarity source. Only the columns the G1 selector reads + the PK the
