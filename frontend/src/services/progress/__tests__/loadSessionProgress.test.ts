@@ -67,6 +67,15 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(view.recommendationId).toBe('rec-2');
     });
 
+    it('uses the sole prior evaluation as both baseline and previous on the first comparison', async () => {
+        current = ev('s2', { clarity_raw: 90, baseline_session_id: 's1', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 84 })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'previous' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction).toMatchObject({ direction: 'improved', deltaPoints: 6 });
+    });
+
     it('renders an explicit restart when a stored baseline exists but no previous comparable session does', async () => {
         current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: null });
         references = [ev('s0', { cohort_key: 'older-cohort' })];
@@ -89,11 +98,11 @@ describe('#1047 U2 loadSessionProgress', () => {
         ['missing', []],
         ['ineligible', [ev('s0', { eligible: false })]],
         ['self', [ev('s2')]],
-        ['duplicate role', [ev('s0')]],
+        ['ambiguous', [ev('s0'), ev('s0')]],
     ])('fails closed for a %s persisted comparison reference', async (_label, rows) => {
         current = ev('s2', {
             baseline_session_id: _label === 'self' ? 's2' : 's0',
-            previous_comparable_session_id: _label === 'duplicate role' ? 's0' : 's1',
+            previous_comparable_session_id: _label === 'ambiguous' ? 's0' : 's1',
         });
         references = rows;
         const view = await loadSessionProgress('s2');

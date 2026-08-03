@@ -70,8 +70,6 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         currentRow.baseline_session_id,
         currentRow.previous_comparable_session_id,
     ].filter((id): id is string => !!id))];
-    const duplicateRoles = !!currentRow.baseline_session_id
-        && currentRow.baseline_session_id === currentRow.previous_comparable_session_id;
     let references: EvalRow[] = [];
     if (referenceIds.length) {
         const { data, error } = await supabase
@@ -87,15 +85,22 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     const validReference = (row: EvalRow, expectedId: string | null): boolean =>
         !!expectedId && row.session_id === expectedId && row.session_id !== sessionId
         && row.eligible && row.cohort_key === currentRow.cohort_key;
-    const baselineRow = duplicateRoles ? null : references.find((row) => validReference(row, currentRow.baseline_session_id)) ?? null;
-    const previousRow = duplicateRoles ? null : references.find((row) => validReference(row, currentRow.previous_comparable_session_id)) ?? null;
+    const referenceFor = (expectedId: string | null): EvalRow | null => {
+        const matches = references.filter((row) => validReference(row, expectedId));
+        return matches.length === 1 ? matches[0] : null;
+    };
+    // On the second eligible cohort session, the persisted baseline and previous ids
+    // legitimately name the same sole prior evaluation. Validate that row once, then
+    // allow it to serve both persisted roles.
+    const baselineRow = referenceFor(currentRow.baseline_session_id);
+    const previousRow = referenceFor(currentRow.previous_comparable_session_id);
     const current = toEvaluation(currentRow);
     const baseline = baselineRow ? toEvaluation(baselineRow) : null;
     const previous = previousRow ? toEvaluation(previousRow) : null;
     let comparison: 'baseline' | 'previous' | 'restarted';
     if (previous) {
         comparison = 'previous';
-    } else if (currentRow.baseline_session_id || currentRow.previous_comparable_session_id || duplicateRoles) {
+    } else if (currentRow.baseline_session_id || currentRow.previous_comparable_session_id) {
         comparison = 'restarted';
     } else {
         const { data: sessionRow, error: sessionError } = await supabase
