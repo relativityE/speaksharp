@@ -97,7 +97,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
 
     const shell = (content: React.ReactNode) => (
         <section data-testid="progress-panel" aria-labelledby="progress-heading" className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4">
-            <h2 id="progress-heading" ref={headingRef} tabIndex={-1} className="text-xs font-bold uppercase tracking-wide text-primary">Your progress</h2>
+            <h2 id="progress-heading" ref={headingRef} tabIndex={-1} className="text-xs font-bold uppercase tracking-wide text-foreground">Your progress</h2>
             <div aria-live="polite" aria-atomic="true">{content}</div>
         </section>
     );
