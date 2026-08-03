@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     user_id            uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     engine             text,
     engine_version     text,
+    duration           integer,     -- authoritative persisted duration; the Guided RPC snapshots this, not caller input
     attribution_status text DEFAULT 'pending'
         CHECK (attribution_status IN ('pending', 'verified', 'unverified', 'legacy_unknown')),
     created_at         timestamptz DEFAULT now()

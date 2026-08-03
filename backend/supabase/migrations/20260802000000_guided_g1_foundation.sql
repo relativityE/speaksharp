@@ -268,14 +268,33 @@ GRANT SELECT ON public.guided_action_dispute TO authenticated;
 CREATE OR REPLACE FUNCTION public.guided_approved_predicate_version()
 RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT 'cue_v1'::text $$;
 
+-- ── guided_assert_start_identity — the immutable-identity comparison, reused by the pre-check AND the
+--    idempotency-race loser branch so BOTH validate every field null-safely (IS DISTINCT FROM). ──
+CREATE OR REPLACE FUNCTION public.guided_assert_start_identity(
+    v_existing public.guided_session, p_project_id uuid, p_brief_id uuid, p_brief_version integer,
+    p_source_session_id uuid, p_detector_version text, p_formula_version text, p_duration integer
+) RETURNS void
+LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF v_existing.project_id             IS DISTINCT FROM p_project_id
+       OR v_existing.brief_id            IS DISTINCT FROM p_brief_id
+       OR v_existing.brief_version       IS DISTINCT FROM p_brief_version
+       OR v_existing.source_session_id   IS DISTINCT FROM p_source_session_id
+       OR v_existing.detector_version    IS DISTINCT FROM p_detector_version
+       OR v_existing.formula_version     IS DISTINCT FROM p_formula_version
+       OR v_existing.actual_duration_seconds IS DISTINCT FROM p_duration THEN
+        RAISE EXCEPTION 'idempotency key reused with a different session identity' USING errcode = '23505';
+    END IF;
+END $$;
+
 -- ── guided_start_session_v1 — insert-once immutable identity; idempotent by (user, idempotency_key) ──
--- The verified-Private engine identity is DERIVED from the persisted source recording (attribution_status
--- ='verified' + Private engine) — NOT from any caller string, so a Guided session cannot claim Private without
--- proof. A replayed idempotency key must carry the SAME immutable identity or it is rejected.
+-- The verified-Private engine identity AND the authoritative duration are DERIVED from the persisted source
+-- recording — NOT from any caller value, so a Guided session cannot claim Private nor suppress/manufacture an
+-- overtime action. Only the fixed 'guided_action_v1' formula is accepted. A replayed key must carry the SAME
+-- immutable identity (null-safe compare), including in the concurrent-race loser branch.
 CREATE OR REPLACE FUNCTION public.guided_start_session_v1(
     p_project_id uuid, p_brief_id uuid, p_source_session_id uuid,
-    p_detector_version text, p_formula_version text,
-    p_actual_duration_seconds integer, p_idempotency_key text
+    p_detector_version text, p_formula_version text, p_idempotency_key text
 ) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -283,12 +302,17 @@ DECLARE
     v_brief public.guided_brief%ROWTYPE;
     v_src RECORD;
     v_engine_version text;
+    v_duration integer;
     v_existing public.guided_session%ROWTYPE;
     v_session_id uuid;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
     IF NOT public.has_guided_capability() THEN
         RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
+    END IF;
+    -- Only the fixed v1 selector actually runs; reject any other formula so recorded provenance is truthful.
+    IF p_formula_version IS DISTINCT FROM 'guided_action_v1' THEN
+        RAISE EXCEPTION 'unsupported action formula version' USING errcode = '22023';
     END IF;
     -- Brief must belong to the caller AND to the named project (server-verified; no cross-owner spoofing).
     SELECT * INTO v_brief FROM public.guided_brief
@@ -298,10 +322,10 @@ BEGIN
         RAISE EXCEPTION 'project not found for owner' USING errcode = '42501';
     END IF;
 
-    -- Derive the verified Private identity from the persisted recording (never caller input). Verification is
-    -- the authoritative attribution_status='verified' (NOT an engine_version string heuristic); the engine
-    -- IDENTITY (which engine) must be Private. A Freestyle/other-user/unverified recording cannot attach.
-    SELECT engine, engine_version, attribution_status INTO v_src
+    -- Derive verified-Private identity AND the authoritative duration from the persisted recording (never caller
+    -- input). Verification is the authoritative attribution_status='verified' (NOT an engine_version heuristic);
+    -- the engine IDENTITY must be Private. A Freestyle/other-user/unverified recording cannot attach.
+    SELECT engine, engine_version, attribution_status, duration INTO v_src
         FROM public.sessions WHERE id = p_source_session_id AND user_id = v_uid;
     IF NOT FOUND THEN RAISE EXCEPTION 'source session not owned by caller' USING errcode = '42501'; END IF;
     IF v_src.attribution_status IS DISTINCT FROM 'verified' THEN
@@ -311,17 +335,14 @@ BEGIN
         RAISE EXCEPTION 'source recording is not a verified Private engine' USING errcode = '42501';
     END IF;
     v_engine_version := COALESCE(v_src.engine_version, v_src.engine);
+    v_duration := COALESCE(v_src.duration, 0);  -- authoritative persisted duration; the caller never supplies it.
 
-    -- Idempotent replay MUST match the original immutable identity; a reused key with different inputs is an error.
+    -- Idempotent replay pre-check (null-safe on every immutable field).
     SELECT * INTO v_existing FROM public.guided_session
         WHERE user_id = v_uid AND idempotency_key = p_idempotency_key;
     IF FOUND THEN
-        IF v_existing.project_id <> p_project_id OR v_existing.brief_id <> p_brief_id
-           OR v_existing.brief_version <> v_brief.version OR v_existing.source_session_id <> p_source_session_id
-           OR v_existing.detector_version <> p_detector_version OR v_existing.formula_version <> p_formula_version
-           OR v_existing.actual_duration_seconds <> p_actual_duration_seconds THEN
-            RAISE EXCEPTION 'idempotency key reused with a different session identity' USING errcode = '23505';
-        END IF;
+        PERFORM public.guided_assert_start_identity(v_existing, p_project_id, p_brief_id, v_brief.version,
+            p_source_session_id, p_detector_version, p_formula_version, v_duration);
         RETURN v_existing.id;  -- true idempotent replay: same identity, same row.
     END IF;
 
@@ -332,19 +353,24 @@ BEGIN
     ) VALUES (
         v_uid, p_project_id, p_brief_id, v_brief.version, p_source_session_id, 'guided',
         'private', v_engine_version, p_detector_version, p_formula_version,
-        v_brief.time_budget_seconds, p_actual_duration_seconds, p_idempotency_key
+        v_brief.time_budget_seconds, v_duration, p_idempotency_key
     )
     ON CONFLICT (user_id, idempotency_key) DO NOTHING
     RETURNING id INTO v_session_id;
 
-    IF v_session_id IS NULL THEN  -- lost a concurrent insert race on the same key: return the now-existing row.
-        SELECT id INTO v_session_id FROM public.guided_session
+    IF v_session_id IS NULL THEN
+        -- Lost the concurrent insert race on this key: load the FULL winning row and re-validate identity, so a
+        -- racing mismatched request is rejected instead of silently receiving another identity's session.
+        SELECT * INTO v_existing FROM public.guided_session
             WHERE user_id = v_uid AND idempotency_key = p_idempotency_key;
+        PERFORM public.guided_assert_start_identity(v_existing, p_project_id, p_brief_id, v_brief.version,
+            p_source_session_id, p_detector_version, p_formula_version, v_duration);
+        v_session_id := v_existing.id;
     END IF;
     RETURN v_session_id;
 END $$;
-REVOKE ALL ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,integer,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,integer,text) TO authenticated;
+REVOKE ALL ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text) TO authenticated;
 
 -- ── guided_finalize_evidence_v1 — server-derives one verdict per point, exactly once (finalize latch) ──
 -- The client supplies RAW signals only ([{brief_point_id, detected_at_seconds|null}]); it can NEVER assert a
