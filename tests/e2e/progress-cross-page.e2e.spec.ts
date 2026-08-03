@@ -33,6 +33,33 @@ async function assertNoOverflow(page: Page): Promise<void> {
       })
       .filter(({ left, right, width }) => width > 0 && (right > viewport + 1 || left < -1))
       .slice(0, 12);
+    const unclippedOffenders = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || (rect.right <= viewport + 1 && rect.left >= -1)) return false;
+        let ancestor = element.parentElement;
+        while (ancestor && ancestor !== document.body) {
+          const overflowX = getComputedStyle(ancestor).overflowX;
+          if (overflowX === 'hidden' || overflowX === 'clip' || overflowX === 'auto' || overflowX === 'scroll') {
+            return false;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        return true;
+      })
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          testid: element.dataset.testid ?? null,
+          className: typeof element.className === 'string' ? element.className.slice(0, 220) : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          text: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 100) ?? '',
+        };
+      })
+      .slice(0, 20);
     return {
       viewport,
       document: document.documentElement.scrollWidth,
@@ -62,6 +89,7 @@ async function assertNoOverflow(page: Page): Promise<void> {
           overflowX: getComputedStyle(element).overflowX,
         };
       }),
+      unclippedOffenders,
       offenders,
     };
   });
