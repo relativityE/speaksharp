@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ProgressPanel } from '@/components/progress/ProgressPanel';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
+import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
 import AISuggestions from './session/AISuggestions';
 import { generateSessionPdf } from '../lib/pdfGenerator';
@@ -1245,8 +1245,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 ))
                                 }
                             </CarouselContent>
-                            <CarouselPrevious className="hidden lg:inline-flex" />
-                            <CarouselNext className="hidden lg:inline-flex" />
                         </Carousel>
                         {/* Carousel Indicators */}
                         <div className="flex justify-center gap-2 py-1">
