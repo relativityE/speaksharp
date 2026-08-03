@@ -121,10 +121,12 @@ CREATE TABLE IF NOT EXISTS public.guided_session (
     -- Snapshot of the brief VERSION used (immutable identity; the guarded RPC copies it from the brief row,
     -- so the recorded identity survives even conceptual reasoning about "which version was practiced").
     brief_version           integer NOT NULL,
-    -- REQUIRED link to the underlying practice recording (public.sessions). The "verified Private engine"
-    -- identity is DERIVED from this row's persisted attribution (attribution_status='verified' + Private engine),
-    -- never from a caller-provided string — so a Guided session cannot claim Private without server-side proof.
-    source_session_id       uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
+    -- Link to the underlying practice recording (public.sessions). REQUIRED at creation by the guarded RPC,
+    -- which DERIVES the verified-Private identity from this row's persisted attribution (attribution_status
+    -- ='verified' + Private engine) — never a caller string. ON DELETE SET NULL (not CASCADE) so deleting the
+    -- recording is never blocked AND the Guided session's already-captured immutable snapshot (engine_version,
+    -- brief_version, detector_version, duration) survives for honest historical audit.
+    source_session_id       uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
     -- Domain isolation: Guided identity is ALWAYS 'guided'. Freestyle data lives in its own tables and can
     -- never be attached here (CHECK + the RPC refusing any non-'guided' domain).
     practice_domain         text NOT NULL DEFAULT 'guided',

@@ -257,18 +257,40 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         ).rejects.toThrow(/source session not owned/i);
     });
 
-    it('source-must-be-verified-Private: unverified attribution and non-Private engines are rejected', async () => {
+    it('source-must-be-verified-Private: null, Cloud/Browser, and unverified sources all fail closed', async () => {
         const db = await makeDb();
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         const unverified = await seedRecording(db, USER, { attribution: 'unverified' });
         const browser = await seedRecording(db, USER, { engine: 'native', attribution: 'verified' });
+        const cloud = await seedRecording(db, USER, { engine: 'assemblyai', attribution: 'verified' });
         await act(db, USER);
-        await expect(
-            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'a') AS id`, [proj, brief, unverified]),
-        ).rejects.toThrow(/attribution is not verified/i);
-        await expect(
-            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'b') AS id`, [proj, brief, browser]),
-        ).rejects.toThrow(/not a verified Private engine/i);
+        const start = (src: string | null, key: string) => db.query(
+            `SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,$4) AS id`, [proj, brief, src, key]);
+        await expect(start(null, 'n')).rejects.toThrow(/source session not owned/i);       // null source
+        await expect(start(unverified, 'u')).rejects.toThrow(/attribution is not verified/i);
+        await expect(start(browser, 'b')).rejects.toThrow(/not a verified Private engine/i); // Browser
+        await expect(start(cloud, 'c')).rejects.toThrow(/not a verified Private engine/i);   // Cloud
+    });
+
+    it('recording-delete-preserves-snapshot: deleting the source recording is not blocked and keeps the identity', async () => {
+        const db = await makeDb();
+        const rec = await seedRecording(db, USER);
+        const { proj, brief, pointIds } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        const s = await startSession(db, USER, { proj, brief, source: rec, duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
+        await selectAction(db, USER, s);
+        const before = (await db.query<{ engine_version: string; brief_version: number }>(
+            `SELECT engine_version, brief_version FROM public.guided_session WHERE id=$1`, [s])).rows[0];
+
+        await db.query(`DELETE FROM public.sessions WHERE id = $1`, [rec]); // must NOT be blocked by any FK/CHECK
+
+        const after = (await db.query<{ source_session_id: string | null; engine_version: string; brief_version: number }>(
+            `SELECT source_session_id, engine_version, brief_version FROM public.guided_session WHERE id=$1`, [s])).rows[0];
+        expect(after.source_session_id).toBeNull();               // link cleared, session preserved
+        expect(after.engine_version).toBe(before.engine_version); // captured Private identity snapshot survives
+        expect(Number(after.brief_version)).toBe(Number(before.brief_version));
+        const actionsValid = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_action WHERE session_id=$1`, [s])).rows[0].n;
+        expect(Number(actionsValid)).toBe(1); // action row still satisfies every constraint
     });
 
     it('Guided-cannot-enter-Freestyle-eval: a full Guided flow writes zero Freestyle recommendation rows', async () => {
@@ -318,15 +340,21 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect(Number(n)).toBe(1);
     });
 
-    it('idempotency-key-reuse-different-identity-rejected: a reused key with changed inputs is an error', async () => {
+    it('idempotency-key-reuse-different-identity-rejected: each mismatched immutable field class is an error', async () => {
         const db = await makeDb();
         const rec = await seedRecording(db, USER);
+        const rec2 = await seedRecording(db, USER);
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
-        await startSession(db, USER, { proj, brief, source: rec, duration: 50, idem: 'k' });
+        await startSession(db, USER, { proj, brief, source: rec, detector: 'cue_v1', duration: 50, idem: 'k' });
         await act(db, USER);
-        await expect(
-            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',999,'k') AS id`, [proj, brief, rec]),
-        ).rejects.toThrow(/different session identity/i);
+        const replay = (src: string, detector: string, dur: number) => db.query(
+            `SELECT public.guided_start_session_v1($1,$2,$3,$4,'guided_action_v1',$5,'k') AS id`, [proj, brief, src, detector, dur]);
+        await expect(replay(rec, 'cue_v1', 999)).rejects.toThrow(/different session identity/i);  // duration
+        await expect(replay(rec2, 'cue_v1', 50)).rejects.toThrow(/different session identity/i);   // source recording
+        await expect(replay(rec, 'other_detector', 50)).rejects.toThrow(/different session identity/i); // detector
+        // Exact replay (all immutable fields match) still returns the original session.
+        const same = await replay(rec, 'cue_v1', 50);
+        expect((same as { rows: { id: string }[] }).rows[0].id).toBeTruthy();
     });
 
     // ── DELETION ──
@@ -364,6 +392,31 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
             db.query(`INSERT INTO public.guided_account_capability (user_id, enabled) VALUES ($1, true)`, [USER]),
         ).rejects.toThrow(/permission denied|denied/i);
         await db.query(`RESET ROLE`);
+    });
+
+    it('capability-query-is-caller-only: has_guided_capability accepts no uid arg (no cross-user enumeration)', async () => {
+        const db = await makeDb();
+        await act(db, USER);
+        // Self query resolves auth.uid() and returns true; there is NO parameterized form to enumerate others.
+        const self = (await db.query<{ ok: boolean }>(`SELECT public.has_guided_capability() AS ok`)).rows[0].ok;
+        expect(self).toBe(true);
+        await expect(
+            db.query(`SELECT public.has_guided_capability($1) AS ok`, [OTHER]),
+        ).rejects.toThrow(/does not exist|function/i); // the uid-parameterized overload no longer exists
+    });
+
+    it('concurrent-select-returns-same-action: racing selection yields one action ID, no unique-constraint error', async () => {
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
+        await act(db, USER);
+        const [a, b] = await Promise.all([
+            db.query<{ id: string }>(`SELECT public.guided_select_action_v1($1) AS id`, [s]),
+            db.query<{ id: string }>(`SELECT public.guided_select_action_v1($1) AS id`, [s]),
+        ]);
+        expect(a.rows[0].id).toBe(b.rows[0].id); // same active action, neither errored
+        const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_action WHERE session_id=$1`, [s])).rows[0].n;
+        expect(Number(n)).toBe(1);
     });
 
     it('privilege/RLS: SELECT is owner-scoped — another authenticated user sees zero of my rows', async () => {
