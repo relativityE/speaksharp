@@ -1245,8 +1245,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 ))
                                 }
                             </CarouselContent>
-                            <CarouselPrevious className="left-2 sm:-left-12" />
-                            <CarouselNext className="right-2 sm:-right-12" />
+                            <CarouselPrevious />
+                            <CarouselNext />
                         </Carousel>
                         {/* Carousel Indicators */}
                         <div className="flex justify-center gap-2 py-1">
