@@ -52,42 +52,43 @@ export function isNotFoundError(error: { status?: number; code?: string; message
 }
 
 /**
- * Structured Private producing-identity check for a LIVE recording. Uses the authoritative producing-mode
- * (`serviceMode` from `__SPEECH_RUNTIME_DEBUG__`) plus the STRUCTURED resolved engine identity
- * (`provider`/`engine` from `__STT_IDENTITY__`) and the Private model identity — NOT a stringify that would
- * wrongly reject the valid `device_type='browser'`. Requires ALL of:
- *   - producing mode is Private;
- *   - the resolved engine is the on-device **Transformers.js (WASM/WebGPU)** family — provider matches
- *     `transformers.js` and engine is `transformers-js` (v2) or `transformers-js-v4`. A generic `serviceMode`
- *     of 'private' is INSUFFICIENT: a mislabeled cloud / web-speech engine must be rejected here;
- *   - the default (non-tiny) Private model, i.e. NOT the emergency `whisper-tiny.en` fallback;
+ * Structured Private producing-identity check for a LIVE recording. The verdict is anchored on the identity
+ * emitted by the ACTUAL INSTANTIATED running engine — `__PRIVATE_STT_RUNTIME_DEBUG__.provider` (the v2 engine's
+ * own `PrivateRuntimeDecision.provider`, published by PrivateSTT when it selects/instantiates; it also carries
+ * the v4 path) — NOT a `provider`/`engine` manufactured from the `serviceMode` label. This is the P1.2
+ * correction: a generic `serviceMode='private'` cannot detect a mislabeled Browser/Cloud/missing handoff, so
+ * the running engine's structured provider is the authority. Requires ALL of:
+ *   - producing mode is Private (`serviceMode` from `__SPEECH_RUNTIME_DEBUG__`);
+ *   - the INSTANTIATED engine provider is the on-device Transformers.js family — exactly `transformers-js` (v2)
+ *     or `transformers-js-v4`. Missing/ambiguous/`web-speech-api`/`assemblyai` (i.e. `serviceMode='private'`
+ *     but a Browser/Cloud/absent running engine) is REJECTED. Transformers.js is never inferred from
+ *     mode/tier/UI label/persisted `engine`;
+ *   - the model actually running (`modelId` from `__STT_IDENTITY__`, P1.1 — NOT the nonexistent
+ *     `privateModelKey`) is the default, i.e. NOT the emergency `whisper-tiny.en` fallback;
  *   - no runtime fallback/handoff (neither the v4 runtime fallback flag nor the engine identity's own
  *     `fallbackOccurred`).
  * Device type is intentionally NOT constrained here (the persisted row separately proves `device_type='browser'`).
  */
 export function isPrivateRuntimeIdentity(input: {
     serviceMode?: unknown;
-    privateModelKey?: unknown;
+    modelId?: unknown;
+    runtimeProvider?: unknown;
     fallbackOccurred?: unknown;
-    provider?: unknown;
-    engine?: unknown;
-}): { ok: boolean; serviceMode: string; privateModelKey: string | null; provider: string | null; engine: string | null; reason: string } {
+}): { ok: boolean; serviceMode: string; modelId: string | null; runtimeProvider: string | null; reason: string } {
     const serviceMode = String(input?.serviceMode ?? '').toLowerCase();
-    const privateModelKey = input?.privateModelKey != null ? String(input.privateModelKey) : null;
-    const provider = input?.provider != null ? String(input.provider) : null;
-    const engine = input?.engine != null ? String(input.engine) : null;
+    const modelId = input?.modelId != null ? String(input.modelId) : null;
+    const runtimeProvider = input?.runtimeProvider != null ? String(input.runtimeProvider) : null;
     const isPrivate = serviceMode === 'private';
-    // On-device backend proof: Transformers.js (WASM/WebGPU) family, never a cloud/web-speech engine.
-    const isTransformersProvider = !!provider && /transformers\.?js/i.test(provider);
-    const isTransformersEngine = !!engine && /^transformers-js(-v4)?$/i.test(engine);
-    const notFallbackModel = !!privateModelKey && !/tiny/i.test(privateModelKey);
+    // Instantiated-engine proof: the running strategy's OWN provider must be the on-device Transformers.js
+    // family (exact match), never a serviceMode-derived label. Missing/ambiguous/cloud/web-speech is rejected.
+    const isTransformersRuntime = !!runtimeProvider && /^transformers-js(-v4)?$/i.test(runtimeProvider);
+    const notFallbackModel = !!modelId && !/tiny/i.test(modelId);
     const noFallbackHandoff = input?.fallbackOccurred !== true;
-    const ok = isPrivate && isTransformersProvider && isTransformersEngine && notFallbackModel && noFallbackHandoff;
+    const ok = isPrivate && isTransformersRuntime && notFallbackModel && noFallbackHandoff;
     const reason = ok ? ''
         : !isPrivate ? `producing serviceMode is '${serviceMode}', expected 'private'`
-            : !isTransformersProvider ? `resolved provider '${provider}' is not the Transformers.js (on-device WASM/WebGPU) family`
-                : !isTransformersEngine ? `resolved engine '${engine}' is not transformers-js/-v4 (on-device)`
-                    : !notFallbackModel ? `private model '${privateModelKey}' is the emergency tiny fallback, not the default`
-                        : 'a runtime fallback/handoff occurred';
-    return { ok, serviceMode, privateModelKey, provider, engine, reason };
+            : !isTransformersRuntime ? `instantiated running engine provider '${runtimeProvider}' is not the on-device Transformers.js engine (a serviceMode='private' label with a Browser/Cloud/missing/ambiguous running engine is rejected)`
+                : !notFallbackModel ? `running model '${modelId}' is the emergency tiny fallback, not the default`
+                    : 'a runtime fallback/handoff occurred';
+    return { ok, serviceMode, modelId, runtimeProvider, reason };
 }

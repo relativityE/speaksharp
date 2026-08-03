@@ -47,29 +47,45 @@ describe('#1151 proof-authority decisions (falsification)', () => {
         });
     });
 
-    describe('structured Private runtime identity (Transformers.js/WASM; allows device browser)', () => {
-        // The full launch identity: Private producing mode + Transformers.js/WASM engine + default model + no fallback.
-        const base = { serviceMode: 'private', provider: 'transformers.js', engine: 'transformers-js', privateModelKey: 'whisper-base.en', fallbackOccurred: false };
-        it('accepts Private + Transformers.js/WASM engine + default (non-tiny) model + no fallback (v2 and v4 engines)', () => {
+    describe('structured Private runtime identity — anchored on the INSTANTIATED engine (P1.1 modelId + P1.2 runtimeProvider)', () => {
+        // Launch identity: Private producing mode + the running engine's OWN provider (transformers-js) + real
+        // running model (modelId) + no fallback. runtimeProvider comes from __PRIVATE_STT_RUNTIME_DEBUG__.provider
+        // (the instantiated engine), NOT a serviceMode label; modelId is the real field (not privateModelKey).
+        const base = { serviceMode: 'private', runtimeProvider: 'transformers-js', modelId: 'whisper-base.en', fallbackOccurred: false };
+
+        it('1. real v2 on-device identity passes', () => {
             expect(isPrivateRuntimeIdentity(base).ok).toBe(true);
             expect(isPrivateRuntimeIdentity({ ...base, serviceMode: 'PRIVATE', fallbackOccurred: undefined }).ok).toBe(true);
-            // v4 on-device engine id is also accepted.
-            expect(isPrivateRuntimeIdentity({ ...base, engine: 'transformers-js-v4', provider: 'transformers.js (webgpu)' }).ok).toBe(true);
         });
-        it('rejects cloud/native producing mode, the tiny emergency fallback model, and any fallback/handoff', () => {
+        it('2. approved v4 on-device identity passes when structurally produced', () => {
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: 'transformers-js-v4' }).ok).toBe(true);
+        });
+        it('3. private label + Browser (web-speech) running engine fails', () => {
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: 'web-speech-api' }).ok).toBe(false);
+        });
+        it('4. private label + Cloud (assemblyai) running engine fails', () => {
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: 'assemblyai' }).ok).toBe(false);
+        });
+        it('5. missing/unknown/ambiguous running engine identity fails (a generic private label cannot pass)', () => {
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'private', modelId: 'whisper-base.en' }).ok).toBe(false); // runtimeProvider absent
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: null }).ok).toBe(false);
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: 'transformers-js-tiny' }).ok).toBe(false); // not an exact family match
+            expect(isPrivateRuntimeIdentity({ ...base, runtimeProvider: 'unknown' }).ok).toBe(false);
+        });
+        it('6. tiny/fallback/handoff fails', () => {
+            expect(isPrivateRuntimeIdentity({ ...base, modelId: 'whisper-tiny.en' }).ok).toBe(false); // emergency tiny fallback model
+            expect(isPrivateRuntimeIdentity({ ...base, fallbackOccurred: true }).ok).toBe(false);      // any runtime handoff
+        });
+        it('7. wrong/missing modelId fails (P1.1 — the real running model must be present and non-tiny)', () => {
+            expect(isPrivateRuntimeIdentity({ serviceMode: 'private', runtimeProvider: 'transformers-js' }).ok).toBe(false); // modelId absent
+            expect(isPrivateRuntimeIdentity({ ...base, modelId: null }).ok).toBe(false);
+        });
+        it('also rejects cloud/native producing mode outright', () => {
             expect(isPrivateRuntimeIdentity({ ...base, serviceMode: 'cloud' }).ok).toBe(false);
             expect(isPrivateRuntimeIdentity({ ...base, serviceMode: 'native' }).ok).toBe(false);
-            expect(isPrivateRuntimeIdentity({ ...base, privateModelKey: 'whisper-tiny.en' }).ok).toBe(false);
-            expect(isPrivateRuntimeIdentity({ ...base, fallbackOccurred: true }).ok).toBe(false);
-            expect(isPrivateRuntimeIdentity({ serviceMode: '', privateModelKey: null }).ok).toBe(false);
-        });
-        it('rejects a Private-LABELLED session whose resolved engine is NOT Transformers.js/WASM (mislabel / silent handoff)', () => {
-            // serviceMode says 'private' but the engine identity betrays a cloud / web-speech backend — must fail.
-            expect(isPrivateRuntimeIdentity({ ...base, provider: 'assemblyai', engine: 'assemblyai' }).ok).toBe(false);
-            expect(isPrivateRuntimeIdentity({ ...base, provider: 'web-speech-api', engine: 'web-speech-api' }).ok).toBe(false);
-            // Missing/absent engine identity is insufficient — a generic 'private' signal cannot pass.
-            expect(isPrivateRuntimeIdentity({ serviceMode: 'private', privateModelKey: 'whisper-base.en' }).ok).toBe(false);
-            expect(isPrivateRuntimeIdentity({ ...base, engine: 'transformers-js-tiny' }).ok).toBe(false);
+            expect(isPrivateRuntimeIdentity({ serviceMode: '', modelId: null, runtimeProvider: null }).ok).toBe(false);
         });
     });
+    // 8. cleanup/persistence falsifications (persisted device_type, early-UID capture, 404-only deletion proof)
+    //    are the sibling describe blocks above and remain green — unchanged by this P1 correction.
 });

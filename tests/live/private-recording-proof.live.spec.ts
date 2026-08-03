@@ -173,25 +173,27 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             await expect(startStop).toBeEnabled({ timeout: 60_000 });
             await startStop.click();
             await expectBenchmarkRecordingStarted(page, 'private-proof');
-            // P1.2 runtime identity during recording — STRUCTURED (not a stringify that would wrongly reject
-            // the valid device_type='browser'). Read the authoritative producing mode (serviceMode) AND the
-            // resolved engine identity (provider/engine, proving the on-device Transformers.js/WASM backend)
-            // AND the Private model identity + fallback flags, then assert Private + Transformers.js/WASM +
-            // default (non-tiny) model + no fallback/handoff. A generic 'private' serviceMode is insufficient.
-            // Device type is NOT constrained here (the persisted row proves device_type='browser').
+            // P1.2 runtime identity during recording — anchored on the ACTUAL INSTANTIATED engine, not a
+            // serviceMode label. Read the producing mode (serviceMode) AND the running engine's OWN provider from
+            // __PRIVATE_STT_RUNTIME_DEBUG__.provider (published by PrivateSTT's PrivateRuntimeDecision; carries
+            // v2 'transformers-js' and v4 'transformers-js-v4') AND the running model (__STT_IDENTITY__.modelId,
+            // P1.1) + fallback flags. A 'private' serviceMode with a Browser/Cloud/missing/ambiguous running
+            // engine is rejected. Device type is NOT constrained here (the persisted row proves device_type='browser').
             const identity = await page.evaluate(() => {
                 const w = window as unknown as {
                     __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
                     __STT_IDENTITY__?: () => Record<string, unknown>;
+                    __PRIVATE_STT_RUNTIME_DEBUG__?: { provider?: unknown };
                     __PRIVATE_V4_RUNTIME__?: { fallbackOccurred?: boolean };
                 };
                 const dbg = typeof w.__SPEECH_RUNTIME_DEBUG__ === 'function' ? w.__SPEECH_RUNTIME_DEBUG__() : null;
                 const id = typeof w.__STT_IDENTITY__ === 'function' ? w.__STT_IDENTITY__() : null;
                 return {
                     serviceMode: (dbg?.serviceMode ?? id?.mode) ?? null,
-                    privateModelKey: id?.privateModelKey ?? null,
-                    provider: id?.provider ?? null,
-                    engine: id?.engine ?? null,
+                    // The INSTANTIATED running engine's own provider (ground truth), NOT a serviceMode-derived label.
+                    runtimeProvider: w.__PRIVATE_STT_RUNTIME_DEBUG__?.provider ?? null,
+                    // The model actually running (P1.1 — the real field, not the nonexistent privateModelKey).
+                    modelId: id?.modelId ?? null,
                     // Any fallback/handoff fails: the v4 runtime flag OR the engine identity's own fallback.
                     fallbackOccurred: (w.__PRIVATE_V4_RUNTIME__?.fallbackOccurred === true) || (id?.fallbackOccurred === true),
                 };
