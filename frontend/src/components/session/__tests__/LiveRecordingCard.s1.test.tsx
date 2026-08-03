@@ -52,4 +52,29 @@ describe('#1120 S1 LiveRecordingCard — Private primary, Cloud invisible (flag 
         expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveTextContent(/Browser/);
         expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).not.toHaveTextContent(/Native/);
     });
+
+    // #1120 S1 (accepted item 5) — STATIC CUSTOMER-SURFACE CONTRACT for the STT selector surface.
+    // In the launch state the entire rendered selector — option labels, badges, the About panel, and the
+    // sr-only accessibility descriptors — must carry NO ordinary "Cloud" option/value copy and NO current
+    // "Native" customer label. (Pricing/Auth surfaces are covered by their own Cloud-absence tests.)
+    it('carries no customer-facing "Cloud" copy or "Native" label anywhere in the selector + accessibility text', async () => {
+        const { container } = render(<LiveRecordingCard {...props} />);
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+
+        // Visible text + sr-only descriptors are all part of textContent.
+        const surfaceText = `${container.textContent ?? ''} ${document.body.textContent ?? ''}`;
+        expect(surfaceText).not.toMatch(/\bcloud\b/i);
+        expect(surfaceText).not.toMatch(/\bnative\b/i);
+        // The approved customer vocabulary IS present (labels can be adjacent to badges in textContent, so
+        // match the words without requiring surrounding whitespace boundaries).
+        expect(surfaceText).toMatch(/browser/i);
+        expect(surfaceText).toMatch(/private/i);
+
+        // Accessibility descriptors specifically: present, and free of the forbidden terms.
+        const nativeDesc = document.getElementById('stt-native-descriptor');
+        const privateDesc = document.getElementById('stt-private-descriptor');
+        expect(nativeDesc?.textContent ?? '').not.toMatch(/\b(cloud|native)\b/i);
+        expect(privateDesc?.textContent ?? '').not.toMatch(/\b(cloud|native)\b/i);
+    });
 });

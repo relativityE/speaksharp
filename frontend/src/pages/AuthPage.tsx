@@ -8,7 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import logger from '../lib/logger';
-import { isCloudSttGloballyVisible } from '@/config/sttHierarchyFlags';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
@@ -251,7 +250,7 @@ export default function AuthPage() {
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">Start free with instant Browser transcription</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      {`Try the product immediately. Private is the recommended main experience — try one Private sample session and record up to 5 minutes, transcribed locally on your device.${isCloudSttGloballyVisible() ? ' Cloud transcription is a paid Early Access feature.' : ''}`}
+                      {`Try the product immediately. Private is the recommended main experience — try one Private sample session and record up to 5 minutes, transcribed locally on your device.`}
                     </p>
                     {inlineError && (
                       <p
