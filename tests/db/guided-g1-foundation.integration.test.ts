@@ -168,6 +168,24 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect((await getAction(db, await selectAction(db, USER, s))).kind).toBe('material_time');
     });
 
+    it('overtime-below-threshold-not-material: overtime under max(15s,10%) is not material', async () => {
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 105 }); // overtime 5 < 15
+        await finalize(db, USER, s, [detected(pointIds[0])]);
+        expect((await getAction(db, await selectAction(db, USER, s))).kind).toBe('neutral_repeat');
+    });
+
+    it('overtime-10-percent-boundary: with a large budget the 10% term dominates the 15s floor', async () => {
+        const db = await makeDb();
+        // budget 300 → threshold max(15, 30) = 30. overtime 30 == threshold → not material; overtime 31 → material.
+        const eq = await setup(db, USER, { budget: 300, points: [{ order: 0, required: true }], duration: 330, idem: 'eq' });
+        await finalize(db, USER, eq.s, [detected(eq.pointIds[0])]);
+        expect((await getAction(db, await selectAction(db, USER, eq.s))).kind).toBe('neutral_repeat');
+        const over = await setup(db, USER, { budget: 300, points: [{ order: 0, required: true }], duration: 331, idem: 'over' });
+        await finalize(db, USER, over.s, [detected(over.pointIds[0])]);
+        expect((await getAction(db, await selectAction(db, USER, over.s))).kind).toBe('material_time');
+    });
+
     // ── DETERMINISTIC ACTION PRIORITY ──
     it('action-priority-order: unmet required outranks material time and clarity', async () => {
         const db = await makeDb();
@@ -345,16 +363,35 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         const rec = await seedRecording(db, USER);
         const rec2 = await seedRecording(db, USER);
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        // A second immutable brief VERSION in the same project (brief/version mismatch class).
+        const brief2 = (await db.query<{ id: string }>(
+            `INSERT INTO public.guided_brief (project_id, user_id, version, event_goal, time_budget_seconds)
+             VALUES ($1,$2,2,'goal2',100) RETURNING id`, [proj, USER])).rows[0].id;
         await startSession(db, USER, { proj, brief, source: rec, detector: 'cue_v1', duration: 50, idem: 'k' });
         await act(db, USER);
-        const replay = (src: string, detector: string, dur: number) => db.query(
-            `SELECT public.guided_start_session_v1($1,$2,$3,$4,'guided_action_v1',$5,'k') AS id`, [proj, brief, src, detector, dur]);
-        await expect(replay(rec, 'cue_v1', 999)).rejects.toThrow(/different session identity/i);  // duration
-        await expect(replay(rec2, 'cue_v1', 50)).rejects.toThrow(/different session identity/i);   // source recording
-        await expect(replay(rec, 'other_detector', 50)).rejects.toThrow(/different session identity/i); // detector
-        // Exact replay (all immutable fields match) still returns the original session.
-        const same = await replay(rec, 'cue_v1', 50);
+        const replay = (b: string, src: string, detector: string, formula: string, dur: number) => db.query(
+            `SELECT public.guided_start_session_v1($1,$2,$3,$4,$5,$6,'k') AS id`, [proj, b, src, detector, formula, dur]);
+        await expect(replay(brief, rec, 'cue_v1', 'guided_action_v1', 999)).rejects.toThrow(/different session identity/i); // duration
+        await expect(replay(brief, rec2, 'cue_v1', 'guided_action_v1', 50)).rejects.toThrow(/different session identity/i);  // source
+        await expect(replay(brief, rec, 'other', 'guided_action_v1', 50)).rejects.toThrow(/different session identity/i);    // detector
+        await expect(replay(brief2, rec, 'cue_v1', 'guided_action_v1', 50)).rejects.toThrow(/different session identity/i);  // brief/version
+        await expect(replay(brief, rec, 'cue_v1', 'other_formula', 50)).rejects.toThrow(/different session identity/i);      // formula
+        // (A project mismatch is caught earlier by the brief↔project ownership check — brief not found.)
+        const same = await replay(brief, rec, 'cue_v1', 'guided_action_v1', 50); // exact replay returns the original
         expect((same as { rows: { id: string }[] }).rows[0].id).toBeTruthy();
+    });
+
+    it('concurrent-start: racing identical start calls return the same session, never a duplicate', async () => {
+        const db = await makeDb();
+        const rec = await seedRecording(db, USER);
+        const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        await act(db, USER);
+        const call = () => db.query<{ id: string }>(
+            `SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1',50,'race') AS id`, [proj, brief, rec]);
+        const [a, b] = await Promise.all([call(), call()]);
+        expect(a.rows[0].id).toBe(b.rows[0].id);
+        const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_session WHERE user_id=$1`, [USER])).rows[0].n;
+        expect(Number(n)).toBe(1);
     });
 
     // ── DELETION ──
