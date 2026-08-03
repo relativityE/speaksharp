@@ -240,6 +240,7 @@ describe('#1144 device qualification contract', () => {
       "- 'tests/support/factories/session.factory.ts'",
       "- 'tests/e2e/fixtures.ts'",
       "- 'tests/constants.ts'",
+      "- 'playwright.base.config.ts'",
       "- 'pnpm-lock.yaml'",
     ]) {
       expect(workflow, `missing qualification trigger ${requiredPath}`).toContain(requiredPath);

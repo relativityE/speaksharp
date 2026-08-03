@@ -18,6 +18,7 @@ on:
       - 'tests/e2e/fixtures.ts'
       - 'tests/constants.ts'
       - '.github/actions/setup-environment/**'
+      - 'playwright.base.config.ts'
       - 'playwright.device-qualification.config.ts'
       - 'tests/e2e/device-qualification-foundation.e2e.spec.ts'
       - 'tests/release/deviceQualificationContract.ts'
