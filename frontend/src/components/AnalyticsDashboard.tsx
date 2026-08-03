@@ -1175,7 +1175,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     {/* Analysis Carousel */}
                     <div className="space-y-2">
-                        <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
+                        <Carousel className="w-full overflow-hidden sm:overflow-visible" opts={{ loop: true }} setApi={setApi}>
                             <CarouselContent>
                                 {displayedAnalysisSlides.map((option, index) => (
                                     <CarouselItem key={option.id} className="basis-full">
