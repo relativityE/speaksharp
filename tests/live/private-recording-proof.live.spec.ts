@@ -10,7 +10,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
-import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError } from './helpers/proofAuthority';
+import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity } from './helpers/proofAuthority';
 
 // #1089 / #1129 — exact-production-SHA Private recording proof (rigorous).
 //
@@ -174,9 +174,11 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             await startStop.click();
             await expectBenchmarkRecordingStarted(page, 'private-proof');
             // P1.2 runtime identity during recording — STRUCTURED (not a stringify that would wrongly reject
-            // the valid device_type='browser'). Read the authoritative producing mode (serviceMode) + the
-            // Private model identity + v4 fallback flag, and assert Private + default (non-tiny) model + no
-            // fallback. Device type is NOT constrained here (the persisted row proves device_type='browser').
+            // the valid device_type='browser'). Read the authoritative producing mode (serviceMode) AND the
+            // resolved engine identity (provider/engine, proving the on-device Transformers.js/WASM backend)
+            // AND the Private model identity + fallback flags, then assert Private + Transformers.js/WASM +
+            // default (non-tiny) model + no fallback/handoff. A generic 'private' serviceMode is insufficient.
+            // Device type is NOT constrained here (the persisted row proves device_type='browser').
             const identity = await page.evaluate(() => {
                 const w = window as unknown as {
                     __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
@@ -188,7 +190,10 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
                 return {
                     serviceMode: (dbg?.serviceMode ?? id?.mode) ?? null,
                     privateModelKey: id?.privateModelKey ?? null,
-                    fallbackOccurred: w.__PRIVATE_V4_RUNTIME__?.fallbackOccurred ?? false,
+                    provider: id?.provider ?? null,
+                    engine: id?.engine ?? null,
+                    // Any fallback/handoff fails: the v4 runtime flag OR the engine identity's own fallback.
+                    fallbackOccurred: (w.__PRIVATE_V4_RUNTIME__?.fallbackOccurred === true) || (id?.fallbackOccurred === true),
                 };
             });
             const runtimeVerdict = isPrivateRuntimeIdentity(identity);
