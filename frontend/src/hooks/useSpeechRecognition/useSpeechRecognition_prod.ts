@@ -21,6 +21,7 @@ import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
+import { isCloudSttEnabled } from '@/config/sttHierarchyFlags';
 
 function getCloudTokenFailureMessage(err: unknown): string {
     const errorLike = err as {
@@ -105,7 +106,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     } = store;
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
-    const canUseCloudStt = isEffectiveProUser && hasCloudSttEntitlement(profile);
+    // #1120 S1 (review #5): independent, fail-closed Cloud gate on this grant path too (token callback + policy).
+    const canUseCloudStt = isCloudSttEnabled() && isEffectiveProUser && hasCloudSttEntitlement(profile);
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';

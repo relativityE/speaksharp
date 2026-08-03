@@ -22,7 +22,7 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
-import { isPrivatePrimaryEnabled, resolveDefaultSttMode } from '@/config/sttHierarchyFlags';
+import { isPrivatePrimaryEnabled, resolveDefaultSttMode, isCloudSttEnabled, sttFlagsReadyInitial, onSttFlagsReady } from '@/config/sttHierarchyFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -75,9 +75,11 @@ export const useSessionLifecycle = () => {
     const isProUser = isPro(effectiveSubscriptionStatus);
     const hasPrivateSampleEntitlement = hasActivePrivateSample(usageLimit);
     const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
-    // #1120 S1: Cloud is globally off when the hierarchy flag is ON — entitlement is forced false so no
-    // policy/UI path can select Cloud or fall back to it silently (it stays implemented for a later re-enable).
-    const canUseCloudStt = !isPrivatePrimaryEnabled() && isProUser && hasCloudSttEntitlement(profile);
+    // #1120 S1 (review #3/#5): Cloud is gated by the INDEPENDENT, fail-closed Cloud flag — never by the
+    // hierarchy flag's inverse. With the Cloud flag missing/OFF, entitlement is denied here so no policy/UI
+    // path selects Cloud or falls back to it silently (it stays implemented for a later, separately-authorized
+    // re-enable). Every other client grant path (provider, prod hook, engine factory) applies the same gate.
+    const canUseCloudStt = isCloudSttEnabled() && isProUser && hasCloudSttEntitlement(profile);
     const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
@@ -140,6 +142,14 @@ export const useSessionLifecycle = () => {
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
     // #1120 S1: instrument the applied default at most once per mount (adoption + A/B of the hierarchy flag).
     const defaultAppliedRef = useRef(false);
+    // #1120 S1 (review #1): don't latch the default until PostHog flags have loaded, so a cold session never
+    // persists a premature 'native' that then ignores the arriving cohort assignment. Ready immediately when
+    // there is nothing to wait for (SSR / PostHog absent, e.g. unit + E2E).
+    const [sttFlagsReady, setSttFlagsReady] = useState<boolean>(() => sttFlagsReadyInitial());
+    useEffect(() => {
+        if (sttFlagsReady) return;
+        return onSttFlagsReady(() => setSttFlagsReady(true));
+    }, [sttFlagsReady]);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -709,6 +719,9 @@ export const useSessionLifecycle = () => {
     // for Pro users after profile hydration.
     useEffect(() => {
         if (!profileReadyForStt) return;
+        // #1120 S1 (review #1): wait for PostHog flags before latching, so a cold session cannot persist a
+        // premature default that ignores the arriving cohort assignment.
+        if (!sttFlagsReady) return;
 
         if (isVerified && !isListening && shouldForceNativeMode && sttMode && sttMode !== 'native') {
             modeSourceRef.current = 'default';
@@ -719,12 +732,25 @@ export const useSessionLifecycle = () => {
             return;
         }
 
+        // #1120 S1 (review #6): a stale 'cloud' selection (in the SPA store from before the gate resolved)
+        // must be normalized to the default BEFORE warm-up, or the warm-up effect would install a Cloud policy
+        // and construct the Cloud engine. Coerce any cloud mode away when the fail-closed Cloud gate is off.
+        if (isVerified && !isListening && sttMode === 'cloud' && !canUseCloudStt) {
+            modeSourceRef.current = 'default';
+            setSTTMode(defaultMode);
+            return;
+        }
+
+        // Latch the default for a new/unset session; also RE-LATCH a still-default (non-user-chosen) mode when
+        // the resolved default changed — e.g. the hierarchy flag arrived after a cold 'native' was set (#1). An
+        // explicit user choice (modeSourceRef==='user') is always preserved.
+        // Only a mode THIS effect latched (=== 'default') may be re-latched when the resolved default changes.
+        // A store-provided or user-chosen mode (ref null / 'user') is preserved — never clobbered on mount.
+        const modeIsDefaultOwned = modeSourceRef.current === 'default';
         if (
             isVerified &&
             !isListening &&
-            (
-                !sttMode || shouldPromoteNativeDefaultToPrivate
-            )
+            (!sttMode || (modeIsDefaultOwned && sttMode !== defaultMode))
         ) {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
@@ -739,7 +765,7 @@ export const useSessionLifecycle = () => {
                 });
             }
         }
-    }, [profileReadyForStt, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, shouldPromoteNativeDefaultToPrivate, canUsePrivateStt, setSTTMode, setSTTStatus]);
+    }, [profileReadyForStt, sttFlagsReady, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, canUseCloudStt, canUsePrivateStt, setSTTMode, setSTTStatus]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {

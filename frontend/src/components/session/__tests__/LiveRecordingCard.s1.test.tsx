@@ -7,7 +7,13 @@ import { TEST_IDS } from '@/constants/testIds';
 // fallback, and Cloud is customer-invisible (row + About entry not rendered — never merely disabled).
 vi.mock('@/config/sttHierarchyFlags', () => ({
     isPrivatePrimaryEnabled: () => true,
+    isCloudSttEnabled: () => false,         // S1: Cloud globally off + invisible
     isCloudSttGloballyVisible: () => false,
+    resolveDefaultSttMode: (p: boolean, c: boolean) => (p && c ? 'private' : 'native'),
+    sttFlagsReadyInitial: () => true,
+    onSttFlagsReady: () => () => {},
+    STT_HIERARCHY_FLAG_KEY: 'stt_private_primary_v1',
+    CLOUD_STT_FLAG_KEY: 'cloud_stt_enabled',
 }));
 
 describe('#1120 S1 LiveRecordingCard — Private primary, Cloud invisible (flag ON)', () => {

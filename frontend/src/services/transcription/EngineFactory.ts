@@ -8,6 +8,7 @@ import { getDefaultProviderEntry } from './providers/sttProviderConfig';
 import type { PrivateSttProvider, SttMode, SttProviderEntry } from './providers/types';
 import { registerNativeProductionFormatter } from './modes/nativeDeterministicCleanup';
 import { registerNativeTranscriptFormatter } from './modes/nativeTranscriptFormatter';
+import { isCloudSttEnabled } from '@/config/sttHierarchyFlags';
 
 /**
  * Activate (or clear) the API-backed saved-transcript formatter for the active
@@ -73,6 +74,11 @@ export class EngineFactory {
         engine = new NativeBrowser(options);
         break;
       case 'cloud':
+        // #1120 S1 (review #5): fail-closed at the factory too. A direct create('cloud') (e.g. a stale policy
+        // or resync) must not construct a paid Cloud engine when the independent Cloud gate is off.
+        if (!isCloudSttEnabled()) {
+          throw new Error('[EngineFactory] Cloud STT is disabled (cloud_stt_enabled off) — refusing to construct CloudAssemblyAI.');
+        }
         if (registryKey !== 'assemblyai') {
           throw new Error(`[EngineFactory] Cloud provider "${providerId}" is not available.`);
         }

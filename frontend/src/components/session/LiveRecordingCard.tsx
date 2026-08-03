@@ -336,7 +336,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const cloudOptionDesc = canUseCloudStt
         ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
         : cloudModeDescription;
-    const nativeOptionDesc = "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
+    // #1120 S1 (review #8): when Private is primary, Browser is the explicit COMPATIBILITY FALLBACK, not an
+    // attractive fast peer — the descriptor says so while preserving the browser/provider-managed disclosure.
+    const nativeOptionDesc = privatePrimary
+        ? "Compatibility fallback — uses your browser's built-in speech recognition. Availability and accuracy vary by browser (Chrome recommended); use it if Private isn't available on your device."
+        : "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
     // #1064: the concise privacy explanation for the AVAILABLE Private option (tooltip / About body /
     // flyout). The operational details (beta cap, sample-session limit, auto-save, entitlement) stay in
     // privateModeDescription — do NOT fold them into this sentence. When unavailable, fall back to the
@@ -540,7 +544,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         Browser
                                         {/* #1041: secondary descriptor badge for the Browser method — visual only
                                             (aria-hidden); its text is announced via the accessible description above. */}
-                                        <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
+                                        <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{privatePrimary ? 'Fallback' : 'Quick preview'}</span>
                                     </span>
                                 </DropdownMenuRadioItem>
                                 {/* #1120 S1: Cloud is globally off + customer-invisible when the hierarchy flag is
@@ -565,7 +569,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </DropdownMenuRadioGroup>
                             {/* #1041: the Browser option's accessible description — the "Quick preview" descriptor plus
                                 the approved explanation, available to screen readers without becoming part of the name. */}
-                            <span id="stt-native-descriptor" className="sr-only">{`Quick preview. ${nativeOptionDesc}`}</span>
+                            <span id="stt-native-descriptor" className="sr-only">{`${privatePrimary ? 'Compatibility fallback.' : 'Quick preview.'} ${nativeOptionDesc}`}</span>
                             {/* #1064: the Private option's accessible description — "Stays local" plus the approved
                                 privacy sentence, exposed to screen readers as the description (not part of the name). */}
                             <span id="stt-private-descriptor" className="sr-only">Stays local. Transcription runs on this device; audio is not uploaded.</span>

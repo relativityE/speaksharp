@@ -14,6 +14,7 @@ import {
 } from '@/services/conversionFunnel';
 import { toast } from '@/lib/toast';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import { isCloudSttGloballyVisible } from '@/config/sttHierarchyFlags';
 import logger from '../lib/logger';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { hasPaidProEntitlement } from '@/constants/subscriptionTiers';
@@ -128,7 +129,9 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
       </CardHeader>
       <CardContent className="flex-grow px-6">
         <ul className="space-y-2">
-          {tier.features.map((feature, i) => (
+          {/* #1120 S1 (review #7): with Cloud globally off + customer-invisible, drop the Cloud feature line
+              from pricing so no Cloud benefit is advertised. Restored automatically when Cloud is re-enabled. */}
+          {tier.features.filter((feature) => isCloudSttGloballyVisible() || !/\bcloud\b/i.test(feature)).map((feature, i) => (
             <li key={i} className="flex items-start gap-2 text-sm leading-relaxed">
               <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />
               <span className="text-foreground/95">{feature}</span>

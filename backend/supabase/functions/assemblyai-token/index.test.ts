@@ -70,7 +70,15 @@ function createMockSupabase(options: {
 
 const env = (key: string) => {
   if (key === "ASSEMBLYAI_API_KEY") return "assemblyai-api-key";
+  // #1120 S1: existing cases exercise the Cloud path, so the fail-closed gate must be ON here.
+  if (key === "CLOUD_STT_ENABLED") return "true";
   return undefined;
+};
+
+// #1120 S1 (review #4): an env with the Cloud gate OFF (the production default) — proves fail-closed denial.
+const envCloudDisabled = (key: string) => {
+  if (key === "ASSEMBLYAI_API_KEY") return "assemblyai-api-key";
+  return undefined; // CLOUD_STT_ENABLED unset → fail closed
 };
 
 Deno.test("assemblyai-token edge function", async (t) => {
@@ -86,6 +94,26 @@ Deno.test("assemblyai-token edge function", async (t) => {
     assertEquals(res.status, 401);
     assertEquals(json.error, "Missing Authorization header");
   });
+
+  await t.step(
+    "#1120 S1: denies Cloud (503) when CLOUD_STT_ENABLED is off — fail-closed, no provider call",
+    async () => {
+      let assemblyAiCalled = false;
+      const fetchImpl: typeof fetch = () => {
+        assemblyAiCalled = true;
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      };
+      const res = await handler(
+        request("Bearer valid-token"),
+        createMockSupabase({ user: { id: "u" }, subscriptionStatus: "pro" }),
+        fetchImpl,
+        envCloudDisabled,
+      );
+      assertEquals(res.status, 503);
+      // The paid AssemblyAI provider must never be called while Cloud is globally off.
+      assertEquals(assemblyAiCalled, false);
+    },
+  );
 
   await t.step(
     "grants a temporary token to authenticated Pro users",

@@ -5,6 +5,20 @@ import { LiveRecordingCard } from '../LiveRecordingCard';
 import { TEST_IDS } from '@/constants/testIds';
 import { PRIV_STT } from '@/services/transcription/sttConstants';
 
+// #1120 S1: these tests validate TODAY's behavior (hierarchy OFF; Cloud available per entitlement). With the
+// hierarchy flag now defaulting OFF and Cloud fail-closed, pin that state explicitly. S1-ON behavior is
+// covered separately in LiveRecordingCard.s1.test.tsx.
+vi.mock('@/config/sttHierarchyFlags', () => ({
+    isPrivatePrimaryEnabled: () => false,
+    isCloudSttEnabled: () => true,
+    isCloudSttGloballyVisible: () => true,
+    resolveDefaultSttMode: (p: boolean, c: boolean) => (p && c ? 'private' : 'native'),
+    sttFlagsReadyInitial: () => true,
+    onSttFlagsReady: () => () => {},
+    STT_HIERARCHY_FLAG_KEY: 'stt_private_primary_v1',
+    CLOUD_STT_FLAG_KEY: 'cloud_stt_enabled',
+}));
+
 describe('LiveRecordingCard', () => {
     const defaultProps = {
         mode: 'native' as const,

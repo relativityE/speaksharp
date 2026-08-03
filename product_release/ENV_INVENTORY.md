@@ -81,6 +81,8 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only). See `vali
 | `VITE_AUTH_MODE` | optional | A/B | Auth mode selector. |
 | `VITE_AUTH_TIMEOUT` | optional | A/B | Auth timeout ms. |
 | `VITE_ENABLE_INTERNAL_ROUTES` | **must be false/absent in prod** | B/E | Dev/internal routes gate. |
+| `VITE_STT_PRIVATE_PRIMARY_DISABLED` | optional | **B (Vercel only)** | #1120 S1 build-time HARD kill switch for the Private-primary STT hierarchy. `=== "true"` forces the hierarchy OFF (today's Browser-default behavior) regardless of the PostHog flag `stt_private_primary_v1`. Consumer: `frontend/src/config/sttHierarchyFlags.ts` (`isPrivatePrimaryEnabled`). Default unset → PostHog flag governs. |
+| `VITE_CLOUD_STT_DISABLED` | optional | **B (Vercel only)** | #1120 S1 build-time HARD kill switch for Cloud STT. `=== "true"` forces Cloud OFF regardless of the PostHog flag `cloud_stt_enabled`. Consumer: `sttHierarchyFlags.ts` (`isCloudSttEnabled`). Cloud is fail-closed: unset/absent flag → Cloud denied. |
 
 ### Dev/test-only `VITE_*` — MUST be unset/false in production
 `VITE_TEST_MODE`, `VITE_E2E_MODE`, `VITE_USE_MOCK_AUTH`, `VITE_ALLOW_MOCK_AUTH_IN_TESTS`,
@@ -109,6 +111,7 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `STRIPE_PRO_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout | product-ops |
 | `STRIPE_BASIC_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout (future/placeholder) | product-ops |
 | `ASSEMBLYAI_API_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | assemblyai-token (Cloud STT) | product-ops |
+| `CLOUD_STT_ENABLED` | Supabase Edge secret | **#1120 S1 backend Cloud kill-switch (fail-closed). Default OFF.** `assemblyai-token` returns `503` (before any JWT auth, Supabase access, or AssemblyAI token/provider call) unless this === `"true"`. Independent of the client PostHog flag `cloud_stt_enabled`; a stale/direct client cannot mint a paid provider token while Cloud is globally off. Launch invariant: Cloud stays default-disabled unless separately authorized. | product-ops |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions (NOT format-transcript — that was removed) | product-ops |
 | `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (`getAllowedOrigins`/`parseConfiguredOrigins`) | product-ops. **APPENDS extra exact origins only.** `cors.ts` ships a frozen `BUILTIN_ALLOWED_ORIGINS` exact allowlist (`https://speaksharp-public.vercel.app`, `https://speaksharp.ai`, `https://www.speaksharp.ai`, plus `http://localhost:5173/5174` + `http://127.0.0.1:5173/5174`); `ALLOWED_ORIGIN` adds comma-separated **exact** origins (e.g. explicit preview hosts). Every entry is parsed to canonical `URL.origin` — no wildcard/suffix/substring; malformed entries are logged and ignored. Fail-closed: a disallowed origin gets a 403 with NO `Access-Control-Allow-Origin`. |
 | `AGENT_SECRET` | C (+D sync) | agent/internal auth | product-ops |

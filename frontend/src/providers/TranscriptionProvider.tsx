@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement } from '@/constants/subscriptionTiers';
+import { isCloudSttEnabled } from '@/config/sttHierarchyFlags';
 import { syncProfileReady } from '@/lib/forensicAnchors';
 import logger from '@/lib/logger';
 import ProfileContext from '@/contexts/ProfileContext';
@@ -79,7 +80,8 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         }, '[TranscriptionProvider] Syncing policy');
 
         const isPro = tier === 'pro';
-        const canUseCloud = isPro && hasCloudSttEntitlement(policyProfile);
+        // #1120 S1 (review #5): every client grant path applies the independent, fail-closed Cloud gate.
+        const canUseCloud = isCloudSttEnabled() && isPro && hasCloudSttEntitlement(policyProfile);
         const requestedMode = isPro ? currentSelectedMode : null;
         const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
         // NOTE (P2, tracked in BACKLOG): this writer intentionally remains TIER-ONLY for now —
