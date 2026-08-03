@@ -78,15 +78,27 @@ describe('PricingPage', () => {
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
         });
 
-        it('should render Pro tier features', () => {
+        it('should render Pro tier features (Cloud copy hidden while the Cloud gate is OFF — launch default)', () => {
             renderPricingPage();
 
             expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
             expect(screen.getByText('Practice analytics, trends, and coaching reports')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
             expect(screen.getByText('Private transcription after one-time local model setup')).toBeInTheDocument();
-            expect(screen.getByText('Cloud transcription when enabled for Pro workflows')).toBeInTheDocument();
             expect(screen.getByText('Semantic AI coaching and expanded PDF export capacity')).toBeInTheDocument();
+            // #1120 S1: Cloud is a build/release-gated capability, OFF by default. With VITE_CLOUD_STT_ENABLED
+            // unset the Pricing surface must carry NO ordinary Cloud copy (customer-surface contract).
+            expect(screen.queryByText(/\bcloud\b/i)).not.toBeInTheDocument();
+        });
+
+        it('#1120 S1: surfaces the Cloud Pro feature ONLY when the canonical Cloud gate is exactly "true"', () => {
+            vi.stubEnv('VITE_CLOUD_STT_ENABLED', 'true');
+            try {
+                renderPricingPage();
+                expect(screen.getByText('Cloud transcription when enabled for Pro workflows')).toBeInTheDocument();
+            } finally {
+                vi.unstubAllEnvs();
+            }
         });
 
         it('should render CTA buttons', () => {

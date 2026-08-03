@@ -205,9 +205,10 @@ describe('TranscriptionPolicy', () => {
             expect(PROD_FREE_POLICY.allowPrivate).toBe(false);
         });
 
-        it('PROD_PRO_POLICY should allow all', () => {
+        it('PROD_PRO_POLICY allows Native+Private but FAIL-CLOSES Cloud (#1120 S1 round-2)', () => {
             expect(PROD_PRO_POLICY.allowNative).toBe(true);
-            expect(PROD_PRO_POLICY.allowCloud).toBe(true);
+            // Cloud is a build/release-gated capability, never granted by tier alone — the exported policy denies it.
+            expect(PROD_PRO_POLICY.allowCloud).toBe(false);
             expect(PROD_PRO_POLICY.allowPrivate).toBe(true);
             expect(PROD_PRO_POLICY.allowFallback).toBe(false);
         });

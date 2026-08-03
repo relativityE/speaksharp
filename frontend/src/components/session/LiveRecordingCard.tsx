@@ -315,8 +315,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
-    // #1120 S1: when the hierarchy flag is ON, Private is the recommended primary and Cloud is customer-
-    // invisible (row + About entry hidden). Flag OFF = today's behavior (Cloud visible per entitlement).
+    // #1120 S1: TWO INDEPENDENT gates.
+    //  • privatePrimary (hierarchy flag) — when ON, Private is the recommended primary and Browser is the
+    //    explicit fallback; when OFF, Browser-default ordering. It controls ONLY Private/Browser ordering.
+    //  • cloudVisible (canonical Cloud release gate `VITE_CLOUD_STT_ENABLED`, via isCloudSttGloballyVisible)
+    //    — when the gate is OFF, the Cloud row + About-Cloud entry are NOT rendered (customer-invisible),
+    //    independent of the hierarchy flag. The hierarchy flag never restores Cloud in either state.
     const privatePrimary = isPrivatePrimaryEnabled();
     const cloudVisible = isCloudSttGloballyVisible();
     // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
@@ -387,7 +391,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 <p className="font-semibold text-foreground">Browser</p>
                 <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-native">{nativeOptionDesc}</p>
             </div>
-            {/* #1120 S1: Cloud is customer-invisible when the hierarchy flag is ON. */}
+            {/* #1120 S1: Cloud is customer-invisible whenever the canonical Cloud gate is OFF (independent of
+                the hierarchy flag). */}
             {cloudVisible && (
                 <div>
                     <p className="font-semibold text-foreground">Cloud — Pro</p>
@@ -547,8 +552,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{privatePrimary ? 'Fallback' : 'Quick preview'}</span>
                                     </span>
                                 </DropdownMenuRadioItem>
-                                {/* #1120 S1: Cloud is globally off + customer-invisible when the hierarchy flag is
-                                    ON — the row is not rendered (never merely disabled), so it cannot be selected. */}
+                                {/* #1120 S1: Cloud is globally off + customer-invisible whenever the canonical Cloud
+                                    gate is OFF (independent of the hierarchy flag) — the row is not rendered (never
+                                    merely disabled), so it cannot be selected. */}
                                 {cloudVisible && (
                                 <DropdownMenuRadioItem
                                     value="cloud"

@@ -50,11 +50,15 @@ export const PROD_FREE_POLICY: TranscriptionPolicy = {
 
 /**
  * Pro tier production policy.
- * All modes available, user preference or UI selection determines mode.
+ * Native + Private available; Cloud is FAIL-CLOSED at the policy layer. Cloud is a build/release-gated
+ * capability (canonical `VITE_CLOUD_STT_ENABLED` client mirror + Edge `CLOUD_STT_ENABLED`), NEVER granted by
+ * tier alone — so the exported production policy denies it. A caller that has verified the gate opts in
+ * explicitly via `buildPolicyForUser(..., { allowCloud: true })`; user preference or UI selection then
+ * determines the mode among the allowed set.
  */
 export const PROD_PRO_POLICY: TranscriptionPolicy = {
     allowNative: true,
-    allowCloud: true,
+    allowCloud: false,
     allowPrivate: true,
     preferredMode: 'private', // Optimized for zero variable cost
     allowFallback: false,

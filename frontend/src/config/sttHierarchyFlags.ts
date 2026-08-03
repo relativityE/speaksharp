@@ -3,16 +3,19 @@
  * #1120 S1 — STT HIERARCHY FLAG (flag-gated, OFF by default)
  * ============================================================================
  *
- * S1 makes Private the primary/recommended first experience, demotes Browser to an
- * explicit secondary fallback (labelled "Browser" everywhere), and keeps Cloud
- * globally off + customer-invisible + never a silent fallback.
+ * S1 makes Private the primary/recommended first experience and demotes Browser to an explicit
+ * secondary fallback (labelled "Browser" everywhere). This flag controls ONLY the Private/Browser
+ * ordering. Cloud is gated INDEPENDENTLY by the canonical Cloud release gate — client mirror
+ * `VITE_CLOUD_STT_ENABLED` (see isCloudSttEnabled/isCloudSttGloballyVisible) and Edge `CLOUD_STT_ENABLED`,
+ * both exact-"true"/fail-closed — so Cloud is globally OFF + customer-invisible + never a silent fallback,
+ * and this hierarchy flag NEVER restores Cloud visibility or entitlement in EITHER state.
  *
- * The whole slice sits behind ONE master flag so it ships as a coherent, reversible
- * unit with a real kill switch:
- *  - flag OFF (default) => today's behavior EXACTLY (Browser default; Cloud visible to
- *    entitled Pro users). This is the kill switch.
- *  - flag ON => new/unset sessions default to Private v2; Private is primary+recommended;
- *    Browser is the secondary fallback; Cloud is hidden + unselectable.
+ * The Private/Browser slice sits behind ONE master flag so it ships as a coherent, reversible unit with a
+ * real kill switch. Rolling the flag back changes ONLY the Private/Browser ordering — it does not touch the
+ * Cloud gate:
+ *  - flag OFF (default) => Browser-default ordering (today's Private/Browser ordering). This is the kill switch.
+ *  - flag ON => new/unset sessions default to Private v2; Private is primary+recommended; Browser is the
+ *    secondary fallback. Cloud visibility/selectability is unchanged by this flag in either state.
  *
  * Exposure hierarchy (mirrors privateV4Flags):
  *  - PostHog runtime flag `stt_private_primary_v1` = primary control (kill switch + cohort).
