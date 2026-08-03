@@ -237,7 +237,7 @@ export function resolveNativeBrowserStrategy(options: {
     return makeStrategy(
       'unsupported',
       'unsupported',
-      'This browser does not provide a usable SpeechRecognition API, so Browser STT cannot run here. Use Private STT or Cloud STT instead.',
+      'This browser does not provide a usable SpeechRecognition API, so Browser STT cannot run here. Use Private STT instead.',
       UNSUPPORTED_WEB_SPEECH_CONFIG,
     );
   }
@@ -282,7 +282,7 @@ export function resolveNativeBrowserStrategy(options: {
     return makeStrategy(
       'safari',
       'verified',
-      'Browser STT is using the Safari Web Speech implementation. Results may vary; switch to Private STT or Cloud STT if transcription is delayed or incomplete.',
+      'Browser STT is using the Safari Web Speech implementation. Results may vary; switch to Private STT if transcription is delayed or incomplete.',
       SAFARI_WEB_SPEECH_CONFIG,
     );
   }
@@ -290,7 +290,7 @@ export function resolveNativeBrowserStrategy(options: {
   return makeStrategy(
     'generic',
     'generic',
-    'Browser STT is running in compatibility mode for this browser. Results may vary. If transcription is delayed or incomplete, switch to Private STT or Cloud STT.',
+    'Browser STT is running in compatibility mode for this browser. Results may vary. If transcription is delayed or incomplete, switch to Private STT.',
     GENERIC_WEB_SPEECH_CONFIG,
   );
 }
