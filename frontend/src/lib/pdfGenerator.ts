@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
+import { presentTranscript, transcriptDerivedMetricShowable } from '../constants/transcriptState';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
@@ -54,6 +55,11 @@ const formatDuration = (seconds: number): string => {
 };
 
 export const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
+  // #1047: transcript-state provenance gates the whole detailed filler table. A not_captured row (sentinel
+  // filler map) or an expired row without genuinely-persisted filler evidence yields NO table — never a
+  // fabricated zero-count table nor a transcript recount from absent text.
+  const state = presentTranscript(session.transcript_state, session.transcript).state;
+  if (!transcriptDerivedMetricShowable(state, isUsableFillerCounts(session.filler_words))) return [];
   // #SSOT: persisted canonical filler data is authoritative. When it exists (even a valid ZERO), use it
   // and DO NOT recount — a saved zero must render as no fillers. Recount the transcript ONLY when the
   // saved filler data is absent/malformed.
@@ -141,7 +147,20 @@ export const generateSessionPdf = async (
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
     const metrics = getSessionAnalysisMetrics(session);
-    const scoreResult = calculateSpeakingScore({
+    // #1047 PR-U1: show a transcript-DERIVED metric only when transcript-state PROVENANCE allows it — never
+    // from numeric presence (a not_captured row's `total_words: 0` / empty filler map are schema-default
+    // SENTINELS, not measurements). An expired row still shows its genuinely persisted measurements.
+    const transcriptState = presentTranscript(session.transcript_state, session.transcript).state;
+    const transcriptReadable = transcriptState === 'available';
+    const derivedCell = (persistedIsRealNumber: boolean, render: () => string): string =>
+      transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
+    const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
+    const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
+    const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
+    const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
+    // Never recompute a transcript-dependent score/coaching from absent text; only a readable transcript
+    // yields a new score/coaching conclusion.
+    const scoreResult = transcriptReadable ? calculateSpeakingScore({
       transcript: session.transcript || '',
       wordCount: metrics.wordCount,
       wpm: metrics.wpm,
@@ -155,7 +174,7 @@ export const generateSessionPdf = async (
         longestPause: 0,
       },
       engine: session.engine,
-    });
+    }) : null;
     const customWords = getCustomWordList(session.custom_words);
     const customWordsDetected = customWords.reduce((sum, word) => {
       const savedCount = session.custom_words?.[word];
@@ -194,20 +213,22 @@ export const generateSessionPdf = async (
     const analyticsData = [
       ['Metric', 'Value'],
       ['Session ID', session.id],
-      ['Total Words', `${metrics.wordCount}`],
-      ['Speaking Pace (WPM)', `${metrics.wpm} (${metrics.wpmLabel})`],
-      ['Clear Delivery', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
-      ['Total Filler Words', `${metrics.fillerCount}`],
+      ['Total Words', wordsCell],
+      ['Speaking Pace (WPM)', wpmCell],
+      ['Clear Delivery', clarityCell],
+      ['Total Filler Words', fillerCell],
       ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
-      ['Custom Words Detected', `${customWordsDetected}`],
+      // #1047: "detected" is transcript-derived — gate on provenance so a not_captured/expired-unpersisted
+      // row shows N/A, never a fabricated 0 detected.
+      ['Custom Words Detected', transcriptDerivedMetricShowable(transcriptState, isUsableFillerCounts(session.filler_words)) ? `${customWordsDetected}` : 'N/A'],
       ['Transcription Mode', formatSessionRecordingMode(session)],
       ['Engine Details', engineDetails || 'Not recorded'],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
       ['Longest Pause', formatOptionalNumber(session.pause_metrics?.longestPause, value => `${value.toFixed(1)}s`)],
-      ['SpeakSharp Score', scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
-      ['Coaching Suggestion', scoreResult.actions.slice(0, 2).join('; ')],
+      ['SpeakSharp Score', !scoreResult ? 'N/A' : scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
+      ['Coaching Suggestion', scoreResult ? scoreResult.actions.slice(0, 2).join('; ') : 'N/A'],
     ];
 
     autoTable(doc, {
@@ -229,13 +250,24 @@ export const generateSessionPdf = async (
     }
 
     // --- Transcript ---
+    // #1047 PR-U1: honor the server-owned transcript_state. An expired/not-captured transcript prints its
+    // honest reason, never an ordinary empty transcript and never reconstructed from absent text.
     doc.addPage();
     doc.setFontSize(16);
     doc.text('Transcript', 14, 22);
     doc.setFontSize(10);
-    writePaginatedText(doc, session.transcript || 'No transcript available.', 14, 32, 180);
+    const pdfTranscript = presentTranscript(session.transcript_state, session.transcript);
+    writePaginatedText(
+      doc,
+      pdfTranscript.canRenderTranscript ? (session.transcript ?? "").trim() : pdfTranscript.unavailableMessage!,
+      14, 32, 180,
+    );
 
-    if (session.ai_suggestions) {
+    // #1047 review: when the transcript cannot be rendered (expired / not_captured), suppress the persisted
+    // AI summary and coaching too — not just the transcript text. Those conclusions were derived from a
+    // transcript we can no longer show; printing them would contradict the dashboard, which gates AISuggestions
+    // on the same `aiAvailable` (=== canRenderTranscript) provenance. Match that unavailable-evidence behavior.
+    if (pdfTranscript.canRenderTranscript && session.ai_suggestions) {
       doc.addPage();
       doc.setFontSize(16);
       doc.text('AI Coaching Suggestions', 14, 22);

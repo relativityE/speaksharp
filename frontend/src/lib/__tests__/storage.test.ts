@@ -55,6 +55,40 @@ describe('storage.ts', () => {
             expect(mockOr).toHaveBeenCalledWith('status.is.null,status.eq.completed');
         });
 
+        // #1047 PR-U1 pre-migration compatibility: the frontend can deploy before the transcript_state
+        // migration is applied. History must still render via a legacy select, and unrelated errors must
+        // still surface (the retry is narrowly scoped to the missing-column error).
+        const buildHistoryChain = (rangeMock: ReturnType<typeof vi.fn>) => {
+            const mockOrder = vi.fn().mockReturnValue({ range: rangeMock });
+            const mockOr = vi.fn().mockReturnValue({ order: mockOrder });
+            const mockEq = vi.fn().mockReturnValue({ or: mockOr });
+            const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
+            mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
+            return mockSelect;
+        };
+
+        it('retries the legacy select (no transcript_state) when the column is not yet applied', async () => {
+            const legacyRows = [{ id: '1', user_id: 'user1' }];
+            const mockRange = vi.fn()
+                .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column sessions.transcript_state does not exist' } })
+                .mockResolvedValueOnce({ data: legacyRows, error: null });
+            const mockSelect = buildHistoryChain(mockRange);
+
+            const result = await getSessionHistory('user1');
+            expect(result).toEqual(legacyRows);
+            expect(mockSelect).toHaveBeenCalledTimes(2);
+            expect(mockSelect.mock.calls[0][0]).toContain('transcript_state');   // first attempt: new select
+            expect(mockSelect.mock.calls[1][0]).not.toContain('transcript_state'); // retry: legacy select
+        });
+
+        it('does NOT retry and surfaces an unrelated error (permission denied)', async () => {
+            const mockRange = vi.fn().mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for table sessions' } });
+            const mockSelect = buildHistoryChain(mockRange);
+
+            await expect(getSessionHistory('user1')).rejects.toThrow(/Unable to load your session history/i);
+            expect(mockSelect).toHaveBeenCalledTimes(1); // no legacy retry on an unrelated error
+        });
+
         it('should use default limit of 50 and offset 0', async () => {
             const mockRange = vi.fn().mockResolvedValue({ data: [], error: null });
             const mockOrder = vi.fn().mockReturnValue({ range: mockRange });

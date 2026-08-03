@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
+import { presentTranscript, transcriptDerivedMetricShowable, TRANSCRIPT_STATE } from '@/constants/transcriptState';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
@@ -24,7 +25,7 @@ import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { getSessionAnalysisMetrics, calculateRatePerMinute } from '@/utils/sessionAnalysis';
+import { getSessionAnalysisMetrics, calculateRatePerMinute, isUsableFillerCounts } from '@/utils/sessionAnalysis';
 import { getSessionPauseCount } from '@/lib/analyticsUtils';
 import {
     decodePace,
@@ -434,15 +435,18 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
-    const totalFillers = metrics.fillerCount;
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
     const engineBadge = getEngineBadge(session);
     const EngineIcon = engineBadge.icon;
 
-    const wpm = metrics.wpm;
-    const clarity = metrics.clarityScore;
+    // #1047 PR-U1: transcript-derived metrics show only when transcript-state provenance allows it — a
+    // not_captured row's sentinel 0/{} is never rendered as a measurement (shown as N/A).
+    const transcriptStateItem = presentTranscript(session.transcript_state, session.transcript).state;
+    const wpm = transcriptDerivedMetricShowable(transcriptStateItem, typeof session.wpm === 'number') ? metrics.wpm : 'N/A';
+    const clarity = transcriptDerivedMetricShowable(transcriptStateItem, typeof session.clarity_score === 'number') ? metrics.clarityScore : 'N/A';
+    const totalFillers = transcriptDerivedMetricShowable(transcriptStateItem, isUsableFillerCounts(session.filler_words)) ? metrics.fillerCount : 'N/A';
 
     return (
         <div
@@ -490,17 +494,17 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
 
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}<span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span></p>
+                    <p className="font-bold text-foreground text-lg">{wpm}{typeof wpm === 'number' && <span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span>}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
                 </div>
                 <div className="text-center">
-                    <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
+                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
                 </div>
                 <div className="text-center">
-                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
+                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
 
@@ -747,29 +751,38 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (sessions.length !== 2) return null;
         return sessions.map(s => {
             const metrics = getSessionAnalysisMetrics(s!);
+            // #1047: comparison metrics are transcript-derived — gate each on transcript-state provenance so a
+            // not_captured/expired session compares as N/A (null), never as a sentinel 0.
+            const state = presentTranscript(s!.transcript_state, s!.transcript).state;
+            const clarityShowable = metrics.isClarityScorable && transcriptDerivedMetricShowable(state, typeof s!.clarity_score === 'number');
             return {
                 id: s!.id,
                 created_at: s!.created_at,
-                wpm: metrics.wpm,
-                clarity_score: metrics.clarityScore,
-                filler_count: metrics.fillerCount,
+                wpm: transcriptDerivedMetricShowable(state, typeof s!.wpm === 'number') ? metrics.wpm : null,
+                clarity_score: clarityShowable ? metrics.clarityScore : null,
+                filler_count: transcriptDerivedMetricShowable(state, isUsableFillerCounts(s!.filler_words)) ? metrics.fillerCount : null,
                 duration_seconds: s!.duration,
             };
-        }) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
+        }) as [{ id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }, { id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
     const trendData = useMemo(() => {
         if (!sessionHistory || sessionHistory.length < 2) return [];
         return sessionHistory.slice(0, 10).reverse().map(s => {
             const metrics = getSessionAnalysisMetrics(s);
+            // #1047: gate EVERY transcript-derived trend point on transcript-state provenance, not numeric
+            // presence — a not_captured/expired session's sentinel 0/{} must never chart as a real point.
+            // null = omitted point (Recharts renders a gap). Pauses are timing-derived (not transcript) and
+            // are charted as before.
+            const state = presentTranscript(s.transcript_state, s.transcript).state;
+            const wpmShowable = transcriptDerivedMetricShowable(state, typeof s.wpm === 'number');
+            const fillerShowable = transcriptDerivedMetricShowable(state, isUsableFillerCounts(s.filler_words));
+            const clarityShowable = metrics.isClarityScorable && transcriptDerivedMetricShowable(state, typeof s.clarity_score === 'number');
             return {
                 date: formatDate(s.created_at),
-                wpm: metrics.wpm,
-                // #1091: gate on the clarity contributor rule. `clarityScore` is 0 for an unscorable
-                // session by design, so charting it unconditionally drew a fabricated zero next to a
-                // corrected "Not enough data" card. null = omitted point (Recharts renders a gap).
-                clarity: metrics.isClarityScorable ? metrics.clarityScore : null,
-                fillers: metrics.fillerCount,
+                wpm: wpmShowable ? metrics.wpm : null,
+                clarity: clarityShowable ? metrics.clarityScore : null,
+                fillers: fillerShowable ? metrics.fillerCount : null,
                 pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
             };
         });
@@ -793,6 +806,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         () => targetSession
             ? getTranscriptQualityCaveat(targetSession.transcript ?? '', targetSession.engine ?? undefined)
             : null,
+        [targetSession]
+    );
+    // #1047 PR-U1: one server-owned transcript-state decision — surfaces never infer state from an empty
+    // string. Drives the honest transcript body + AI/text-action availability below.
+    const targetTranscript = useMemo(
+        () => targetSession ? presentTranscript(targetSession.transcript_state, targetSession.transcript) : null,
         [targetSession]
     );
 
@@ -824,12 +843,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     {/* Session Metrics Summary */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {/* #1047 PR-U1: transcript-derived tiles show only when transcript-state provenance
+                            allows it; a not_captured session's sentinel 0/{} renders as Not enough data, an
+                            expired session still shows its genuinely persisted measurements. */}
                         <StatCard
                             icon={<Gauge />}
                             label="Speaking Pace"
-                            value={targetSessionMetrics.wpm}
+                            value={transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.wpm === 'number') ? targetSessionMetrics.wpm : NOT_ENOUGH_DATA}
                             unit="WPM"
-                            description={targetSessionMetrics.wpmExplanation}
+                            // #1131 round-4 (#1): for an EXPIRED row the transcript is gone but measurements
+                            // persist, so the recomputed *Explanation (word/error/filler counts, errorCount=0
+                            // from absent text) is potentially FALSE while the persisted value still shows —
+                            // withhold it. (not_captured keeps its honest evidence-free "cannot be scored"
+                            // explanation; available keeps its transcript-backed narrative.)
+                            description={targetTranscript?.state === TRANSCRIPT_STATE.EXPIRED ? undefined : targetSessionMetrics.wpmExplanation}
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
                         {/* #1045: one vocabulary for absent evidence. A bare "--" reads as a rendering
@@ -837,16 +864,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <StatCard
                             icon={<Target />}
                             label="Clear Delivery"
-                            value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
-                            unit={targetSessionMetrics.isClarityScorable ? '%' : undefined}
-                            description={targetSessionMetrics.clarityExplanation}
+                            value={(targetSessionMetrics.isClarityScorable && transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.clarity_score === 'number')) ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
+                            unit={(targetSessionMetrics.isClarityScorable && transcriptDerivedMetricShowable(targetTranscript?.state, typeof targetSession.clarity_score === 'number')) ? '%' : undefined}
+                            // #1131 round-4 (#1): withhold the recomputed clarity narrative ONLY for an EXPIRED
+                            // row — the persisted clarity SCORE may still show, but the explanation (recomputed
+                            // with errorCount=0 from absent text) would be a false statement. not_captured keeps
+                            // its honest "cannot be scored" copy.
+                            description={targetTranscript?.state === TRANSCRIPT_STATE.EXPIRED ? undefined : targetSessionMetrics.clarityExplanation}
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
                             label="Detected filler words"
-                            value={targetSessionMetrics.fillerCount}
-                            description={targetSessionMetrics.fillerExplanation}
+                            value={transcriptDerivedMetricShowable(targetTranscript?.state, isUsableFillerCounts(targetSession.filler_words)) ? targetSessionMetrics.fillerCount : NOT_ENOUGH_DATA}
+                            // #1131 round-4 (#1): same rule for the filler narrative — withhold only for an
+                            // EXPIRED row rather than recompute from absent text.
+                            description={targetTranscript?.state === TRANSCRIPT_STATE.EXPIRED ? undefined : targetSessionMetrics.fillerExplanation}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
                     </div>
@@ -887,13 +920,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div
                                     className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed"
                                     data-testid="session-detail-transcript"
-                                    // Authoritative, trimmed transcript value for proof harnesses.
-                                    // Empty string here means the saved row carried no real transcript
-                                    // (e.g. the start-time `' '` placeholder of an unfinalized session),
-                                    // disambiguating a genuine product gap from a wrong selector read.
-                                    data-session-detail-transcript={targetSession.transcript?.trim() || ''}
+                                    // #1047 PR-U1: server-owned transcript_state drives this — an unavailable
+                                    // transcript shows its honest reason (expired / not captured), never an
+                                    // ordinary empty string, and never as if it were a real transcript.
+                                    data-session-detail-transcript={targetTranscript?.canRenderTranscript ? (targetSession.transcript ?? "").trim() : ''}
+                                    data-transcript-state={targetTranscript?.state}
                                 >
-                                    {targetSession.transcript?.trim() || "No transcript available for this session."}
+                                    {targetTranscript?.canRenderTranscript
+                                        ? (targetSession.transcript ?? "").trim()
+                                        : targetTranscript?.unavailableMessage}
                                 </div>
                             </CardContent>
                         </Card>
@@ -901,9 +936,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {/* AI Suggestions Panel */}
                         <div className="h-full">
                             <AISuggestions
-                                transcript={targetSession.transcript || ""}
+                                // #1047 PR-U1: AI/text actions are unavailable unless the transcript is
+                                // actually readable — withholding the text disables "Get Suggestions".
+                                transcript={targetTranscript?.aiAvailable ? (targetSession.transcript || "") : ""}
                                 sessionId={targetSession.id}
-                                initialSuggestions={targetSession.ai_suggestions}
+                                // #1047: withhold STALE persisted AI suggestions when the transcript is not
+                                // readable (not_captured / expired) — a coaching conclusion tied to removed or
+                                // never-captured text must not resurface.
+                                initialSuggestions={targetTranscript?.aiAvailable ? targetSession.ai_suggestions : undefined}
                                 metrics={{
                                     wpm: targetSession.wpm,
                                     clarity_score: targetSession.clarity_score,

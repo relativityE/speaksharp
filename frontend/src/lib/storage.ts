@@ -26,7 +26,7 @@ export interface PaginationOptions {
 }
 
 const MAX_TRANSCRIPT_LENGTH = 500000; // ~500KB limit for transcript text
-const SESSION_ANALYSIS_SELECT = [
+const SESSION_ANALYSIS_COLUMNS = [
   'id',
   'user_id',
   'title',
@@ -47,8 +47,27 @@ const SESSION_ANALYSIS_SELECT = [
   'model_name',
   'device_type',
   'status',
-  'attribution_status'
-].join(', ');
+  'attribution_status',
+  'transcript_state',
+];
+const SESSION_ANALYSIS_SELECT = SESSION_ANALYSIS_COLUMNS.join(', ');
+// #1047 PR-U1 pre-migration compatibility: a main merge can deploy the frontend BEFORE the migration is
+// applied manually. During that window PostgREST rejects a select naming `transcript_state`. The legacy
+// select omits it so History/Session review still render (as legacy rows with the state absent → derived).
+const SESSION_ANALYSIS_SELECT_LEGACY = SESSION_ANALYSIS_COLUMNS.filter(c => c !== 'transcript_state').join(', ');
+
+/**
+ * True ONLY for the specific "transcript_state column does not exist / not in schema cache" error, so the
+ * legacy-select retry never swallows auth, permission, network, or unrelated query failures.
+ */
+const isMissingTranscriptStateColumn = (error: { code?: string; message?: string } | null): boolean => {
+  if (!error) return false;
+  const message = String(error.message ?? '');
+  if (!/transcript_state/i.test(message)) return false;
+  return error.code === '42703' // Postgres undefined_column
+    || error.code === 'PGRST204' // PostgREST: column not found in schema cache
+    || /does not exist|schema cache|could not find/i.test(message);
+};
 
 /**
  * Fetches the session history for a specific user with optional pagination.
@@ -74,13 +93,21 @@ export const getSessionHistory = async (
   logger.info({ requestUrl }, '[Supabase DB] Request URL');
 
   try {
-    const { data, error } = await supabase
+    const runQuery = (select: string) => supabase
       .from('sessions')
-      .select(SESSION_ANALYSIS_SELECT)
+      .select(select)
       .eq('user_id', userId)
       .or('status.is.null,status.eq.completed')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    let { data, error } = await runQuery(SESSION_ANALYSIS_SELECT);
+    // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error; any other
+    // error (auth/permission/network/unrelated) still surfaces below.
+    if (error && isMissingTranscriptStateColumn(error)) {
+      logger.warn('[Supabase DB] transcript_state not yet applied — retrying legacy select (pre-migration)');
+      ({ data, error } = await runQuery(SESSION_ANALYSIS_SELECT_LEGACY));
+    }
 
     logger.info({ sessionCount: data?.length || 0 }, '[Supabase DB] ✅ Sessions fetched');
 
@@ -108,11 +135,18 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
   }
 
   try {
-    const { data, error } = await supabase
+    const runQuery = (select: string) => supabase
       .from('sessions')
-      .select(SESSION_ANALYSIS_SELECT)
+      .select(select)
       .eq('id', sessionId)
       .single();
+
+    let { data, error } = await runQuery(SESSION_ANALYSIS_SELECT);
+    // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error.
+    if (error && isMissingTranscriptStateColumn(error)) {
+      logger.warn('[Supabase DB] transcript_state not yet applied — retrying legacy select (pre-migration)');
+      ({ data, error } = await runQuery(SESSION_ANALYSIS_SELECT_LEGACY));
+    }
 
     if (error) {
       if (error.code === 'PGRST116') {

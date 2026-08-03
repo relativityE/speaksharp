@@ -7,7 +7,9 @@ export interface FillerWordTrends {
 
 export interface ChartDataPoint {
   date: string;
-  'FW/min': string | number;
+  // #1047: `null` = a not_captured row — the filler rate is OMITTED (a gap), never a fabricated value,
+  // exactly as clarity is omitted below. Mirrors the RPC chart-point provenance gate.
+  'FW/min': string | number | null;
   /**
    * #1091: `null` means this session carries no scorable clarity evidence — an OMITTED point, which
    * Recharts renders as a gap in the line. It is never `0` and never `100`: the previous server series

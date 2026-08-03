@@ -6,7 +6,9 @@ export interface PracticeSession {
   duration: number;
   title?: string;
   total_words?: number;
-  transcript?: string;
+  // #1047 PR-U1: SQL NULL is a real, meaningful value here (#1117 retention persists NULL on expiry). The
+  // optional `?` covers legacy/partial reads that omit the column; `| null` models the retention state.
+  transcript?: string | null;
   filler_words?: {
     [key: string]: {
       count: number;
@@ -20,6 +22,8 @@ export interface PracticeSession {
   device_type?: string;
   /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
   attribution_status?: import('@/constants/attributionStatus').AttributionStatus;
+  /** #1047 PR-U1 server-owned transcript state: available | expired | not_captured. */
+  transcript_state?: import('@/constants/transcriptState').TranscriptState;
   custom_words?: Record<string, unknown>;
   clarity_score?: number;
   wpm?: number;

@@ -65,18 +65,38 @@ describe('#1045 aggregate evidence validity', () => {
         expect(stats.avgPausesPerMin).toBeNull();
     });
 
-    it('does not praise SILENCE as clean delivery — a filler rate needs words, not just time', () => {
-        // A 6-second wordless take has duration > 0. Reporting "0.0 fillers/min" decodes to the
-        // POSITIVE label "Low", so silence could become the user's "What worked".
-        const stats = calculateOverallStats([session({ duration: 6, total_words: 0, transcript: '' })]);
+    it('does not praise SILENCE as clean delivery — a filler rate needs GENUINE filler evidence, not just time', () => {
+        // #1131 correction 1: the guard is filler-intrinsic, NOT word-count. A silent take captures no genuine
+        // filler data (filler_words is the empty `{}` default here), so it is excluded from the filler
+        // denominator and cannot report a flattering "0.0/min" (which decodes to the POSITIVE label "Low").
+        const stats = calculateOverallStats([session({ duration: 6, total_words: 0, transcript: '', filler_words: {} })]);
         expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
     it('keeps a GENUINE zero when the evidence is real', () => {
-        // Real speech, real duration, zero fillers — that is a true and valuable 0.0/min.
-        const stats = calculateOverallStats([session({ filler_words: {} })]);
+        // #1131 correction 2: a genuine zero is an EXPLICIT zero count ({ total: { count: 0 } }), not an empty
+        // `{}` object. Real speech, real duration, a genuinely-counted zero fillers — a true, valuable 0.0/min.
+        const stats = calculateOverallStats([session({ filler_words: { total: { count: 0 } } })]);
         expect(stats.avgFillerWordsPerMin).not.toBeNull();
         expect(Number(stats.avgFillerWordsPerMin)).toBe(0);
+    });
+
+    it('does NOT let an empty or MALFORMED filler map become a flattering 0.0/min', () => {
+        // #1131 correction 2: an available take with a non-empty but MALFORMED filler map (a key with no
+        // numeric count) is missing data, not a measurement. It must be excluded, never reported as 0.0.
+        expect(calculateOverallStats([session({ filler_words: {} })]).avgFillerWordsPerMin).toBeNull();
+        expect(calculateOverallStats([session({ filler_words: { um: {} } as never })]).avgFillerWordsPerMin).toBeNull();
+        expect(calculateOverallStats([session({ filler_words: { um: { count: null } } as never })]).avgFillerWordsPerMin).toBeNull();
+    });
+
+    it('reports a filler rate from GENUINE filler evidence even when the word count was not persisted', () => {
+        // #1131 correction 1: the filler rate is independent of word count. An (expired) take whose word count
+        // did not persist but whose filler measurement did still reports its rate — 3 fillers / 1 min = 3.0.
+        const stats = calculateOverallStats([session({
+            duration: 60, total_words: undefined, transcript: null, transcript_state: 'expired',
+            filler_words: { um: { count: 3 }, total: { count: 3 } },
+        } as never)]);
+        expect(stats.avgFillerWordsPerMin).toBe('3.0');
     });
 
     it('exposes exact seconds so a short average is not rounded into a false zero', () => {

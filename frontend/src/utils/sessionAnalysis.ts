@@ -48,39 +48,65 @@ export const countTranscriptWords = (transcript: string): number =>
 export const countErrorMarkers = (transcript: string): number =>
     (transcript.match(ERROR_TAG_REGEX) || []).length;
 
+// #1131 correction 4: a valid filler count is a finite, NON-NEGATIVE INTEGER within a sane range. A
+// fractional (2.5), negative (-1), non-finite, or absurdly out-of-range count is malformed data — it must
+// never inflate/deflate a metric nor (on the RPC) crash an integer cast. 9 digits keeps it inside int range.
+const MAX_FILLER_COUNT = 999_999_999;
+export const isValidFillerCount = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_FILLER_COUNT;
+
+/**
+ * #1131 corrections 3 + 4: the AUTHORITATIVE total filler count for a session, honoring a total-only snapshot.
+ * A valid `total.count` wins (including a genuine 0, and a `{ total: { count: N } }` with no per-word breakdown).
+ * Otherwise sum the per-word entries that carry a VALID count. Returns null when there is no valid filler
+ * evidence at all (empty `{}`, malformed `{um:{}}`, fractional/negative-only), so callers can exclude the row
+ * rather than fabricate a flattering 0. Mirrors the RPC helper `_ss_valid_filler_total`.
+ */
+export const validatedFillerTotal = (
+    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+): number | null => {
+    // #1131 round-4 (#3): fail closed on non-plain-objects. `typeof [] === 'object'`, so an ARRAY would
+    // otherwise be iterated by index and treated as a filler map; a scalar/null carries no counts either.
+    if (!fillerWords || typeof fillerWords !== 'object' || Array.isArray(fillerWords)) return null;
+    const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
+    if (isValidFillerCount(total)) return total; // total-authoritative
+    let sum = 0;
+    let sawValid = false;
+    for (const word in fillerWords) {
+        if (word === 'total') continue;
+        const c = (fillerWords as Record<string, { count?: unknown }>)[word]?.count;
+        if (isValidFillerCount(c)) { sum += c; sawValid = true; }
+    }
+    return sawValid ? sum : null;
+};
+
 export const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
     if (!fillerWords) return 0;
 
     let sum = 0;
     for (const word in fillerWords) {
         if (word === 'total') continue;
-        sum += fillerWords[word]?.count || 0;
+        const c = fillerWords[word]?.count;
+        if (isValidFillerCount(c)) sum += c; // #1131 correction 4: ignore malformed/fractional/negative counts
     }
     return sum;
 };
 
-export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
-    const persistedTotal = fillerWords?.total?.count;
-    return typeof persistedTotal === 'number' ? persistedTotal : sumFillerCounts(fillerWords);
-};
+export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number =>
+    // #1131 corrections 3 + 4: total-authoritative + validated; 0 when there is no valid evidence.
+    validatedFillerTotal(fillerWords) ?? 0;
 
 /**
  * #SSOT: is this a USABLE canonical filler-counts object? A valid ZERO count is usable (must stay zero);
- * only null / non-object / empty {} / malformed (no numeric total and no numeric entry) is NOT usable —
- * that is the ONLY case where a transcript-recount fallback is allowed. Never falls back merely because a
- * recount would be larger.
+ * null / non-object / empty {} / malformed is NOT usable — the ONLY case where a transcript-recount fallback
+ * is allowed. #1131 review (#31): "usable" is now EXACTLY "has a VALID filler count" (validatedFillerTotal
+ * !== null). Previously it accepted any finite number, so a snapshot whose only signal was an invalid total
+ * such as `{ total: { count: 2.5 } }` or `{ total: { count: -1 } }` was deemed usable and then coerced to a
+ * confident zero by getFillerTotal. Aligning the predicate keeps malformed evidence UNAVAILABLE, never a 0.
  */
 export const isUsableFillerCounts = (
     fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
-): boolean => {
-    if (!fillerWords || typeof fillerWords !== 'object') return false;
-    const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
-    if (typeof total === 'number' && Number.isFinite(total)) return true;
-    // No numeric total: usable only if it carries at least one entry with a finite numeric count.
-    return Object.values(fillerWords as Record<string, { count?: unknown }>).some(
-        (v) => !!v && typeof v === 'object' && Number.isFinite((v as { count?: unknown }).count as number),
-    );
-};
+): boolean => validatedFillerTotal(fillerWords) !== null;
 
 /**
  * #SSOT: normalize an accepted canonical filler-counts object so it ALWAYS exposes a numeric `total.count`.
@@ -91,7 +117,9 @@ export const isUsableFillerCounts = (
  */
 export const normalizeFillerCounts = (fillerWords: FillerCounts): FillerCounts => {
     const existingTotal = fillerWords?.total?.count;
-    if (typeof existingTotal === 'number' && Number.isFinite(existingTotal)) return fillerWords;
+    // #1131 review (#31): only a VALID total is preserved as-is; an invalid finite total (2.5 / -1) is
+    // replaced by the validated sum of per-word counts rather than trusted.
+    if (isValidFillerCount(existingTotal)) return fillerWords;
     return { ...fillerWords, total: { count: sumFillerCounts(fillerWords), color: fillerWords?.total?.color ?? '' } };
 };
 

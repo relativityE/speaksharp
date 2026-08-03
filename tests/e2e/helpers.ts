@@ -408,6 +408,8 @@ export async function programmaticLoginWithRoutes(
     emptySessions?: boolean;
     debug?: boolean;
     mockProfile?: Record<string, unknown>;
+    /** #1047: seed a specific saved-session set (e.g. transcript_state variants). */
+    sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
   } = {}
 ) {
   const {
@@ -416,7 +418,8 @@ export async function programmaticLoginWithRoutes(
     userType = 'free',
     emptySessions = false,
     debug = false,
-    mockProfile
+    mockProfile,
+    sessions
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -443,7 +446,7 @@ export async function programmaticLoginWithRoutes(
   };
 
   const { setupE2EMocks } = await import('./mock-routes');
-  await setupE2EMocks(page, { userType, emptySessions, profile: mockProfile });
+  await setupE2EMocks(page, { userType, emptySessions, profile: mockProfile, sessions });
 
   setupBrowserLogging(page);
   setupNetworkTracking(page);
@@ -456,6 +459,9 @@ export async function programmaticLoginWithRoutes(
     userType,
     mockProfile,
     emptySessions,
+    // #1047: the app (mock engine) reads sessions from the manifest's in-browser DB, so the seed must reach
+    // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
+    sessions,
     storage: authStorage
   });
 

@@ -72,7 +72,11 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     status_reason text,
     updated_at timestamptz DEFAULT now(),
     pause_metrics jsonb DEFAULT '{}'::jsonb,
-    attribution_status text NOT NULL DEFAULT 'pending'
+    attribution_status text NOT NULL DEFAULT 'pending',
+    -- #1047 PR-U1: server-owned transcript state. The additive analytics-summary migration
+    -- (20260801010000) gates contributors on this. Default 'available' so pre-existing fixtures (which
+    -- carry transcripts/words) contribute exactly as before; a not_captured fixture sets it explicitly.
+    transcript_state text DEFAULT 'available'
 );
 
 ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_duration_non_negative;

@@ -108,14 +108,17 @@ describe('analyticsUtils', () => {
     });
 
     describe('calculateFillerWordTrends', () => {
-        it('normalizes filler word trends by speaking time', () => {
+        it('normalizes filler word trends by speaking time across TWO nonempty windows', () => {
+            // #1131 correction 2: two eligible measurements split into two nonempty windows (never a zero
+            // baseline). current = most-recent S1 (5 min: um 5, uh 3); previous = older S2 (10 min: um 10,
+            // like 5). Rates are per speaking minute within each window.
             const trends = calculateFillerWordTrends(mockSessionHistory);
-            expect(trends.um.current).toBe(1); // 15 ums / 15 speaking minutes
-            expect(trends.um.previous).toBe(0);
-            expect(trends.uh.current).toBe(0.2); // 3 uhs / 15 speaking minutes
-            expect(trends.uh.previous).toBe(0);
-            expect(trends.like.current).toBe(0.33); // 5 likes / 15 speaking minutes
-            expect(trends.like.previous).toBe(0);
+            expect(trends.um.current).toBe(1);       // 5 ums / 5 min (S1)
+            expect(trends.um.previous).toBe(1);      // 10 ums / 10 min (S2) — a REAL prior value, not 0
+            expect(trends.uh.current).toBe(0.6);     // 3 uhs / 5 min (S1)
+            expect(trends.uh.previous).toBe(0);      // S2 had no "uh"
+            expect(trends.like.current).toBe(0);     // S1 had no "like"
+            expect(trends.like.previous).toBe(0.5);  // 5 likes / 10 min (S2)
         });
     });
 
@@ -160,6 +163,9 @@ describe('analyticsUtils', () => {
         it('correctly aggregates filler words and returns sorted results', () => {
             const sessionHistory = [
                 {
+                    // #1047: genuine captured sessions (transcript_state 'available') so the aggregation logic
+                    // is what's under test, not the provenance gate.
+                    transcript_state: 'available',
                     filler_words: {
                         um: { count: 10 },
                         like: { count: 5 },
@@ -167,6 +173,7 @@ describe('analyticsUtils', () => {
                     }
                 },
                 {
+                    transcript_state: 'available',
                     filler_words: {
                         um: { count: 5 },
                         basically: { count: 20 },
@@ -209,5 +216,117 @@ describe('analyticsUtils', () => {
             const result = calculateTopFillerWords(sessionHistory);
             expect(result).toEqual([]);
         });
+    });
+});
+
+describe('(#1047) transcript provenance — not_captured excluded from every transcript-derived aggregate', () => {
+    // Two genuine sessions (no server state → derived available) + one not_captured row carrying LARGE stale
+    // words/fillers/clarity/accuracy. Every transcript-derived aggregate on the mixed history must EQUAL the
+    // valid-only result; only total practice TIME is allowed to include the not_captured row's duration.
+    const validOnly: PracticeSession[] = mockSessionHistory;
+    const notCaptured: PracticeSession = {
+        id: 'nc', created_at: '2023-10-28T10:00:00.000Z', user_id: 'user-1',
+        duration: 600, total_words: 9999, clarity_score: 99, accuracy: 0.99,
+        filler_words: { um: { count: 999 }, total: { count: 999 } },
+        title: 'Never captured', transcript: '', transcript_state: 'not_captured',
+        pause_metrics: { silencePercentage: 0, transitionPauses: 0, extendedPauses: 0, longestPause: 0 },
+    };
+    const mixed: PracticeSession[] = [...validOnly, notCaptured];
+
+    it('overall rates (WPM, filler rate, clarity) equal the valid-only result', () => {
+        const v = calculateOverallStats(validOnly);
+        const m = calculateOverallStats(mixed);
+        expect(m.averageWPM).toBe(v.averageWPM);                       // 100 — stale 9999 words excluded
+        expect(m.avgFillerWordsPerMin).toBe(v.avgFillerWordsPerMin);   // '1.5' — stale 999 fillers excluded
+        expect(m.avgClarity).toBe(v.avgClarity);                       // '92.5' — stale clarity 99 excluded
+    });
+
+    it('total practice TIME stays all-session (the one metric that includes not_captured duration)', () => {
+        const v = calculateOverallStats(validOnly);
+        const m = calculateOverallStats(mixed);
+        expect(v.totalPracticeTime).toBe(15);                          // 900s
+        expect(m.totalPracticeTime).toBe(25);                         // 900s + 600s = 1500s = 25 min
+        expect(m.totalSessions).toBe(3);                              // the not_captured row is still a session
+    });
+
+    it('top fillers, filler trends and chart points exclude the not_captured stale counts', () => {
+        expect(calculateTopFillerWords(mixed)).toEqual(calculateTopFillerWords(validOnly));
+        expect(calculateFillerWordTrends(mixed)).toEqual(calculateFillerWordTrends(validOnly));
+        // The not_captured chart point (most recent) carries null rate + null clarity, never stale values.
+        const ncPoint = calculateOverallStats(mixed).chartData.find(p => p.date === new Date(notCaptured.created_at).toLocaleDateString());
+        expect(ncPoint?.['FW/min']).toBeNull();
+        expect(ncPoint?.clarity).toBeNull();
+    });
+
+    it('accuracy series excludes a not_captured row even with retained accuracy/transcript', () => {
+        const validAcc: PracticeSession = {
+            id: 'va', created_at: '2023-10-27T10:00:00.000Z', user_id: 'user-1', duration: 60,
+            total_words: 4, engine: 'private-v2', ground_truth: 'the quick brown fox',
+            transcript: 'the quick brown fox', accuracy: 0.95, transcript_state: 'available',
+        };
+        const ncAcc: PracticeSession = {
+            id: 'nca', created_at: '2023-10-28T10:00:00.000Z', user_id: 'user-1', duration: 60,
+            total_words: 4, engine: 'private-v2', ground_truth: 'the quick brown fox',
+            transcript: 'totally different stale words', accuracy: 0.10, transcript_state: 'not_captured',
+        };
+        expect(calculateAccuracyData([validAcc, ncAcc])).toEqual(calculateAccuracyData([validAcc]));
+        expect(calculateAccuracyData([validAcc, ncAcc])).toHaveLength(1);
+    });
+});
+
+describe('(#1047 U1) metric-specific evidence + >=2 filler-trend gate — client falsification', () => {
+    // Each fixture is built so the OLD blanket rule (one shared eligible-duration for every rate) would yield
+    // a DIFFERENT, provably-wrong number than the corrected per-metric rule.
+    const avail = (over: Partial<PracticeSession> = {}): PracticeSession => ({
+        id: 'a', created_at: '2026-07-01T10:00:00.000Z', user_id: 'user-1', duration: 60,
+        total_words: 120, clarity_score: 88, transcript: 'the quick brown fox jumps',
+        transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } },
+        pause_metrics: { silencePercentage: 0, transitionPauses: 1, extendedPauses: 0, longestPause: 0 },
+        ...over,
+    });
+
+    it('an EXPIRED row with words but NO persisted filler counts toward WPM only — never the filler rate', () => {
+        // WPM sees both rows (240 words / 2 min = 120). Filler sees only the available row (2 / 1 = 2.0).
+        // The old shared denominator would report 2 fillers / 2 min = 1.0 — the falsified wrong answer.
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'e', created_at: '2026-07-02T10:00:00.000Z', total_words: 120, clarity_score: 84,
+                    transcript: null, transcript_state: 'expired', filler_words: undefined }),
+        ];
+        const m = calculateOverallStats(rows);
+        expect(m.averageWPM).toBe(120);
+        expect(m.avgFillerWordsPerMin).toBe('2.0');   // NOT 1.0
+    });
+
+    it('an EXPIRED row with fillers but NO persisted words counts toward the filler rate only — never WPM', () => {
+        // Filler sees both rows (6 / 2 min = 3.0). WPM sees only the available row (120 / 1 min = 120).
+        // The old shared denominator would report 120 words / 2 min = 60 WPM — the falsified wrong answer.
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'e', created_at: '2026-07-02T10:00:00.000Z', total_words: undefined, clarity_score: undefined,
+                    transcript: null, transcript_state: 'expired',
+                    filler_words: { um: { count: 4 }, total: { count: 4 } } }),
+        ];
+        const m = calculateOverallStats(rows);
+        expect(m.averageWPM).toBe(120);               // NOT 60
+        expect(m.avgFillerWordsPerMin).toBe('3.0');
+    });
+
+    it('reports NO filler trend from a SINGLE eligible measurement (>=2 gate)', () => {
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'nc', created_at: '2026-07-02T10:00:00.000Z', transcript: '',
+                    transcript_state: 'not_captured', filler_words: { um: { count: 40 }, total: { count: 40 } } }),
+        ];
+        expect(calculateFillerWordTrends(rows)).toEqual({});   // one eligible point ≠ a trend
+    });
+
+    it('DOES report a filler trend once there are >=2 eligible measurements', () => {
+        const rows: PracticeSession[] = [
+            avail(),
+            avail({ id: 'a2', created_at: '2026-07-02T10:00:00.000Z',
+                    filler_words: { um: { count: 6 }, total: { count: 6 } } }),
+        ];
+        expect(Object.keys(calculateFillerWordTrends(rows))).toContain('um');
     });
 });

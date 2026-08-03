@@ -19,16 +19,22 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { calculateOverallStats } from '../../frontend/src/lib/analyticsUtils';
+import { calculateOverallStats, calculateFillerWordTrends } from '../../frontend/src/lib/analyticsUtils';
 import type { PracticeSession } from '../../frontend/src/types/session';
 
 const MIGRATION_PATH = resolve(
     process.cwd(), 'backend', 'supabase', 'migrations',
     '20260729130000_analytics_summary_evidence_validity.sql',
 );
+// #1047: the additive redefinition gating contributors on explicit transcript_state.
+const PROVENANCE_MIGRATION_PATH = resolve(
+    process.cwd(), 'backend', 'supabase', 'migrations',
+    '20260801010000_analytics_summary_transcript_provenance.sql',
+);
 const BOOTSTRAP_PATH = resolve(process.cwd(), 'tests', 'db', 'analytics-summary-bootstrap.sql');
 
 const migrationSql = readFileSync(MIGRATION_PATH, 'utf8');
+const provenanceMigrationSql = readFileSync(PROVENANCE_MIGRATION_PATH, 'utf8');
 const bootstrapSql = readFileSync(BOOTSTRAP_PATH, 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -47,6 +53,7 @@ interface Fixture {
     transcript: string | null;
     filler_words: Record<string, { count: number }> | null;
     pause_metrics: Record<string, number> | null;
+    transcript_state?: string; // #1047: server-owned provenance; defaults to 'available' for existing fixtures
 }
 
 const fx = (label: string, over: Partial<Fixture> = {}): Fixture => ({
@@ -61,6 +68,7 @@ const fx = (label: string, over: Partial<Fixture> = {}): Fixture => ({
     transcript: null,
     filler_words: { um: { count: 2 }, total: { count: 2 } },
     pause_metrics: { transitionPauses: 1, extendedPauses: 1, averagePauseMs: 800, totalPauseMs: 1600 },
+    transcript_state: 'available',
     ...over,
 });
 
@@ -114,9 +122,10 @@ const MATRIX: Fixture[] = [
 ];
 
 type Summary = {
-    overallStats: Record<string, unknown> & { chartData: { date: string; clarity: number | null }[] };
+    overallStats: Record<string, unknown> & { chartData: { date: string; clarity: number | null; 'FW/min': string | null }[] };
     accuracyData: { date: string; accuracy: number; engine: string }[];
     topFillerWords: unknown[];
+    fillerWordTrends: Record<string, { current: number; previous: number }>;
     weeklySessionsCount: number;
 };
 
@@ -124,6 +133,7 @@ const makeDb = async (): Promise<PGlite> => {
     const db = new PGlite();
     await db.exec(bootstrapSql);
     await db.exec(migrationSql);
+    await db.exec(provenanceMigrationSql); // #1047: redefine get_analytics_summary to gate on transcript_state
     await db.exec(`INSERT INTO auth.users (id) VALUES ('${USER}'), ('${OTHER_USER}')`);
     return db;
 };
@@ -133,14 +143,14 @@ const seed = async (db: PGlite, rows: Fixture[], userId = USER) => {
         await db.query(
             `INSERT INTO public.sessions
                 (user_id, created_at, duration, total_words, clarity_score, wpm, accuracy, engine,
-                 transcript, filler_words, pause_metrics, title)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                 transcript, filler_words, pause_metrics, title, transcript_state)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [
                 userId, r.created_at, r.duration, r.total_words, r.clarity_score, r.wpm, r.accuracy,
                 r.engine, r.transcript,
                 r.filler_words === null ? null : JSON.stringify(r.filler_words),
                 r.pause_metrics === null ? null : JSON.stringify(r.pause_metrics),
-                r.label,
+                r.label, r.transcript_state ?? 'available',
             ],
         );
     }
@@ -170,6 +180,10 @@ const asPracticeSessions = (rows: Fixture[]): PracticeSession[] =>
         transcript: r.transcript,
         filler_words: r.filler_words,
         pause_metrics: r.pause_metrics,
+        // #1047 U1: the client resolves provenance from the SERVER-OWNED transcript_state (falling back to
+        // transcript presence only for legacy rows). Carry it through so the two paths gate on identical state
+        // — without it an `expired` fixture (transcript removed) would misresolve to not_captured on the client.
+        transcript_state: r.transcript_state ?? 'available',
         custom_words: null,
     }) as unknown as PracticeSession);
 
@@ -340,11 +354,13 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             expect(overallStats.clarityContributorCount).toBe(0);
         });
 
-        it('does NOT report a flattering 0.0 filler rate for a wordless take', async () => {
+        it('does NOT report a flattering 0.0 filler rate for a take with no genuine filler evidence', async () => {
+            // #1131 correction 1: the guard is filler-intrinsic, not word-count. A silent take captures no
+            // genuine filler data (empty `{}`), so it is excluded from the filler denominator → null, never 0.0.
             const db = await makeDb();
             await seed(db, [fx('silence', {
                 duration: 6, total_words: 0, clarity_score: null, wpm: null,
-                filler_words: { total: { count: 0 } },
+                filler_words: {},
             })]);
             const { overallStats } = await callRpc(db, USER);
             expect(overallStats.avgFillerWordsPerMin).toBeNull();
@@ -543,6 +559,430 @@ describe('#1091 get_analytics_summary — EXECUTED in a real PostgreSQL', () => 
             expect(overallStats.clarityContributorCount).toBe(0);
             // Duration is still real evidence and must survive.
             expect(Number(overallStats.totalPracticeTime)).toBeGreaterThan(0);
+        });
+
+        it('(#1047) the aggregate gates on EXPLICIT transcript_state — a not_captured row with real words/clarity is EXCLUDED (proves it, not total_words>0)', async () => {
+            // The discriminating case: a row carrying genuine total_words + clarity_score but
+            // transcript_state='not_captured'. The OLD `total_words > 0` rule would count it; the explicit
+            // transcript_state gate must EXCLUDE it (a not_captured row's numbers are sentinels, not evidence).
+            const db = await makeDb();
+            await seed(db, [
+                fx('available', { created_at: '2026-07-01T10:00:00Z', total_words: 120, wpm: 120, clarity_score: 88, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('not_captured-with-numbers', { created_at: '2026-07-02T10:00:00Z', total_words: 200, wpm: 200, clarity_score: 40, transcript: '', transcript_state: 'not_captured', filler_words: { um: { count: 9 }, total: { count: 9 } } }),
+                // expired but with genuinely-persisted measurements → still contributes (transcript NULL).
+                fx('expired-persisted', { created_at: '2026-07-03T10:00:00Z', total_words: 90, wpm: 96, clarity_score: 84, transcript: null, transcript_state: 'expired', filler_words: { um: { count: 1 }, total: { count: 1 } } }),
+            ]);
+            const { overallStats } = await callRpc(db, USER);
+            expect(overallStats.totalSessions).toBe(3);                 // all three are sessions
+            // Only available + expired-persisted contribute; the not_captured-with-numbers row is excluded
+            // despite total_words:200 — proof the gate is transcript_state, not total_words>0.
+            expect(overallStats.wpmContributorCount).toBe(2);
+            expect(overallStats.clarityContributorCount).toBe(2);
+            // avg clarity = (88 + 84)/2 = 86, NOT dragged down by the excluded not_captured clarity_score:40.
+            expect(Number(overallStats.avgClarity)).toBeCloseTo(86.0, 1);
+        });
+
+        it('(#1047) WPM/filler RATES and chart points exclude not_captured; total practice time stays all-session', async () => {
+            // Eligible rows (available + expired-persisted) sum to words=210, duration=120s (=2 min),
+            // fillers=3  ⇒  WPM = 210/2 = 105 and filler rate = 3/2 = 1.5. The not_captured row carries
+            // large STALE numbers (words 1000, duration 600s, fillers 50) that would drag WPM to ~101 and
+            // the filler rate to ~4.4 if its sentinel values leaked into the rate numerators/denominators.
+            const db = await makeDb();
+            await seed(db, [
+                fx('avail', { created_at: '2026-07-01T10:00:00Z', duration: 80, total_words: 140, wpm: 105, clarity_score: 88, transcript: words(140), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('nc-stale', { created_at: '2026-07-02T10:00:00Z', duration: 600, total_words: 1000, wpm: 100, clarity_score: 40, transcript: '', transcript_state: 'not_captured', filler_words: { um: { count: 50 }, total: { count: 50 } } }),
+                fx('exp-persisted', { created_at: '2026-07-03T10:00:00Z', duration: 40, total_words: 70, wpm: 105, clarity_score: 84, transcript: null, transcript_state: 'expired', filler_words: { um: { count: 1 }, total: { count: 1 } } }),
+            ]);
+            const { overallStats } = await callRpc(db, USER);
+
+            // Rates computed from provenance-eligible rows ONLY.
+            expect(overallStats.avgWpm).toBe(105);
+            expect(overallStats.avgFillerWordsPerMin).toBe('1.5');
+            // Total practice time still spans EVERY row (80+600+40 = 720s = 12 min) — truthful, not gated.
+            expect(overallStats.totalPracticeTime).toBe(12);
+            expect(overallStats.wpmContributorCount).toBe(2);
+            expect(overallStats.fillerRateContributorCount).toBe(2);
+
+            // Chart points: ordered ASC by created_at → [avail, nc-stale, exp-persisted].
+            const chart = overallStats.chartData as Array<{ date: string; clarity: number | null; 'FW/min': string | null }>;
+            expect(chart).toHaveLength(3);
+            // The not_captured row emits NULL for both rate/clarity chart values despite stale nonzero data.
+            expect(chart[1].clarity).toBeNull();
+            expect(chart[1]['FW/min']).toBeNull();
+            // Eligible rows keep genuine derived evidence (available FW/min = 2/(80/60) = 1.5; clarity 88).
+            expect(chart[0].clarity).toBe(88);
+            expect(chart[0]['FW/min']).toBe('1.50');
+            // Expired-with-persisted-metrics still contributes its point (FW/min = 1/(40/60) = 1.5).
+            expect(chart[2].clarity).toBe(84);
+            expect(chart[2]['FW/min']).toBe('1.50');
+        });
+
+        it('(#1047) >20-session history: overall rates, top fillers, filler trends and accuracy all exclude a not_captured row', async () => {
+            const db = await makeDb();
+            // 21 genuine sessions (words=120, duration=60s, um:2, clarity 90, accuracy 0.9) + 1 MOST-RECENT
+            // not_captured row with huge stale values that would dominate every series if it leaked in.
+            const many = Array.from({ length: 21 }, (_, i) => fx(`v${i}`, {
+                created_at: `2026-06-${String(i + 1).padStart(2, '0')}T10:00:00Z`,
+                duration: 60, total_words: 120, clarity_score: 90, accuracy: 0.9, engine: 'private-v2',
+                transcript: words(120), filler_words: { um: { count: 2 }, total: { count: 2 } },
+            }));
+            const ncStale = fx('nc-stale', {
+                created_at: '2026-07-31T10:00:00Z', // most recent → would top every recency-limited series
+                duration: 600, total_words: 99999, clarity_score: 5, accuracy: 0.01, engine: 'private-v2',
+                transcript: '', transcript_state: 'not_captured',
+                filler_words: { zzz: { count: 999 }, total: { count: 999 } },
+            });
+            await seed(db, [...many, ncStale]);
+            const { overallStats, topFillerWords, fillerWordTrends, accuracyData } = await callRpc(db, USER);
+
+            expect(overallStats.totalSessions).toBe(22);                       // the row is still a session
+            // Rates from the 21 eligible rows only: 21*120 words / 21 min = 120 WPM; 21*2 fillers / 21 min = 2.0.
+            expect(overallStats.avgWpm).toBe(120);
+            expect(overallStats.avgFillerWordsPerMin).toBe('2.0');
+            // Total practice time is all-session (21*60 + 600 = 1860s = 31 min), truthful.
+            expect(overallStats.totalPracticeTime).toBe(31);
+            // Top fillers exclude the stale 'zzz':999.
+            const topWords = (topFillerWords as Array<{ word: string; count: number }>).map(w => w.word);
+            expect(topWords).toContain('um');
+            expect(topWords).not.toContain('zzz');
+            // Filler trends exclude 'zzz'.
+            expect(Object.keys(fillerWordTrends as Record<string, unknown>)).not.toContain('zzz');
+            // Accuracy series excludes the not_captured row's retained 0.01 (→ 1%) despite it being most recent.
+            expect(accuracyData.map(d => Math.round(d.accuracy))).not.toContain(1);
+        });
+    });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1047 U1 — METRIC-SPECIFIC evidence + the >=2 filler-trend gate. FALSIFICATION: each test is
+    // built so that the OLD blanket rule (one shared eligible-duration, or "any non-not_captured row
+    // counts every metric") would produce a DIFFERENT, provably-wrong number. The RPC (real Postgres)
+    // and the client calculateOverallStats/calculateFillerWordTrends must agree on the corrected value.
+    // ---------------------------------------------------------------------------------------------
+    describe('(#1047 U1) metric-specific per-metric evidence + >=2 filler-trend gate — falsification', () => {
+        it('an EXPIRED row with words but NO persisted filler counts toward WPM only — never the filler denominator', async () => {
+            // available: 60s, 120 words, 2 fillers. expired: 60s, 120 words, NO filler data (retention removed it).
+            // WPM sees BOTH (240 words / 2 min = 120). Filler sees ONLY the available row (2 fillers / 1 min = 2.0).
+            // The OLD shared denominator would divide 2 fillers by 2 min = 1.0 — the falsified wrong answer.
+            const rows: Fixture[] = [
+                fx('avail', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, wpm: 120, clarity_score: 88, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('expired-words-no-filler', { created_at: '2026-07-02T10:00:00Z', duration: 60, total_words: 120, wpm: 120, clarity_score: 84, transcript: null, transcript_state: 'expired', filler_words: null }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgWpm).toBe(120);                       // both rows in the WPM denominator
+            expect(overallStats.wpmContributorCount).toBe(2);
+            expect(overallStats.avgFillerWordsPerMin).toBe('2.0');       // ONLY the available row — not 1.0
+            expect(overallStats.fillerRateContributorCount).toBe(1);
+            // Client agrees on the corrected, metric-specific value.
+            expect(client.averageWPM).toBe(120);
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(2.0, 1);
+        });
+
+        it('an EXPIRED row with fillers but NO persisted words counts toward the filler rate only — never WPM', async () => {
+            // available: 60s, 120 words, 2 fillers. expired: 60s, 0 words, 4 fillers.
+            // WPM sees ONLY the available row (120 words / 1 min = 120). Filler sees BOTH (6 fillers / 2 min = 3.0).
+            // The OLD shared denominator would divide 120 words by 2 min = 60 WPM — the falsified wrong answer.
+            const rows: Fixture[] = [
+                fx('avail', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, wpm: 120, clarity_score: 88, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('expired-filler-no-words', { created_at: '2026-07-02T10:00:00Z', duration: 60, total_words: null, wpm: null, clarity_score: null, transcript: null, transcript_state: 'expired', filler_words: { um: { count: 4 }, total: { count: 4 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgWpm).toBe(120);                       // ONLY the available row — not 60
+            expect(overallStats.wpmContributorCount).toBe(1);
+            expect(overallStats.avgFillerWordsPerMin).toBe('3.0');       // both rows in the filler denominator
+            expect(overallStats.fillerRateContributorCount).toBe(2);
+            expect(client.averageWPM).toBe(120);
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(3.0, 1);
+        });
+
+        it('reports NO filler trend from a SINGLE eligible measurement (>=2 gate), even amid not_captured noise', async () => {
+            // One eligible filler row + one not_captured row (never eligible). A trend needs >=2 eligible
+            // measurements; the OLD code populated a trend from a single point (current vs previous=0).
+            const rows: Fixture[] = [
+                fx('only-eligible', { created_at: '2026-07-02T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 3 }, total: { count: 3 } } }),
+                fx('nc', { created_at: '2026-07-03T10:00:00Z', duration: 600, total_words: 900, transcript: '', transcript_state: 'not_captured', filler_words: { um: { count: 40 }, total: { count: 40 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { fillerWordTrends } = await callRpc(db, USER);
+            const clientTrends = calculateFillerWordTrends(asPracticeSessions(rows));
+
+            expect(fillerWordTrends).toEqual({});                        // no trend from one point
+            expect(clientTrends).toEqual({});
+        });
+
+        it('DOES report a filler trend once there are >=2 eligible measurements', async () => {
+            const rows: Fixture[] = [
+                fx('e1', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('e2', { created_at: '2026-07-02T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 6 }, total: { count: 6 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { fillerWordTrends } = await callRpc(db, USER);
+            const clientTrends = calculateFillerWordTrends(asPracticeSessions(rows));
+
+            expect(Object.keys(fillerWordTrends)).toContain('um');       // a real trend now exists
+            expect(Object.keys(clientTrends)).toContain('um');
+        });
+
+        it('(#1131 correction 1) filler rate is INDEPENDENT of word count — genuine fillers, no persisted words, still report', async () => {
+            // A single expired row: word count did not survive retention, but the filler measurement did.
+            // OLD code gated the filler rate on v_total_words > 0, so this went dark (null). The corrected
+            // rate uses only filler-metric evidence: 3 fillers / (60s = 1 min) = 3.0. Client agrees.
+            const rows: Fixture[] = [
+                fx('expired-filler-only', { created_at: '2026-07-01T10:00:00Z', duration: 60,
+                    total_words: null, wpm: null, clarity_score: null, transcript: null,
+                    transcript_state: 'expired', filler_words: { um: { count: 3 }, total: { count: 3 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgWpm).toBeNull();                     // no persisted words → WPM genuinely unknown
+            expect(overallStats.avgFillerWordsPerMin).toBe('3.0');      // but the filler rate is real (not null)
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(3.0, 1);
+            expect(client.averageWPM).toBeNull();
+        });
+
+        it('(#1131 correction 2) an empty or MALFORMED filler map is NOT evidence — client and RPC AGREE on null, never a flattering 0.0', async () => {
+            // Each fixture is an `available` take (real words) whose filler map carries NO genuine numeric count:
+            // empty `{}`, a key with no count `{um:{}}`, and a null count `{um:{count:null}}`. OLD RPC treated
+            // any non-empty object as evidence and reported 0.0 (a flattering zero from missing data), disagreeing
+            // with the client. Corrected: both layers require a real numeric count → both report null.
+            for (const malformed of [{}, { um: {} }, { um: { count: null } }] as Array<Record<string, { count?: number }>>) {
+                const rows: Fixture[] = [
+                    fx('malformed-filler', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120,
+                        transcript: words(120), transcript_state: 'available', filler_words: malformed }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                const { overallStats } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();       // no fabricated 0.0 from missing data
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(client.avgFillerWordsPerMin).toBeNull();             // client AGREES with the RPC
+                expect(overallStats.avgWpm).toBe(120);                      // the WPM metric is unaffected
+            }
+        });
+
+        it('a history where EVERY row is not_captured yields all-null rates and no trend — never a fabricated number', async () => {
+            const rows: Fixture[] = Array.from({ length: 3 }, (_, i) => fx(`nc-${i}`, {
+                created_at: `2026-07-0${i + 1}T10:00:00Z`,
+                duration: 120, total_words: 300, wpm: 150, clarity_score: 55, accuracy: 0.8, engine: 'private-v2',
+                transcript: '', transcript_state: 'not_captured', filler_words: { um: { count: 10 }, total: { count: 10 } },
+            }));
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats, fillerWordTrends } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.totalSessions).toBe(3);                  // they ARE sessions
+            expect(overallStats.avgWpm).toBeNull();                      // but carry no showable evidence
+            expect(overallStats.avgFillerWordsPerMin).toBeNull();
+            expect(overallStats.avgClarity).toBeNull();
+            expect(fillerWordTrends).toEqual({});
+            // Every chart point is an omission, not a fabricated value.
+            for (const point of overallStats.chartData) {
+                expect(point.clarity).toBeNull();
+                expect(point['FW/min']).toBeNull();
+            }
+            // Duration is still real evidence and stays all-session (3 * 120s = 6 min).
+            expect(Number(overallStats.totalPracticeTime)).toBe(6);
+            // Client agrees: no fabricated numbers.
+            expect(client.averageWPM).toBeNull();
+            expect(client.avgFillerWordsPerMin).toBeNull();
+            expect(client.avgClarity).toBeNull();
+        });
+    });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1131 round-2 — the four review blockers. Each falsifies the pre-correction behaviour and proves
+    // client ≡ RPC on real Postgres.
+    // ---------------------------------------------------------------------------------------------
+    describe('(#1131 round-2) four review blockers — client/RPC parity falsification', () => {
+        it('blocker 1: an EXPIRED row contributes clarity ONLY from a persisted clarity_score — never reconstructed from retained words', async () => {
+            const rows: Fixture[] = [
+                fx('avail', { created_at: '2026-07-01T10:00:00Z', clarity_score: 90, total_words: 120, transcript: words(120), transcript_state: 'available' }),
+                // expired WITH a persisted clarity_score → contributes the persisted 70 (transcript gone).
+                fx('expired-clarity', { created_at: '2026-07-02T10:00:00Z', clarity_score: 70, total_words: 120, transcript: null, transcript_state: 'expired' }),
+                // expired with retained words but NO persisted clarity_score → EXCLUDED, never reconstructed.
+                fx('expired-no-clarity', { created_at: '2026-07-03T10:00:00Z', clarity_score: null, total_words: 120, transcript: null, transcript_state: 'expired' }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.clarityContributorCount).toBe(2);         // avail + expired-with-clarity only
+            expect(Number(overallStats.avgClarity)).toBeCloseTo(80.0, 1); // (90 + 70) / 2 — no reconstructed row
+            expect(Number(client.avgClarity)).toBeCloseTo(80.0, 1);       // client agrees (excludes the reconstructed candidate)
+        });
+
+        it('blocker 2: 3 eligible measurements split into two NONEMPTY trend windows — a real prior value, not an invented zero', async () => {
+            const rows: Fixture[] = [
+                fx('s1', { created_at: '2026-07-03T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+                fx('s2', { created_at: '2026-07-02T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 4 }, total: { count: 4 } } }),
+                fx('s3', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 6 }, total: { count: 6 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { fillerWordTrends } = await callRpc(db, USER);
+            const clientTrends = calculateFillerWordTrends(asPracticeSessions(rows));
+
+            // k=3 → previous window (the oldest measurement) is NONEMPTY: um.previous is a real value, not 0.
+            expect(fillerWordTrends.um.current).toBeGreaterThan(0);
+            expect(fillerWordTrends.um.previous).toBeGreaterThan(0);
+            expect(clientTrends.um.current).toBeGreaterThan(0);
+            expect(clientTrends.um.previous).toBeGreaterThan(0);
+        });
+
+        it('blocker 3: a total-only filler snapshot is authoritative — its total.count IS the filler count', async () => {
+            const rows: Fixture[] = [
+                // No per-word breakdown, only a total. Old RPC excluded `total` → reported 0.0. Corrected → 5.0.
+                fx('total-only', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { total: { count: 5 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgFillerWordsPerMin).toBe('5.0');        // 5 fillers / 1 min — NOT 0.0
+            expect(overallStats.fillerRateContributorCount).toBe(1);
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(5.0, 1);
+        });
+
+        it('blocker 4: malformed / fractional / negative / out-of-range filler counts never crash the RPC nor produce a flattering metric', async () => {
+            const badCounts: Array<Record<string, { count: number }>> = [
+                { um: { count: 2.5 } },                 // fractional
+                { um: { count: -1 } },                  // negative
+                { um: { count: 12345678901234 } },      // out of range (> 9 digits)
+            ];
+            for (const bad of badCounts) {
+                const rows: Fixture[] = [
+                    fx('bad', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: bad }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                // The call itself must not throw (the ::int cast is regex-guarded).
+                const { overallStats } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();     // excluded — no crash, no flattering 0.0
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(client.avgFillerWordsPerMin).toBeNull();           // client agrees
+                expect(overallStats.avgWpm).toBe(120);                    // WPM metric unaffected
+            }
+        });
+    });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1131 round-3 — exact-head review threads #31/#32/#33. client ≡ RPC parity on real Postgres.
+    // ---------------------------------------------------------------------------------------------
+    describe('(#1131 round-3) invalid totals / JSON-string counts / aggregate overflow — parity falsification', () => {
+        it('#31: an invalid-ONLY total ({total:{count:2.5}} or {count:-1}) is unavailable — never coerced to a confident zero', async () => {
+            for (const bad of [{ total: { count: 2.5 } }, { total: { count: -1 } }] as Array<Record<string, { count: number }>>) {
+                const rows: Fixture[] = [
+                    fx('bad-total', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: bad }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                const { overallStats } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();     // NOT '0.0'
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(client.avgFillerWordsPerMin).toBeNull();           // client agrees (isUsableFillerCounts aligned)
+            }
+        });
+
+        it('#32: a JSON STRING count ({total:{count:"5"}}) is NOT accepted as a number — RPC excludes it, matching the client', async () => {
+            const rows: Fixture[] = [
+                fx('string-count', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { total: { count: '5' } } as unknown as Record<string, { count: number }> }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            // Old RPC: `->>` coerces "5" to text that passes the regex → reported 5/min. Corrected: jsonb_typeof
+            // requires a JSON number → excluded. The client already required typeof === 'number' → both null.
+            expect(overallStats.avgFillerWordsPerMin).toBeNull();
+            expect(client.avgFillerWordsPerMin).toBeNull();
+        });
+
+        it('#33: three max-valid per-word counts sum WITHOUT integer overflow — RPC returns the bigint total, matching the client', async () => {
+            // 3 × 999,999,999 = 2,999,999,997 > int max (2,147,483,647). Old ::int sum aborted the RPC.
+            const rows: Fixture[] = [
+                fx('overflow', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available',
+                    filler_words: { a: { count: 999999999 }, b: { count: 999999999 }, c: { count: 999999999 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            // Must not throw (bigint accumulator + unbounded round()).
+            const { overallStats } = await callRpc(db, USER);
+            const client = calculateOverallStats(asPracticeSessions(rows));
+
+            expect(overallStats.avgFillerWordsPerMin).toBe('2999999997.0'); // 2,999,999,997 / 1 min
+            expect(Number(client.avgFillerWordsPerMin)).toBeCloseTo(2999999997.0, 1);
+        });
+    });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1131 round-4 — exact-head review threads: expired clarity explanation, trend time-normalization
+    // parity, and array/scalar fail-closed. (Defect #1 — the expired-explanation withholding — is a UI
+    // concern proven in AnalyticsDashboard.component.test.tsx.)
+    // ---------------------------------------------------------------------------------------------
+    describe('(#1131 round-4) trend time-normalization parity + array/scalar fail-closed', () => {
+        it('#2: filler trends normalize by SPEAKING TIME (not raw-count average) — unequal-duration windows match the client', async () => {
+            // Fixtures are authored OLDEST-first (asPracticeSessions reverses to newest-first for the client,
+            // matching the RPC's created_at DESC). current window = 2 most-recent (newest 60s um2 + mid 120s
+            // um4): 6 um / 3 min = 2.0 (a raw-count average would be 3.0). previous window = oldest (60s um3):
+            // 3 um / 1 min = 3.0.
+            const rows: Fixture[] = [
+                fx('oldest', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 3 }, total: { count: 3 } } }),
+                fx('mid', { created_at: '2026-07-02T10:00:00Z', duration: 120, total_words: 240, transcript: words(240), transcript_state: 'available', filler_words: { um: { count: 4 }, total: { count: 4 } } }),
+                fx('newest', { created_at: '2026-07-03T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: { um: { count: 2 }, total: { count: 2 } } }),
+            ];
+            const db = await makeDb();
+            await seed(db, rows);
+            const { fillerWordTrends } = await callRpc(db, USER);
+            const clientTrends = calculateFillerWordTrends(asPracticeSessions(rows));
+
+            expect(fillerWordTrends.um.current).toBeCloseTo(2.0, 2);   // time-normalized, NOT the 3.0 raw-count avg
+            expect(fillerWordTrends.um.previous).toBeCloseTo(3.0, 2);
+            expect(fillerWordTrends.um.current).not.toBeCloseTo(3.0, 2);
+            // client ≡ RPC on the same unequal-duration windows.
+            expect(clientTrends.um.current).toBeCloseTo(fillerWordTrends.um.current, 2);
+            expect(clientTrends.um.previous).toBeCloseTo(fillerWordTrends.um.previous, 2);
+        });
+
+        it('#3: an ARRAY or SCALAR filler_words never aborts the RPC and yields no fabricated metric — matching the client', async () => {
+            for (const bad of [[{ count: 2 }], 5] as unknown[]) {
+                const rows: Fixture[] = [
+                    fx('bad-shape', { created_at: '2026-07-01T10:00:00Z', duration: 60, total_words: 120, transcript: words(120), transcript_state: 'available', filler_words: bad as unknown as Record<string, { count: number }> }),
+                ];
+                const db = await makeDb();
+                await seed(db, rows);
+                // Must not throw — jsonb_each is guarded against non-objects; helper returns NULL for non-objects.
+                const { overallStats, topFillerWords, fillerWordTrends } = await callRpc(db, USER);
+                const client = calculateOverallStats(asPracticeSessions(rows));
+
+                expect(overallStats.avgFillerWordsPerMin).toBeNull();  // array/scalar is not filler evidence
+                expect(overallStats.fillerRateContributorCount).toBe(0);
+                expect(topFillerWords).toEqual([]);
+                expect(fillerWordTrends).toEqual({});
+                expect(overallStats.avgWpm).toBe(120);                 // WPM unaffected
+                expect(client.avgFillerWordsPerMin).toBeNull();        // client agrees (Array.isArray / non-object → null)
+            }
         });
     });
 });
