@@ -10,6 +10,7 @@ export type ProgressAttemptView = {
 export type SessionProgressResult =
     | { status: 'insufficient'; sessionId: string }
     | { status: 'ineligible'; sessionId: string; reasons: string[] }
+    | { status: 'unavailable'; sessionId: string; message: string }
     | { status: 'error'; sessionId: string; message: string }
     | {
         status: 'eligible';
@@ -68,6 +69,8 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         currentRow.baseline_session_id,
         currentRow.previous_comparable_session_id,
     ].filter((id): id is string => !!id))];
+    const duplicateRoles = !!currentRow.baseline_session_id
+        && currentRow.baseline_session_id === currentRow.previous_comparable_session_id;
     let references: EvalRow[] = [];
     if (referenceIds.length) {
         const { data, error } = await supabase
@@ -80,18 +83,40 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     }
 
     // Persisted ids are authoritative, but incompatible references still fail closed before arithmetic.
-    const baselineRow = references.find((row) =>
-        row.session_id === currentRow.baseline_session_id && row.cohort_key === currentRow.cohort_key) ?? null;
-    const previousRow = references.find((row) =>
-        row.session_id === currentRow.previous_comparable_session_id && row.cohort_key === currentRow.cohort_key) ?? null;
+    const validReference = (row: EvalRow, expectedId: string | null): boolean =>
+        !!expectedId && row.session_id === expectedId && row.session_id !== sessionId
+        && row.eligible && row.cohort_key === currentRow.cohort_key;
+    const baselineRow = duplicateRoles ? null : references.find((row) => validReference(row, currentRow.baseline_session_id)) ?? null;
+    const previousRow = duplicateRoles ? null : references.find((row) => validReference(row, currentRow.previous_comparable_session_id)) ?? null;
     const current = toEvaluation(currentRow);
     const baseline = baselineRow ? toEvaluation(baselineRow) : null;
     const previous = previousRow ? toEvaluation(previousRow) : null;
-    const comparison: 'baseline' | 'previous' | 'restarted' = previous
-        ? 'previous'
-        : currentRow.baseline_session_id
-            ? 'restarted'
-            : 'baseline';
+    let comparison: 'baseline' | 'previous' | 'restarted';
+    if (previous) {
+        comparison = 'previous';
+    } else if (currentRow.baseline_session_id || currentRow.previous_comparable_session_id || duplicateRoles) {
+        comparison = 'restarted';
+    } else {
+        const { data: sessionRow, error: sessionError } = await supabase
+            .from('sessions')
+            .select('created_at')
+            .eq('id', sessionId)
+            .maybeSingle();
+        if (sessionError || !(sessionRow as { created_at?: string } | null)?.created_at) {
+            return { status: 'error', sessionId, message: 'Comparison history could not be verified.' };
+        }
+        const createdAt = (sessionRow as { created_at: string }).created_at;
+        const { data: priorRows, error: priorError } = await supabase
+            .from('sessions')
+            .select('id, session_progress_evaluations!inner(cohort_key)')
+            .lt('created_at', createdAt)
+            .eq('session_progress_evaluations.formula_version', PROGRESS_FORMULA_VERSION)
+            .eq('session_progress_evaluations.eligible', true)
+            .neq('session_progress_evaluations.cohort_key', currentRow.cohort_key)
+            .limit(1);
+        if (priorError || !priorRows) return { status: 'error', sessionId, message: 'Comparison history could not be verified.' };
+        comparison = priorRows.length > 0 ? 'restarted' : 'baseline';
+    }
 
     const { data: rec, error: recError } = await supabase
         .from('progress_recommendations')
@@ -101,6 +126,9 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         .maybeSingle();
     if (recError) return { status: 'error', sessionId, message: 'Your next action could not be loaded.' };
     const recommendationId = (rec as { id?: string } | null)?.id ?? null;
+    if (!recommendationId) {
+        return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
+    }
 
     let latestAttempt: ProgressAttemptView | null = null;
     if (recommendationId) {

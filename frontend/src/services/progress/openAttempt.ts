@@ -12,6 +12,8 @@ export interface OpenAttempt {
     userId: string;
     /** The session the recommendation was shown on — for observability only; comparability is server-side. */
     sourceSessionId: string;
+    /** Once resolution starts, retries remain durably bound to this exact repeat session. */
+    resolutionSessionId?: string;
 }
 
 export function setOpenAttempt(a: OpenAttempt): boolean {

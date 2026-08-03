@@ -74,9 +74,9 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     );
 
     if (query.isLoading) return shell(<p data-testid="progress-loading">Loading progress…</p>);
-    if (query.isError || view?.status === 'error') return shell(
+    if (query.isError || view?.status === 'error' || view?.status === 'unavailable') return shell(
         <div role="alert" className="space-y-3">
-            <p>{view?.status === 'error' ? view.message : 'Progress could not be loaded.'}</p>
+            <p>{view?.status === 'error' || view?.status === 'unavailable' ? view.message : 'Progress could not be loaded.'}</p>
             <Button type="button" onClick={() => { void query.refetch(); }}>Retry</Button>
         </div>,
     );

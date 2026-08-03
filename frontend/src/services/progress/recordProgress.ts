@@ -19,7 +19,7 @@ import {
     getQueuedSessionIdsForUser,
     clearProgressReconcileEntry,
 } from './progressReconcileQueue';
-import { getOpenAttemptForUser, clearOpenAttempt } from './openAttempt';
+import { getOpenAttemptForUser, clearOpenAttempt, setOpenAttempt } from './openAttempt';
 
 /** A minimal view of a persisted session — the fields the on-load reconciler needs. */
 export interface ReconcilableSession {
@@ -236,17 +236,22 @@ export async function wireProgressEvaluationOnSave(ctx: {
 async function resolveOpenAttemptWith(userId: string, newSessionId: string): Promise<void> {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
+    const resolutionSessionId = open.resolutionSessionId ?? newSessionId;
+    if (!open.resolutionSessionId && !setOpenAttempt({ ...open, resolutionSessionId })) {
+        logger.warn({ attemptId: open.attemptId, resolutionSessionId }, '[progress] resolution binding could not be persisted');
+        return;
+    }
     const result = await advanceRecommendationAttemptResult({
         attemptId: open.attemptId,
         lifecycle: 'completed',
-        practiceSessionId: newSessionId,
-        nextComparableSessionId: newSessionId,
+        practiceSessionId: resolutionSessionId,
+        nextComparableSessionId: resolutionSessionId,
     });
     if (!result.ok && result.kind === 'not_comparable') {
         const terminal = await advanceRecommendationAttemptResult({
             attemptId: open.attemptId,
             lifecycle: 'not_comparable',
-            practiceSessionId: newSessionId,
+            practiceSessionId: resolutionSessionId,
         });
         if (terminal.ok) clearOpenAttempt();
         return;
@@ -271,6 +276,10 @@ export async function reconcileProgressEvaluations(
 ): Promise<{ queueDrained: number; swept: number }> {
     let queueDrained = 0;
     let swept = 0;
+
+    // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
+    const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
+    if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
     // ── Layer 1: drain the durable queue for this user. ──
     for (const sessionId of getQueuedSessionIdsForUser(userId)) {

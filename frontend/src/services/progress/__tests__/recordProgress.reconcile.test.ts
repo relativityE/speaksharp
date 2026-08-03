@@ -116,7 +116,38 @@ describe('#1045 "Practice this next" loop closure', () => {
             sessionId: 's-next', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
         });
         expect(rpcNames().filter((name) => name === 'advance_recommendation_attempt')).toHaveLength(1);
-        expect(getOpenAttemptForUser(USER)?.attemptId).toBe('att-technical');
+        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'att-technical', resolutionSessionId: 's-next' });
+    });
+
+    it('reload reconciliation retries the original repeat and a later save cannot steal it', async () => {
+        setOpenAttempt({ attemptId: 'att-bound', userId: USER, sourceSessionId: 's-source' });
+        let resolutionAttempts = 0;
+        rpc.mockImplementation(async (name: string, payload: Record<string, unknown>) => {
+            if (name !== 'advance_recommendation_attempt') return { data: 'ok-id', error: null };
+            resolutionAttempts++;
+            if (resolutionAttempts < 3) return { data: null, error: { code: '57014', message: 'network timeout' } };
+            return { data: 'moved', error: null, payload };
+        });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-original-repeat', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-later', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        const firstTwo = rpc.mock.calls.filter((call) => call[0] === 'advance_recommendation_attempt');
+        expect(firstTwo).toHaveLength(2);
+        expect(firstTwo[1][1]).toMatchObject({
+            p_attempt_id: 'att-bound',
+            p_practice_session_id: 's-original-repeat',
+            p_next_comparable_session_id: 's-original-repeat',
+        });
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId).toBe('s-original-repeat');
+
+        await reconcileProgressEvaluations(USER, []);
+        const advanceCalls = rpc.mock.calls.filter((call) => call[0] === 'advance_recommendation_attempt');
+        const finalCall = advanceCalls[advanceCalls.length - 1];
+        expect(finalCall?.[1]).toMatchObject({ p_practice_session_id: 's-original-repeat' });
+        expect(getOpenAttemptForUser(USER)).toBeNull();
     });
 
     it('uses not_comparable only after the server authoritatively rejects comparability', async () => {

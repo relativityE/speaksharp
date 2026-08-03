@@ -80,6 +80,15 @@ describe('#1047 U2 ProgressPanel', () => {
         await waitFor(() => expect(heading).toHaveFocus());
     });
 
+    it('renders missing server recommendation as retryable unavailable, never synthesized coaching', async () => {
+        loadSessionProgress.mockResolvedValue({ status: 'unavailable', sessionId: 's1', message: 'Your next action is not available yet.' });
+        renderPanel();
+        expect(await screen.findByRole('alert')).toHaveTextContent(/not available/i);
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+        expect(screen.queryByTestId('progress-practice-next')).toBeNull();
+        expect(screen.queryByTestId('progress-accept')).toBeNull();
+    });
+
     it('shows exactly two eligible takeaways and the canonical action', async () => {
         loadSessionProgress.mockResolvedValue(VIEW);
         renderPanel();
