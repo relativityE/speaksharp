@@ -122,10 +122,11 @@ CREATE TABLE IF NOT EXISTS public.guided_session (
     -- so the recorded identity survives even conceptual reasoning about "which version was practiced").
     brief_version           integer NOT NULL,
     -- Link to the underlying practice recording (public.sessions). REQUIRED at creation by the guarded RPC,
-    -- which DERIVES the verified-Private identity from this row's persisted attribution (attribution_status
-    -- ='verified' + Private engine) — never a caller string. ON DELETE SET NULL (not CASCADE) so deleting the
-    -- recording is never blocked AND the Guided session's already-captured immutable snapshot (engine_version,
-    -- brief_version, detector_version, duration) survives for honest historical audit.
+    -- which READS this row's CURRENTLY-PERSISTED attribution (attribution_status='verified' + Private engine)
+    -- under a TRANSITIONAL contract — those columns are client-writable today, so hardening them into a
+    -- tamper-proof server-owned attestation is the external activation dependency #1161, NOT claimed here.
+    -- ON DELETE SET NULL (not CASCADE) so deleting the recording is never blocked AND the Guided session's
+    -- already-captured snapshot (engine_version, brief_version, detector_version, duration) survives for audit.
     source_session_id       uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
     -- Domain isolation: Guided identity is ALWAYS 'guided'. Freestyle data lives in its own tables and can
     -- never be attached here (CHECK + the RPC refusing any non-'guided' domain).
@@ -288,9 +289,11 @@ BEGIN
 END $$;
 
 -- ── guided_start_session_v1 — insert-once immutable identity; idempotent by (user, idempotency_key) ──
--- The verified-Private engine identity AND the authoritative duration are DERIVED from the persisted source
--- recording — NOT from any caller value, so a Guided session cannot claim Private nor suppress/manufacture an
--- overtime action. Only the fixed 'guided_action_v1' formula is accepted. A replayed key must carry the SAME
+-- The engine identity AND the authoritative duration are READ from the persisted source recording's
+-- currently-stored fields — NOT from caller values (so duration cannot be used to suppress/manufacture an
+-- overtime action). TRANSITIONAL contract: `attribution_status`/`engine` are client-writable today (external
+-- activation dependency #1161); G1 checks them as-persisted and does NOT claim they are server-verified or
+-- spoof-proof. Only the fixed 'guided_action_v1' formula is accepted. A replayed key must carry the SAME
 -- immutable identity (null-safe compare), including in the concurrent-race loser branch.
 CREATE OR REPLACE FUNCTION public.guided_start_session_v1(
     p_project_id uuid, p_brief_id uuid, p_source_session_id uuid,
@@ -322,9 +325,10 @@ BEGIN
         RAISE EXCEPTION 'project not found for owner' USING errcode = '42501';
     END IF;
 
-    -- Derive verified-Private identity AND the authoritative duration from the persisted recording (never caller
-    -- input). Verification is the authoritative attribution_status='verified' (NOT an engine_version heuristic);
-    -- the engine IDENTITY must be Private. A Freestyle/other-user/unverified recording cannot attach.
+    -- Read the persisted recording's currently-stored attribution + duration (never caller input). G1 checks
+    -- attribution_status='verified' + a Private engine as a TRANSITIONAL persisted-field contract — those columns
+    -- are client-writable today (#1161), so this is NOT a server-verified/spoof-proof guarantee. It rejects
+    -- null/foreign/unverified/non-Private persisted sources; hardening the fields themselves is #1161's scope.
     SELECT engine, engine_version, attribution_status, duration INTO v_src
         FROM public.sessions WHERE id = p_source_session_id AND user_id = v_uid;
     IF NOT FOUND THEN RAISE EXCEPTION 'source session not owned by caller' USING errcode = '42501'; END IF;

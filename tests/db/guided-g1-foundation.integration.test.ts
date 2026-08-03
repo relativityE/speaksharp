@@ -43,7 +43,9 @@ async function makeDb(grantUsers: string[] = [USER]): Promise<Sql> {
 
 const act = (db: Sql, uid: string) => db.query(`SELECT set_config('request.jwt.claim.sub', $1, false)`, [uid]);
 
-/** A verified Private recording. `duration` is the AUTHORITATIVE persisted duration the RPC snapshots. */
+/** A recording whose CURRENTLY-PERSISTED attribution reads as verified Private (transitional persisted-field
+ * contract — hardening those client-writable columns is external dependency #1161). `duration` is the
+ * AUTHORITATIVE persisted duration the RPC snapshots. */
 async function seedRecording(
     db: Sql, uid: string, over: { engine?: string; attribution?: string; duration?: number | null } = {},
 ): Promise<string> {
@@ -277,7 +279,9 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         ).rejects.toThrow(/source session not owned/i);
     });
 
-    it('source-must-be-verified-Private: null, Cloud/Browser, and unverified sources all fail closed', async () => {
+    it('persisted-source-rejects-null/Cloud/Browser/unverified (transitional persisted-field contract, #1161)', async () => {
+        // G1 checks the CURRENTLY-PERSISTED attribution fields; it does not (and does not claim to) defend
+        // against a client that forges its own sessions.attribution_status — that hardening is #1161.
         const db = await makeDb();
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         const unverified = await seedRecording(db, USER, { attribution: 'unverified' });
@@ -459,6 +463,18 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
             db.query(`INSERT INTO public.guided_account_capability (user_id, enabled) VALUES ($1, true)`, [USER]),
         ).rejects.toThrow(/permission denied|denied/i);
         await db.query(`RESET ROLE`);
+    });
+
+    it('hard-off-by-default: a fresh database creates zero capability rows and no Guided session can start', async () => {
+        const db = await makeDb([]); // no capability granted to anyone
+        const cap = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_account_capability`)).rows[0].n;
+        expect(Number(cap)).toBe(0); // Guided is globally hard-off — nothing is enabled unless the service role writes it
+        const rec = await seedRecording(db, USER);
+        const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        await act(db, USER);
+        await expect(
+            db.query(`SELECT public.guided_start_session_v1($1,$2,$3,'cue_v1','guided_action_v1','idem') AS id`, [proj, brief, rec]),
+        ).rejects.toThrow(/capability required/i); // no server-created capability ⇒ no Guided start
     });
 
     it('capability-query-is-caller-only: has_guided_capability accepts no uid arg (no cross-user enumeration)', async () => {
