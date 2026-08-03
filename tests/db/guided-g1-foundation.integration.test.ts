@@ -270,15 +270,53 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect(nextRow.target_brief_point_id).toBe(pointIds[1]);
     });
 
-    it('detection-beyond-duration-not-counted: an offset past the recording duration cannot manufacture detected', async () => {
-        const db = await makeDb();
-        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
-        // Impossible signal: offset 999 > duration 50 → must be ignored (not a valid detection).
-        await finalize(db, USER, s, [{ brief_point_id: pointIds[0], detected_at_seconds: 999 }]);
-        const v = (await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].verdict;
-        expect(v).toBe('not_detected'); // impossible offset ignored under the approved predicate
-        const a = await getAction(db, await selectAction(db, USER, s));
-        expect(a.kind).toBe('unmet_required'); // the required point is NOT suppressed by the impossible signal
+    // ── Offset validation: a malformed offset ATOMICALLY rejects the whole finalize (no partial writes) ──
+    it('offset-validation: 0 and the exact persisted duration are accepted; out-of-range rejects atomically', async () => {
+        const evCount = async (db: Sql, s: string) => Number((await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_evidence WHERE session_id=$1`, [s])).rows[0].n);
+        const finalizedAt = async (db: Sql, s: string) => (await db.query<{ finalized_at: string | null }>(`SELECT finalized_at FROM public.guided_session WHERE id=$1`, [s])).rows[0].finalized_at;
+        const finalizeRaw = (db: Sql, s: string, sig: unknown) => db.query(`SELECT public.guided_finalize_evidence_v1($1,$2::jsonb)`, [s, JSON.stringify(sig)]);
+
+        // (1) offset 0 accepted (duration 50)
+        let db = await makeDb();
+        let g = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await act(db, USER);
+        await finalizeRaw(db, g.s, [{ brief_point_id: g.pointIds[0], detected_at_seconds: 0 }]);
+        expect((await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [g.s])).rows[0].verdict).toBe('detected');
+
+        // (2) exact persisted duration accepted
+        db = await makeDb();
+        g = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await act(db, USER);
+        await finalizeRaw(db, g.s, [{ brief_point_id: g.pointIds[0], detected_at_seconds: 50 }]);
+        expect((await db.query<{ verdict: string }>(`SELECT verdict FROM public.guided_evidence WHERE session_id=$1`, [g.s])).rows[0].verdict).toBe('detected');
+
+        // (3) duration+1 rejects the call atomically — no evidence, no latch
+        db = await makeDb();
+        g = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await act(db, USER);
+        await expect(finalizeRaw(db, g.s, [{ brief_point_id: g.pointIds[0], detected_at_seconds: 51 }])).rejects.toThrow(/outside the recording window/i);
+        expect(await evCount(db, g.s)).toBe(0);
+        expect(await finalizedAt(db, g.s)).toBeNull();
+
+        // (4) negative rejects
+        db = await makeDb();
+        g = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }], duration: 50 });
+        await act(db, USER);
+        await expect(finalizeRaw(db, g.s, [{ brief_point_id: g.pointIds[0], detected_at_seconds: -1 }])).rejects.toThrow(/outside the recording window/i);
+        expect(await evCount(db, g.s)).toBe(0);
+
+        // (5) mixed valid + invalid writes NOTHING (atomic)
+        db = await makeDb();
+        g = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }, { order: 1, required: true }], duration: 50 });
+        await act(db, USER);
+        await expect(finalizeRaw(db, g.s, [{ brief_point_id: g.pointIds[0], detected_at_seconds: 3 }, { brief_point_id: g.pointIds[1], detected_at_seconds: 999 }])).rejects.toThrow(/outside the recording window/i);
+        expect(await evCount(db, g.s)).toBe(0);
+        expect(await finalizedAt(db, g.s)).toBeNull();
+
+        // (6) after a rejection, a valid retry finalizes exactly once
+        const c = await finalize(db, USER, g.s, [detected(g.pointIds[0]), missing(g.pointIds[1])]);
+        expect(c).toBe(2);
+        expect(await finalizedAt(db, g.s)).not.toBeNull();
     });
 
     it('dispute-retry-idempotent: retrying a dispute on an already-abandoned action returns the current successor', async () => {

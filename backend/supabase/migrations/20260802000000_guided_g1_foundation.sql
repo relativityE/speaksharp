@@ -402,6 +402,21 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'session not found for owner' USING errcode = '42501'; END IF;
     v_predicate := v_session.detector_version;  -- the immutable predicate captured at session start.
 
+    -- ATOMIC payload validation FIRST, before any write: every supplied detected offset must fall within the
+    -- frozen authoritative recording window [0, actual_duration_seconds]. An out-of-range offset is a malformed
+    -- detector payload — reject the ENTIRE finalize (no evidence rows, no action, no finalized_at latch) so a
+    -- malformed/incomplete response is never silently discarded into a misleading verdict; a corrected retry can
+    -- then finalize normally. The bound is the PERSISTED duration, never a caller-supplied value.
+    IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(COALESCE(p_signals, '[]'::jsonb)) s
+        WHERE (s->>'detected_at_seconds') IS NOT NULL
+          AND ((s->>'detected_at_seconds')::int < 0
+               OR (s->>'detected_at_seconds')::int > v_session.actual_duration_seconds)
+    ) THEN
+        RAISE EXCEPTION 'malformed detector payload: a detected offset is outside the recording window [0, %]',
+            v_session.actual_duration_seconds USING errcode = '22023';
+    END IF;
+
     UPDATE public.guided_session SET finalized_at = now()
         WHERE id = p_session_id AND finalized_at IS NULL;
     IF FOUND THEN
@@ -416,16 +431,11 @@ BEGIN
             v_predicate,
             sig.detected_at_seconds
         FROM public.guided_brief_point bp
-        LEFT JOIN LATERAL (
+        LEFT JOIN LATERAL (  -- offsets are pre-validated in range above, so a present signal is a valid detection
             SELECT (s->>'detected_at_seconds')::int AS detected_at_seconds
             FROM jsonb_array_elements(COALESCE(p_signals, '[]'::jsonb)) s
             WHERE (s->>'brief_point_id')::uuid = bp.id
               AND (s->>'detected_at_seconds') IS NOT NULL
-              -- Offset must be within the authoritative recording window [0, duration]. An impossible offset
-              -- (negative, or after the recording ended) is NOT a valid detection — it is ignored so it cannot
-              -- manufacture a 'detected' verdict, suppress an unmet_required action, or violate the row CHECK.
-              AND (s->>'detected_at_seconds')::int >= 0
-              AND (s->>'detected_at_seconds')::int <= v_session.actual_duration_seconds
             LIMIT 1
         ) sig ON true
         WHERE bp.brief_id = v_session.brief_id;
