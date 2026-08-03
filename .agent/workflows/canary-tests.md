@@ -30,7 +30,7 @@ gh run view <RUN_ID> --log-failed
 ```
 
 ## GitHub Secrets Used
-- `CANARY_PASSWORD` - Password for `canary-user@example.com`
+- `CANARY_PASSWORD` - Password for the canary account configured in `vars.CANARY_EMAIL` (the workflow injects this identity at run time; there is no fixed/invented address — audit or recovery must target `vars.CANARY_EMAIL`)
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`
 
 ## Files

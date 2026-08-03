@@ -7,7 +7,12 @@ This evidence was captured against local `4173` using Chrome CDP on `9222`, real
 
 Signed-in account:
 
-- `stt-browser-proof-1779702930@example.com`
+> #1148/#1150 redaction: the run's ephemeral test identities are REDACTED (`[redacted-email]`). The prior
+> `…@example.com` substitutions named valid-looking accounts that never participated in this recorded run;
+> explicit redaction tokens replace them rather than another usable identity. Credentials/identities are
+> never retained in committed evidence.
+
+- `[redacted-email]`
 - Profile displayed as Pro.
 - Private and Cloud mode options were enabled after switching away from the stale browser account.
 
@@ -26,7 +31,7 @@ Input phrase:
 ## Findings
 
 1. The earlier Cloud failure was a test-account precondition, not an AssemblyAI/provider failure.
-   - The browser was still signed in as `v4journey.1779641988398@example.com`.
+   - The browser was still signed in as `[redacted-email]`.
    - That account showed a Pro badge but did not expose Cloud entitlement in the UI.
    - After signing in as the workflow-created Pro cloud-entitled account, Cloud mode became selectable and the token/websocket path worked.
 
