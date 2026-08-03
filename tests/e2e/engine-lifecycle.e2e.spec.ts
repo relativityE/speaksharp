@@ -115,6 +115,12 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await expect(option).not.toHaveAttribute('data-disabled', '');
   }
 
+  // #1120 S1 (PR #1155): Cloud is globally OFF + customer-invisible — the option is NOT rendered (never merely
+  // disabled). "Cannot use Cloud" is now proven by ABSENCE, not a disabled row.
+  async function expectModeAbsent(page: import('@playwright/test').Page, label: RegExp) {
+    await expect(page.getByRole('menuitemradio', { name: label })).toHaveCount(0);
+  }
+
   // SCENARIO 3: Access Control. The 60-minute Pro trial is retired; Private access for
   // free users now flows from the Private sample entitlement (one ≤5-min session) reported
   // by the usage-limit RPC. An available sample unlocks Private; Cloud stays Pro-only.
@@ -186,7 +192,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await openModeMenu(page);
 
     await expectModeEnabled(page, /Private/i);
-    await expectModeDisabled(page, /Cloud/i);
+    await expectModeAbsent(page, /Cloud/i);
   });
 
   test('Tier Control: free user with no available Private sample cannot use Private or Cloud', async ({ page }) => {
@@ -210,7 +216,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await openModeMenu(page);
 
     await expectModeDisabled(page, /Private/i);
-    await expectModeDisabled(page, /Cloud/i);
+    await expectModeAbsent(page, /Cloud/i);
   });
 
 });
