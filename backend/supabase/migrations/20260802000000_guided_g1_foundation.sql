@@ -393,6 +393,11 @@ DECLARE
     v_count integer;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
+    -- Re-check capability on every mutation: a server-revoked/deleted capability must immediately make Guided
+    -- unavailable, even for a session that was started while enabled (revocation is honored, not bypassed).
+    IF NOT public.has_guided_capability() THEN
+        RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
+    END IF;
     SELECT * INTO v_session FROM public.guided_session WHERE id = p_session_id AND user_id = v_uid;
     IF NOT FOUND THEN RAISE EXCEPTION 'session not found for owner' USING errcode = '42501'; END IF;
     v_predicate := v_session.detector_version;  -- the immutable predicate captured at session start.
@@ -445,6 +450,9 @@ DECLARE
     v_metric text;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
+    IF NOT public.has_guided_capability() THEN  -- revocation honored on every mutation
+        RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
+    END IF;
     -- FOR UPDATE serializes concurrent selection/dispute for this session: a racing caller blocks here until
     -- the first commits, then observes the active action below — so idempotency holds instead of one caller
     -- hitting the partial-unique-index violation.
@@ -523,10 +531,18 @@ DECLARE
     v_action public.guided_action%ROWTYPE;
 BEGIN
     IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
+    IF NOT public.has_guided_capability() THEN  -- revocation honored on every mutation
+        RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
+    END IF;
     SELECT * INTO v_action FROM public.guided_action WHERE id = p_action_id AND user_id = v_uid;
     IF NOT FOUND THEN RAISE EXCEPTION 'action not found for owner' USING errcode = '42501'; END IF;
     IF v_action.lifecycle <> 'active' THEN
         RAISE EXCEPTION 'action is not active' USING errcode = '55000';
+    END IF;
+    -- neutral_repeat is the TERMINAL fallback — there is nothing further to advance to, so disputing it would
+    -- loop (abandon → selector re-inserts an identical neutral). Reject it: only actionable kinds are disputable.
+    IF v_action.kind = 'neutral_repeat' THEN
+        RAISE EXCEPTION 'cannot dispute the terminal neutral action' USING errcode = '22023';
     END IF;
 
     INSERT INTO public.guided_action_dispute (action_id, user_id, disputed_brief_point_id)

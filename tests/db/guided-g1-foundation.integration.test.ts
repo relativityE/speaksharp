@@ -268,6 +268,33 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect(nextRow.target_brief_point_id).toBe(pointIds[1]);
     });
 
+    it('dispute-on-neutral-rejected: the terminal neutral action cannot be disputed (no infinite loop)', async () => {
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }] }); // no overtime, covered → neutral
+        await finalize(db, USER, s, [detected(pointIds[0])]);
+        const a = await getAction(db, await selectAction(db, USER, s));
+        expect(a.kind).toBe('neutral_repeat');
+        await act(db, USER);
+        await expect(
+            db.query(`SELECT public.guided_dispute_action_v1($1)`, [a.id]),
+        ).rejects.toThrow(/terminal neutral/i);
+        const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_action WHERE session_id=$1`, [s])).rows[0].n;
+        expect(Number(n)).toBe(1); // no runaway sequence of neutral actions
+    });
+
+    it('capability-revoked-mid-session: every mutating RPC fails closed after the server disables capability', async () => {
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
+        const action = await selectAction(db, USER, s);
+        // Server revokes capability AFTER the session started + has an active action.
+        await db.query(`UPDATE public.guided_account_capability SET enabled = false WHERE user_id = $1`, [USER]);
+        await act(db, USER);
+        await expect(db.query(`SELECT public.guided_finalize_evidence_v1($1,'[]'::jsonb)`, [s])).rejects.toThrow(/capability required/i);
+        await expect(db.query(`SELECT public.guided_select_action_v1($1)`, [s])).rejects.toThrow(/capability required/i);
+        await expect(db.query(`SELECT public.guided_dispute_action_v1($1)`, [action])).rejects.toThrow(/capability required/i);
+    });
+
     // ── SOURCE IDENTITY / DOMAIN ISOLATION ──
     it('Freestyle-cannot-attach-Guided: a source recording owned by another user is rejected', async () => {
         const db = await makeDb();
