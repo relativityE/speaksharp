@@ -11,12 +11,18 @@ const loadSessionProgress = vi.fn();
 vi.mock('@/services/progress/loadSessionProgress', () => ({ loadSessionProgress: (...a: unknown[]) => loadSessionProgress(...a) }));
 const recordRecommendationAttempt = vi.fn();
 const abandonRecommendationAttempt = vi.fn();
+const readPendingRecommendationAttempt = vi.fn();
 vi.mock('@/services/progress/recordProgress', () => ({
     recordRecommendationAttempt: (...a: unknown[]) => recordRecommendationAttempt(...a),
     abandonRecommendationAttempt: (...a: unknown[]) => abandonRecommendationAttempt(...a),
+    readPendingRecommendationAttempt: (...a: unknown[]) => readPendingRecommendationAttempt(...a),
 }));
 const setOpenAttempt = vi.fn();
-vi.mock('@/services/progress/openAttempt', () => ({ setOpenAttempt: (...a: unknown[]) => setOpenAttempt(...a) }));
+const clearOpenAttemptIfMatches = vi.fn();
+vi.mock('@/services/progress/openAttempt', () => ({
+    setOpenAttempt: (...a: unknown[]) => setOpenAttempt(...a),
+    clearOpenAttemptIfMatches: (...a: unknown[]) => clearOpenAttemptIfMatches(...a),
+}));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 import { ProgressPanel } from '../ProgressPanel';
 
@@ -35,7 +41,9 @@ function renderPanel() {
 beforeEach(() => {
     navigate.mockReset(); recordRecommendationAttempt.mockReset(); setOpenAttempt.mockReset();
     abandonRecommendationAttempt.mockReset(); loadSessionProgress.mockReset();
+    readPendingRecommendationAttempt.mockReset(); clearOpenAttemptIfMatches.mockReset();
     recordRecommendationAttempt.mockResolvedValue('att-1');
+    readPendingRecommendationAttempt.mockResolvedValue({ status: 'none' });
     setOpenAttempt.mockReturnValue(true);
     abandonRecommendationAttempt.mockResolvedValue(true);
 });
@@ -117,6 +125,30 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(navigate).not.toHaveBeenCalled();
     });
 
+    it('adopts one authoritative pending attempt after a lost acceptance response without creating again', async () => {
+        loadSessionProgress.mockResolvedValue(VIEW);
+        readPendingRecommendationAttempt
+            .mockResolvedValueOnce({ status: 'none' })
+            .mockResolvedValueOnce({ status: 'one', attemptId: 'att-committed' });
+        recordRecommendationAttempt.mockResolvedValueOnce(null);
+        renderPanel();
+        fireEvent.click(await screen.findByTestId('progress-accept'));
+        fireEvent.click(await screen.findByRole('button', { name: /Retry Practice this next/i }));
+        await waitFor(() => expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'att-committed' })));
+        expect(recordRecommendationAttempt).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledWith('/session');
+    });
+
+    it('fails closed when pending-attempt readback is ambiguous or unavailable', async () => {
+        loadSessionProgress.mockResolvedValue(VIEW);
+        readPendingRecommendationAttempt.mockResolvedValue({ status: 'blocked' });
+        renderPanel();
+        fireEvent.click(await screen.findByTestId('progress-accept'));
+        expect(await screen.findByRole('alert')).toHaveTextContent(/could not be linked/i);
+        expect(recordRecommendationAttempt).not.toHaveBeenCalled();
+        expect(navigate).not.toHaveBeenCalled();
+    });
+
     it('abandons a created attempt when local handoff fails and stays on review', async () => {
         loadSessionProgress.mockResolvedValue(VIEW);
         setOpenAttempt.mockReturnValue(false);
@@ -156,6 +188,7 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(screen.queryByTestId('progress-accept')).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: 'Close pending repeat' }));
         await waitFor(() => expect(abandonRecommendationAttempt).toHaveBeenCalledWith('att-orphan'));
+        expect(clearOpenAttemptIfMatches).toHaveBeenCalledWith('user-1', 'att-orphan');
         expect(recordRecommendationAttempt).not.toHaveBeenCalled();
         expect(await screen.findByTestId('progress-accept')).toBeTruthy();
     });
@@ -170,6 +203,7 @@ describe('#1047 U2 ProgressPanel', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Close pending repeat' }));
         expect(await screen.findByText(/New attempts remain blocked/i)).toBeTruthy();
         expect(recordRecommendationAttempt).not.toHaveBeenCalled();
+        expect(clearOpenAttemptIfMatches).not.toHaveBeenCalled();
         expect(screen.queryByTestId('progress-accept')).toBeNull();
     });
 });

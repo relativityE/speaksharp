@@ -80,6 +80,29 @@ export async function recordRecommendationAttempt(recommendationId: string): Pro
     return (data as string | null) ?? null;
 }
 
+export type PendingAttemptReadback =
+    | { status: 'none' }
+    | { status: 'one'; attemptId: string }
+    | { status: 'blocked' };
+
+/** Owner-scoped/RLS readback used before retrying acceptance after an uncertain RPC response. */
+export async function readPendingRecommendationAttempt(recommendationId: string): Promise<PendingAttemptReadback> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+        .from('progress_recommendation_attempts')
+        .select('id, recommendation_id, lifecycle')
+        .eq('recommendation_id', recommendationId)
+        .eq('lifecycle', 'pending')
+        .limit(2);
+    if (error || !data) return { status: 'blocked' };
+    const matches = (data as Array<{ id?: unknown; recommendation_id?: unknown; lifecycle?: unknown }>)
+        .filter((row) => typeof row.id === 'string'
+            && row.recommendation_id === recommendationId && row.lifecycle === 'pending');
+    if (matches.length === 0) return { status: 'none' };
+    if (matches.length !== 1) return { status: 'blocked' };
+    return { status: 'one', attemptId: matches[0].id as string };
+}
+
 /**
  * Advance an attempt through a validated lifecycle transition. The OUTCOME is never supplied by the client
  * — the RPC derives `moved`/`did_not_move` by comparing the recommendation's recorded source value against
@@ -118,6 +141,25 @@ async function advanceRecommendationAttemptResult(args: Parameters<typeof advanc
     const message = typeof error === 'object' && error && 'message' in error ? String(error.message) : '';
     const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
     const authoritativeMismatch = code === '22023' && message.includes('use not_comparable');
+    const alreadyTerminal = code === '22023' && message.includes('attempt already resolved');
+    if (alreadyTerminal) {
+        const { data: row, error: readError } = await supabase
+            .from('progress_recommendation_attempts')
+            .select('id, lifecycle, outcome, practice_session_id, next_comparable_session_id')
+            .eq('id', args.attemptId)
+            .maybeSingle();
+        if (!readError && row && row.id === args.attemptId) {
+            const practiceMatches = row.practice_session_id === (args.practiceSessionId ?? null);
+            const completed = row.lifecycle === 'completed'
+                && practiceMatches
+                && row.next_comparable_session_id === (args.nextComparableSessionId ?? null)
+                && (row.outcome === 'moved' || row.outcome === 'did_not_move');
+            const notComparable = row.lifecycle === 'not_comparable'
+                && practiceMatches && row.outcome === 'not_comparable';
+            const abandoned = row.lifecycle === 'abandoned';
+            if (completed || notComparable || abandoned) return { ok: true, outcome: String(row.outcome ?? row.lifecycle) };
+        }
+    }
     logger.warn({ error, attemptId: args.attemptId }, '[progress] advance_recommendation_attempt failed');
     return { ok: false, kind: authoritativeMismatch ? 'not_comparable' : 'technical' };
 }

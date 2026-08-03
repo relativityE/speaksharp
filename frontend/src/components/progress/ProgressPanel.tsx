@@ -6,8 +6,8 @@ import type { PracticeSession } from '@/types/session';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { PRACTICE_THIS_NEXT_LABEL } from '@/services/progress/progressPresentation';
-import { abandonRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
-import { setOpenAttempt } from '@/services/progress/openAttempt';
+import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
+import { clearOpenAttemptIfMatches, setOpenAttempt } from '@/services/progress/openAttempt';
 import logger from '@/lib/logger';
 
 const REASON_LABELS: Record<string, string> = {
@@ -47,7 +47,11 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         setActionError(null);
         setRetryBlocked(false);
         try {
-            const attemptId = await recordRecommendationAttempt(view.recommendationId);
+            const pending = await readPendingRecommendationAttempt(view.recommendationId);
+            if (pending.status === 'blocked') throw new Error('pending-attempt-readback-failed');
+            const attemptId = pending.status === 'one'
+                ? pending.attemptId
+                : await recordRecommendationAttempt(view.recommendationId);
             if (!attemptId) throw new Error('server-attempt-failed');
             const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: session.id });
             if (!handoffStored) {
@@ -73,6 +77,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         setActionError(null);
         const abandoned = await abandonRecommendationAttempt(attemptId);
         if (abandoned) {
+            if (userId) clearOpenAttemptIfMatches(userId, attemptId);
             await query.refetch();
         } else {
             setRetryBlocked(true);

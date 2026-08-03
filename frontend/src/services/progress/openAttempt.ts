@@ -42,3 +42,11 @@ export function clearOpenAttempt(): void {
     if (typeof localStorage === 'undefined') return;
     try { localStorage.removeItem(KEY); } catch { /* ignore */ }
 }
+
+/** Clear only the handoff this caller terminally closed; never erase a newer replacement binding. */
+export function clearOpenAttemptIfMatches(userId: string, attemptId: string): boolean {
+    const current = getOpenAttemptForUser(userId);
+    if (!current || current.attemptId !== attemptId) return false;
+    clearOpenAttempt();
+    return true;
+}

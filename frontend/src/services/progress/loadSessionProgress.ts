@@ -81,10 +81,32 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         references = data as EvalRow[];
     }
 
+    const chronology = new Map<string, number>();
+    if (referenceIds.length) {
+        const chronologyIds = [sessionId, ...referenceIds];
+        const { data, error } = await supabase
+            .from('sessions')
+            .select('id, created_at')
+            .in('id', chronologyIds);
+        if (error || !data) return { status: 'error', sessionId, message: 'Comparison chronology could not be verified.' };
+        const chronologyCounts = new Map<string, number>();
+        for (const row of data as Array<{ id: string; created_at: string | null }>) {
+            chronologyCounts.set(row.id, (chronologyCounts.get(row.id) ?? 0) + 1);
+            const timestamp = typeof row.created_at === 'string' ? Date.parse(row.created_at) : NaN;
+            if (Number.isFinite(timestamp)) chronology.set(row.id, timestamp);
+            else chronology.delete(row.id);
+        }
+        for (const [id, count] of chronologyCounts) {
+            if (count !== 1) chronology.delete(id); // ambiguous server rows fail closed
+        }
+    }
+
     // Persisted ids are authoritative, but incompatible references still fail closed before arithmetic.
     const validReference = (row: EvalRow, expectedId: string | null): boolean =>
         !!expectedId && row.session_id === expectedId && row.session_id !== sessionId
-        && row.eligible && row.cohort_key === currentRow.cohort_key;
+        && row.eligible && row.cohort_key === currentRow.cohort_key
+        && chronology.has(sessionId) && chronology.has(row.session_id)
+        && (chronology.get(row.session_id) as number) < (chronology.get(sessionId) as number);
     const referenceFor = (expectedId: string | null): EvalRow | null => {
         const matches = references.filter((row) => validReference(row, expectedId));
         return matches.length === 1 ? matches[0] : null;

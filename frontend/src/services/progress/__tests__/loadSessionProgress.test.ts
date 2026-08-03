@@ -9,6 +9,7 @@ let currentError: unknown = null;
 let currentSession: Record<string, unknown> | null = { created_at: '2026-08-03T12:00:00Z' };
 let priorSessions: Record<string, unknown>[] = [];
 let priorError: unknown = null;
+let chronologyRows: Record<string, unknown>[] = [];
 
 function query(table: string) {
     const state: { inMode: boolean } = { inMode: false };
@@ -27,7 +28,7 @@ function query(table: string) {
         return { data: attempt, error: null };
     };
     chain.then = (resolve: (value: unknown) => void) => resolve(table === 'sessions'
-        ? { data: priorSessions, error: priorError }
+        ? { data: state.inMode ? chronologyRows : priorSessions, error: priorError }
         : { data: state.inMode ? references : null, error: null });
     return chain;
 }
@@ -44,6 +45,11 @@ const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
     current = null; references = []; recommendation = { id: 'rec-default' }; recommendationError = null; attempt = null; currentError = null;
     currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; from.mockClear();
+    chronologyRows = [
+        { id: 's0', created_at: '2026-08-03T10:00:00Z' },
+        { id: 's1', created_at: '2026-08-03T11:00:00Z' },
+        { id: 's2', created_at: '2026-08-03T12:00:00Z' },
+    ];
 });
 
 describe('#1047 U2 loadSessionProgress', () => {
@@ -74,6 +80,33 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(view).toMatchObject({ status: 'eligible', comparison: 'previous' });
         if (view.status !== 'eligible') throw new Error('expected eligible');
         expect(view.direction).toMatchObject({ direction: 'improved', deltaPoints: 6 });
+    });
+
+    it.each([
+        ['future', '2026-08-03T13:00:00Z'],
+        ['equal-time', '2026-08-03T12:00:00Z'],
+    ])('rejects a %s persisted reference from comparison arithmetic', async (_label, created_at) => {
+        current = ev('s2', { baseline_session_id: 's1', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 10 })];
+        chronologyRows = [{ id: 's1', created_at }, { id: 's2', created_at: '2026-08-03T12:00:00Z' }];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction.deltaPoints).toBeNull();
+    });
+
+    it('does not let an invalid previous role influence a valid baseline', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0', { clarity_raw: 80 }), ev('s1', { clarity_raw: 10 })];
+        chronologyRows = [
+            { id: 's0', created_at: '2026-08-03T10:00:00Z' },
+            { id: 's1', created_at: '2026-08-03T13:00:00Z' },
+            { id: 's2', created_at: '2026-08-03T12:00:00Z' },
+        ];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction.deltaPoints).toBeNull();
     });
 
     it('renders an explicit restart when a stored baseline exists but no previous comparable session does', async () => {

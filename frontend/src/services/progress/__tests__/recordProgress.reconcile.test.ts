@@ -8,23 +8,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const rpc = vi.fn();
 // The evaluations SELECT used by the sweep (awaited) and by recommendation derivation (.maybeSingle()).
 let coveredRows: Array<{ session_id: string }> = [];
-const maybeSingle = vi.fn(async () => ({ data: { eligible: false }, error: null }));
-function makeChain() {
+let attemptReadback: Record<string, unknown> | null = null;
+let attemptReadError: unknown = null;
+const maybeSingle = vi.fn(async (table?: string) => table === 'progress_recommendation_attempts'
+    ? { data: attemptReadback, error: attemptReadError }
+    : { data: { eligible: false }, error: null });
+function makeChain(table: string) {
     const chain: Record<string, unknown> = {};
     chain.select = () => chain;
     chain.eq = () => chain;
-    chain.maybeSingle = maybeSingle;
+    chain.maybeSingle = () => maybeSingle(table);
     // Awaiting the chain (the sweep's list query) resolves to the covered rows.
     (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: coveredRows, error: null });
     return chain;
 }
-const from = vi.fn(() => makeChain());
+const from = vi.fn((table: string) => makeChain(table));
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ rpc, from }) }));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 
 import { reconcileProgressEvaluations, wireProgressEvaluationOnSave } from '../recordProgress';
 import { enqueueProgressReconcile, getQueuedSessionIdsForUser } from '../progressReconcileQueue';
-import { setOpenAttempt, getOpenAttemptForUser } from '../openAttempt';
+import { clearOpenAttemptIfMatches, setOpenAttempt, getOpenAttemptForUser } from '../openAttempt';
 
 const USER = 'user-1';
 const rpcNames = () => rpc.mock.calls.map((c) => c[0]);
@@ -35,6 +39,7 @@ beforeEach(() => {
     rpc.mockResolvedValue({ data: 'ok-id', error: null });
     from.mockClear(); maybeSingle.mockClear();
     coveredRows = [];
+    attemptReadback = null; attemptReadError = null;
 });
 
 describe('#1045 durable recovery — reconcileProgressEvaluations', () => {
@@ -86,6 +91,13 @@ describe('#1045 durable recovery — reconcileProgressEvaluations', () => {
 });
 
 describe('#1045 "Practice this next" loop closure', () => {
+    it('clears only the matching durable handoff after terminal abandonment', () => {
+        setOpenAttempt({ attemptId: 'att-new', userId: USER, sourceSessionId: 's-new' });
+        expect(clearOpenAttemptIfMatches(USER, 'att-old')).toBe(false);
+        expect(getOpenAttemptForUser(USER)?.attemptId).toBe('att-new');
+        expect(clearOpenAttemptIfMatches(USER, 'att-new')).toBe(true);
+        expect(getOpenAttemptForUser(USER)).toBeNull();
+    });
     it('resolves an open attempt against the next saved session and clears it', async () => {
         setOpenAttempt({ attemptId: 'att-1', userId: USER, sourceSessionId: 's-source' });
         // eval recorded, recommendation derivation no-ops (eligible:false), then the attempt is advanced.
@@ -167,5 +179,37 @@ describe('#1045 "Practice this next" loop closure', () => {
         expect(calls).toHaveLength(2);
         expect(calls[1][1]).toMatchObject({ p_lifecycle: 'not_comparable', p_practice_session_id: 's-next' });
         expect(getOpenAttemptForUser(USER)).toBeNull();
+    });
+
+    it('clears a durable binding after a lost successful response is verified terminal', async () => {
+        setOpenAttempt({ attemptId: 'att-committed', userId: USER, sourceSessionId: 's-source' });
+        attemptReadback = {
+            id: 'att-committed', lifecycle: 'completed', outcome: 'moved',
+            practice_session_id: 's-next', next_comparable_session_id: 's-next',
+        };
+        rpc.mockImplementation(async (name: string) => name === 'advance_recommendation_attempt'
+            ? { data: null, error: { code: '22023', message: 'attempt already resolved' } }
+            : { data: 'ok-id', error: null });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-next', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        expect(getOpenAttemptForUser(USER)).toBeNull();
+    });
+
+    it.each([
+        ['mismatched repeat', { id: 'att-committed', lifecycle: 'completed', outcome: 'moved', practice_session_id: 's-other', next_comparable_session_id: 's-other' }, null],
+        ['pending', { id: 'att-committed', lifecycle: 'pending', outcome: null, practice_session_id: null, next_comparable_session_id: null }, null],
+        ['missing', null, null],
+        ['read error', null, { message: 'offline' }],
+    ])('keeps the binding when already-terminal readback is %s', async (_label, row, readError) => {
+        setOpenAttempt({ attemptId: 'att-committed', userId: USER, sourceSessionId: 's-source' });
+        attemptReadback = row; attemptReadError = readError;
+        rpc.mockImplementation(async (name: string) => name === 'advance_recommendation_attempt'
+            ? { data: null, error: { code: '22023', message: 'attempt already resolved' } }
+            : { data: 'ok-id', error: null });
+        await wireProgressEvaluationOnSave({
+            sessionId: 's-next', status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId: USER,
+        });
+        expect(getOpenAttemptForUser(USER)).toMatchObject({ attemptId: 'att-committed', resolutionSessionId: 's-next' });
     });
 });
