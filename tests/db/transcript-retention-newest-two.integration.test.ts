@@ -19,7 +19,7 @@ const BOOTSTRAP_SQL = readFileSync(resolve(process.cwd(), 'tests', 'db', 'transc
 const M1131_SQL = readFileSync(resolve(MIGRATIONS, '20260801000000_sessions_transcript_state.sql'), 'utf8');
 const R1_SQL = readFileSync(resolve(MIGRATIONS, '20260803000000_transcript_retention_newest_two.sql'), 'utf8');
 
-const MUT_SIG = 'public.expire_transcripts_newest_two(uuid, integer, integer)';
+const MUT_SIG = 'public.expire_transcripts_newest_two(uuid, integer)';
 const PRED_SIG = 'public.transcript_sessions_to_expire(uuid)';
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
@@ -75,11 +75,25 @@ async function rows(db: PGlite, user_id: string) {
     );
     return r.rows;
 }
+// One call = one bounded batch = one (implicit) transaction. Returns content-free progress metadata.
 async function callMutation(db: PGlite, p_user_id: string | null, batch = 500) {
     const r = await db.query<{ result: Record<string, unknown> }>(
-        `SELECT public.expire_transcripts_newest_two($1, $2, $3) AS result`, [p_user_id, batch, 100000],
+        `SELECT public.expire_transcripts_newest_two($1, $2) AS result`, [p_user_id, batch],
     );
     return r.rows[0].result;
+}
+// Caller-driven drain: repeat one-batch calls (each its own transaction, locks released between) until
+// has_more is false. This is the caller's job — the function never loops internally.
+async function drainRetention(db: PGlite, p_user_id: string | null, batch: number) {
+    let calls = 0, expired = 0;
+    let res: Record<string, unknown>;
+    do {
+        res = await callMutation(db, p_user_id, batch);
+        calls++;
+        expired += Number(res.expired_count);
+        expect(Number(res.expired_count)).toBeLessThanOrEqual(batch); // one call <= requested batch size
+    } while (res.has_more);
+    return { calls, expired, last: res };
 }
 async function funcPriv(db: PGlite, role: string, sig: string) {
     const r = await db.query<{ ok: boolean }>(`SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok`, [role, sig]);
@@ -227,29 +241,57 @@ describe('#1117 R1 — state coherence, empty strings, contradictions', () => {
     });
 });
 
-describe('#1117 R1 — idempotency and bounded/interrupted batches', () => {
-    it('a second identical run changes nothing (idempotent)', async () => {
+describe('#1117 R1 — single-batch API: bounds, convergence, idempotency, exact boundary', () => {
+    it('one call expires at most p_batch_size rows and reports has_more (no internal loop)', async () => {
         const db = await freshDb();
         await addUser(db, USER_A);
-        for (let k = 1; k <= 5; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
-        const first = await callMutation(db, USER_A);
-        expect(first.expired_count).toBe(3);
-        const second = await callMutation(db, USER_A);
-        expect(second.expired_count).toBe(0);
-        expect(second.batches_executed).toBe(0);
+        // 4 transcript-bearing => 2 eligible (rank 3,4). batch=1 => each call expires exactly one.
+        for (let k = 1; k <= 4; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
+        const c1 = await callMutation(db, USER_A, 1);
+        expect(c1.expired_count).toBe(1);   // NOT 2 — the call did not loop internally
+        expect(c1.has_more).toBe(true);
+        const c2 = await callMutation(db, USER_A, 1);
+        expect(c2.expired_count).toBe(1);
+        expect(c2.has_more).toBe(false);     // work drained
+        expect((await rows(db, USER_A)).filter(x => x.transcript_state === 'available').length).toBe(2);
     });
 
-    it('tiny batches converge to newest-two and stay retry-safe', async () => {
+    it('separate subsequent calls converge to newest-two and are idempotent', async () => {
         const db = await freshDb();
         await addUser(db, USER_A);
         for (let k = 1; k <= 7; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
-        const res = await callMutation(db, USER_A, 1); // one row per batch
-        expect(res.expired_count).toBe(5);
-        expect(res.batches_executed).toBe(5);
-        const rs = await rows(db, USER_A);
-        expect(rs.filter(x => x.transcript_state === 'available').length).toBe(2);
-        // retry after "interruption": already-expired excluded, no further change.
-        expect((await callMutation(db, USER_A, 1)).expired_count).toBe(0);
+        const drain = await drainRetention(db, USER_A, 1); // caller repeats one-row batches
+        expect(drain.expired).toBe(5);
+        expect(drain.calls).toBe(5);
+        expect(drain.last.has_more).toBe(false);
+        expect((await rows(db, USER_A)).filter(x => x.transcript_state === 'available').length).toBe(2);
+        // retry after "interruption": already-expired excluded, no further change (idempotent).
+        const again = await callMutation(db, USER_A, 1);
+        expect(again.expired_count).toBe(0);
+        expect(again.has_more).toBe(false);
+    });
+
+    it('a full-size batch (default) drains in one call and a second call is a no-op', async () => {
+        const db = await freshDb();
+        await addUser(db, USER_A);
+        for (let k = 1; k <= 5; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
+        const first = await callMutation(db, USER_A); // batch 500 >> 3 eligible
+        expect(first.expired_count).toBe(3);
+        expect(first.has_more).toBe(false);
+        const second = await callMutation(db, USER_A);
+        expect(second.expired_count).toBe(0);
+        expect(second.has_more).toBe(false);
+    });
+
+    it('EXACT BOUNDARY: one eligible row with p_batch_size=1 succeeds', async () => {
+        const db = await freshDb();
+        await addUser(db, USER_A);
+        // 3 transcript-bearing => exactly ONE eligible (rank 3).
+        for (let k = 1; k <= 3; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
+        const res = await callMutation(db, USER_A, 1);
+        expect(res.expired_count).toBe(1);   // the single boundary row is expired, not skipped
+        expect(res.has_more).toBe(false);
+        expect((await rows(db, USER_A)).filter(x => x.transcript_state === 'available').length).toBe(2);
     });
 
     it('rejects out-of-bounds batch size (fail closed)', async () => {
@@ -257,6 +299,42 @@ describe('#1117 R1 — idempotency and bounded/interrupted batches', () => {
         await addUser(db, USER_A);
         await expect(callMutation(db, USER_A, 0)).rejects.toThrow(/p_batch_size/i);
         await expect(callMutation(db, USER_A, 99999)).rejects.toThrow(/p_batch_size/i);
+    });
+});
+
+describe('#1117 R1 — caller-armed timeout protocol (not internal self-arming)', () => {
+    it('caller arms statement/lock/idle timeouts BEFORE the batch call, in effect during it', async () => {
+        const db = await freshDb();
+        await addUser(db, USER_A);
+        for (let k = 1; k <= 3; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
+        // Caller protocol: one transaction, arm limits, issue the batch, commit (releasing locks).
+        await db.exec('BEGIN');
+        await db.exec(`SET LOCAL statement_timeout = '7s'`);
+        await db.exec(`SET LOCAL lock_timeout = '3s'`);
+        await db.exec(`SET LOCAL idle_in_transaction_session_timeout = '11s'`);
+        const eff = await db.query<{ s: string; l: string; i: string }>(
+            `SELECT current_setting('statement_timeout') s, current_setting('lock_timeout') l, current_setting('idle_in_transaction_session_timeout') i`);
+        const res = await db.query<{ r: Record<string, unknown> }>(
+            `SELECT public.expire_transcripts_newest_two($1, $2) AS r`, [USER_A, 500]);
+        await db.exec('COMMIT');
+        // The caller-armed limits govern the invoking statement.
+        expect(eff.rows[0].s).toBe('7s');
+        expect(eff.rows[0].l).toBe('3s');
+        expect(eff.rows[0].i).toBe('11s');
+        expect(res.rows[0].r.expired_count).toBe(1);
+    });
+
+    it('the mutation does NOT self-arm timeouts (an internal-only protection claim is false)', async () => {
+        const db = await freshDb();
+        await addUser(db, USER_A);
+        for (let k = 1; k <= 3; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: `t${k}` });
+        const before = await db.query<{ s: string }>(`SELECT current_setting('statement_timeout') s`);
+        await callMutation(db, USER_A);
+        const after = await db.query<{ s: string }>(`SELECT current_setting('statement_timeout') s`);
+        // The function neither leaks nor relies on an internal statement_timeout: value is unchanged and is
+        // NOT the old internal '2min' self-claim — so the caller (above) is what actually bounds the call.
+        expect(after.rows[0].s).toBe(before.rows[0].s);
+        expect(after.rows[0].s).not.toBe('2min');
     });
 });
 
@@ -340,7 +418,7 @@ describe('#1117 R1 — preservation & content-free evidence', () => {
         const SECRET = 'zzz-unique-transcript-marker-should-never-surface';
         for (let k = 1; k <= 3; k++) await addSession(db, { id: sid(k), user_id: USER_A, created_at: `2026-07-0${k}T10:00:00Z`, transcript: k === 1 ? SECRET : `t${k}` });
         const res = await callMutation(db, USER_A);
-        expect(Object.keys(res).sort()).toEqual(['batches_executed', 'expired_count', 'policy_version', 'scope']);
+        expect(Object.keys(res).sort()).toEqual(['expired_count', 'has_more', 'policy_version', 'scope']);
         expect(res.policy_version).toBe('newest_two_v1');
         expect(JSON.stringify(res)).not.toContain(SECRET);
     });

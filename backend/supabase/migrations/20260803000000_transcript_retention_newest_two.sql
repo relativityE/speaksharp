@@ -25,10 +25,27 @@
 -- scrub, and does not close #1117. R2 (future-save enforcement) and R3 (aggregate preflight) reuse the
 -- SAME versioned predicate and version marker defined here.
 --
+-- ONE CALL = ONE BOUNDED BATCH = ONE CALLER TRANSACTION. The mutation expires at most `p_batch_size` rows
+-- and returns content-free progress only (`expired_count`, `has_more`). There is NO internal multi-batch
+-- loop: the CALLER repeats the call in a NEW transaction while `has_more` is true, so each batch's row locks
+-- are released (at the caller's COMMIT) before the next batch begins — no lock/change accumulation.
+--
+-- CALLER-ARMED TIMEOUTS. A `statement_timeout` set INSIDE this function cannot bound the statement that
+-- invoked it (it only affects statements started afterward). The CALLER therefore arms the limits BEFORE
+-- issuing the batch call. Executable caller protocol (also exercised by the test suite):
+--     BEGIN;
+--       SET LOCAL statement_timeout = '120000';
+--       SET LOCAL lock_timeout = '5000';
+--       SET LOCAL idle_in_transaction_session_timeout = '120000';
+--       SELECT public.expire_transcripts_newest_two(:p_user_id, :p_batch_size);  -- one bounded batch
+--     COMMIT;                                                                     -- releases this batch's locks
+--     -- repeat, each in a NEW transaction, while (result ->> 'has_more')::boolean is true.
+-- This function does NOT self-arm timeouts and makes no such claim.
+--
 -- ---------------------------------------------------------------------------------------------------------
 -- PAIRED SOURCE ROLLBACK (schema/function reversal; the historical transcript deletion the mutation would
 -- perform is separately irreversible and has NO content backup — that is a later, separately-authorized op):
---   DROP FUNCTION IF EXISTS public.expire_transcripts_newest_two(uuid, integer, integer);
+--   DROP FUNCTION IF EXISTS public.expire_transcripts_newest_two(uuid, integer);
 --   DROP FUNCTION IF EXISTS public.transcript_retention_invariant_violations(uuid);
 --   DROP FUNCTION IF EXISTS public.transcript_sessions_to_expire(uuid);
 --   DROP FUNCTION IF EXISTS public.transcript_retention_policy_version();
@@ -88,17 +105,20 @@ AS $$
   WHERE (p_user_id IS NULL OR user_id = p_user_id)
 $$;
 
--- 4) THE single authorized retention mutation. Deterministic, idempotent, bounded, fail-closed.
+-- 4) THE single authorized retention mutation — ONE bounded batch per call. Deterministic, idempotent,
+--    fail-closed. NO internal loop: a call expires at most `p_batch_size` rows in the CALLER's transaction
+--    and returns content-free progress (`expired_count`, `has_more`). The caller repeats in a NEW
+--    transaction while `has_more`, so each batch's locks release before the next.
 --    * p_user_id NULL  -> all users (historical-foundation scope). Non-null -> one user (R2 per-save reuse).
 --    * Establishes `expired` past #1131's derivation trigger via a SESSION-SCOPED, superuser-only bypass
 --      (`session_replication_role = 'replica'`) around ONLY its bounded UPDATE — a path no client can call
 --      (EXECUTE revoked from PUBLIC; granted to service_role only) nor reproduce (setting the GUC is
 --      superuser-only). The CHECK constraints (incl. #1131's `expired`⇒NULL) remain enforced under replica.
---    * Never logs, returns or attaches transcript text; the JSON result is aggregate counts only.
+--    * Does NOT self-arm statement/lock/idle timeouts — the caller arms them BEFORE the call (see header).
+--    * Never logs, returns or attaches transcript text; the JSON result is aggregate counts/booleans only.
 CREATE OR REPLACE FUNCTION public.expire_transcripts_newest_two(
-  p_user_id     uuid DEFAULT NULL,
-  p_batch_size  integer DEFAULT 500,
-  p_max_batches integer DEFAULT 100000
+  p_user_id    uuid DEFAULT NULL,
+  p_batch_size integer DEFAULT 500
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -106,26 +126,15 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_viol        record;
-  v_expired     bigint := 0;
-  v_work_batches integer := 0;
-  v_guard       integer := 0;
-  v_affected    integer;
+  v_viol     record;
+  v_affected integer;
+  v_has_more boolean;
 BEGIN
-  -- Argument bounds (fail closed).
+  -- Argument bounds (fail closed). p_batch_size = 1 is the exact minimum boundary and MUST succeed.
   IF p_batch_size IS NULL OR p_batch_size <= 0 OR p_batch_size > 5000 THEN
     RAISE EXCEPTION 'expire_transcripts_newest_two: p_batch_size % out of bounds (1..5000)', p_batch_size
       USING ERRCODE = '22023';
   END IF;
-  IF p_max_batches IS NULL OR p_max_batches <= 0 THEN
-    RAISE EXCEPTION 'expire_transcripts_newest_two: p_max_batches % out of bounds', p_max_batches
-      USING ERRCODE = '22023';
-  END IF;
-
-  -- Bounded resource guards / explicit stop conditions.
-  PERFORM set_config('statement_timeout', '120000', true);
-  PERFORM set_config('lock_timeout', '5000', true);
-  PERFORM set_config('idle_in_transaction_session_timeout', '120000', true);
 
   -- Fail closed on any pre-existing contradiction in scope (reject empty-on-available / expired-with-text /
   -- not_captured-with-real-text / unknown state). Never scrub an inconsistent cohort.
@@ -139,45 +148,46 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
-  LOOP
-    v_guard := v_guard + 1;
-    IF v_guard > p_max_batches THEN
-      RAISE EXCEPTION 'expire_transcripts_newest_two: exceeded p_max_batches=% (stop condition)', p_max_batches
-        USING ERRCODE = '54000';
-    END IF;
+  -- ONE bounded batch: expire at most p_batch_size transcript-bearing rows ranked > 2 (newest-two retained).
+  -- Authorized, session-scoped trigger bypass for THIS write only, restored immediately after.
+  SET LOCAL session_replication_role = 'replica';
 
-    -- Authorized, session-scoped trigger bypass for THIS bounded write only, restored immediately after.
-    SET LOCAL session_replication_role = 'replica';
+  WITH ranked AS (
+    SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
+    FROM public.sessions
+    WHERE transcript IS NOT NULL
+      AND transcript ~ '[^[:space:]]'
+      AND (p_user_id IS NULL OR user_id = p_user_id)
+  ),
+  batch AS (
+    SELECT id FROM ranked WHERE rn > 2 ORDER BY id LIMIT p_batch_size
+  )
+  UPDATE public.sessions s
+  SET transcript = NULL,
+      transcript_state = 'expired'
+  WHERE s.id IN (SELECT id FROM batch);
+  GET DIAGNOSTICS v_affected = ROW_COUNT;
 
-    WITH ranked AS (
-      SELECT id, row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
+  SET LOCAL session_replication_role = 'origin';
+
+  -- Remaining-work indicator (content-free), computed AFTER this batch: any rank>2 transcript-bearing row
+  -- still left in scope? The caller repeats (new transaction) while true.
+  SELECT EXISTS (
+    SELECT 1 FROM (
+      SELECT row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
       FROM public.sessions
       WHERE transcript IS NOT NULL
         AND transcript ~ '[^[:space:]]'
         AND (p_user_id IS NULL OR user_id = p_user_id)
-    ),
-    batch AS (
-      SELECT id FROM ranked WHERE rn > 2 ORDER BY id LIMIT p_batch_size
-    )
-    UPDATE public.sessions s
-    SET transcript = NULL,
-        transcript_state = 'expired'
-    WHERE s.id IN (SELECT id FROM batch);
-    GET DIAGNOSTICS v_affected = ROW_COUNT;
-
-    SET LOCAL session_replication_role = 'origin';
-
-    EXIT WHEN v_affected = 0;
-    v_expired := v_expired + v_affected;
-    v_work_batches := v_work_batches + 1;
-  END LOOP;
+    ) r WHERE r.rn > 2
+  ) INTO v_has_more;
 
   -- Aggregate-only result. NEVER contains transcript text.
   RETURN jsonb_build_object(
     'policy_version', public.transcript_retention_policy_version(),
     'scope',          CASE WHEN p_user_id IS NULL THEN 'all_users' ELSE 'single_user' END,
-    'expired_count',  v_expired,
-    'batches_executed', v_work_batches
+    'expired_count',  v_affected,
+    'has_more',       v_has_more
   );
 END;
 $$;
@@ -188,9 +198,9 @@ $$;
 REVOKE ALL ON FUNCTION public.transcript_retention_policy_version()            FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.transcript_sessions_to_expire(uuid)             FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.transcript_retention_invariant_violations(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.expire_transcripts_newest_two(uuid, integer, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.expire_transcripts_newest_two(uuid, integer) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.transcript_retention_policy_version()            TO service_role;
 GRANT EXECUTE ON FUNCTION public.transcript_sessions_to_expire(uuid)             TO service_role;
 GRANT EXECUTE ON FUNCTION public.transcript_retention_invariant_violations(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.expire_transcripts_newest_two(uuid, integer, integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.expire_transcripts_newest_two(uuid, integer)    TO service_role;
