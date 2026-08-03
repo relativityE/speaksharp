@@ -115,7 +115,7 @@ async function screenshotMatrix(page: Page, surface: string): Promise<void> {
   }
 }
 
-async function installEligibleProgressTruth(page: Page): Promise<void> {
+function eligibleProgressTruth() {
   const current = {
     session_id: SESSION_ID,
     eligible: true,
@@ -127,43 +127,15 @@ async function installEligibleProgressTruth(page: Page): Promise<void> {
     cohort_key: 'private|v2|base|clarity_v1',
     baseline_session_id: REFERENCE_ID,
     previous_comparable_session_id: REFERENCE_ID,
+    formula_version: 'clarity_v1',
   };
   const reference = { ...current, session_id: REFERENCE_ID, clarity_raw: 82, filler_count: 7, wpm: 136,
     baseline_session_id: null, previous_comparable_session_id: null };
-
-  await page.route(/\/rest\/v1\/session_progress_evaluations(?:\?.*)?$/, async (route) => {
-    const url = new URL(route.request().url());
-    const ids = url.searchParams.get('session_id') ?? '';
-    const isReferenceRead = ids.startsWith('in.');
-    await route.fulfill({
-      status: 200,
-      contentType: isReferenceRead ? 'application/json' : 'application/vnd.pgrst.object+json',
-      body: JSON.stringify(isReferenceRead ? [reference] : current),
-    });
-  });
-  await page.route(/\/rest\/v1\/progress_recommendations(?:\?.*)?$/, (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/vnd.pgrst.object+json',
-    body: JSON.stringify({ id: 'recommendation-u3' }),
-  }));
-  await page.route(/\/rest\/v1\/progress_recommendation_attempts(?:\?.*)?$/, (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/vnd.pgrst.object+json',
-    body: 'null',
-  }));
-  await page.route(/\/rest\/v1\/sessions(?:\?.*)?$/, async (route) => {
-    const url = new URL(route.request().url());
-    const select = url.searchParams.get('select') ?? '';
-    if (!select.includes('created_at') || !select.includes('id')) return route.fallback();
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { id: REFERENCE_ID, created_at: '2025-01-15T09:00:00.000Z' },
-        { id: SESSION_ID, created_at: '2025-01-17T14:00:00.000Z' },
-      ]),
-    });
-  });
+  return {
+    evaluations: [current, reference],
+    recommendations: [{ id: 'recommendation-u3', source_session_id: SESSION_ID, formula_version: 'clarity_v1' }],
+    attempts: [],
+  };
 }
 
 async function extractPdfText(path: string): Promise<string> {
@@ -200,6 +172,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
 
     await programmaticLoginWithRoutes(page, {
       userType: 'free',
+      progressFixtures: eligibleProgressTruth(),
       sessions: [{
         id: SESSION_ID,
         user_id: 'test-user-123',
@@ -215,7 +188,6 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
         filler_words: { um: { count: 4 }, total: { count: 4 } },
       }],
     });
-    await installEligibleProgressTruth(page);
 
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible();
