@@ -25,6 +25,9 @@ async function assertNoOverflow(page: Page): Promise<void> {
 }
 
 async function assertAxe(page: Page): Promise<void> {
+  // Axe must inspect the settled product state, not a transient Framer opacity frame that blends text
+  // toward its background and reports a contrast ratio the user never rests on.
+  await page.waitForTimeout(600);
   const result = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
@@ -104,6 +107,7 @@ async function extractPdfText(path: string): Promise<string> {
 
 test.describe('#1047 U3 canonical cross-page truth', () => {
   test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await setupE2EMocks(page, { userType: 'free' });
     await goToApp(page, '/');
     await expect(page.getByTestId('practice-root')).toBeVisible();
@@ -113,6 +117,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
   });
 
   test('same saved session stays truthful across Practice, Session, History, Progress, Analytics and PDF', async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     const forbiddenCloudRequests: string[] = [];
     page.on('request', (request) => {
       if (/assemblyai|cloud[-_/]?token|realtime.*websocket|transcription\/token/i.test(request.url())) {
