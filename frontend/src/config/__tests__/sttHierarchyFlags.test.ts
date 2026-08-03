@@ -13,7 +13,7 @@ vi.mock('posthog-js', () => ({
 
 import {
     isPrivatePrimaryEnabled, isCloudSttEnabled, isCloudSttGloballyVisible,
-    resolveDefaultSttMode, STT_HIERARCHY_FLAG_KEY, CLOUD_STT_FLAG_KEY,
+    resolveDefaultSttMode, STT_HIERARCHY_FLAG_KEY,
 } from '../sttHierarchyFlags';
 
 describe('#1120 S1 sttHierarchyFlags', () => {
@@ -28,25 +28,25 @@ describe('#1120 S1 sttHierarchyFlags', () => {
         expect(isPrivatePrimaryEnabled()).toBe(false);
     });
 
-    it('Cloud gate is INDEPENDENT + fail-closed — never coupled to the hierarchy flag', () => {
-        // Hierarchy OFF must NOT grant Cloud (the bug: rollback re-enabling Cloud).
+    it('Cloud gate is the canonical VITE_CLOUD_STT_ENABLED exact-true env — fail-closed, independent of hierarchy', () => {
+        // Hierarchy OFF/ON must not affect Cloud (the bug: rollback re-enabling Cloud, or hierarchy hiding it).
         flags[STT_HIERARCHY_FLAG_KEY] = false;
+        vi.stubEnv('VITE_CLOUD_STT_ENABLED', 'false');
         expect(isCloudSttEnabled()).toBe(false);
         expect(isCloudSttGloballyVisible()).toBe(false);
-        // Cloud is on ONLY when its own flag is exactly true, regardless of hierarchy.
-        flags[CLOUD_STT_FLAG_KEY] = true;
+        vi.stubEnv('VITE_CLOUD_STT_ENABLED', 'true');
         expect(isCloudSttEnabled()).toBe(true);
         expect(isCloudSttGloballyVisible()).toBe(true);
-        // Hierarchy ON does not turn Cloud off if Cloud's own flag is on (fully decoupled).
-        flags[STT_HIERARCHY_FLAG_KEY] = true;
+        flags[STT_HIERARCHY_FLAG_KEY] = true; // hierarchy ON does not turn Cloud off
         expect(isCloudSttEnabled()).toBe(true);
+        vi.stubEnv('VITE_CLOUD_STT_ENABLED', 'yes'); // any non-"true" value → fail-closed
+        expect(isCloudSttEnabled()).toBe(false);
+        vi.unstubAllEnvs();
     });
 
-    it('a thrown PostHog read defaults everything OFF (fail-closed)', () => {
+    it('a thrown PostHog read defaults the hierarchy OFF (fail-closed)', () => {
         isFeatureEnabled.mockImplementationOnce(() => { throw new Error('not ready'); });
         expect(isPrivatePrimaryEnabled()).toBe(false);
-        isFeatureEnabled.mockImplementationOnce(() => { throw new Error('not ready'); });
-        expect(isCloudSttEnabled()).toBe(false);
     });
 
     it('resolveDefaultSttMode: Private only when the flag is ON AND the user can use Private', () => {

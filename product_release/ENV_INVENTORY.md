@@ -82,7 +82,7 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only). See `vali
 | `VITE_AUTH_TIMEOUT` | optional | A/B | Auth timeout ms. |
 | `VITE_ENABLE_INTERNAL_ROUTES` | **must be false/absent in prod** | B/E | Dev/internal routes gate. |
 | `VITE_STT_PRIVATE_PRIMARY_DISABLED` | optional | **B (Vercel only)** | #1120 S1 build-time HARD kill switch for the Private-primary STT hierarchy. `=== "true"` forces the hierarchy OFF (today's Browser-default behavior) regardless of the PostHog flag `stt_private_primary_v1`. Consumer: `frontend/src/config/sttHierarchyFlags.ts` (`isPrivatePrimaryEnabled`). Default unset → PostHog flag governs. |
-| `VITE_CLOUD_STT_DISABLED` | optional | **B (Vercel only)** | #1120 S1 build-time HARD kill switch for Cloud STT. `=== "true"` forces Cloud OFF regardless of the PostHog flag `cloud_stt_enabled`. Consumer: `sttHierarchyFlags.ts` (`isCloudSttEnabled`). Cloud is fail-closed: unset/absent flag → Cloud denied. |
+| `VITE_CLOUD_STT_ENABLED` | optional | **B (Vercel only)** | #1120 S1 **canonical, fail-closed** client Cloud gate. Cloud is DENIED unless this is exactly the string `"true"` (unset / any other value / SSR / read error → Cloud off). Consumer: `sttHierarchyFlags.ts` (`isCloudSttEnabled`, read at call time on every grant path). Mirrors the Edge `CLOUD_STT_ENABLED`; independent of the hierarchy flag. Default OFF = Cloud invisible + no provider token. |
 
 ### Dev/test-only `VITE_*` — MUST be unset/false in production
 `VITE_TEST_MODE`, `VITE_E2E_MODE`, `VITE_USE_MOCK_AUTH`, `VITE_ALLOW_MOCK_AUTH_IN_TESTS`,

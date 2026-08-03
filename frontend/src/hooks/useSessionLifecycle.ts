@@ -142,14 +142,16 @@ export const useSessionLifecycle = () => {
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
     // #1120 S1: instrument the applied default at most once per mount (adoption + A/B of the hierarchy flag).
     const defaultAppliedRef = useRef(false);
-    // #1120 S1 (review #1): don't latch the default until PostHog flags have loaded, so a cold session never
-    // persists a premature 'native' that then ignores the arriving cohort assignment. Ready immediately when
-    // there is nothing to wait for (SSR / PostHog absent, e.g. unit + E2E).
+    // #1120 S1 (review round-2 #1/#4): don't latch the default until PostHog flags have loaded (no premature
+    // persisted 'native'), and keep a PERSISTENT subscription for the whole mount. The first onFeatureFlags
+    // may carry cached/anonymous flags; a later AuthProvider identify() → reloadFeatureFlags() delivers the
+    // account-targeted assignment, which must still re-render (flag tick) so a default-owned mode re-latches
+    // to the authenticated user's Private assignment. Unsubscribe only on unmount — never on first-ready.
     const [sttFlagsReady, setSttFlagsReady] = useState<boolean>(() => sttFlagsReadyInitial());
+    const [, setFlagTick] = useState(0);
     useEffect(() => {
-        if (sttFlagsReady) return;
-        return onSttFlagsReady(() => setSttFlagsReady(true));
-    }, [sttFlagsReady]);
+        return onSttFlagsReady(() => { setSttFlagsReady(true); setFlagTick((t) => t + 1); });
+    }, []);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -781,6 +783,11 @@ export const useSessionLifecycle = () => {
 
         if (!profileReadyForStt) return;
         if (shouldPromoteNativeDefaultToPrivate) return;
+        // #1120 S1 (review round-2 #2): SAME-RENDER stale-Cloud prevention. A stored 'cloud' selection that the
+        // fail-closed gate denies must NEVER be warmed — warmUp('cloud') installs a Cloud-allowing policy and
+        // constructs the Cloud engine before the latch effect's store coercion lands. Skip warming a denied
+        // Cloud (the latch effect normalizes the store separately); the safe default is warmed once normalized.
+        if (sttMode === 'cloud' && !canUseCloudStt) return;
 
         if (sttMode && !isListening && warmUpTriggered.current !== sttMode) {
             warmUpTriggered.current = sttMode;
@@ -788,7 +795,7 @@ export const useSessionLifecycle = () => {
             logger.info(`[useSessionLifecycle] Mode set to ${sttMode} - triggering warm-up`);
             void speechRuntimeController.warmUp(sttMode);
         }
-    }, [effectiveMode, sttMode, isListening, profileReadyForStt, shouldPromoteNativeDefaultToPrivate]);
+    }, [effectiveMode, sttMode, isListening, profileReadyForStt, shouldPromoteNativeDefaultToPrivate, canUseCloudStt]);
 
     useEffect(() => {
         return () => {

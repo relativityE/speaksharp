@@ -66,29 +66,22 @@ export function resolveDefaultSttMode(privatePrimary: boolean, canUsePrivate: bo
   return privatePrimary && canUsePrivate ? 'private' : 'native';
 }
 
-/** PostHog flag key for the INDEPENDENT Cloud gate. Keep in sync with the PostHog project. */
-export const CLOUD_STT_FLAG_KEY = 'cloud_stt_enabled' as const;
-
-const CLOUD_HARD_DISABLED: boolean = (() => {
+/**
+ * #1120 S1 (review round-2): the CANONICAL, INDEPENDENT, FAIL-CLOSED Cloud gate — the build-time env
+ * `VITE_CLOUD_STT_ENABLED` compared EXACT-true, mirroring the Edge `CLOUD_STT_ENABLED`. Cloud is OFF unless
+ * this is exactly the string "true": SSR, unset, any other value, or a read error all deny Cloud (launch
+ * invariant — Cloud default-disabled unless separately authorized). Deliberately NOT coupled to the
+ * Private-primary hierarchy flag, so the hierarchy rollout/rollback never grants or revokes Cloud. Read at
+ * CALL TIME (not a module-load const) so it is evaluated at invocation on every grant path — client
+ * entitlement writers, the engine factory, and the token callback — and enforced independently at the Edge fn.
+ */
+export function isCloudSttEnabled(): boolean {
   try {
-    return import.meta.env.VITE_CLOUD_STT_DISABLED === 'true';
+    // Direct static access (no optional chaining) so Vite statically replaces it; try/catch guards SSR/missing.
+    return import.meta.env.VITE_CLOUD_STT_ENABLED === 'true';
   } catch {
     return false;
   }
-})();
-
-/**
- * #1120 S1 (review #3/#4/#5): the INDEPENDENT, FAIL-CLOSED Cloud gate. Cloud is OFF unless a dedicated flag
- * `cloud_stt_enabled` is EXACTLY true. It is deliberately NOT coupled to the Private-primary hierarchy flag —
- * the hierarchy rollout/rollback must never grant or revoke Cloud. Default OFF on SSR, hard-disable, an
- * unresolved/undefined flag, or any error, so "flag missing/OFF" denies Cloud (the launch invariant:
- * Cloud remains default-disabled unless separately authorized). Enforced at EVERY grant path (client entitlement
- * writers, engine factory) and independently at the Edge token function (`CLOUD_STT_ENABLED`).
- */
-export function isCloudSttEnabled(): boolean {
-  if (typeof window === 'undefined') return false;
-  if (CLOUD_HARD_DISABLED) return false;
-  return readFlag(CLOUD_STT_FLAG_KEY);
 }
 
 /** Cloud is visible/selectable to the customer ONLY when the independent Cloud gate is enabled. */

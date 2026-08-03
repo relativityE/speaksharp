@@ -192,7 +192,11 @@ export function buildPolicyForUser(
     options?: { allowCloud?: boolean }
 ): TranscriptionPolicy {
     const base = hasPrivateSttAccess ? PROD_PRO_POLICY : PROD_FREE_POLICY;
-    const allowCloud = hasPrivateSttAccess ? options?.allowCloud ?? base.allowCloud : false;
+    // #1120 S1 (review round-2): FAIL-CLOSED on an omitted allowCloud. Previously an omitted `options.allowCloud`
+    // fell back to `base.allowCloud` (true for Pro), so a caller that did not pass the gate silently allowed
+    // Cloud. Cloud is now allowed ONLY when it is EXPLICITLY true (and the user is Private-capable); undefined /
+    // false / any non-true value denies it, and resolveMode's `allowCloud` fallback can never reach 'cloud'.
+    const allowCloud = hasPrivateSttAccess && options?.allowCloud === true;
     const hasExplicitMode = uiMode !== undefined && uiMode !== null;
     const preferredMode = uiMode === 'cloud' && !allowCloud
         ? base.preferredMode
