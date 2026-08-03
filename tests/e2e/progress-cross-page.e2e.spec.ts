@@ -37,6 +37,31 @@ async function assertNoOverflow(page: Page): Promise<void> {
       viewport,
       document: document.documentElement.scrollWidth,
       body: document.body.scrollWidth,
+      scrollX: window.scrollX,
+      bodyChildren: Array.from(document.body.children).map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          id: element.id,
+          className: typeof element.className === 'string' ? element.className.slice(0, 200) : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          overflowX: getComputedStyle(element).overflowX,
+        };
+      }),
+      carousels: Array.from(document.querySelectorAll<HTMLElement>('[aria-roledescription="carousel"]')).map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          className: element.className,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          overflowX: getComputedStyle(element).overflowX,
+        };
+      }),
       offenders,
     };
   });
