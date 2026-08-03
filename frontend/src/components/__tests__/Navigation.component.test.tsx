@@ -401,7 +401,7 @@ describe('Navigation', () => {
             ['/analytics/session-42', 'Analytics'],
         ])('marks exactly one item current in the mobile nav on %s', (route, expectedLabel) => {
             // The mobile bar is the ONLY bar a mobile screen reader sees: the desktop nav is
-            // `hidden md:flex`, i.e. display:none there, which drops it from the a11y tree.
+            // `hidden lg:flex`, i.e. display:none there, which drops it from the a11y tree.
             // (The session routes are excluded because the bottom bar is suppressed there.)
             authed();
             renderNavigation(route);

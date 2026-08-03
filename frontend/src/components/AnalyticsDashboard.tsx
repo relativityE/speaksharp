@@ -1245,8 +1245,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 ))
                                 }
                             </CarouselContent>
-                            <CarouselPrevious className="hidden sm:inline-flex" />
-                            <CarouselNext className="hidden sm:inline-flex" />
+                            <CarouselPrevious className="hidden lg:inline-flex" />
+                            <CarouselNext className="hidden lg:inline-flex" />
                         </Carousel>
                         {/* Carousel Indicators */}
                         <div className="flex justify-center gap-2 py-1">

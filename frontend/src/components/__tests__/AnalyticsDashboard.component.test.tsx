@@ -109,10 +109,10 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
     });
 
-    it('keeps outside carousel arrows out of the mobile viewport while retaining them at sm+', () => {
+    it('keeps outside carousel arrows out of compact viewports while retaining them at lg+', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
-        expect(screen.getByRole('button', { name: 'Previous slide' })).toHaveClass('hidden', 'sm:inline-flex');
-        expect(screen.getByRole('button', { name: 'Next slide' })).toHaveClass('hidden', 'sm:inline-flex');
+        expect(screen.getByRole('button', { name: 'Previous slide' })).toHaveClass('hidden', 'lg:inline-flex');
+        expect(screen.getByRole('button', { name: 'Next slide' })).toHaveClass('hidden', 'lg:inline-flex');
     });
 
     it('should render error display when error occurs', () => {
