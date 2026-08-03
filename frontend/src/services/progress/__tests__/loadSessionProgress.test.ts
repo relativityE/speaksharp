@@ -1,57 +1,202 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// A flexible supabase mock: the evaluations list query is awaited; the recommendation query uses maybeSingle.
-let evalRows: unknown[] = [];
-let recRow: unknown = null;
-const maybeSingle = vi.fn(async () => ({ data: recRow, error: null }));
-function chain(kind: 'evals' | 'rec') {
-    const c: Record<string, unknown> = {};
-    c.select = () => c; c.eq = () => c; c.maybeSingle = maybeSingle;
-    (c as { then?: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: evalRows, error: null });
-    return kind === 'rec' ? { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle }) }) }) } : c;
-}
-const from = vi.fn((table: string) => chain(table === 'progress_recommendations' ? 'rec' : 'evals'));
-vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from }) }));
-vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
+let current: Record<string, unknown> | null = null;
+let references: Record<string, unknown>[] = [];
+let recommendation: Record<string, unknown> | null = null;
+let recommendationError: unknown = null;
+let attempt: Record<string, unknown> | null = null;
+let currentError: unknown = null;
+let currentSession: Record<string, unknown> | null = { created_at: '2026-08-03T12:00:00Z' };
+let priorSessions: Record<string, unknown>[] = [];
+let priorError: unknown = null;
+let chronologyRows: Record<string, unknown>[] = [];
 
+function query(table: string) {
+    const state: { inMode: boolean } = { inMode: false };
+    const chain: Record<string, unknown> = {};
+    chain.select = () => chain;
+    chain.eq = () => chain;
+    chain.neq = () => chain;
+    chain.lt = () => chain;
+    chain.in = () => { state.inMode = true; return chain; };
+    chain.order = () => chain;
+    chain.limit = () => chain;
+    chain.maybeSingle = async () => {
+        if (table === 'session_progress_evaluations') return { data: current, error: currentError };
+        if (table === 'progress_recommendations') return { data: recommendation, error: recommendationError };
+        if (table === 'sessions') return { data: currentSession, error: priorError };
+        return { data: attempt, error: null };
+    };
+    chain.then = (resolve: (value: unknown) => void) => resolve(table === 'sessions'
+        ? { data: state.inMode ? chronologyRows : priorSessions, error: priorError }
+        : { data: state.inMode ? references : null, error: null });
+    return chain;
+}
+const from = vi.fn((table: string) => query(table));
+const rpc = vi.fn();
+vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from, rpc }) }));
 import { loadSessionProgress } from '../loadSessionProgress';
 
 const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
-    session_id, eligible: true, clarity_raw: 90, filler_count: 3, wpm: 140, word_count: 200,
-    cohort_key: 'private|v2|base|clarity_v1', ...over,
+    session_id, eligible: true, exclusion_reasons: [], clarity_raw: 90, filler_count: 3, wpm: 140,
+    word_count: 200, cohort_key: 'private|v2|base|clarity_v1', baseline_session_id: null,
+    previous_comparable_session_id: null, ...over,
 });
-const times = {
-    s0: '2026-07-01T00:00:00Z', s1: '2026-07-10T00:00:00Z', s2: '2026-07-20T00:00:00Z',
-};
 
-beforeEach(() => { evalRows = []; recRow = null; from.mockClear(); maybeSingle.mockClear(); });
+beforeEach(() => {
+    current = null; references = []; recommendation = { id: 'rec-default' }; recommendationError = null; attempt = null; currentError = null;
+    currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; from.mockClear();
+    chronologyRows = [
+        { id: 's0', created_at: '2026-08-03T10:00:00Z' },
+        { id: 's1', created_at: '2026-08-03T11:00:00Z' },
+        { id: 's2', created_at: '2026-08-03T12:00:00Z' },
+    ];
+    rpc.mockReset();
+    rpc.mockImplementation(async (name: string) => {
+        if (name === 'record_progress_recommendation') recommendation = { id: 'rec-recovered' };
+        return { data: 'rec-recovered', error: null };
+    });
+});
 
-describe('#1045 loadSessionProgress', () => {
-    it('returns null when the session has no eligible evaluation (incl. tables absent)', async () => {
-        evalRows = [ev('s2', { eligible: false })];
-        expect(await loadSessionProgress('s2', times)).toBeNull();
+describe('#1047 U2 loadSessionProgress', () => {
+    it('distinguishes missing evaluation, ineligible evidence, and query failure', async () => {
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'insufficient' });
+        current = ev('s2', { eligible: false, exclusion_reasons: ['too_few_words'] });
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'ineligible', reasons: ['too_few_words'] });
+        currentError = { message: 'offline' };
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error' });
     });
 
-    it('picks baseline (oldest) and previous (newest prior) by persisted created_at within the cohort', async () => {
-        evalRows = [ev('s0', { clarity_raw: 80 }), ev('s1', { clarity_raw: 84 }), ev('s2', { clarity_raw: 90 })];
-        recRow = { id: 'rec-2' };
-        const view = await loadSessionProgress('s2', times);
-        expect(view).not.toBeNull();
-        // s2 (90) vs baseline s0 (80) = +10 -> improved, above the 3-pt threshold.
-        expect(view!.direction.direction).toBe('improved');
-        expect(view!.recommendationId).toBe('rec-2');
-        // Exactly two takeaways present.
-        expect(view!.takeaways.whatWorked.length).toBeGreaterThan(0);
-        expect(view!.takeaways.practiceThisNext.length).toBeGreaterThan(0);
+    it('uses persisted baseline/previous references without client history', async () => {
+        current = ev('s2', { clarity_raw: 90, baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 84 }), ev('s0', { clarity_raw: 80 })];
+        recommendation = { id: 'rec-2' };
+        const view = await loadSessionProgress('s2');
+        expect(view.status).toBe('eligible');
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction.direction).toBe('improved');
+        expect(view.comparison).toBe('previous');
+        expect(view.recommendationId).toBe('rec-2');
     });
 
-    it('excludes a different-cohort prior session from the comparison', async () => {
-        evalRows = [
-            ev('s0', { clarity_raw: 40, cohort_key: 'OTHER' }), // different cohort — must be ignored
-            ev('s2', { clarity_raw: 90 }),
+    it('uses the sole prior evaluation as both baseline and previous on the first comparison', async () => {
+        current = ev('s2', { clarity_raw: 90, baseline_session_id: 's1', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 84 })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'previous' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction).toMatchObject({ direction: 'improved', deltaPoints: 6 });
+    });
+
+    it.each([
+        ['future', '2026-08-03T13:00:00Z'],
+        ['equal-time', '2026-08-03T12:00:00Z'],
+    ])('rejects a %s persisted reference from comparison arithmetic', async (_label, created_at) => {
+        current = ev('s2', { baseline_session_id: 's1', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 10 })];
+        chronologyRows = [{ id: 's1', created_at }, { id: 's2', created_at: '2026-08-03T12:00:00Z' }];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction.deltaPoints).toBeNull();
+    });
+
+    it('does not let an invalid previous role influence a valid baseline', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0', { clarity_raw: 80 }), ev('s1', { clarity_raw: 10 })];
+        chronologyRows = [
+            { id: 's0', created_at: '2026-08-03T10:00:00Z' },
+            { id: 's1', created_at: '2026-08-03T13:00:00Z' },
+            { id: 's2', created_at: '2026-08-03T12:00:00Z' },
         ];
-        const view = await loadSessionProgress('s2', times);
-        // No same-cohort prior -> baseline established, not a fabricated comparison.
-        expect(view!.direction.direction).toBe('baseline');
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction.deltaPoints).toBeNull();
+    });
+
+    it('renders an explicit restart when a stored baseline exists but no previous comparable session does', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: null });
+        references = [ev('s0', { cohort_key: 'older-cohort' })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        const eligible = view as Extract<typeof view, { status: 'eligible' }>;
+        expect(eligible.direction.text).toMatch(/restarted/i);
+    });
+
+    it('never compares an incompatible cohort even when a malformed stored reference names it', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0', { clarity_raw: 10, cohort_key: 'other' }), ev('s1', { clarity_raw: 20, cohort_key: 'other' })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        const eligible = view as Extract<typeof view, { status: 'eligible' }>;
+        expect(eligible.direction.deltaPoints).toBeNull();
+    });
+
+    it.each([
+        ['missing', []],
+        ['ineligible', [ev('s0', { eligible: false })]],
+        ['self', [ev('s2')]],
+        ['ambiguous', [ev('s0'), ev('s0')]],
+    ])('fails closed for a %s persisted comparison reference', async (_label, rows) => {
+        current = ev('s2', {
+            baseline_session_id: _label === 'self' ? 's2' : 's0',
+            previous_comparable_session_id: _label === 'ambiguous' ? 's0' : 's1',
+        });
+        references = rows;
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        const eligible = view as Extract<typeof view, { status: 'eligible' }>;
+        expect(eligible.direction.deltaPoints).toBeNull();
+    });
+
+    it('distinguishes first-ever baseline from a persisted prior different-cohort session', async () => {
+        current = ev('s2');
+        priorSessions = [];
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'eligible', comparison: 'baseline' });
+        priorSessions = [{ id: 's-earlier' }];
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+    });
+
+    it('fails closed when server chronology cannot be verified', async () => {
+        current = ev('s2');
+        priorError = { message: 'offline' };
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error', message: expect.stringMatching(/history/) });
+    });
+
+    it('does not synthesize coaching when the server recommendation is missing', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0'), ev('s1')];
+        recommendation = null;
+        rpc.mockResolvedValue({ data: null, error: { message: 'offline' } });
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'unavailable' });
+        recommendationError = { message: 'offline' };
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error' });
+    });
+
+    it('recovers a missing recommendation by authoritative readback without duplicating on retry', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0'), ev('s1')];
+        recommendation = null;
+        // The server committed but the RPC response was lost. Reconciliation must trust the row readback.
+        rpc.mockImplementationOnce(async () => {
+            recommendation = { id: 'rec-after-lost-success' };
+            return { data: null, error: { message: 'connection reset after commit' } };
+        });
+        expect(await loadSessionProgress('s2')).toMatchObject({
+            status: 'eligible', recommendationId: 'rec-after-lost-success',
+        });
+        expect(await loadSessionProgress('s2')).toMatchObject({
+            status: 'eligible', recommendationId: 'rec-after-lost-success',
+        });
+        expect(rpc.mock.calls.filter(([name]) => name === 'record_progress_recommendation')).toHaveLength(1);
+    });
+
+    it('exposes the latest stored attempt outcome', async () => {
+        current = ev('s2');
+        recommendation = { id: 'rec-2' };
+        attempt = { id: 'att-2', lifecycle: 'completed', outcome: 'moved' };
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', latestAttempt: { id: 'att-2', lifecycle: 'completed', outcome: 'moved' } });
     });
 });

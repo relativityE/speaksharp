@@ -12,12 +12,19 @@ export interface OpenAttempt {
     userId: string;
     /** The session the recommendation was shown on — for observability only; comparability is server-side. */
     sourceSessionId: string;
+    /** Once resolution starts, retries remain durably bound to this exact repeat session. */
+    resolutionSessionId?: string;
 }
 
-export function setOpenAttempt(a: OpenAttempt): void {
-    if (typeof localStorage === 'undefined') return;
-    try { localStorage.setItem(KEY, JSON.stringify(a)); }
-    catch (err) { logger.warn({ err }, '[progress] open-attempt write failed'); }
+export function setOpenAttempt(a: OpenAttempt): boolean {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        localStorage.setItem(KEY, JSON.stringify(a));
+        return localStorage.getItem(KEY) === JSON.stringify(a);
+    } catch (err) {
+        logger.warn({ err }, '[progress] open-attempt write failed');
+        return false;
+    }
 }
 
 export function getOpenAttemptForUser(userId: string): OpenAttempt | null {
@@ -34,4 +41,19 @@ export function getOpenAttemptForUser(userId: string): OpenAttempt | null {
 export function clearOpenAttempt(): void {
     if (typeof localStorage === 'undefined') return;
     try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+}
+
+/** Clear only the handoff this caller terminally closed; never erase a newer replacement binding. */
+export function clearOpenAttemptIfMatches(userId: string, attemptId: string): boolean {
+    const current = getOpenAttemptForUser(userId);
+    if (!current || current.attemptId !== attemptId) return false;
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        localStorage.removeItem(KEY);
+        // Only claim success after authoritative browser-storage readback proves absence.
+        return localStorage.getItem(KEY) === null;
+    } catch (err) {
+        logger.warn({ err, attemptId }, '[progress] matching open-attempt clear failed');
+        return false;
+    }
 }

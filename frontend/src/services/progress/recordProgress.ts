@@ -19,7 +19,7 @@ import {
     getQueuedSessionIdsForUser,
     clearProgressReconcileEntry,
 } from './progressReconcileQueue';
-import { getOpenAttemptForUser, clearOpenAttempt } from './openAttempt';
+import { getOpenAttemptForUser, clearOpenAttempt, setOpenAttempt } from './openAttempt';
 
 /** A minimal view of a persisted session — the fields the on-load reconciler needs. */
 export interface ReconcilableSession {
@@ -80,6 +80,29 @@ export async function recordRecommendationAttempt(recommendationId: string): Pro
     return (data as string | null) ?? null;
 }
 
+export type PendingAttemptReadback =
+    | { status: 'none' }
+    | { status: 'one'; attemptId: string }
+    | { status: 'blocked' };
+
+/** Owner-scoped/RLS readback used before retrying acceptance after an uncertain RPC response. */
+export async function readPendingRecommendationAttempt(recommendationId: string): Promise<PendingAttemptReadback> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+        .from('progress_recommendation_attempts')
+        .select('id, recommendation_id, lifecycle')
+        .eq('recommendation_id', recommendationId)
+        .eq('lifecycle', 'pending')
+        .limit(2);
+    if (error || !data) return { status: 'blocked' };
+    const matches = (data as Array<{ id?: unknown; recommendation_id?: unknown; lifecycle?: unknown }>)
+        .filter((row) => typeof row.id === 'string'
+            && row.recommendation_id === recommendationId && row.lifecycle === 'pending');
+    if (matches.length === 0) return { status: 'none' };
+    if (matches.length !== 1) return { status: 'blocked' };
+    return { status: 'one', attemptId: matches[0].id as string };
+}
+
 /**
  * Advance an attempt through a validated lifecycle transition. The OUTCOME is never supplied by the client
  * — the RPC derives `moved`/`did_not_move` by comparing the recommendation's recorded source value against
@@ -100,6 +123,51 @@ export async function advanceRecommendationAttempt(args: {
     });
     if (error) { logger.warn({ error }, '[progress] advance_recommendation_attempt failed'); return null; }
     return (data as string | null) ?? null;
+}
+
+type AttemptAdvanceResult =
+    | { ok: true; outcome: string }
+    | { ok: false; kind: 'not_comparable' | 'technical' };
+
+async function advanceRecommendationAttemptResult(args: Parameters<typeof advanceRecommendationAttempt>[0]): Promise<AttemptAdvanceResult> {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('advance_recommendation_attempt', {
+        p_attempt_id: args.attemptId,
+        p_lifecycle: args.lifecycle,
+        p_practice_session_id: args.practiceSessionId ?? null,
+        p_next_comparable_session_id: args.nextComparableSessionId ?? null,
+    });
+    if (!error && data) return { ok: true, outcome: data as string };
+    const message = typeof error === 'object' && error && 'message' in error ? String(error.message) : '';
+    const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    const authoritativeMismatch = code === '22023' && message.includes('use not_comparable');
+    const alreadyTerminal = code === '22023' && message.includes('attempt already resolved');
+    if (alreadyTerminal) {
+        const { data: row, error: readError } = await supabase
+            .from('progress_recommendation_attempts')
+            .select('id, lifecycle, outcome, practice_session_id, next_comparable_session_id')
+            .eq('id', args.attemptId)
+            .maybeSingle();
+        if (!readError && row && row.id === args.attemptId) {
+            const practiceMatches = row.practice_session_id === (args.practiceSessionId ?? null);
+            const completed = row.lifecycle === 'completed'
+                && practiceMatches
+                && row.next_comparable_session_id === (args.nextComparableSessionId ?? null)
+                && (row.outcome === 'moved' || row.outcome === 'did_not_move');
+            const notComparable = row.lifecycle === 'not_comparable'
+                && practiceMatches && row.outcome === 'not_comparable';
+            const abandoned = row.lifecycle === 'abandoned';
+            if (completed || notComparable || abandoned) return { ok: true, outcome: String(row.outcome ?? row.lifecycle) };
+        }
+    }
+    logger.warn({ error, attemptId: args.attemptId }, '[progress] advance_recommendation_attempt failed');
+    return { ok: false, kind: authoritativeMismatch ? 'not_comparable' : 'technical' };
+}
+
+/** Terminally abandon a server attempt when its local handoff could not be established. */
+export async function abandonRecommendationAttempt(attemptId: string): Promise<boolean> {
+    const result = await advanceRecommendationAttemptResult({ attemptId, lifecycle: 'abandoned' });
+    return result.ok;
 }
 
 /** #1033 attribution reaches a TERMINAL state at `verified` or `unverified` (`pending` is not terminal). */
@@ -127,15 +195,33 @@ async function recordProgressEvaluationWithRetry(sessionId: string, attempts = 3
  * `buildTakeaways`; the SOURCE metric value is derived server-side by the RPC. No-op when the evaluation
  * is missing or ineligible (an ineligible session has no comparison and no action to record).
  */
-async function recordRecommendationForEvaluation(sessionId: string): Promise<void> {
+export async function reconcileProgressRecommendation(sessionId: string): Promise<string | null> {
     const supabase = getSupabaseClient();
+    const readExisting = async (): Promise<string | null> => {
+        const { data, error } = await supabase
+            .from('progress_recommendations')
+            .select('id')
+            .eq('source_session_id', sessionId)
+            .eq('formula_version', PROGRESS_FORMULA_VERSION)
+            .maybeSingle();
+        if (error) return null;
+        return typeof (data as { id?: unknown } | null)?.id === 'string'
+            ? (data as { id: string }).id
+            : null;
+    };
+
+    // Avoid a duplicate write on ordinary retries. The RPC also enforces uniqueness, so a concurrent
+    // creator remains safe; the final readback is the authority for both normal and lost-success replies.
+    const existingId = await readExisting();
+    if (existingId) return existingId;
+
     const { data, error } = await supabase
         .from('session_progress_evaluations')
         .select('eligible, word_count, filler_count, wpm, clarity_raw, cohort_key, engine, engine_version, model_name, attribution_status')
         .eq('session_id', sessionId)
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
-    if (error || !data || !data.eligible) return;
+    if (error || !data || !data.eligible) return null;
 
     const current: ProgressEvaluation = {
         sessionId,
@@ -167,6 +253,11 @@ async function recordRecommendationForEvaluation(sessionId: string): Promise<voi
         targetUnits: target.units,
         shownText: practiceThisNext,
     });
+    return readExisting();
+}
+
+async function recordRecommendationForEvaluation(sessionId: string): Promise<void> {
+    await reconcileProgressRecommendation(sessionId);
 }
 
 /**
@@ -210,22 +301,28 @@ export async function wireProgressEvaluationOnSave(ctx: {
 async function resolveOpenAttemptWith(userId: string, newSessionId: string): Promise<void> {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
-    const outcome = await advanceRecommendationAttempt({
+    const resolutionSessionId = open.resolutionSessionId ?? newSessionId;
+    if (!open.resolutionSessionId && !setOpenAttempt({ ...open, resolutionSessionId })) {
+        logger.warn({ attemptId: open.attemptId, resolutionSessionId }, '[progress] resolution binding could not be persisted');
+        return;
+    }
+    const result = await advanceRecommendationAttemptResult({
         attemptId: open.attemptId,
         lifecycle: 'completed',
-        practiceSessionId: newSessionId,
-        nextComparableSessionId: newSessionId,
+        practiceSessionId: resolutionSessionId,
+        nextComparableSessionId: resolutionSessionId,
     });
-    if (!outcome) {
-        // Not an eligible, same-cohort comparison (or a transient error) — record it as not_comparable,
-        // still associating the practice session the user actually did.
-        await advanceRecommendationAttempt({
+    if (!result.ok && result.kind === 'not_comparable') {
+        const terminal = await advanceRecommendationAttemptResult({
             attemptId: open.attemptId,
             lifecycle: 'not_comparable',
-            practiceSessionId: newSessionId,
+            practiceSessionId: resolutionSessionId,
         });
+        if (terminal.ok) clearOpenAttempt();
+        return;
     }
-    clearOpenAttempt();
+    // Technical/storage/network failure remains pending and retryable; never falsify it as a speaking result.
+    if (result.ok) clearOpenAttempt();
 }
 
 /**
@@ -244,6 +341,10 @@ export async function reconcileProgressEvaluations(
 ): Promise<{ queueDrained: number; swept: number }> {
     let queueDrained = 0;
     let swept = 0;
+
+    // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
+    const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
+    if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
     // ── Layer 1: drain the durable queue for this user. ──
     for (const sessionId of getQueuedSessionIdsForUser(userId)) {

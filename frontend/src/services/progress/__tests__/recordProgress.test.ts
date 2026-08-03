@@ -4,18 +4,24 @@ const rpc = vi.fn();
 // The evaluation row returned by the SELECT the recommendation-derivation performs. Tests override it.
 let evalRow: Record<string, unknown> | null = null;
 let evalError: unknown = null;
+let pendingRows: Record<string, unknown>[] | null = [];
+let pendingError: unknown = null;
 const maybeSingle = vi.fn(async () => ({ data: evalRow, error: evalError }));
-const from = vi.fn(() => {
+const from = vi.fn((table: string) => {
     const chain: Record<string, unknown> = {};
     chain.select = () => chain;
     chain.eq = () => chain;
+    chain.limit = () => chain;
     chain.maybeSingle = maybeSingle;
+    (chain as { then: unknown }).then = (resolve: (value: unknown) => void) => resolve(table === 'progress_recommendation_attempts'
+        ? { data: pendingRows, error: pendingError }
+        : { data: null, error: null });
     return chain;
 });
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ rpc, from }) }));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 
-import { wireProgressEvaluationOnSave, recordProgressEvaluation } from '../recordProgress';
+import { wireProgressEvaluationOnSave, recordProgressEvaluation, readPendingRecommendationAttempt } from '../recordProgress';
 
 const ELIGIBLE_ROW = {
     eligible: true, word_count: 200, filler_count: 4, wpm: 140, clarity_raw: 96.5,
@@ -29,6 +35,7 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         rpc.mockResolvedValue({ data: 'eval-id', error: null });
         from.mockClear(); maybeSingle.mockClear();
         evalRow = null; evalError = null;
+        pendingRows = []; pendingError = null;
     });
 
     const ctx = (over = {}) => ({
@@ -99,5 +106,18 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         await p;
         expect(rpcNames().filter((n) => n === 'record_progress_evaluation').length).toBeGreaterThanOrEqual(2);
         vi.useRealTimers();
+    });
+
+    it('authoritatively distinguishes zero, one, ambiguous, and failed pending-attempt readback', async () => {
+        expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'none' });
+        pendingRows = [{ id: 'att-1', recommendation_id: 'rec-1', lifecycle: 'pending' }];
+        expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'one', attemptId: 'att-1' });
+        pendingRows = [
+            { id: 'att-1', recommendation_id: 'rec-1', lifecycle: 'pending' },
+            { id: 'att-2', recommendation_id: 'rec-1', lifecycle: 'pending' },
+        ];
+        expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'blocked' });
+        pendingRows = null; pendingError = { message: 'offline' };
+        expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'blocked' });
     });
 });
