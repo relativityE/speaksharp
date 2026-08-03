@@ -141,9 +141,35 @@ describe('#1047 U2 ProgressPanel', () => {
     it('renders the persisted server outcome on reopen', async () => {
         loadSessionProgress.mockResolvedValue({
             ...VIEW,
-            latestAttempt: { lifecycle: 'completed', outcome: 'moved' },
+            latestAttempt: { id: 'att-complete', lifecycle: 'completed', outcome: 'moved' },
         });
         renderPanel();
         expect(await screen.findByTestId('progress-attempt-outcome')).toHaveTextContent(/stored repeat shows movement/i);
+    });
+
+    it('reload recovers an authoritative pending attempt and blocks a second attempt until terminal cleanup', async () => {
+        const pendingView = { ...VIEW, latestAttempt: { id: 'att-orphan', lifecycle: 'pending', outcome: null } };
+        loadSessionProgress.mockResolvedValueOnce(pendingView).mockResolvedValue(VIEW);
+        abandonRecommendationAttempt.mockResolvedValue(true);
+        renderPanel();
+        expect(await screen.findByText(/previous repeat is still pending/i)).toBeTruthy();
+        expect(screen.queryByTestId('progress-accept')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Close pending repeat' }));
+        await waitFor(() => expect(abandonRecommendationAttempt).toHaveBeenCalledWith('att-orphan'));
+        expect(recordRecommendationAttempt).not.toHaveBeenCalled();
+        expect(await screen.findByTestId('progress-accept')).toBeTruthy();
+    });
+
+    it('reload stays blocked when authoritative pending-attempt cleanup still fails', async () => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            latestAttempt: { id: 'att-orphan', lifecycle: 'pending', outcome: null },
+        });
+        abandonRecommendationAttempt.mockResolvedValue(false);
+        renderPanel();
+        fireEvent.click(await screen.findByRole('button', { name: 'Close pending repeat' }));
+        expect(await screen.findByText(/New attempts remain blocked/i)).toBeTruthy();
+        expect(recordRecommendationAttempt).not.toHaveBeenCalled();
+        expect(screen.queryByTestId('progress-accept')).toBeNull();
     });
 });

@@ -128,8 +128,8 @@ describe('#1047 U2 loadSessionProgress', () => {
     it('exposes the latest stored attempt outcome', async () => {
         current = ev('s2');
         recommendation = { id: 'rec-2' };
-        attempt = { lifecycle: 'completed', outcome: 'moved' };
+        attempt = { id: 'att-2', lifecycle: 'completed', outcome: 'moved' };
         const view = await loadSessionProgress('s2');
-        expect(view).toMatchObject({ status: 'eligible', latestAttempt: { lifecycle: 'completed', outcome: 'moved' } });
+        expect(view).toMatchObject({ status: 'eligible', latestAttempt: { id: 'att-2', lifecycle: 'completed', outcome: 'moved' } });
     });
 });

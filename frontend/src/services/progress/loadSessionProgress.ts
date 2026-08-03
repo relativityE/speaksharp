@@ -3,6 +3,7 @@ import { PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation
 import { describeDirection, buildTakeaways, type DirectionResult, type Takeaways } from './progressPresentation';
 
 export type ProgressAttemptView = {
+    id: string;
     lifecycle: 'pending' | 'completed' | 'not_comparable' | 'abandoned';
     outcome: 'moved' | 'did_not_move' | 'not_comparable' | 'not_completed' | null;
 };
@@ -134,7 +135,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     if (recommendationId) {
         const { data: attempt, error: attemptError } = await supabase
             .from('progress_recommendation_attempts')
-            .select('lifecycle, outcome')
+            .select('id, lifecycle, outcome')
             .eq('recommendation_id', recommendationId)
             .order('accepted_at', { ascending: false })
             .limit(1)

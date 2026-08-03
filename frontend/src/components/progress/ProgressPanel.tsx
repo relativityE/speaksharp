@@ -25,6 +25,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     const [accepting, setAccepting] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
     const [retryBlocked, setRetryBlocked] = useState(false);
+    const [reconcilingPending, setReconcilingPending] = useState(false);
     const headingRef = useRef<HTMLHeadingElement>(null);
     const retryRef = useRef<HTMLButtonElement>(null);
     const query = useQuery({
@@ -66,6 +67,20 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         }
     };
 
+    const onReconcilePending = async (attemptId: string) => {
+        if (reconcilingPending) return;
+        setReconcilingPending(true);
+        setActionError(null);
+        const abandoned = await abandonRecommendationAttempt(attemptId);
+        if (abandoned) {
+            await query.refetch();
+        } else {
+            setRetryBlocked(true);
+            setActionError('The pending repeat could not be safely closed. New attempts remain blocked.');
+        }
+        setReconcilingPending(false);
+    };
+
     const shell = (content: React.ReactNode) => (
         <section data-testid="progress-panel" aria-labelledby="progress-heading" className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4">
             <h2 id="progress-heading" ref={headingRef} tabIndex={-1} className="text-xs font-bold uppercase tracking-wide text-primary">Your progress</h2>
@@ -92,6 +107,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     );
 
     const outcome = view.latestAttempt?.outcome;
+    const pendingAttemptId = view.latestAttempt?.lifecycle === 'pending' ? view.latestAttempt.id : null;
     return shell(<>
         <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
         <dl className="grid gap-3 sm:grid-cols-2">
@@ -106,7 +122,13 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
                             : 'The stored repeat was not completed.'
         }</p>}
         {actionError && <div role="alert" className="space-y-2"><p>{actionError}</p>{!retryBlocked && <Button ref={retryRef} type="button" onClick={() => { void onAccept(); }}>Retry {PRACTICE_THIS_NEXT_LABEL}</Button>}</div>}
-        {!actionError && <Button type="button" onClick={() => { void onAccept(); }} disabled={accepting || !view.recommendationId} data-testid="progress-accept">{accepting ? 'Linking repeat…' : PRACTICE_THIS_NEXT_LABEL}</Button>}
+        {pendingAttemptId && <div role="alert" className="space-y-2">
+            <p>A previous repeat is still pending. Close it before starting another.</p>
+            <Button type="button" disabled={reconcilingPending} onClick={() => { void onReconcilePending(pendingAttemptId); }}>
+                {reconcilingPending ? 'Closing pending repeat…' : 'Close pending repeat'}
+            </Button>
+        </div>}
+        {!pendingAttemptId && !actionError && <Button type="button" onClick={() => { void onAccept(); }} disabled={accepting || !view.recommendationId} data-testid="progress-accept">{accepting ? 'Linking repeat…' : PRACTICE_THIS_NEXT_LABEL}</Button>}
     </>);
 };
 
