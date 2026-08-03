@@ -77,8 +77,13 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         setActionError(null);
         const abandoned = await abandonRecommendationAttempt(attemptId);
         if (abandoned) {
-            if (userId) clearOpenAttemptIfMatches(userId, attemptId);
-            await query.refetch();
+            const locallyCleared = !!userId && clearOpenAttemptIfMatches(userId, attemptId);
+            if (locallyCleared) {
+                await query.refetch();
+            } else {
+                setRetryBlocked(true);
+                setActionError('The repeat was closed on the server, but its local handoff could not be cleared. New attempts remain blocked until cleanup succeeds.');
+            }
         } else {
             setRetryBlocked(true);
             setActionError('The pending repeat could not be safely closed. New attempts remain blocked.');

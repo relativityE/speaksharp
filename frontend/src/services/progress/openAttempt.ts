@@ -47,6 +47,13 @@ export function clearOpenAttempt(): void {
 export function clearOpenAttemptIfMatches(userId: string, attemptId: string): boolean {
     const current = getOpenAttemptForUser(userId);
     if (!current || current.attemptId !== attemptId) return false;
-    clearOpenAttempt();
-    return true;
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        localStorage.removeItem(KEY);
+        // Only claim success after authoritative browser-storage readback proves absence.
+        return localStorage.getItem(KEY) === null;
+    } catch (err) {
+        logger.warn({ err, attemptId }, '[progress] matching open-attempt clear failed');
+        return false;
+    }
 }

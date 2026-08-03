@@ -98,6 +98,25 @@ describe('#1045 "Practice this next" loop closure', () => {
         expect(clearOpenAttemptIfMatches(USER, 'att-new')).toBe(true);
         expect(getOpenAttemptForUser(USER)).toBeNull();
     });
+
+    it('reports matching handoff cleanup failure when storage removal throws or is a no-op', () => {
+        setOpenAttempt({ attemptId: 'att-match', userId: USER, sourceSessionId: 's-source' });
+        const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementationOnce(() => { throw new Error('denied'); });
+        expect(clearOpenAttemptIfMatches(USER, 'att-match')).toBe(false);
+        expect(getOpenAttemptForUser(USER)?.attemptId).toBe('att-match');
+        remove.mockRestore();
+
+        const noOp = vi.spyOn(Storage.prototype, 'removeItem').mockImplementationOnce(() => undefined);
+        expect(clearOpenAttemptIfMatches(USER, 'att-match')).toBe(false);
+        expect(getOpenAttemptForUser(USER)?.attemptId).toBe('att-match');
+        noOp.mockRestore();
+    });
+
+    it('fails closed on malformed storage instead of claiming a matching clear', () => {
+        localStorage.setItem('ss_progress_open_attempt_v1', '{malformed');
+        expect(clearOpenAttemptIfMatches(USER, 'att-match')).toBe(false);
+        expect(localStorage.getItem('ss_progress_open_attempt_v1')).toBe('{malformed');
+    });
     it('resolves an open attempt against the next saved session and clears it', async () => {
         setOpenAttempt({ attemptId: 'att-1', userId: USER, sourceSessionId: 's-source' });
         // eval recorded, recommendation derivation no-ops (eligible:false), then the attempt is advanced.

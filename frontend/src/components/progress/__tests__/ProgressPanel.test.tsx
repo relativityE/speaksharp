@@ -46,6 +46,7 @@ beforeEach(() => {
     readPendingRecommendationAttempt.mockResolvedValue({ status: 'none' });
     setOpenAttempt.mockReturnValue(true);
     abandonRecommendationAttempt.mockResolvedValue(true);
+    clearOpenAttemptIfMatches.mockReturnValue(true);
 });
 
 describe('#1047 U2 ProgressPanel', () => {
@@ -204,6 +205,20 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(await screen.findByText(/New attempts remain blocked/i)).toBeTruthy();
         expect(recordRecommendationAttempt).not.toHaveBeenCalled();
         expect(clearOpenAttemptIfMatches).not.toHaveBeenCalled();
+        expect(screen.queryByTestId('progress-accept')).toBeNull();
+    });
+
+    it('stays blocked when server abandonment succeeds but matching local cleanup fails', async () => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            latestAttempt: { id: 'att-orphan', lifecycle: 'pending', outcome: null },
+        });
+        abandonRecommendationAttempt.mockResolvedValue(true);
+        clearOpenAttemptIfMatches.mockReturnValue(false);
+        renderPanel();
+        fireEvent.click(await screen.findByRole('button', { name: 'Close pending repeat' }));
+        expect(await screen.findByText(/local handoff could not be cleared/i)).toBeTruthy();
+        expect(loadSessionProgress).toHaveBeenCalledTimes(1);
         expect(screen.queryByTestId('progress-accept')).toBeNull();
     });
 });
