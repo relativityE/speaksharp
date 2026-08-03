@@ -246,6 +246,18 @@ describe('#1144 device qualification contract', () => {
     }
   });
 
+  it('serializes first-boot auth isolation before manifest session seeding', () => {
+    const manifest = readFileSync(resolve('tests/e2e/helpers/setupE2EManifest.ts'), 'utf8');
+    const fixtures = readFileSync(resolve('tests/e2e/fixtures.ts'), 'utf8');
+    const isolation = manifest.indexOf("const isolationMarker = '__SS_E2E_AUTH_STORAGE_ISOLATED_ONCE__'");
+    const seed = manifest.indexOf('Object.entries(localBrowserStorage).forEach');
+
+    expect(isolation).toBeGreaterThan(-1);
+    expect(seed).toBeGreaterThan(isolation);
+    expect(fixtures).not.toContain('AUTH_STORAGE_ISOLATED_ONCE');
+    expect(fixtures).not.toContain('isolateAuthStorageOncePerTab');
+  });
+
   it('keeps the no-download assertion on the real Private initialization boundary', () => {
     const journey = readFileSync(resolve('tests/e2e/device-qualification-foundation.e2e.spec.ts'), 'utf8');
     expect(journey).toContain("new URL('/private-dropin.html', baseURL)");

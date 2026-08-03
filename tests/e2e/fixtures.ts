@@ -1,7 +1,6 @@
 import { test as base, Page } from '@playwright/test';
 import { programmaticLoginWithRoutes } from './helpers';
 import { setupE2EMocks } from './mock-routes';
-import { isolateAuthStorageOncePerTab } from './helpers/authStorageIsolation';
 
 /**
  * Playwright Fixtures for SpeakSharp
@@ -37,8 +36,6 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ success: true })
     }));
-
-    await page.addInitScript(isolateAuthStorageOncePerTab);
 
     // Attach Global Monitors (Console/Errors) before the spec-owned first app load.
     // Do not boot the app here: route/auth fixtures must install their contracts
