@@ -41,10 +41,43 @@ beforeEach(() => {
 });
 
 describe('#1047 U2 ProgressPanel', () => {
+    it('renders loading without coaching or success navigation', () => {
+        loadSessionProgress.mockReturnValue(new Promise(() => undefined));
+        renderPanel();
+        expect(screen.getByTestId('progress-loading')).toHaveTextContent('Loading progress');
+        expect(screen.queryByTestId('progress-what-worked')).toBeNull();
+        expect(navigate).not.toHaveBeenCalled();
+    });
+
     it('shows honest insufficient evidence instead of a blank panel', async () => {
         loadSessionProgress.mockResolvedValue({ status: 'insufficient', sessionId: 's1' });
         renderPanel();
         expect(await screen.findByText(/More evidence is needed/)).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Practice again' }));
+        expect(navigate).toHaveBeenCalledTimes(1);
+        expect(navigate).toHaveBeenCalledWith('/session');
+        expect(screen.queryByTestId('progress-what-worked')).toBeNull();
+    });
+
+    it('shows an ineligibility reason and exactly one neutral collection action', async () => {
+        loadSessionProgress.mockResolvedValue({ status: 'ineligible', sessionId: 's1', reasons: ['too_few_words'] });
+        renderPanel();
+        expect(await screen.findByText(/needs more spoken words/i)).toBeTruthy();
+        expect(screen.getAllByRole('button')).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Collect more evidence' })).toBeTruthy();
+        expect(screen.queryByTestId('progress-what-worked')).toBeNull();
+    });
+
+    it('renders a retryable load error without coaching and restores focus after success', async () => {
+        loadSessionProgress
+            .mockResolvedValueOnce({ status: 'error', sessionId: 's1', message: 'Progress could not be loaded.' })
+            .mockResolvedValueOnce(VIEW);
+        renderPanel();
+        const retry = await screen.findByRole('button', { name: 'Retry' });
+        expect(screen.queryByTestId('progress-what-worked')).toBeNull();
+        fireEvent.click(retry);
+        const heading = await screen.findByRole('heading', { name: 'Your progress' });
+        await waitFor(() => expect(heading).toHaveFocus());
     });
 
     it('shows exactly two eligible takeaways and the canonical action', async () => {
@@ -54,6 +87,7 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(screen.getByTestId('progress-what-worked')).toHaveTextContent('Very few filler words');
         expect(screen.getByTestId('progress-practice-next')).toHaveTextContent('Cut filler words toward 3%');
         expect(screen.getByTestId('progress-accept')).toHaveTextContent('Practice this next');
+        expect(loadSessionProgress).toHaveBeenCalledWith('s1');
     });
 
     it('navigates only after server attempt and durable local handoff succeed', async () => {
@@ -81,5 +115,26 @@ describe('#1047 U2 ProgressPanel', () => {
         fireEvent.click(await screen.findByTestId('progress-accept'));
         await waitFor(() => expect(abandonRecommendationAttempt).toHaveBeenCalledWith('att-1'));
         expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('fails closed without a second attempt when compensation fails', async () => {
+        loadSessionProgress.mockResolvedValue(VIEW);
+        setOpenAttempt.mockReturnValue(false);
+        abandonRecommendationAttempt.mockResolvedValue(false);
+        renderPanel();
+        fireEvent.click(await screen.findByTestId('progress-accept'));
+        expect(await screen.findByRole('alert')).toHaveTextContent(/Retry is unavailable/i);
+        expect(screen.queryByRole('button', { name: /Retry Practice this next/i })).toBeNull();
+        expect(recordRecommendationAttempt).toHaveBeenCalledTimes(1);
+        expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('renders the persisted server outcome on reopen', async () => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            latestAttempt: { lifecycle: 'completed', outcome: 'moved' },
+        });
+        renderPanel();
+        expect(await screen.findByTestId('progress-attempt-outcome')).toHaveTextContent(/stored repeat shows movement/i);
     });
 });

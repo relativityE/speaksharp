@@ -79,8 +79,11 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         references = data as EvalRow[];
     }
 
-    const baselineRow = references.find((row) => row.session_id === currentRow.baseline_session_id) ?? null;
-    const previousRow = references.find((row) => row.session_id === currentRow.previous_comparable_session_id) ?? null;
+    // Persisted ids are authoritative, but incompatible references still fail closed before arithmetic.
+    const baselineRow = references.find((row) =>
+        row.session_id === currentRow.baseline_session_id && row.cohort_key === currentRow.cohort_key) ?? null;
+    const previousRow = references.find((row) =>
+        row.session_id === currentRow.previous_comparable_session_id && row.cohort_key === currentRow.cohort_key) ?? null;
     const current = toEvaluation(currentRow);
     const baseline = baselineRow ? toEvaluation(baselineRow) : null;
     const previous = previousRow ? toEvaluation(previousRow) : null;

@@ -24,6 +24,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     const userId = user?.id ?? null;
     const [accepting, setAccepting] = useState(false);
     const [actionError, setActionError] = useState<string | null>(null);
+    const [retryBlocked, setRetryBlocked] = useState(false);
     const headingRef = useRef<HTMLHeadingElement>(null);
     const retryRef = useRef<HTMLButtonElement>(null);
     const query = useQuery({
@@ -43,6 +44,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         if (view?.status !== 'eligible' || !view.recommendationId || !userId || accepting) return;
         setAccepting(true);
         setActionError(null);
+        setRetryBlocked(false);
         try {
             const attemptId = await recordRecommendationAttempt(view.recommendationId);
             if (!attemptId) throw new Error('server-attempt-failed');
@@ -51,7 +53,8 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
                 const abandoned = await abandonRecommendationAttempt(attemptId);
                 setActionError(abandoned
                     ? 'The repeat could not be linked. Nothing was left pending; please try again.'
-                    : 'The repeat could not be linked or safely closed. Please retry from this review.');
+                    : 'The repeat could not be linked or safely closed. Retry is unavailable until the pending attempt is reconciled.');
+                setRetryBlocked(!abandoned);
                 return;
             }
             navigate('/session');
@@ -78,13 +81,13 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         </div>,
     );
     if (!view || view.status === 'insufficient') return shell(
-        <div className="space-y-2"><p>More evidence is needed before a reliable comparison is available.</p><p>Complete another practice session to try again.</p></div>,
+        <div className="space-y-3"><p>More evidence is needed before a reliable comparison is available.</p><Button type="button" onClick={() => { navigate('/session'); }}>Practice again</Button></div>,
     );
     if (view.status === 'ineligible') return shell(
         <div className="space-y-2">
             <p>Comparison is unavailable for this session.</p>
             <ul className="list-disc pl-5">{view.reasons.map((reason) => <li key={reason}>{REASON_LABELS[reason] ?? 'This session did not meet the comparison evidence requirements.'}</li>)}</ul>
-            <p>Try another session to collect comparable evidence.</p>
+            <Button type="button" onClick={() => { navigate('/session'); }}>Collect more evidence</Button>
         </div>,
     );
 
@@ -102,7 +105,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
                         : outcome === 'not_comparable' ? 'The stored repeat was not comparable.'
                             : 'The stored repeat was not completed.'
         }</p>}
-        {actionError && <div role="alert" className="space-y-2"><p>{actionError}</p><Button ref={retryRef} type="button" onClick={() => { void onAccept(); }}>Retry {PRACTICE_THIS_NEXT_LABEL}</Button></div>}
+        {actionError && <div role="alert" className="space-y-2"><p>{actionError}</p>{!retryBlocked && <Button ref={retryRef} type="button" onClick={() => { void onAccept(); }}>Retry {PRACTICE_THIS_NEXT_LABEL}</Button>}</div>}
         {!actionError && <Button type="button" onClick={() => { void onAccept(); }} disabled={accepting || !view.recommendationId} data-testid="progress-accept">{accepting ? 'Linking repeat…' : PRACTICE_THIS_NEXT_LABEL}</Button>}
     </>);
 };

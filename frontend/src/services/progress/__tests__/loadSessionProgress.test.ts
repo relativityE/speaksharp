@@ -64,6 +64,15 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(eligible.direction.text).toMatch(/restarted/i);
     });
 
+    it('never compares an incompatible cohort even when a malformed stored reference names it', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0', { clarity_raw: 10, cohort_key: 'other' }), ev('s1', { clarity_raw: 20, cohort_key: 'other' })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        const eligible = view as Extract<typeof view, { status: 'eligible' }>;
+        expect(eligible.direction.deltaPoints).toBeNull();
+    });
+
     it('exposes the latest stored attempt outcome', async () => {
         current = ev('s2');
         recommendation = { id: 'rec-2' };
