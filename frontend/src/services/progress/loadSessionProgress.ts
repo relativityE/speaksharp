@@ -121,7 +121,13 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     const baseline = baselineRow ? toEvaluation(baselineRow) : null;
     const previous = previousRow ? toEvaluation(previousRow) : null;
     let comparison: 'baseline' | 'previous' | 'restarted';
-    if (previous) {
+    // Retention can NULL/delete the referenced baseline while a later previous row survives. Without the
+    // baseline, the stored direction chain is incomplete: never turn `describeDirection(current, null)`
+    // into a fabricated "baseline established" claim or let the surviving previous row imply movement.
+    const baselineReferenceMissing = !!currentRow.baseline_session_id && !baseline;
+    if (baselineReferenceMissing) {
+        comparison = 'restarted';
+    } else if (previous) {
         comparison = 'previous';
     } else if (currentRow.baseline_session_id || currentRow.previous_comparable_session_id) {
         comparison = 'restarted';
@@ -180,6 +186,6 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         direction: comparison === 'restarted'
             ? { direction: 'baseline', deltaPoints: null, reason: null, text: 'Comparison restarted for this recording setup.' }
             : describeDirection(current, baseline),
-        takeaways: buildTakeaways(current, previous), recommendationId, latestAttempt,
+        takeaways: buildTakeaways(current, comparison === 'restarted' ? null : previous), recommendationId, latestAttempt,
     };
 }

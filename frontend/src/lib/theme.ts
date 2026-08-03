@@ -126,8 +126,7 @@ export const speakSharpTheme = {
         cards: {
             feature: 'card-feature',
             gradient: 'card-gradient',
-            pricing: 'card-pricing',
-            testimonial: 'card-testimonial'
+            pricing: 'card-pricing'
         },
 
         text: {
@@ -140,7 +139,7 @@ export const speakSharpTheme = {
     // Page Templates - Consistent layouts
     pages: {
         landing: {
-            sections: ['hero', 'features', 'testimonials', 'pricing'],
+            sections: ['hero', 'features', 'pricing'],
             layout: 'full-width',
             navigation: 'sticky'
         },
@@ -171,12 +170,6 @@ export const speakSharpTheme = {
             primaryColor: 'privacy', // +23% conversion vs blue
             buttonText: 'Start Free', // +15% vs 'Get Started'
             placement: 'above-fold' // +31% visibility
-        },
-
-        trust: {
-            badges: ['SOC 2', 'GDPR', 'Privacy-First'], // +28% trust score
-            testimonials: 3, // Optimal number for credibility
-            socialProof: '10,000+ speakers' // Specific numbers +19% trust
         },
 
         readability: {
@@ -257,10 +250,6 @@ export const pageThemes = {
             features: {
                 padding: 'section',
                 background: 'gradient-subtle'
-            },
-            testimonials: {
-                padding: 'section',
-                background: 'gradient-accent'
             },
             pricing: {
                 padding: 'section',

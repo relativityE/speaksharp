@@ -8,7 +8,6 @@ import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
 import { getSessionAnalysisMetrics, isUsableFillerCounts } from '@/utils/sessionAnalysis';
-import { calculateSpeakingScore } from '@/utils/speakingScore';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -151,30 +150,12 @@ export const generateSessionPdf = async (
     // from numeric presence (a not_captured row's `total_words: 0` / empty filler map are schema-default
     // SENTINELS, not measurements). An expired row still shows its genuinely persisted measurements.
     const transcriptState = presentTranscript(session.transcript_state, session.transcript).state;
-    const transcriptReadable = transcriptState === 'available';
     const derivedCell = (persistedIsRealNumber: boolean, render: () => string): string =>
       transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
     const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
     const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
     const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
     const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
-    // Never recompute a transcript-dependent score/coaching from absent text; only a readable transcript
-    // yields a new score/coaching conclusion.
-    const scoreResult = transcriptReadable ? calculateSpeakingScore({
-      transcript: session.transcript || '',
-      wordCount: metrics.wordCount,
-      wpm: metrics.wpm,
-      clarityScore: metrics.clarityScore,
-      fillerCount: metrics.fillerCount,
-      elapsedSeconds: session.duration || 0,
-      pauseMetrics: session.pause_metrics || {
-        silencePercentage: 0,
-        transitionPauses: 0,
-        extendedPauses: 0,
-        longestPause: 0,
-      },
-      engine: session.engine,
-    }) : null;
     const customWords = getCustomWordList(session.custom_words);
     const customWordsDetected = customWords.reduce((sum, word) => {
       const savedCount = session.custom_words?.[word];
@@ -227,8 +208,6 @@ export const generateSessionPdf = async (
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
       ['Longest Pause', formatOptionalNumber(session.pause_metrics?.longestPause, value => `${value.toFixed(1)}s`)],
-      ['SpeakSharp Score', !scoreResult ? 'N/A' : scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
-      ['Coaching Suggestion', scoreResult ? scoreResult.actions.slice(0, 2).join('; ') : 'N/A'],
     ];
 
     autoTable(doc, {

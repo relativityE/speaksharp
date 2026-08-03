@@ -437,20 +437,21 @@ describe('getPdfFillerTableData — SSOT: persisted canonical wins, no recount o
     }));
   });
 
-  it('treats a not_captured sentinel (total_words:0, filler_words:{}) as N/A and suppresses score/coaching', async () => {
+  it('treats a not_captured sentinel as N/A and never emits legacy score-derived coaching rows', async () => {
     await generateSessionPdf(
       u1Session({ transcript: '', transcript_state: 'not_captured', total_words: 0, filler_words: {} }) as Session,
       'TestUser',
     );
     // The schema-default 0 / empty filler map are sentinels, not measurements → N/A, and the
-    // transcript-dependent score/coaching are not recomputed from absent text.
+    // legacy universal score/coaching rows are absent for every transcript state.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
         ['Total Words', 'N/A'],
         ['Total Filler Words', 'N/A'],
-        ['SpeakSharp Score', 'N/A'],
-        ['Coaching Suggestion', 'N/A'],
       ]),
     }));
+    const body = vi.mocked(autoTable).mock.calls[0][1].body as string[][];
+    expect(body.flat()).not.toContain('SpeakSharp Score');
+    expect(body.flat()).not.toContain('Coaching Suggestion');
   });
 });

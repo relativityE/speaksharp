@@ -799,9 +799,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
         [targetSession]
     );
-    // Transcript-quality caveat for the saved session — same signal as the live
-    // SpeakSharp Score confidence, so a weak-transcript session in history is never
-    // presented as a precise grade without the "directional" explanation (Option 2).
+    // Transcript-quality caveat for the saved session keeps weak evidence visibly directional rather
+    // than presenting it as precise measurement authority.
     const targetSessionQuality = useMemo(
         () => targetSession
             ? getTranscriptQualityCaveat(targetSession.transcript ?? '', targetSession.engine ?? undefined)
@@ -1043,7 +1042,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div className="space-y-1">
                                     <p className="font-bold text-foreground">Why these tools are here</p>
                                     <p className="font-medium">
-                                        Pace, fillers, clarity, activity, and transcript quality are the evidence behind SpeakSharp Score and your coaching feedback.
+                                        Pace, fillers, clarity, activity, and transcript quality are the stored evidence you can inspect before your next session.
                                     </p>
                                 </div>
                                 <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">

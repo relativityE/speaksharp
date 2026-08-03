@@ -2,7 +2,6 @@ import { BrowserWarning } from "@/components/BrowserWarning";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { FeaturesSection } from "@/components/landing/FeaturesSection";
 import { BenefitsSection } from "@/components/landing/BenefitsSection";
-// import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { CTASection } from "@/components/landing/CTASection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { useBrowserSupport } from "@/hooks/useBrowserSupport";
@@ -23,7 +22,6 @@ const Index = () => {
         <HeroSection />
         <FeaturesSection />
         <BenefitsSection />
-        {/* <TestimonialsSection /> */}
         <CTASection />
       </main>
       <LandingFooter />
