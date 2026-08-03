@@ -195,15 +195,33 @@ async function recordProgressEvaluationWithRetry(sessionId: string, attempts = 3
  * `buildTakeaways`; the SOURCE metric value is derived server-side by the RPC. No-op when the evaluation
  * is missing or ineligible (an ineligible session has no comparison and no action to record).
  */
-async function recordRecommendationForEvaluation(sessionId: string): Promise<void> {
+export async function reconcileProgressRecommendation(sessionId: string): Promise<string | null> {
     const supabase = getSupabaseClient();
+    const readExisting = async (): Promise<string | null> => {
+        const { data, error } = await supabase
+            .from('progress_recommendations')
+            .select('id')
+            .eq('source_session_id', sessionId)
+            .eq('formula_version', PROGRESS_FORMULA_VERSION)
+            .maybeSingle();
+        if (error) return null;
+        return typeof (data as { id?: unknown } | null)?.id === 'string'
+            ? (data as { id: string }).id
+            : null;
+    };
+
+    // Avoid a duplicate write on ordinary retries. The RPC also enforces uniqueness, so a concurrent
+    // creator remains safe; the final readback is the authority for both normal and lost-success replies.
+    const existingId = await readExisting();
+    if (existingId) return existingId;
+
     const { data, error } = await supabase
         .from('session_progress_evaluations')
         .select('eligible, word_count, filler_count, wpm, clarity_raw, cohort_key, engine, engine_version, model_name, attribution_status')
         .eq('session_id', sessionId)
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
-    if (error || !data || !data.eligible) return;
+    if (error || !data || !data.eligible) return null;
 
     const current: ProgressEvaluation = {
         sessionId,
@@ -235,6 +253,11 @@ async function recordRecommendationForEvaluation(sessionId: string): Promise<voi
         targetUnits: target.units,
         shownText: practiceThisNext,
     });
+    return readExisting();
+}
+
+async function recordRecommendationForEvaluation(sessionId: string): Promise<void> {
+    await reconcileProgressRecommendation(sessionId);
 }
 
 /**

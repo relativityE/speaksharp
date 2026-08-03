@@ -1,6 +1,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation } from './buildProgressEvaluation';
 import { describeDirection, buildTakeaways, type DirectionResult, type Takeaways } from './progressPresentation';
+import { reconcileProgressRecommendation } from './recordProgress';
 
 export type ProgressAttemptView = {
     id: string;
@@ -10,7 +11,7 @@ export type ProgressAttemptView = {
 
 export type SessionProgressResult =
     | { status: 'insufficient'; sessionId: string }
-    | { status: 'ineligible'; sessionId: string; reasons: string[] }
+    | { status: 'ineligible'; sessionId: string; reasons: ExclusionReason[] }
     | { status: 'unavailable'; sessionId: string; message: string }
     | { status: 'error'; sessionId: string; message: string }
     | {
@@ -153,9 +154,12 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
     if (recError) return { status: 'error', sessionId, message: 'Your next action could not be loaded.' };
-    const recommendationId = (rec as { id?: string } | null)?.id ?? null;
+    let recommendationId = (rec as { id?: string } | null)?.id ?? null;
     if (!recommendationId) {
-        return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
+        recommendationId = await reconcileProgressRecommendation(sessionId);
+        if (!recommendationId) {
+            return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
+        }
     }
 
     let latestAttempt: ProgressAttemptView | null = null;

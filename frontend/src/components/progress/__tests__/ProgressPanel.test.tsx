@@ -77,6 +77,23 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(screen.queryByTestId('progress-what-worked')).toBeNull();
     });
 
+    it('provides a precise label for every persisted exclusion reason', async () => {
+        const labels = {
+            not_completed: 'This session was not completed, so it cannot be compared.',
+            too_short: 'This session was too short for a reliable comparison.',
+            too_few_words: 'This session needs more spoken words for a reliable comparison.',
+            no_transcript: 'No transcript was available for this session.',
+            no_clarity_evidence: 'Clear-delivery evidence was not available for this session.',
+            unverified_attribution: 'The recording evidence could not be verified.',
+            engine_not_comparable: 'This recording setup cannot be compared with the earlier setup.',
+            unknown: 'This session did not meet the comparison evidence requirements.',
+        } as const;
+        const reasons = Object.keys(labels) as Array<keyof typeof labels>;
+        loadSessionProgress.mockResolvedValue({ status: 'ineligible', sessionId: 's1', reasons });
+        renderPanel();
+        for (const reason of reasons) expect(await screen.findByText(labels[reason])).toBeTruthy();
+    });
+
     it('renders a retryable load error without coaching and restores focus after success', async () => {
         loadSessionProgress
             .mockResolvedValueOnce({ status: 'error', sessionId: 's1', message: 'Progress could not be loaded.' })

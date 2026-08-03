@@ -33,7 +33,8 @@ function query(table: string) {
     return chain;
 }
 const from = vi.fn((table: string) => query(table));
-vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from }) }));
+const rpc = vi.fn();
+vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ from, rpc }) }));
 import { loadSessionProgress } from '../loadSessionProgress';
 
 const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
@@ -50,6 +51,11 @@ beforeEach(() => {
         { id: 's1', created_at: '2026-08-03T11:00:00Z' },
         { id: 's2', created_at: '2026-08-03T12:00:00Z' },
     ];
+    rpc.mockReset();
+    rpc.mockImplementation(async (name: string) => {
+        if (name === 'record_progress_recommendation') recommendation = { id: 'rec-recovered' };
+        return { data: 'rec-recovered', error: null };
+    });
 });
 
 describe('#1047 U2 loadSessionProgress', () => {
@@ -162,9 +168,28 @@ describe('#1047 U2 loadSessionProgress', () => {
         current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
         references = [ev('s0'), ev('s1')];
         recommendation = null;
+        rpc.mockResolvedValue({ data: null, error: { message: 'offline' } });
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'unavailable' });
         recommendationError = { message: 'offline' };
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error' });
+    });
+
+    it('recovers a missing recommendation by authoritative readback without duplicating on retry', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s0'), ev('s1')];
+        recommendation = null;
+        // The server committed but the RPC response was lost. Reconciliation must trust the row readback.
+        rpc.mockImplementationOnce(async () => {
+            recommendation = { id: 'rec-after-lost-success' };
+            return { data: null, error: { message: 'connection reset after commit' } };
+        });
+        expect(await loadSessionProgress('s2')).toMatchObject({
+            status: 'eligible', recommendationId: 'rec-after-lost-success',
+        });
+        expect(await loadSessionProgress('s2')).toMatchObject({
+            status: 'eligible', recommendationId: 'rec-after-lost-success',
+        });
+        expect(rpc.mock.calls.filter(([name]) => name === 'record_progress_recommendation')).toHaveLength(1);
     });
 
     it('exposes the latest stored attempt outcome', async () => {

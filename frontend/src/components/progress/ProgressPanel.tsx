@@ -9,13 +9,17 @@ import { PRACTICE_THIS_NEXT_LABEL } from '@/services/progress/progressPresentati
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
 import { clearOpenAttemptIfMatches, setOpenAttempt } from '@/services/progress/openAttempt';
 import logger from '@/lib/logger';
+import type { ExclusionReason } from '@/services/progress/buildProgressEvaluation';
 
-const REASON_LABELS: Record<string, string> = {
+const REASON_LABELS: Record<ExclusionReason, string> = {
+    not_completed: 'This session was not completed, so it cannot be compared.',
     too_short: 'This session was too short for a reliable comparison.',
     too_few_words: 'This session needs more spoken words for a reliable comparison.',
+    no_transcript: 'No transcript was available for this session.',
     no_clarity_evidence: 'Clear-delivery evidence was not available for this session.',
     unverified_attribution: 'The recording evidence could not be verified.',
     engine_not_comparable: 'This recording setup cannot be compared with the earlier setup.',
+    unknown: 'This session did not meet the comparison evidence requirements.',
 };
 
 export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> = ({ session }) => {
@@ -111,7 +115,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     if (view.status === 'ineligible') return shell(
         <div className="space-y-2">
             <p>Comparison is unavailable for this session.</p>
-            <ul className="list-disc pl-5">{view.reasons.map((reason) => <li key={reason}>{REASON_LABELS[reason] ?? 'This session did not meet the comparison evidence requirements.'}</li>)}</ul>
+            <ul className="list-disc pl-5">{view.reasons.map((reason) => <li key={reason}>{REASON_LABELS[reason]}</li>)}</ul>
             <Button type="button" onClick={() => { navigate('/session'); }}>Collect more evidence</Button>
         </div>,
     );
