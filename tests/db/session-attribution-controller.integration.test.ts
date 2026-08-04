@@ -70,6 +70,7 @@ vi.mock('@/lib/storage', () => ({
     _profile: unknown,
     engineType: string,
     idempotencyKey?: string,
+    metadata?: { engineVersion?: string; modelName?: string; deviceType?: string },   // #1161 finding 6
   ) => {
     if (H.failSave) return { session: null, usageExceeded: false };
     if (idempotencyKey) {
@@ -79,10 +80,13 @@ vi.mock('@/lib/storage', () => ({
       );
       if (existing.rows[0]) return { session: { id: existing.rows[0].id }, usageExceeded: false };
     }
+    // #1161 finding 6: persist the engine provenance metadata the controller passes (mirrors the production
+    // create_session_and_update_usage p_engine_version/p_model_name/p_device_type), so a recovered row keeps it.
     const res = await H.db.query<{ id: string }>(
-      `INSERT INTO public.sessions (user_id, title, duration, transcript, engine, status, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5, 'active', $6) RETURNING id`,
-      [data.user_id, data.title ?? null, data.duration ?? 0, data.transcript ?? ' ', engineType ?? null, idempotencyKey ?? null],
+      `INSERT INTO public.sessions (user_id, title, duration, transcript, engine, engine_version, model_name, device_type, status, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9) RETURNING id`,
+      [data.user_id, data.title ?? null, data.duration ?? 0, data.transcript ?? ' ', engineType ?? null,
+       metadata?.engineVersion ?? null, metadata?.modelName ?? null, metadata?.deviceType ?? null, idempotencyKey ?? null],
     );
     return { session: { id: res.rows[0].id }, usageExceeded: false };
   },
@@ -258,7 +262,8 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     const seedInitial = () => {
       c.pendingFullSaveRetry = {
         sessionId: null,
-        initialSave: { userId: OWNER, recordingId, mode: 'private' },
+        initialSave: { userId: OWNER, recordingId, mode: 'private',
+          engineVersion: 'private_v2:base', modelName: 'base', deviceType: 'wasm' },   // #1161 finding 6
         completeArgs: { status: 'completed', transcript: 'words', duration: 12 },
         attributionEvidence: VERIFIED_EVIDENCE,
       };
@@ -276,10 +281,13 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     H.failSave = false;
     await expect(priv().retryRecordingSave()).resolves.toBe(true);
     expect(await count()).toBe(1);
-    const first = (await H.db.query<{ id: string; idempotency_key: string }>(
-      'SELECT id, idempotency_key FROM public.sessions WHERE user_id = $1', [OWNER],
+    const first = (await H.db.query<{ id: string; idempotency_key: string; engine: string; engine_version: string; model_name: string; device_type: string }>(
+      'SELECT id, idempotency_key, engine, engine_version, model_name, device_type FROM public.sessions WHERE user_id = $1', [OWNER],
     )).rows[0];
     expect(first.idempotency_key).toBe(recordingId); // same recording, not a new identity
+    // #1161 finding 6: the recovered row carries the SAME engine provenance (not a blank identity).
+    expect({ engine: first.engine, engine_version: first.engine_version, model_name: first.model_name, device_type: first.device_type })
+      .toEqual({ engine: 'private', engine_version: 'private_v2:base', model_name: 'base', device_type: 'wasm' });
     expect(H.attestInvoke).toHaveBeenCalledWith('attest-session-engine',
       expect.objectContaining({ body: { sessionId: first.id, runtimeEvidence: VERIFIED_EVIDENCE } }));
 

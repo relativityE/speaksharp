@@ -567,14 +567,15 @@ export class SpeechRuntimeController {
         sessionId: string | null;
         /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
-        initialSave?: { userId: string; recordingId: string; mode: string };
+        initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
         completeArgs: { status: 'completed'; transcript: string; duration: number };
         attributionEvidence: RuntimeEvidence | null;
     } | null = null;
 
     /** #1033 (1): owner + idempotency identity for the window between RECORDING and the initial save. Set
-     *  once the authenticated owner is known (before speech), cleared once the row exists or at resolution. */
-    private pendingInitialSaveContext: { userId: string; recordingId: string; mode: string } | null = null;
+     *  once the authenticated owner is known (before speech), cleared once the row exists or at resolution.
+     *  #1161 (finding 6): also carries the engine provenance so an initial-save retry recreates identical rows. */
+    private pendingInitialSaveContext: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string } | null = null;
 
     /** #1033 (5): a producer-affecting policy change (entitlement/profile sync) that arrived while the engine
      *  was locked. It is NOT applied to the live recording; it is queued and applied at the next recording's
@@ -703,6 +704,9 @@ export class SpeechRuntimeController {
                         { id: ctx.userId } as UserProfile,
                         ctx.mode as TranscriptionMode,
                         ctx.recordingId, // idempotency identity — same recording, never a duplicate row
+                        // #1161 (finding 6): carry the SAME engine provenance so the recovered row is not
+                        // recreated with a blank engine identity.
+                        { engineVersion: ctx.engineVersion, modelName: ctx.modelName, deviceType: ctx.deviceType },
                     );
                     const createdId = created?.session?.id;
                     if (!createdId) return false; // still retryable; nothing destroyed
@@ -2656,6 +2660,15 @@ export class SpeechRuntimeController {
                                 : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
                     );
 
+                    // #1161 (finding 6): enrich the initial-save recovery context with the SAME engine provenance
+                    // this save uses, so an initial-save RETRY recreates the row with identical engine identity.
+                    if (this.pendingInitialSaveContext && this.pendingInitialSaveContext.userId === userId) {
+                        this.pendingInitialSaveContext = {
+                            ...this.pendingInitialSaveContext, mode,
+                            engineVersion: metadata.engineVersion, modelName: metadata.modelName, deviceType: metadata.deviceType,
+                        };
+                    }
+
                     const sessionData = {
                         user_id: userId,
                         title: `Session ${new Date().toLocaleString()}`,
@@ -2678,6 +2691,20 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        // #1161: freeze the SERVER-owned pre-recording engine class + model provenance NOW (before
+                        // any transcript), via the guarded register op. Fire-and-forget + fail-closed: if it never
+                        // lands the session simply gets no authority (not eligible) — the local recording is
+                        // unaffected. Cloud/unknown engines are never registered (no trusted local identity).
+                        if (mode === 'private' || mode === 'native') {
+                            void getSupabaseClient().functions.invoke('attest-session-engine', {
+                                body: {
+                                    op: 'register',
+                                    sessionId: dbSession.id,
+                                    engineClass: mode === 'private' ? 'private' : 'browser',
+                                    expectedModel: mode === 'private' ? metadata.modelName : null,
+                                },
+                            }).catch(() => { /* advisory only — attribution simply won't be available */ });
+                        }
                         // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
                         this.pendingInitialSaveContext = null;
                         // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
