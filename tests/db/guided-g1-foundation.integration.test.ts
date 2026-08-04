@@ -440,6 +440,27 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect(Number(n)).toBe(0); // client attempt registered nothing
     });
 
+    it('guided_source_recording-is-server-owned: an authenticated client cannot INSERT or UPDATE it', async () => {
+        const db = await makeDb();
+        const rec = await seedRecording(db, USER, { duration: 50 });
+        const rec2 = await seedRecording(db, USER, { duration: 50 });
+        await registerSource(db, rec); // service role creates the registration row
+        const before = (await db.query<{ session_id: string; user_id: string }>(
+            `SELECT session_id, user_id FROM public.guided_source_recording WHERE session_id=$1`, [rec])).rows[0];
+        await db.query(`SET ROLE authenticated`);
+        await act(db, USER); // a capable authenticated client
+        await expect(db.query(`INSERT INTO public.guided_source_recording (session_id, user_id) VALUES ($1,$2)`, [rec2, USER]))
+            .rejects.toThrow(/permission denied/i); // no INSERT grant to authenticated
+        await expect(db.query(`UPDATE public.guided_source_recording SET user_id=$1 WHERE session_id=$2`, [OTHER, rec]))
+            .rejects.toThrow(/permission denied/i); // no UPDATE grant to authenticated
+        await db.query(`RESET ROLE`);
+        const after = (await db.query<{ session_id: string; user_id: string }>(
+            `SELECT session_id, user_id FROM public.guided_source_recording WHERE session_id=$1`, [rec])).rows[0];
+        expect(after).toEqual(before); // set/owner/session values unchanged by the denied client writes
+        const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_source_recording`)).rows[0].n;
+        expect(Number(n)).toBe(1); // the client INSERT registered nothing
+    });
+
     it('register-source: service-role registers only an owned verified-Private recording (idempotent)', async () => {
         const db = await makeDb();
         const priv = await seedRecording(db, USER, { duration: 50 });
@@ -630,8 +651,11 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
 
     it('hard-off-by-default: a fresh database creates zero capability rows and no Guided session can start', async () => {
         const db = await makeDb([]); // no capability granted to anyone
-        const cap = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_account_capability`)).rows[0].n;
-        expect(Number(cap)).toBe(0); // Guided is globally hard-off — nothing is enabled unless the service role writes it
+        // Before ANY service setup: both server-owned unlock tables are empty (nothing is enabled implicitly).
+        const cap0 = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_account_capability`)).rows[0].n;
+        const src0 = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_source_recording`)).rows[0].n;
+        expect(Number(cap0)).toBe(0); // Guided is globally hard-off — capability enabled only by the service role
+        expect(Number(src0)).toBe(0); // and no recording is Guided-registered until the service role registers it
         const rec = await seedRecording(db, USER);
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         await act(db, USER);
