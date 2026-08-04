@@ -2597,6 +2597,71 @@ export class SpeechRuntimeController {
                 // event is missed. The real DB id + negotiated mode are rebound below WITHOUT resetting the
                 // captured state. No-op in production.
                 this.startShadowMetricsEngine(recordingId, mode);
+
+                // #1161 (P1-1): the SERVER-owned engine class + model provenance MUST be frozen BEFORE the
+                // producing engine can start or capture a single sample. So the placeholder row is created and the
+                // pre-recording challenge is AWAIT-registered here — `startTranscription` (and therefore all
+                // capture) does not run until registration has resolved. The class/model come from the REQUESTED
+                // mode (the intent the challenge freezes); `attest` later verifies the ACTUAL runtime against it,
+                // so a runtime that diverges from the registered class resolves definitively unattributed.
+                // This is the SINGLE authoritative save — the post-start block below REUSES this row and never
+                // re-saves (a second create would collide on the idempotency key). Cloud registers no challenge.
+                let saveResult: Awaited<ReturnType<typeof saveSession>> | null = null;
+                let dbSession: NonNullable<Awaited<ReturnType<typeof saveSession>>>['session'] | null = null;
+                if (userId) {
+                    const preMode = policy?.preferredMode ?? mode;
+                    const preMetadata = preMode === 'private'
+                        ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
+                        : preMode === 'cloud'
+                            ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
+                            : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' };
+                    // #1161 (finding 6): the initial-save recovery context carries the SAME provenance this save
+                    // uses, so an initial-save RETRY recreates the row with identical engine identity.
+                    if (this.pendingInitialSaveContext && this.pendingInitialSaveContext.userId === userId) {
+                        this.pendingInitialSaveContext = {
+                            ...this.pendingInitialSaveContext, mode: preMode,
+                            engineVersion: preMetadata.engineVersion, modelName: preMetadata.modelName, deviceType: preMetadata.deviceType,
+                        };
+                    }
+                    this.updateSessionPersisted(false);
+                    pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: preMode });
+                    saveResult = await saveSession(
+                        { user_id: userId, title: `Session ${new Date().toLocaleString()}`, duration: 0, transcript: ' ', total_words: 0, engine: preMode },
+                        { id: userId } as UserProfile, preMode, recordingId, preMetadata,
+                    );
+                    pushNativeRuntimeTrace('controller_placeholder_save_done', {
+                        hasDbSession: Boolean(saveResult?.session), usageExceeded: Boolean(saveResult?.usageExceeded),
+                    });
+                    if (saveResult?.usageExceeded) {
+                        // Enforce quota BEFORE the producing engine starts — never register or capture for an
+                        // over-quota session (this also covers the case where no row was created).
+                        throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
+                    }
+                    dbSession = saveResult?.session ?? null;
+                    if (dbSession) {
+                        this.sessionId = dbSession.id;
+                        // AWAIT the freeze so capture cannot begin before it. Errors are surfaced (logged), never
+                        // discarded; fail-closed ⇒ the session is definitively unattributed later, recording unaffected.
+                        if (preMode === 'private' || preMode === 'native') {
+                            try {
+                                const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {
+                                    body: {
+                                        op: 'register',
+                                        sessionId: dbSession.id,
+                                        engineClass: preMode === 'private' ? 'private' : 'browser',
+                                        expectedModel: preMode === 'private' ? (preMetadata.modelName ?? resolvePrivateModel()) : null,
+                                    },
+                                });
+                                if (reg?.error) logger.warn({ err: reg.error, sessionId: dbSession.id }, '[controller] pre-recording attribution registration failed — session will be unattributed');
+                            } catch (e) {
+                                logger.warn({ e, sessionId: dbSession.id }, '[controller] pre-recording attribution registration threw — session will be unattributed');
+                            }
+                        }
+                        // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
+                        this.pendingInitialSaveContext = null;
+                    }
+                }
+
                 await service.startTranscription(policy, userWords);
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
@@ -2649,74 +2714,13 @@ export class SpeechRuntimeController {
                 await this.checkRecordingInvariant();
                 pushNativeRuntimeTrace('controller_recording_invariant_done');
 
-                if (userId) {
-                    const mode = service.getMode() || 'unknown';
-                    const idempotencyKey = recordingId;
-                    const metadata = service.getMetadata?.() || (
-                        mode === 'private'
-                            ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
-                            : mode === 'cloud'
-                                ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
-                                : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
-                    );
-
-                    // #1161 (finding 6): enrich the initial-save recovery context with the SAME engine provenance
-                    // this save uses, so an initial-save RETRY recreates the row with identical engine identity.
-                    if (this.pendingInitialSaveContext && this.pendingInitialSaveContext.userId === userId) {
-                        this.pendingInitialSaveContext = {
-                            ...this.pendingInitialSaveContext, mode,
-                            engineVersion: metadata.engineVersion, modelName: metadata.modelName, deviceType: metadata.deviceType,
-                        };
-                    }
-
-                    const sessionData = {
-                        user_id: userId,
-                        title: `Session ${new Date().toLocaleString()}`,
-                        duration: 0,
-                        transcript: ' ',
-                        total_words: 0,
-                        engine: mode
-                    };
-
-                    this.updateSessionPersisted(false);
-                    pushNativeRuntimeTrace('controller_placeholder_save_start', {
-                        mode,
-                    });
-                    const saveResult = await saveSession(sessionData, { id: userId } as UserProfile, mode, idempotencyKey, metadata);
-                    pushNativeRuntimeTrace('controller_placeholder_save_done', {
-                        hasDbSession: Boolean(saveResult?.session),
-                        usageExceeded: Boolean(saveResult?.usageExceeded),
-                    });
-                    const dbSession = saveResult?.session;
-
-                    if (dbSession) {
-                        this.sessionId = dbSession.id;
-                        // #1161 (P1-1): freeze the SERVER-owned engine class + model provenance the moment the row
-                        // exists, and AWAIT it (not fire-and-forget) so registration errors are surfaced, not
-                        // discarded. Deterministic fail-closed: any failure ⇒ the session is definitively
-                        // unattributed later (no authority); the local recording is unaffected. Cloud never registers.
-                        if (mode === 'private' || mode === 'native') {
-                            try {
-                                const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {
-                                    body: {
-                                        op: 'register',
-                                        sessionId: dbSession.id,
-                                        engineClass: mode === 'private' ? 'private' : 'browser',
-                                        expectedModel: mode === 'private' ? (metadata.modelName ?? resolvePrivateModel()) : null,
-                                    },
-                                });
-                                if (reg?.error) logger.warn({ err: reg.error, sessionId: dbSession.id }, '[controller] pre-recording attribution registration failed — session will be unattributed');
-                            } catch (e) {
-                                logger.warn({ e, sessionId: dbSession.id }, '[controller] pre-recording attribution registration threw — session will be unattributed');
-                            }
-                        }
-                        // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
-                        this.pendingInitialSaveContext = null;
-                        // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
-                        // running shadow engine WITHOUT resetting — events captured since the early start
-                        // (above, before startTranscription) are preserved. No-op in production.
-                        this.rebindShadowSession(this.sessionId, mode);
-                    }
+                if (userId && dbSession) {
+                    // #1161 (P1-1): the row + pre-recording challenge were already created/registered BEFORE
+                    // startTranscription (above). REUSE that row here — do NOT re-save (a second create would
+                    // collide on the idempotency key). This block only performs the RECORDING-confirmed wiring.
+                    // #891 Phase 5.7 (SHADOW): bind the real DB id + the negotiated/actual mode into the already-
+                    // running shadow engine WITHOUT resetting — early events captured before the DB id are preserved.
+                    this.rebindShadowSession(dbSession.id, service.getMode() || mode);
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                         await this.transition('READY', undefined, _token);
@@ -2728,7 +2732,7 @@ export class SpeechRuntimeController {
                     }
 
                     const currentState = this.getState();
-                    if (dbSession && service && (
+                    if (service && (
                         currentState === 'RECORDING' ||
                         currentState === 'ENGINE_INITIALIZING' ||
                         currentState === 'STOPPING'

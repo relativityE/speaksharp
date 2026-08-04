@@ -100,6 +100,11 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
         expect(exists).toBe(true);                          // definitive ⇒ a terminal eval IS written
         expect(eligible).toBe(false);
         expect(reasons).toEqual(['unverified_attribution']); // the ONLY failing gate — forge no longer suffices
+        // #1161 P1 (terminal-retention): the STORED attribution_status is derived from the authority, NOT echoed
+        // from the client-forged sessions.attribution_status='verified'. A definitive no-authority ⇒ 'unverified'.
+        const stored = (await db.query<{ attribution_status: string }>(
+            `SELECT attribution_status FROM public.session_progress_evaluations WHERE session_id=$1`, [s])).rows[0];
+        expect(stored.attribution_status).toBe('unverified');
     });
 
     it('#1161 P1-3: PENDING attribution (no authority, no marker) writes NO evaluation (defer, not exclude)', async () => {

@@ -473,9 +473,14 @@ BEGIN
         baseline_session_id, previous_comparable_session_id
     ) VALUES (
         v_uid, p_session_id, v_formula, COALESCE(s.duration, 0), v_words,
+        -- #1161 P1 (terminal-retention): the stored attribution_status is derived SOLELY from the server-owned
+        -- authority, NEVER from the client-writable s.attribution_status. By the defer guard above, this INSERT is
+        -- only reached once attribution is RESOLVED — so an authority row ⇒ 'verified', and its definitive absence
+        -- (an unattributed marker exists) ⇒ a hard 'unverified'. Echoing s.attribution_status here would let a
+        -- forged 'verified' survive into the evaluation row; drop that fallback entirely.
         v_has_clarity, s.engine, s.engine_version, s.model_name, CASE WHEN EXISTS (SELECT 1 FROM public.session_attribution_authority a
         WHERE a.session_id = p_session_id AND a.user_id = v_uid AND a.authority_version = 'attrib_v1')
-          THEN 'verified' ELSE COALESCE(s.attribution_status, 'unverified') END,
+          THEN 'verified' ELSE 'unverified' END,
         v_eligible, v_reasons,
         CASE WHEN v_eligible THEN v_clarity END,
         CASE WHEN v_eligible THEN v_fillers END,
