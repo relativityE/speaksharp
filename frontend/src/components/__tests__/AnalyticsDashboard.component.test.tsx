@@ -109,6 +109,13 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
     });
 
+    it('uses contained slide controls instead of outside carousel arrows', () => {
+        renderComponent({ sessionHistory: mockSessionHistory });
+        expect(screen.queryByRole('button', { name: 'Previous slide' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
+        expect(screen.getAllByRole('button', { name: /Go to slide/i }).length).toBeGreaterThan(1);
+    });
+
     it('should render error display when error occurs', () => {
         renderComponent({ error: new Error('Test error') });
         expect(screen.getByText(/Test error/i)).toBeInTheDocument();
@@ -138,7 +145,8 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
         expect(screen.getByText('Sound Confident')).toBeInTheDocument();
         expect(screen.getByText('Why these tools are here')).toBeInTheDocument();
-        expect(screen.getByText(/evidence behind SpeakSharp Score/i)).toBeInTheDocument();
+        expect(screen.getByText(/stored evidence you can inspect/i)).toBeInTheDocument();
+        expect(screen.queryByText(/SpeakSharp Score/i)).not.toBeInTheDocument();
         expect(screen.getByText(/Sound Confident shows which ingredient to improve/i)).toBeInTheDocument();
         expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
         expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();

@@ -1,0 +1,238 @@
+import { readFile } from 'node:fs/promises';
+import AxeBuilder from '@axe-core/playwright';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { test, expect, type Page } from '@playwright/test';
+import { setupE2EMocks } from './mock-routes';
+import { goToApp, navigateToRoute, programmaticLoginWithRoutes, waitForFeature } from './helpers';
+
+const SHOTS = 'test-results/1047-u3-cross-page';
+const SESSION_ID = 'session-4';
+const REFERENCE_ID = 'session-3';
+const VIEWPORTS = [
+  { name: 'mobile-320', width: 320, height: 800 },
+  { name: 'tablet-768', width: 768, height: 900 },
+  { name: 'desktop-1280', width: 1280, height: 900 },
+] as const;
+
+async function assertNoOverflow(page: Page): Promise<void> {
+  const overflow = await page.evaluate(() => {
+    const viewport = document.documentElement.clientWidth;
+    const offenders = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          testid: element.dataset.testid ?? null,
+          className: typeof element.className === 'string' ? element.className.slice(0, 160) : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          text: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 80) ?? '',
+        };
+      })
+      .filter(({ left, right, width }) => width > 0 && (right > viewport + 1 || left < -1))
+      .slice(0, 12);
+    const unclippedOffenders = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || (rect.right <= viewport + 1 && rect.left >= -1)) return false;
+        let ancestor = element.parentElement;
+        while (ancestor && ancestor !== document.body) {
+          const overflowX = getComputedStyle(ancestor).overflowX;
+          if (overflowX === 'hidden' || overflowX === 'clip' || overflowX === 'auto' || overflowX === 'scroll') {
+            return false;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        return true;
+      })
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          testid: element.dataset.testid ?? null,
+          className: typeof element.className === 'string' ? element.className.slice(0, 220) : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          text: element.textContent?.trim().replace(/\s+/g, ' ').slice(0, 100) ?? '',
+        };
+      })
+      .slice(0, 20);
+    return {
+      viewport,
+      document: document.documentElement.scrollWidth,
+      body: document.body.scrollWidth,
+      scrollX: window.scrollX,
+      bodyChildren: Array.from(document.body.children).map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          id: element.id,
+          className: typeof element.className === 'string' ? element.className.slice(0, 200) : '',
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          overflowX: getComputedStyle(element).overflowX,
+        };
+      }),
+      carousels: Array.from(document.querySelectorAll<HTMLElement>('[aria-roledescription="carousel"]')).map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          className: element.className,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: element.scrollWidth,
+          overflowX: getComputedStyle(element).overflowX,
+        };
+      }),
+      unclippedOffenders,
+      offenders,
+    };
+  });
+  expect(overflow.document, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.viewport);
+  expect(overflow.body, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.viewport);
+}
+
+async function assertAxe(page: Page): Promise<void> {
+  // Axe must inspect the settled product state, not a transient Framer opacity frame that blends text
+  // toward its background and reports a contrast ratio the user never rests on.
+  await page.waitForTimeout(600);
+  const result = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual([]);
+}
+
+async function screenshotMatrix(page: Page, surface: string): Promise<void> {
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    await assertNoOverflow(page);
+    await page.screenshot({ path: `${SHOTS}/${surface}-${viewport.name}.png`, fullPage: true });
+  }
+}
+
+function eligibleProgressTruth() {
+  const current = {
+    session_id: SESSION_ID,
+    eligible: true,
+    exclusion_reasons: [],
+    clarity_raw: 88,
+    filler_count: 4,
+    wpm: 142,
+    word_count: 245,
+    cohort_key: 'private|v2|base|clarity_v1',
+    baseline_session_id: REFERENCE_ID,
+    previous_comparable_session_id: REFERENCE_ID,
+    formula_version: 'clarity_v1',
+  };
+  const reference = { ...current, session_id: REFERENCE_ID, clarity_raw: 82, filler_count: 7, wpm: 136,
+    baseline_session_id: null, previous_comparable_session_id: null };
+  return {
+    evaluations: [current, reference],
+    recommendations: [{ id: 'recommendation-u3', source_session_id: SESSION_ID, formula_version: 'clarity_v1' }],
+    attempts: [],
+  };
+}
+
+async function extractPdfText(path: string): Promise<string> {
+  const data = new Uint8Array(await readFile(path));
+  const pdf = await getDocument({ data }).promise;
+  const chunks: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    chunks.push(content.items.map((item) => 'str' in item ? item.str : '').join(' '));
+  }
+  return chunks.join('\n');
+}
+
+test.describe('#1047 U3 canonical cross-page truth', () => {
+  test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await setupE2EMocks(page, { userType: 'free' });
+    await goToApp(page, '/');
+    await expect(page.getByTestId('practice-root')).toBeVisible();
+    await expect(page.getByText(/testimonial|customers (?:love|say)|trusted by/i)).toHaveCount(0);
+    await assertAxe(page);
+    await screenshotMatrix(page, 'marketing');
+  });
+
+  test('same saved session stays truthful across Practice, Session, History, Progress, Analytics and PDF', async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const forbiddenCloudRequests: string[] = [];
+    page.on('request', (request) => {
+      if (/assemblyai|cloud[-_/]?token|realtime.*websocket|transcription\/token/i.test(request.url())) {
+        forbiddenCloudRequests.push(request.url());
+      }
+    });
+
+    await programmaticLoginWithRoutes(page, {
+      userType: 'free',
+      progressFixtures: eligibleProgressTruth(),
+      sessions: [{
+        id: SESSION_ID,
+        user_id: 'test-user-123',
+        created_at: '2025-01-17T14:00:00.000Z',
+        duration: 420,
+        transcript_state: 'available',
+        transcript: 'Today I presented the same saved session truth with clear evidence.',
+        title: 'U3 Cross-page Session',
+        total_words: 245,
+        engine: 'private',
+        clarity_score: 88,
+        wpm: 142,
+        filler_words: { um: { count: 4 }, total: { count: 4 } },
+        ai_suggestions: {
+          version: 'gemini_coaching_v1',
+          what_worked: 'The saved-session evidence made the recommendation concrete.',
+          what_to_try_next: 'Close the next attempt with the requested decision and owner.',
+        },
+      }],
+    });
+
+    await navigateToRoute(page, '/practice');
+    await expect(page.getByTestId('practice-root')).toBeVisible();
+    await assertAxe(page);
+    await screenshotMatrix(page, 'practice');
+
+    await navigateToRoute(page, '/session');
+    await expect(page.getByTestId('session-start-stop-button')).toBeVisible();
+    await assertAxe(page);
+    await screenshotMatrix(page, 'session');
+
+    await navigateToRoute(page, '/analytics');
+    await waitForFeature(page, 'analytics');
+    const history = page.getByTestId(`session-history-item-${SESSION_ID}`);
+    await expect(history).toContainText('U3 Cross-page Session');
+    await screenshotMatrix(page, 'history');
+
+    await navigateToRoute(page, `/analytics/${SESSION_ID}`);
+    await expect(page.getByTestId('progress-panel')).toBeVisible();
+    await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
+    await expect(page.getByTestId('progress-practice-next')).toHaveCount(1);
+    await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
+    await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
+    await expect(page.getByText(/same saved session truth with clear evidence/i)).toBeVisible();
+    await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toBeVisible();
+    await expect(page.getByText('Close the next attempt with the requested decision and owner.')).toBeVisible();
+    await assertAxe(page);
+    await screenshotMatrix(page, 'review-progress');
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: /Export PDF/i }).click();
+    const download = await downloadPromise;
+    const pdfPath = testInfo.outputPath('u3-session.pdf');
+    await download.saveAs(pdfPath);
+    const pdfText = await extractPdfText(pdfPath);
+    expect(pdfText).toContain(SESSION_ID);
+    expect(pdfText).toContain('Today I presented the same saved session truth with clear evidence.');
+    expect(pdfText).not.toContain('SpeakSharp Score');
+    expect(pdfText).toContain('The saved-session evidence made the recommendation concrete.');
+    expect(pdfText).toContain('Close the next attempt with the requested decision and owner.');
+    expect(forbiddenCloudRequests).toEqual([]);
+  });
+});

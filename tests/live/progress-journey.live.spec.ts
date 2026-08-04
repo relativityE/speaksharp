@@ -197,6 +197,8 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
   test.beforeAll(async () => {
     test.skip(!BASE_URL, 'BASE_URL required');
     test.skip(!SUPABASE_URL || !SERVICE_ROLE || !EMAIL || !PASSWORD, 'GitHub-injected Supabase + maintained Free creds required');
+    expect(EXPECTED_RELEASE_SHA, 'EXPECTED_RELEASE_SHA must be the exact reviewed 40-character product SHA')
+      .toMatch(/^[0-9a-f]{40}$/);
     admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
     uid = await resolveUidByEmail(admin, EMAIL);
   });
@@ -211,6 +213,12 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
 
     // Capture check-usage-limit response bodies for the entitlement proof (step 4).
     const isEnt = (url: string) => /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
+    const forbiddenCloudRequests: string[] = [];
+    page.on('request', (request) => {
+      if (/assemblyai|cloud[-_/]?token|transcription\/token/i.test(request.url())) {
+        forbiddenCloudRequests.push(request.url());
+      }
+    });
     page.on('response', async (response) => {
       if (!isEnt(response.url())) return;
       try { entitlementBodies.push(await response.json() as EntitlementBody); } catch { /* non-JSON */ }
@@ -284,12 +292,17 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     const recId = (rec as { id?: string } | null)?.id;
     expect(recId, 'recommendation persisted for session 1').toBeTruthy();
 
-    let attempt: { lifecycle: string; outcome: string | null } | null = null;
+    let attempt: {
+      lifecycle: string;
+      outcome: string | null;
+      practice_session_id: string | null;
+      next_comparable_session_id: string | null;
+    } | null = null;
     for (let i = 0; i < 12 && !attempt; i++) {
       const { data } = await admin.from('progress_recommendation_attempts')
-        .select('lifecycle, outcome, accepted_at, recommendation_id')
+        .select('lifecycle, outcome, practice_session_id, next_comparable_session_id, accepted_at, recommendation_id')
         .eq('recommendation_id', recId!).order('accepted_at', { ascending: false }).limit(1);
-      const row = data?.[0] as { lifecycle: string; outcome: string | null } | undefined;
+      const row = data?.[0] as typeof attempt | undefined;
       if (row && row.lifecycle !== 'pending') attempt = row;
       else await page.waitForTimeout(3_000);
     }
@@ -297,5 +310,11 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     expect(attempt, 'gate 4: attempt resolved to a terminal lifecycle').not.toBeNull();
     expect(['completed', 'not_comparable']).toContain(attempt!.lifecycle);
     expect(['moved', 'did_not_move', 'not_comparable']).toContain(attempt!.outcome);
+    expect(attempt!.practice_session_id, 'attempt must bind the exact distinct saved successor').toBe(s2);
+    expect(attempt!.practice_session_id).not.toBe(s1);
+    if (attempt!.lifecycle === 'completed') {
+      expect(attempt!.next_comparable_session_id, 'completed comparison must use that same successor').toBe(s2);
+    }
+    expect(forbiddenCloudRequests, 'Private U3 journey must make zero Cloud token/provider requests').toEqual([]);
   });
 });

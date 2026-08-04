@@ -79,13 +79,13 @@ const Navigation = () => {
   const activeSectionId = resolveNavSectionId(location.pathname);
 
   // Each bar is its own navigation landmark and each owns its own aria-current. Only one of
-  // the two is ever displayed (the desktop bar is `hidden md:flex`, i.e. display:none below
-  // md, which removes it from the accessibility tree entirely), so a screen reader never sees
+  // the two is ever displayed (the desktop bar is `hidden lg:flex`, i.e. display:none below
+  // lg, which removes it from the accessibility tree entirely), so a screen reader never sees
   // two current pages — while the bar the user can actually see always announces one.
   const MobileNav = () => (
     <nav
       aria-label="Primary mobile"
-      className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 border-t border-border surface-shadow z-40 p-2 backdrop-blur-xl"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 p-2 backdrop-blur-xl surface-shadow lg:hidden"
     >
       <div className="flex justify-around items-center">
         {NAV_SECTIONS.map((item) => {
@@ -151,7 +151,7 @@ const Navigation = () => {
 
             {/* Navigation Items */}
             {session && (
-              <nav aria-label="Primary" className="hidden md:flex items-center space-x-1">
+              <nav aria-label="Primary" className="hidden items-center space-x-1 lg:flex">
                 {NAV_SECTIONS.map((item) => {
                   const isActive = activeSectionId === item.id;
                   return (

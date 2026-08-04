@@ -270,53 +270,50 @@ describe('generateSessionPdf', () => {
     await generateSessionPdf({
       ...mockSession,
       ai_suggestions: {
-        summary: 'You used a clear opening and can improve pacing.',
-        suggestions: [
-          {
-            title: 'Pause with intent',
-            description: 'Replace filler words with a short pause before the next idea.',
-          },
-        ],
+        version: 'gemini_coaching_v1',
+        what_worked: 'Your opening made the recommendation concrete.',
+        what_to_try_next: 'Pause before the final decision so it lands clearly.',
       },
     });
     const savedPdf = await getSavedPdf();
 
     expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).toContain('(You used a clear opening and can improve pacing.) Tj');
-    expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
+    expect(savedPdf.text).toContain('(Your opening made the recommendation concrete.) Tj');
+    expect(savedPdf.text).toContain('(Pause before the final decision so it lands clearly.) Tj');
   });
 
-  it('(#1047) suppresses persisted AI summary/coaching when the transcript is not_captured', async () => {
-    // The dashboard gates AISuggestions on the same provenance; the PDF must match — no coaching conclusions
-    // printed for a transcript we can no longer show. Stale ai_suggestions are present but must NOT render.
+  it('(#1047) preserves persisted coaching when the source transcript is later unavailable', async () => {
     await generateSessionPdf({
       ...mockSession,
       transcript_state: 'not_captured',
       transcript: '',
       ai_suggestions: {
-        summary: 'You used a clear opening and can improve pacing.',
-        suggestions: [{ title: 'Pause with intent', description: 'Replace filler words with a short pause.' }],
+        version: 'gemini_coaching_v1',
+        what_worked: 'Persisted strength remains readable.',
+        what_to_try_next: 'Persisted next step remains readable.',
       },
     });
     const savedPdf = await getSavedPdf();
-    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).not.toContain('(You used a clear opening and can improve pacing.) Tj');
-    expect(savedPdf.text).not.toContain('(1. Pause with intent) Tj');
+    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
+    expect(savedPdf.text).toContain('(Persisted strength remains readable.) Tj');
+    expect(savedPdf.text).toContain('(Persisted next step remains readable.) Tj');
   });
 
-  it('(#1047) suppresses AI coaching for an expired transcript too', async () => {
+  it('(#1047) preserves the exact persisted coaching after transcript expiry', async () => {
     await generateSessionPdf({
       ...mockSession,
       transcript_state: 'expired',
       transcript: null,
       ai_suggestions: {
-        summary: 'Expired summary should not print.',
-        suggestions: [{ title: 'Stale tip', description: 'Should be suppressed.' }],
+        version: 'gemini_coaching_v1',
+        what_worked: 'Expired-session strength remains exact.',
+        what_to_try_next: 'Expired-session next step remains exact.',
       },
     });
     const savedPdf = await getSavedPdf();
-    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).not.toContain('(Expired summary should not print.) Tj');
+    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
+    expect(savedPdf.text).toContain('(Expired-session strength remains exact.) Tj');
+    expect(savedPdf.text).toContain('(Expired-session next step remains exact.) Tj');
   });
 
   it.each([
@@ -437,20 +434,21 @@ describe('getPdfFillerTableData — SSOT: persisted canonical wins, no recount o
     }));
   });
 
-  it('treats a not_captured sentinel (total_words:0, filler_words:{}) as N/A and suppresses score/coaching', async () => {
+  it('treats a not_captured sentinel as N/A and never emits legacy score-derived coaching rows', async () => {
     await generateSessionPdf(
       u1Session({ transcript: '', transcript_state: 'not_captured', total_words: 0, filler_words: {} }) as Session,
       'TestUser',
     );
     // The schema-default 0 / empty filler map are sentinels, not measurements → N/A, and the
-    // transcript-dependent score/coaching are not recomputed from absent text.
+    // legacy universal score/coaching rows are absent for every transcript state.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
         ['Total Words', 'N/A'],
         ['Total Filler Words', 'N/A'],
-        ['SpeakSharp Score', 'N/A'],
-        ['Coaching Suggestion', 'N/A'],
       ]),
     }));
+    const body = vi.mocked(autoTable).mock.calls[0][1].body as string[][];
+    expect(body.flat()).not.toContain('SpeakSharp Score');
+    expect(body.flat()).not.toContain('Coaching Suggestion');
   });
 });

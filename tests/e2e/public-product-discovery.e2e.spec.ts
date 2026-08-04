@@ -8,9 +8,9 @@ import { TEST_IDS } from '../constants';
  * #1061 — ONE canonical auth-aware page (PracticePage) at BOTH `/` (anonymous marketing state) and
  * `/practice` (authenticated product state).
  *
- *  - Anonymous `/`: large hero + Start free; a "how it helps" support section (4 cards, grouped by product,
- *    curved connectors); product cards WITHOUT duplicate CTAs. Freestyle support CTA → signup → /session
- *    (real account-access composition, intent preserved); Guided support CTA → real "Notify me" dialog.
+ *  - Anonymous `/`: large hero + Start free; one honest Free Trial strip; product cards WITHOUT duplicate
+ *    CTAs. Freestyle product CTA → signup → /session (real account-access composition, intent preserved);
+ *    Guided product CTA → real "Notify me" dialog.
  *  - Authenticated `/practice`: compact welcome + continuity; product cards own their actions; Freestyle →
  *    /session directly; Guided "Notify me" opens the same dialog. Guided is "Coming Soon!" (no "Planned").
  *
@@ -44,7 +44,7 @@ async function settle(page: Page) {
 }
 
 test.describe('#1061 one canonical auth-aware page', () => {
-  test('anonymous `/`: hero + 4-card support section + product cards; NO continuity; Coming Soon!', async ({ page }) => {
+  test('anonymous `/`: hero + Free Trial strip + product cards; NO continuity; Coming Soon!', async ({ page }) => {
     await bootAnonymous(page);
 
     await page.setViewportSize(DESKTOP);

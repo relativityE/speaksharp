@@ -97,7 +97,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
 
     const shell = (content: React.ReactNode) => (
         <section data-testid="progress-panel" aria-labelledby="progress-heading" className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4">
-            <h2 id="progress-heading" ref={headingRef} tabIndex={-1} className="text-xs font-bold uppercase tracking-wide text-primary">Your progress</h2>
+            <h2 id="progress-heading" ref={headingRef} tabIndex={-1} className="text-xs font-bold uppercase tracking-wide text-foreground">Your progress</h2>
             <div aria-live="polite" aria-atomic="true">{content}</div>
         </section>
     );
@@ -125,8 +125,8 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     return shell(<>
         <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
         <dl className="grid gap-3 sm:grid-cols-2">
-            <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground/55">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>
-            <div data-testid="progress-practice-next"><dt className="text-xs font-semibold uppercase tracking-wide text-primary">{PRACTICE_THIS_NEXT_LABEL}</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.practiceThisNext}</dd></div>
+            <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>
+            <div data-testid="progress-practice-next"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">{PRACTICE_THIS_NEXT_LABEL}</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.practiceThisNext}</dd></div>
         </dl>
         {view.latestAttempt && <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">{
             view.latestAttempt.lifecycle === 'pending' ? 'Your linked repeat is pending.'

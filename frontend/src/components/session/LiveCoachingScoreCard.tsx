@@ -130,7 +130,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                         ("SpeakSharp" is redundant here), never "SpeakSharp Score", never a bare "SCORE",
                         and no asterisk. The name is carried ONCE, by the inner panel label below; there
                         is deliberately no <h2> stacking a second copy of it directly above that panel. */}
-                    <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
+                    <div className="mb-1 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-foreground">
                         <Target className="h-4 w-4" aria-hidden="true" />
                         Live Coaching
                         <HelpPopover

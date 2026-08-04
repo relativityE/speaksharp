@@ -8,7 +8,6 @@ import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
 import { getSessionAnalysisMetrics, isUsableFillerCounts } from '@/utils/sessionAnalysis';
-import { calculateSpeakingScore } from '@/utils/speakingScore';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -151,30 +150,12 @@ export const generateSessionPdf = async (
     // from numeric presence (a not_captured row's `total_words: 0` / empty filler map are schema-default
     // SENTINELS, not measurements). An expired row still shows its genuinely persisted measurements.
     const transcriptState = presentTranscript(session.transcript_state, session.transcript).state;
-    const transcriptReadable = transcriptState === 'available';
     const derivedCell = (persistedIsRealNumber: boolean, render: () => string): string =>
       transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
     const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
     const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
     const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
     const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
-    // Never recompute a transcript-dependent score/coaching from absent text; only a readable transcript
-    // yields a new score/coaching conclusion.
-    const scoreResult = transcriptReadable ? calculateSpeakingScore({
-      transcript: session.transcript || '',
-      wordCount: metrics.wordCount,
-      wpm: metrics.wpm,
-      clarityScore: metrics.clarityScore,
-      fillerCount: metrics.fillerCount,
-      elapsedSeconds: session.duration || 0,
-      pauseMetrics: session.pause_metrics || {
-        silencePercentage: 0,
-        transitionPauses: 0,
-        extendedPauses: 0,
-        longestPause: 0,
-      },
-      engine: session.engine,
-    }) : null;
     const customWords = getCustomWordList(session.custom_words);
     const customWordsDetected = customWords.reduce((sum, word) => {
       const savedCount = session.custom_words?.[word];
@@ -227,8 +208,6 @@ export const generateSessionPdf = async (
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
       ['Longest Pause', formatOptionalNumber(session.pause_metrics?.longestPause, value => `${value.toFixed(1)}s`)],
-      ['SpeakSharp Score', !scoreResult ? 'N/A' : scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
-      ['Coaching Suggestion', scoreResult ? scoreResult.actions.slice(0, 2).join('; ') : 'N/A'],
     ];
 
     autoTable(doc, {
@@ -267,29 +246,23 @@ export const generateSessionPdf = async (
     // AI summary and coaching too — not just the transcript text. Those conclusions were derived from a
     // transcript we can no longer show; printing them would contradict the dashboard, which gates AISuggestions
     // on the same `aiAvailable` (=== canRenderTranscript) provenance. Match that unavailable-evidence behavior.
-    if (pdfTranscript.canRenderTranscript && session.ai_suggestions) {
+    // A valid persisted coaching result is a durable session artifact. Retention may remove the source
+    // transcript later, but reopening/exporting must preserve the same two stored strings.
+    if (session.ai_suggestions) {
       doc.addPage();
       doc.setFontSize(16);
       doc.text('AI Coaching Suggestions', 14, 22);
       doc.setFontSize(11);
 
       let y = 34;
-      if (session.ai_suggestions.summary) {
-        y = writePaginatedText(doc, session.ai_suggestions.summary, 14, y, 180, 6) + 8;
-      }
-
-      session.ai_suggestions.suggestions?.forEach((suggestion, index) => {
-        if (y > 260) {
-          doc.addPage();
-          y = 22;
-        }
-
-        doc.setFontSize(12);
-        doc.text(`${index + 1}. ${suggestion.title}`, 14, y);
-        y += 7;
-        doc.setFontSize(10);
-        y = writePaginatedText(doc, suggestion.description, 18, y, 180, 5) + 6;
-      });
+      doc.setFontSize(12);
+      doc.text('What worked', 14, y);
+      doc.setFontSize(10);
+      y = writePaginatedText(doc, session.ai_suggestions.what_worked, 18, y + 7, 180, 5) + 8;
+      doc.setFontSize(12);
+      doc.text('What to try next', 14, y);
+      doc.setFontSize(10);
+      writePaginatedText(doc, session.ai_suggestions.what_to_try_next, 18, y + 7, 180, 5);
     }
 
     // --- Footer & Watermark ---

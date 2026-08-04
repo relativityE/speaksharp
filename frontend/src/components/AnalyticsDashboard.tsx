@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ProgressPanel } from '@/components/progress/ProgressPanel';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
+import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
 import AISuggestions from './session/AISuggestions';
 import { generateSessionPdf } from '../lib/pdfGenerator';
@@ -450,10 +450,10 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
 
     return (
         <div
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] surface-shadow mb-3 last:mb-0"
+            className="group mb-3 flex flex-col items-stretch justify-between rounded-xl border border-[hsl(var(--border))] bg-muted p-4 transition-colors last:mb-0 hover:border-[hsl(var(--border-strong))] hover:bg-white surface-shadow md:flex-row md:items-center"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
-            <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
+            <div className="mb-4 flex min-w-0 w-full items-center gap-4 md:mb-0 md:w-auto">
                 <div className="flex items-center h-full">
                     <Checkbox
                         checked={isSelected}
@@ -465,14 +465,14 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 <NavLink
                     to={`/analytics/${session.id}`}
                     data-testid={`session-detail-link-${session.id}`}
-                    className="flex min-w-0 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                     <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
                         <Mic className="w-6 h-6 text-secondary" />
                     </div>
-                    <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                    <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <p className="max-w-full truncate text-base font-semibold text-foreground md:max-w-[200px]">{session.title || 'Practice Session'}</p>
                             <span
                                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] ${engineBadge.className}`}
                                 data-testid={`session-engine-badge-${session.id}`}
@@ -482,7 +482,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                                 {engineBadge.label}
                             </span>
                         </div>
-                        <div className="flex items-center gap-2 text-sm font-medium text-foreground/70">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground/70">
                             <Clock className="w-3 h-3" />
                             <span>{durationStr} duration</span>
                             <span className="text-foreground/50">•</span>
@@ -492,18 +492,18 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 </NavLink>
             </div>
 
-            <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
-                <div className="text-center">
+            <div className="grid w-full grid-cols-3 items-start gap-2 px-0 sm:px-4 md:flex md:w-auto md:items-center md:justify-end md:gap-8 md:px-0">
+                <div className="min-w-0 text-center">
                     <p className="font-bold text-foreground text-lg">{wpm}{typeof wpm === 'number' && <span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span>}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
                 </div>
-                <div className="text-center">
+                <div className="min-w-0 text-center">
                     <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
                 </div>
-                <div className="text-center">
+                <div className="min-w-0 text-center">
                     <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
@@ -799,9 +799,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
         [targetSession]
     );
-    // Transcript-quality caveat for the saved session — same signal as the live
-    // SpeakSharp Score confidence, so a weak-transcript session in history is never
-    // presented as a precise grade without the "directional" explanation (Option 2).
+    // Transcript-quality caveat for the saved session keeps weak evidence visibly directional rather
+    // than presenting it as precise measurement authority.
     const targetSessionQuality = useMemo(
         () => targetSession
             ? getTranscriptQualityCaveat(targetSession.transcript ?? '', targetSession.engine ?? undefined)
@@ -940,18 +939,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 // actually readable — withholding the text disables "Get Suggestions".
                                 transcript={targetTranscript?.aiAvailable ? (targetSession.transcript || "") : ""}
                                 sessionId={targetSession.id}
-                                // #1047: withhold STALE persisted AI suggestions when the transcript is not
-                                // readable (not_captured / expired) — a coaching conclusion tied to removed or
-                                // never-captured text must not resurface.
-                                initialSuggestions={targetTranscript?.aiAvailable ? targetSession.ai_suggestions : undefined}
-                                metrics={{
-                                    wpm: targetSession.wpm,
-                                    clarity_score: targetSession.clarity_score,
-                                    total_words: targetSession.total_words,
-                                    duration: targetSession.duration,
-                                    filler_words: targetSession.filler_words,
-                                    pause_metrics: targetSession.pause_metrics
-                                }}
+                                // A previously persisted valid result remains readable after transcript expiry;
+                                // only new generation is disabled when the saved transcript is unavailable.
+                                initialSuggestions={targetSession.ai_suggestions ?? undefined}
                             />
                         </div>
                     </div>
@@ -1043,7 +1033,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div className="space-y-1">
                                     <p className="font-bold text-foreground">Why these tools are here</p>
                                     <p className="font-medium">
-                                        Pace, fillers, clarity, activity, and transcript quality are the evidence behind SpeakSharp Score and your coaching feedback.
+                                        Pace, fillers, clarity, activity, and transcript quality are the stored evidence you can inspect before your next session.
                                     </p>
                                 </div>
                                 <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">
@@ -1246,8 +1236,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 ))
                                 }
                             </CarouselContent>
-                            <CarouselPrevious />
-                            <CarouselNext />
                         </Carousel>
                         {/* Carousel Indicators */}
                         <div className="flex justify-center gap-2 py-1">

@@ -145,6 +145,7 @@
     "sharp": "0.33.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
     "@esbuild/darwin-arm64": "^0.25.12",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.57.0",

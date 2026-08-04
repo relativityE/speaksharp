@@ -115,6 +115,17 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(view.direction.deltaPoints).toBeNull();
     });
 
+    it('does not fabricate baseline or movement when retention removed baseline but previous survives', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1' });
+        references = [ev('s1', { clarity_raw: 10 })];
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.direction).toMatchObject({ direction: 'baseline', deltaPoints: null });
+        expect(view.direction.text).toMatch(/restarted/i);
+        expect(view.direction.text).not.toMatch(/established|moved|improved/i);
+    });
+
     it('renders an explicit restart when a stored baseline exists but no previous comparable session does', async () => {
         current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: null });
         references = [ev('s0', { cohort_key: 'older-cohort' })];

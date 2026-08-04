@@ -410,6 +410,8 @@ export async function programmaticLoginWithRoutes(
     mockProfile?: Record<string, unknown>;
     /** #1047: seed a specific saved-session set (e.g. transcript_state variants). */
     sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
+    /** #1047 U3: seed Progress rows into the authoritative in-browser Supabase test client. */
+    progressFixtures?: import('./helpers/setupE2EManifest').ProgressFixtures;
   } = {}
 ) {
   const {
@@ -419,7 +421,8 @@ export async function programmaticLoginWithRoutes(
     emptySessions = false,
     debug = false,
     mockProfile,
-    sessions
+    sessions,
+    progressFixtures,
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -462,6 +465,7 @@ export async function programmaticLoginWithRoutes(
     // #1047: the app (mock engine) reads sessions from the manifest's in-browser DB, so the seed must reach
     // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
     sessions,
+    progressFixtures,
     storage: authStorage
   });
 

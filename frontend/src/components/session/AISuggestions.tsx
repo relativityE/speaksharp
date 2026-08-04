@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -6,33 +6,16 @@ import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
 
-interface SuggestionItem {
-  title: string;
-  description: string;
-}
-
 interface AISuggestionsData {
-  summary: string;
-  suggestions: SuggestionItem[];
+  version: 'gemini_coaching_v1';
+  what_worked: string;
+  what_to_try_next: string;
 }
 
 interface AISuggestionsProps {
   transcript: string;
   sessionId?: string;
   initialSuggestions?: AISuggestionsData;
-  metrics?: {
-    wpm?: number;
-    clarity_score?: number;
-    total_words?: number;
-    duration?: number;
-    filler_words?: Record<string, { count: number }>;
-    pause_metrics?: {
-      silencePercentage: number;
-      transitionPauses: number;
-      extendedPauses: number;
-      longestPause: number;
-    };
-  };
 }
 
 const getSafeAiSuggestionError = (err: unknown): string => {
@@ -58,25 +41,53 @@ const getSafeAiSuggestionError = (err: unknown): string => {
   return 'AI coaching is unavailable right now. Your session is saved, and you can try again later.';
 };
 
-const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions, metrics }) => {
-  const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(initialSuggestions || null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions }) => {
+  const activeSessionRef = useRef(sessionId);
+  const requestGenerationRef = useRef(0);
+  if (activeSessionRef.current !== sessionId) {
+    activeSessionRef.current = sessionId;
+    requestGenerationRef.current += 1;
+  }
+  const [view, setView] = useState(() => ({
+    sessionId,
+    suggestions: initialSuggestions || null,
+    isLoading: false,
+    error: null as string | null,
+  }));
+
+  // A route change can reuse this component instance. Render the new session's persisted value
+  // immediately and invalidate every request captured for the previous session.
+  const currentView = view.sessionId === sessionId
+    ? view
+    : { sessionId, suggestions: initialSuggestions || null, isLoading: false, error: null };
+  const { suggestions, isLoading, error } = currentView;
+
+  useEffect(() => {
+    setView({
+      sessionId,
+      suggestions: initialSuggestions || null,
+      isLoading: false,
+      error: null,
+    });
+  }, [sessionId, initialSuggestions]);
 
   const fetchSuggestions = async () => {
-    setIsLoading(true);
-    setError(null);
-    setSuggestions(null);
+    const requestSessionId = sessionId;
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
+    const isCurrentRequest = () =>
+      activeSessionRef.current === requestSessionId
+      && requestGenerationRef.current === requestGeneration;
+
+    setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null });
 
     try {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
       const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
-        body: {
-          transcript,
-          metrics: metrics || null,
-          sessionId: sessionId || null
-        },
+        // The edge function loads transcript and measurements from this authenticated saved session.
+        // Never send caller-owned evidence that could be swapped between session ids.
+        body: { sessionId: sessionId || null },
       });
 
       if (invokeError) {
@@ -88,26 +99,40 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         throw new Error(data.error);
       }
 
-      setSuggestions(data.suggestions);
+      if (isCurrentRequest()) {
+        setView({ sessionId: requestSessionId, suggestions: data.suggestions, isLoading: false, error: null });
+      }
     } catch (err: unknown) {
       logger.error({ err }, "Error fetching AI suggestions:");
-      setError(getSafeAiSuggestionError(err));
+      if (isCurrentRequest()) {
+        setView({
+          sessionId: requestSessionId,
+          suggestions: null,
+          isLoading: false,
+          error: getSafeAiSuggestionError(err),
+        });
+      }
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setView((current) => current.sessionId === requestSessionId
+          ? { ...current, isLoading: false }
+          : current);
+      }
     }
   };
 
   return (
     <Card data-testid="ai-suggestions-card">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
           AI Coaching Suggestions
         </CardTitle>
         <Button
           onClick={() => { void fetchSuggestions(); }}
-          disabled={isLoading || !transcript}
+          disabled={isLoading || !transcript || !sessionId}
           size="sm"
+          className="w-full sm:w-auto"
         >
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {isLoading ? 'Analyzing...' : 'Get Suggestions'}
@@ -139,16 +164,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
 
         {suggestions && (
           <div className="space-y-4">
-            <blockquote className="border-l-2 pl-6 italic">
-              "{suggestions.summary}"
-            </blockquote>
-            <div className="space-y-3">
-              {suggestions.suggestions.map((item, index) => (
-                <div key={index} className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
-                  <h4 className="font-semibold">{item.title}</h4>
-                  <p className="text-sm font-medium text-foreground/70">{item.description}</p>
-                </div>
-              ))}
+            <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
+              <h4 className="font-semibold">What worked</h4>
+              <p className="text-sm font-medium text-foreground/70">{suggestions.what_worked}</p>
+            </div>
+            <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
+              <h4 className="font-semibold">What to try next</h4>
+              <p className="text-sm font-medium text-foreground/70">{suggestions.what_to_try_next}</p>
             </div>
           </div>
         )}

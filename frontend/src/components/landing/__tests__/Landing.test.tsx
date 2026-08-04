@@ -93,5 +93,4 @@ describe('Landing Page Components', () => {
         expect(screen.getByText(/SpeakSharp|Copyright/i)).toBeDefined();
     });
 
-    it.todo('renders TestimonialsSection without crashing');
 });

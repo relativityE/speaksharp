@@ -197,6 +197,20 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(await screen.findByTestId('progress-attempt-outcome')).toHaveTextContent(/stored repeat shows movement/i);
     });
 
+    it.each([
+        ['completed', 'did_not_move', /did not show movement/i],
+        ['not_comparable', 'not_comparable', /was not comparable/i],
+        ['abandoned', null, /was not completed/i],
+    ] as const)('renders stored %s/%s lifecycle truth without converting it to success', async (lifecycle, outcome, copy) => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            latestAttempt: { id: 'att-terminal', lifecycle, outcome },
+        });
+        renderPanel();
+        expect(await screen.findByTestId('progress-attempt-outcome')).toHaveTextContent(copy);
+        expect(screen.getByTestId('progress-attempt-outcome')).not.toHaveTextContent(/shows movement in/i);
+    });
+
     it('reload recovers an authoritative pending attempt and blocks a second attempt until terminal cleanup', async () => {
         const pendingView = { ...VIEW, latestAttempt: { id: 'att-orphan', lifecycle: 'pending', outcome: null } };
         loadSessionProgress.mockResolvedValueOnce(pendingView).mockResolvedValue(VIEW);

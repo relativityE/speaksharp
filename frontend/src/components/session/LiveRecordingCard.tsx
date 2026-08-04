@@ -398,14 +398,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
-                <div className="flex items-center justify-between gap-3">
-                    <div className="flex w-[min(100%,260px)] items-start gap-2">
+                <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-2 sm:w-[min(100%,260px)]">
                         {isPrivateDownloadRequired && (
                             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
                                 <Lock className="h-3.5 w-3.5" />
                             </div>
                         )}
-                        <div>
+                        <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                                 {/* #1047: demoted to a quiet 13px/700 muted label. It used to be primary-orange
                                     with a `?` icon beside it, which made a CARD LABEL compete with the card's

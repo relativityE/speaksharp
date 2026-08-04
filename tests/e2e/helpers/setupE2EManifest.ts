@@ -34,6 +34,12 @@ export interface SSE2EManifest {
   } | null;
 }
 
+export interface ProgressFixtures {
+  evaluations: Array<Record<string, unknown>>;
+  recommendations: Array<Record<string, unknown>>;
+  attempts: Array<Record<string, unknown>>;
+}
+
 /**
  * Minimal interface for the controller to avoid importing the full class.
  */
@@ -112,9 +118,11 @@ export async function setupE2EManifest(
     emptySessions?: boolean;
     /** #1047: seed the in-browser mock session DB (e.g. transcript_state variants) instead of defaults. */
     sessions?: Array<Record<string, unknown>>;
+    /** #1047 U3: seed the same in-browser Supabase authority used by the Progress product path. */
+    progressFixtures?: ProgressFixtures;
   }
 ) {
-  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -128,7 +136,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut, mp, es, seed }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>> }) => {
+  await page.addInitScript(({ m, s, ut, mp, es, seed, progress }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -242,10 +250,9 @@ export async function setupE2EManifest(
         status: 'completed',
         created_at: nowIso(),
         updated_at: nowIso(),
-        ai_suggestions: {
-          summary: 'Strong practice session.',
-          suggestions: [{ title: 'Keep it clear', description: 'Continue speaking with concise structure.' }],
-        },
+        // Coaching is never fabricated by the generic session factory. Tests that need it must seed
+        // an exact persisted provider result for that specific session.
+        ai_suggestions: null,
         pause_metrics: null,
         ...overrides,
       };
@@ -307,10 +314,18 @@ export async function setupE2EManifest(
     let userFillerWords: Array<{ id: string; user_id: string; word: string; created_at: string }> = [];
     persistSessions();
 
+    type QueryFilter = { column: string; value: unknown; operator?: 'eq' | 'in' | 'lt' | 'neq' };
+    const matchesFilters = (row: Record<string, unknown>, filters: QueryFilter[]) => filters.every((filter) => {
+      const value = row[filter.column];
+      if (filter.operator === 'in') return Array.isArray(filter.value) && filter.value.some((candidate) => String(candidate) === String(value));
+      if (filter.operator === 'lt') return String(value) < String(filter.value);
+      if (filter.operator === 'neq') return String(value) !== String(filter.value);
+      return String(value) === String(filter.value);
+    });
     const queryResultFor = (
       table: string,
       single: boolean = false,
-      filters: Array<{ column: string; value: unknown }> = [],
+      filters: QueryFilter[] = [],
       options: { count?: string; head?: boolean; range?: [number, number] } = {}
     ) => {
       if (table === 'user_profiles') {
@@ -321,14 +336,22 @@ export async function setupE2EManifest(
       }
       if (table === 'user_filler_words') {
         const rows = userFillerWords.filter((row) =>
-          filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
+          matchesFilters(row as Record<string, unknown>, filters)
         );
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
+      }
+      const progressRows = table === 'session_progress_evaluations' ? progress?.evaluations
+        : table === 'progress_recommendations' ? progress?.recommendations
+          : table === 'progress_recommendation_attempts' ? progress?.attempts
+            : null;
+      if (progressRows) {
+        const rows = progressRows.filter((row) => matchesFilters(row, filters));
         return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
       }
       if (table === 'sessions') {
         let rows = [...sessionState.sessions];
         for (const filter of filters) {
-          rows = rows.filter((row) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value));
+          rows = rows.filter((row) => matchesFilters(row as Record<string, unknown>, [filter]));
         }
         rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
         const count = rows.length;
@@ -350,7 +373,7 @@ export async function setupE2EManifest(
     };
 
     const makeQueryBuilder = (table: string) => {
-      const filters: Array<{ column: string; value: unknown }> = [];
+      const filters: QueryFilter[] = [];
       const options: { count?: string; head?: boolean; range?: [number, number] } = {};
       let pendingMutation: { type: 'update' | 'insert' | 'upsert' | 'delete'; payload?: Record<string, unknown> | Record<string, unknown>[] } | null = null;
       const commitMutation = () => {
@@ -415,7 +438,19 @@ export async function setupE2EManifest(
           return builder;
         },
         eq: (column: string, value: unknown) => {
-          filters.push({ column, value });
+          filters.push({ column, value, operator: 'eq' });
+          return builder;
+        },
+        in: (column: string, values: unknown[]) => {
+          filters.push({ column, value: values, operator: 'in' });
+          return builder;
+        },
+        lt: (column: string, value: unknown) => {
+          filters.push({ column, value, operator: 'lt' });
+          return builder;
+        },
+        neq: (column: string, value: unknown) => {
+          filters.push({ column, value, operator: 'neq' });
           return builder;
         },
         or: () => builder,
@@ -445,6 +480,11 @@ export async function setupE2EManifest(
           return builder;
         },
         single: () => {
+          const mutationResult = commitMutation();
+          if (mutationResult) return Promise.resolve({ ...mutationResult, data: Array.isArray(mutationResult.data) ? mutationResult.data[0] ?? null : mutationResult.data });
+          return queryResultFor(table, true, filters, options);
+        },
+        maybeSingle: () => {
           const mutationResult = commitMutation();
           if (mutationResult) return Promise.resolve({ ...mutationResult, data: Array.isArray(mutationResult.data) ? mutationResult.data[0] ?? null : mutationResult.data });
           return queryResultFor(table, true, filters, options);
@@ -807,5 +847,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures });
 }
