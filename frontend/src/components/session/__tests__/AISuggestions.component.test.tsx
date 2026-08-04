@@ -33,7 +33,7 @@ describe('AISuggestions Integration', () => {
             render(<AISuggestions transcript="Hello world" />);
 
             expect(screen.getByText(/AI Coaching Suggestions/i)).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /get suggestions/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /get suggestions/i })).toHaveClass('w-full', 'sm:w-auto');
             expect(screen.getByText(/click the button to request ai coaching/i)).toBeInTheDocument();
         });
 

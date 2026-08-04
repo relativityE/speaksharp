@@ -99,7 +99,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
 
   return (
     <Card data-testid="ai-suggestions-card">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />
           AI Coaching Suggestions
@@ -108,6 +108,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
           onClick={() => { void fetchSuggestions(); }}
           disabled={isLoading || !transcript}
           size="sm"
+          className="w-full sm:w-auto"
         >
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {isLoading ? 'Analyzing...' : 'Get Suggestions'}
