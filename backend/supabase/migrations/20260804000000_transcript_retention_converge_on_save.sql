@@ -13,8 +13,9 @@
 --   * A valid session save is NEVER rolled back for retention non-convergence (the coordinator is invoked in
 --     a guarded sub-block by the save paths; only the retention operation reports pending/non-converged).
 --   * Do NOT write a premature immutable evaluation, do NOT make evaluations upgradable, do NOT port
---     recommendation/UI copy into SQL (recommendation derives from the durable evaluation, is
---     transcript-independent, and stays client-derived/reconcile-only).
+--     recommendation/UI copy into SQL. Under the accepted Option A clarification the CLIENT remains the
+--     terminal-attribution evaluation/recommendation INITIATOR; R2 adds NO user-visible retention feature.
+--     Recommendation derives from the durable evaluation and is transcript-independent (retention-safe).
 --   * Content-free status only: converged | pending | non_converged, candidate counts, has_more — never
 --     transcript or customer content.
 --   * #1161 later moves attribution authority server-side and MUST reuse this same coordinator; R2 does not
@@ -120,9 +121,13 @@ BEGIN
   IF NEW.attribution_status IS DISTINCT FROM 'pending' THEN
     BEGIN
       PERFORM public.converge_transcript_retention(NEW.user_id);
-    EXCEPTION WHEN OTHERS THEN
-      -- Convergence is best-effort here; the durable evaluation is authoritative and must not be lost.
-      NULL;
+    EXCEPTION
+      -- Convergence is best-effort here; the durable evaluation is authoritative and must NOT be lost.
+      -- #1117 R2 (P1 FIX): WHEN OTHERS does not match query_canceled (57014); a retention statement/lock
+      -- timeout during trigger convergence must NOT roll back this terminal-evaluation INSERT. The next
+      -- ordinary coordinator invocation / R3 readback converges later.
+      WHEN query_canceled THEN NULL;
+      WHEN OTHERS THEN NULL;
     END;
   END IF;
   RETURN NULL;  -- AFTER trigger
