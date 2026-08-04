@@ -18,6 +18,7 @@ const M1131 = SQL('20260801000000_sessions_transcript_state.sql');
 const R1 = SQL('20260803000000_transcript_retention_newest_two.sql');
 const R2 = SQL('20260804000000_transcript_retention_converge_on_save.sql');
 const R3 = SQL('20260805000000_transcript_retention_preflight.sql');
+const WORKFLOW = readFileSync(resolve(process.cwd(), '.github', 'workflows', 'transcript-retention-preflight.yml'), 'utf8');
 
 const UA = '11111111-1111-4111-8111-111111111111';
 const UB = '22222222-2222-4222-8222-222222222222';
@@ -151,6 +152,33 @@ describe('#1117 R3 preflight — evidence backlog, isolation, repeatability', ()
 });
 
 describe('#1117 R3 preflight — fail-closed, ACL, content-free', () => {
+    it('NULL scope fails closed instead of falling through SQL three-valued logic', async () => {
+        const db = await freshDb();
+        await expect(db.query(
+            `SELECT public.transcript_retention_preflight(NULL, NULL, 'null-scope')`,
+        )).rejects.toThrow(/invalid scope/i);
+    });
+
+    it('deployed function-definition identity detects drift before a verdict can be trusted', async () => {
+        const db = await freshDb();
+        const signature = 'public.transcript_retention_preflight(text,uuid,text)';
+        const reviewed = (await db.query<{ digest: string }>(
+            `SELECT md5(pg_get_functiondef($1::regprocedure)) AS digest`, [signature],
+        )).rows[0].digest;
+        expect(reviewed).toMatch(/^[0-9a-f]{32}$/);
+        const expected = WORKFLOW.match(/EXPECTED_PREFLIGHT_FUNCTION_MD5:\s*([0-9a-f]{32})/)?.[1];
+        expect(expected).toBe(reviewed);
+
+        await db.exec(`CREATE OR REPLACE FUNCTION public.transcript_retention_preflight(
+            p_scope text DEFAULT 'all_users', p_user_id uuid DEFAULT NULL, p_run_id text DEFAULT NULL
+          ) RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=public,pg_temp
+          AS $$ SELECT '{"status":"ready"}'::jsonb $$`);
+        const drifted = (await db.query<{ digest: string }>(
+            `SELECT md5(pg_get_functiondef($1::regprocedure)) AS digest`, [signature],
+        )).rows[0].digest;
+        expect(drifted).not.toBe(reviewed);
+    });
+
     it('unknown policy version fails closed (raises)', async () => {
         const db = await freshDb();
         await db.exec(`CREATE OR REPLACE FUNCTION public.transcript_retention_policy_version() RETURNS text

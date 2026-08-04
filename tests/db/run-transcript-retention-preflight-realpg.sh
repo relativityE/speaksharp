@@ -25,6 +25,8 @@ for f in 20260801000000_sessions_transcript_state 20260803000000_transcript_rete
          20260804000000_transcript_retention_converge_on_save 20260805000000_transcript_retention_preflight; do
   psql -h 127.0.0.1 -p $PORT -U postgres -d r3 -q -f "$MIG/$f.sql" >/dev/null 2>&1
 done
+DEF_DIGEST=$(Q "SELECT md5(pg_get_functiondef('public.transcript_retention_preflight(text,uuid,text)'::regprocedure));")
+echo "reviewed_function_md5=$DEF_DIGEST"
 Q "INSERT INTO auth.users(id) VALUES('$U'); INSERT INTO public.user_profiles(id) VALUES('$U');" >/dev/null
 for k in 1 2 3 4 5; do Q "INSERT INTO public.sessions(id,user_id,created_at,transcript,total_words,duration) VALUES('$(sid $k)','$U', now()-interval '$((10-k)) day','t${k}',100,60);" >/dev/null; done
 # durable terminal evaluations for the 3 outgoing candidates (sid1..3), inserted WITHOUT firing the R2

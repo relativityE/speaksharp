@@ -55,7 +55,7 @@ BEGIN
     RAISE EXCEPTION 'transcript_retention_preflight: required R1/R2 schema objects missing (schema drift)'
       USING ERRCODE = '42883';
   END IF;
-  IF p_scope NOT IN ('all_users','single_user') THEN
+  IF p_scope IS NULL OR p_scope NOT IN ('all_users','single_user') THEN
     RAISE EXCEPTION 'transcript_retention_preflight: invalid scope %', p_scope USING ERRCODE = '22023';
   END IF;
   IF p_scope = 'single_user' AND p_user_id IS NULL THEN

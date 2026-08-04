@@ -80,9 +80,20 @@ jobs:
           PREFLIGHT_READONLY_DB_URL: ${{ secrets.PREFLIGHT_READONLY_DB_URL }}
           SCOPE: ${{ github.event.inputs.scope }}
           USER_ID: ${{ github.event.inputs.user_id }}
+          # md5(pg_get_functiondef(...)) from a clean PostgreSQL database with the reviewed R3 migration.
+          # This verifies the deployed executable definition, not merely the checked-out source file.
+          EXPECTED_PREFLIGHT_FUNCTION_MD5: 029a72bf14bfd2ab18260c6477c56493
         run: |
           set -euo pipefail
           [ -n "${PREFLIGHT_READONLY_DB_URL:-}" ] || { echo "::error::PREFLIGHT_READONLY_DB_URL secret missing"; exit 1; }
+          actual_definition_md5="$(psql "$PREFLIGHT_READONLY_DB_URL" -X -q -t -A -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT md5(pg_get_functiondef('public.transcript_retention_preflight(text,uuid,text)'::regprocedure));
+          SQL
+          )"
+          [ "$actual_definition_md5" = "$EXPECTED_PREFLIGHT_FUNCTION_MD5" ] || {
+            echo "::error::deployed transcript_retention_preflight definition does not match reviewed R3 definition"
+            exit 1
+          }
           # REPEATABLE READ + READ ONLY transaction with bounded timeouts; the selected scope/user_id are passed
           # as quoted psql variables (no SQL string concatenation). Emit ONLY the sanitized JSON verdict.
           VERDICT="$(psql "$PREFLIGHT_READONLY_DB_URL" -X -q -t -A -v ON_ERROR_STOP=1 \
