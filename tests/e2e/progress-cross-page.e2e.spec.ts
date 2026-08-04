@@ -186,6 +186,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
         clarity_score: 88,
         wpm: 142,
         filler_words: { um: { count: 4 }, total: { count: 4 } },
+        ai_suggestions: null,
       }],
     });
 
