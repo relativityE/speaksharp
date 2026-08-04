@@ -4,10 +4,13 @@ import { handler } from "./index.ts";
 const SESSION = "5a344bc2-4c46-469b-bf4d-80afce5f8121";
 const GOOD = { provider: "transformers-js", model_id: "base", fallback_occurred: false, cloud_used: false };
 
-function request(body?: unknown, authHeader: string | null = "Bearer token"): Request {
+function request(body?: unknown, authHeader: string | null = "Bearer token", engineType?: string | null): Request {
+  const headers: Record<string, string> = {};
+  if (authHeader) headers["Authorization"] = authHeader;
+  if (engineType != null) headers["X-SpeakSharp-Engine-Type"] = engineType;
   return new Request("http://localhost/attest-session-engine", {
     method: "POST",
-    headers: authHeader ? { Authorization: authHeader } : {},
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
@@ -31,7 +34,7 @@ function userClientFactory(opts: { user?: { id: string } | null; owned?: boolean
 }
 
 // deno-lint-ignore no-explicit-any
-function serviceClientFactory(opts: { challenge?: string | null; version?: string | null; attestErr?: string; challengeErr?: string; bound?: string | null; bindErr?: string }): any {
+function serviceClientFactory(opts: { challenge?: string | null; version?: string | null; attestErr?: string; challengeErr?: string; bound?: string | null; bindErr?: string; resolveErr?: string }): any {
   return () => ({
     rpc: (name: string) => {
       if (name === "issue_attribution_intent_v1") {
@@ -43,6 +46,11 @@ function serviceClientFactory(opts: { challenge?: string | null; version?: strin
         return Promise.resolve(opts.bindErr
           ? { data: null, error: { message: opts.bindErr } }
           : { data: opts.bound === undefined ? "c1" : opts.bound, error: null });
+      }
+      if (name === "resolve_session_unattributed_v1") {
+        return Promise.resolve(opts.resolveErr
+          ? { data: null, error: { message: opts.resolveErr } }
+          : { data: "unattributed", error: null });
       }
       return Promise.resolve(opts.attestErr
         ? { data: null, error: { message: opts.attestErr } }
@@ -130,9 +138,9 @@ Deno.test("non-completed session → 503 TRANSIENT (terminal gate; retryable, no
   assertEquals(await res.json(), { error: "Attestation deferred", attributed: false, resolved: false });
 });
 
-Deno.test("register op → 200 registered (PRE-SESSION intent, keyed on recordingKey, no session)", async () => {
+Deno.test("register op → 200 registered (engine type from X-SpeakSharp-Engine-Type header, no session)", async () => {
   const res = await handler(
-    request({ op: "register", recordingKey: "rec-1", engineClass: "private", expectedModel: "base" }),
+    request({ op: "register", recordingKey: "rec-1", expectedModel: "base" }, "Bearer token", "private"),
     userClientFactory({}),
     serviceClientFactory({ challenge: "c1" }),
   );
@@ -140,18 +148,46 @@ Deno.test("register op → 200 registered (PRE-SESSION intent, keyed on recordin
   assertEquals(await res.json(), { registered: true });
 });
 
-Deno.test("register op with a blank recordingKey → 400", async () => {
+Deno.test("register op with a Browser engine header → 200 registered", async () => {
   const res = await handler(
-    request({ op: "register", recordingKey: "  ", engineClass: "private", expectedModel: "base" }),
+    request({ op: "register", recordingKey: "rec-1" }, "Bearer token", "browser"),
+    userClientFactory({}),
+    serviceClientFactory({ challenge: "c1" }),
+  );
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { registered: true });
+});
+
+Deno.test("register op with a MISSING engine header → 400", async () => {
+  const res = await handler(
+    request({ op: "register", recordingKey: "rec-1", expectedModel: "base" }, "Bearer token", null),
     userClientFactory({}),
     serviceClientFactory({}),
   );
   assertEquals(res.status, 400);
 });
 
-Deno.test("register op with invalid engineClass → 400", async () => {
+Deno.test("register op with an INVALID engine header (cloud) → 400", async () => {
   const res = await handler(
-    request({ op: "register", recordingKey: "rec-1", engineClass: "cloud" }),
+    request({ op: "register", recordingKey: "rec-1" }, "Bearer token", "cloud"),
+    userClientFactory({}),
+    serviceClientFactory({}),
+  );
+  assertEquals(res.status, 400);
+});
+
+Deno.test("register op REJECTS a payload engineClass override → 400 (header is authoritative)", async () => {
+  const res = await handler(
+    request({ op: "register", recordingKey: "rec-1", engineClass: "browser", expectedModel: "base" }, "Bearer token", "private"),
+    userClientFactory({}),
+    serviceClientFactory({ challenge: "c1" }),
+  );
+  assertEquals(res.status, 400);
+});
+
+Deno.test("register op with a blank recordingKey → 400", async () => {
+  const res = await handler(
+    request({ op: "register", recordingKey: "  ", expectedModel: "base" }, "Bearer token", "private"),
     userClientFactory({}),
     serviceClientFactory({}),
   );
@@ -160,7 +196,7 @@ Deno.test("register op with invalid engineClass → 400", async () => {
 
 Deno.test("register op rejected by RPC (blank Private model) → 422", async () => {
   const res = await handler(
-    request({ op: "register", recordingKey: "rec-1", engineClass: "private", expectedModel: "" }),
+    request({ op: "register", recordingKey: "rec-1", expectedModel: "" }, "Bearer token", "private"),
     userClientFactory({}),
     serviceClientFactory({ challengeErr: "a Private intent requires a non-blank model provenance" }),
   );
@@ -205,4 +241,42 @@ Deno.test("bind op rejected by RPC (non-pre-recording lifecycle) → 422", async
   );
   assertEquals(res.status, 422);
   assertEquals(await res.json(), { error: "Bind rejected", bound: false });
+});
+
+Deno.test("resolve op → 200 terminal unattributed (definitive no-local-evidence converges)", async () => {
+  const res = await handler(
+    request({ op: "resolve_unattributed", sessionId: SESSION }),
+    userClientFactory({}),
+    serviceClientFactory({}),
+  );
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { attributed: false, resolved: true });
+});
+
+Deno.test("resolve op on a non-owned session → 403", async () => {
+  const res = await handler(
+    request({ op: "resolve_unattributed", sessionId: SESSION }),
+    userClientFactory({ owned: false }),
+    serviceClientFactory({}),
+  );
+  assertEquals(res.status, 403);
+});
+
+Deno.test("resolve op, RPC not-yet-completed → 503 TRANSIENT (retryable, not resolved)", async () => {
+  const res = await handler(
+    request({ op: "resolve_unattributed", sessionId: SESSION }),
+    userClientFactory({}),
+    serviceClientFactory({ resolveErr: "session is not durably completed (status=pending)" }),
+  );
+  assertEquals(res.status, 503);
+  assertEquals(await res.json(), { error: "Resolution deferred", attributed: false, resolved: false });
+});
+
+Deno.test("resolve op with a non-UUID sessionId → 400", async () => {
+  const res = await handler(
+    request({ op: "resolve_unattributed", sessionId: "nope" }),
+    userClientFactory({}),
+    serviceClientFactory({}),
+  );
+  assertEquals(res.status, 400);
 });

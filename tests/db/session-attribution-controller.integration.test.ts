@@ -232,7 +232,7 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     expect(priv().isEngineSelectionLocked()).toBe(false); // resolution genuinely unlocks the selector
   });
 
-  it('FULL-SAVE retry with an unconfirmable identity completes the SAME row but is NOT attested (no authority)', async () => {
+  it('FULL-SAVE retry with an unconfirmable identity completes the SAME row + RESOLVES unattributed via server (no authority)', async () => {
     const sessionId = (await H.db.query<{ id: string }>(
       `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, 'words', 'active') RETURNING id`, [OWNER],
     )).rows[0].id;
@@ -242,7 +242,9 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     expect(unverified.engine).toBeUndefined();
 
     const c = controller as unknown as Record<string, unknown>;
-    // #1161: no trusted identity ⇒ no evidence ⇒ the producer is never called (fail-closed; no authority).
+    // #1161 P1: no trusted identity ⇒ null evidence ⇒ the client posts op:'resolve_unattributed' so the SERVER writes the
+    // terminal unattributed marker (convergence — not a silent skip). The row is still durably saved + completed;
+    // the client fabricates NO engine identity (no authority).
     c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionEvidence: null };
     c.recordingStartedUnresolved = true;
 
@@ -250,7 +252,9 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     const row = await readRow(sessionId);
     expect(row.id).toBe(sessionId);
     expect(row.status).toBe('completed');           // transcript still durably saved
-    expect(H.attestInvoke).not.toHaveBeenCalled();  // no authority produced for an unconfirmable engine
+    expect(H.attestInvoke).toHaveBeenCalledTimes(1);
+    expect((H.attestInvoke.mock.calls[0][1] as { body?: { op?: string; sessionId?: string } })?.body)
+        .toMatchObject({ op: 'resolve_unattributed', sessionId });   // server RESOLVE op invoked (definitive no-evidence)
     expect(row.engine).toBeNull();                  // client fabricated no engine identity
     expect(await count()).toBe(1);
     expect(priv().isEngineSelectionLocked()).toBe(false);

@@ -1031,27 +1031,31 @@ export class SpeechRuntimeController {
 
     /**
      * #1161: the SOLE client entry point to the trusted server producer. The client can no longer write the
-     * locked attribution columns; it posts runtime evidence and the Edge Function classifies + writes the
-     * authority. Contract:
-     *  - null evidence  → no trusted local identity → { attributed: false } WITHOUT a network call (terminal;
-     *    the row simply carries no authority — not eligible, and there is nothing to retry).
+     * locked attribution columns; it posts runtime evidence (or, for a definitive no-evidence run, a resolve
+     * request) and the Edge Function classifies + writes the terminal verdict. Contract:
+     *  - null evidence  → DEFINITIVE no trusted local identity (Cloud / unverifiable / rehydrated). This is NOT a
+     *    no-op: it posts `op:'resolve'` so the server writes the terminal `session_attribution_unattributed`
+     *    marker, letting #1045 Progress + #1117 retention CONVERGE instead of deferring forever. 2xx → terminal
+     *    { attributed: false }; 5xx/network → null (TRANSIENT; caller retries) — never silently pending (P1).
      *  - present evidence, 2xx → { attributed: <server verdict> } (terminal).
      *  - present evidence, 4xx (server rejected the evidence) → { attributed: false } (terminal; not retryable).
-     *  - present evidence, 5xx / network error → null (TRANSIENT; caller stashes the evidence for Retry Save).
+     *  - either op, 5xx / network error → null (TRANSIENT; caller stashes for Retry Save).
      */
     private async attestSessionEngine(
         sessionId: string, evidence: RuntimeEvidence | null,
     ): Promise<{ attributed: boolean } | null> {
-        if (!evidence) return { attributed: false };
+        // Definitive no-local-evidence still reaches a SERVER terminal-unattributed resolution (P1) — only
+        // network/5xx stays transient. Present evidence → the normal attest path.
+        const body = evidence
+            ? { sessionId, runtimeEvidence: evidence }
+            : { op: 'resolve_unattributed', sessionId };
         try {
-            const { data, error } = await getSupabaseClient().functions.invoke('attest-session-engine', {
-                body: { sessionId, runtimeEvidence: evidence },
-            });
+            const { data, error } = await getSupabaseClient().functions.invoke('attest-session-engine', { body });
             if (error) {
                 const status = (error as { context?: { status?: number } })?.context?.status;
-                // 4xx = the server definitively rejected this evidence → terminal, not retryable.
+                // 4xx = the server definitively rejected this request → terminal, not retryable.
                 if (typeof status === 'number' && status >= 400 && status < 500) return { attributed: false };
-                return null;   // 5xx / network → transient → retryable
+                return null;   // 5xx / network (incl. resolve's not-yet-completed 503) → transient → retryable
             }
             return { attributed: Boolean((data as { attributed?: boolean } | null)?.attributed) };
         } catch {
@@ -2613,10 +2617,13 @@ export class SpeechRuntimeController {
                 if (userId && (mode === 'private' || mode === 'native')) {
                     try {
                         const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {
+                            // Engine type travels in the authenticated request HEADER, never the (client-controlled)
+                            // payload — the Edge rejects a payload override. Private is the primary path; Browser is
+                            // the secondary, containment-only class.
+                            headers: { 'X-SpeakSharp-Engine-Type': mode === 'private' ? 'private' : 'browser' },
                             body: {
                                 op: 'register',
                                 recordingKey: recordingId,
-                                engineClass: mode === 'private' ? 'private' : 'browser',
                                 expectedModel: mode === 'private' ? resolvePrivateModel() : null,
                             },
                         });

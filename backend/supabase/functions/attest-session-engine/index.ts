@@ -54,7 +54,9 @@ export async function handler(
     //    'register' (recording START, PRE-SESSION) records the client-declared mode intent keyed on the recording key —
     //               NO session exists yet, so no session is created for a recording that never starts;
     //    'bind'     (post-RECORDING save)          atomically binds that intent to the produced session;
-    //    'attest'   (recording STOP)               consumes the bound intent and writes the terminal verdict.
+    //    'attest'            (recording STOP)             consumes the bound intent and writes the terminal verdict;
+    //    'resolve_unattributed' (STOP, NO evidence)       DEFINITIVE no-local-evidence → writes the terminal
+    //                                                     unattributed marker so Progress/retention converge.
     let payload: {
       op?: unknown; sessionId?: unknown; recordingKey?: unknown; runtimeEvidence?: unknown;
       engineClass?: unknown; expectedModel?: unknown;
@@ -64,19 +66,27 @@ export async function handler(
     } catch {
       return json(req, 400, { error: "Invalid JSON body" });
     }
-    const op = payload.op === "register" ? "register" : payload.op === "bind" ? "bind" : "attest";
+    const op = payload.op === "register" ? "register"
+      : payload.op === "bind" ? "bind"
+      : payload.op === "resolve_unattributed" ? "resolve_unattributed"
+      : "attest";
     const service = createServiceClient();
 
     // 3a. REGISTER — PRE-SESSION: freeze the immutable engine class/model provenance against the recording key.
-    //     Owner is the JWT-authenticated caller (there is no session to check ownership against yet).
+    //     Owner is the JWT-authenticated caller (there is no session to check ownership against yet). The engine
+    //     class comes ONLY from the authenticated request header `X-SpeakSharp-Engine-Type` — a payload override is
+    //     rejected, so the class cannot be smuggled in the (client-controlled) body.
     if (op === "register") {
       const recordingKey = payload.recordingKey;
       if (typeof recordingKey !== "string" || recordingKey.trim() === "" || recordingKey.length > 200) {
         return json(req, 400, { error: "recordingKey must be a non-blank string" });
       }
-      const engineClass = payload.engineClass;
+      if (payload.engineClass !== undefined) {
+        return json(req, 400, { error: "engine type must come from the X-SpeakSharp-Engine-Type header, not the payload" });
+      }
+      const engineClass = req.headers.get("X-SpeakSharp-Engine-Type");
       if (engineClass !== "private" && engineClass !== "browser") {
-        return json(req, 400, { error: "engineClass must be 'private' or 'browser'" });
+        return json(req, 400, { error: "X-SpeakSharp-Engine-Type header must be 'private' or 'browser'" });
       }
       const expectedModel = typeof payload.expectedModel === "string" ? payload.expectedModel : null;
       const { data: challengeId, error: regErr } = await service
@@ -118,7 +128,21 @@ export async function handler(
       return json(req, 200, { bound: Boolean(challengeId) });
     }
 
-    // 3c. ATTEST — consume the bound intent. The RPC is the fail-closed gate + sole writer; it derives the class
+    // 3c. RESOLVE_UNATTRIBUTED — DEFINITIVE no-local-evidence (Cloud / unverifiable / rehydrated): write the
+    //     terminal unattributed marker so #1045 Progress and #1117 retention converge instead of deferring forever.
+    //     The reason is a CLOSED server-set value ('missing_runtime_evidence') — never client-supplied. The RPC is
+    //     idempotent + terminal-safe; a not-yet-completed session RAISES → TRANSIENT (503, retryable).
+    if (op === "resolve_unattributed") {
+      const { error: resolveErr } = await service
+        .rpc("resolve_session_unattributed_v1", { p_session_id: sessionId, p_reason: "missing_runtime_evidence" });
+      if (resolveErr) {
+        console.warn("resolve deferred", { reason: resolveErr.message });
+        return json(req, 503, { error: "Resolution deferred", attributed: false, resolved: false });
+      }
+      return json(req, 200, { attributed: false, resolved: true });
+    }
+
+    // 3d. ATTEST — consume the bound intent. The RPC is the fail-closed gate + sole writer; it derives the class
     //     from the server intent, so evidence is consistency evidence only.
     const runtimeEvidence = payload.runtimeEvidence;
     if (runtimeEvidence === null || typeof runtimeEvidence !== "object" || Array.isArray(runtimeEvidence)) {

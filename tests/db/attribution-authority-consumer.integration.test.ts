@@ -82,6 +82,13 @@ async function attestOnly(db: Sql, sessionId: string, evidence: Record<string, u
         await db.query(`SELECT public.attest_session_engine_v1($1,$2::jsonb)`, [sessionId, JSON.stringify(evidence)]);
     } finally { await db.exec(`RESET ROLE`); }
 }
+/** Service-role definitive no-local-evidence resolution (writes the terminal unattributed marker). */
+async function resolveUnattributed(db: Sql, sessionId: string): Promise<void> {
+    await db.exec(`SET ROLE service_role`);
+    try {
+        await db.query(`SELECT public.resolve_session_unattributed_v1($1, 'missing_runtime_evidence')`, [sessionId]);
+    } finally { await db.exec(`RESET ROLE`); }
+}
 
 async function evaluate(db: Sql, sessionId: string): Promise<{ exists: boolean; eligible: boolean; reasons: string[] }> {
     await act(db, USER);
@@ -118,6 +125,18 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
         await complete(db, s);                              // completed, but attribution not yet resolved
         const { exists } = await evaluate(db, s);
         expect(exists).toBe(false);                         // deferred — no immutable row frozen prematurely
+    });
+
+    it('#1161 P1: definitive no-evidence → resolve → Progress CONVERGES (terminal excluded eval, not deferred)', async () => {
+        const db = await makeDb();
+        const s = await eligibleSession(db, 'verified');    // passes every §4 gate except attribution
+        await complete(db, s);
+        expect((await evaluate(db, s)).exists).toBe(false); // before resolution: deferred (pending)
+        await resolveUnattributed(db, s);                   // definitive no-local-evidence (Cloud/unverifiable)
+        const { exists, eligible, reasons } = await evaluate(db, s);
+        expect(exists).toBe(true);                          // CONVERGED: a terminal row now exists, not stuck pending
+        expect(eligible).toBe(false);
+        expect(reasons).toEqual(['unverified_attribution']);
     });
 
     it('#1161 P1-3: transient → retry → eligible (a later authority still yields the eligible row)', async () => {

@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS public.session_attribution_challenge (
 -- one intent per session (only once bound); NULL session_id rows (pre-session/unbound) are exempt
 CREATE UNIQUE INDEX IF NOT EXISTS session_attribution_challenge_session_key
     ON public.session_attribution_challenge(session_id) WHERE session_id IS NOT NULL;
+-- ONE ACTIVE INTENT PER OWNER (P1): at most one UNBOUND + UNCONSUMED intent per user at a time — an atomic DB
+-- backstop for the single-active invariant. A bound intent (session_id set) or a consumed one is excluded, so a
+-- next recording after bind is unaffected. The issue RPC replaces a prior abandoned active intent (latest-wins);
+-- this index makes a racing concurrent second active intent impossible even outside that path.
+CREATE UNIQUE INDEX IF NOT EXISTS session_attribution_challenge_one_active_per_owner
+    ON public.session_attribution_challenge(user_id) WHERE session_id IS NULL AND consumed_at IS NULL;
 ALTER TABLE public.session_attribution_challenge ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "session_attribution_challenge_select_own" ON public.session_attribution_challenge
     FOR SELECT TO authenticated USING (auth.uid() = user_id);
@@ -180,15 +186,28 @@ BEGIN
         RAISE EXCEPTION 'attribution: a Private intent requires a non-blank model provenance'
             USING ERRCODE = 'check_violation';
     END IF;
-    -- Idempotent + IMMUTABLE: one intent per (user, recording_key); re-issue returns the existing one unchanged
-    -- (a later call cannot alter a frozen class/model, nor extend the expiry, nor re-open a bound/consumed intent).
-    INSERT INTO public.session_attribution_challenge(user_id, recording_key, engine_class, expected_model, expires_at)
-        VALUES (p_user_id, v_key, v_class, nullif(btrim(coalesce(p_expected_model, '')), ''),
-                now() + make_interval(secs => greatest(1, coalesce(p_ttl_seconds, 900))))
-        ON CONFLICT (user_id, recording_key) DO NOTHING;
+    -- Serialize concurrent issues for THIS owner so the ONE-ACTIVE-INTENT invariant (P1) is atomic and
+    -- deterministic (latest-wins), never a racing unique-violation. The lock is released at txn end.
+    PERFORM pg_advisory_xact_lock(hashtext('attribution_intent:' || p_user_id::text)::bigint);
+    -- Idempotent + IMMUTABLE per (user, recording_key): a re-issue of the SAME key returns the existing intent
+    -- unchanged (a later call cannot alter a frozen class/model, extend expiry, or re-open a bound/consumed one),
+    -- and NEVER supersedes itself. This must precede the active-intent replacement below.
     SELECT challenge_id INTO v_challenge
         FROM public.session_attribution_challenge
         WHERE user_id = p_user_id AND recording_key = v_key;
+    IF v_challenge IS NOT NULL THEN
+        RETURN v_challenge;
+    END IF;
+    -- ONE ACTIVE INTENT PER OWNER (P1): a NEW recording's declaration supersedes any prior ABANDONED pre-recording
+    -- declaration — an UNBOUND (session_id IS NULL) + UNCONSUMED (consumed_at IS NULL) intent under any other key.
+    -- Deterministic latest-wins replacement. Bound/consumed intents (real recordings) are untouched, so a next
+    -- recording after bind is unaffected. Combined with the partial unique index this leaves at most one active.
+    DELETE FROM public.session_attribution_challenge
+        WHERE user_id = p_user_id AND session_id IS NULL AND consumed_at IS NULL;
+    INSERT INTO public.session_attribution_challenge(user_id, recording_key, engine_class, expected_model, expires_at)
+        VALUES (p_user_id, v_key, v_class, nullif(btrim(coalesce(p_expected_model, '')), ''),
+                now() + make_interval(secs => greatest(1, coalesce(p_ttl_seconds, 900))))
+        RETURNING challenge_id INTO v_challenge;
     RETURN v_challenge;
 END;
 $$;
@@ -241,6 +260,54 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.bind_attribution_intent_v1(uuid, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.bind_attribution_intent_v1(uuid, text) TO service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- 4c. DEFINITIVE-NO-EVIDENCE RESOLUTION (P1) — service-role/internal only. When the client determines there is NO
+--     trusted local identity to attest (Cloud producer, a locally-unverifiable run, or a rehydrated session), that
+--     is a DEFINITIVE outcome — not a transient failure. It MUST converge to the terminal unattributed marker so
+--     #1045 Progress stops deferring and #1117 retention stops treating the session as pending. This writes that
+--     marker for an owned, durably-completed session. Terminal-safe + idempotent: an existing authority wins (a
+--     real recording that resolved first is never overwritten); an existing marker is returned unchanged; a
+--     not-yet-completed session RAISES so the caller keeps it TRANSIENT (retry) — real network/5xx stays transient
+--     too. It writes EXACTLY one marker and NEVER creates authority nor mutates the intent / session / transcript /
+--     evaluation / runtime evidence (the marker alone is authoritative — a later attest sees it and idempotently
+--     returns 'unattributed', so no evidence retry can flip the verdict).
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.resolve_session_unattributed_v1(
+    p_session_id uuid, p_reason text DEFAULT 'missing_runtime_evidence')
+RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_user uuid; v_status text; v_existing text;
+BEGIN
+    SELECT user_id, status INTO v_user, v_status FROM public.sessions WHERE id = p_session_id FOR UPDATE;
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'attribution: session % not found', p_session_id USING ERRCODE = 'no_data_found';
+    END IF;
+    -- Terminal idempotency: a session resolves EXACTLY once. An authority (a real attested recording) wins over a
+    -- racing definitive-no-evidence call; an existing unattributed marker is returned as-is.
+    SELECT authority_version INTO v_existing FROM public.session_attribution_authority WHERE session_id = p_session_id;
+    IF v_existing IS NOT NULL THEN RETURN v_existing; END IF;
+    IF EXISTS (SELECT 1 FROM public.session_attribution_unattributed WHERE session_id = p_session_id) THEN
+        RETURN 'unattributed';
+    END IF;
+    -- TRANSIENT gate: only a durably-completed session is terminally resolvable; otherwise the caller retries
+    -- (mirrors attest, so an in-flight session is never frozen prematurely).
+    IF v_status IS DISTINCT FROM 'completed' THEN
+        RAISE EXCEPTION 'attribution: session % is not durably completed (status=%)',
+            p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
+    END IF;
+    -- Write EXACTLY one terminal marker. Nothing else is mutated — the intent, session, transcript, evaluation and
+    -- any (nonexistent) evidence are untouched. The marker is authoritative: a later attest sees it and returns
+    -- 'unattributed' idempotently, so no evidence retry can flip the verdict.
+    INSERT INTO public.session_attribution_unattributed(session_id, user_id, reason)
+        VALUES (p_session_id, v_user, coalesce(nullif(btrim(coalesce(p_reason, '')), ''), 'missing_runtime_evidence'))
+        ON CONFLICT (session_id) DO NOTHING;
+    RETURN 'unattributed';
+END;
+$$;
+REVOKE ALL ON FUNCTION public.resolve_session_unattributed_v1(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.resolve_session_unattributed_v1(uuid, text) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 5. ATTESTATION — service-role/internal only, SECURITY DEFINER, the SOLE writer of authority.

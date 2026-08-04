@@ -537,7 +537,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // #1161: the client no longer writes attribution columns — it POSTs runtime evidence to the trusted
     // producer. These read the attest-session-engine invocations instead of updateSession patches.
     const attestBodies = () => attestInvoke.mock.calls
-        .map((c) => (c[1] as { body?: { sessionId?: string; runtimeEvidence?: Record<string, unknown> } } | undefined)?.body);
+        .map((c) => (c[1] as { body?: { op?: string; sessionId?: string; runtimeEvidence?: Record<string, unknown> } } | undefined)?.body);
     const lastBody = () => { const b = attestBodies(); return b[b.length - 1]; };
     const lastEvidence = () => lastBody()?.runtimeEvidence;
 
@@ -557,11 +557,15 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
-    it('#1161: a CLOUD session is NOT attested (no trusted local identity → no authority, no Progress)', async () => {
+    it('#1161 P1: a CLOUD session is RESOLVED unattributed via the server (op:resolve, no evidence, no authority)', async () => {
         attestInvoke.mockClear();
         (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = null;
         await driveStopWithService(mkService('cloud', { engineVersion: 'v-c', modelName: 'm-c', deviceType: 'd-c' }), 'sess-attr-cloud', 'cloud');
-        expect(attestInvoke).not.toHaveBeenCalled();
+        // P1: definitive no-local-evidence is NOT a silent skip — it posts op:'resolve_unattributed' so the server writes the
+        // terminal unattributed marker (Progress/retention converge). No runtimeEvidence is sent (nothing to attest).
+        expect(attestInvoke).toHaveBeenCalledTimes(1);
+        expect(lastBody()).toMatchObject({ op: 'resolve_unattributed', sessionId: 'sess-attr-cloud' });
+        expect(lastEvidence()).toBeUndefined();
     });
 
     it('#1045: the completed-save journey wires the Progress evaluation seam (metrics persisted + terminal attribution)', async () => {
@@ -600,19 +604,24 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         { label: 'throwing metadata', svc: { getMetadata: () => { throw new Error('gone'); } } },
         { label: 'blank engine_version', svc: { getMetadata: () => ({ engineVersion: '  ', modelName: 'm', deviceType: 'd' }) } },
         { label: 'blank device_type', svc: { getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'm', deviceType: '' }) } },
-    ])('#1033/#1161: $label → NO trusted identity → NOT attested (no authority)', async ({ svc }) => {
+    ])('#1033/#1161 P1: $label → NO trusted identity → RESOLVED unattributed via server (op:resolve, no authority)', async ({ svc }) => {
         attestInvoke.mockClear();
         const base = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
         await driveStopWithService({ ...base, ...svc }, 'sess-attr-unv', 'native');
-        // An unverifiable local identity produces no evidence → the client never calls the producer (fail-closed).
-        expect(attestInvoke).not.toHaveBeenCalled();
+        // An unverifiable local identity produces no evidence → the client posts op:'resolve_unattributed' so the server writes
+        // the terminal unattributed marker (P1: convergence, never a silent skip). No runtimeEvidence.
+        expect(attestInvoke).toHaveBeenCalledTimes(1);
+        expect(lastBody()).toMatchObject({ op: 'resolve_unattributed', sessionId: 'sess-attr-unv' });
+        expect(lastEvidence()).toBeUndefined();
     });
 
-    it('#1033/#1161: an engine token outside the allowlist → NOT attested (no authority)', async () => {
+    it('#1033/#1161 P1: an engine token outside the allowlist → RESOLVED unattributed via server (op:resolve)', async () => {
         attestInvoke.mockClear();
         const svc = { ...mkService('native', { engineVersion: 'x', modelName: 'y', deviceType: 'z' }), getMode: vi.fn().mockReturnValue('some-unknown-engine') };
         await driveStopWithService(svc, 'sess-attr-badtoken', 'native');
-        expect(attestInvoke).not.toHaveBeenCalled();
+        expect(attestInvoke).toHaveBeenCalledTimes(1);
+        expect(lastBody()).toMatchObject({ op: 'resolve_unattributed', sessionId: 'sess-attr-badtoken' });
+        expect(lastEvidence()).toBeUndefined();
     });
 
     it('#1033: identity is snapshotted BEFORE stopTranscription()', async () => {
@@ -1031,8 +1040,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(storage.saveSession).toHaveBeenCalledTimes(1);
         expect(vi.mocked(storage.saveSession).mock.calls[0][3]).toBe('rec-idem-1');
         expect(storage.completeSession).toHaveBeenCalledWith('new-row-1', expect.objectContaining({ status: 'completed' }));
-        // #1161: null evidence ⇒ no attestation call (no authority), but the row is durably saved + completed
-        expect(attestInvoke).not.toHaveBeenCalled();
+        // #1161 P1: null evidence (recovered/rehydrated pre-session work) ⇒ the server RESOLVE op writes the
+        // terminal unattributed marker (convergence — no longer a silent skip); the row is durably saved + completed.
+        expect(attestInvoke).toHaveBeenCalledTimes(1);
+        expect((attestInvoke.mock.calls[0][1] as { body?: { op?: string; sessionId?: string; runtimeEvidence?: unknown } })?.body)
+            .toMatchObject({ op: 'resolve_unattributed', sessionId: 'new-row-1' });
         expect(controller.isEngineSelectionLocked()).toBe(false);
     });
 

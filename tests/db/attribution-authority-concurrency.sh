@@ -147,5 +147,20 @@ ST3=$(q "SELECT status FROM public.sessions WHERE id='$SESS3'")
 echo "control3: session_status=$ST3 bound_challenges=$CH3 (completion won ⇒ expect completed + 0 bound)"
 [ "$ST3" = "completed" ] && [ "$CH3" = "0" ] || { echo "FAIL: completion-wins race did not deny binding (status=$ST3 bound=$CH3)"; FAIL=1; }
 
+# ── Control 4: one-active-intent invariant under TRUE concurrency (P1). Two connections issue an intent for the
+# SAME owner under DIFFERENT keys at the same time. The issue RPC's per-owner advisory xact lock serializes them
+# (latest-wins replacement of the prior unbound intent) and the partial unique index is the hard backstop, so no
+# interleaving can leave two active intents. Assert exactly ONE active (unbound/unconsumed/unexpired) remains.
+U4="99999999-4444-4444-4444-444444444444"
+q "INSERT INTO auth.users(id) VALUES ('$U4')" >/dev/null
+( PGAPPNAME=connIssueX psql -qAtX -c "SET ROLE service_role" \
+    -c "SELECT public.issue_attribution_intent_v1('$U4','rk-x','private','base')" >/dev/null 2>&1 ) & IX=$!
+( PGAPPNAME=connIssueY psql -qAtX -c "SET ROLE service_role" \
+    -c "SELECT public.issue_attribution_intent_v1('$U4','rk-y','private','base')" >/dev/null 2>&1 ) & IY=$!
+wait "$IX" "$IY" 2>/dev/null || true
+ACTIVE4=$(q "SELECT count(*) FROM public.session_attribution_challenge WHERE user_id='$U4' AND session_id IS NULL AND consumed_at IS NULL AND now() < expires_at")
+echo "control4: concurrent different-key issues → active_intents=$ACTIVE4 (must be exactly 1)"
+[ "$ACTIVE4" = "1" ] || { echo "FAIL: concurrent issue left $ACTIVE4 active intents (one-active invariant broken)"; FAIL=1; }
+
 echo "postgres: $(postgres --version)"
 if [ "$FAIL" = "0" ]; then echo "RESULT: PASS (true two-connection proof)"; else echo "RESULT: FAIL"; exit 1; fi

@@ -586,6 +586,18 @@ async function bindIntent(db: Sql, sessionId: string, key: string): Promise<stri
             `SELECT public.bind_attribution_intent_v1($1,$2) AS c`, [sessionId, key])).rows[0].c;
     } finally { await db.exec(`RESET ROLE`); }
 }
+async function resolveUnattributed(db: Sql, sessionId: string, reason?: string): Promise<string> {
+    await db.exec(`SET ROLE service_role`);
+    try {
+        return (await db.query<{ v: string }>(
+            `SELECT public.resolve_session_unattributed_v1($1,$2) AS v`, [sessionId, reason ?? null])).rows[0].v;
+    } finally { await db.exec(`RESET ROLE`); }
+}
+/** Count an owner's ACTIVE (unbound + unconsumed + unexpired) intents — the one-active invariant target. */
+async function activeIntentCount(db: Sql, uid: string): Promise<number> {
+    return count(db, `SELECT count(*) n FROM public.session_attribution_challenge
+        WHERE user_id=$1 AND session_id IS NULL AND consumed_at IS NULL AND now() < expires_at`, [uid]);
+}
 
 describe('#1161 pre-session intent — ownership / expiry / replay / atomic single-bind', () => {
     it('OWNERSHIP: an intent issued for one user cannot bind another user\'s session', async () => {
@@ -636,15 +648,139 @@ describe('#1161 pre-session intent — ownership / expiry / replay / atomic sing
         expect(c2).toBe(c1);
     });
 
-    it('ATOMIC one-per-session: a SECOND intent cannot bind an already-bound session (unique)', async () => {
+    it('ATOMIC one-per-session: a second intent cannot claim an already-bound session (UNIQUE(session_id))', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
         await issueIntent(db, USER, 'rk-a');
-        await issueIntent(db, USER, 'rk-b');
-        expect(await bindIntent(db, s, 'rk-a')).not.toBeNull();
-        // the partial UNIQUE(session_id) index rejects a second intent claiming the same session
-        await expect(bindIntent(db, s, 'rk-b')).rejects.toThrow(/unique|duplicate/i);
+        expect(await bindIntent(db, s, 'rk-a')).not.toBeNull();     // rk-a is bound to s
+        // A direct second intent claiming the SAME already-bound session violates the partial UNIQUE(session_id)
+        // index. (Two active intents racing to bind is separately impossible now — see one-active-per-owner below.)
+        await expect(db.query(
+            `INSERT INTO public.session_attribution_challenge(user_id, recording_key, engine_class, expected_model, expires_at, session_id, bound_at)
+             VALUES ($1,'rk-b2','private','base', now()+interval '15 minutes', $2, now())`, [USER, s]))
+            .rejects.toThrow(/unique|duplicate/i);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_challenge WHERE session_id=$1`, [s])).toBe(1);
+    });
+});
+
+describe('#1161 P1 — definitive null/no-evidence converges to terminal unattributed', () => {
+    it('resolve writes the terminal marker for a completed session with NO intent (Cloud)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);          // Cloud/no-registration: no intent ever issued
+        await complete(db, s);
+        expect(await resolveUnattributed(db, s, 'missing_runtime_evidence')).toBe('unattributed');
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_unattributed WHERE session_id=$1 AND reason='missing_runtime_evidence'`, [s])).toBe(1);
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+        // (Progress/retention CONVERGENCE on this terminal marker is proven end-to-end in the consumer suite.)
+    });
+
+    it('resolve is idempotent + terminal-safe: a real authority WINS over a racing resolve', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        await issueChallenge(db, s); await complete(db, s);
+        expect(await attest(db, s, GOOD_V2)).toBe('attrib_v1');
+        // a definitive-no-evidence call that races in AFTER a real attestation must NOT override the authority
+        expect(await resolveUnattributed(db, s)).toBe('attrib_v1');
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_unattributed WHERE session_id=$1`, [s])).toBe(0);
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(1);
+    });
+
+    it('resolve is idempotent: a second call keeps exactly one marker', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER); await complete(db, s);
+        expect(await resolveUnattributed(db, s)).toBe('unattributed');
+        expect(await resolveUnattributed(db, s)).toBe('unattributed');
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_unattributed WHERE session_id=$1`, [s])).toBe(1);
+    });
+
+    it('resolve on a NOT-completed session RAISES (transient — caller retries, never frozen)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);          // still active
+        await expect(resolveUnattributed(db, s)).rejects.toThrow(/not durably completed/);
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_unattributed WHERE session_id=$1`, [s])).toBe(0);
+    });
+
+    it('the terminal marker is authoritative: a later evidence retry cannot flip it (marker, not intent-consume)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        const c = await issueChallenge(db, s); await complete(db, s);
+        expect(await resolveUnattributed(db, s)).toBe('unattributed');   // definitive no-evidence resolution first
+        // resolve does NOT touch the intent — it is left intact; the MARKER alone makes a later attest terminal.
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge
+            WHERE challenge_id=$1 AND consumed_at IS NULL`, [c])).toBe(1);   // intent untouched by resolve
+        // a later GOOD-evidence attest must NOT override the terminal marker
+        expect(await attest(db, s, GOOD_V2)).toBe('unattributed');
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+    });
+});
+
+describe('#1161 P1 — one ACTIVE intent per owner (deterministic latest-wins)', () => {
+    it('a new-key intent SUPERSEDES a prior abandoned unbound intent — at most one active', async () => {
+        const db = await makeDb();
+        await issueIntent(db, USER, 'rk-1');                 // abandoned pre-recording declaration
+        const c2 = await issueIntent(db, USER, 'rk-2');      // a new recording supersedes it
+        expect(await activeIntentCount(db, USER)).toBe(1);
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge
+            WHERE user_id=$1 AND recording_key='rk-1'`, [USER])).toBe(0);   // rk-1 replaced (gone)
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge
+            WHERE challenge_id=$1`, [c2])).toBe(1);
+    });
+
+    it('same-key reissue is IDEMPOTENT — returns the same intent, still one active', async () => {
+        const db = await makeDb();
+        const a = await issueIntent(db, USER, 'rk-same');
+        const b = await issueIntent(db, USER, 'rk-same');
+        expect(b).toBe(a);
+        expect(await activeIntentCount(db, USER)).toBe(1);
+    });
+
+    it('per-OWNER, not global: two users each keep their own active intent', async () => {
+        const db = await makeDb();
+        await issueIntent(db, USER, 'rk-u');
+        await issueIntent(db, OTHER, 'rk-o');
+        expect(await activeIntentCount(db, USER)).toBe(1);
+        expect(await activeIntentCount(db, OTHER)).toBe(1);
+    });
+
+    it('bind then NEXT recording: a bound intent is NOT superseded; the next intent issues fine', async () => {
+        const db = await makeDb();
+        const sA = await seedSession(db, USER);
+        await issueIntent(db, USER, 'rk-A');
+        expect(await bindIntent(db, sA, 'rk-A')).not.toBeNull();     // A is bound (a real recording)
+        const cB = await issueIntent(db, USER, 'rk-B');             // next recording — must succeed
+        expect(cB).toBeTruthy();
+        expect(await activeIntentCount(db, USER)).toBe(1);          // only B is active; A is bound (excluded)
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge
+            WHERE session_id=$1`, [sA])).toBe(1);                   // A's bound intent preserved
+    });
+
+    it('the partial unique index forbids a SECOND active intent inserted directly (atomic backstop)', async () => {
+        const db = await makeDb();
+        await issueIntent(db, USER, 'rk-x');
+        // a direct second unbound+unconsumed intent for the same owner violates the one-active index
+        await expect(db.query(
+            `INSERT INTO public.session_attribution_challenge(user_id, recording_key, engine_class, expected_model, expires_at)
+             VALUES ($1,'rk-y','private','base', now() + interval '15 minutes')`, [USER]))
+            .rejects.toThrow(/unique|duplicate/i);
+        expect(await activeIntentCount(db, USER)).toBe(1);
+    });
+
+    it('NO DURABLE-DATA DELETION: superseding an abandoned intent never touches a bound intent, session, transcript, or authority', async () => {
+        const db = await makeDb();
+        // Recording A is a REAL, completed, attested recording (durable transcript + authority + bound intent).
+        const sA = await seedSession(db, USER, { engine: 'private-v2', model: 'base' });
+        await db.query(`UPDATE public.sessions SET transcript='durable A transcript', total_words=42 WHERE id=$1`, [sA]);
+        await issueChallenge(db, sA);            // issue + bind for A
+        await complete(db, sA);
+        expect(await attest(db, sA, GOOD_V2)).toBe('attrib_v1');   // A has an authority + bound consumed intent
+        // Now the owner starts recording B (a brand-new pre-recording intent under a different key).
+        await issueIntent(db, USER, 'rk-B-new');
+        // The supersede must have deleted NOTHING durable: A's session, transcript, bound intent, authority all intact.
+        expect(await count(db, `SELECT count(*) n FROM public.sessions WHERE id=$1
+            AND transcript='durable A transcript' AND total_words=42`, [sA])).toBe(1);
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [sA])).toBe(1);
+        expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge WHERE session_id=$1`, [sA])).toBe(1);
+        expect(await activeIntentCount(db, USER)).toBe(1);         // only B's fresh intent is active
     });
 });
