@@ -246,7 +246,9 @@ export const generateSessionPdf = async (
     // AI summary and coaching too — not just the transcript text. Those conclusions were derived from a
     // transcript we can no longer show; printing them would contradict the dashboard, which gates AISuggestions
     // on the same `aiAvailable` (=== canRenderTranscript) provenance. Match that unavailable-evidence behavior.
-    if (pdfTranscript.canRenderTranscript && session.ai_suggestions) {
+    // A valid persisted coaching result is a durable session artifact. Retention may remove the source
+    // transcript later, but reopening/exporting must preserve the same two stored strings.
+    if (session.ai_suggestions) {
       doc.addPage();
       doc.setFontSize(16);
       doc.text('AI Coaching Suggestions', 14, 22);

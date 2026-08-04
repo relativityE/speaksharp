@@ -186,7 +186,11 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
         clarity_score: 88,
         wpm: 142,
         filler_words: { um: { count: 4 }, total: { count: 4 } },
-        ai_suggestions: null,
+        ai_suggestions: {
+          version: 'gemini_coaching_v1',
+          what_worked: 'The saved-session evidence made the recommendation concrete.',
+          what_to_try_next: 'Close the next attempt with the requested decision and owner.',
+        },
       }],
     });
 
@@ -213,6 +217,8 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
     await expect(page.getByText(/same saved session truth with clear evidence/i)).toBeVisible();
+    await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toBeVisible();
+    await expect(page.getByText('Close the next attempt with the requested decision and owner.')).toBeVisible();
     await assertAxe(page);
     await screenshotMatrix(page, 'review-progress');
 
@@ -225,7 +231,8 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     expect(pdfText).toContain(SESSION_ID);
     expect(pdfText).toContain('Today I presented the same saved session truth with clear evidence.');
     expect(pdfText).not.toContain('SpeakSharp Score');
-    expect(pdfText).not.toContain('Coaching Suggestion');
+    expect(pdfText).toContain('The saved-session evidence made the recommendation concrete.');
+    expect(pdfText).toContain('Close the next attempt with the requested decision and owner.');
     expect(forbiddenCloudRequests).toEqual([]);
   });
 });

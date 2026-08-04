@@ -20,8 +20,9 @@ export type SessionRow = Database['public']['Tables']['sessions']['Row'];
 export interface MockSession extends Omit<SessionRow, 'filler_words' | 'ai_suggestions' | 'pause_metrics'> {
     filler_words: Record<string, { count: number }>;
     ai_suggestions?: {
-        summary: string;
-        suggestions: Array<{ title: string; description: string }>;
+        version: 'gemini_coaching_v1';
+        what_worked: string;
+        what_to_try_next: string;
     } | null;
     pause_metrics?: {
         silencePercentage: number;

@@ -250,10 +250,9 @@ export async function setupE2EManifest(
         status: 'completed',
         created_at: nowIso(),
         updated_at: nowIso(),
-        ai_suggestions: {
-          summary: 'Strong practice session.',
-          suggestions: [{ title: 'Keep it clear', description: 'Continue speaking with concise structure.' }],
-        },
+        // Coaching is never fabricated by the generic session factory. Tests that need it must seed
+        // an exact persisted provider result for that specific session.
+        ai_suggestions: null,
         pause_metrics: null,
         ...overrides,
       };

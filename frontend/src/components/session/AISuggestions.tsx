@@ -16,19 +16,6 @@ interface AISuggestionsProps {
   transcript: string;
   sessionId?: string;
   initialSuggestions?: AISuggestionsData;
-  metrics?: {
-    wpm?: number;
-    clarity_score?: number;
-    total_words?: number;
-    duration?: number;
-    filler_words?: Record<string, { count: number }>;
-    pause_metrics?: {
-      silencePercentage: number;
-      transitionPauses: number;
-      extendedPauses: number;
-      longestPause: number;
-    };
-  };
 }
 
 const getSafeAiSuggestionError = (err: unknown): string => {
@@ -54,7 +41,7 @@ const getSafeAiSuggestionError = (err: unknown): string => {
   return 'AI coaching is unavailable right now. Your session is saved, and you can try again later.';
 };
 
-const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions, metrics }) => {
+const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions }) => {
   const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(initialSuggestions || null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,11 +55,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
       const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
-        body: {
-          transcript,
-          metrics: metrics || null,
-          sessionId: sessionId || null
-        },
+        // The edge function loads transcript and measurements from this authenticated saved session.
+        // Never send caller-owned evidence that could be swapped between session ids.
+        body: { sessionId: sessionId || null },
       });
 
       if (invokeError) {
@@ -102,7 +87,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         </CardTitle>
         <Button
           onClick={() => { void fetchSuggestions(); }}
-          disabled={isLoading || !transcript}
+          disabled={isLoading || !transcript || !sessionId}
           size="sm"
           className="w-full sm:w-auto"
         >

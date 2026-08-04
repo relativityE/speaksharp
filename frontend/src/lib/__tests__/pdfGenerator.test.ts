@@ -282,39 +282,38 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Pause before the final decision so it lands clearly.) Tj');
   });
 
-  it('(#1047) suppresses persisted AI summary/coaching when the transcript is not_captured', async () => {
-    // The dashboard gates AISuggestions on the same provenance; the PDF must match — no coaching conclusions
-    // printed for a transcript we can no longer show. Stale ai_suggestions are present but must NOT render.
+  it('(#1047) preserves persisted coaching when the source transcript is later unavailable', async () => {
     await generateSessionPdf({
       ...mockSession,
       transcript_state: 'not_captured',
       transcript: '',
       ai_suggestions: {
         version: 'gemini_coaching_v1',
-        what_worked: 'Stale strength should not print.',
-        what_to_try_next: 'Stale next step should not print.',
+        what_worked: 'Persisted strength remains readable.',
+        what_to_try_next: 'Persisted next step remains readable.',
       },
     });
     const savedPdf = await getSavedPdf();
-    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).not.toContain('(Stale strength should not print.) Tj');
-    expect(savedPdf.text).not.toContain('(Stale next step should not print.) Tj');
+    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
+    expect(savedPdf.text).toContain('(Persisted strength remains readable.) Tj');
+    expect(savedPdf.text).toContain('(Persisted next step remains readable.) Tj');
   });
 
-  it('(#1047) suppresses AI coaching for an expired transcript too', async () => {
+  it('(#1047) preserves the exact persisted coaching after transcript expiry', async () => {
     await generateSessionPdf({
       ...mockSession,
       transcript_state: 'expired',
       transcript: null,
       ai_suggestions: {
         version: 'gemini_coaching_v1',
-        what_worked: 'Expired strength should not print.',
-        what_to_try_next: 'Expired next step should not print.',
+        what_worked: 'Expired-session strength remains exact.',
+        what_to_try_next: 'Expired-session next step remains exact.',
       },
     });
     const savedPdf = await getSavedPdf();
-    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).not.toContain('(Expired strength should not print.) Tj');
+    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
+    expect(savedPdf.text).toContain('(Expired-session strength remains exact.) Tj');
+    expect(savedPdf.text).toContain('(Expired-session next step remains exact.) Tj');
   });
 
   it.each([

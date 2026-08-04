@@ -30,7 +30,7 @@ describe('AISuggestions Integration', () => {
 
     describe('Initial State', () => {
         it('renders with call-to-action when no suggestions', () => {
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(screen.getByText(/AI Coaching Suggestions/i)).toBeInTheDocument();
             expect(screen.getByRole('button', { name: /get suggestions/i })).toHaveClass('w-full', 'sm:w-auto');
@@ -38,7 +38,7 @@ describe('AISuggestions Integration', () => {
         });
 
         it('disables button when no transcript provided', () => {
-            render(<AISuggestions transcript="" />);
+            render(<AISuggestions transcript="" sessionId="session-test" />);
 
             const button = screen.getByRole('button', { name: /get suggestions/i });
             expect(button).toBeDisabled();
@@ -54,7 +54,7 @@ describe('AISuggestions Integration', () => {
                 new Promise(resolve => setTimeout(() => resolve({ data: { suggestions: null }, error: null }), 100))
             );
 
-            render(<AISuggestions transcript="Hello world this is a test" />);
+            render(<AISuggestions transcript="Hello world this is a test" sessionId="session-test" />);
 
             const button = screen.getByRole('button', { name: /get suggestions/i });
             await user.click(button);
@@ -64,7 +64,7 @@ describe('AISuggestions Integration', () => {
             expect(await screen.findByText(/analyzing your speech/i)).toBeInTheDocument();
         });
 
-        it('calls Supabase edge function with transcript', async () => {
+        it('calls the edge function with only the saved session id', async () => {
             const user = userEvent.setup();
             const mockTranscript = "This is a test transcript with some filler words like um and uh";
 
@@ -79,14 +79,14 @@ describe('AISuggestions Integration', () => {
                 error: null,
             });
 
-            render(<AISuggestions transcript={mockTranscript} />);
+            render(<AISuggestions transcript={mockTranscript} sessionId="session-test" />);
 
             const button = screen.getByRole('button', { name: /get suggestions/i });
             await user.click(button);
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-                    body: { transcript: mockTranscript, metrics: null, sessionId: null },
+                    body: { sessionId: 'session-test' },
                 });
             });
         });
@@ -106,7 +106,7 @@ describe('AISuggestions Integration', () => {
                 error: null,
             });
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
@@ -129,7 +129,7 @@ describe('AISuggestions Integration', () => {
                 error: null,
             });
 
-            render(<AISuggestions transcript="Hello world um uh" />);
+            render(<AISuggestions transcript="Hello world um uh" sessionId="session-test" />);
 
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
@@ -149,7 +149,7 @@ describe('AISuggestions Integration', () => {
                 error: { message: 'Network error' },
             });
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
@@ -168,7 +168,7 @@ describe('AISuggestions Integration', () => {
                 error: null,
             });
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
@@ -182,7 +182,7 @@ describe('AISuggestions Integration', () => {
             vi.mocked(getSupabaseClient).mockReturnValue(null as unknown as ReturnType<typeof getSupabaseClient>);
             const user = userEvent.setup();
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
@@ -200,7 +200,7 @@ describe('AISuggestions Integration', () => {
                 what_worked: 'Initial session-specific strength.',
                 what_to_try_next: 'Initial session-specific next step.',
             };
-            render(<AISuggestions transcript="Hello world" initialSuggestions={initialSuggestions} />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" initialSuggestions={initialSuggestions} />);
 
             expect(screen.getByText('Initial session-specific strength.')).toBeInTheDocument();
             expect(screen.getByText('Initial session-specific next step.')).toBeInTheDocument();
@@ -214,7 +214,7 @@ describe('AISuggestions Integration', () => {
         const DISCLOSURE = /sends this session's transcript to google gemini to create ai coaching\. audio is never sent\./i;
 
         it('shows the Gemini disclosure in the empty state', () => {
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
@@ -225,7 +225,7 @@ describe('AISuggestions Integration', () => {
                 what_worked: 'Initial session-specific strength.',
                 what_to_try_next: 'Initial session-specific next step.',
             };
-            render(<AISuggestions transcript="Hello world" initialSuggestions={initialSuggestions} />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" initialSuggestions={initialSuggestions} />);
 
             expect(screen.getByText('Initial session-specific strength.')).toBeInTheDocument();
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
@@ -245,7 +245,7 @@ describe('AISuggestions Integration', () => {
                 error: null,
             });
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
@@ -256,7 +256,7 @@ describe('AISuggestions Integration', () => {
         });
 
         it('does not generate suggestions without an explicit click', () => {
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
         });
@@ -270,7 +270,7 @@ describe('AISuggestions Integration', () => {
                 new Promise(resolve => setTimeout(() => resolve({ data: { suggestions: null }, error: null }), 100))
             );
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             const button = screen.getByRole('button', { name: /get suggestions/i });
             await user.click(button);
@@ -293,7 +293,7 @@ describe('AISuggestions Integration', () => {
                 error: null,
             });
 
-            render(<AISuggestions transcript="Hello world" />);
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             const button = screen.getByRole('button', { name: /get suggestions/i });
 
