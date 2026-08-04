@@ -1,0 +1,123 @@
+# #1117 R3 — MANUAL, aggregate-only, READ-ONLY transcript-retention production preflight.
+#
+# Source-only until a separate PRODUCT-OWNER "PREFLIGHT GO". workflow_dispatch only; dry_run must be exactly
+# "true"; runs the checked-in `public.transcript_retention_preflight(...)` inside a REPEATABLE READ, READ ONLY
+# transaction. NO migration apply, NO mutation, NO scrub. Prints only the sanitized counts/booleans verdict —
+# never a transcript, email, identifier, row, dump, screenshot or free-form string.
+#
+# SECURITY: every dispatch input is consumed via an `env:` variable (never interpolated into a `run:` script),
+# so a crafted `dry_run`/`reviewed_sha`/`scope`/`user_id` cannot inject shell. SQL args are passed as psql
+# `-v` variables (quoted at the SQL layer), not string-concatenated.
+name: transcript-retention-preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: 'Exact reviewed 40-char commit SHA this preflight is authorized against'
+        required: true
+      dry_run:
+        description: 'Must be exactly "true" — this workflow has no mutation mode'
+        required: true
+        default: 'true'
+      scope:
+        description: 'all_users | single_user'
+        required: true
+        default: 'all_users'
+      user_id:
+        description: 'Required only when scope=single_user (a user UUID). Leave blank for all_users.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transcript-retention-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate dispatch inputs (fail closed)
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          SCOPE: ${{ github.event.inputs.scope }}
+          USER_ID: ${{ github.event.inputs.user_id }}
+        run: |
+          set -euo pipefail
+          [ "$DRY_RUN" = "true" ] || { echo "::error::dry_run must be exactly 'true'; no mutation mode."; exit 1; }
+          case "$SCOPE" in all_users|single_user) ;; *) echo "::error::scope must be all_users|single_user"; exit 1;; esac
+          if [ "$SCOPE" = "single_user" ]; then
+            echo "$USER_ID" | grep -Eq '^[0-9a-fA-F-]{36}$' || { echo "::error::single_user requires a UUID user_id"; exit 1; }
+          else
+            [ -z "$USER_ID" ] || { echo "::error::user_id must be blank for all_users"; exit 1; }
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.reviewed_sha }}
+
+      - name: Verify checked-out SHA matches the reviewed SHA (fail closed on SHA mismatch)
+        env:
+          REVIEWED_SHA: ${{ github.event.inputs.reviewed_sha }}
+        run: |
+          set -euo pipefail
+          got="$(git rev-parse HEAD)"
+          [ "$got" = "$REVIEWED_SHA" ] || { echo "::error::checkout SHA $got != reviewed SHA"; exit 1; }
+
+      - name: Confirm the preflight migration + contract manifest are present at this SHA
+        run: |
+          set -euo pipefail
+          test -f backend/supabase/migrations/20260805000000_transcript_retention_preflight.sql
+          test -f backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql
+          test -f backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql
+          echo "manifest present"
+
+      - name: Run READ-ONLY aggregate preflight and validate the sanitized verdict (fail closed)
+        env:
+          PREFLIGHT_READONLY_DB_URL: ${{ secrets.PREFLIGHT_READONLY_DB_URL }}
+          SCOPE: ${{ github.event.inputs.scope }}
+          USER_ID: ${{ github.event.inputs.user_id }}
+          # md5(pg_get_functiondef(...)) from a clean PostgreSQL database with the reviewed R3 migration.
+          # This verifies the deployed executable definition, not merely the checked-out source file.
+          EXPECTED_PREFLIGHT_FUNCTION_MD5: 029a72bf14bfd2ab18260c6477c56493
+        run: |
+          set -euo pipefail
+          [ -n "${PREFLIGHT_READONLY_DB_URL:-}" ] || { echo "::error::PREFLIGHT_READONLY_DB_URL secret missing"; exit 1; }
+          actual_definition_md5="$(psql "$PREFLIGHT_READONLY_DB_URL" -X -q -t -A -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT md5(pg_get_functiondef('public.transcript_retention_preflight(text,uuid,text)'::regprocedure));
+          SQL
+          )"
+          [ "$actual_definition_md5" = "$EXPECTED_PREFLIGHT_FUNCTION_MD5" ] || {
+            echo "::error::deployed transcript_retention_preflight definition does not match reviewed R3 definition"
+            exit 1
+          }
+          # REPEATABLE READ + READ ONLY transaction with bounded timeouts; the selected scope/user_id are passed
+          # as quoted psql variables (no SQL string concatenation). Emit ONLY the sanitized JSON verdict.
+          VERDICT="$(psql "$PREFLIGHT_READONLY_DB_URL" -X -q -t -A -v ON_ERROR_STOP=1 \
+              -v scope="$SCOPE" -v uid="$USER_ID" <<'SQL'
+          BEGIN TRANSACTION READ ONLY ISOLATION LEVEL REPEATABLE READ;
+          SET LOCAL statement_timeout = '30000';
+          SET LOCAL lock_timeout = '2000';
+          SELECT public.transcript_retention_preflight(:'scope', nullif(:'uid','')::uuid, 'ci-dry-run');
+          COMMIT;
+          SQL
+          )"
+          echo "$VERDICT" | python3 -c '
+          import sys, json
+          v = json.loads(sys.stdin.read())
+          assert v["policy_version"] == "newest_two_v1", "unexpected policy version"
+          assert v["status"] in ("ready", "blocked"), "bad status"
+          for grp in ("counts", "contradictions", "simulation"):
+              for k, val in v[grp].items():
+                  assert isinstance(val, int) and not isinstance(val, bool), f"non-numeric aggregate {grp}.{k}"
+          assert int(v["simulation"]["simulated_max_retained_per_user"]) <= 2, "sim retained > 2"
+          assert int(v["simulation"]["users_over_two_after"]) == 0, "users over two after sim"
+          print("PREFLIGHT", v["status"], "| scope=", v["scope"], "candidates=", v["counts"]["rank_gt2_eligible"],
+                "pending_backlog=", v["counts"]["pending_evidence_backlog"],
+                "contradictions=", sum(v["contradictions"].values()))
+          if v["status"] != "ready":
+              sys.exit("::error::preflight NOT ready — retention operation must not proceed")
+          '

@@ -1,0 +1,97 @@
+name: transcript-retention-function-identity-proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/transcript-retention-function-identity-proof.yml'
+      - 'backend/supabase/migrations/20260801000000_sessions_transcript_state.sql'
+      - 'backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql'
+      - 'backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql'
+      - 'backend/supabase/migrations/20260805000000_transcript_retention_preflight.sql'
+      - 'tests/db/transcript-retention-converge-bootstrap.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-17-function-identity:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: retention_identity
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d retention_identity"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: retention_identity
+      EXPECTED_PREFLIGHT_FUNCTION_MD5: 029a72bf14bfd2ab18260c6477c56493
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap reviewed migration on PostgreSQL 17
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/transcript-retention-converge-bootstrap.sql >/dev/null
+          for migration in \
+            20260801000000_sessions_transcript_state \
+            20260803000000_transcript_retention_newest_two \
+            20260804000000_transcript_retention_converge_on_save \
+            20260805000000_transcript_retention_preflight
+          do
+            psql -X -v ON_ERROR_STOP=1 \
+              -f "backend/supabase/migrations/${migration}.sql" >/dev/null
+          done
+          postgres_version="$(psql -X -q -t -A -v ON_ERROR_STOP=1 -c 'SHOW server_version;')"
+          echo "postgres_version=${postgres_version}"
+          case "$postgres_version" in 17.*) ;; *) echo "::error::expected PostgreSQL 17"; exit 1;; esac
+
+      - name: Prove exact reviewed definition and reject drift
+        run: |
+          set -euo pipefail
+          definition_digest() {
+            psql -X -q -t -A -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT md5(pg_get_functiondef('public.transcript_retention_preflight(text,uuid,text)'::regprocedure));
+          SQL
+          }
+          require_reviewed_definition() {
+            local actual
+            actual="$(definition_digest)"
+            if [ "$actual" != "$EXPECTED_PREFLIGHT_FUNCTION_MD5" ]; then
+              echo "identity_gate=rejected expected=${EXPECTED_PREFLIGHT_FUNCTION_MD5} actual=${actual}"
+              return 1
+            fi
+            echo "identity_gate=accepted digest=${actual}"
+          }
+
+          require_reviewed_definition
+
+          psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE OR REPLACE FUNCTION public.transcript_retention_preflight(
+            p_scope text DEFAULT 'all_users',
+            p_user_id uuid DEFAULT NULL,
+            p_run_id text DEFAULT NULL
+          ) RETURNS jsonb
+          LANGUAGE sql
+          STABLE
+          SECURITY DEFINER
+          SET search_path = public, pg_temp
+          AS $$ SELECT jsonb_build_object('status', 'drifted') $$;
+          SQL
+
+          if require_reviewed_definition; then
+            echo "::error::drifted deployed definition passed the identity gate"
+            exit 1
+          fi
+          echo "PASS: PostgreSQL 17 digest matched before drift and drift failed closed before verdict use"
