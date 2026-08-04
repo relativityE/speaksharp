@@ -342,3 +342,40 @@ describe('#1161 attribution authority — no legacy backfill + cascade', () => {
         expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge`, [])).toBe(0);
     });
 });
+
+describe('#1161 attribution authority — server-owned identity write to sessions', () => {
+    it('attest writes the attested identity + verified status to the locked sessions columns', async () => {
+        const db = await makeDb();
+        // Session created with placeholder identity the client can no longer UPDATE post-revoke.
+        const s = await seedSession(db, USER,
+            { engine: 'placeholder', version: 'x', model: 'placeholder', device: 'unknown' });
+        const c = await issueChallenge(db, s);
+        await attest(db, s, c, {
+            provider: 'transformers-js', engine: 'private-v2', engine_version: 'v2',
+            model_id: 'base', resolved_device: 'wasm', fallback_occurred: false, cloud_used: false,
+        });
+        const row = (await db.query<Record<string, string>>(
+            `SELECT engine, engine_version, model_name, device_type, attribution_status
+             FROM public.sessions WHERE id=$1`, [s])).rows[0];
+        expect(row).toEqual({
+            engine: 'private-v2', engine_version: 'v2', model_name: 'base',
+            device_type: 'wasm', attribution_status: 'verified',
+        });
+        // the authority row carries the SAME attested identity
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority
+             WHERE session_id=$1 AND engine='private-v2' AND model_id='base' AND resolved_device='wasm'`, [s]))
+            .toBe(1);
+    });
+
+    it('a rejected attestation writes NO identity to sessions (fail-closed)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER, { engine: 'placeholder', model: 'placeholder' });
+        const c = await issueChallenge(db, s);
+        await expect(attest(db, s, c, { ...GOOD_V2, cloud_used: true })).rejects.toThrow();
+        const row = (await db.query<Record<string, string>>(
+            `SELECT engine, attribution_status FROM public.sessions WHERE id=$1`, [s])).rows[0];
+        expect(row.engine).toBe('placeholder');        // untouched
+        expect(row.attribution_status).toBe('pending'); // never promoted
+    });
+});

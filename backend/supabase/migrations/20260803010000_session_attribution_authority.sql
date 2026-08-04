@@ -161,17 +161,30 @@ BEGIN
         RAISE EXCEPTION 'attribution: tiny model is not an attestable Private engine' USING ERRCODE = 'check_violation';
     END IF;
 
-    -- Consume the challenge and write the immutable authority atomically (identity from the SERVER session row).
+    -- Resolve the server-authored identity: prefer the trusted producer's runtime evidence, fall back to the
+    -- persisted session row. Both the authority row AND the (definer-written) sessions identity use this.
+    v_engine         := coalesce(nullif(p_runtime_evidence->>'engine', ''), v_engine, 'private');
+    v_engine_version := coalesce(nullif(p_runtime_evidence->>'engine_version', ''), v_engine_version);
+    v_model          := coalesce(nullif(p_runtime_evidence->>'model_id', ''), v_model);
+    v_device         := coalesce(nullif(p_runtime_evidence->>'resolved_device', ''), v_device);
+
+    -- Consume the challenge and write the immutable authority atomically.
     UPDATE public.session_attribution_challenge
         SET consumed_at = now()
         WHERE challenge_id = p_challenge_id;
     INSERT INTO public.session_attribution_authority(
         session_id, user_id, authority_version, engine, engine_version, model_id, provider, resolved_device)
-    VALUES (
-        p_session_id, v_user, 'attrib_v1', coalesce(v_engine,'private'), v_engine_version,
-        coalesce(v_model, p_runtime_evidence->>'model_id'), v_provider,
-        coalesce(v_device, p_runtime_evidence->>'resolved_device'))
+    VALUES (p_session_id, v_user, 'attrib_v1', v_engine, v_engine_version, v_model, v_provider, v_device)
     ON CONFLICT (session_id) DO NOTHING;   -- belt-and-suspenders against a lost-update race
+
+    -- Server-owned identity write. As SECURITY DEFINER this bypasses the authenticated UPDATE revoke, so the
+    -- locked sessions identity + advisory attribution_status reflect the ATTESTED runtime — making this RPC the
+    -- SOLE writer of those columns after the revoke, and letting #1045's cohort/engine gate read server-authored
+    -- identity. (The trusted server producer — the attest-private-session Edge Function — is the only caller.)
+    UPDATE public.sessions
+       SET engine = v_engine, engine_version = v_engine_version, model_name = v_model,
+           device_type = v_device, attribution_status = 'verified'
+     WHERE id = p_session_id;
 
     RETURN 'attrib_v1';
 END;
