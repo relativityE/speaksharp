@@ -14,7 +14,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-MIG="$HERE/../../backend/supabase/migrations/20260803000000_session_attribution_authority.sql"
+MIG="$HERE/../../backend/supabase/migrations/20260803010000_session_attribution_authority.sql"
 BOOT="$HERE/attribution-authority-bootstrap.sql"
 TMP="$(mktemp -d)"; PGDATA="$TMP/data"; SOCK="$TMP/sock"; mkdir -p "$SOCK"
 export PGHOST="$SOCK" PGUSER=postgres PGDATABASE=postgres

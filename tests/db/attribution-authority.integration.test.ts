@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const MIGRATION_PATH = resolve(
-    process.cwd(), 'backend', 'supabase', 'migrations', '20260803000000_session_attribution_authority.sql',
+    process.cwd(), 'backend', 'supabase', 'migrations', '20260803010000_session_attribution_authority.sql',
 );
 const BOOTSTRAP_PATH = resolve(process.cwd(), 'tests', 'db', 'attribution-authority-bootstrap.sql');
 const migrationSql = readFileSync(MIGRATION_PATH, 'utf8');
