@@ -24,11 +24,21 @@ vi.mock('../../lib/storage', () => ({
     updateSession: vi.fn().mockResolvedValue({ success: true }),
 }));
 
+// #1161: the trusted server producer seam. attestInvoke stands in for
+// getSupabaseClient().functions.invoke('attest-session-engine', ...). Default: a successful Private/Browser
+// attestation ({ attributed: true }). Tests override it to simulate rejection / transient failure.
+const { attestInvoke } = vi.hoisted(() => ({
+    attestInvoke: vi.fn(
+        (..._args: unknown[]): Promise<{ data: unknown; error: unknown }> =>
+            Promise.resolve({ data: { attributed: true }, error: null }),
+    ),
+}));
 vi.mock('../../lib/supabaseClient', () => ({
     getSupabaseClient: vi.fn(() => ({
         auth: {
             getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } })
-        }
+        },
+        functions: { invoke: (...args: unknown[]) => attestInvoke(...args) },
     }))
 }));
 
@@ -524,23 +534,35 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setSessionId: vi.fn(),
         isServiceDestroyed: () => false,
     });
-    const attributionPatch = (storage: { updateSession: unknown }) =>
-        vi.mocked(storage.updateSession as (...a: unknown[]) => unknown).mock.calls
-            .map((c) => c[1])
-            .find((p) => !!p && Object.prototype.hasOwnProperty.call(p, 'attribution_status'));
+    // #1161: the client no longer writes attribution columns — it POSTs runtime evidence to the trusted
+    // producer. These read the attest-session-engine invocations instead of updateSession patches.
+    const attestBodies = () => attestInvoke.mock.calls
+        .map((c) => (c[1] as { body?: { sessionId?: string; runtimeEvidence?: Record<string, unknown> } } | undefined)?.body);
+    const lastBody = () => { const b = attestBodies(); return b[b.length - 1]; };
+    const lastEvidence = () => lastBody()?.runtimeEvidence;
 
-    it.each(['native', 'private', 'cloud'] as const)(
-        '#1033: finalization persists a VERIFIED attribution tuple for %s',
+    it.each(['native', 'private'] as const)(
+        '#1161: finalization ATTESTS a %s session via the trusted producer (Progress-eligible)',
         async (mode) => {
-            const storage = await import('../../lib/storage');
-            vi.mocked(storage.updateSession).mockClear();
+            attestInvoke.mockClear();
             (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = null;
             await driveStopWithService(mkService(mode, { engineVersion: `v-${mode}`, modelName: `m-${mode}`, deviceType: `d-${mode}` }), `sess-attr-${mode}`, mode);
-            expect(attributionPatch(storage)).toMatchObject({
-                engine: mode, engine_version: `v-${mode}`, model_name: `m-${mode}`, device_type: `d-${mode}`, attribution_status: 'verified',
+            expect(attestInvoke).toHaveBeenCalledTimes(1);
+            expect(lastBody()?.sessionId).toBe(`sess-attr-${mode}`);
+            expect(lastEvidence()).toMatchObject({
+                provider: mode === 'private' ? 'transformers-js' : 'web-speech',
+                engine: mode, engine_version: `v-${mode}`, model_id: `m-${mode}`, resolved_device: `d-${mode}`,
+                fallback_occurred: false, cloud_used: false,
             });
         }
     );
+
+    it('#1161: a CLOUD session is NOT attested (no trusted local identity → no authority, no Progress)', async () => {
+        attestInvoke.mockClear();
+        (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = null;
+        await driveStopWithService(mkService('cloud', { engineVersion: 'v-c', modelName: 'm-c', deviceType: 'd-c' }), 'sess-attr-cloud', 'cloud');
+        expect(attestInvoke).not.toHaveBeenCalled();
+    });
 
     it('#1045: the completed-save journey wires the Progress evaluation seam (metrics persisted + terminal attribution)', async () => {
         const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
@@ -556,23 +578,21 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     it('#1033: Private finalization uses the resolved Private arm ONLY when it belongs to this recording', async () => {
-        const storage = await import('../../lib/storage');
-        vi.mocked(storage.updateSession).mockClear();
+        attestInvoke.mockClear();
         (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = 'private_v2:whisper-base.en';
         (controller as unknown as { resolvedPrivateEngineSessionId: string | null }).resolvedPrivateEngineSessionId = 'sess-attr-private-arm';
         await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }), 'sess-attr-private-arm', 'private');
-        expect(attributionPatch(storage)).toMatchObject({ engine: 'private', engine_version: 'private_v2:whisper-base.en', attribution_status: 'verified' });
+        expect(lastEvidence()).toMatchObject({ provider: 'transformers-js', engine: 'private', engine_version: 'private_v2:whisper-base.en' });
     });
 
     it('#1033: a STALE Private arm from another recording is NOT used (no cross-recording leak)', async () => {
-        const storage = await import('../../lib/storage');
-        vi.mocked(storage.updateSession).mockClear();
+        attestInvoke.mockClear();
         (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = 'private_v2:STALE-ARM';
         (controller as unknown as { resolvedPrivateEngineSessionId: string | null }).resolvedPrivateEngineSessionId = 'a-DIFFERENT-session';
         await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base.en', deviceType: 'browser' }), 'sess-attr-stale', 'private');
-        const patch = attributionPatch(storage) as Record<string, unknown>;
-        expect(patch.engine_version).toBe('transformers-js'); // live metadata, NOT the stale arm
-        expect(patch.engine_version).not.toBe('private_v2:STALE-ARM');
+        const ev = lastEvidence() as Record<string, unknown>;
+        expect(ev.engine_version).toBe('transformers-js'); // live metadata, NOT the stale arm
+        expect(ev.engine_version).not.toBe('private_v2:STALE-ARM');
     });
 
     it.each([
@@ -580,21 +600,19 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         { label: 'throwing metadata', svc: { getMetadata: () => { throw new Error('gone'); } } },
         { label: 'blank engine_version', svc: { getMetadata: () => ({ engineVersion: '  ', modelName: 'm', deviceType: 'd' }) } },
         { label: 'blank device_type', svc: { getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'm', deviceType: '' }) } },
-    ])('#1033: $label → UNVERIFIED, never guessed/verified, no identity overwrite', async ({ svc }) => {
-        const storage = await import('../../lib/storage');
-        vi.mocked(storage.updateSession).mockClear();
+    ])('#1033/#1161: $label → NO trusted identity → NOT attested (no authority)', async ({ svc }) => {
+        attestInvoke.mockClear();
         const base = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
         await driveStopWithService({ ...base, ...svc }, 'sess-attr-unv', 'native');
-        const patch = attributionPatch(storage) as Record<string, unknown>;
-        expect(patch).toEqual({ attribution_status: 'unverified' }); // status only — no engine/version/model/device
+        // An unverifiable local identity produces no evidence → the client never calls the producer (fail-closed).
+        expect(attestInvoke).not.toHaveBeenCalled();
     });
 
-    it('#1033: an engine token outside the allowlist → UNVERIFIED (not marked verified)', async () => {
-        const storage = await import('../../lib/storage');
-        vi.mocked(storage.updateSession).mockClear();
+    it('#1033/#1161: an engine token outside the allowlist → NOT attested (no authority)', async () => {
+        attestInvoke.mockClear();
         const svc = { ...mkService('native', { engineVersion: 'x', modelName: 'y', deviceType: 'z' }), getMode: vi.fn().mockReturnValue('some-unknown-engine') };
         await driveStopWithService(svc, 'sess-attr-badtoken', 'native');
-        expect(attributionPatch(storage)).toEqual({ attribution_status: 'unverified' });
+        expect(attestInvoke).not.toHaveBeenCalled();
     });
 
     it('#1033: identity is snapshotted BEFORE stopTranscription()', async () => {
@@ -608,27 +626,26 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(order.indexOf('getMetadata')).toBeLessThan(order.indexOf('stopTranscription'));
     });
 
-    it('#1033: write failure keeps transcript + leaves row pending; retryPendingAttribution promotes it (no duplicate)', async () => {
+    it('#1161: transient attest failure keeps transcript + leaves row pending; retryPendingAttribution re-attests (no duplicate)', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.saveSession).mockClear();
-        let failAttribution = true;
-        vi.mocked(storage.updateSession).mockImplementation(async (_id: string, patch: Record<string, unknown>) => {
-            if (failAttribution && patch && Object.prototype.hasOwnProperty.call(patch, 'attribution_status')) throw new Error('DB down');
-            return { success: true };
-        });
+        // First attempt: a TRANSIENT producer failure (no 4xx status) → attestSessionEngine returns null → the
+        // row stays pending, transcript preserved, and the evidence is stashed for Retry Save.
+        attestInvoke.mockClear();
+        attestInvoke.mockResolvedValueOnce({ data: null, error: { message: 'producer down' } });
         const saveCallsBefore = vi.mocked(storage.saveSession).mock.calls.length;
         await expect(driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-attr-retry', 'native')).resolves.not.toThrow();
         // transcript survived the attribution failure
         expect(storage.completeSession).toHaveBeenCalledWith('sess-attr-retry', expect.objectContaining({ status: 'completed' }));
-        // now Retry Save succeeds and promotes the SAME row via UPDATE (no new saveSession/duplicate)
-        failAttribution = false;
-        vi.mocked(storage.updateSession).mockClear();
+        // now Retry Save re-attests the SAME session (no new saveSession/duplicate)
+        attestInvoke.mockClear();
+        attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
         await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> }).retryPendingAttribution()).resolves.toBe(true);
-        const retryCall = vi.mocked(storage.updateSession).mock.calls.find(c => c[0] === 'sess-attr-retry' && !!c[1] && Object.prototype.hasOwnProperty.call(c[1], 'attribution_status'));
-        expect(retryCall?.[1]).toMatchObject({ engine: 'native', attribution_status: 'verified' });
+        const retryCall = attestInvoke.mock.calls.find(c => (c[1] as { body?: { sessionId?: string } })?.body?.sessionId === 'sess-attr-retry');
+        expect(retryCall).toBeTruthy();
+        expect((retryCall![1] as { body: { runtimeEvidence: Record<string, unknown> } }).body.runtimeEvidence).toMatchObject({ provider: 'web-speech', engine: 'native' });
         expect(vi.mocked(storage.saveSession).mock.calls.length).toBe(saveCallsBefore); // no duplicate session created
-        vi.mocked(storage.updateSession).mockResolvedValue({ success: true }); // restore for later tests
     });
 
     // #1033 Part 2 — runtime enforcement (controller-level, not UI-only).
@@ -762,16 +779,15 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     it('#1033: retry of session A does not clear a pending that changed to session B mid-flight (compare-and-clear)', async () => {
-        const storage = await import('../../lib/storage');
-        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'A', patch: { attribution_status: 'verified' } };
-        vi.mocked(storage.updateSession).mockImplementation(async () => {
-            (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'B', patch: { attribution_status: 'verified' } };
-            return { success: true };
+        const ev = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
+        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'A', evidence: ev };
+        attestInvoke.mockImplementationOnce(async () => {
+            (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'B', evidence: ev };
+            return { data: { attributed: true }, error: null };
         });
         await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> }).retryPendingAttribution()).resolves.toBe(true);
         expect((controller as unknown as { pendingAttributionRetry: { sessionId: string } }).pendingAttributionRetry).toMatchObject({ sessionId: 'B' }); // B not cleared
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
-        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
     });
 
     // #1033 Part-2a — failure-state lock semantics: PRE-recording failure unlocks; POST-start failure stays
@@ -844,10 +860,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
         await doTransition('FAILED'); // heartbeat/engine failure lands here
-        const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { transcript: string; duration: number }; attributionPatch: { attribution_status: string } } | null }).pendingFullSaveRetry;
+        const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { transcript: string; duration: number }; attributionEvidence: unknown } | null }).pendingFullSaveRetry;
         expect(pending).toMatchObject({ sessionId: 'sess-hb' });
         expect(pending?.completeArgs.transcript).toContain('engine died');
-        expect(pending?.attributionPatch.attribution_status).toBe('unverified'); // cannot verify a dead engine
+        expect(pending?.attributionEvidence).toBeNull(); // #1161: a dead engine has no trusted identity → no authority
         expect(controller.isEngineSelectionLocked()).toBe(true);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         setUnresolved(false);
@@ -860,7 +876,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
         draft.saveSessionRecoveryDraft({ sessionId: 'sess-disc', userId: 'user-1', transcript: 'unsaved words', durationSeconds: 10, mode: 'private' });
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-disc', completeArgs: { status: 'completed', transcript: 'unsaved words', duration: 10 }, attributionPatch: { attribution_status: 'unverified' } };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-disc', completeArgs: { status: 'completed', transcript: 'unsaved words', duration: 10 }, attributionEvidence: null };
         setUnresolved(true);
         expect(controller.isEngineSelectionLocked()).toBe(true);
         await (controller as unknown as { discardUnresolvedRecording: () => Promise<void> }).discardUnresolvedRecording();
@@ -1001,11 +1017,12 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockResolvedValue({ session: { id: 'new-row-1' } } as never);
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        attestInvoke.mockClear();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: null,
             initialSave: { userId: 'user-early', recordingId: 'rec-idem-1', mode: 'private' },
             completeArgs: { status: 'completed', transcript: 'early speech', duration: 11 },
-            attributionPatch: { attribution_status: 'unverified' },
+            attributionEvidence: null,   // #1161: recovered pre-session work has no trusted identity
         };
         setUnresolved(true);
         expect(controller.pendingResolutionKind()).toBe('initial_save');
@@ -1014,7 +1031,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(storage.saveSession).toHaveBeenCalledTimes(1);
         expect(vi.mocked(storage.saveSession).mock.calls[0][3]).toBe('rec-idem-1');
         expect(storage.completeSession).toHaveBeenCalledWith('new-row-1', expect.objectContaining({ status: 'completed' }));
-        expect(storage.updateSession).toHaveBeenCalledWith('new-row-1', expect.objectContaining({ attribution_status: 'unverified' }));
+        // #1161: null evidence ⇒ no attestation call (no authority), but the row is durably saved + completed
+        expect(attestInvoke).not.toHaveBeenCalled();
         expect(controller.isEngineSelectionLocked()).toBe(false);
     });
 
@@ -1025,7 +1043,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             sessionId: null,
             initialSave: { userId: 'u', recordingId: 'rec-fail', mode: 'private' },
             completeArgs: { status: 'completed', transcript: 'x', duration: 2 },
-            attributionPatch: { attribution_status: 'unverified' },
+            attributionEvidence: null,
         };
         setUnresolved(true);
         await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(false);
@@ -1043,7 +1061,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             sessionId: null,
             initialSave: { userId: 'u', recordingId: 'rec-disc', mode: 'private' },
             completeArgs: { status: 'completed', transcript: 'x', duration: 2 },
-            attributionPatch: {},
+            attributionEvidence: null,
         };
         (controller as unknown as { sessionId: string | null }).sessionId = null;
         setUnresolved(true);
@@ -1329,7 +1347,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const draft = await import('../sessionRecoveryDraft');
         draft.saveSessionRecoveryDraft({ sessionId: 'sess-dbdown', userId: 'user-1', transcript: 'the only copy of my words', durationSeconds: 12, mode: 'private' });
         vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-dbdown', completeArgs: { status: 'completed', transcript: 'the only copy of my words', duration: 12 }, attributionPatch: { attribution_status: 'unverified' } };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-dbdown', completeArgs: { status: 'completed', transcript: 'the only copy of my words', duration: 12 }, attributionEvidence: null };
         setUnresolved(true);
         const res = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
         expect(res.outcome).toBe('retryable');
@@ -1345,7 +1363,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
         const storage = await import('../../lib/storage');
         vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: false });
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-nofail', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionPatch: {} };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-nofail', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionEvidence: null };
         setUnresolved(true);
         const res = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
         expect(res.outcome).toBe('retryable');
@@ -1374,7 +1392,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const storage = await import('../../lib/storage');
         const draft = await import('../sessionRecoveryDraft');
         draft.saveSessionRecoveryDraft({ sessionId: 'sess-retryd', userId: 'user-1', transcript: 'words', durationSeconds: 9, mode: 'private' });
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-retryd', completeArgs: { status: 'completed', transcript: 'words', duration: 9 }, attributionPatch: {} };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-retryd', completeArgs: { status: 'completed', transcript: 'words', duration: 9 }, attributionEvidence: null };
         setUnresolved(true);
         vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
         const first = await (controller as unknown as { discardUnresolvedRecording: () => Promise<{ outcome: string }> }).discardUnresolvedRecording();
@@ -1587,16 +1605,18 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.updateSession).mockClear();
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
-        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+        attestInvoke.mockClear();
+        attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: 'sess-fs', completeArgs: { status: 'completed', transcript: 'hello world', duration: 12 },
-            attributionPatch: { attribution_status: 'verified', engine: 'native' },
+            attributionEvidence: { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false },
         };
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         expect(controller.isEngineSelectionLocked()).toBe(true);
         await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
         expect(storage.completeSession).toHaveBeenCalledWith('sess-fs', expect.objectContaining({ status: 'completed', transcript: 'hello world' }));
-        expect(storage.updateSession).toHaveBeenCalledWith('sess-fs', expect.objectContaining({ attribution_status: 'verified' }));
+        // #1161: attribution now goes through the trusted producer for the SAME session
+        expect(attestInvoke).toHaveBeenCalledWith('attest-session-engine', expect.objectContaining({ body: expect.objectContaining({ sessionId: 'sess-fs' }) }));
         expect(controller.isEngineSelectionLocked()).toBe(false);
         expect((controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry).toBeNull();
     });
@@ -1606,7 +1626,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.completeSession).mockResolvedValue({ success: false });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: 'sess-fs2', completeArgs: { status: 'completed', transcript: 'x', duration: 5 },
-            attributionPatch: { attribution_status: 'verified' },
+            attributionEvidence: null,
         };
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(false);
@@ -1620,7 +1640,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033: startRecording is BLOCKED while a full-save retry is pending', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.saveSession).mockClear();
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionPatch: {} };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionEvidence: null };
         (controller as unknown as { state: string }).state = 'IDLE';
         await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
         await controller.whenStable();
@@ -1660,7 +1680,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     it('#1033: hard reset clears a pending full-save retry too', () => {
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionPatch: {} };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionEvidence: null };
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         expect(controller.isEngineSelectionLocked()).toBe(true);
         controller.reset('logout');
@@ -1674,7 +1694,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const draft = await import('../sessionRecoveryDraft');
         draft.saveSessionRecoveryDraft({ sessionId: 'sess-soft', userId: 'user-1', transcript: 'unsaved', durationSeconds: 8, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-soft', completeArgs: { status: 'completed', transcript: 'unsaved', duration: 8 }, attributionPatch: { attribution_status: 'unverified' } };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-soft', completeArgs: { status: 'completed', transcript: 'unsaved', duration: 8 }, attributionEvidence: null };
         controller.reset('subscriber_unmount');
         expect(controller.isEngineSelectionLocked()).toBe(true); // in-memory recovery preserved
         expect(draft.getSessionRecoveryDraft()?.sessionId).toBe('sess-soft'); // durable draft preserved
@@ -1688,7 +1708,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const draft = await import('../sessionRecoveryDraft');
         draft.saveSessionRecoveryDraft({ sessionId: 'sess-reload', userId: 'user-1', transcript: 'work that survived the reload', durationSeconds: 30, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
-        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-reload', completeArgs: { status: 'completed', transcript: 'work that survived the reload', duration: 30 }, attributionPatch: { attribution_status: 'unverified' } };
+        (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-reload', completeArgs: { status: 'completed', transcript: 'work that survived the reload', duration: 30 }, attributionEvidence: null };
         controller.reset('logout'); // hard reset clears in-memory state (simulating a reload)
         expect(controller.isEngineSelectionLocked()).toBe(false); // in-memory cleared...
         expect(draft.getSessionRecoveryDraft()?.sessionId).toBe('sess-reload'); // ...but unsaved work NOT destroyed (C4)

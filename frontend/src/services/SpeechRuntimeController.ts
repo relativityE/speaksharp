@@ -305,6 +305,21 @@ export class FinalizationTimeoutError extends Error {
     }
 }
 
+/**
+ * #1161 runtime evidence posted to the trusted server producer (attest-session-engine). Advisory input only —
+ * the server re-validates it and is the sole writer of the attribution authority. `provider` selects the class:
+ * `transformers-js[-v4]` → Private, `web-speech` → Browser.
+ */
+export interface RuntimeEvidence {
+    provider: string;
+    engine: string;
+    engine_version?: string;
+    model_id?: string;
+    resolved_device?: string;
+    fallback_occurred: boolean;
+    cloud_used: boolean;
+}
+
 export class SpeechRuntimeController {
     private static instance: SpeechRuntimeController | null = null;
     private readonly HEARTBEAT_THRESHOLD_MS =
@@ -542,7 +557,7 @@ export class SpeechRuntimeController {
     private resolvedPrivateEngineSessionId: string | null = null;
     /** #1033: last recording whose durable attribution write failed — stashed so Retry Save can promote it
      *  pending→verified via UPDATE (never a duplicate session). Null when nothing is awaiting retry. */
-    private pendingAttributionRetry: { sessionId: string; patch: Parameters<typeof updateSession>[1] } | null = null;
+    private pendingAttributionRetry: { sessionId: string; evidence: RuntimeEvidence | null } | null = null;
     /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
      *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
@@ -554,7 +569,7 @@ export class SpeechRuntimeController {
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
         initialSave?: { userId: string; recordingId: string; mode: string };
         completeArgs: { status: 'completed'; transcript: string; duration: number };
-        attributionPatch: Parameters<typeof updateSession>[1];
+        attributionEvidence: RuntimeEvidence | null;
     } | null = null;
 
     /** #1033 (1): owner + idempotency identity for the window between RECORDING and the initial save. Set
@@ -633,8 +648,9 @@ export class SpeechRuntimeController {
         if (!pending) return true;
         const targetSessionId = pending.sessionId;
         try {
-            const res = await updateSession(pending.sessionId, pending.patch);
-            if (res && (res as { success?: boolean }).success === false) return false;
+            // #1161: re-post evidence to the trusted server producer. null = transient failure → stay retryable.
+            const res = await this.attestSessionEngine(pending.sessionId, pending.evidence);
+            if (res === null) return false;
             // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
             // changed to another session while the update was in flight, leave that one intact (#1033).
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
@@ -646,7 +662,7 @@ export class SpeechRuntimeController {
             void wireProgressEvaluationOnSave({
                 sessionId: targetSessionId,
                 status: 'completed',
-                attributionStatus: (pending.patch as { attribution_status?: string })?.attribution_status,
+                attributionStatus: res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                 metricsPersisted: true,
                 userId: this.capturedUserId,
             }).catch(() => { /* non-fatal */ });
@@ -699,8 +715,9 @@ export class SpeechRuntimeController {
                 }
                 const completion = await completeSession(targetSessionId, fullSave.completeArgs);
                 if (!completion?.success) return false;
-                const attrRes = await updateSession(targetSessionId, fullSave.attributionPatch);
-                if (attrRes && (attrRes as { success?: boolean }).success === false) return false;
+                // #1161: attribution via the trusted server producer. null = transient → stay retryable.
+                const attrRes = await this.attestSessionEngine(targetSessionId, fullSave.attributionEvidence);
+                if (attrRes === null) return false;
                 // Full save + attribution both durable → recording resolved. Compare-and-clear (the slot may
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
                 // makes that near-impossible); never clear a different session's unresolved work.
@@ -712,7 +729,7 @@ export class SpeechRuntimeController {
                     void wireProgressEvaluationOnSave({
                         sessionId: targetSessionId,
                         status: 'completed',
-                        attributionStatus: (fullSave.attributionPatch as { attribution_status?: string })?.attribution_status,
+                        attributionStatus: attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                         metricsPersisted: true,
                         userId: this.capturedUserId,
                     }).catch(() => { /* non-fatal */ });
@@ -845,7 +862,7 @@ export class SpeechRuntimeController {
                 sessionId,
                 ...(initialSave ? { initialSave } : {}),
                 completeArgs: { status: 'completed', transcript, duration: Math.round(draftForThisSession?.durationSeconds || liveDuration) },
-                attributionPatch: { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as Parameters<typeof updateSession>[1],
+                attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
             };
             logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
             this.publishLockState();
@@ -916,7 +933,7 @@ export class SpeechRuntimeController {
         this.pendingFullSaveRetry = {
             sessionId: draft.sessionId,
             completeArgs: { status: 'completed', transcript: draft.transcript, duration: Math.round(draft.durationSeconds) },
-            attributionPatch: { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as Parameters<typeof updateSession>[1],
+            attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
         };
         this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated unresolved recording for same user (#1033 C)');
@@ -979,6 +996,64 @@ export class SpeechRuntimeController {
             return unverified;
         }
     }
+
+    /**
+     * #1161: derive the server attestation evidence from the locally-gated finalizing identity. Returns null
+     * when there is NO trusted local identity to attest — an unverified identity (fail-closed local gate), or a
+     * Cloud producer (no trusted local identity; the server would reject it anyway). Only the two attestable
+     * classes map to a provider: Private (on-device transformers-js) and Browser (native Web Speech). The server
+     * (attest-session-engine → attest_session_engine_v1) re-validates and is the SOLE writer — this is advisory
+     * input, never trusted for the verdict.
+     */
+    private static evidenceFromIdentity(
+        identity: { engine?: string; engine_version?: string; model_name?: string; device_type?: string; attribution_status: AttributionStatus },
+    ): RuntimeEvidence | null {
+        if (identity.attribution_status !== ATTRIBUTION_STATUS.VERIFIED || !identity.engine) return null;
+        const provider = identity.engine === 'private' ? 'transformers-js'
+            : identity.engine === 'native' ? 'web-speech'
+            : null;   // 'cloud' (or anything else) → no trusted local identity → do not attest
+        if (!provider) return null;
+        return {
+            provider,
+            engine: identity.engine,
+            engine_version: identity.engine_version,
+            model_id: identity.model_name,
+            resolved_device: identity.device_type,
+            fallback_occurred: false,   // captureFinalizingIdentity already proved a clean, latch-matched run
+            cloud_used: false,
+        };
+    }
+
+    /**
+     * #1161: the SOLE client entry point to the trusted server producer. The client can no longer write the
+     * locked attribution columns; it posts runtime evidence and the Edge Function classifies + writes the
+     * authority. Contract:
+     *  - null evidence  → no trusted local identity → { attributed: false } WITHOUT a network call (terminal;
+     *    the row simply carries no authority — not eligible, and there is nothing to retry).
+     *  - present evidence, 2xx → { attributed: <server verdict> } (terminal).
+     *  - present evidence, 4xx (server rejected the evidence) → { attributed: false } (terminal; not retryable).
+     *  - present evidence, 5xx / network error → null (TRANSIENT; caller stashes the evidence for Retry Save).
+     */
+    private async attestSessionEngine(
+        sessionId: string, evidence: RuntimeEvidence | null,
+    ): Promise<{ attributed: boolean } | null> {
+        if (!evidence) return { attributed: false };
+        try {
+            const { data, error } = await getSupabaseClient().functions.invoke('attest-session-engine', {
+                body: { sessionId, runtimeEvidence: evidence },
+            });
+            if (error) {
+                const status = (error as { context?: { status?: number } })?.context?.status;
+                // 4xx = the server definitively rejected this evidence → terminal, not retryable.
+                if (typeof status === 'number' && status >= 400 && status < 500) return { attributed: false };
+                return null;   // 5xx / network → transient → retryable
+            }
+            return { attributed: Boolean((data as { attributed?: boolean } | null)?.attributed) };
+        } catch {
+            return null;   // network failure → retryable
+        }
+    }
+
     private emitPrivateSampleSetupStatus(type: string): void {
         try {
             if ((this.service?.getMode?.() ?? null) !== 'private') return;
@@ -2833,7 +2908,10 @@ export class SpeechRuntimeController {
                     useSessionStore.getState().setCompletedSessionDuration(Math.round(recordingDurationSeconds));
                     // #1033: snapshot the producing-engine identity from the LIVE engine, BEFORE
                     // stopTranscription() can mutate/destroy engine metadata. Used for durable attribution.
-                    const finalizingIdentityPatch = this.captureFinalizingIdentity(service, service.getMode?.() ?? stopEntryMode);
+                    const finalizingIdentity = this.captureFinalizingIdentity(service, service.getMode?.() ?? stopEntryMode);
+                    // #1161: derive the server attestation evidence NOW (before stopTranscription destroys engine
+                    // metadata). null ⇒ no trusted local identity (unverified/Cloud) ⇒ no authority is produced.
+                    const attestationEvidence = SpeechRuntimeController.evidenceFromIdentity(finalizingIdentity);
                     // #1089 BOUNDED FINALIZATION. stopTranscription() runs the whole-utterance decode and
                     // has no internal ceiling; the watchdog was stopped just above. Because Finalizing…
                     // now disables the record control, a hang here means the user cannot start, stop or
@@ -3274,7 +3352,7 @@ export class SpeechRuntimeController {
                                     this.pendingFullSaveRetry = {
                                         sessionId,
                                         completeArgs,
-                                        attributionPatch: finalizingIdentityPatch as Parameters<typeof updateSession>[1],
+                                        attributionEvidence: attestationEvidence,
                                     };
                                 } else {
                                     logger.error({ existing: this.pendingFullSaveRetry.sessionId, sessionId }, '[controller] full-save retry slot held by another session — failing closed, not overwriting (#1033)');
@@ -3294,9 +3372,13 @@ export class SpeechRuntimeController {
                             // on failure, so the Progress seam defers rather than record a premature row.
                             let attributionTerminalStatus: string | undefined;
                             try {
-                                const attrResult = await updateSession(sessionId, finalizingIdentityPatch as Parameters<typeof updateSession>[1]);
-                                if (attrResult && (attrResult as { success?: boolean }).success === false) throw new Error('attribution update returned success:false');
-                                attributionTerminalStatus = (finalizingIdentityPatch as { attribution_status?: string }).attribution_status;
+                                // #1161: the client can no longer write the locked attribution columns — post
+                                // evidence to the trusted server producer. null result = TRANSIENT failure → throw
+                                // into the catch to stash for Retry Save (transcript already persisted, row pending).
+                                const attestResult = await this.attestSessionEngine(sessionId, attestationEvidence);
+                                if (attestResult === null) throw new Error('attestation failed (transient — retryable)');
+                                attributionTerminalStatus = attestResult.attributed
+                                    ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED;
                                 // Clear the pending-retry ONLY if it belongs to THIS recording — a later
                                 // recording must never clear an earlier session's unresolved pending retry (#1033).
                                 if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
@@ -3315,7 +3397,7 @@ export class SpeechRuntimeController {
                                 // UPDATE (no duplicate session, no transcript loss). Session-safe: NEVER overwrite a
                                 // DIFFERENT session's unresolved pending retry — fail closed if one impossibly exists.
                                 if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
-                                    this.pendingAttributionRetry = { sessionId, patch: finalizingIdentityPatch as Parameters<typeof updateSession>[1] };
+                                    this.pendingAttributionRetry = { sessionId, evidence: attestationEvidence };
                                 } else {
                                     logger.error({ existing: this.pendingAttributionRetry.sessionId, sessionId }, '[controller] attribution retry slot held by another session — failing closed, not overwriting (#1033)');
                                 }
