@@ -61,7 +61,9 @@ test.use({
 async function seedUnusedSample(admin: SupabaseClient, uid: string): Promise<void> {
   const { error } = await admin.from('user_profiles').upsert({
     id: uid,
-    subscription_status: 'free',
+    // Run-owned disposable account is explicitly eligible for the real Gemini product path. Cleanup deletes the
+    // profile and auth user; this does not alter a shared/customer account.
+    subscription_status: 'pro',
     private_sample_limit_seconds: 300,
     private_sample_seconds_used: 0,
     private_sample_completed_at: null,
@@ -275,6 +277,12 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     await expect(page.getByTestId('progress-direction')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toBeVisible();
     await expect(page.getByTestId('progress-practice-next')).toBeVisible();
+    const coachingRequest = page.getByRole('button', { name: 'Get Suggestions' });
+    await expect(coachingRequest, 'real Gemini coaching action is available to the run-owned eligible account').toBeEnabled();
+    await coachingRequest.click();
+    await expect(page.getByRole('button', { name: 'Analyzing...' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'What worked' }), 'real coaching response renders').toBeVisible({ timeout: 90_000 });
+    await expect(page.getByRole('heading', { name: 'What to try next' })).toBeVisible();
     const accept = page.getByTestId('progress-accept');
     await expect(accept, 'gate 2: Practice this next action present').toBeVisible();
 

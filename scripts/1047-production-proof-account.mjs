@@ -15,11 +15,11 @@ if (!/^[a-z0-9-]{8,80}$/i.test(runId)) throw new Error('PROOF_RUN_ID must be a b
 
 const admin = createClient(url, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } });
 const tables = [
-  'progress_recommendation_attempts',
-  'progress_recommendations',
-  'session_progress_evaluations',
-  'sessions',
-  'user_profiles',
+  { name: 'progress_recommendation_attempts', ownerColumn: 'user_id' },
+  { name: 'progress_recommendations', ownerColumn: 'user_id' },
+  { name: 'session_progress_evaluations', ownerColumn: 'user_id' },
+  { name: 'sessions', ownerColumn: 'user_id' },
+  { name: 'user_profiles', ownerColumn: 'id' },
 ];
 
 function appendEnv(name, value) {
@@ -33,9 +33,9 @@ function persistEvidence(payload) {
   writeFileSync(`${evidenceDir}/account-lifecycle.json`, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
-async function count(table, userId) {
-  const { count: value, error } = await admin.from(table).select('*', { count: 'exact', head: true }).eq('user_id', userId);
-  if (error) throw new Error(`${table} count failed: ${error.message}`);
+async function count(table, ownerColumn, userId) {
+  const { count: value, error } = await admin.from(table).select('*', { count: 'exact', head: true }).eq(ownerColumn, userId);
+  if (error) throw new Error(`${table}.${ownerColumn} count failed: ${error.message}`);
   return value ?? 0;
 }
 
@@ -74,15 +74,15 @@ async function cleanup() {
   }
   if (!/^[0-9a-f-]{36}$/i.test(userId)) throw new Error(`run-owned proof account not found for ${runId}`);
 
-  const before = Object.fromEntries(await Promise.all(tables.map(async (table) => [table, await count(table, userId)])));
-  for (const table of tables) {
-    const { error } = await admin.from(table).delete().eq('user_id', userId);
-    if (error) throw new Error(`${table} cleanup failed: ${error.message}`);
+  const before = Object.fromEntries(await Promise.all(tables.map(async ({ name, ownerColumn }) => [name, await count(name, ownerColumn, userId)])));
+  for (const { name, ownerColumn } of tables) {
+    const { error } = await admin.from(name).delete().eq(ownerColumn, userId);
+    if (error) throw new Error(`${name} cleanup failed: ${error.message}`);
   }
   const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);
   if (deleteUserError) throw new Error(`auth cleanup failed: ${deleteUserError.message}`);
 
-  const after = Object.fromEntries(await Promise.all(tables.map(async (table) => [table, await count(table, userId)])));
+  const after = Object.fromEntries(await Promise.all(tables.map(async ({ name, ownerColumn }) => [name, await count(name, ownerColumn, userId)])));
   if (Object.values(after).some((value) => value !== 0)) throw new Error(`zero-residue check failed: ${JSON.stringify(after)}`);
   const { data: deletedAuth, error: authReadError } = await admin.auth.admin.getUserById(userId);
   if (authReadError && !/not found/i.test(authReadError.message)) throw new Error(`auth zero-residue readback failed: ${authReadError.message}`);
