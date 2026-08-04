@@ -38,7 +38,7 @@ INSERT INTO auth.users(id) VALUES ('$U');
 CREATE TABLE proof_result(who text primary key, val text);
 GRANT ALL ON proof_result TO service_role;   -- A/B write their result under SET ROLE service_role
 SQL
-SESS=$(q "INSERT INTO public.sessions(user_id,engine,engine_version,model_name,device_type) VALUES ('$U','private-v2','v2','base','cpu') RETURNING id")
+SESS=$(q "INSERT INTO public.sessions(user_id,engine,engine_version,model_name,device_type,status) VALUES ('$U','private-v2','v2','base','cpu','completed') RETURNING id")
 CH=$(qs "SELECT public.issue_attribution_challenge_v1('$SESS')")
 EVID='{"provider":"transformers-js","model_id":"base","fallback_occurred":false,"cloud_used":false}'
 echo "seed: session=$SESS challenge=$CH"

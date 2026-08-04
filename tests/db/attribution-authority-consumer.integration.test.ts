@@ -34,14 +34,14 @@ const act = (db: Sql, uid: string) => db.query(`SELECT set_config('request.jwt.c
 
 /** A session that passes EVERY §4 gate EXCEPT (optionally) attribution: completed, long enough, enough words,
  * clean transcript, numeric filler evidence, sane wpm, complete engine identity. */
-async function eligibleSession(db: Sql, attribution: string): Promise<string> {
+async function eligibleSession(db: Sql, attribution: string, engine = 'private-v2'): Promise<string> {
     return (await db.query<{ id: string }>(
         `INSERT INTO public.sessions
            (user_id, status, duration, total_words, wpm, transcript, filler_words,
             engine, engine_version, model_name, device_type, attribution_status)
          VALUES ($1,'completed',120,150,120,'a clean transcript with plenty of ordinary words and no markers',
-            '{"total":{"count":5}}'::jsonb,'private-v2','v2','base','cpu',$2)
-         RETURNING id`, [USER, attribution])).rows[0].id;
+            '{"total":{"count":5}}'::jsonb,$3,'v2','base','cpu',$2)
+         RETURNING id`, [USER, attribution, engine])).rows[0].id;
 }
 
 const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
@@ -97,7 +97,7 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
 
     it('a BROWSER authority makes Progress eligible too (engine-specific: Browser → Progress, not Guided)', async () => {
         const db = await makeDb();
-        const s = await eligibleSession(db, 'pending');
+        const s = await eligibleSession(db, 'pending', 'native');   // a Browser-engine session
         await attestAuthority(db, s, BROWSER_EV);
         const { eligible, reasons } = await evaluate(db, s);
         expect(reasons).not.toContain('unverified_attribution');

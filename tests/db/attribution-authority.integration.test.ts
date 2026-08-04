@@ -41,12 +41,13 @@ const act = (db: Sql, uid: string) => db.query(`SELECT set_config('request.jwt.c
  * from). attribution_status is the transitional client-writable column #1161 supersedes. */
 async function seedSession(
     db: Sql, uid: string,
-    over: { engine?: string; version?: string; model?: string; device?: string } = {},
+    over: { engine?: string; version?: string; model?: string; device?: string; status?: string } = {},
 ): Promise<string> {
     return (await db.query<{ id: string }>(
-        `INSERT INTO public.sessions (user_id, engine, engine_version, model_name, device_type)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [uid, over.engine ?? 'private-v2', over.version ?? 'v2', over.model ?? 'base', over.device ?? 'cpu'],
+        `INSERT INTO public.sessions (user_id, engine, engine_version, model_name, device_type, status)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [uid, over.engine ?? 'private-v2', over.version ?? 'v2', over.model ?? 'base', over.device ?? 'cpu',
+         over.status ?? 'completed'],   // #1161: authority requires a durably-completed session
     )).rows[0].id;
 }
 
@@ -115,8 +116,8 @@ describe('#1161 attribution authority — evidence gate fails closed', () => {
     ] as [string, Record<string, unknown>][]) {
         it(`${name} → no authority row, zero writes`, async () => {
             const db = await makeDb();
-            // tiny-model case must exercise the evidence model_id, so persist a non-tiny server model.
-            const s = await seedSession(db, USER, { model: name === 'tiny Private model' ? 'base' : undefined });
+            // #1161(P1): the tiny gate reads the PERSISTED session model, not the caller evidence.
+            const s = await seedSession(db, USER, { model: name === 'tiny Private model' ? 'whisper-tiny' : undefined });
             const c = await issueChallenge(db, s);
             await expect(attest(db, s, c, ev)).rejects.toThrow();
             expect(await count(db,
@@ -344,41 +345,91 @@ describe('#1161 attribution authority — no legacy backfill + cascade', () => {
     });
 });
 
-describe('#1161 attribution authority — server-owned identity write to sessions', () => {
-    it('attest writes the attested identity + verified status to the locked sessions columns', async () => {
+describe('#1161 attribution authority — identity from persisted session (no caller promotion)', () => {
+    it('authority records the PERSISTED identity; caller evidence identity is ignored + sessions NOT overwritten', async () => {
         const db = await makeDb();
-        // Session created with placeholder identity the client can no longer UPDATE post-revoke.
         const s = await seedSession(db, USER,
-            { engine: 'placeholder', version: 'x', model: 'placeholder', device: 'unknown' });
+            { engine: 'private-v2', version: 'v2', model: 'base', device: 'wasm', status: 'completed' });
         const c = await issueChallenge(db, s);
+        // Caller sends DIFFERENT identity fields — same class (consistent), but they must NOT be promoted.
         await attest(db, s, c, {
-            provider: 'transformers-js', engine: 'private-v2', engine_version: 'v2',
-            model_id: 'base', resolved_device: 'wasm', fallback_occurred: false, cloud_used: false,
+            provider: 'transformers-js', engine: 'attacker-engine', engine_version: 'attacker-v9',
+            model_id: 'attacker-model', resolved_device: 'attacker-device', fallback_occurred: false, cloud_used: false,
         });
+        // the authority carries the PERSISTED identity, NOT the caller's payload
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority
+             WHERE session_id=$1 AND engine_class='private' AND engine='private-v2'
+               AND engine_version='v2' AND model_id='base' AND resolved_device='wasm'`, [s])).toBe(1);
+        // the locked sessions columns are UNCHANGED (never overwritten from caller evidence)
         const row = (await db.query<Record<string, string>>(
             `SELECT engine, engine_version, model_name, device_type, attribution_status
              FROM public.sessions WHERE id=$1`, [s])).rows[0];
         expect(row).toEqual({
             engine: 'private-v2', engine_version: 'v2', model_name: 'base',
-            device_type: 'wasm', attribution_status: 'verified',
+            device_type: 'wasm', attribution_status: 'pending',   // advisory column NOT promoted by attest
         });
-        // the authority row carries the SAME attested identity
-        expect(await count(db,
-            `SELECT count(*) n FROM public.session_attribution_authority
-             WHERE session_id=$1 AND engine='private-v2' AND model_id='base' AND resolved_device='wasm'`, [s]))
-            .toBe(1);
     });
 
-    it('a rejected attestation writes NO identity to sessions (fail-closed)', async () => {
+    it('a rejected attestation writes NO authority row and does not touch sessions (fail-closed)', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER, { engine: 'placeholder', model: 'placeholder' });
+        const s = await seedSession(db, USER, { engine: 'private-v2', model: 'base' });
         const c = await issueChallenge(db, s);
         await expect(attest(db, s, c, { ...GOOD_V2, cloud_used: true })).rejects.toThrow();
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
         const row = (await db.query<Record<string, string>>(
             `SELECT engine, attribution_status FROM public.sessions WHERE id=$1`, [s])).rows[0];
-        expect(row.engine).toBe('placeholder');        // untouched
+        expect(row.engine).toBe('private-v2');          // untouched
         expect(row.attribution_status).toBe('pending'); // never promoted
     });
+});
+
+describe('#1161 attribution authority — P1: swap denial + terminal-completion gate', () => {
+    const BROWSER_EV = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
+    const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
+
+    it('Browser→Private swap denied: a native session + Private evidence → no authority', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER, { engine: 'native', status: 'completed' });
+        const c = await issueChallenge(db, s);
+        await expect(attest(db, s, c, PRIVATE_EV)).rejects.toThrow(/swap denied/);
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+    });
+
+    it('Private→Browser swap denied: a private session + Browser evidence → no authority', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER, { engine: 'private-v2', status: 'completed' });
+        const c = await issueChallenge(db, s);
+        await expect(attest(db, s, c, BROWSER_EV)).rejects.toThrow(/swap denied/);
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+    });
+
+    it('a persisted Cloud engine has no trusted class → no authority (even with clean evidence)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER, { engine: 'cloud', status: 'completed' });
+        const c = await issueChallenge(db, s);
+        await expect(attest(db, s, c, PRIVATE_EV)).rejects.toThrow(/no trusted class/);
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+    });
+
+    for (const status of ['pending', 'active', 'failed']) {
+        it(`a non-completed (${status}) session receives NO authority (terminal-completion gate)`, async () => {
+            const db = await makeDb();
+            const s = await seedSession(db, USER, { engine: 'private-v2', status });
+            const c = await issueChallenge(db, s);
+            await expect(attest(db, s, c, PRIVATE_EV)).rejects.toThrow(/not durably completed/);
+            expect(await count(db,
+                `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+            // the challenge is NOT consumed — a later legitimate completion can still attest
+            expect(await count(db,
+                `SELECT count(*) n FROM public.session_attribution_challenge
+                 WHERE challenge_id=$1 AND consumed_at IS NULL`, [c])).toBe(1);
+        });
+    }
 });
 
 const GOOD_BROWSER = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };

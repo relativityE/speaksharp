@@ -113,3 +113,23 @@ Deno.test("ownership read error → 500", async () => {
   const res = await handler(request({ sessionId: SESSION, runtimeEvidence: GOOD }), userClientFactory({ ownErr: true }), serviceClientFactory({}));
   assertEquals(res.status, 500);
 });
+
+Deno.test("swap-denied RPC rejection → 422 fail-closed (Browser→Private etc.)", async () => {
+  const res = await handler(
+    request({ sessionId: SESSION, runtimeEvidence: { ...GOOD, provider: "transformers-js" } }),
+    userClientFactory({}),
+    serviceClientFactory({ attestErr: "attribution: evidence class private contradicts the persisted engine class browser — swap denied" }),
+  );
+  assertEquals(res.status, 422);
+  assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
+});
+
+Deno.test("non-completed session RPC rejection → 422 fail-closed (terminal gate)", async () => {
+  const res = await handler(
+    request({ sessionId: SESSION, runtimeEvidence: GOOD }),
+    userClientFactory({}),
+    serviceClientFactory({ attestErr: "attribution: session is not durably completed (status=pending)" }),
+  );
+  assertEquals(res.status, 422);
+  assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
+});
