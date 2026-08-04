@@ -38,9 +38,11 @@ INSERT INTO auth.users(id) VALUES ('$U');
 CREATE TABLE proof_result(who text primary key, val text);
 GRANT ALL ON proof_result TO service_role;   -- A/B write their result under SET ROLE service_role
 SQL
-# #1161 lifecycle: create ACTIVE, register the pre-recording challenge, THEN complete (so attest's terminal gate passes).
+# #1161 lifecycle (Option 2): create ACTIVE, issue the pre-session intent + atomically bind it, THEN complete
+# (so attest's terminal gate passes).
 SESS=$(q "INSERT INTO public.sessions(user_id,engine,engine_version,model_name,device_type,status) VALUES ('$U','private-v2','v2','base','cpu','active') RETURNING id")
-CH=$(qs "SELECT public.issue_attribution_challenge_v1('$SESS','private','base')")
+q "SELECT public.issue_attribution_intent_v1('$U','rec-$SESS','private','base')" >/dev/null
+CH=$(qs "SELECT public.bind_attribution_intent_v1('$SESS','rec-$SESS')")
 q "UPDATE public.sessions SET status='completed' WHERE id='$SESS'" >/dev/null
 EVID='{"provider":"transformers-js","model_id":"base","fallback_occurred":false,"cloud_used":false}'
 echo "seed: session=$SESS challenge=$CH"
@@ -103,11 +105,13 @@ ROWS2=$(q "SELECT count(*) FROM public.session_attribution_authority WHERE sessi
 echo "control2 sequential-replay: r=$R authority_rows=$ROWS2"
 [ "$R" = "attrib_v1" ] && [ "$ROWS2" = "1" ] || { echo "FAIL: sequential replay not idempotent (r=$R rows=$ROWS2)"; FAIL=1; }
 
-# ── Control 3: register-vs-complete RACE — completion wins first ⇒ registration is denied (no challenge). ──
-# A holds the session row via an uncommitted status='completed' UPDATE (parked on gate 666, signalling via 555).
-# B tries to REGISTER a challenge; its issue RPC does SELECT ... FOR UPDATE and blocks on A. After A commits
-# 'completed', B proceeds, sees the terminal state, and registration is DENIED — proving the serialized boundary.
+# ── Control 3: bind-vs-complete RACE — completion wins first ⇒ binding is denied (intent stays unbound). ──
+# The pre-session intent is issued up front (it touches no session). A then holds the session row via an
+# uncommitted status='completed' UPDATE (parked on gate 666, signalling via 555). B tries to BIND the intent;
+# bind_attribution_intent_v1 does SELECT ... FOR UPDATE and blocks on A. After A commits 'completed', B proceeds,
+# sees the terminal state, and binding is DENIED — proving the serialized boundary.
 SESS3=$(q "INSERT INTO public.sessions(user_id,engine,engine_version,model_name,device_type,status) VALUES ('$U','private-v2','v2','base','cpu','active') RETURNING id")
+q "SELECT public.issue_attribution_intent_v1('$U','rec-$SESS3','private','base')" >/dev/null
 CO3_FIFO="$TMP/coord3.fifo"; mkfifo "$CO3_FIFO"
 psql -qAtX < "$CO3_FIFO" >/dev/null 2>&1 & CO3_PID=$!
 exec 8>"$CO3_FIFO"
@@ -124,24 +128,24 @@ SQL
 ) & A3=$!
 for _ in $(seq 1 200); do [ "$(q "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=555 AND granted")" = "1" ] && break; sleep 0.05; done
 
-# B registers (service role); it must block on A's uncommitted completion.
-( PGAPPNAME=connRegisterB psql -qAtX -c "SET ROLE service_role" \
-    -c "SELECT public.issue_attribution_challenge_v1('$SESS3','private','base')" >/dev/null 2>&1 ) & B3=$!
+# B binds (service role); it must block on A's uncommitted completion.
+( PGAPPNAME=connBindB psql -qAtX -c "SET ROLE service_role" \
+    -c "SELECT public.bind_attribution_intent_v1('$SESS3','rec-$SESS3')" >/dev/null 2>&1 ) & B3=$!
 B3_BLOCKED=0
 for _ in $(seq 1 200); do
-  [ "$(q "SELECT count(*) FROM pg_stat_activity WHERE application_name='connRegisterB' AND cardinality(pg_blocking_pids(pid))>0")" = "1" ] && { B3_BLOCKED=1; break; }
+  [ "$(q "SELECT count(*) FROM pg_stat_activity WHERE application_name='connBindB' AND cardinality(pg_blocking_pids(pid))>0")" = "1" ] && { B3_BLOCKED=1; break; }
   sleep 0.05
 done
-echo "control3 handshake: B(register)_blocked_by_A(complete)=$B3_BLOCKED (must be 1 before A commits)"
-[ "$B3_BLOCKED" = "1" ] || { echo "FAIL: register was not observed blocked on the uncommitted completion (no race proof)"; FAIL=1; }
+echo "control3 handshake: B(bind)_blocked_by_A(complete)=$B3_BLOCKED (must be 1 before A commits)"
+[ "$B3_BLOCKED" = "1" ] || { echo "FAIL: bind was not observed blocked on the uncommitted completion (no race proof)"; FAIL=1; }
 printf 'SELECT pg_advisory_unlock(666);\n' >&8
 wait "$A3" "$B3" 2>/dev/null || true
 exec 8>&-; wait "$CO3_PID" 2>/dev/null || true
 
 CH3=$(q "SELECT count(*) FROM public.session_attribution_challenge WHERE session_id='$SESS3'")
 ST3=$(q "SELECT status FROM public.sessions WHERE id='$SESS3'")
-echo "control3: session_status=$ST3 challenges=$CH3 (completion won ⇒ expect completed + 0 challenges)"
-[ "$ST3" = "completed" ] && [ "$CH3" = "0" ] || { echo "FAIL: completion-wins race did not deny registration (status=$ST3 challenges=$CH3)"; FAIL=1; }
+echo "control3: session_status=$ST3 bound_challenges=$CH3 (completion won ⇒ expect completed + 0 bound)"
+[ "$ST3" = "completed" ] && [ "$CH3" = "0" ] || { echo "FAIL: completion-wins race did not deny binding (status=$ST3 bound=$CH3)"; FAIL=1; }
 
 echo "postgres: $(postgres --version)"
 if [ "$FAIL" = "0" ]; then echo "RESULT: PASS (true two-connection proof)"; else echo "RESULT: FAIL"; exit 1; fi

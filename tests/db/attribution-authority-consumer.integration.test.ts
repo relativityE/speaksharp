@@ -51,23 +51,28 @@ const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occ
 const BROWSER_EV = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
 
 async function attestAuthority(db: Sql, sessionId: string, evidence: Record<string, unknown> = PRIVATE_EV): Promise<void> {
-    // #1161 lifecycle: register the pre-recording challenge (ACTIVE) → complete → attest (consumes it).
+    // #1161 lifecycle (Option 2): issue the pre-session intent → atomically bind it to the ACTIVE session →
+    // complete → attest (consumes the bound intent).
     const isPrivate = String(evidence.provider ?? '').startsWith('transformers-js');
+    const key = `rec-${sessionId}`;
     await db.exec(`SET ROLE service_role`);
     try {
-        await db.query(`SELECT public.issue_attribution_challenge_v1($1, $2, $3)`,
-            [sessionId, isPrivate ? 'private' : 'browser', isPrivate ? 'base' : null]);
+        await db.query(`SELECT public.issue_attribution_intent_v1($1, $2, $3, $4)`,
+            [USER, key, isPrivate ? 'private' : 'browser', isPrivate ? 'base' : null]);
+        await db.query(`SELECT public.bind_attribution_intent_v1($1, $2)`, [sessionId, key]);
         await db.query(`UPDATE public.sessions SET status='completed' WHERE id=$1`, [sessionId]);
         await db.query(`SELECT public.attest_session_engine_v1($1, $2::jsonb)`,
             [sessionId, JSON.stringify(evidence)]);
     } finally { await db.exec(`RESET ROLE`); }
 }
 
-/** Service-role pre-recording registration (ACTIVE session). */
+/** Service-role pre-session registration + atomic bind to an ACTIVE session (Option 2). */
 async function register(db: Sql, sessionId: string, engineClass = 'private', model: string | null = 'base'): Promise<void> {
+    const key = `rec-${sessionId}`;
     await db.exec(`SET ROLE service_role`);
     try {
-        await db.query(`SELECT public.issue_attribution_challenge_v1($1,$2,$3)`, [sessionId, engineClass, model]);
+        await db.query(`SELECT public.issue_attribution_intent_v1($1,$2,$3,$4)`, [USER, key, engineClass, model]);
+        await db.query(`SELECT public.bind_attribution_intent_v1($1,$2)`, [sessionId, key]);
     } finally { await db.exec(`RESET ROLE`); }
 }
 /** Service-role attest of an already-registered, completed session. */

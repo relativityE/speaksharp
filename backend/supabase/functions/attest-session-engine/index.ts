@@ -47,10 +47,12 @@ export async function handler(
     if (authError || !user) return json(req, 401, { error: "Unauthorized" });
 
     // 2. Parse + validate the request body. `op` selects the guarded step:
-    //    'register' (recording START) freezes the pre-recording challenge class/model;
-    //    'attest'   (recording STOP)  consumes the pre-existing challenge.
+    //    'register' (recording START, PRE-SESSION) issues the server-owned intent keyed on the recording key —
+    //               NO session exists yet, so no session is created for a recording that never starts;
+    //    'bind'     (post-RECORDING save)          atomically binds that intent to the produced session;
+    //    'attest'   (recording STOP)               consumes the bound intent and writes the terminal verdict.
     let payload: {
-      op?: unknown; sessionId?: unknown; runtimeEvidence?: unknown;
+      op?: unknown; sessionId?: unknown; recordingKey?: unknown; runtimeEvidence?: unknown;
       engineClass?: unknown; expectedModel?: unknown;
     };
     try {
@@ -58,40 +60,62 @@ export async function handler(
     } catch {
       return json(req, 400, { error: "Invalid JSON body" });
     }
-    const op = payload.op === "register" ? "register" : "attest";
-    const sessionId = payload.sessionId;
-    if (typeof sessionId !== "string" || !UUID_RE.test(sessionId)) {
-      return json(req, 400, { error: "sessionId must be a UUID" });
-    }
-
-    // 3. Ownership: the RLS-scoped read returns the row ONLY if the caller owns it.
-    const { data: owned, error: ownErr } = await userClient
-      .from("sessions").select("id").eq("id", sessionId).maybeSingle();
-    if (ownErr) return json(req, 500, { error: "Ownership check failed" });
-    if (!owned) return json(req, 403, { error: "Not your session" });
-
+    const op = payload.op === "register" ? "register" : payload.op === "bind" ? "bind" : "attest";
     const service = createServiceClient();
 
-    // 4a. REGISTER — freeze the immutable pre-recording class/model provenance (server-owned).
+    // 3a. REGISTER — PRE-SESSION: freeze the immutable engine class/model provenance against the recording key.
+    //     Owner is the JWT-authenticated caller (there is no session to check ownership against yet).
     if (op === "register") {
+      const recordingKey = payload.recordingKey;
+      if (typeof recordingKey !== "string" || recordingKey.trim() === "" || recordingKey.length > 200) {
+        return json(req, 400, { error: "recordingKey must be a non-blank string" });
+      }
       const engineClass = payload.engineClass;
       if (engineClass !== "private" && engineClass !== "browser") {
         return json(req, 400, { error: "engineClass must be 'private' or 'browser'" });
       }
       const expectedModel = typeof payload.expectedModel === "string" ? payload.expectedModel : null;
       const { data: challengeId, error: regErr } = await service
-        .rpc("issue_attribution_challenge_v1", {
-          p_session_id: sessionId, p_engine_class: engineClass, p_expected_model: expectedModel,
+        .rpc("issue_attribution_intent_v1", {
+          p_user_id: user.id, p_recording_key: recordingKey,
+          p_engine_class: engineClass, p_expected_model: expectedModel,
         });
       if (regErr || !challengeId) {
-        console.warn("register rejected", { reason: regErr?.message ?? "no challenge returned" });
+        console.warn("register rejected", { reason: regErr?.message ?? "no intent returned" });
         return json(req, 422, { error: "Registration rejected", registered: false });
       }
       return json(req, 200, { registered: true });
     }
 
-    // 4b. ATTEST — consume the pre-existing challenge. The RPC is the fail-closed gate + sole writer; it derives
-    //     the class from the server challenge, so evidence is consistency evidence only.
+    // For 'bind' and 'attest' a session now exists — validate + confirm ownership via the RLS-scoped read.
+    const sessionId = payload.sessionId;
+    if (typeof sessionId !== "string" || !UUID_RE.test(sessionId)) {
+      return json(req, 400, { error: "sessionId must be a UUID" });
+    }
+    const { data: owned, error: ownErr } = await userClient
+      .from("sessions").select("id").eq("id", sessionId).maybeSingle();
+    if (ownErr) return json(req, 500, { error: "Ownership check failed" });
+    if (!owned) return json(req, 403, { error: "Not your session" });
+
+    // 3b. BIND — atomically attach the pre-session intent to the just-persisted session (only reached once the
+    //     recording produced a session). The RPC enforces ownership + expiry + single-bind replay + lifecycle.
+    if (op === "bind") {
+      const recordingKey = payload.recordingKey;
+      if (typeof recordingKey !== "string" || recordingKey.trim() === "" || recordingKey.length > 200) {
+        return json(req, 400, { error: "recordingKey must be a non-blank string" });
+      }
+      const { data: challengeId, error: bindErr } = await service
+        .rpc("bind_attribution_intent_v1", { p_session_id: sessionId, p_recording_key: recordingKey });
+      if (bindErr) {
+        console.warn("bind rejected", { reason: bindErr.message });
+        return json(req, 422, { error: "Bind rejected", bound: false });
+      }
+      // No matching unbound/unexpired intent ⇒ not an error; the session will resolve unattributed at attest.
+      return json(req, 200, { bound: Boolean(challengeId) });
+    }
+
+    // 3c. ATTEST — consume the bound intent. The RPC is the fail-closed gate + sole writer; it derives the class
+    //     from the server intent, so evidence is consistency evidence only.
     const runtimeEvidence = payload.runtimeEvidence;
     if (runtimeEvidence === null || typeof runtimeEvidence !== "object" || Array.isArray(runtimeEvidence)) {
       return json(req, 400, { error: "runtimeEvidence must be an object" });

@@ -57,15 +57,23 @@ async function setStatus(db: Sql, sessionId: string, status: string): Promise<vo
 }
 const complete = (db: Sql, sessionId: string) => setStatus(db, sessionId, 'completed');
 
-/** Service-role PRE-RECORDING challenge issue with the frozen class + model provenance (service-role only). */
+/** Service-role PRE-SESSION intent issue + ATOMIC bind to the session (Option 2). Issues the intent keyed on a
+ * recording key derived from the session, then binds it — the canonical "this session has a frozen class/model"
+ * setup. Returns the bound challenge_id. issue_intent never touches the session; bind enforces owner/expiry/
+ * lifecycle/replay, so a denial (e.g. a non-active session) surfaces from bind exactly as the tests expect. */
 async function issueChallenge(
     db: Sql, sessionId: string, engineClass = 'private', expectedModel: string | null = 'base',
+    recordingKey?: string,
 ): Promise<string> {
+    const uid = (await db.query<{ user_id: string }>(
+        `SELECT user_id FROM public.sessions WHERE id=$1`, [sessionId])).rows[0].user_id;
+    const key = recordingKey ?? `rec-${sessionId}`;
     await db.exec(`SET ROLE service_role`);
     try {
+        await db.query(`SELECT public.issue_attribution_intent_v1($1, $2, $3, $4)`,
+            [uid, key, engineClass, expectedModel]);
         return (await db.query<{ c: string }>(
-            `SELECT public.issue_attribution_challenge_v1($1, $2, $3) AS c`,
-            [sessionId, engineClass, expectedModel])).rows[0].c;
+            `SELECT public.bind_attribution_intent_v1($1, $2) AS c`, [sessionId, key])).rows[0].c;
     } finally { await db.exec(`RESET ROLE`); }
 }
 
@@ -236,14 +244,17 @@ describe('#1161 attribution authority — ACL: no client write path', () => {
         } finally { await db.exec(`RESET ROLE`); }
     });
 
-    it('authenticated CANNOT issue a challenge (permission denied)', async () => {
+    it('authenticated CANNOT issue an intent NOR bind one (permission denied)', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
         await act(db, USER);
         await db.exec(`SET ROLE authenticated`);
         try {
             await expect(db.query(
-                `SELECT public.issue_attribution_challenge_v1($1, 'private', 'base')`, [s]))
+                `SELECT public.issue_attribution_intent_v1($1, 'rec-x', 'private', 'base')`, [USER]))
+                .rejects.toThrow(/permission denied/i);
+            await expect(db.query(
+                `SELECT public.bind_attribution_intent_v1($1, 'rec-x')`, [s]))
                 .rejects.toThrow(/permission denied/i);
         } finally { await db.exec(`RESET ROLE`); }
     });
@@ -559,5 +570,84 @@ describe('#1161 attribution authority — engine classes (private vs browser)', 
         await act(db, USER);
         expect((await db.query<{ c: string | null }>(
             `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).toBeNull();
+    });
+});
+
+// ── Option 2 pre-session INTENT guards: ownership, expiry, single-bind replay, atomic one-per-session ─────────
+async function issueIntent(db: Sql, uid: string, key: string, cls = 'private', model: string | null = 'base',
+    ttl = 900): Promise<string> {
+    await db.exec(`SET ROLE service_role`);
+    try {
+        return (await db.query<{ c: string }>(
+            `SELECT public.issue_attribution_intent_v1($1,$2,$3,$4,$5) AS c`, [uid, key, cls, model, ttl])).rows[0].c;
+    } finally { await db.exec(`RESET ROLE`); }
+}
+async function bindIntent(db: Sql, sessionId: string, key: string): Promise<string | null> {
+    await db.exec(`SET ROLE service_role`);
+    try {
+        return (await db.query<{ c: string | null }>(
+            `SELECT public.bind_attribution_intent_v1($1,$2) AS c`, [sessionId, key])).rows[0].c;
+    } finally { await db.exec(`RESET ROLE`); }
+}
+
+describe('#1161 pre-session intent — ownership / expiry / replay / atomic single-bind', () => {
+    it('OWNERSHIP: an intent issued for one user cannot bind another user\'s session', async () => {
+        const db = await makeDb();
+        const sOther = await seedSession(db, OTHER);
+        await issueIntent(db, USER, 'rk-own');                 // USER's intent
+        expect(await bindIntent(db, sOther, 'rk-own')).toBeNull();   // cannot bind OTHER's session
+        // …and OTHER's completed session therefore resolves definitively unattributed (never bound)
+        await complete(db, sOther);
+        expect(await attest(db, sOther, GOOD_V2)).toBe('unattributed');
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [sOther])).toBe(0);
+    });
+
+    it('EXPIRY: an expired intent cannot be bound (stale/replayed intent is rejected)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        await issueIntent(db, USER, 'rk-exp');
+        // simulate the pre-recording window elapsing before the session was produced (as the table owner)
+        await db.query(`UPDATE public.session_attribution_challenge SET expires_at = now() - interval '1 second'
+            WHERE user_id=$1 AND recording_key='rk-exp'`, [USER]);
+        expect(await bindIntent(db, s, 'rk-exp')).toBeNull();       // expired ⇒ no bind
+        await complete(db, s);
+        expect(await attest(db, s, GOOD_V2)).toBe('unattributed');
+    });
+
+    it('REPLAY: a bound intent cannot be re-bound to a DIFFERENT session (single-bind)', async () => {
+        const db = await makeDb();
+        const sA = await seedSession(db, USER);
+        const sB = await seedSession(db, USER);
+        await issueIntent(db, USER, 'rk-replay');
+        expect(await bindIntent(db, sA, 'rk-replay')).not.toBeNull();  // binds A
+        expect(await bindIntent(db, sB, 'rk-replay')).toBeNull();      // cannot steal it for B
+        // A keeps the intent; B has none → B resolves unattributed, A attests
+        await complete(db, sB);
+        expect(await attest(db, sB, GOOD_V2)).toBe('unattributed');
+        await complete(db, sA);
+        expect(await attest(db, sA, GOOD_V2)).toBe('attrib_v1');
+    });
+
+    it('IDEMPOTENT bind: re-binding the SAME session is a no-op success (same challenge)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        await issueIntent(db, USER, 'rk-idem');
+        const c1 = await bindIntent(db, s, 'rk-idem');
+        const c2 = await bindIntent(db, s, 'rk-idem');
+        expect(c1).not.toBeNull();
+        expect(c2).toBe(c1);
+    });
+
+    it('ATOMIC one-per-session: a SECOND intent cannot bind an already-bound session (unique)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        await issueIntent(db, USER, 'rk-a');
+        await issueIntent(db, USER, 'rk-b');
+        expect(await bindIntent(db, s, 'rk-a')).not.toBeNull();
+        // the partial UNIQUE(session_id) index rejects a second intent claiming the same session
+        await expect(bindIntent(db, s, 'rk-b')).rejects.toThrow(/unique|duplicate/i);
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_challenge WHERE session_id=$1`, [s])).toBe(1);
     });
 });

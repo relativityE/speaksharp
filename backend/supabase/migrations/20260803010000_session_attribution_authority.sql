@@ -19,26 +19,40 @@
 -- ROLLBACK: re-GRANT UPDATE ON sessions TO authenticated; drop the functions, then the two tables.
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 1. Server-issued, single-use CHALLENGE. A trusted server path issues a challenge bound to (session, user);
---    the attestation must present the exact unconsumed challenge, so a client cannot replay or forge intent.
+-- 1. Server-owned, single-use pre-session INTENT. The trusted server path issues an intent keyed on the client
+--    RECORDING KEY (the recording's idempotency id) BEFORE the producing engine starts — when NO session row
+--    exists yet (a session is persisted only if the recording actually reaches RECORDING, preserving the #1033
+--    discard safeguard). The frozen engine class + model provenance is thus captured pre-capture; the intent is
+--    later ATOMICALLY BOUND to the session that the recording produces. Ownership (user_id), expiry (expires_at),
+--    single-use lifecycle (consumed_at), single-bind replay protection (session_id set once) are all enforced.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.session_attribution_challenge (
     challenge_id  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id    uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
     user_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    -- The SERVER-OWNED, immutable engine-class + model provenance, frozen at recording START (before any
-    -- transcript exists). This — NOT any client-writable sessions column — is what the terminal verdict binds
-    -- to. Written only through the guarded service-role issue RPC; the client has no write path.
+    -- The pre-session handle: the client-generated recording idempotency key. The intent is frozen against THIS
+    -- before any session exists; binding later attaches the produced session_id. Unique per (user, recording).
+    recording_key text NOT NULL,
+    -- The SERVER-OWNED, immutable engine-class + model provenance, frozen at recording START (before any capture
+    -- or transcript exists). Written only through the guarded service-role issue RPC; the client has no write path.
     engine_class  text NOT NULL,                  -- 'private' | 'browser'
     expected_model text,                          -- required non-blank for Private; NULL for Browser
     issued_at     timestamptz NOT NULL DEFAULT now(),
-    consumed_at   timestamptz,                    -- set once when redeemed; a challenge is single-use
+    expires_at    timestamptz NOT NULL,           -- TTL: an intent can be bound only before it expires (replay/expiry)
+    -- Bound ATOMICALLY to the produced session on recording success; NULL while pre-session. Set exactly once
+    -- (single-bind replay protection). A partial UNIQUE index guarantees one intent per session.
+    session_id    uuid REFERENCES public.sessions(id) ON DELETE CASCADE,
+    bound_at      timestamptz,
+    consumed_at   timestamptz,                    -- set once when redeemed by attest; the intent is single-use
     CONSTRAINT session_attribution_challenge_class_chk CHECK (engine_class IN ('private', 'browser')),
     -- a Private intent MUST carry a non-blank model provenance (a blank Private model is not verifiable)
     CONSTRAINT session_attribution_challenge_private_model_chk
         CHECK (engine_class <> 'private' OR (expected_model IS NOT NULL AND btrim(expected_model) <> '')),
-    CONSTRAINT session_attribution_challenge_session_key UNIQUE (session_id)  -- one open challenge per session
+    -- one open intent per (user, recording key): a re-issue for the same recording is idempotent, not a duplicate
+    CONSTRAINT session_attribution_challenge_recording_key UNIQUE (user_id, recording_key)
 );
+-- one intent per session (only once bound); NULL session_id rows (pre-session/unbound) are exempt
+CREATE UNIQUE INDEX IF NOT EXISTS session_attribution_challenge_session_key
+    ON public.session_attribution_challenge(session_id) WHERE session_id IS NOT NULL;
 ALTER TABLE public.session_attribution_challenge ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "session_attribution_challenge_select_own" ON public.session_attribution_challenge
     FOR SELECT TO authenticated USING (auth.uid() = user_id);
@@ -126,62 +140,105 @@ CREATE POLICY "session_attribution_unattributed_select_own" ON public.session_at
 GRANT SELECT ON public.session_attribution_unattributed TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 4. PRE-RECORDING CHALLENGE ISSUE — service-role/internal only. The trusted server path issues (or idempotently
---    returns) the single open challenge for an owned session AT RECORDING START, freezing the immutable expected
---    engine class + model provenance. Never callable by `authenticated` (EXECUTE revoked), mirroring the G1
---    `guided_register_source_v1` precedent. Owner is derived from the persisted session row. The class/model are
---    a policy input written ONLY through this guarded path — the client cannot seed them via a direct INSERT.
---    Completion cannot mint a challenge on demand: attest never issues; it only consumes a pre-existing one.
+-- 4. PRE-SESSION INTENT ISSUE — service-role/internal only. Called at recording START, BEFORE the producing
+--    engine can capture a sample and BEFORE any session row exists. Freezes the immutable expected engine class
+--    + model provenance against the client RECORDING KEY. Owner (p_user_id) is the JWT-authenticated caller,
+--    passed by the guarded edge function (there is no session yet to derive ownership from). Never callable by
+--    `authenticated` (EXECUTE revoked). The class/model are written ONLY through this guarded path; the client
+--    cannot seed them via a direct INSERT. Idempotent per (user, recording_key). No session is created here.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.issue_attribution_challenge_v1(
-    p_session_id uuid, p_engine_class text, p_expected_model text DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.issue_attribution_intent_v1(
+    p_user_id uuid, p_recording_key text, p_engine_class text, p_expected_model text DEFAULT NULL,
+    p_ttl_seconds integer DEFAULT 900)
 RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_user uuid; v_status text; v_challenge uuid; v_class text := lower(coalesce(p_engine_class, ''));
+DECLARE v_challenge uuid; v_class text := lower(coalesce(p_engine_class, '')); v_key text := btrim(coalesce(p_recording_key, ''));
 BEGIN
-    -- Serialize register-vs-complete on the session row (FOR UPDATE). completeSession's status UPDATE takes the
-    -- same row lock, so exactly one wins: if completion commits first this SELECT sees the terminal state and
-    -- rejects (no challenge); if this commits first the frozen challenge exists BEFORE completion.
-    SELECT user_id, status INTO v_user, v_status FROM public.sessions WHERE id = p_session_id FOR UPDATE;
-    IF v_user IS NULL THEN
-        RAISE EXCEPTION 'attribution: session % not found', p_session_id USING ERRCODE = 'no_data_found';
+    IF p_user_id IS NULL THEN
+        RAISE EXCEPTION 'attribution: intent requires an owner' USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_key = '' THEN
+        RAISE EXCEPTION 'attribution: intent requires a non-blank recording key' USING ERRCODE = 'check_violation';
     END IF;
     IF v_class NOT IN ('private', 'browser') THEN
         RAISE EXCEPTION 'attribution: invalid engine class "%"', p_engine_class USING ERRCODE = 'check_violation';
     END IF;
-    -- PRE-RECORDING LIFECYCLE GATE: a challenge is frozen at recording START; a terminal/completed session can
-    -- NEVER register one after the fact (which would let completion be forged into a Private/Browser authority).
-    IF v_status IS DISTINCT FROM 'active' THEN
-        RAISE EXCEPTION 'attribution: session % is not in the pre-recording state (status=%) — registration denied',
-            p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
-    END IF;
     IF v_class = 'private' AND (p_expected_model IS NULL OR btrim(p_expected_model) = '') THEN
-        RAISE EXCEPTION 'attribution: a Private challenge requires a non-blank model provenance'
+        RAISE EXCEPTION 'attribution: a Private intent requires a non-blank model provenance'
             USING ERRCODE = 'check_violation';
     END IF;
-    -- Idempotent + IMMUTABLE: one challenge per session (UNIQUE(session_id)); re-issue returns the existing one
-    -- unchanged (a later call cannot alter a frozen class/model).
-    INSERT INTO public.session_attribution_challenge(session_id, user_id, engine_class, expected_model)
-        VALUES (p_session_id, v_user, v_class, nullif(btrim(coalesce(p_expected_model, '')), ''))
-        ON CONFLICT (session_id) DO NOTHING;
+    -- Idempotent + IMMUTABLE: one intent per (user, recording_key); re-issue returns the existing one unchanged
+    -- (a later call cannot alter a frozen class/model, nor extend the expiry, nor re-open a bound/consumed intent).
+    INSERT INTO public.session_attribution_challenge(user_id, recording_key, engine_class, expected_model, expires_at)
+        VALUES (p_user_id, v_key, v_class, nullif(btrim(coalesce(p_expected_model, '')), ''),
+                now() + make_interval(secs => greatest(1, coalesce(p_ttl_seconds, 900))))
+        ON CONFLICT (user_id, recording_key) DO NOTHING;
     SELECT challenge_id INTO v_challenge
         FROM public.session_attribution_challenge
-        WHERE session_id = p_session_id;
+        WHERE user_id = p_user_id AND recording_key = v_key;
     RETURN v_challenge;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.issue_attribution_challenge_v1(uuid, text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.issue_attribution_challenge_v1(uuid, text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.issue_attribution_intent_v1(uuid, text, text, text, integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.issue_attribution_intent_v1(uuid, text, text, text, integer) TO service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- 4b. ATOMIC SESSION BINDING — service-role/internal only. Called immediately after the session row is persisted
+--     (i.e. only once the recording reached RECORDING). ATOMICALLY attaches the pre-session intent to the produced
+--     session in a single guarded UPDATE. All mandatory guards are enforced in that one statement:
+--       • OWNERSHIP  — the intent's user_id MUST equal the session's owner (an intent cannot bind a foreign session);
+--       • EXPIRY     — now() < expires_at (a stale/expired intent can never bind);
+--       • REPLAY     — session_id is set exactly once (the WHERE clause requires it be unbound OR already this same
+--                      session), so an intent cannot be re-bound to a DIFFERENT session; the partial UNIQUE(session_id)
+--                      index also forbids two intents on one session;
+--       • LIFECYCLE  — the session must still be pre-terminal ('active'); a completed/failed session cannot acquire
+--                      a class after the fact (mirrors the prior post-completion registration denial). FOR UPDATE on
+--                      the session row serializes bind-vs-complete so exactly one wins.
+--     Returns the bound challenge_id, or NULL when no unbound/unexpired owned intent matched (⇒ the session stays
+--     unregistered and attest resolves it definitively unattributed). Idempotent: re-binding the SAME session is a
+--     no-op success.
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.bind_attribution_intent_v1(p_session_id uuid, p_recording_key text)
+RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_user uuid; v_status text; v_challenge uuid; v_key text := btrim(coalesce(p_recording_key, ''));
+BEGIN
+    SELECT user_id, status INTO v_user, v_status FROM public.sessions WHERE id = p_session_id FOR UPDATE;
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'attribution: session % not found', p_session_id USING ERRCODE = 'no_data_found';
+    END IF;
+    -- LIFECYCLE GATE: bind only a pre-terminal session (bind happens right after the placeholder save, while
+    -- 'active'). A terminal session can never acquire an intent after the fact.
+    IF v_status IS DISTINCT FROM 'active' THEN
+        RAISE EXCEPTION 'attribution: session % is not in the pre-recording state (status=%) — binding denied',
+            p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
+    END IF;
+    -- Single atomic guarded UPDATE: ownership + expiry + single-bind replay + idempotency all in the WHERE.
+    UPDATE public.session_attribution_challenge
+        SET session_id = p_session_id, bound_at = coalesce(bound_at, now())
+        WHERE user_id = v_user
+          AND recording_key = v_key
+          AND consumed_at IS NULL
+          AND now() < expires_at
+          AND (session_id IS NULL OR session_id = p_session_id)
+        RETURNING challenge_id INTO v_challenge;
+    RETURN v_challenge;   -- NULL ⇒ no bindable owned intent (expired / missing / already bound elsewhere)
+END;
+$$;
+REVOKE ALL ON FUNCTION public.bind_attribution_intent_v1(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.bind_attribution_intent_v1(uuid, text) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 5. ATTESTATION — service-role/internal only, SECURITY DEFINER, the SOLE writer of authority.
 --    - Concurrency-safe: FOR UPDATE on the session row serializes racing attestations (G1 pattern).
 --    - Terminal-completion gated: authority requires the owned session's DURABLE status='completed'.
---    - Class from the SERVER-CREATED PRE-RECORDING challenge (server-owned provenance): v_class is the immutable
---      engine_class frozen at recording START via the guarded issue RPC — NOT any client-writable column and NOT
---      the attest-time payload. Attest NEVER issues; if no pre-existing unconsumed challenge exists it fails
---      closed, so completion cannot mint a class and a caller cannot seed it via a direct INSERT.
+--    - Class from the SERVER-OWNED pre-session intent BOUND to this session (server-owned provenance): v_class is
+--      the immutable engine_class frozen at recording START via the guarded issue RPC and atomically bound via
+--      bind_attribution_intent_v1 — NOT any client-writable column and NOT the attest-time payload. Attest NEVER
+--      issues nor binds; if no BOUND unconsumed intent exists for this session it fails closed, so completion
+--      cannot mint a class and a caller cannot seed it via a direct INSERT.
 --    - Evidence is CONSISTENCY evidence only: no fallback, no Cloud, and the evidence provider's class MUST equal
 --      the challenge class (Browser→Private / Private→Browser / direct-POST swaps denied). It never sets the
 --      class or the identity. Private requires the challenge's non-blank, non-tiny model provenance.
@@ -224,9 +281,9 @@ BEGIN
             p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
     END IF;
 
-    -- The SERVER-CREATED pre-recording challenge is the provenance. A completed session with NO challenge was
-    -- never registered (Cloud, or a failed/absent registration) ⇒ DEFINITIVELY unattributed (a terminal marker,
-    -- never a stuck pending) — attest never mints a challenge on demand.
+    -- The SERVER-OWNED pre-session intent BOUND to this session is the provenance. A completed session with NO
+    -- bound intent was never registered/bound (Cloud, or a failed/absent/expired registration) ⇒ DEFINITIVELY
+    -- unattributed (a terminal marker, never a stuck pending) — attest never mints nor binds an intent on demand.
     SELECT challenge_id, engine_class, expected_model, consumed_at
         INTO v_challenge, v_class, v_expected_model, v_consumed
         FROM public.session_attribution_challenge
