@@ -87,17 +87,17 @@ Deno.test("session not owned → 403", async () => {
 Deno.test("happy path → 200 attributed attrib_v1", async () => {
   const res = await handler(request({ sessionId: SESSION, runtimeEvidence: GOOD }), userClientFactory({}), serviceClientFactory({}));
   assertEquals(res.status, 200);
-  assertEquals(await res.json(), { attributed: true, authority_version: "attrib_v1" });
+  assertEquals(await res.json(), { attributed: true, resolved: true, authority_version: "attrib_v1" });
 });
 
-Deno.test("attest rejected (evidence gate) → 422 fail-closed", async () => {
+Deno.test("definitive rejection (evidence gate) → 200 terminally UNATTRIBUTED (not an error)", async () => {
   const res = await handler(
     request({ sessionId: SESSION, runtimeEvidence: { ...GOOD, cloud_used: true } }),
     userClientFactory({}),
-    serviceClientFactory({ attestErr: "attribution: cloud used" }),
+    serviceClientFactory({ version: "unattributed" }),
   );
-  assertEquals(res.status, 422);
-  assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { attributed: false, resolved: true });
 });
 
 Deno.test("ownership read error → 500", async () => {
@@ -105,24 +105,24 @@ Deno.test("ownership read error → 500", async () => {
   assertEquals(res.status, 500);
 });
 
-Deno.test("swap-denied RPC rejection → 422 fail-closed (Browser→Private etc.)", async () => {
+Deno.test("swap-denied → 200 terminally UNATTRIBUTED (Browser→Private etc.)", async () => {
   const res = await handler(
     request({ sessionId: SESSION, runtimeEvidence: { ...GOOD, provider: "transformers-js" } }),
     userClientFactory({}),
-    serviceClientFactory({ attestErr: "attribution: evidence class private contradicts the persisted engine class browser — swap denied" }),
+    serviceClientFactory({ version: "unattributed" }),
   );
-  assertEquals(res.status, 422);
-  assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { attributed: false, resolved: true });
 });
 
-Deno.test("non-completed session RPC rejection → 422 fail-closed (terminal gate)", async () => {
+Deno.test("non-completed session → 503 TRANSIENT (terminal gate; retryable, not resolved)", async () => {
   const res = await handler(
     request({ sessionId: SESSION, runtimeEvidence: GOOD }),
     userClientFactory({}),
     serviceClientFactory({ attestErr: "attribution: session is not durably completed (status=pending)" }),
   );
-  assertEquals(res.status, 422);
-  assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
+  assertEquals(res.status, 503);
+  assertEquals(await res.json(), { error: "Attestation deferred", attributed: false, resolved: false });
 });
 
 Deno.test("register op → 200 registered (freezes pre-recording class/model)", async () => {

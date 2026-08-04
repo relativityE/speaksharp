@@ -85,6 +85,15 @@ async function attestCompleted(db: Sql, sessionId: string, evidence: Record<stri
     return attest(db, sessionId, evidence);
 }
 
+/** Assert a completed session resolves DEFINITIVELY unattributed (terminal, no authority, marker written). */
+async function expectUnattributed(db: Sql, sessionId: string, evidence: Record<string, unknown>): Promise<void> {
+    expect(await attestCompleted(db, sessionId, evidence)).toBe('unattributed');
+    expect(await count(db,
+        `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [sessionId])).toBe(0);
+    expect(await count(db,
+        `SELECT count(*) n FROM public.session_attribution_unattributed WHERE session_id=$1`, [sessionId])).toBe(1);
+}
+
 const GOOD_V2 = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
 const GOOD_V4 = { provider: 'transformers-js-v4', model_id: 'base_q4', fallback_occurred: false, cloud_used: false };
 
@@ -126,17 +135,15 @@ describe('#1161 attribution authority — evidence gate fails closed', () => {
         ['missing provider (malformed)', { fallback_occurred: false, cloud_used: false }],
         ['empty evidence (defaults fail-closed)', {}],
     ] as [string, Record<string, unknown>][]) {
-        it(`${name} → no authority row, zero writes`, async () => {
+        it(`${name} → definitively UNATTRIBUTED (terminal), no authority, challenge consumed`, async () => {
             const db = await makeDb();
             const s = await seedSession(db, USER);
             const c = await issueChallenge(db, s);   // a legitimate Private pre-recording challenge
-            await expect(attestCompleted(db, s, ev)).rejects.toThrow();
-            expect(await count(db,
-                `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
-            // challenge NOT consumed — a rejected attestation leaves it redeemable for a legitimate retry
+            await expectUnattributed(db, s, ev);
+            // the challenge is consumed exactly once — the outcome is terminal (single-use), not retryable
             expect(await count(db,
                 `SELECT count(*) n FROM public.session_attribution_challenge
-                 WHERE challenge_id=$1 AND consumed_at IS NULL`, [c])).toBe(1);
+                 WHERE challenge_id=$1 AND consumed_at IS NOT NULL`, [c])).toBe(1);
         });
     }
 
@@ -144,7 +151,7 @@ describe('#1161 attribution authority — evidence gate fails closed', () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
         await issueChallenge(db, s, 'private', 'whisper-tiny');   // the provenance is tiny
-        await expect(attestCompleted(db, s, GOOD_V2)).rejects.toThrow(/tiny/);
+        await expectUnattributed(db, s, GOOD_V2);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
@@ -161,19 +168,21 @@ describe('#1161 attribution authority — challenge binding', () => {
     it('NO pre-recording challenge → attest fails closed (completion cannot mint one)', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);   // completed session, but no challenge was ever issued
-        await expect(attestCompleted(db, s, GOOD_V2)).rejects.toThrow(/no pre-recording challenge/);
+        await expectUnattributed(db, s, GOOD_V2);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
 
-    it('replay of an ALREADY-CONSUMED challenge (authority absent) fails closed', async () => {
+    it('unattributed resolution is idempotent/replay-safe — a re-attest returns unattributed, one marker', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
-        // Simulate a consumed challenge whose authority write did not land (defensive replay branch). Done as
-        // the superuser (default role) — a privileged setup manipulation, not a client-reachable path.
-        await db.query(`UPDATE public.session_attribution_challenge SET consumed_at = now() WHERE challenge_id=$1`, [c]);
-        await expect(attestCompleted(db, s, GOOD_V2)).rejects.toThrow(/consumed/);
+        await issueChallenge(db, s);
+        // definitive rejection (Cloud) resolves terminally unattributed
+        expect(await attestCompleted(db, s, { ...GOOD_V2, cloud_used: true })).toBe('unattributed');
+        // a replay short-circuits on the terminal marker — still exactly one marker, still no authority
+        expect(await attest(db, s, GOOD_V2)).toBe('unattributed');
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_unattributed WHERE session_id=$1`, [s])).toBe(1);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
@@ -391,7 +400,7 @@ describe('#1161 attribution authority — identity from persisted session (no ca
         const db = await makeDb();
         const s = await seedSession(db, USER, { engine: 'private-v2', model: 'base' });
         await issueChallenge(db, s);
-        await expect(attestCompleted(db, s, { ...GOOD_V2, cloud_used: true })).rejects.toThrow();
+        await expectUnattributed(db, s, { ...GOOD_V2, cloud_used: true });
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
         const row = (await db.query<Record<string, string>>(
@@ -409,7 +418,7 @@ describe('#1161 attribution authority — P1: swap denial + terminal-completion 
         const db = await makeDb();
         const s = await seedSession(db, USER);
         await issueChallenge(db, s, 'browser', null);   // the server-frozen class is browser
-        await expect(attestCompleted(db, s, PRIVATE_EV)).rejects.toThrow(/swap denied/);
+        await expectUnattributed(db, s, PRIVATE_EV);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
@@ -418,7 +427,7 @@ describe('#1161 attribution authority — P1: swap denial + terminal-completion 
         const db = await makeDb();
         const s = await seedSession(db, USER);
         await issueChallenge(db, s, 'private', 'base');   // the server-frozen class is private
-        await expect(attestCompleted(db, s, BROWSER_EV)).rejects.toThrow(/swap denied/);
+        await expectUnattributed(db, s, BROWSER_EV);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
@@ -458,7 +467,7 @@ describe('#1161 attribution authority — P1: post-completion registration denia
                 `SELECT count(*) n FROM public.session_attribution_challenge WHERE session_id=$1`, [s])).toBe(0);
             // and with no challenge, even a completed session cannot be attested
             await setStatus(db, s, 'completed');
-            await expect(attest(db, s, GOOD_V2)).rejects.toThrow(/no pre-recording challenge/);
+            expect(await attest(db, s, GOOD_V2)).toBe('unattributed'); // definitive: never registered
             expect(await count(db,
                 `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
         });
@@ -482,6 +491,22 @@ describe('#1161 attribution authority — P1: post-completion registration denia
         await expect(issueChallenge(db, s)).rejects.toThrow(/not in the pre-recording state/);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_challenge WHERE session_id=$1`, [s])).toBe(0);
+    });
+
+    it('#1161 P1-2: an authenticated caller CANNOT reset a completed session to active (monotonic trigger)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);          // active
+        await complete(db, s);                          // terminal
+        // the reset→re-register bypass is denied at the DB regardless of the client's status grant
+        await act(db, USER);
+        await db.exec(`SET ROLE authenticated`);
+        try {
+            await expect(db.query(`UPDATE public.sessions SET status='active' WHERE id=$1`, [s]))
+                .rejects.toThrow(/terminal and cannot revert/);
+        } finally { await db.exec(`RESET ROLE`); }
+        // status stays completed; the reset attack cannot re-open the register window
+        expect(await count(db,
+            `SELECT count(*) n FROM public.sessions WHERE id=$1 AND status='completed'`, [s])).toBe(1);
     });
 });
 

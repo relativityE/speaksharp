@@ -86,6 +86,46 @@ GRANT UPDATE (
 ) ON public.sessions TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- 3b. MONOTONIC LIFECYCLE (P1): `status` stays client-writable for FORWARD transitions, but once a session is
+--     terminal ('completed'/'failed') its status can NEVER revert to a non-terminal state. This makes the
+--     pre-recording registration gate un-bypassable — an authenticated caller cannot reset completed→active to
+--     re-open the register window. Server-enforced at the DB, independent of the column grant.
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.enforce_session_status_monotonic()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+    IF OLD.status IN ('completed', 'failed')
+       AND NEW.status IS DISTINCT FROM OLD.status
+       AND NEW.status NOT IN ('completed', 'failed') THEN
+        RAISE EXCEPTION 'sessions: status "%" is terminal and cannot revert to "%"', OLD.status, NEW.status
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_session_status_monotonic ON public.sessions;
+CREATE TRIGGER trg_session_status_monotonic
+    BEFORE UPDATE OF status ON public.sessions
+    FOR EACH ROW EXECUTE FUNCTION public.enforce_session_status_monotonic();
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- 3c. DEFINITIVE NO-AUTHORITY RESOLUTION (P1): a terminal, server-owned marker that a completed session will
+--     NEVER gain an authority (Cloud / rejected evidence / never-registered). It distinguishes "transient
+--     (attest not yet resolved)" from "definitively unattributed", so #1045 never freezes a premature ineligible
+--     row and #1117 retention is never stuck on an indefinitely-pending session. No client write path.
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.session_attribution_unattributed (
+    session_id  uuid PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
+    user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    reason      text,
+    resolved_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.session_attribution_unattributed ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "session_attribution_unattributed_select_own" ON public.session_attribution_unattributed
+    FOR SELECT TO authenticated USING (auth.uid() = user_id);
+GRANT SELECT ON public.session_attribution_unattributed TO authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 4. PRE-RECORDING CHALLENGE ISSUE — service-role/internal only. The trusted server path issues (or idempotently
 --    returns) the single open challenge for an owned session AT RECORDING START, freezing the immutable expected
 --    engine class + model provenance. Never callable by `authenticated` (EXECUTE revoked), mirroring the G1
@@ -156,7 +196,7 @@ AS $$
 DECLARE
     v_user uuid; v_engine text; v_engine_version text; v_model text; v_device text; v_status text;
     v_provider text; v_fallback boolean; v_cloud boolean; v_existing text;
-    v_challenge uuid; v_consumed timestamptz; v_class text; v_expected_model text; v_ev_class text;
+    v_challenge uuid; v_consumed timestamptz; v_class text; v_expected_model text; v_ev_class text; v_reason text;
 BEGIN
     -- Serialize on the session row (blocks a concurrent attestation of the same session until commit).
     SELECT user_id, engine, engine_version, model_name, device_type, status
@@ -166,74 +206,69 @@ BEGIN
         RAISE EXCEPTION 'attribution: session % not found', p_session_id USING ERRCODE = 'no_data_found';
     END IF;
 
-    -- Idempotent/replay-safe: already attested ⇒ return existing version, mutate nothing.
+    -- Idempotent/replay-safe TERMINAL resolutions: a session resolves EXACTLY once — to an authority
+    -- (attributed) or to the definitive unattributed marker. Either terminal state short-circuits.
     SELECT authority_version INTO v_existing
         FROM public.session_attribution_authority WHERE session_id = p_session_id;
     IF v_existing IS NOT NULL THEN
         RETURN v_existing;
     END IF;
+    IF EXISTS (SELECT 1 FROM public.session_attribution_unattributed WHERE session_id = p_session_id) THEN
+        RETURN 'unattributed';
+    END IF;
 
-    -- TERMINAL-COMPLETION GATE: authority requires the owned session's DURABLE completed state. Pending /
-    -- incomplete / failed / not-yet-saved → no authority, and the immutable slot is never consumed.
+    -- TERMINAL-COMPLETION GATE (TRANSIENT): a not-yet-completed session is not resolvable — no authority, no
+    -- unattributed marker, no challenge consumed. The producer retries after the session durably completes.
     IF v_status IS DISTINCT FROM 'completed' THEN
         RAISE EXCEPTION 'attribution: session % is not durably completed (status=%)',
             p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
     END IF;
 
-    -- The SERVER-CREATED pre-recording challenge is the provenance. It must ALREADY EXIST (created at recording
-    -- start via the guarded issue RPC) and be unconsumed — attest never mints one, so completion cannot forge a
-    -- class and a pre-seeded sessions row cannot help without a matching server challenge.
+    -- The SERVER-CREATED pre-recording challenge is the provenance. A completed session with NO challenge was
+    -- never registered (Cloud, or a failed/absent registration) ⇒ DEFINITIVELY unattributed (a terminal marker,
+    -- never a stuck pending) — attest never mints a challenge on demand.
     SELECT challenge_id, engine_class, expected_model, consumed_at
         INTO v_challenge, v_class, v_expected_model, v_consumed
         FROM public.session_attribution_challenge
         WHERE session_id = p_session_id FOR UPDATE;
     IF v_challenge IS NULL THEN
-        RAISE EXCEPTION 'attribution: no pre-recording challenge for session % — cannot attest', p_session_id
-            USING ERRCODE = 'check_violation';
-    END IF;
-    IF v_consumed IS NOT NULL THEN
-        RAISE EXCEPTION 'attribution: challenge for session % already consumed', p_session_id
-            USING ERRCODE = 'check_violation';
-    END IF;
-
-    -- v_class is the immutable SERVER-owned class from the challenge. Private requires the challenge's non-blank,
-    -- non-tiny model provenance (a blank/tiny Private model is not attestable).
-    IF v_class = 'private' THEN
-        IF v_expected_model IS NULL OR btrim(v_expected_model) = '' THEN
-            RAISE EXCEPTION 'attribution: Private challenge has no model provenance' USING ERRCODE = 'check_violation';
-        END IF;
-        IF lower(v_expected_model) LIKE '%tiny%' THEN
-            RAISE EXCEPTION 'attribution: tiny model is not an attestable Private engine' USING ERRCODE = 'check_violation';
-        END IF;
+        INSERT INTO public.session_attribution_unattributed(session_id, user_id, reason)
+            VALUES (p_session_id, v_user, 'never_registered') ON CONFLICT (session_id) DO NOTHING;
+        RETURN 'unattributed';
     END IF;
 
     -- Evidence is CONSISTENCY evidence only: clean single-engine run + provider class MUST match the challenge
-    -- class (swap denial). It never determines the class or the identity.
+    -- class. Any DEFINITIVE failure (fallback / Cloud / unknown / swap / blank-or-tiny Private model) resolves
+    -- the completed session terminally UNATTRIBUTED — never a stuck pending.
     v_provider := lower(coalesce(p_runtime_evidence->>'provider', ''));
     v_fallback := coalesce((p_runtime_evidence->>'fallback_occurred')::boolean, true);
     v_cloud    := coalesce((p_runtime_evidence->>'cloud_used')::boolean, true);
-    IF v_fallback THEN
-        RAISE EXCEPTION 'attribution: fallback occurred — not a single-engine run' USING ERRCODE = 'check_violation';
-    END IF;
-    IF v_cloud THEN
-        RAISE EXCEPTION 'attribution: cloud used — no trusted local identity' USING ERRCODE = 'check_violation';
-    END IF;
-    IF v_provider LIKE 'transformers-js%' THEN
-        v_ev_class := 'private';
-    ELSIF v_provider IN ('web-speech', 'native', 'browser') THEN
-        v_ev_class := 'browser';
-    ELSE
-        RAISE EXCEPTION 'attribution: unknown provider "%" — no trusted identity', v_provider
-            USING ERRCODE = 'check_violation';
-    END IF;
-    IF v_ev_class IS DISTINCT FROM v_class THEN
-        RAISE EXCEPTION 'attribution: evidence class % contradicts the server challenge class % — swap denied',
-            v_ev_class, v_class USING ERRCODE = 'check_violation';
+    v_ev_class :=
+        CASE WHEN v_provider LIKE 'transformers-js%' THEN 'private'
+             WHEN v_provider IN ('web-speech', 'native', 'browser') THEN 'browser'
+             ELSE NULL END;
+    v_reason :=
+        CASE
+            WHEN v_fallback THEN 'fallback'
+            WHEN v_cloud THEN 'cloud'
+            WHEN v_ev_class IS NULL THEN 'unknown_provider'
+            WHEN v_ev_class IS DISTINCT FROM v_class THEN 'class_swap'
+            WHEN v_class = 'private' AND (v_expected_model IS NULL OR btrim(v_expected_model) = '') THEN 'blank_private_model'
+            WHEN v_class = 'private' AND lower(v_expected_model) LIKE '%tiny%' THEN 'tiny_model'
+            ELSE NULL
+        END;
+
+    -- Consume the challenge exactly once (single-use), then write the terminal outcome atomically.
+    UPDATE public.session_attribution_challenge SET consumed_at = now() WHERE challenge_id = v_challenge;
+
+    IF v_reason IS NOT NULL THEN
+        INSERT INTO public.session_attribution_unattributed(session_id, user_id, reason)
+            VALUES (p_session_id, v_user, v_reason) ON CONFLICT (session_id) DO NOTHING;
+        RETURN 'unattributed';
     END IF;
 
-    -- Consume the challenge and write the immutable authority atomically. Identity is server-owned: engine from
-    -- the persisted session (advisory), model from the challenge provenance; NO caller-evidence promotion.
-    UPDATE public.session_attribution_challenge SET consumed_at = now() WHERE challenge_id = v_challenge;
+    -- Clean run — write the immutable authority. Identity is server-owned: engine from the persisted session
+    -- (advisory), model from the challenge provenance; NO caller-evidence promotion.
     INSERT INTO public.session_attribution_authority(
         session_id, user_id, authority_version, engine_class, engine, engine_version, model_id, provider, resolved_device)
     VALUES (p_session_id, v_user, 'attrib_v1', v_class, coalesce(v_engine, v_class), v_engine_version,
@@ -318,6 +353,17 @@ BEGIN
     SELECT * INTO s FROM public.sessions WHERE id = p_session_id AND user_id = v_uid;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'session not found for this user' USING ERRCODE = '42501';
+    END IF;
+
+    -- #1161 (P1): attribution must be TERMINAL before writing the IMMUTABLE evaluation. If neither an authority
+    -- nor a definitive unattributed marker exists yet, attribution is still PENDING — DEFER (write nothing) so a
+    -- later successful authority still yields the eligible row (ON CONFLICT DO NOTHING can't freeze a premature
+    -- ineligible row). A definitive unattributed marker falls through and records exactly one terminal ineligible.
+    IF NOT EXISTS (SELECT 1 FROM public.session_attribution_authority a
+                   WHERE a.session_id = p_session_id AND a.user_id = v_uid)
+       AND NOT EXISTS (SELECT 1 FROM public.session_attribution_unattributed u
+                       WHERE u.session_id = p_session_id AND u.user_id = v_uid) THEN
+        RETURN NULL;   -- attribution pending; a later call re-evaluates
     END IF;
 
     v_words := COALESCE(s.total_words, 0);

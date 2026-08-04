@@ -63,25 +63,63 @@ async function attestAuthority(db: Sql, sessionId: string, evidence: Record<stri
     } finally { await db.exec(`RESET ROLE`); }
 }
 
-async function evaluate(db: Sql, sessionId: string): Promise<{ eligible: boolean; reasons: string[] }> {
+/** Service-role pre-recording registration (ACTIVE session). */
+async function register(db: Sql, sessionId: string, engineClass = 'private', model: string | null = 'base'): Promise<void> {
+    await db.exec(`SET ROLE service_role`);
+    try {
+        await db.query(`SELECT public.issue_attribution_challenge_v1($1,$2,$3)`, [sessionId, engineClass, model]);
+    } finally { await db.exec(`RESET ROLE`); }
+}
+/** Service-role attest of an already-registered, completed session. */
+async function attestOnly(db: Sql, sessionId: string, evidence: Record<string, unknown>): Promise<void> {
+    await db.exec(`SET ROLE service_role`);
+    try {
+        await db.query(`SELECT public.attest_session_engine_v1($1,$2::jsonb)`, [sessionId, JSON.stringify(evidence)]);
+    } finally { await db.exec(`RESET ROLE`); }
+}
+
+async function evaluate(db: Sql, sessionId: string): Promise<{ exists: boolean; eligible: boolean; reasons: string[] }> {
     await act(db, USER);
     await db.query(`SELECT public.record_progress_evaluation($1)`, [sessionId]);
     const row = (await db.query<{ eligible: boolean; exclusion_reasons: string[] }>(
         `SELECT eligible, exclusion_reasons FROM public.session_progress_evaluations WHERE session_id=$1`,
         [sessionId])).rows[0];
-    return { eligible: row.eligible, reasons: row.exclusion_reasons ?? [] };
+    return row
+        ? { exists: true, eligible: row.eligible, reasons: row.exclusion_reasons ?? [] }
+        : { exists: false, eligible: false, reasons: [] };   // #1161 P1-3: no row = attribution deferred (pending)
 }
 
 describe('#1161 consumer integration — #1045 Progress gates on the authority', () => {
-    it('client-forged attribution_status=verified WITHOUT an authority row → excluded (unverified_attribution)', async () => {
+    it('forged attribution_status=verified but DEFINITIVELY unattributed → one terminal excluded eval', async () => {
         const db = await makeDb();
         const s = await eligibleSession(db, 'verified');   // the OLD client-writable "proof"
+        await register(db, s);                              // registered Private…
         await complete(db, s);
-        const { eligible, reasons } = await evaluate(db, s);
-        expect(reasons).toContain('unverified_attribution');   // forge no longer suffices
+        await attestOnly(db, s, { ...PRIVATE_EV, cloud_used: true }); // …but the run was Cloud ⇒ unattributed
+        const { exists, eligible, reasons } = await evaluate(db, s);
+        expect(exists).toBe(true);                          // definitive ⇒ a terminal eval IS written
         expect(eligible).toBe(false);
-        // and it is the ONLY failing gate — proving the session is otherwise fully eligible
-        expect(reasons).toEqual(['unverified_attribution']);
+        expect(reasons).toEqual(['unverified_attribution']); // the ONLY failing gate — forge no longer suffices
+    });
+
+    it('#1161 P1-3: PENDING attribution (no authority, no marker) writes NO evaluation (defer, not exclude)', async () => {
+        const db = await makeDb();
+        const s = await eligibleSession(db, 'verified');
+        await complete(db, s);                              // completed, but attribution not yet resolved
+        const { exists } = await evaluate(db, s);
+        expect(exists).toBe(false);                         // deferred — no immutable row frozen prematurely
+    });
+
+    it('#1161 P1-3: transient → retry → eligible (a later authority still yields the eligible row)', async () => {
+        const db = await makeDb();
+        const s = await eligibleSession(db, 'pending');
+        await register(db, s);
+        await complete(db, s);
+        expect((await evaluate(db, s)).exists).toBe(false); // attribution pending ⇒ deferred (no frozen ineligible)
+        await attestOnly(db, s, PRIVATE_EV);                // authority lands
+        const { exists, eligible } = await evaluate(db, s);
+        expect(exists).toBe(true);
+        expect(eligible).toBe(true);                        // the retry produces the ELIGIBLE row
     });
 
     it('a real attrib_v1 authority row → eligible (unverified_attribution cleared)', async () => {
@@ -115,13 +153,4 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
             `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).toBe('browser');
     });
 
-    it('no authority AND attribution_status=pending → excluded (fail-closed baseline)', async () => {
-        const db = await makeDb();
-        // no challenge ever registered ⇒ no authority
-        const s = await eligibleSession(db, 'pending');
-        await complete(db, s);
-        const { eligible, reasons } = await evaluate(db, s);
-        expect(reasons).toContain('unverified_attribution');
-        expect(eligible).toBe(false);
-    });
 });

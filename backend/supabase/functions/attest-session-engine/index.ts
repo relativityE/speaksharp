@@ -100,12 +100,17 @@ export async function handler(
       .rpc("attest_session_engine_v1", {
         p_session_id: sessionId, p_runtime_evidence: runtimeEvidence,
       });
-    if (attestErr || !version) {
-      // Fail-closed: no challenge / evidence rejected / swap / not-completed ⇒ no authority. Generic message.
-      console.warn("attest rejected", { reason: attestErr?.message ?? "no version returned" });
-      return json(req, 422, { error: "Attestation rejected", attributed: false });
+    if (attestErr) {
+      // The only RPC exception is the TRANSIENT terminal-completion gate (session not yet completed) or a real
+      // DB error — retryable. A DEFINITIVE no-authority is not an error; it resolves 'unattributed' below.
+      console.warn("attest transient failure", { reason: attestErr.message });
+      return json(req, 503, { error: "Attestation deferred", attributed: false, resolved: false });
     }
-    return json(req, 200, { attributed: true, authority_version: version });
+    if (version === "unattributed") {
+      // DEFINITIVE, terminal: this completed session will never gain an authority (Cloud/rejected/never-registered).
+      return json(req, 200, { attributed: false, resolved: true });
+    }
+    return json(req, 200, { attributed: true, resolved: true, authority_version: version });
   } catch (e) {
     console.error("attest-session-engine error", { message: (e as Error)?.message });
     return json(req, 500, { error: "Internal server error" });

@@ -2597,6 +2597,36 @@ export class SpeechRuntimeController {
                 // event is missed. The real DB id + negotiated mode are rebound below WITHOUT resetting the
                 // captured state. No-op in production.
                 this.startShadowMetricsEngine(recordingId, mode);
+                // #1161 (P1-1): freeze the SERVER-owned pre-recording engine class + model provenance BEFORE the
+                // producing engine starts. Create the (idempotent) placeholder row and AWAIT registration, so no
+                // attributable transcript can exist before the challenge is frozen and no registration error is
+                // silently discarded. Deterministic fail-closed: any failure ⇒ the session is definitively
+                // unattributed later (no authority); the local recording is unaffected. Cloud never registers.
+                if (this.capturedUserId && (mode === 'private' || mode === 'native')) {
+                    try {
+                        const preModel = mode === 'private' ? resolvePrivateModel() : null;
+                        const preSave = await saveSession(
+                            { user_id: this.capturedUserId, title: `Session ${new Date().toLocaleString()}`,
+                              duration: 0, transcript: ' ', total_words: 0, engine: mode },
+                            { id: this.capturedUserId } as UserProfile, mode, recordingId,
+                            mode === 'private'
+                                ? { engineVersion: 'transformers-js', modelName: preModel ?? undefined, deviceType: 'browser' }
+                                : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' },
+                        );
+                        const preId = preSave?.session?.id;
+                        if (preId) {
+                            this.sessionId = preId;
+                            this.pendingInitialSaveContext = null;
+                            const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {
+                                body: { op: 'register', sessionId: preId,
+                                    engineClass: mode === 'private' ? 'private' : 'browser', expectedModel: preModel },
+                            });
+                            if (reg?.error) logger.warn({ err: reg.error }, '[controller] pre-recording attribution registration failed — session will be unattributed');
+                        }
+                    } catch (e) {
+                        logger.warn({ e }, '[controller] pre-recording attribution registration threw — session will be unattributed');
+                    }
+                }
                 await service.startTranscription(policy, userWords);
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
@@ -2691,20 +2721,8 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
-                        // #1161: freeze the SERVER-owned pre-recording engine class + model provenance NOW (before
-                        // any transcript), via the guarded register op. Fire-and-forget + fail-closed: if it never
-                        // lands the session simply gets no authority (not eligible) — the local recording is
-                        // unaffected. Cloud/unknown engines are never registered (no trusted local identity).
-                        if (mode === 'private' || mode === 'native') {
-                            void getSupabaseClient().functions.invoke('attest-session-engine', {
-                                body: {
-                                    op: 'register',
-                                    sessionId: dbSession.id,
-                                    engineClass: mode === 'private' ? 'private' : 'browser',
-                                    expectedModel: mode === 'private' ? metadata.modelName : null,
-                                },
-                            }).catch(() => { /* advisory only — attribution simply won't be available */ });
-                        }
+                        // #1161 (P1-1): the pre-recording challenge was already registered (awaited) BEFORE the
+                        // engine started; this idempotent save returns that same row.
                         // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
                         this.pendingInitialSaveContext = null;
                         // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
