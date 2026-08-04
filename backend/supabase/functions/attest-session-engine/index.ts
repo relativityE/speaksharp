@@ -75,7 +75,7 @@ export async function handler(
     if (challengeErr || !challengeId) return json(req, 500, { error: "Could not begin attestation" });
 
     const { data: version, error: attestErr } = await service
-      .rpc("attest_private_session_v1", {
+      .rpc("attest_session_engine_v1", {
         p_session_id: sessionId,
         p_challenge_id: challengeId,
         p_runtime_evidence: runtimeEvidence,
@@ -87,7 +87,7 @@ export async function handler(
     }
     return json(req, 200, { attributed: true, authority_version: version });
   } catch (e) {
-    console.error("attest-private-session error", { message: (e as Error)?.message });
+    console.error("attest-session-engine error", { message: (e as Error)?.message });
     return json(req, 500, { error: "Internal server error" });
   }
 }

@@ -5,7 +5,7 @@ const SESSION = "5a344bc2-4c46-469b-bf4d-80afce5f8121";
 const GOOD = { provider: "transformers-js", model_id: "base", fallback_occurred: false, cloud_used: false };
 
 function request(body?: unknown, authHeader: string | null = "Bearer token"): Request {
-  return new Request("http://localhost/attest-private-session", {
+  return new Request("http://localhost/attest-session-engine", {
     method: "POST",
     headers: authHeader ? { Authorization: authHeader } : {},
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -62,7 +62,7 @@ Deno.test("unauthorized user → 401", async () => {
 });
 
 Deno.test("invalid JSON body → 400", async () => {
-  const bad = new Request("http://localhost/attest-private-session", {
+  const bad = new Request("http://localhost/attest-session-engine", {
     method: "POST", headers: { Authorization: "Bearer t" }, body: "{not json",
   });
   const res = await handler(bad, userClientFactory({}), serviceClientFactory({}));

@@ -44,14 +44,16 @@ async function eligibleSession(db: Sql, attribution: string): Promise<string> {
          RETURNING id`, [USER, attribution])).rows[0].id;
 }
 
-async function attestAuthority(db: Sql, sessionId: string): Promise<void> {
+const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
+const BROWSER_EV = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
+
+async function attestAuthority(db: Sql, sessionId: string, evidence: Record<string, unknown> = PRIVATE_EV): Promise<void> {
     await db.exec(`SET ROLE service_role`);
     try {
         const c = (await db.query<{ c: string }>(
             `SELECT public.issue_attribution_challenge_v1($1) c`, [sessionId])).rows[0].c;
-        await db.query(`SELECT public.attest_private_session_v1($1,$2,$3::jsonb)`,
-            [sessionId, c, JSON.stringify(
-                { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false })]);
+        await db.query(`SELECT public.attest_session_engine_v1($1,$2,$3::jsonb)`,
+            [sessionId, c, JSON.stringify(evidence)]);
     } finally { await db.exec(`RESET ROLE`); }
 }
 
@@ -91,6 +93,19 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
         const { eligible, reasons } = await evaluate(db, s);
         expect(reasons).not.toContain('unverified_attribution');
         expect(eligible).toBe(true);
+    });
+
+    it('a BROWSER authority makes Progress eligible too (engine-specific: Browser → Progress, not Guided)', async () => {
+        const db = await makeDb();
+        const s = await eligibleSession(db, 'pending');
+        await attestAuthority(db, s, BROWSER_EV);
+        const { eligible, reasons } = await evaluate(db, s);
+        expect(reasons).not.toContain('unverified_attribution');
+        expect(eligible).toBe(true);
+        // ...but the trusted class is 'browser' — Guided (which requires 'private') would exclude it.
+        await act(db, USER);
+        expect((await db.query<{ c: string | null }>(
+            `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).toBe('browser');
     });
 
     it('no authority AND attribution_status=pending → excluded (fail-closed baseline)', async () => {

@@ -66,7 +66,7 @@ async function attest(
     await db.exec(`SET ROLE service_role`);
     try {
         return (await db.query<{ v: string }>(
-            `SELECT public.attest_private_session_v1($1, $2, $3::jsonb) AS v`,
+            `SELECT public.attest_session_engine_v1($1, $2, $3::jsonb) AS v`,
             [sessionId, challengeId, JSON.stringify(evidence)])).rows[0].v;
     } finally { await db.exec(`RESET ROLE`); }
 }
@@ -105,17 +105,18 @@ describe('#1161 attribution authority — positive attestation', () => {
 
 describe('#1161 attribution authority — evidence gate fails closed', () => {
     for (const [name, ev] of [
-        ['Browser provider', { ...GOOD_V2, provider: 'web-speech' }],
-        ['Cloud used', { ...GOOD_V2, cloud_used: true }],
+        ['Cloud provider (assemblyai)', { ...GOOD_V2, provider: 'assemblyai' }],
+        ['Cloud used flag', { ...GOOD_V2, cloud_used: true }],
         ['fallback occurred', { ...GOOD_V2, fallback_occurred: true }],
-        ['tiny model', { ...GOOD_V2, model_id: 'tiny' }],
+        ['tiny Private model', { ...GOOD_V2, model_id: 'tiny' }],
+        ['unknown provider', { ...GOOD_V2, provider: 'mystery-engine' }],
         ['missing provider (malformed)', { fallback_occurred: false, cloud_used: false }],
         ['empty evidence (defaults fail-closed)', {}],
     ] as [string, Record<string, unknown>][]) {
         it(`${name} → no authority row, zero writes`, async () => {
             const db = await makeDb();
             // tiny-model case must exercise the evidence model_id, so persist a non-tiny server model.
-            const s = await seedSession(db, USER, { model: name === 'tiny model' ? 'base' : undefined });
+            const s = await seedSession(db, USER, { model: name === 'tiny Private model' ? 'base' : undefined });
             const c = await issueChallenge(db, s);
             await expect(attest(db, s, c, ev)).rejects.toThrow();
             expect(await count(db,
@@ -205,7 +206,7 @@ describe('#1161 attribution authority — ACL: no client write path', () => {
         await db.exec(`SET ROLE authenticated`);
         try {
             await expect(db.query(
-                `SELECT public.attest_private_session_v1($1, $2, $3::jsonb)`,
+                `SELECT public.attest_session_engine_v1($1, $2, $3::jsonb)`,
                 [s, c, JSON.stringify(GOOD_V2)])).rejects.toThrow(/permission denied/i);
         } finally { await db.exec(`RESET ROLE`); }
     });
@@ -377,5 +378,57 @@ describe('#1161 attribution authority — server-owned identity write to session
             `SELECT engine, attribution_status FROM public.sessions WHERE id=$1`, [s])).rows[0];
         expect(row.engine).toBe('placeholder');        // untouched
         expect(row.attribution_status).toBe('pending'); // never promoted
+    });
+});
+
+const GOOD_BROWSER = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
+
+describe('#1161 attribution authority — engine classes (private vs browser)', () => {
+    it('Private (transformers-js) attests as engine_class=private', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        const c = await issueChallenge(db, s);
+        expect(await attest(db, s, c, GOOD_V2)).toBe('attrib_v1');
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority
+             WHERE session_id=$1 AND engine_class='private'`, [s])).toBe(1);
+        await act(db, USER);
+        expect((await db.query<{ c: string | null }>(
+            `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).toBe('private');
+    });
+
+    it('Browser (web-speech) attests as engine_class=browser — Progress-eligible, not Private', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER, { engine: 'native' });
+        const c = await issueChallenge(db, s);
+        expect(await attest(db, s, c, GOOD_BROWSER)).toBe('attrib_v1');
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority
+             WHERE session_id=$1 AND engine_class='browser' AND provider='web-speech'`, [s])).toBe(1);
+        await act(db, USER);
+        expect((await db.query<{ c: string | null }>(
+            `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).toBe('browser');
+        // Guided requires 'private' → a Browser class is never Guided-eligible.
+        expect((await db.query<{ c: string | null }>(
+            `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).not.toBe('private');
+    });
+
+    it('the tiny-model gate does NOT apply to Browser (native engine has no model)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER, { engine: 'native', model: 'whisper-tiny' });
+        const c = await issueChallenge(db, s);
+        // Browser path skips the Private-only tiny gate → still attests as browser.
+        expect(await attest(db, s, c, GOOD_BROWSER)).toBe('attrib_v1');
+        expect(await count(db,
+            `SELECT count(*) n FROM public.session_attribution_authority
+             WHERE session_id=$1 AND engine_class='browser'`, [s])).toBe(1);
+    });
+
+    it('pending session reads NULL engine class (fail-closed for Guided + Progress)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        await act(db, USER);
+        expect((await db.query<{ c: string | null }>(
+            `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).toBeNull();
     });
 });

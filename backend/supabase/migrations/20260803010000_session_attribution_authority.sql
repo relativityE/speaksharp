@@ -1,4 +1,4 @@
--- #1161 — Server-owned, versioned, immutable Private attribution AUTHORITY (challenge-bound attestation).
+-- #1161 — Server-owned, versioned, immutable engine-attribution AUTHORITY (challenge-bound attestation).
 --
 -- WHY: `public.sessions.{engine,engine_version,model_name,device_type,attribution_status}` are client-writable
 -- today (`GRANT UPDATE ON sessions TO authenticated`), so `attribution_status='verified'` is a client-asserted
@@ -6,8 +6,13 @@
 -- authority server-owned: a separate immutable `session_attribution_authority` row written ONLY through a
 -- challenge-bound, service-role/internal guarded RPC; the legacy `attribution_status` column becomes advisory.
 --
--- HONEST ASSURANCE (per decision): this is an immutable, server-owned, replay/challenge-bound authority — NOT a
--- cryptographic proof of an untampered browser. Legitimate on-device Private completion is the only positive path.
+-- ENGINE-SPECIFIC (decision 5175338021): ONE authority records a trusted `engine_class` — 'private' (on-device
+-- transformers-js) OR 'browser' (native Web Speech). Both are Progress-eligible; ONLY 'private' is Guided- and
+-- Private-claim-eligible. Cloud / fallback / unknown → no trusted identity (no row) → no Progress or Guided.
+--
+-- HONEST ASSURANCE: an immutable, server-owned, replay/challenge-bound authority — NOT a cryptographic proof of
+-- an untampered browser. A legitimate single-engine on-device (Private) or native (Browser) run is the only
+-- positive path; the client can no longer self-assert its engine.
 --
 -- SOURCE ONLY — NOT APPLIED. Separate Product Owner authorization required for apply/deploy. No Cloud path, no
 -- capability enablement, no legacy promotion/backfill, no customer-data operation. Content-free.
@@ -38,14 +43,20 @@ CREATE TABLE IF NOT EXISTS public.session_attribution_authority (
     session_id       uuid PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
     user_id          uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     authority_version text NOT NULL DEFAULT 'attrib_v1',
+    engine_class     text NOT NULL,               -- the trusted engine class: 'private' | 'browser'
     engine           text NOT NULL,
     engine_version   text,
     model_id         text,
-    provider         text NOT NULL,               -- instantiated on-device engine provider (transformers-js[-v4])
+    provider         text NOT NULL,               -- instantiated engine provider (transformers-js[-v4] | web-speech)
     resolved_device  text,
     attested_at      timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT session_attribution_authority_version_chk CHECK (authority_version = 'attrib_v1'),
-    CONSTRAINT session_attribution_authority_provider_private CHECK (lower(provider) LIKE 'transformers-js%')
+    -- One authority, engine-specific: Private is the on-device transformers-js engine; Browser is the native
+    -- Web Speech engine. Cloud/fallback/unknown never reach this table (attest rejects them → no row).
+    CONSTRAINT session_attribution_authority_class_chk CHECK (
+        (engine_class = 'private' AND lower(provider) LIKE 'transformers-js%')
+        OR (engine_class = 'browser' AND lower(provider) IN ('web-speech', 'native', 'browser'))
+    )
 );
 ALTER TABLE public.session_attribution_authority ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "session_attribution_authority_select_own" ON public.session_attribution_authority
@@ -98,14 +109,15 @@ GRANT EXECUTE ON FUNCTION public.issue_attribution_challenge_v1(uuid) TO service
 -- 5. CHALLENGE-BOUND ATTESTATION — service-role/internal only, SECURITY DEFINER, the SOLE writer of authority.
 --    - Concurrency-safe: FOR UPDATE on the session row serializes racing attestations (G1 pattern).
 --    - Challenge-bound: the exact unconsumed challenge for this session must be presented; consumed atomically.
---    - Evidence-gated (fail-closed): legitimate on-device Private completion is the ONLY positive path — the
---      instantiated provider must be transformers-js[-v4], a non-tiny model, with NO fallback and NO Cloud use.
---      Browser / Cloud / fallback / tiny / malformed / missing → NO authority row (exception, zero writes).
+--    - Evidence-gated (fail-closed) + engine-classified: a trusted identity is granted to exactly two classes —
+--      'private' (transformers-js[-v4], non-tiny model) and 'browser' (native Web Speech). Cloud / fallback /
+--      unknown / malformed / missing → NO authority row (exception, zero writes). Browser is Progress-eligible
+--      but NEVER Guided nor a Private claim (see get_session_engine_class_v1 + the class CHECK).
 --    - Idempotent/replay-safe: a second valid call for an already-attested session returns the existing row's
 --      version without mutation; a replay of a consumed challenge fails closed.
 --    Owner + engine identity are derived from the SERVER-persisted session row, never from client evidence.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.attest_private_session_v1(
+CREATE OR REPLACE FUNCTION public.attest_session_engine_v1(
     p_session_id uuid, p_challenge_id uuid, p_runtime_evidence jsonb
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
@@ -113,6 +125,7 @@ AS $$
 DECLARE
     v_user uuid; v_engine text; v_engine_version text; v_model text; v_device text;
     v_provider text; v_fallback boolean; v_cloud boolean; v_existing text; v_consumed timestamptz;
+    v_class text;   -- classified trusted engine: 'private' | 'browser' (else no authority)
 BEGIN
     -- Serialize on the session row (blocks a concurrent attestation of the same session until commit).
     SELECT user_id, engine, engine_version, model_name, device_type
@@ -142,30 +155,36 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
-    -- Evidence gate (fail-closed). Structured runtime evidence must prove the instantiated on-device engine.
+    -- Evidence gate (fail-closed) + engine CLASSIFICATION. A trusted identity is granted to exactly two engine
+    -- classes; Cloud / fallback / unknown / malformed / missing → NO authority (exception, zero writes).
     v_provider := lower(coalesce(p_runtime_evidence->>'provider', ''));
     v_fallback := coalesce((p_runtime_evidence->>'fallback_occurred')::boolean, true);
     v_cloud    := coalesce((p_runtime_evidence->>'cloud_used')::boolean, true);
-    IF v_provider NOT LIKE 'transformers-js%' THEN
-        RAISE EXCEPTION 'attribution: non-Private provider %', v_provider USING ERRCODE = 'check_violation';
-    END IF;
     IF v_fallback THEN
-        RAISE EXCEPTION 'attribution: fallback occurred — not a pure Private run' USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'attribution: fallback occurred — not a single-engine run' USING ERRCODE = 'check_violation';
     END IF;
     IF v_cloud THEN
-        RAISE EXCEPTION 'attribution: cloud used — not a pure Private run' USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'attribution: cloud used — no trusted local identity' USING ERRCODE = 'check_violation';
     END IF;
-    -- Reject a tiny model from EITHER the server session row OR the client evidence — neither may launder it.
-    IF lower(coalesce(v_model, '')) LIKE '%tiny%'
-       OR lower(coalesce(p_runtime_evidence->>'model_id', '')) LIKE '%tiny%' THEN
-        RAISE EXCEPTION 'attribution: tiny model is not an attestable Private engine' USING ERRCODE = 'check_violation';
+    IF v_provider LIKE 'transformers-js%' THEN
+        -- Private (on-device transformers-js). A tiny model is not an attestable Private engine.
+        IF lower(coalesce(v_model, '')) LIKE '%tiny%'
+           OR lower(coalesce(p_runtime_evidence->>'model_id', '')) LIKE '%tiny%' THEN
+            RAISE EXCEPTION 'attribution: tiny model is not an attestable Private engine' USING ERRCODE = 'check_violation';
+        END IF;
+        v_class := 'private';
+    ELSIF v_provider IN ('web-speech', 'native', 'browser') THEN
+        -- Browser (native Web Speech). Progress-eligible; NEVER Guided nor a Private claim.
+        v_class := 'browser';
+    ELSE
+        RAISE EXCEPTION 'attribution: unknown provider "%" — no trusted identity', v_provider USING ERRCODE = 'check_violation';
     END IF;
 
     -- Resolve the server-authored identity: prefer the trusted producer's runtime evidence, fall back to the
     -- persisted session row. Both the authority row AND the (definer-written) sessions identity use this.
-    v_engine         := coalesce(nullif(p_runtime_evidence->>'engine', ''), v_engine, 'private');
+    v_engine         := coalesce(nullif(p_runtime_evidence->>'engine', ''), v_engine, v_class);
     v_engine_version := coalesce(nullif(p_runtime_evidence->>'engine_version', ''), v_engine_version);
-    v_model          := coalesce(nullif(p_runtime_evidence->>'model_id', ''), v_model);
+    v_model          := coalesce(nullif(p_runtime_evidence->>'model_id', ''), v_model);  -- may be NULL for Browser
     v_device         := coalesce(nullif(p_runtime_evidence->>'resolved_device', ''), v_device);
 
     -- Consume the challenge and write the immutable authority atomically.
@@ -173,14 +192,14 @@ BEGIN
         SET consumed_at = now()
         WHERE challenge_id = p_challenge_id;
     INSERT INTO public.session_attribution_authority(
-        session_id, user_id, authority_version, engine, engine_version, model_id, provider, resolved_device)
-    VALUES (p_session_id, v_user, 'attrib_v1', v_engine, v_engine_version, v_model, v_provider, v_device)
+        session_id, user_id, authority_version, engine_class, engine, engine_version, model_id, provider, resolved_device)
+    VALUES (p_session_id, v_user, 'attrib_v1', v_class, v_engine, v_engine_version, v_model, v_provider, v_device)
     ON CONFLICT (session_id) DO NOTHING;   -- belt-and-suspenders against a lost-update race
 
     -- Server-owned identity write. As SECURITY DEFINER this bypasses the authenticated UPDATE revoke, so the
     -- locked sessions identity + advisory attribution_status reflect the ATTESTED runtime — making this RPC the
     -- SOLE writer of those columns after the revoke, and letting #1045's cohort/engine gate read server-authored
-    -- identity. (The trusted server producer — the attest-private-session Edge Function — is the only caller.)
+    -- identity. (The trusted server producer — the attest-session-engine Edge Function — is the only caller.)
     UPDATE public.sessions
        SET engine = v_engine, engine_version = v_engine_version, model_name = v_model,
            device_type = v_device, attribution_status = 'verified'
@@ -189,8 +208,8 @@ BEGIN
     RETURN 'attrib_v1';
 END;
 $$;
-REVOKE ALL ON FUNCTION public.attest_private_session_v1(uuid, uuid, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.attest_private_session_v1(uuid, uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.attest_session_engine_v1(uuid, uuid, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.attest_session_engine_v1(uuid, uuid, jsonb) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 6. CONSUMER-FACING READ — the versioned authority verdict for an owned session, for #1045 / G1 / #1117 to
@@ -206,6 +225,19 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.get_attribution_authority_v1(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_attribution_authority_v1(uuid) TO authenticated, service_role;
+
+-- The trusted engine CLASS ('private'|'browser', or NULL when pending) for an owned session. Progress consumers
+-- accept any non-NULL class; Guided consumers MUST require 'private' (Browser is never Guided-eligible). NULL
+-- fail-closed for Cloud/fallback/unknown/pending. This is the seam #1158/G2 Guided consumes at the clean boundary.
+CREATE OR REPLACE FUNCTION public.get_session_engine_class_v1(p_session_id uuid)
+RETURNS text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+    SELECT engine_class FROM public.session_attribution_authority
+    WHERE session_id = p_session_id AND user_id = auth.uid();
+$$;
+REVOKE ALL ON FUNCTION public.get_session_engine_class_v1(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_session_engine_class_v1(uuid) TO authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 7. CONSUMER INTEGRATION — #1045 Progress eligibility gates on the server-owned AUTHORITY.

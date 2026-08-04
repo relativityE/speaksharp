@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# #1161 — TRUE two-connection PostgreSQL proof for attest_private_session_v1.
+# #1161 — TRUE two-connection PostgreSQL proof for attest_session_engine_v1.
 #
 # A single-connection/PGlite simulation cannot prove concurrency, so this stands up a THROWAWAY local Postgres
 # cluster (no Docker) and drives TWO INDEPENDENT connections that attest the SAME session:
@@ -59,7 +59,7 @@ for _ in $(seq 1 100); do [ "$(q "SELECT count(*) FROM pg_locks WHERE locktype='
 ( PGAPPNAME=connA psql -qAtX -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
 SET ROLE service_role;
 BEGIN;
-INSERT INTO proof_result(who,val) VALUES ('A', public.attest_private_session_v1('$SESS','$CH','$EVID'::jsonb));
+INSERT INTO proof_result(who,val) VALUES ('A', public.attest_session_engine_v1('$SESS','$CH','$EVID'::jsonb));
 SELECT pg_advisory_lock(777);
 SELECT pg_advisory_lock(888);
 COMMIT;
@@ -71,7 +71,7 @@ for _ in $(seq 1 200); do [ "$(q "SELECT count(*) FROM pg_locks WHERE locktype='
 [ "$A_PARKED" = "1" ] || { echo "FAIL: connection A never reached the parked (attest-inserted) state"; FAIL=1; }
 
 ( PGAPPNAME=connB psql -qAtX -v ON_ERROR_STOP=1 -c "SET ROLE service_role" \
-    -c "INSERT INTO proof_result(who,val) VALUES ('B', public.attest_private_session_v1('$SESS','$CH','$EVID'::jsonb))" >/dev/null 2>&1 ) & BPID=$!
+    -c "INSERT INTO proof_result(who,val) VALUES ('B', public.attest_session_engine_v1('$SESS','$CH','$EVID'::jsonb))" >/dev/null 2>&1 ) & BPID=$!
 # Prove true concurrency: B must be BLOCKED BY another backend (A) BEFORE A commits.
 B_BLOCKED=0
 for _ in $(seq 1 200); do
@@ -96,7 +96,7 @@ echo "control1: A_val=$A_VAL B_val=$B_VAL authority_rows=$ROWS challenge_consume
 [ "$CONSUMED" = "1" ] || { echo "FAIL: challenge must be consumed exactly once, got $CONSUMED"; FAIL=1; }
 
 # ── Control 2: post-commit sequential replay stays idempotent (same version, still one row) ──
-R=$(qs "SELECT public.attest_private_session_v1('$SESS','$CH','$EVID'::jsonb)")
+R=$(qs "SELECT public.attest_session_engine_v1('$SESS','$CH','$EVID'::jsonb)")
 ROWS2=$(q "SELECT count(*) FROM public.session_attribution_authority WHERE session_id='$SESS'")
 echo "control2 sequential-replay: r=$R authority_rows=$ROWS2"
 [ "$R" = "attrib_v1" ] && [ "$ROWS2" = "1" ] || { echo "FAIL: sequential replay not idempotent (r=$R rows=$ROWS2)"; FAIL=1; }
