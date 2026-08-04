@@ -491,7 +491,7 @@ describe('#1161 attribution authority — engine classes (private vs browser)', 
     it('Private (transformers-js) attests as engine_class=private', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
+        await issueChallenge(db, s);
         expect(await attestCompleted(db, s, GOOD_V2)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority
