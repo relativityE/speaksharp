@@ -173,3 +173,49 @@ describe('#1117 R2 coordinator — multi-candidate convergence, isolation, bound
         expect(JSON.stringify(r)).not.toContain('t1');
     });
 });
+
+describe('#1117 R2 coordinator — authority, fail-closed, integrity', () => {
+    it('coordinator EXECUTE is service_role-only; anon/authenticated denied', async () => {
+        const db = await freshDb();
+        const sig = 'public.converge_transcript_retention(uuid)';
+        const priv = async (role: string) =>
+            (await db.query<{ ok: boolean }>(`SELECT has_function_privilege($1,$2,'EXECUTE') ok`, [role, sig])).rows[0].ok;
+        expect(await priv('service_role')).toBe(true);
+        expect(await priv('authenticated')).toBe(false);
+        expect(await priv('anon')).toBe(false);
+    });
+
+    it('unknown retention policy version fails closed (no expiry)', async () => {
+        const db = await freshDb();
+        await seed3(db, USER_A);
+        await addEval(db, USER_A, sid(1), 'verified', true); // would otherwise be expirable
+        // Force an unexpected/forked policy version; the coordinator must refuse.
+        await db.exec(`CREATE OR REPLACE FUNCTION public.transcript_retention_policy_version() RETURNS text
+                       LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, pg_temp AS $$ SELECT 'forked_v9'::text $$;`);
+        await expect(converge(db, USER_A)).rejects.toThrow(/policy version/i);
+    });
+
+    it('deletion cascade: deleting a session removes its evaluation, no orphan', async () => {
+        const db = await freshDb();
+        await seed3(db, USER_A);
+        await addEval(db, USER_A, sid(1), 'verified', true);
+        await db.query(`DELETE FROM public.sessions WHERE id=$1`, [sid(1)]);
+        const orphans = await db.query<{ n: number }>(
+            `SELECT count(*)::int n FROM public.session_progress_evaluations WHERE session_id=$1`, [sid(1)]);
+        expect(orphans.rows[0].n).toBe(0); // ON DELETE CASCADE — no orphaned evidence
+    });
+
+    it('evidence survives transcript expiry (recommendation can derive from the durable evaluation)', async () => {
+        const db = await freshDb();
+        await seed3(db, USER_A);
+        await addEval(db, USER_A, sid(1), 'verified', true); // trigger converges → sid(1) transcript expired
+        const rs = await states(db, USER_A);
+        expect(rs.find(x => x.id === sid(1))!.transcript_state).toBe('expired');
+        expect(rs.find(x => x.id === sid(1))!.transcript).toBeNull();
+        // The evaluation row (the evidence a recommendation derives from) remains durable, independent of the
+        // now-removed transcript text.
+        const ev = await db.query<{ n: number }>(
+            `SELECT count(*)::int n FROM public.session_progress_evaluations WHERE session_id=$1 AND attribution_status<>'pending'`, [sid(1)]);
+        expect(ev.rows[0].n).toBe(1);
+    });
+});
