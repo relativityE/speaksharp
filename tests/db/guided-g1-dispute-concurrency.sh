@@ -3,10 +3,11 @@
 #
 # A single-connection/PGlite simulation cannot prove concurrency, so this stands up a THROWAWAY local Postgres
 # cluster (no Docker) and drives TWO INDEPENDENT connections:
-#   Control 1 — concurrent identical dispute replay: connection A opens a txn, disputes the active action, then
-#     holds the txn open across pg_sleep while connection B races the SAME action id. B blocks on A's uncommitted
-#     dispute (unique action_id), and after A commits must return the IDENTICAL active successor with no duplicate
-#     dispute/action/evidence mutation.
+#   Control 1 — concurrent identical dispute replay: connection A opens a txn, disputes the active action, and
+#     parks its txn open via a DETERMINISTIC advisory-lock handshake (no timing sleep) while connection B races
+#     the SAME action id. The harness asserts (via pg_blocking_pids) that B is genuinely BLOCKED on A's
+#     uncommitted dispute (unique action_id) BEFORE A commits, then that after A commits both return the
+#     IDENTICAL active successor with no duplicate dispute/action/evidence mutation.
 #   Control 2 — abandoned-without-dispute: a privileged setup abandons an action WITHOUT a dispute row; the RPC
 #     must raise the defined fail-closed error and create/change nothing.
 # Content-free: synthetic UUIDs only. Applies the G1 migration VERBATIM over the test bootstrap.
@@ -44,22 +45,50 @@ q "SELECT public.guided_finalize_evidence_v1('$SESS','[]'::jsonb)" >/dev/null   
 FIRST=$(q "SELECT public.guided_select_action_v1('$SESS')")                     # active unmet_required (point 0)
 echo "seed: session=$SESS first_action=$FIRST"
 
-# ── Control 1: TWO connections dispute the SAME action concurrently ──
-# Connection A: dispute inside a txn, record successor, then HOLD the txn open (pg_sleep) so B genuinely races.
-( psql -qX -v ON_ERROR_STOP=1 <<SQL
+# ── Control 1: TWO connections dispute the SAME action — DETERMINISTIC handshake (no timing sleep) ──
+# A coordinator session holds advisory lock 888 (the commit gate). Connection A runs the dispute inside a txn,
+# then signals via advisory lock 777 (observable in pg_locks the moment A is PAST the uncommitted dispute
+# insert) and blocks acquiring 888 — holding its txn (and the uncommitted unique dispute row) open. Only after
+# B is PROVEN blocked by A (pg_blocking_pids non-empty) is the gate released so A commits. This proves true
+# concurrency (B genuinely waited on A's uncommitted row), which a fixed sleep could not guarantee.
+FAIL=0
+# Persistent coordinator session via a FIFO (bash-3.2 compatible; no coproc). Holding fd 9 open keeps the
+# coordinator's psql session — and its advisory locks — alive until we close it.
+COORD_FIFO="$TMP/coord.fifo"; mkfifo "$COORD_FIFO"
+psql -qAtX < "$COORD_FIFO" >/dev/null 2>&1 & COORD_PID=$!
+exec 9>"$COORD_FIFO"
+printf 'SELECT pg_advisory_lock(888);\n' >&9
+for _ in $(seq 1 100); do [ "$(q "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=888 AND granted")" = "1" ] && break; sleep 0.05; done
+
+( PGAPPNAME=connA psql -qAtX -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
 SELECT set_config('request.jwt.claim.sub','$U',false);
 BEGIN;
 INSERT INTO proof_result(who,val) VALUES ('A', public.guided_dispute_action_v1('$FIRST'));
-SELECT pg_sleep(2);
+SELECT pg_advisory_lock(777);
+SELECT pg_advisory_lock(888);
 COMMIT;
 SQL
-) >/dev/null 2>&1 &
-APID=$!
-sleep 0.6   # A is now inside its txn holding the uncommitted dispute (unique action_id) + successor
-# Connection B (independent, autocommit): races the SAME action; blocks on A's uncommitted dispute, then resolves.
-psql -qX -v ON_ERROR_STOP=1 -c "SELECT set_config('request.jwt.claim.sub','$U',false)" \
-  -c "INSERT INTO proof_result(who,val) VALUES ('B', public.guided_dispute_action_v1('$FIRST'))" >/dev/null 2>&1
-wait "$APID"
+) & APID=$!
+# Sync on observable A state: A holds 777 ⇒ it is past the uncommitted dispute insert and parked on the gate.
+A_PARKED=0
+for _ in $(seq 1 200); do [ "$(q "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=777 AND granted")" = "1" ] && { A_PARKED=1; break; }; sleep 0.05; done
+[ "$A_PARKED" = "1" ] || { echo "FAIL: connection A never reached the parked (dispute-inserted) state"; FAIL=1; }
+
+( PGAPPNAME=connB psql -qAtX -v ON_ERROR_STOP=1 -c "SELECT set_config('request.jwt.claim.sub','$U',false)" \
+    -c "INSERT INTO proof_result(who,val) VALUES ('B', public.guided_dispute_action_v1('$FIRST'))" >/dev/null 2>&1 ) & BPID=$!
+# Prove true concurrency: B must be BLOCKED BY another backend (A) BEFORE A commits.
+B_BLOCKED=0
+for _ in $(seq 1 200); do
+  [ "$(q "SELECT count(*) FROM pg_stat_activity WHERE application_name='connB' AND cardinality(pg_blocking_pids(pid))>0")" = "1" ] && { B_BLOCKED=1; break; }
+  sleep 0.05
+done
+echo "control1 handshake: A_parked=$A_PARKED B_blocked_by_A=$B_BLOCKED (both must be 1 before A commits)"
+[ "$B_BLOCKED" = "1" ] || { echo "FAIL: B was not observed blocked on A's uncommitted dispute (no true-concurrency proof)"; FAIL=1; }
+
+# Release the gate → A acquires 888, commits → B unblocks and resolves idempotently.
+printf 'SELECT pg_advisory_unlock(888);\n' >&9
+wait "$APID" "$BPID"
+exec 9>&-; wait "$COORD_PID" 2>/dev/null || true
 
 A_SUCC=$(q "SELECT val FROM proof_result WHERE who='A'")
 B_SUCC=$(q "SELECT val FROM proof_result WHERE who='B'")
@@ -68,8 +97,6 @@ ABANDONED=$(q "SELECT count(*) FROM public.guided_action WHERE id='$FIRST' AND l
 ACTIVE=$(q "SELECT count(*) FROM public.guided_action WHERE session_id='$SESS' AND lifecycle='active'")
 EVID=$(q "SELECT count(*) FROM public.guided_evidence WHERE session_id='$SESS'")
 echo "control1: A_succ=$A_SUCC B_succ=$B_SUCC disputes=$DISPUTES abandoned=$ABANDONED active=$ACTIVE evidence=$EVID"
-
-FAIL=0
 [ "$A_SUCC" = "$B_SUCC" ] && [ -n "$A_SUCC" ] || { echo "FAIL: successors differ or empty"; FAIL=1; }
 [ "$DISPUTES" = "1" ] || { echo "FAIL: expected exactly 1 dispute, got $DISPUTES"; FAIL=1; }
 [ "$ABANDONED" = "1" ] || { echo "FAIL: original not abandoned exactly once ($ABANDONED)"; FAIL=1; }
