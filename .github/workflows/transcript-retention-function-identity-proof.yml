@@ -79,11 +79,12 @@ jobs:
 
           psql -X -q -v ON_ERROR_STOP=1 <<'SQL'
           CREATE OR REPLACE FUNCTION public.transcript_retention_preflight(
-            p_scope text,
+            p_scope text DEFAULT 'all_users',
             p_user_id uuid DEFAULT NULL,
             p_run_id text DEFAULT NULL
           ) RETURNS jsonb
           LANGUAGE sql
+          STABLE
           SECURITY DEFINER
           SET search_path = public, pg_temp
           AS $$ SELECT jsonb_build_object('status', 'drifted') $$;
