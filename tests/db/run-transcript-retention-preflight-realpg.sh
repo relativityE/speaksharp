@@ -27,6 +27,15 @@ for f in 20260801000000_sessions_transcript_state 20260803000000_transcript_rete
 done
 Q "INSERT INTO auth.users(id) VALUES('$U'); INSERT INTO public.user_profiles(id) VALUES('$U');" >/dev/null
 for k in 1 2 3 4 5; do Q "INSERT INTO public.sessions(id,user_id,created_at,transcript,total_words,duration) VALUES('$(sid $k)','$U', now()-interval '$((10-k)) day','t${k}',100,60);" >/dev/null; done
+# durable terminal evaluations for the 3 outgoing candidates (sid1..3), inserted WITHOUT firing the R2
+# auto-convergence trigger (one connection: SET + inserts together) so they remain a historical backlog the
+# preflight assesses => READY with candidates.
+Q "SET session_replication_role='replica';
+   INSERT INTO public.session_progress_evaluations(user_id,session_id,formula_version,attribution_status,eligible) VALUES
+     ('$U','$(sid 1)','clarity_v1','verified',true),
+     ('$U','$(sid 2)','clarity_v1','verified',true),
+     ('$U','$(sid 3)','clarity_v1','verified',true);
+   SET session_replication_role='origin';" >/dev/null
 
 # Snapshot before (rows + a content-free digest of transcript states).
 BEFORE=$(Q "SELECT count(*)||'/'||md5(string_agg(id::text||transcript_state, ',' ORDER BY id)) FROM public.sessions;")

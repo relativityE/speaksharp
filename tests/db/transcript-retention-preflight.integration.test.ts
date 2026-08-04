@@ -43,6 +43,16 @@ async function addEval(db: PGlite, user: string, session: string, attribution: s
         `INSERT INTO public.session_progress_evaluations (user_id, session_id, formula_version, attribution_status, eligible)
          VALUES ($1,$2,$3,$4,true)`, [user, session, formula, attribution]);
 }
+// Insert durable evidence WITHOUT firing the R2 auto-convergence trigger — models a HISTORICAL pre-R2
+// evidence-durable candidate (eval exists but retention never auto-converged), which is exactly the backlog
+// the R3 scrub preflight assesses.
+async function addEvalRaw(db: PGlite, user: string, session: string, attribution: string, formula = 'clarity_v1') {
+    await db.exec(`SET session_replication_role='replica'`);
+    await db.query(
+        `INSERT INTO public.session_progress_evaluations (user_id, session_id, formula_version, attribution_status, eligible)
+         VALUES ($1,$2,$3,$4,true)`, [user, session, formula, attribution]);
+    await db.exec(`SET session_replication_role='origin'`);
+}
 interface Verdict {
     status: string; policy_version: string; formula_version: string; scope: string; run_id: string | null;
     counts: Record<string, number>; contradictions: Record<string, number>;
@@ -59,8 +69,10 @@ describe('#1117 R3 preflight — aggregate counts & simulation', () => {
         const db = await freshDb();
         await addUser(db, UA);
         for (let k = 1; k <= 5; k++) await addSession(db, sid(k), UA, k, `t${k}`); // 5 bearing => 3 rank>2
+        for (let k = 1; k <= 3; k++) await addEvalRaw(db, UA, sid(k), 'verified'); // durable, not auto-converged => ready with candidates
         const v = await preflight(db);
         expect(v.status).toBe('ready');
+        expect(Number(v.counts.pending_evidence_backlog)).toBe(0);
         expect(Number(v.counts.transcript_bearing)).toBe(5);
         expect(Number(v.counts.rank_gt2_eligible)).toBe(3);
         expect(Number(v.simulation.simulated_expire_count)).toBe(3);
@@ -102,6 +114,16 @@ describe('#1117 R3 preflight — evidence backlog, isolation, repeatability', ()
         expect(Number(v.counts.rank_gt2_eligible)).toBe(2);
         expect(Number(v.counts.pending_evidence_backlog)).toBe(1); // sid2 only
         expect(Number(v.counts.users_pending_backlog)).toBe(1);
+        // pending-evidence backlog MUST block readiness (a scrub must not expire before evidence is durable).
+        expect(v.status).toBe('blocked');
+    });
+
+    it('byte metric is multibyte-safe (octet_length, not character length)', async () => {
+        const db = await freshDb();
+        await addUser(db, UA);
+        await addSession(db, sid(1), UA, 1, '——'); // 2 em dashes = 6 UTF-8 bytes (2 chars)
+        const v = await preflight(db);
+        expect(Number(v.bytes.logical_transcript_bytes)).toBe(6);
     });
 
     it('a pending-attribution evaluation does NOT satisfy the evidence gate', async () => {

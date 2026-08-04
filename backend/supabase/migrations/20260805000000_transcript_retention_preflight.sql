@@ -124,11 +124,19 @@ BEGIN
     v_blocked := true;
   END IF;
 
+  -- Pending-evidence backlog MUST block readiness. R2 automatic convergence defers those candidates, so a
+  -- separately-authorized scrub must NOT expire a transcript whose terminal Progress evaluation is not yet
+  -- durable (Option A — would destroy transcript-dependent evidence). The operator lets auto-convergence
+  -- drain the backlog to zero, then re-runs the preflight for a 'ready' verdict.
+  IF (v_counts->>'pending_evidence_backlog')::bigint > 0 THEN
+    v_blocked := true;
+  END IF;
+
   -- Logical bytes + physical allocation (allocation reported WITHOUT any physical-shrink claim). Byte counts
-  -- only — never transcript content.
+  -- only — never transcript content. octet_length gives true BYTES (multibyte-safe), matching the key name.
   v_bytes := jsonb_build_object(
     'logical_transcript_bytes',
-      (SELECT coalesce(sum(length(transcript)),0)::bigint FROM public.sessions
+      (SELECT coalesce(sum(octet_length(transcript)),0)::bigint FROM public.sessions
        WHERE (p_scope='all_users' OR user_id=p_user_id) AND transcript IS NOT NULL),
     'sessions_relation_bytes', pg_relation_size('public.sessions'::regclass)::bigint,
     'sessions_total_relation_bytes', pg_total_relation_size('public.sessions'::regclass)::bigint);
