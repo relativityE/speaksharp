@@ -71,8 +71,9 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
                     suggestions: {
-                        summary: "Good speaking overall",
-                        suggestions: [],
+                        version: 'gemini_coaching_v1',
+                        what_worked: 'Your opening made the decision clear.',
+                        what_to_try_next: 'Move the recommendation before the detail.',
                     },
                 },
                 error: null,
@@ -92,11 +93,12 @@ describe('AISuggestions Integration', () => {
     });
 
     describe('Displaying Suggestions', () => {
-        it('displays AI summary when suggestions are received', async () => {
+        it('displays the persisted two-phrase coaching result', async () => {
             const user = userEvent.setup();
             const mockSuggestions = {
-                summary: "Your pacing is good but reduce filler words",
-                suggestions: [],
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Your risk example made the decision concrete.',
+                what_to_try_next: 'Lead with the recommendation before the bottleneck.',
             };
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
@@ -109,24 +111,17 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByText(/your pacing is good but reduce filler words/i)).toBeInTheDocument();
+                expect(screen.getByText(/your risk example made the decision concrete/i)).toBeInTheDocument();
+                expect(screen.getByText(/lead with the recommendation before the bottleneck/i)).toBeInTheDocument();
             });
         });
 
-        it('displays individual suggestion items', async () => {
+        it('labels the two persisted coaching phrases', async () => {
             const user = userEvent.setup();
             const mockSuggestions = {
-                summary: "Good speech overall",
-                suggestions: [
-                    {
-                        title: "Reduce Filler Words",
-                        description: "Try to minimize using 'um' and 'uh'",
-                    },
-                    {
-                        title: "Improve Pacing",
-                        description: "Slow down slightly for better clarity",
-                    },
-                ],
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Your contrast between risk and speed clarified the tradeoff.',
+                what_to_try_next: 'Cut the repeated setup and close on the decision.',
             };
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
@@ -139,10 +134,8 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByText("Reduce Filler Words")).toBeInTheDocument();
-                expect(screen.getByText(/minimize using 'um' and 'uh'/i)).toBeInTheDocument();
-                expect(screen.getByText("Improve Pacing")).toBeInTheDocument();
-                expect(screen.getByText(/slow down slightly/i)).toBeInTheDocument();
+                expect(screen.getByText('What worked')).toBeInTheDocument();
+                expect(screen.getByText('What to try next')).toBeInTheDocument();
             });
         });
     });
@@ -203,14 +196,14 @@ describe('AISuggestions Integration', () => {
     describe('Initial Suggestions', () => {
         it('renders with initial suggestions if provided', () => {
             const initialSuggestions = {
-                summary: "Initial summary",
-                suggestions: [{ title: "Initial title", description: "Initial description" }],
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Initial session-specific strength.',
+                what_to_try_next: 'Initial session-specific next step.',
             };
             render(<AISuggestions transcript="Hello world" initialSuggestions={initialSuggestions} />);
 
-            expect(screen.getByText(/"Initial summary"/i)).toBeInTheDocument();
-            expect(screen.getByText("Initial title")).toBeInTheDocument();
-            expect(screen.getByText("Initial description")).toBeInTheDocument();
+            expect(screen.getByText('Initial session-specific strength.')).toBeInTheDocument();
+            expect(screen.getByText('Initial session-specific next step.')).toBeInTheDocument();
             expect(screen.queryByText(/click the button to request ai coaching/i)).not.toBeInTheDocument();
         });
     });
@@ -228,12 +221,13 @@ describe('AISuggestions Integration', () => {
 
         it('keeps the Gemini disclosure visible when suggestions are prefilled', () => {
             const initialSuggestions = {
-                summary: "Initial summary",
-                suggestions: [{ title: "Initial title", description: "Initial description" }],
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Initial session-specific strength.',
+                what_to_try_next: 'Initial session-specific next step.',
             };
             render(<AISuggestions transcript="Hello world" initialSuggestions={initialSuggestions} />);
 
-            expect(screen.getByText("Initial title")).toBeInTheDocument();
+            expect(screen.getByText('Initial session-specific strength.')).toBeInTheDocument();
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
@@ -243,11 +237,9 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
                     suggestions: {
-                        summary: "Good speech overall",
-                        suggestions: [
-                            { title: "Reduce Filler Words", description: "Fewer ums" },
-                            { title: "Improve Pacing", description: "Slow down" },
-                        ],
+                        version: 'gemini_coaching_v1',
+                        what_worked: 'The launch example made the decision concrete.',
+                        what_to_try_next: 'Put the recommendation before the implementation details.',
                     },
                 },
                 error: null,
@@ -258,7 +250,7 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByText("Reduce Filler Words")).toBeInTheDocument();
+                expect(screen.getByText('The launch example made the decision concrete.')).toBeInTheDocument();
             });
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
@@ -293,8 +285,9 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
                     suggestions: {
-                        summary: "Good speech",
-                        suggestions: [],
+                        version: 'gemini_coaching_v1',
+                        what_worked: 'The concise opening established the decision quickly.',
+                        what_to_try_next: 'Close by restating the requested decision.',
                     },
                 },
                 error: null,
@@ -306,7 +299,7 @@ describe('AISuggestions Integration', () => {
 
             // First fetch
             await user.click(button);
-            await waitFor(() => expect(screen.getByText(/good speech/i)).toBeInTheDocument());
+            await waitFor(() => expect(screen.getByText(/concise opening established the decision/i)).toBeInTheDocument());
 
             // Second fetch should work
             await user.click(button);

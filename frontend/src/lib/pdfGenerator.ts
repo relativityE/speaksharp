@@ -253,22 +253,14 @@ export const generateSessionPdf = async (
       doc.setFontSize(11);
 
       let y = 34;
-      if (session.ai_suggestions.summary) {
-        y = writePaginatedText(doc, session.ai_suggestions.summary, 14, y, 180, 6) + 8;
-      }
-
-      session.ai_suggestions.suggestions?.forEach((suggestion, index) => {
-        if (y > 260) {
-          doc.addPage();
-          y = 22;
-        }
-
-        doc.setFontSize(12);
-        doc.text(`${index + 1}. ${suggestion.title}`, 14, y);
-        y += 7;
-        doc.setFontSize(10);
-        y = writePaginatedText(doc, suggestion.description, 18, y, 180, 5) + 6;
-      });
+      doc.setFontSize(12);
+      doc.text('What worked', 14, y);
+      doc.setFontSize(10);
+      y = writePaginatedText(doc, session.ai_suggestions.what_worked, 18, y + 7, 180, 5) + 8;
+      doc.setFontSize(12);
+      doc.text('What to try next', 14, y);
+      doc.setFontSize(10);
+      writePaginatedText(doc, session.ai_suggestions.what_to_try_next, 18, y + 7, 180, 5);
     }
 
     // --- Footer & Watermark ---

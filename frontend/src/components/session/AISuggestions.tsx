@@ -6,14 +6,10 @@ import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
 
-interface SuggestionItem {
-  title: string;
-  description: string;
-}
-
 interface AISuggestionsData {
-  summary: string;
-  suggestions: SuggestionItem[];
+  version: 'gemini_coaching_v1';
+  what_worked: string;
+  what_to_try_next: string;
 }
 
 interface AISuggestionsProps {
@@ -140,16 +136,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
 
         {suggestions && (
           <div className="space-y-4">
-            <blockquote className="border-l-2 pl-6 italic">
-              "{suggestions.summary}"
-            </blockquote>
-            <div className="space-y-3">
-              {suggestions.suggestions.map((item, index) => (
-                <div key={index} className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
-                  <h4 className="font-semibold">{item.title}</h4>
-                  <p className="text-sm font-medium text-foreground/70">{item.description}</p>
-                </div>
-              ))}
+            <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
+              <h4 className="font-semibold">What worked</h4>
+              <p className="text-sm font-medium text-foreground/70">{suggestions.what_worked}</p>
+            </div>
+            <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
+              <h4 className="font-semibold">What to try next</h4>
+              <p className="text-sm font-medium text-foreground/70">{suggestions.what_to_try_next}</p>
             </div>
           </div>
         )}

@@ -28,9 +28,10 @@ export interface PracticeSession {
   clarity_score?: number;
   wpm?: number;
   ai_suggestions?: {
-    summary: string;
-    suggestions: Array<{ title: string; description: string }>;
-  };
+    version: 'gemini_coaching_v1';
+    what_worked: string;
+    what_to_try_next: string;
+  } | null;
   pause_metrics?: {
     silencePercentage: number;
     transitionPauses: number;

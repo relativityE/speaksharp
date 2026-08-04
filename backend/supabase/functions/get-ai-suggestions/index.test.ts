@@ -6,8 +6,9 @@ let fetchCount = 0;
 let mockGeminiMode: 'ok' | 'malformed' | 'error' | 'throw' = 'ok';
 let lastGeminiRequestBody: Record<string, unknown> | null = null;
 let mockGeminiText = JSON.stringify({
-  summary: "This is a mock summary.",
-  suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
+  version: 'gemini_coaching_v1',
+  what_worked: 'Your risk-first opening made the decision clear.',
+  what_to_try_next: 'Move the support bottleneck after the recommendation.'
 });
 
 globalThis.fetch = async (url, init) => {
@@ -41,8 +42,9 @@ globalThis.fetch = async (url, init) => {
 Deno.test('get-ai-suggestions edge function', async (t) => {
   mockGeminiMode = 'ok';
   mockGeminiText = JSON.stringify({
-    summary: "This is a mock summary.",
-    suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
+    version: 'gemini_coaching_v1',
+    what_worked: 'Your risk-first opening made the decision clear.',
+    what_to_try_next: 'Move the support bottleneck after the recommendation.'
   });
   lastGeminiRequestBody = null;
 
@@ -127,13 +129,14 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
 
       assertEquals(res.status, 200);
       assertExists(json.suggestions);
-      assertEquals(json.suggestions.summary, "This is a mock summary.");
+      assertEquals(json.suggestions.version, 'gemini_coaching_v1');
+      assertEquals(json.suggestions.what_worked, 'Your risk-first opening made the decision clear.');
     } finally {
       Deno.env.delete('GEMINI_API_KEY');
     }
   });
 
-  await t.step('should return safe fallback suggestions when Gemini API key is missing', async () => {
+  await t.step('should return honest unavailable when Gemini API key is missing', async () => {
     Deno.env.delete('GEMINI_API_KEY');
     fetchCount = 0;
 
@@ -161,16 +164,19 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     const res = await handler(req, mockCreateSupabaseProUser);
     const json = await res.json();
 
-    assertEquals(res.status, 200);
-    assertEquals(json.degraded, true);
-    assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
+    assertEquals(res.status, 503);
+    assertEquals(json.error, 'AI coaching is unavailable right now. Please try again.');
     assertEquals(fetchCount, 0);
   });
 
   await t.step('should return cached suggestions if available', async () => {
     Deno.env.set('GEMINI_API_KEY', 'mock-key');
     fetchCount = 0;
-    const mockSuggestions = { summary: 'Cached summary', suggestions: [] };
+    const mockSuggestions = {
+      version: 'gemini_coaching_v1',
+      what_worked: 'The concrete launch example made the tradeoff clear.',
+      what_to_try_next: 'State the recommendation before the implementation detail.',
+    };
 
     const mockCreateSupabaseWithCache = () => ({
       auth: {
@@ -204,7 +210,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       const json = await res.json();
 
       assertEquals(res.status, 200);
-      assertEquals(json.suggestions.summary, 'Cached summary');
+      assertEquals(json.suggestions, mockSuggestions);
       assertEquals(fetchCount, 0, 'Should not call Gemini API when cached data exists');
     } finally {
       Deno.env.delete('GEMINI_API_KEY');
@@ -262,7 +268,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       assertEquals(res.status, 200);
       assertEquals(fetchCount, 1);
       assertExists(savedData.ai_suggestions);
-      assertEquals(savedData.ai_suggestions.summary, "This is a mock summary.");
+      assertEquals(savedData.ai_suggestions.version, 'gemini_coaching_v1');
       assertEquals(updateFilters, [['id', 'test-session'], ['user_id', 'pro-user']]);
     } finally {
       Deno.env.delete('GEMINI_API_KEY');
@@ -346,16 +352,15 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       const prompt = (lastGeminiRequestBody as any)?.contents?.[0]?.parts?.[0]?.text;
       assertExists(prompt);
       assertEquals(String(prompt).includes('logical structure'), true);
-      assertEquals(String(prompt).includes('Vocabulary & Variety'), true);
-      assertEquals(String(prompt).includes('Audience Impact'), true);
-      assertEquals(String(prompt).includes('Delivery & Clutter'), true);
+      assertEquals(String(prompt).includes('what_worked'), true);
+      assertEquals(String(prompt).includes('what_to_try_next'), true);
       assertEquals(String(prompt).includes('Do not invent facts'), true);
     } finally {
       Deno.env.delete('GEMINI_API_KEY');
     }
   });
 
-  await t.step('should return safe fallback suggestions for malformed Gemini JSON', async () => {
+  await t.step('should return honest unavailable for malformed Gemini JSON', async () => {
     Deno.env.set('GEMINI_API_KEY', 'mock-key');
     fetchCount = 0;
     mockGeminiMode = 'malformed';
@@ -386,21 +391,21 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       const res = await handler(req, mockCreateSupabaseProUser);
       const json = await res.json();
 
-      assertEquals(res.status, 200);
-      assertEquals(json.degraded, true);
-      assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
+      assertEquals(res.status, 502);
+      assertEquals(json.error, 'AI coaching could not be generated. Please try again.');
       assertEquals(fetchCount, 1);
     } finally {
       mockGeminiMode = 'ok';
       mockGeminiText = JSON.stringify({
-        summary: "This is a mock summary.",
-        suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
+        version: 'gemini_coaching_v1',
+        what_worked: 'Your risk-first opening made the decision clear.',
+        what_to_try_next: 'Move the support bottleneck after the recommendation.'
       });
       Deno.env.delete('GEMINI_API_KEY');
     }
   });
 
-  await t.step('should return safe fallback suggestions when Gemini is unavailable', async () => {
+  await t.step('should return honest unavailable when Gemini is unavailable', async () => {
     Deno.env.set('GEMINI_API_KEY', 'mock-key');
     fetchCount = 0;
     mockGeminiMode = 'error';
@@ -430,9 +435,8 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       const res = await handler(req, mockCreateSupabaseProUser);
       const json = await res.json();
 
-      assertEquals(res.status, 200);
-      assertEquals(json.degraded, true);
-      assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
+      assertEquals(res.status, 502);
+      assertEquals(json.error, 'AI coaching could not be generated. Please try again.');
       assertEquals(fetchCount, 1);
     } finally {
       mockGeminiMode = 'ok';

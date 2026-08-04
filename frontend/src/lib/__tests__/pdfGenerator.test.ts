@@ -270,20 +270,16 @@ describe('generateSessionPdf', () => {
     await generateSessionPdf({
       ...mockSession,
       ai_suggestions: {
-        summary: 'You used a clear opening and can improve pacing.',
-        suggestions: [
-          {
-            title: 'Pause with intent',
-            description: 'Replace filler words with a short pause before the next idea.',
-          },
-        ],
+        version: 'gemini_coaching_v1',
+        what_worked: 'Your opening made the recommendation concrete.',
+        what_to_try_next: 'Pause before the final decision so it lands clearly.',
       },
     });
     const savedPdf = await getSavedPdf();
 
     expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).toContain('(You used a clear opening and can improve pacing.) Tj');
-    expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
+    expect(savedPdf.text).toContain('(Your opening made the recommendation concrete.) Tj');
+    expect(savedPdf.text).toContain('(Pause before the final decision so it lands clearly.) Tj');
   });
 
   it('(#1047) suppresses persisted AI summary/coaching when the transcript is not_captured', async () => {
@@ -294,14 +290,15 @@ describe('generateSessionPdf', () => {
       transcript_state: 'not_captured',
       transcript: '',
       ai_suggestions: {
-        summary: 'You used a clear opening and can improve pacing.',
-        suggestions: [{ title: 'Pause with intent', description: 'Replace filler words with a short pause.' }],
+        version: 'gemini_coaching_v1',
+        what_worked: 'Stale strength should not print.',
+        what_to_try_next: 'Stale next step should not print.',
       },
     });
     const savedPdf = await getSavedPdf();
     expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).not.toContain('(You used a clear opening and can improve pacing.) Tj');
-    expect(savedPdf.text).not.toContain('(1. Pause with intent) Tj');
+    expect(savedPdf.text).not.toContain('(Stale strength should not print.) Tj');
+    expect(savedPdf.text).not.toContain('(Stale next step should not print.) Tj');
   });
 
   it('(#1047) suppresses AI coaching for an expired transcript too', async () => {
@@ -310,13 +307,14 @@ describe('generateSessionPdf', () => {
       transcript_state: 'expired',
       transcript: null,
       ai_suggestions: {
-        summary: 'Expired summary should not print.',
-        suggestions: [{ title: 'Stale tip', description: 'Should be suppressed.' }],
+        version: 'gemini_coaching_v1',
+        what_worked: 'Expired strength should not print.',
+        what_to_try_next: 'Expired next step should not print.',
       },
     });
     const savedPdf = await getSavedPdf();
     expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).not.toContain('(Expired summary should not print.) Tj');
+    expect(savedPdf.text).not.toContain('(Expired strength should not print.) Tj');
   });
 
   it.each([

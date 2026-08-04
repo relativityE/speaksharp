@@ -8,14 +8,10 @@ const AI_SUGGESTION_DAILY_LIMIT = 20;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
-interface SuggestionItem {
-  title: string;
-  description: string;
-}
-
 interface AISuggestions {
-  summary: string;
-  suggestions: SuggestionItem[];
+  version: 'gemini_coaching_v1';
+  what_worked: string;
+  what_to_try_next: string;
 }
 
 interface QuotaResult {
@@ -26,53 +22,33 @@ interface QuotaResult {
   error?: string;
 }
 
-const FALLBACK_SUGGESTIONS: AISuggestions = {
-  summary: 'AI suggestions are temporarily unavailable for this session.',
-  suggestions: [
-    {
-      title: 'Review Transcript',
-      description: 'Read through the saved transcript and compare it with your session metrics while suggestions are retried later.',
-    },
-  ],
-};
-
-function extractJsonObject(text: string): string | null {
-  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-
-  try {
-    JSON.parse(cleaned);
-    return cleaned;
-  } catch (error) {
-    console.warn('AI suggestions response was not valid JSON before object extraction fallback:', error);
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start === -1 || end === -1 || end <= start) return null;
-    return cleaned.slice(start, end + 1);
-  }
-}
-
-function isSuggestionItem(value: unknown): value is SuggestionItem {
-  if (!value || typeof value !== 'object') return false;
-  const item = value as Record<string, unknown>;
-  return typeof item.title === 'string' && typeof item.description === 'string';
+interface SessionEvidence {
+  transcript: string | null;
+  transcript_state: string | null;
+  duration: number | null;
+  total_words: number | null;
+  filler_words: unknown;
+  clarity_score: number | null;
+  wpm: number | null;
+  pause_metrics: unknown;
+  ai_suggestions: unknown;
 }
 
 function parseSuggestions(rawText: string): AISuggestions | null {
-  const jsonText = extractJsonObject(rawText);
-  if (!jsonText) return null;
-
   try {
-    const parsed = JSON.parse(jsonText) as unknown;
-    if (!parsed || typeof parsed !== 'object') return null;
+    const parsed = JSON.parse(rawText.trim()) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
     const candidate = parsed as Record<string, unknown>;
-    if (typeof candidate.summary !== 'string') return null;
-    if (!Array.isArray(candidate.suggestions)) return null;
-    if (!candidate.suggestions.every(isSuggestionItem)) return null;
+    if (JSON.stringify(Object.keys(candidate).sort()) !== JSON.stringify(['version', 'what_to_try_next', 'what_worked'])) return null;
+    if (candidate.version !== 'gemini_coaching_v1') return null;
+    if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
+    if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
 
     return {
-      summary: candidate.summary,
-      suggestions: candidate.suggestions,
+      version: 'gemini_coaching_v1',
+      what_worked: candidate.what_worked.trim(),
+      what_to_try_next: candidate.what_to_try_next.trim(),
     };
   } catch (error) {
     console.error('Failed to parse AI suggestions JSON:', error);
@@ -124,25 +100,14 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    const { transcript, metrics, sessionId } = await req.json();
-
-    if (!transcript) {
-      return new Response(JSON.stringify({ error: 'Transcript is required' }), {
+    const body = await req.json() as { sessionId?: unknown };
+    const sessionId = body.sessionId;
+    if (typeof sessionId !== 'string' || !sessionId.trim()) {
+      return new Response(JSON.stringify({ error: 'Session ID is required' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 400,
       });
     }
-
-    if (typeof transcript !== 'string') {
-      return new Response(JSON.stringify({ error: 'Transcript must be text' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      });
-    }
-
-    const transcriptForPrompt = transcript.length > MAX_TRANSCRIPT_CHARS
-      ? `${transcript.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Transcript truncated for coaching request length.]`
-      : transcript;
 
     const { data: userData, error: userError } = await supabaseClient.auth.getUser();
     const userId = userData?.user?.id ?? null;
@@ -153,29 +118,50 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    // 1. OPTIMIZATION: Check for existing suggestions if sessionId is provided
-    if (sessionId) {
-      const { data: session, error: sessionError } = await supabaseClient
-        .from('sessions')
-        .select('ai_suggestions')
-        .eq('id', sessionId)
-        .eq('user_id', userId)
-        .single();
+    // The saved, RLS-owned session is the only coaching evidence authority. Caller-supplied
+    // transcript/metrics are deliberately ignored so one session cannot be relabelled as another.
+    const { data: sessionData, error: sessionError } = await supabaseClient
+      .from('sessions')
+      .select('transcript, transcript_state, duration, total_words, filler_words, clarity_score, wpm, pause_metrics, ai_suggestions')
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .single();
 
-      if (!sessionError && session?.ai_suggestions) {
-        return new Response(JSON.stringify({ suggestions: session.ai_suggestions }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      }
+    if (sessionError || !sessionData) {
+      return new Response(JSON.stringify({ error: 'Session was not found' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 404,
+      });
     }
+
+    const session = sessionData as SessionEvidence;
+    const cachedSuggestions = session.ai_suggestions
+      ? parseSuggestions(JSON.stringify(session.ai_suggestions))
+      : null;
+    if (cachedSuggestions) {
+      return new Response(JSON.stringify({ suggestions: cachedSuggestions }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    }
+
+    if (session.transcript_state !== 'available' || typeof session.transcript !== 'string' || !session.transcript.trim()) {
+      return new Response(JSON.stringify({ error: 'AI coaching requires an available saved transcript' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 409,
+      });
+    }
+
+    const transcriptForPrompt = session.transcript.length > MAX_TRANSCRIPT_CHARS
+      ? `${session.transcript.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Transcript truncated for coaching request length.]`
+      : session.transcript;
 
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       console.error('GEMINI_API_KEY is not set.');
-      return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
+      return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 200,
+        status: 503,
       });
     }
 
@@ -203,15 +189,15 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    const metricsText = metrics ? `
+    const metricsText = `
       Metrics:
-      - Words Per Minute (WPM): ${metrics.wpm || 'N/A'}
-      - Clarity Score: ${metrics.clarity_score || 'N/A'}%
-      - Total Words: ${metrics.total_words || 'N/A'}
-      - Duration: ${metrics.duration || 'N/A'} seconds
-      - Pause Metrics: ${metrics.pause_metrics ? JSON.stringify(metrics.pause_metrics) : 'N/A'}
-      - Filler Words: ${metrics.filler_words ? JSON.stringify(metrics.filler_words) : 'N/A'}
-    ` : '';
+      - Words Per Minute (WPM): ${session.wpm ?? 'N/A'}
+      - Clarity Score: ${session.clarity_score ?? 'N/A'}%
+      - Total Words: ${session.total_words ?? 'N/A'}
+      - Duration: ${session.duration ?? 'N/A'} seconds
+      - Pause Metrics: ${session.pause_metrics == null ? 'N/A' : JSON.stringify(session.pause_metrics)}
+      - Filler Words: ${session.filler_words == null ? 'N/A' : JSON.stringify(session.filler_words)}
+    `;
 
     const prompt = `
       You are an expert public speaking coach. Analyze the following speech transcript and metrics as if the user wants practical coaching they can use in the next practice session.
@@ -228,16 +214,13 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       "${transcriptForPrompt}"
       ${metricsText}
 
-      Your response MUST be a JSON object with the following structure:
+      Return exactly one JSON object and no surrounding prose or markdown:
       {
-        "summary": "A one-sentence overall summary of the feedback.",
-        "suggestions": [
-          { "title": "Structure & Flow", "description": "Assess opening, logical order, transitions, and conclusion. Include one concrete improvement." },
-          { "title": "Vocabulary & Variety", "description": "Assess repeated wording, sentence variety, specificity, and word choice. Suggest one stronger phrasing option if useful." },
-          { "title": "Audience Impact", "description": "Assess whether the message is clear, memorable, and persuasive for a listener. Suggest one way to make it land better." },
-          { "title": "Delivery & Clutter", "description": "Use metrics for pacing, pauses, filler words, and clarity. Give one next-practice drill." }
-        ]
+        "version": "gemini_coaching_v1",
+        "what_worked": "One concise, session-specific interpretation of what worked and why it mattered.",
+        "what_to_try_next": "One concrete, session-specific change for the next attempt."
       }
+      Do not add keys. Metric recital or reusable generic advice is invalid.
     `;
 
     let suggestions: AISuggestions | null = null;
@@ -267,26 +250,33 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
     if (!suggestions) {
       console.error('Gemini response did not contain valid suggestions JSON.');
-      return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
+      return new Response(JSON.stringify({ error: 'AI coaching could not be generated. Please try again.' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 200,
+        status: 502,
       });
     }
 
-    // 2. PERSISTENCE: Save the new suggestions if sessionId is provided
-    if (sessionId) {
-      const { error: updateError } = await supabaseClient
-        .from('sessions')
-        .update({ ai_suggestions: suggestions })
-        .eq('id', sessionId)
-        .eq('user_id', userId);
+    // Persist and read back the exact value before reporting success.
+    const { data: savedSession, error: updateError } = await supabaseClient
+      .from('sessions')
+      .update({ ai_suggestions: suggestions })
+      .eq('id', sessionId)
+      .eq('user_id', userId)
+      .select('ai_suggestions')
+      .single();
 
-      if (updateError) {
-        console.error('Failed to save AI suggestions to cache:', updateError);
-      }
+    const savedSuggestions = !updateError && savedSession?.ai_suggestions
+      ? parseSuggestions(JSON.stringify(savedSession.ai_suggestions))
+      : null;
+    if (!savedSuggestions || JSON.stringify(savedSuggestions) !== JSON.stringify(suggestions)) {
+      console.error('Failed to save and verify AI suggestions:', updateError);
+      return new Response(JSON.stringify({ error: 'AI coaching could not be saved. Please try again.' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 503,
+      });
     }
 
-    return new Response(JSON.stringify({ suggestions }), {
+    return new Response(JSON.stringify({ suggestions: savedSuggestions }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
