@@ -1,18 +1,27 @@
--- #1161 — Server-owned, versioned, immutable engine-attribution AUTHORITY (challenge-bound attestation).
+-- #1161 — Client-DECLARED, SpeakSharp-server-RECORDED, immutable pre-recording MODE INTENT (challenge/replay-bound).
+--
+-- WHAT THIS IS — AND IS NOT (honest assurance; PO decision 2026-08-04):
+--   • It records the engine MODE the client DECLARED before recording, frozen server-side and made immutable,
+--     owner-bound, single-use, replay-safe, and consistent with the runtime evidence the client later reports.
+--   • It is NOT server-PROVEN engine identity and NOT a certification of which engine actually executed. Private
+--     (on-device transformers-js/WASM) runs entirely on-device; Browser (browser/OS-managed Web Speech) SENDS
+--     SPEECH TO AN EXTERNAL VENDOR for processing and receives text back — it is externally processed, not local.
+--     Both execute client-side; the SpeakSharp backend receives NO trusted receipt proving which engine ran. This
+--     record certifies a DECLARATION plus non-tampering (no post-hoc relabel, no replay, no class-swap, no Cloud,
+--     no fallback) — never execution.
+--   • 'browser' is NEVER an on-device or privacy claim: browser-managed speech is sent off-device to an external
+--     vendor. Only 'private' is an on-device mode.
+--   (The names `..._authority` / `attest_...` below denote this recorded, immutable declaration — not proof.)
 --
 -- WHY: `public.sessions.{engine,engine_version,model_name,device_type,attribution_status}` are client-writable
--- today (`GRANT UPDATE ON sessions TO authenticated`), so `attribution_status='verified'` is a client-asserted
--- value that #1045 Progress, G1 Guided and #1117 retention all trust. This migration makes the attribution
--- authority server-owned: a separate immutable `session_attribution_authority` row written ONLY through a
--- challenge-bound, service-role/internal guarded RPC; the legacy `attribution_status` column becomes advisory.
+-- today (`GRANT UPDATE ON sessions TO authenticated`), so `attribution_status='verified'` was a bare client
+-- assertion that #1045 Progress, G1 Guided and #1117 retention all trusted. This migration moves the verdict to
+-- an immutable, server-recorded row written ONLY through challenge-bound, service-role/internal guarded RPCs;
+-- the legacy `attribution_status` column becomes advisory.
 --
--- ENGINE-SPECIFIC (decision 5175338021): ONE authority records a trusted `engine_class` — 'private' (on-device
--- transformers-js) OR 'browser' (native Web Speech). Both are Progress-eligible; ONLY 'private' is Guided- and
--- Private-claim-eligible. Cloud / fallback / unknown → no trusted identity (no row) → no Progress or Guided.
---
--- HONEST ASSURANCE: an immutable, server-owned, replay/challenge-bound authority — NOT a cryptographic proof of
--- an untampered browser. A legitimate single-engine on-device (Private) or native (Browser) run is the only
--- positive path; the client can no longer self-assert its engine.
+-- ENGINE-SPECIFIC (decision 5175338021): ONE row records the DECLARED `engine_class` — 'private' (on-device
+-- transformers-js) OR 'browser' (browser/OS Web Speech). Both are Progress-eligible; ONLY 'private' is Guided- and
+-- Private-claim-eligible. Cloud / fallback / unknown → no declaration recorded (no row) → no Progress or Guided.
 --
 -- SOURCE ONLY — NOT APPLIED. Separate Product Owner authorization required for apply/deploy. No Cloud path, no
 -- capability enablement, no legacy promotion/backfill, no customer-data operation. Content-free.
@@ -32,8 +41,9 @@ CREATE TABLE IF NOT EXISTS public.session_attribution_challenge (
     -- The pre-session handle: the client-generated recording idempotency key. The intent is frozen against THIS
     -- before any session exists; binding later attaches the produced session_id. Unique per (user, recording).
     recording_key text NOT NULL,
-    -- The SERVER-OWNED, immutable engine-class + model provenance, frozen at recording START (before any capture
-    -- or transcript exists). Written only through the guarded service-role issue RPC; the client has no write path.
+    -- The client-DECLARED, server-RECORDED, immutable engine-class + model mode intent, frozen at recording START
+    -- (before any capture or transcript exists). Written only through the guarded service-role issue RPC (no client
+    -- write path); it records what the client declared — it does NOT prove which engine executed.
     engine_class  text NOT NULL,                  -- 'private' | 'browser'
     expected_model text,                          -- required non-blank for Private; NULL for Browser
     issued_at     timestamptz NOT NULL DEFAULT now(),
@@ -59,14 +69,15 @@ CREATE POLICY "session_attribution_challenge_select_own" ON public.session_attri
 GRANT SELECT ON public.session_attribution_challenge TO authenticated;  -- read-own only; no client write path
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 2. The AUTHORITY. Immutable, server-owned; one row per session. Consumers gate on authority_version, NOT on
+-- 2. The recorded verdict (`..._authority` = the recorded immutable DECLARATION, not proof of execution).
+--    Immutable, server-written; one row per session. Consumers gate on authority_version, NOT on
 --    the client-writable legacy sessions columns. No client write path (SELECT-own only).
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.session_attribution_authority (
     session_id       uuid PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
     user_id          uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     authority_version text NOT NULL DEFAULT 'attrib_v1',
-    engine_class     text NOT NULL,               -- the trusted engine class: 'private' | 'browser'
+    engine_class     text NOT NULL,               -- the DECLARED engine class: 'private' | 'browser'
     engine           text NOT NULL,
     engine_version   text,
     model_id         text,
@@ -74,8 +85,9 @@ CREATE TABLE IF NOT EXISTS public.session_attribution_authority (
     resolved_device  text,
     attested_at      timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT session_attribution_authority_version_chk CHECK (authority_version = 'attrib_v1'),
-    -- One authority, engine-specific: Private is the on-device transformers-js engine; Browser is the native
-    -- Web Speech engine. Cloud/fallback/unknown never reach this table (attest rejects them → no row).
+    -- One row, engine-specific: Private is the on-device transformers-js engine; Browser is the browser/OS Web
+    -- Speech engine (externally processed, NOT on-device). Cloud/fallback/unknown never reach this table (attest
+    -- rejects them → no row).
     CONSTRAINT session_attribution_authority_class_chk CHECK (
         (engine_class = 'private' AND lower(provider) LIKE 'transformers-js%')
         OR (engine_class = 'browser' AND lower(provider) IN ('web-speech', 'native', 'browser'))
@@ -91,7 +103,7 @@ GRANT SELECT ON public.session_attribution_authority TO authenticated;
 --    table-level UPDATE grant is INSUFFICIENT in PostgreSQL, so REVOKE the table-level UPDATE and re-GRANT
 --    UPDATE only on the audited SAFE (operational) column whitelist. The attribution identity columns
 --    (engine, engine_version, model_name, device_type, attribution_status) and the immutable identity/system
---    columns are intentionally EXCLUDED — they are server-owned or set only at INSERT.
+--    columns are intentionally EXCLUDED — they are server-written or set only at INSERT.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 REVOKE UPDATE ON public.sessions FROM authenticated;
 GRANT UPDATE (
@@ -123,7 +135,7 @@ CREATE TRIGGER trg_session_status_monotonic
     FOR EACH ROW EXECUTE FUNCTION public.enforce_session_status_monotonic();
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 3c. DEFINITIVE NO-AUTHORITY RESOLUTION (P1): a terminal, server-owned marker that a completed session will
+-- 3c. DEFINITIVE NO-AUTHORITY RESOLUTION (P1): a terminal, server-written marker that a completed session will
 --     NEVER gain an authority (Cloud / rejected evidence / never-registered). It distinguishes "transient
 --     (attest not yet resolved)" from "definitively unattributed", so #1045 never freezes a premature ineligible
 --     row and #1117 retention is never stuck on an indefinitely-pending session. No client write path.
@@ -234,11 +246,12 @@ GRANT EXECUTE ON FUNCTION public.bind_attribution_intent_v1(uuid, text) TO servi
 -- 5. ATTESTATION — service-role/internal only, SECURITY DEFINER, the SOLE writer of authority.
 --    - Concurrency-safe: FOR UPDATE on the session row serializes racing attestations (G1 pattern).
 --    - Terminal-completion gated: authority requires the owned session's DURABLE status='completed'.
---    - Class from the SERVER-OWNED pre-session intent BOUND to this session (server-owned provenance): v_class is
---      the immutable engine_class frozen at recording START via the guarded issue RPC and atomically bound via
---      bind_attribution_intent_v1 — NOT any client-writable column and NOT the attest-time payload. Attest NEVER
---      issues nor binds; if no BOUND unconsumed intent exists for this session it fails closed, so completion
---      cannot mint a class and a caller cannot seed it via a direct INSERT.
+--    - Class from the client-DECLARED, server-RECORDED pre-session intent BOUND to this session: v_class is the
+--      immutable engine_class the client DECLARED at recording START via the guarded issue RPC and atomically
+--      bound via bind_attribution_intent_v1 — NOT any client-writable column and NOT the attest-time payload.
+--      Attest NEVER issues nor binds; if no BOUND unconsumed intent exists for this session it fails closed, so
+--      completion cannot mint a class and a caller cannot seed it via a direct INSERT. (This binds the recorded
+--      DECLARATION; it does not prove which engine executed.)
 --    - Evidence is CONSISTENCY evidence only: no fallback, no Cloud, and the evidence provider's class MUST equal
 --      the challenge class (Browser→Private / Private→Browser / direct-POST swaps denied). It never sets the
 --      class or the identity. Private requires the challenge's non-blank, non-tiny model provenance.
@@ -281,9 +294,9 @@ BEGIN
             p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
     END IF;
 
-    -- The SERVER-OWNED pre-session intent BOUND to this session is the provenance. A completed session with NO
-    -- bound intent was never registered/bound (Cloud, or a failed/absent/expired registration) ⇒ DEFINITIVELY
-    -- unattributed (a terminal marker, never a stuck pending) — attest never mints nor binds an intent on demand.
+    -- The client-DECLARED, server-RECORDED pre-session intent BOUND to this session is the provenance. A completed
+    -- session with NO bound intent was never registered/bound (Cloud, or a failed/absent/expired registration) ⇒
+    -- DEFINITIVELY unattributed (a terminal marker, never a stuck pending) — attest never mints nor binds on demand.
     SELECT challenge_id, engine_class, expected_model, consumed_at
         INTO v_challenge, v_class, v_expected_model, v_consumed
         FROM public.session_attribution_challenge
@@ -324,8 +337,9 @@ BEGIN
         RETURN 'unattributed';
     END IF;
 
-    -- Clean run — write the immutable authority. Identity is server-owned: engine from the persisted session
-    -- (advisory), model from the challenge provenance; NO caller-evidence promotion.
+    -- Clean run — write the immutable recorded verdict. The engine/model come from the persisted session
+    -- (advisory) + the recorded DECLARATION's model; NO caller-evidence promotion. This records the declared
+    -- mode; it does NOT prove which engine executed.
     INSERT INTO public.session_attribution_authority(
         session_id, user_id, authority_version, engine_class, engine, engine_version, model_id, provider, resolved_device)
     VALUES (p_session_id, v_user, 'attrib_v1', v_class, coalesce(v_engine, v_class), v_engine_version,
@@ -353,9 +367,10 @@ $$;
 REVOKE ALL ON FUNCTION public.get_attribution_authority_v1(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_attribution_authority_v1(uuid) TO authenticated, service_role;
 
--- The trusted engine CLASS ('private'|'browser', or NULL when pending) for an owned session. Progress consumers
--- accept any non-NULL class; Guided consumers MUST require 'private' (Browser is never Guided-eligible). NULL
--- fail-closed for Cloud/fallback/unknown/pending. This is the seam #1158/G2 Guided consumes at the clean boundary.
+-- The DECLARED engine CLASS ('private'|'browser', or NULL when pending) for an owned session. Progress consumers
+-- accept any non-NULL class; Guided consumers MUST require 'private' (Browser is never Guided-eligible — and
+-- 'browser' is NOT an on-device claim: browser speech is externally processed). NULL fail-closed for
+-- Cloud/fallback/unknown/pending. This is the seam #1158/G2 Guided consumes at the clean boundary.
 CREATE OR REPLACE FUNCTION public.get_session_engine_class_v1(p_session_id uuid)
 RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
@@ -367,7 +382,7 @@ REVOKE ALL ON FUNCTION public.get_session_engine_class_v1(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_session_engine_class_v1(uuid) TO authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 7. CONSUMER INTEGRATION — #1045 Progress eligibility gates on the server-owned AUTHORITY.
+-- 7. CONSUMER INTEGRATION — #1045 Progress eligibility gates on the server-RECORDED declaration verdict.
 --    Additive redefinition (the #1045/#1091 pattern): re-emits public.record_progress_evaluation VERBATIM from
 --    20260731120000_session_progress_evaluations.sql, changing ONLY (a) the attribution eligibility gate and
 --    (b) the recorded attribution_status — both from the client-writable sessions.attribution_status to the
@@ -475,8 +490,8 @@ BEGIN
     -- Missing filler evidence is a MISSING CLARITY INPUT (v_has_clarity depends on it), reported with the
     -- canonical §4 reason 'no_clarity_evidence' — never imputed to zero, and no separate reason token.
     IF NOT v_has_clarity                                THEN v_reasons := array_append(v_reasons, 'no_clarity_evidence'); END IF;
-    -- #1161: eligibility gates on the SERVER-OWNED attribution AUTHORITY (version-locked, owner-scoped),
-    -- NOT the client-writable sessions.attribution_status. Fail-closed: no attrib_v1 authority => unverified.
+    -- #1161: eligibility gates on the server-RECORDED declaration verdict (version-locked, owner-scoped),
+    -- NOT the client-writable sessions.attribution_status. Fail-closed: no attrib_v1 record => unverified.
     IF NOT EXISTS (SELECT 1 FROM public.session_attribution_authority a
         WHERE a.session_id = p_session_id AND a.user_id = v_uid AND a.authority_version = 'attrib_v1')
     THEN v_reasons := array_append(v_reasons, 'unverified_attribution'); END IF;
@@ -530,11 +545,11 @@ BEGIN
         baseline_session_id, previous_comparable_session_id
     ) VALUES (
         v_uid, p_session_id, v_formula, COALESCE(s.duration, 0), v_words,
-        -- #1161 P1 (terminal-retention): the stored attribution_status is derived SOLELY from the server-owned
-        -- authority, NEVER from the client-writable s.attribution_status. By the defer guard above, this INSERT is
-        -- only reached once attribution is RESOLVED — so an authority row ⇒ 'verified', and its definitive absence
-        -- (an unattributed marker exists) ⇒ a hard 'unverified'. Echoing s.attribution_status here would let a
-        -- forged 'verified' survive into the evaluation row; drop that fallback entirely.
+        -- #1161 P1 (terminal-retention): the stored attribution_status is derived SOLELY from the server-recorded
+        -- declaration verdict, NEVER from the client-writable s.attribution_status. By the defer guard above, this
+        -- INSERT is only reached once attribution is RESOLVED — so a recorded row ⇒ 'verified', and its definitive
+        -- absence (an unattributed marker exists) ⇒ a hard 'unverified'. Echoing s.attribution_status here would let
+        -- a forged 'verified' survive into the evaluation row; drop that fallback entirely.
         v_has_clarity, s.engine, s.engine_version, s.model_name, CASE WHEN EXISTS (SELECT 1 FROM public.session_attribution_authority a
         WHERE a.session_id = p_session_id AND a.user_id = v_uid AND a.authority_version = 'attrib_v1')
           THEN 'verified' ELSE 'unverified' END,

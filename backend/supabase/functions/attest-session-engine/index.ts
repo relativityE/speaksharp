@@ -1,14 +1,18 @@
 /**
- * #1161 — Private attribution attestation producer (Supabase Edge Function).
+ * #1161 — Engine-mode declaration recorder (Supabase Edge Function).
  *
- * The SOLE trusted producer of a Private attribution authority. The client can no longer write the locked
- * sessions attribution-identity columns (the migration REVOKEs authenticated UPDATE); instead, on a completed
- * Private recording the client posts the instantiated-engine runtime evidence here. This function:
- *   1. authenticates the caller (JWT) and confirms the caller OWNS the session (RLS-scoped read);
- *   2. issues a server-side challenge and calls the service-role-only attest RPC, which fail-closed validates
- *      the evidence (provider transformers-js[-v4], non-tiny model, no fallback, no Cloud) and, on success,
- *      writes the immutable authority row + the server-owned sessions identity.
- * Fail-closed: any rejection ⇒ no authority, generic 422; the client never writes attribution itself.
+ * HONEST SCOPE: this records the engine MODE the client DECLARES before recording and makes it immutable,
+ * owner-bound, single-use, and replay-safe. It does NOT prove which engine executed — Private (on-device WASM)
+ * and Browser (browser/OS Web Speech, which is EXTERNALLY processed: speech is sent to an external vendor and
+ * text returned) both run client-side, and the backend receives no trusted receipt of execution. 'browser' is
+ * never an on-device/privacy claim. The client can no longer write the locked sessions attribution columns (the
+ * migration REVOKEs authenticated UPDATE); instead it goes through these guarded steps:
+ *   1. authenticate the caller (JWT); for bind/attest, confirm the caller OWNS the session (RLS-scoped read);
+ *   2. register the pre-session declaration, bind it to the produced session, then on completion call the
+ *      service-role-only attest RPC, which fail-closed validates the runtime evidence for CONSISTENCY with the
+ *      declaration (provider transformers-js[-v4], non-tiny model, no fallback, no Cloud) and records the
+ *      immutable verdict.
+ * Fail-closed: any rejection ⇒ no recorded verdict, generic 422; the client never writes attribution itself.
  *
  * Note: Deno runtime, not Node.js — IDE warnings about `Deno` / npm: imports are expected.
  */
@@ -47,7 +51,7 @@ export async function handler(
     if (authError || !user) return json(req, 401, { error: "Unauthorized" });
 
     // 2. Parse + validate the request body. `op` selects the guarded step:
-    //    'register' (recording START, PRE-SESSION) issues the server-owned intent keyed on the recording key —
+    //    'register' (recording START, PRE-SESSION) records the client-declared mode intent keyed on the recording key —
     //               NO session exists yet, so no session is created for a recording that never starts;
     //    'bind'     (post-RECORDING save)          atomically binds that intent to the produced session;
     //    'attest'   (recording STOP)               consumes the bound intent and writes the terminal verdict.

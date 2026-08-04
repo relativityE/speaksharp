@@ -1005,9 +1005,10 @@ export class SpeechRuntimeController {
      * #1161: derive the server attestation evidence from the locally-gated finalizing identity. Returns null
      * when there is NO trusted local identity to attest — an unverified identity (fail-closed local gate), or a
      * Cloud producer (no trusted local identity; the server would reject it anyway). Only the two attestable
-     * classes map to a provider: Private (on-device transformers-js) and Browser (native Web Speech). The server
-     * (attest-session-engine → attest_session_engine_v1) re-validates and is the SOLE writer — this is advisory
-     * input, never trusted for the verdict.
+     * classes map to a provider: Private (on-device transformers-js) and Browser (browser/OS Web Speech, which is
+     * externally processed — not on-device). The server (attest-session-engine → attest_session_engine_v1)
+     * re-validates and is the SOLE writer — this is advisory input, never trusted for the verdict, which records a
+     * client DECLARATION, not proof of which engine executed.
      */
     private static evidenceFromIdentity(
         identity: { engine?: string; engine_version?: string; model_name?: string; device_type?: string; attribution_status: AttributionStatus },
@@ -2598,15 +2599,17 @@ export class SpeechRuntimeController {
                 // captured state. No-op in production.
                 this.startShadowMetricsEngine(recordingId, mode);
 
-                // #1161 (Option 2 — pre-session intent): freeze the SERVER-owned engine class + model provenance
-                // BEFORE the producing engine can start or capture a single sample. This registers a pre-session
-                // INTENT keyed on the recording id — it creates NO session row, so a recording that never reaches
-                // RECORDING persists nothing (the #1033 discard safeguard is preserved). The session is created
-                // only AFTER RECORDING is confirmed (below), where the intent is atomically BOUND to it. AWAITED so
-                // capture cannot begin before the class/model are frozen; errors are surfaced (logged), never
-                // discarded — fail-closed ⇒ the session resolves definitively unattributed later, recording
-                // unaffected. The class/model come from the REQUESTED mode; attest verifies the ACTUAL runtime
-                // against it, so a divergent runtime resolves unattributed. Cloud registers no intent.
+                // #1161 (Option 2 — pre-session intent): record the client-DECLARED engine mode + model as an
+                // immutable, server-RECORDED intent BEFORE the producing engine can start or capture a sample.
+                // This is a DECLARATION, not proof of execution (Private and Browser both run client-side; Browser
+                // is externally processed, never an on-device claim). It registers a pre-session INTENT keyed on
+                // the recording id — it creates NO session row, so a recording that never reaches RECORDING
+                // persists nothing (the #1033 discard safeguard is preserved). The session is created only AFTER
+                // RECORDING is confirmed (below), where the intent is atomically BOUND to it. AWAITED so capture
+                // cannot begin before the declaration is recorded; errors are surfaced (logged), never discarded —
+                // fail-closed ⇒ the session resolves definitively unattributed later, recording unaffected. The
+                // class/model come from the REQUESTED mode; attest checks the reported runtime for CONSISTENCY, so
+                // a divergent runtime resolves unattributed. Cloud registers no intent.
                 if (userId && (mode === 'private' || mode === 'native')) {
                     try {
                         const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {

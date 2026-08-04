@@ -204,8 +204,8 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
       `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, 'words', 'active') RETURNING id`, [OWNER],
     )).rows[0].id;
     const c = controller as unknown as Record<string, unknown>;
-    // #1161: the stash carries runtime EVIDENCE; the client posts it to the producer (it can no longer write
-    // the attribution columns itself — those are server-owned).
+    // #1161: the stash carries runtime EVIDENCE; the client posts it to the recorder (it can no longer write
+    // the attribution columns itself — those are server-written; the recorded verdict is a declaration, not proof).
     c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionEvidence: VERIFIED_EVIDENCE };
     c.recordingStartedUnresolved = true;
 

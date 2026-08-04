@@ -1,7 +1,8 @@
 // @vitest-environment node
 //
-// #1161 — EXECUTED real-PostgreSQL adversarial proof for the server-owned, versioned, immutable Private
-// attribution AUTHORITY (challenge-bound attestation).
+// #1161 — EXECUTED real-PostgreSQL adversarial proof for the client-declared, server-RECORDED, versioned,
+// immutable engine-mode declaration (Private/Browser), challenge/bind/replay-bound. Records a DECLARATION +
+// non-tampering, NOT proof of which engine executed (both engines run client-side; Browser is externally processed).
 //
 // A static SQL-string test cannot catch a syntax error, a wrong grant, or an evidence gate that fails open.
 // This suite stands up a REAL throwaway PostgreSQL (PGlite — the repo's DB harness), applies the #1161
