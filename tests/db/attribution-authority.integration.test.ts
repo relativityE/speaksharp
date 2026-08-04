@@ -156,14 +156,10 @@ describe('#1161 attribution authority — evidence gate fails closed', () => {
         });
     }
 
-    it('tiny model on the Private CHALLENGE provenance is not attestable', async () => {
-        const db = await makeDb();
-        const s = await seedSession(db, USER);
-        await issueChallenge(db, s, 'private', 'whisper-tiny');   // the provenance is tiny
-        await expectUnattributed(db, s, GOOD_V2);
-        expect(await count(db,
-            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
-    });
+    // #1161 (PO closure 2026-08-04): the former "tiny model → not attestable" gate was REMOVED. The server records
+    // a client DECLARATION and has no execution receipt; a model-quality gate cannot disprove a self-consistent
+    // declaration (a forger declares 'base') and only penalizes an honest tiny declarer. Consistency + declaration
+    // completeness (below) are preserved; quality-of-execution judgments are not.
 
     it('a Private challenge with a BLANK model provenance cannot be issued (finding 4)', async () => {
         const db = await makeDb();
@@ -554,11 +550,11 @@ describe('#1161 attribution authority — engine classes (private vs browser)', 
             `SELECT public.get_session_engine_class_v1($1) c`, [s])).rows[0].c).not.toBe('private');
     });
 
-    it('the tiny-model gate does NOT apply to Browser (native engine has no model)', async () => {
+    it('Browser needs no model — the Private-only model-completeness requirement does not apply', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER, { engine: 'native' });
-        await issueChallenge(db, s, 'browser', null);   // Browser challenge carries no model
-        // Browser path skips the Private-only tiny gate → still attests as browser.
+        await issueChallenge(db, s, 'browser', null);   // Browser declaration carries no model (allowed)
+        // Browser path skips the Private-only non-blank-model requirement → still attests as browser.
         expect(await attestCompleted(db, s, GOOD_BROWSER)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority

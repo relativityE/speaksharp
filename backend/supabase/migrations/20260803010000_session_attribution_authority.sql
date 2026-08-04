@@ -254,7 +254,8 @@ GRANT EXECUTE ON FUNCTION public.bind_attribution_intent_v1(uuid, text) TO servi
 --      DECLARATION; it does not prove which engine executed.)
 --    - Evidence is CONSISTENCY evidence only: no fallback, no Cloud, and the evidence provider's class MUST equal
 --      the challenge class (Browser→Private / Private→Browser / direct-POST swaps denied). It never sets the
---      class or the identity. Private requires the challenge's non-blank, non-tiny model provenance.
+--      class or the identity. Private requires the declaration to name a non-blank model (completeness only; the
+--      server does not judge which model actually ran).
 --    - Browser is Progress-eligible but NEVER Guided nor a Private claim (get_session_engine_class_v1 + CHECK).
 --    - Idempotent/replay-safe: a second valid call returns the existing version; a consumed challenge fails closed.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -308,7 +309,7 @@ BEGIN
     END IF;
 
     -- Evidence is CONSISTENCY evidence only: clean single-engine run + provider class MUST match the challenge
-    -- class. Any DEFINITIVE failure (fallback / Cloud / unknown / swap / blank-or-tiny Private model) resolves
+    -- class. Any DEFINITIVE failure (fallback / Cloud / unknown / swap / blank Private model) resolves
     -- the completed session terminally UNATTRIBUTED — never a stuck pending.
     v_provider := lower(coalesce(p_runtime_evidence->>'provider', ''));
     v_fallback := coalesce((p_runtime_evidence->>'fallback_occurred')::boolean, true);
@@ -317,6 +318,9 @@ BEGIN
         CASE WHEN v_provider LIKE 'transformers-js%' THEN 'private'
              WHEN v_provider IN ('web-speech', 'native', 'browser') THEN 'browser'
              ELSE NULL END;
+    -- CONSISTENCY only (declaration vs the client's OWN evidence) + declaration completeness. We do NOT judge the
+    -- REAL model/quality that executed — the server has no execution receipt and cannot disprove a self-consistent
+    -- declaration (a tiny-model "quality" gate would only penalize an honest declarer; a forger declares 'base').
     v_reason :=
         CASE
             WHEN v_fallback THEN 'fallback'
@@ -324,7 +328,6 @@ BEGIN
             WHEN v_ev_class IS NULL THEN 'unknown_provider'
             WHEN v_ev_class IS DISTINCT FROM v_class THEN 'class_swap'
             WHEN v_class = 'private' AND (v_expected_model IS NULL OR btrim(v_expected_model) = '') THEN 'blank_private_model'
-            WHEN v_class = 'private' AND lower(v_expected_model) LIKE '%tiny%' THEN 'tiny_model'
             ELSE NULL
         END;
 

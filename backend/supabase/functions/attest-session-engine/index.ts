@@ -10,7 +10,7 @@
  *   1. authenticate the caller (JWT); for bind/attest, confirm the caller OWNS the session (RLS-scoped read);
  *   2. register the pre-session declaration, bind it to the produced session, then on completion call the
  *      service-role-only attest RPC, which fail-closed validates the runtime evidence for CONSISTENCY with the
- *      declaration (provider transformers-js[-v4], non-tiny model, no fallback, no Cloud) and records the
+ *      declaration (provider transformers-js[-v4] matches the declared class, no fallback, no Cloud) and records the
  *      immutable verdict.
  * Fail-closed: any rejection ⇒ no recorded verdict, generic 422; the client never writes attribution itself.
  *
