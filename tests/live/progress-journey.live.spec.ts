@@ -214,10 +214,14 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     // Capture check-usage-limit response bodies for the entitlement proof (step 4).
     const isEnt = (url: string) => /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
     const forbiddenCloudRequests: string[] = [];
+    const forbiddenCloudSockets: string[] = [];
     page.on('request', (request) => {
       if (/assemblyai|cloud[-_/]?token|transcription\/token/i.test(request.url())) {
         forbiddenCloudRequests.push(request.url());
       }
+    });
+    page.on('websocket', (socket) => {
+      if (/assemblyai|cloud|transcri/i.test(socket.url())) forbiddenCloudSockets.push(socket.url());
     });
     page.on('response', async (response) => {
       if (!isEnt(response.url())) return;
@@ -316,5 +320,7 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
       expect(attempt!.next_comparable_session_id, 'completed comparison must use that same successor').toBe(s2);
     }
     expect(forbiddenCloudRequests, 'Private U3 journey must make zero Cloud token/provider requests').toEqual([]);
+    expect(forbiddenCloudSockets, 'Private U3 journey must open zero Cloud/provider WebSockets').toEqual([]);
+    console.log(`[journey] zero_cloud=${JSON.stringify({ requests: forbiddenCloudRequests.length, websockets: forbiddenCloudSockets.length })}`);
   });
 });
