@@ -35,25 +35,29 @@ const act = (db: Sql, uid: string) => db.query(`SELECT set_config('request.jwt.c
 /** A session that passes EVERY §4 gate EXCEPT (optionally) attribution: completed, long enough, enough words,
  * clean transcript, numeric filler evidence, sane wpm, complete engine identity. */
 async function eligibleSession(db: Sql, attribution: string, engine = 'private-v2'): Promise<string> {
+    // #1161: created in the ACTIVE (pre-recording) state; call complete() to reach the §4-eligible terminal state.
     return (await db.query<{ id: string }>(
         `INSERT INTO public.sessions
            (user_id, status, duration, total_words, wpm, transcript, filler_words,
             engine, engine_version, model_name, device_type, attribution_status)
-         VALUES ($1,'completed',120,150,120,'a clean transcript with plenty of ordinary words and no markers',
+         VALUES ($1,'active',120,150,120,'a clean transcript with plenty of ordinary words and no markers',
             '{"total":{"count":5}}'::jsonb,$3,'v2','base','cpu',$2)
          RETURNING id`, [USER, attribution, engine])).rows[0].id;
 }
+
+const complete = (db: Sql, id: string) => db.query(`UPDATE public.sessions SET status='completed' WHERE id=$1`, [id]);
 
 const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
 const BROWSER_EV = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
 
 async function attestAuthority(db: Sql, sessionId: string, evidence: Record<string, unknown> = PRIVATE_EV): Promise<void> {
-    // #1161: the pre-recording challenge freezes the class + model; attest then consumes it.
+    // #1161 lifecycle: register the pre-recording challenge (ACTIVE) → complete → attest (consumes it).
     const isPrivate = String(evidence.provider ?? '').startsWith('transformers-js');
     await db.exec(`SET ROLE service_role`);
     try {
         await db.query(`SELECT public.issue_attribution_challenge_v1($1, $2, $3)`,
             [sessionId, isPrivate ? 'private' : 'browser', isPrivate ? 'base' : null]);
+        await db.query(`UPDATE public.sessions SET status='completed' WHERE id=$1`, [sessionId]);
         await db.query(`SELECT public.attest_session_engine_v1($1, $2::jsonb)`,
             [sessionId, JSON.stringify(evidence)]);
     } finally { await db.exec(`RESET ROLE`); }
@@ -72,6 +76,7 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
     it('client-forged attribution_status=verified WITHOUT an authority row → excluded (unverified_attribution)', async () => {
         const db = await makeDb();
         const s = await eligibleSession(db, 'verified');   // the OLD client-writable "proof"
+        await complete(db, s);
         const { eligible, reasons } = await evaluate(db, s);
         expect(reasons).toContain('unverified_attribution');   // forge no longer suffices
         expect(eligible).toBe(false);
@@ -112,7 +117,9 @@ describe('#1161 consumer integration — #1045 Progress gates on the authority',
 
     it('no authority AND attribution_status=pending → excluded (fail-closed baseline)', async () => {
         const db = await makeDb();
+        // no challenge ever registered ⇒ no authority
         const s = await eligibleSession(db, 'pending');
+        await complete(db, s);
         const { eligible, reasons } = await evaluate(db, s);
         expect(reasons).toContain('unverified_attribution');
         expect(eligible).toBe(false);

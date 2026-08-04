@@ -98,14 +98,23 @@ CREATE OR REPLACE FUNCTION public.issue_attribution_challenge_v1(
 RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_user uuid; v_challenge uuid; v_class text := lower(coalesce(p_engine_class, ''));
+DECLARE v_user uuid; v_status text; v_challenge uuid; v_class text := lower(coalesce(p_engine_class, ''));
 BEGIN
-    SELECT user_id INTO v_user FROM public.sessions WHERE id = p_session_id;
+    -- Serialize register-vs-complete on the session row (FOR UPDATE). completeSession's status UPDATE takes the
+    -- same row lock, so exactly one wins: if completion commits first this SELECT sees the terminal state and
+    -- rejects (no challenge); if this commits first the frozen challenge exists BEFORE completion.
+    SELECT user_id, status INTO v_user, v_status FROM public.sessions WHERE id = p_session_id FOR UPDATE;
     IF v_user IS NULL THEN
         RAISE EXCEPTION 'attribution: session % not found', p_session_id USING ERRCODE = 'no_data_found';
     END IF;
     IF v_class NOT IN ('private', 'browser') THEN
         RAISE EXCEPTION 'attribution: invalid engine class "%"', p_engine_class USING ERRCODE = 'check_violation';
+    END IF;
+    -- PRE-RECORDING LIFECYCLE GATE: a challenge is frozen at recording START; a terminal/completed session can
+    -- NEVER register one after the fact (which would let completion be forged into a Private/Browser authority).
+    IF v_status IS DISTINCT FROM 'active' THEN
+        RAISE EXCEPTION 'attribution: session % is not in the pre-recording state (status=%) — registration denied',
+            p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
     END IF;
     IF v_class = 'private' AND (p_expected_model IS NULL OR btrim(p_expected_model) = '') THEN
         RAISE EXCEPTION 'attribution: a Private challenge requires a non-blank model provenance'
