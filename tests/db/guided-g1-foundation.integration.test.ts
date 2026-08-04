@@ -333,6 +333,22 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         expect(Number(disputes)).toBe(1);                  // no duplicate dispute row
     });
 
+    it('abandoned-without-dispute-fails-closed: disputing an abandoned action that has no dispute raises + mutates nothing', async () => {
+        // (true concurrency is proven separately in tests/db/guided-g1-dispute-concurrency.sh; this is the
+        // single-connection fail-closed control — construct the corrupt state via privileged setup.)
+        const db = await makeDb();
+        const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
+        await finalize(db, USER, s, [missing(pointIds[0])]);
+        const a = await selectAction(db, USER, s);
+        await db.query(`UPDATE public.guided_action SET lifecycle='abandoned' WHERE id=$1`, [a]); // no dispute row
+        await act(db, USER);
+        await expect(db.query(`SELECT public.guided_dispute_action_v1($1)`, [a])).rejects.toThrow(/action is not active/i);
+        const disputes = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_action_dispute WHERE action_id=$1`, [a])).rows[0].n;
+        const active = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_action WHERE session_id=$1 AND lifecycle='active'`, [s])).rows[0].n;
+        expect(Number(disputes)).toBe(0); // no dispute created
+        expect(Number(active)).toBe(0);   // no successor created
+    });
+
     it('dispute-on-neutral-rejected: the terminal neutral action cannot be disputed (no infinite loop)', async () => {
         const db = await makeDb();
         const { s, pointIds } = await setup(db, USER, { budget: 100, points: [{ order: 0, required: true }] }); // no overtime, covered → neutral
