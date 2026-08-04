@@ -157,6 +157,21 @@ CREATE POLICY "guided_session_select_own" ON public.guided_session
 GRANT SELECT ON public.guided_session TO authenticated;
 CREATE INDEX IF NOT EXISTS idx_guided_session_project ON public.guided_session (project_id, created_at DESC);
 
+-- ── Server-owned Guided-intent link. public.sessions carries no Guided/Freestyle marker, so a verified-Private
+--    FREESTYLE recording is indistinguishable from a Guided one by attribution alone. A recording becomes
+--    Guided-eligible ONLY by being registered here through the guarded RPC below — never by a client write and
+--    never implicitly from being verified-Private. guided_start_session_v1 requires this registration, so an
+--    ordinary Freestyle recording (never registered) cannot attach to Guided or produce Guided evidence.
+CREATE TABLE IF NOT EXISTS public.guided_source_recording (
+    session_id    uuid PRIMARY KEY REFERENCES public.sessions(id) ON DELETE CASCADE,
+    user_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    registered_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.guided_source_recording ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "guided_source_recording_select_own" ON public.guided_source_recording
+    FOR SELECT TO authenticated USING (auth.uid() = user_id);
+GRANT SELECT ON public.guided_source_recording TO authenticated;
+
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 4. Literal/cue EVIDENCE — server-derived only. The client NEVER chooses the verdict or its provenance: the
 --    guarded RPC classifies each brief point from raw detection signals under the approved detector predicate.
@@ -338,6 +353,12 @@ BEGIN
     IF v_src.engine IS NULL OR lower(v_src.engine) NOT LIKE 'private%' THEN
         RAISE EXCEPTION 'source recording is not a verified Private engine' USING errcode = '42501';
     END IF;
+    -- Freestyle-vs-Guided isolation: the recording must have been server-registered as a Guided source. A
+    -- verified-Private FREESTYLE recording (never registered) cannot attach — verified-Private alone is not
+    -- Guided intent.
+    IF NOT EXISTS (SELECT 1 FROM public.guided_source_recording WHERE session_id = p_source_session_id AND user_id = v_uid) THEN
+        RAISE EXCEPTION 'source recording is not registered for Guided (a Freestyle recording cannot attach)' USING errcode = '42501';
+    END IF;
     v_engine_version := COALESCE(v_src.engine_version, v_src.engine);
     v_duration := COALESCE(v_src.duration, 0);  -- authoritative persisted duration; the caller never supplies it.
 
@@ -375,6 +396,35 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text) TO authenticated;
+
+-- ── guided_register_source_v1 — server-owned Guided-intent: marks an OWNED verified-Private recording as a
+--    Guided source (the ONLY way a recording becomes Guided-eligible; no client table-write path). Idempotent.
+--    An ordinary Freestyle recording is never registered through this RPC, so it can never attach to Guided. ──
+CREATE OR REPLACE FUNCTION public.guided_register_source_v1(p_source_session_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+    v_uid uuid := auth.uid();
+    v_src RECORD;
+BEGIN
+    IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
+    IF NOT public.has_guided_capability() THEN
+        RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
+    END IF;
+    SELECT engine, attribution_status INTO v_src FROM public.sessions WHERE id = p_source_session_id AND user_id = v_uid;
+    IF NOT FOUND THEN RAISE EXCEPTION 'source session not owned by caller' USING errcode = '42501'; END IF;
+    IF v_src.attribution_status IS DISTINCT FROM 'verified' THEN
+        RAISE EXCEPTION 'source recording attribution is not verified' USING errcode = '42501';
+    END IF;
+    IF v_src.engine IS NULL OR lower(v_src.engine) NOT LIKE 'private%' THEN
+        RAISE EXCEPTION 'source recording is not a verified Private engine' USING errcode = '42501';
+    END IF;
+    INSERT INTO public.guided_source_recording (session_id, user_id)
+        VALUES (p_source_session_id, v_uid) ON CONFLICT (session_id) DO NOTHING;
+    RETURN p_source_session_id;
+END $$;
+REVOKE ALL ON FUNCTION public.guided_register_source_v1(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.guided_register_source_v1(uuid) TO authenticated;
 
 -- ── guided_finalize_evidence_v1 — server-derives one verdict per point, exactly once (finalize latch) ──
 -- The client supplies RAW signals only ([{brief_point_id, detected_at_seconds|null}]); it can NEVER assert a

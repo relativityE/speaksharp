@@ -37,6 +37,7 @@ INSERT INTO public.guided_account_capability(user_id,enabled) VALUES ('$U',true)
 CREATE TABLE proof_result(who text primary key, val uuid);
 SQL
 REC=$(q "INSERT INTO public.sessions(user_id,engine,engine_version,attribution_status,duration) VALUES ('$U','private-v2','v2','verified',50) RETURNING id")
+q "SELECT public.guided_register_source_v1('$REC')" >/dev/null   # server-owned Guided-intent registration
 PROJ=$(q "INSERT INTO public.guided_project(user_id,title) VALUES ('$U','p') RETURNING id")
 BRIEF=$(q "INSERT INTO public.guided_brief(project_id,user_id,version,event_goal,time_budget_seconds) VALUES ('$PROJ','$U',1,'g',100) RETURNING id")
 q "INSERT INTO public.guided_brief_point(brief_id,user_id,sort_order,is_required,label) VALUES ('$BRIEF','$U',0,true,'a'),('$BRIEF','$U',1,true,'b')" >/dev/null
@@ -112,6 +113,7 @@ echo "control1 sequential-retry: r=$R disputes=$D2"
 # ── Control 2: abandoned-without-dispute must fail closed and mutate nothing ──
 # Build a fresh active action on a second session, then privileged-abandon it WITHOUT a dispute.
 REC2=$(q "INSERT INTO public.sessions(user_id,engine,engine_version,attribution_status,duration) VALUES ('$U','private-v2','v2','verified',50) RETURNING id")
+q "SELECT public.guided_register_source_v1('$REC2')" >/dev/null   # register the control-2 recording
 SESS2=$(q "SELECT public.guided_start_session_v1('$PROJ','$BRIEF','$REC2','cue_v1','guided_action_v1','idem2')")
 q "SELECT public.guided_finalize_evidence_v1('$SESS2','[]'::jsonb)" >/dev/null
 ACT2=$(q "SELECT public.guided_select_action_v1('$SESS2')")
