@@ -397,34 +397,37 @@ END $$;
 REVOKE ALL ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.guided_start_session_v1(uuid,uuid,uuid,text,text,text) TO authenticated;
 
--- ── guided_register_source_v1 — server-owned Guided-intent: marks an OWNED verified-Private recording as a
---    Guided source (the ONLY way a recording becomes Guided-eligible; no client table-write path). Idempotent.
---    An ordinary Freestyle recording is never registered through this RPC, so it can never attach to Guided. ──
+-- ── guided_register_source_v1 — SERVICE-ROLE / INTERNAL ONLY server-owned Guided-intent: marks a verified-
+--    Private recording as a Guided source (the ONLY way a recording becomes Guided-eligible). A capable CLIENT
+--    cannot execute it, so an ordinary Freestyle recording is never client-registerable and can never attach. ──
 CREATE OR REPLACE FUNCTION public.guided_register_source_v1(p_source_session_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
-    v_uid uuid := auth.uid();
-    v_src RECORD;
+    v_owner uuid;
+    v_engine text;
+    v_attr text;
 BEGIN
-    IF v_uid IS NULL THEN RAISE EXCEPTION 'auth required' USING errcode = '28000'; END IF;
-    IF NOT public.has_guided_capability() THEN
-        RAISE EXCEPTION 'guided capability required (server-derived; client/PostHog cannot grant)' USING errcode = '42501';
-    END IF;
-    SELECT engine, attribution_status INTO v_src FROM public.sessions WHERE id = p_source_session_id AND user_id = v_uid;
-    IF NOT FOUND THEN RAISE EXCEPTION 'source session not owned by caller' USING errcode = '42501'; END IF;
-    IF v_src.attribution_status IS DISTINCT FROM 'verified' THEN
+    -- SERVICE-ROLE / INTERNAL ONLY (per decision 5174279093): a client cannot execute this (grants below), so a
+    -- capable client can NEVER self-register a Freestyle recording. The owner is derived from the persisted
+    -- recording (a service-role caller carries no user auth.uid()); verified-Private required; idempotent.
+    SELECT user_id, engine, attribution_status INTO v_owner, v_engine, v_attr
+        FROM public.sessions WHERE id = p_source_session_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'source session not found' USING errcode = '42501'; END IF;
+    IF v_attr IS DISTINCT FROM 'verified' THEN
         RAISE EXCEPTION 'source recording attribution is not verified' USING errcode = '42501';
     END IF;
-    IF v_src.engine IS NULL OR lower(v_src.engine) NOT LIKE 'private%' THEN
+    IF v_engine IS NULL OR lower(v_engine) NOT LIKE 'private%' THEN
         RAISE EXCEPTION 'source recording is not a verified Private engine' USING errcode = '42501';
     END IF;
     INSERT INTO public.guided_source_recording (session_id, user_id)
-        VALUES (p_source_session_id, v_uid) ON CONFLICT (session_id) DO NOTHING;
+        VALUES (p_source_session_id, v_owner) ON CONFLICT (session_id) DO NOTHING;
     RETURN p_source_session_id;
 END $$;
 REVOKE ALL ON FUNCTION public.guided_register_source_v1(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.guided_register_source_v1(uuid) TO authenticated;
+-- NOT granted to `authenticated`: a client can never register a Guided source (proven denied in tests).
+-- Server/internal (service_role) only — the future G2 Begin flow is the sole producer of this server-owned intent.
+GRANT EXECUTE ON FUNCTION public.guided_register_source_v1(uuid) TO service_role;
 
 -- ── guided_finalize_evidence_v1 — server-derives one verdict per point, exactly once (finalize latch) ──
 -- The client supplies RAW signals only ([{brief_point_id, detected_at_seconds|null}]); it can NEVER assert a

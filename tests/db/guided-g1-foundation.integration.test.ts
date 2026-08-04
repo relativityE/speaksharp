@@ -79,16 +79,18 @@ async function seedBrief(
     return { proj, brief, pointIds };
 }
 
-/** Server-owned Guided-intent: mark an owned verified-Private recording as a Guided source (mirrors G2 Begin). */
-async function registerSource(db: Sql, uid: string, recId: string): Promise<void> {
-    await act(db, uid);
+/** Server-owned Guided-intent: register a recording as a Guided source. SERVICE-ROLE ONLY — a client cannot
+ *  execute the RPC (proven in a dedicated test); the future G2 Begin flow is the sole real producer. */
+async function registerSource(db: Sql, recId: string): Promise<void> {
+    await db.query(`SET ROLE service_role`);
     await db.query(`SELECT public.guided_register_source_v1($1)`, [recId]);
+    await db.query(`RESET ROLE`);
 }
 
 async function startSession(db: Sql, uid: string, o: {
     proj: string; brief: string; source: string; detector?: string; idem?: string;
 }): Promise<string> {
-    await registerSource(db, uid, o.source); // a Guided session may only attach a server-registered source
+    await registerSource(db, o.source); // a Guided session may only attach a server(service-role)-registered source
     await act(db, uid);
     const r = await db.query<{ id: string }>(
         `SELECT public.guided_start_session_v1($1,$2,$3,$4,'guided_action_v1',$5) AS id`,
@@ -423,23 +425,35 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         ).rejects.toThrow(/not registered for Guided/i);
     });
 
-    it('register-source: only an owned verified-Private recording registers (idempotent; capability-gated)', async () => {
+    it('register-source-is-service-role-only: an authenticated client CANNOT register (P1 3709024402)', async () => {
+        // Decision 5174279093: registration is service-role/internal only, so a capable client cannot turn its
+        // own Freestyle recording into a Guided source — the un-forgeable server-owned intent.
+        const db = await makeDb();
+        const priv = await seedRecording(db, USER, { duration: 50 });
+        await db.query(`SET ROLE authenticated`);
+        await act(db, USER);
+        await expect(
+            db.query(`SELECT public.guided_register_source_v1($1)`, [priv]),
+        ).rejects.toThrow(/permission denied/i); // EXECUTE not granted to authenticated
+        await db.query(`RESET ROLE`);
+        const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_source_recording WHERE session_id=$1`, [priv])).rows[0].n;
+        expect(Number(n)).toBe(0); // client attempt registered nothing
+    });
+
+    it('register-source: service-role registers only an owned verified-Private recording (idempotent)', async () => {
         const db = await makeDb();
         const priv = await seedRecording(db, USER, { duration: 50 });
         const unverified = await seedRecording(db, USER, { attribution: 'unverified' });
         const browser = await seedRecording(db, USER, { engine: 'native', attribution: 'verified' });
-        const foreign = await seedRecording(db, OTHER);
-        await act(db, USER);
+        await db.query(`SET ROLE service_role`);
         const reg = (r: string) => db.query(`SELECT public.guided_register_source_v1($1)`, [r]);
         await expect(reg(unverified)).rejects.toThrow(/attribution is not verified/i);
         await expect(reg(browser)).rejects.toThrow(/not a verified Private engine/i);
-        await expect(reg(foreign)).rejects.toThrow(/source session not owned/i);
+        await expect(reg('00000000-0000-4000-8000-000000000000')).rejects.toThrow(/source session not found/i);
         await reg(priv); await reg(priv); // valid + idempotent
+        await db.query(`RESET ROLE`);
         const n = (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM public.guided_source_recording WHERE session_id=$1`, [priv])).rows[0].n;
         expect(Number(n)).toBe(1);
-        await db.query(`UPDATE public.guided_account_capability SET enabled=false WHERE user_id=$1`, [USER]); // revoke
-        await act(db, USER);
-        await expect(reg(priv)).rejects.toThrow(/capability required/i);
     });
 
     it('unsupported-formula-rejected: only guided_action_v1 is accepted at start (truthful provenance)', async () => {
@@ -522,7 +536,7 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         const db = await makeDb();
         const rec = await seedRecording(db, USER, { duration: 50 });
         const rec2 = await seedRecording(db, USER, { duration: 50 });
-        await registerSource(db, USER, rec2); // rec2 is a registered Guided source too (isolate the identity-mismatch check)
+        await registerSource(db, rec2); // rec2 is a registered Guided source too (isolate the identity-mismatch check)
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         const brief2 = (await db.query<{ id: string }>(
             `INSERT INTO public.guided_brief (project_id, user_id, version, event_goal, time_budget_seconds)
@@ -542,7 +556,7 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
         const db = await makeDb();
         const rec = await seedRecording(db, USER, { duration: 50 });
         const rec2 = await seedRecording(db, USER, { duration: 50 });
-        await registerSource(db, USER, rec2); // rec2 is a registered Guided source too (isolate the identity-mismatch check)
+        await registerSource(db, rec2); // rec2 is a registered Guided source too (isolate the identity-mismatch check)
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         await startSession(db, USER, { proj, brief, source: rec, idem: 'k' });
         await db.query(`DELETE FROM public.sessions WHERE id = $1`, [rec]); // guided_session.source_session_id → NULL
@@ -556,7 +570,7 @@ describe('#1046 G1 — Guided hard-off data/evidence foundation (real PostgreSQL
     it('concurrent-start: racing identical start calls return the same session, never a duplicate', async () => {
         const db = await makeDb();
         const rec = await seedRecording(db, USER, { duration: 50 });
-        await registerSource(db, USER, rec);
+        await registerSource(db, rec);
         const { proj, brief } = await seedBrief(db, USER, { budget: 100, points: [{ order: 0, required: true }] });
         await act(db, USER);
         const call = () => db.query<{ id: string }>(
