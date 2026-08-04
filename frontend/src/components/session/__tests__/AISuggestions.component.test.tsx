@@ -206,6 +206,69 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByText('Initial session-specific next step.')).toBeInTheDocument();
             expect(screen.queryByText(/click the button to request ai coaching/i)).not.toBeInTheDocument();
         });
+
+        it('replaces session A coaching immediately when navigation switches to session B', () => {
+            const sessionA = {
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Session A strength.',
+                what_to_try_next: 'Session A next step.',
+            };
+            const sessionB = {
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Session B strength.',
+                what_to_try_next: 'Session B next step.',
+            };
+            const { rerender } = render(
+                <AISuggestions transcript="Session A transcript" sessionId="session-a" initialSuggestions={sessionA} />,
+            );
+
+            rerender(
+                <AISuggestions transcript="Session B transcript" sessionId="session-b" initialSuggestions={sessionB} />,
+            );
+
+            expect(screen.getByText('Session B strength.')).toBeInTheDocument();
+            expect(screen.getByText('Session B next step.')).toBeInTheDocument();
+            expect(screen.queryByText('Session A strength.')).not.toBeInTheDocument();
+            expect(screen.queryByText('Session A next step.')).not.toBeInTheDocument();
+        });
+
+        it('ignores a late session A response after navigation to session B', async () => {
+            const user = userEvent.setup();
+            let resolveSessionA!: (value: { data: unknown; error: null }) => void;
+            mockSupabaseClient.functions.invoke.mockImplementationOnce(() => new Promise((resolve) => {
+                resolveSessionA = resolve;
+            }));
+            const sessionB = {
+                version: 'gemini_coaching_v1' as const,
+                what_worked: 'Session B persisted strength.',
+                what_to_try_next: 'Session B persisted next step.',
+            };
+            const { rerender } = render(
+                <AISuggestions transcript="Session A transcript" sessionId="session-a" />,
+            );
+            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+
+            rerender(
+                <AISuggestions transcript="Session B transcript" sessionId="session-b" initialSuggestions={sessionB} />,
+            );
+            expect(screen.getByText('Session B persisted strength.')).toBeInTheDocument();
+
+            resolveSessionA({
+                data: {
+                    suggestions: {
+                        version: 'gemini_coaching_v1',
+                        what_worked: 'Late session A strength.',
+                        what_to_try_next: 'Late session A next step.',
+                    },
+                },
+                error: null,
+            });
+
+            await waitFor(() => {
+                expect(screen.getByText('Session B persisted strength.')).toBeInTheDocument();
+                expect(screen.queryByText('Late session A strength.')).not.toBeInTheDocument();
+            });
+        });
     });
 
     describe('Gemini disclosure persistence', () => {

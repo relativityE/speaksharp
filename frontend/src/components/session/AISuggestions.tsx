@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -42,14 +42,44 @@ const getSafeAiSuggestionError = (err: unknown): string => {
 };
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions }) => {
-  const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(initialSuggestions || null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const activeSessionRef = useRef(sessionId);
+  const requestGenerationRef = useRef(0);
+  if (activeSessionRef.current !== sessionId) {
+    activeSessionRef.current = sessionId;
+    requestGenerationRef.current += 1;
+  }
+  const [view, setView] = useState(() => ({
+    sessionId,
+    suggestions: initialSuggestions || null,
+    isLoading: false,
+    error: null as string | null,
+  }));
+
+  // A route change can reuse this component instance. Render the new session's persisted value
+  // immediately and invalidate every request captured for the previous session.
+  const currentView = view.sessionId === sessionId
+    ? view
+    : { sessionId, suggestions: initialSuggestions || null, isLoading: false, error: null };
+  const { suggestions, isLoading, error } = currentView;
+
+  useEffect(() => {
+    setView({
+      sessionId,
+      suggestions: initialSuggestions || null,
+      isLoading: false,
+      error: null,
+    });
+  }, [sessionId, initialSuggestions]);
 
   const fetchSuggestions = async () => {
-    setIsLoading(true);
-    setError(null);
-    setSuggestions(null);
+    const requestSessionId = sessionId;
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
+    const isCurrentRequest = () =>
+      activeSessionRef.current === requestSessionId
+      && requestGenerationRef.current === requestGeneration;
+
+    setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null });
 
     try {
       const supabase = getSupabaseClient();
@@ -69,12 +99,25 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         throw new Error(data.error);
       }
 
-      setSuggestions(data.suggestions);
+      if (isCurrentRequest()) {
+        setView({ sessionId: requestSessionId, suggestions: data.suggestions, isLoading: false, error: null });
+      }
     } catch (err: unknown) {
       logger.error({ err }, "Error fetching AI suggestions:");
-      setError(getSafeAiSuggestionError(err));
+      if (isCurrentRequest()) {
+        setView({
+          sessionId: requestSessionId,
+          suggestions: null,
+          isLoading: false,
+          error: getSafeAiSuggestionError(err),
+        });
+      }
     } finally {
-      setIsLoading(false);
+      if (isCurrentRequest()) {
+        setView((current) => current.sessionId === requestSessionId
+          ? { ...current, isLoading: false }
+          : current);
+      }
     }
   };
 
