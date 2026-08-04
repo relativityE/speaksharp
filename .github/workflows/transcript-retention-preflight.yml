@@ -1,0 +1,92 @@
+# #1117 R3 — MANUAL, aggregate-only, READ-ONLY transcript-retention production preflight.
+#
+# Source-only until a separate PRODUCT-OWNER "PREFLIGHT GO". This workflow is DEFINED here but is NOT part of
+# any automatic path: workflow_dispatch only, dry_run must be literally "true", and it runs the checked-in
+# `public.transcript_retention_preflight(...)` inside a REPEATABLE READ, READ ONLY transaction. It performs
+# NO migration apply, NO mutation, NO scrub, and prints only the sanitized counts/booleans verdict — never a
+# transcript, email, identifier, row, dump, screenshot or free-form string.
+name: transcript-retention-preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: 'Exact reviewed 40-char commit SHA this preflight is authorized against'
+        required: true
+      dry_run:
+        description: 'Must be exactly "true" — this workflow has no mutation mode'
+        required: true
+        default: 'true'
+      scope:
+        description: 'all_users | single_user'
+        required: true
+        default: 'all_users'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transcript-retention-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed unless dry_run is exactly "true"
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+            echo "::error::dry_run must be exactly 'true'; this preflight has no mutation mode."; exit 1; fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.reviewed_sha }}
+
+      - name: Verify checked-out SHA matches the reviewed SHA (fail closed on SHA mismatch)
+        run: |
+          got="$(git rev-parse HEAD)"
+          if [ "$got" != "${{ github.event.inputs.reviewed_sha }}" ]; then
+            echo "::error::checkout SHA $got != reviewed ${{ github.event.inputs.reviewed_sha }}"; exit 1; fi
+
+      - name: Confirm the preflight migration + contract manifest are present at this SHA
+        run: |
+          test -f backend/supabase/migrations/20260805000000_transcript_retention_preflight.sql
+          test -f backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql
+          test -f backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql
+          echo "manifest present"
+
+      - name: Run READ-ONLY aggregate preflight and validate the sanitized verdict (fail closed)
+        env:
+          # A read-only DB connection string. No apply, no mutation is ever issued by this workflow.
+          PREFLIGHT_READONLY_DB_URL: ${{ secrets.PREFLIGHT_READONLY_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PREFLIGHT_READONLY_DB_URL:-}" ]; then echo "::error::PREFLIGHT_READONLY_DB_URL secret missing"; exit 1; fi
+          # REPEATABLE READ + READ ONLY transaction with bounded timeouts; the DB read-only guard makes any
+          # accidental write abort. Emit ONLY the sanitized JSON verdict.
+          VERDICT="$(psql "$PREFLIGHT_READONLY_DB_URL" -X -q -t -A -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN TRANSACTION READ ONLY ISOLATION LEVEL REPEATABLE READ;
+          SET LOCAL statement_timeout = '30000';
+          SET LOCAL lock_timeout = '2000';
+          SELECT public.transcript_retention_preflight('all_users', NULL, 'ci-dry-run');
+          COMMIT;
+          SQL
+          )"
+          # The verdict is aggregate-only by construction; still assert it carries no obvious content and is ready.
+          echo "$VERDICT" | python3 -c '
+          import sys, json
+          v = json.loads(sys.stdin.read())
+          assert v["policy_version"] == "newest_two_v1", "unexpected policy version"
+          assert v["status"] in ("ready", "blocked"), "bad status"
+          for grp in ("counts", "contradictions", "simulation"):
+              for k, val in v[grp].items():
+                  assert isinstance(val, (int,)) and not isinstance(val, bool), f"non-numeric aggregate {grp}.{k}"
+          assert int(v["simulation"]["simulated_max_retained_per_user"]) <= 2, "sim retained > 2"
+          assert int(v["simulation"]["users_over_two_after"]) == 0, "users over two after sim"
+          # print ONLY counts/booleans
+          print("PREFLIGHT", v["status"], "| candidates=", v["counts"]["rank_gt2_eligible"],
+                "pending_backlog=", v["counts"]["pending_evidence_backlog"],
+                "contradictions=", sum(v["contradictions"].values()))
+          if v["status"] != "ready":
+              sys.exit("::error::preflight NOT ready — retention operation must not proceed")
+          '
