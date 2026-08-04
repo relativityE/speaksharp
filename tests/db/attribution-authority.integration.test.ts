@@ -51,24 +51,25 @@ async function seedSession(
     )).rows[0].id;
 }
 
-/** Service-role challenge issue (service-role/internal only). */
-async function issueChallenge(db: Sql, sessionId: string): Promise<string> {
-    await db.exec(`SET ROLE service_role`);
-    try {
-        return (await db.query<{ c: string }>(
-            `SELECT public.issue_attribution_challenge_v1($1) AS c`, [sessionId])).rows[0].c;
-    } finally { await db.exec(`RESET ROLE`); }
-}
-
-/** Service-role attestation. Returns the version string or throws (fail-closed) — caller asserts. */
-async function attest(
-    db: Sql, sessionId: string, challengeId: string, evidence: Record<string, unknown>,
+/** Service-role PRE-RECORDING challenge issue with the frozen class + model provenance (service-role only). */
+async function issueChallenge(
+    db: Sql, sessionId: string, engineClass = 'private', expectedModel: string | null = 'base',
 ): Promise<string> {
     await db.exec(`SET ROLE service_role`);
     try {
+        return (await db.query<{ c: string }>(
+            `SELECT public.issue_attribution_challenge_v1($1, $2, $3) AS c`,
+            [sessionId, engineClass, expectedModel])).rows[0].c;
+    } finally { await db.exec(`RESET ROLE`); }
+}
+
+/** Service-role attestation (finds the session's pre-recording challenge itself). Throws on fail-closed. */
+async function attest(db: Sql, sessionId: string, evidence: Record<string, unknown>): Promise<string> {
+    await db.exec(`SET ROLE service_role`);
+    try {
         return (await db.query<{ v: string }>(
-            `SELECT public.attest_session_engine_v1($1, $2, $3::jsonb) AS v`,
-            [sessionId, challengeId, JSON.stringify(evidence)])).rows[0].v;
+            `SELECT public.attest_session_engine_v1($1, $2::jsonb) AS v`,
+            [sessionId, JSON.stringify(evidence)])).rows[0].v;
     } finally { await db.exec(`RESET ROLE`); }
 }
 
@@ -84,7 +85,7 @@ describe('#1161 attribution authority — positive attestation', () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
         const c = await issueChallenge(db, s);
-        expect(await attest(db, s, c, GOOD_V2)).toBe('attrib_v1');
+        expect(await attest(db, s, GOOD_V2)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1
              AND user_id=$2 AND authority_version='attrib_v1' AND provider='transformers-js'`, [s, USER])).toBe(1);
@@ -97,8 +98,8 @@ describe('#1161 attribution authority — positive attestation', () => {
     it('legit Private v4 (transformers-js-v4) completion attests', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER, { engine: 'private-v4', version: 'v4', model: 'base_q4' });
-        const c = await issueChallenge(db, s);
-        expect(await attest(db, s, c, GOOD_V4)).toBe('attrib_v1');
+        await issueChallenge(db, s);
+        expect(await attest(db, s, GOOD_V4)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(1);
     });
@@ -109,17 +110,15 @@ describe('#1161 attribution authority — evidence gate fails closed', () => {
         ['Cloud provider (assemblyai)', { ...GOOD_V2, provider: 'assemblyai' }],
         ['Cloud used flag', { ...GOOD_V2, cloud_used: true }],
         ['fallback occurred', { ...GOOD_V2, fallback_occurred: true }],
-        ['tiny Private model', { ...GOOD_V2, model_id: 'tiny' }],
         ['unknown provider', { ...GOOD_V2, provider: 'mystery-engine' }],
         ['missing provider (malformed)', { fallback_occurred: false, cloud_used: false }],
         ['empty evidence (defaults fail-closed)', {}],
     ] as [string, Record<string, unknown>][]) {
         it(`${name} → no authority row, zero writes`, async () => {
             const db = await makeDb();
-            // #1161(P1): the tiny gate reads the PERSISTED session model, not the caller evidence.
-            const s = await seedSession(db, USER, { model: name === 'tiny Private model' ? 'whisper-tiny' : undefined });
-            const c = await issueChallenge(db, s);
-            await expect(attest(db, s, c, ev)).rejects.toThrow();
+            const s = await seedSession(db, USER);
+            const c = await issueChallenge(db, s);   // a legitimate Private pre-recording challenge
+            await expect(attest(db, s, ev)).rejects.toThrow();
             expect(await count(db,
                 `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
             // challenge NOT consumed — a rejected attestation leaves it redeemable for a legitimate retry
@@ -129,23 +128,28 @@ describe('#1161 attribution authority — evidence gate fails closed', () => {
         });
     }
 
-    it('tiny model detected from the SERVER session row (client evidence cannot launder it)', async () => {
+    it('tiny model on the Private CHALLENGE provenance is not attestable', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER, { model: 'whisper-tiny' });   // server says tiny
-        const c = await issueChallenge(db, s);
-        await expect(attest(db, s, c, { ...GOOD_V2, model_id: 'base' })).rejects.toThrow(/tiny/);
+        const s = await seedSession(db, USER);
+        await issueChallenge(db, s, 'private', 'whisper-tiny');   // the provenance is tiny
+        await expect(attest(db, s, GOOD_V2)).rejects.toThrow(/tiny/);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+    });
+
+    it('a Private challenge with a BLANK model provenance cannot be issued (finding 4)', async () => {
+        const db = await makeDb();
+        const s = await seedSession(db, USER);
+        await expect(issueChallenge(db, s, 'private', '  ')).rejects.toThrow(/model provenance/);
+        await expect(issueChallenge(db, s, 'private', null)).rejects.toThrow(/model provenance/);
     });
 });
 
 describe('#1161 attribution authority — challenge binding', () => {
-    it('wrong challenge id fails closed (no authority row)', async () => {
+    it('NO pre-recording challenge → attest fails closed (completion cannot mint one)', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER);
-        await issueChallenge(db, s);
-        const bogus = '99999999-9999-4999-8999-999999999999';
-        await expect(attest(db, s, bogus, GOOD_V2)).rejects.toThrow();
+        const s = await seedSession(db, USER);   // completed session, but no challenge was ever issued
+        await expect(attest(db, s, GOOD_V2)).rejects.toThrow(/no pre-recording challenge/);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
@@ -157,7 +161,7 @@ describe('#1161 attribution authority — challenge binding', () => {
         // Simulate a consumed challenge whose authority write did not land (defensive replay branch). Done as
         // the superuser (default role) — a privileged setup manipulation, not a client-reachable path.
         await db.query(`UPDATE public.session_attribution_challenge SET consumed_at = now() WHERE challenge_id=$1`, [c]);
-        await expect(attest(db, s, c, GOOD_V2)).rejects.toThrow(/consumed/);
+        await expect(attest(db, s, GOOD_V2)).rejects.toThrow(/consumed/);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
@@ -175,8 +179,7 @@ describe('#1161 attribution authority — challenge binding', () => {
     it('attestation for a nonexistent session raises (no data)', async () => {
         const db = await makeDb();
         const bogusSession = '88888888-8888-4888-8888-888888888888';
-        const bogusChallenge = '77777777-7777-4777-8777-777777777777';
-        await expect(attest(db, bogusSession, bogusChallenge, GOOD_V2)).rejects.toThrow();
+        await expect(attest(db, bogusSession, GOOD_V2)).rejects.toThrow();
     });
 });
 
@@ -184,12 +187,12 @@ describe('#1161 attribution authority — idempotent / replay-safe re-attest', (
     it('second valid attest returns the existing version, mutates nothing', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
-        expect(await attest(db, s, c, GOOD_V2)).toBe('attrib_v1');
+        await issueChallenge(db, s);
+        expect(await attest(db, s, GOOD_V2)).toBe('attrib_v1');
         const attestedAt = (await db.query<{ t: string }>(
             `SELECT attested_at::text t FROM public.session_attribution_authority WHERE session_id=$1`, [s])).rows[0].t;
         // A second attest (challenge already consumed, but authority present ⇒ short-circuits to existing version).
-        expect(await attest(db, s, c, GOOD_V2)).toBe('attrib_v1');
+        expect(await attest(db, s, GOOD_V2)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(1);
         expect((await db.query<{ t: string }>(
@@ -202,13 +205,13 @@ describe('#1161 attribution authority — ACL: no client write path', () => {
     it('authenticated CANNOT execute the attestation RPC (permission denied)', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
+        await issueChallenge(db, s);
         await act(db, USER);
         await db.exec(`SET ROLE authenticated`);
         try {
             await expect(db.query(
-                `SELECT public.attest_session_engine_v1($1, $2, $3::jsonb)`,
-                [s, c, JSON.stringify(GOOD_V2)])).rejects.toThrow(/permission denied/i);
+                `SELECT public.attest_session_engine_v1($1, $2::jsonb)`,
+                [s, JSON.stringify(GOOD_V2)])).rejects.toThrow(/permission denied/i);
         } finally { await db.exec(`RESET ROLE`); }
     });
 
@@ -219,15 +222,16 @@ describe('#1161 attribution authority — ACL: no client write path', () => {
         await db.exec(`SET ROLE authenticated`);
         try {
             await expect(db.query(
-                `SELECT public.issue_attribution_challenge_v1($1)`, [s])).rejects.toThrow(/permission denied/i);
+                `SELECT public.issue_attribution_challenge_v1($1, 'private', 'base')`, [s]))
+                .rejects.toThrow(/permission denied/i);
         } finally { await db.exec(`RESET ROLE`); }
     });
 
     it('authenticated CANNOT INSERT/UPDATE the authority table directly', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
-        await attest(db, s, c, GOOD_V2);
+        await issueChallenge(db, s);
+        await attest(db, s, GOOD_V2);
         await act(db, USER);
         await db.exec(`SET ROLE authenticated`);
         try {
@@ -288,8 +292,8 @@ describe('#1161 attribution authority — consumer read + ownership', () => {
     it('get_attribution_authority_v1 returns attrib_v1 for the owner after attestation', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
-        await attest(db, s, c, GOOD_V2);
+        await issueChallenge(db, s);
+        await attest(db, s, GOOD_V2);
         await act(db, USER);
         expect((await db.query<{ v: string | null }>(
             `SELECT public.get_attribution_authority_v1($1) v`, [s])).rows[0].v).toBe('attrib_v1');
@@ -306,8 +310,8 @@ describe('#1161 attribution authority — consumer read + ownership', () => {
     it('a foreign user reads NULL for someone else\'s attested session', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
-        await attest(db, s, c, GOOD_V2);
+        await issueChallenge(db, s);
+        await attest(db, s, GOOD_V2);
         await act(db, OTHER);
         expect((await db.query<{ v: string | null }>(
             `SELECT public.get_attribution_authority_v1($1) v`, [s])).rows[0].v).toBeNull();
@@ -337,8 +341,8 @@ describe('#1161 attribution authority — no legacy backfill + cascade', () => {
     it('deleting the owner cascades away authority + challenge rows', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER);
-        const c = await issueChallenge(db, s);
-        await attest(db, s, c, GOOD_V2);
+        await issueChallenge(db, s);
+        await attest(db, s, GOOD_V2);
         await db.query(`DELETE FROM auth.users WHERE id=$1`, [USER]);
         expect(await count(db, `SELECT count(*) n FROM public.session_attribution_authority`, [])).toBe(0);
         expect(await count(db, `SELECT count(*) n FROM public.session_attribution_challenge`, [])).toBe(0);
@@ -350,9 +354,9 @@ describe('#1161 attribution authority — identity from persisted session (no ca
         const db = await makeDb();
         const s = await seedSession(db, USER,
             { engine: 'private-v2', version: 'v2', model: 'base', device: 'wasm', status: 'completed' });
-        const c = await issueChallenge(db, s);
+        await issueChallenge(db, s);
         // Caller sends DIFFERENT identity fields — same class (consistent), but they must NOT be promoted.
-        await attest(db, s, c, {
+        await attest(db, s, {
             provider: 'transformers-js', engine: 'attacker-engine', engine_version: 'attacker-v9',
             model_id: 'attacker-model', resolved_device: 'attacker-device', fallback_occurred: false, cloud_used: false,
         });
@@ -374,8 +378,8 @@ describe('#1161 attribution authority — identity from persisted session (no ca
     it('a rejected attestation writes NO authority row and does not touch sessions (fail-closed)', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER, { engine: 'private-v2', model: 'base' });
-        const c = await issueChallenge(db, s);
-        await expect(attest(db, s, c, { ...GOOD_V2, cloud_used: true })).rejects.toThrow();
+        await issueChallenge(db, s);
+        await expect(attest(db, s, { ...GOOD_V2, cloud_used: true })).rejects.toThrow();
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
         const row = (await db.query<Record<string, string>>(
@@ -389,39 +393,38 @@ describe('#1161 attribution authority — P1: swap denial + terminal-completion 
     const BROWSER_EV = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
     const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
 
-    it('Browser→Private swap denied: a native session + Private evidence → no authority', async () => {
+    it('Browser→Private swap denied: a BROWSER challenge + Private evidence → no authority', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER, { engine: 'native', status: 'completed' });
-        const c = await issueChallenge(db, s);
-        await expect(attest(db, s, c, PRIVATE_EV)).rejects.toThrow(/swap denied/);
+        const s = await seedSession(db, USER, { status: 'completed' });
+        await issueChallenge(db, s, 'browser', null);   // the server-frozen class is browser
+        await expect(attest(db, s, PRIVATE_EV)).rejects.toThrow(/swap denied/);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
 
-    it('Private→Browser swap denied: a private session + Browser evidence → no authority', async () => {
+    it('Private→Browser swap denied: a PRIVATE challenge + Browser evidence → no authority', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER, { engine: 'private-v2', status: 'completed' });
-        const c = await issueChallenge(db, s);
-        await expect(attest(db, s, c, BROWSER_EV)).rejects.toThrow(/swap denied/);
+        const s = await seedSession(db, USER, { status: 'completed' });
+        await issueChallenge(db, s, 'private', 'base');   // the server-frozen class is private
+        await expect(attest(db, s, BROWSER_EV)).rejects.toThrow(/swap denied/);
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
     });
 
-    it('a persisted Cloud engine has no trusted class → no authority (even with clean evidence)', async () => {
+    it('the guarded issue RPC rejects an invalid engine class (only private|browser)', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER, { engine: 'cloud', status: 'completed' });
-        const c = await issueChallenge(db, s);
-        await expect(attest(db, s, c, PRIVATE_EV)).rejects.toThrow(/no trusted class/);
+        const s = await seedSession(db, USER, { status: 'completed' });
+        await expect(issueChallenge(db, s, 'cloud', null)).rejects.toThrow(/invalid engine class/);
         expect(await count(db,
-            `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
+            `SELECT count(*) n FROM public.session_attribution_challenge WHERE session_id=$1`, [s])).toBe(0);
     });
 
     for (const status of ['pending', 'active', 'failed']) {
         it(`a non-completed (${status}) session receives NO authority (terminal-completion gate)`, async () => {
             const db = await makeDb();
-            const s = await seedSession(db, USER, { engine: 'private-v2', status });
+            const s = await seedSession(db, USER, { status });
             const c = await issueChallenge(db, s);
-            await expect(attest(db, s, c, PRIVATE_EV)).rejects.toThrow(/not durably completed/);
+            await expect(attest(db, s, PRIVATE_EV)).rejects.toThrow(/not durably completed/);
             expect(await count(db,
                 `SELECT count(*) n FROM public.session_attribution_authority WHERE session_id=$1`, [s])).toBe(0);
             // the challenge is NOT consumed — a later legitimate completion can still attest
@@ -439,7 +442,7 @@ describe('#1161 attribution authority — engine classes (private vs browser)', 
         const db = await makeDb();
         const s = await seedSession(db, USER);
         const c = await issueChallenge(db, s);
-        expect(await attest(db, s, c, GOOD_V2)).toBe('attrib_v1');
+        expect(await attest(db, s, GOOD_V2)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority
              WHERE session_id=$1 AND engine_class='private'`, [s])).toBe(1);
@@ -451,8 +454,8 @@ describe('#1161 attribution authority — engine classes (private vs browser)', 
     it('Browser (web-speech) attests as engine_class=browser — Progress-eligible, not Private', async () => {
         const db = await makeDb();
         const s = await seedSession(db, USER, { engine: 'native' });
-        const c = await issueChallenge(db, s);
-        expect(await attest(db, s, c, GOOD_BROWSER)).toBe('attrib_v1');
+        await issueChallenge(db, s, 'browser', null);
+        expect(await attest(db, s, GOOD_BROWSER)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority
              WHERE session_id=$1 AND engine_class='browser' AND provider='web-speech'`, [s])).toBe(1);
@@ -466,10 +469,10 @@ describe('#1161 attribution authority — engine classes (private vs browser)', 
 
     it('the tiny-model gate does NOT apply to Browser (native engine has no model)', async () => {
         const db = await makeDb();
-        const s = await seedSession(db, USER, { engine: 'native', model: 'whisper-tiny' });
-        const c = await issueChallenge(db, s);
+        const s = await seedSession(db, USER, { engine: 'native' });
+        await issueChallenge(db, s, 'browser', null);   // Browser challenge carries no model
         // Browser path skips the Private-only tiny gate → still attests as browser.
-        expect(await attest(db, s, c, GOOD_BROWSER)).toBe('attrib_v1');
+        expect(await attest(db, s, GOOD_BROWSER)).toBe('attrib_v1');
         expect(await count(db,
             `SELECT count(*) n FROM public.session_attribution_authority
              WHERE session_id=$1 AND engine_class='browser'`, [s])).toBe(1);

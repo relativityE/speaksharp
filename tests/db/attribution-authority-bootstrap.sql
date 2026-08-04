@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     duration           integer NOT NULL DEFAULT 0,
     total_words        integer NOT NULL DEFAULT 0,
     filler_words       jsonb   NOT NULL DEFAULT '{}'::jsonb,
+    custom_words       jsonb   NOT NULL DEFAULT '{}'::jsonb,
     accuracy           double precision,
     ground_truth       text,
     transcript         text,

@@ -48,12 +48,14 @@ const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occ
 const BROWSER_EV = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
 
 async function attestAuthority(db: Sql, sessionId: string, evidence: Record<string, unknown> = PRIVATE_EV): Promise<void> {
+    // #1161: the pre-recording challenge freezes the class + model; attest then consumes it.
+    const isPrivate = String(evidence.provider ?? '').startsWith('transformers-js');
     await db.exec(`SET ROLE service_role`);
     try {
-        const c = (await db.query<{ c: string }>(
-            `SELECT public.issue_attribution_challenge_v1($1) c`, [sessionId])).rows[0].c;
-        await db.query(`SELECT public.attest_session_engine_v1($1,$2,$3::jsonb)`,
-            [sessionId, c, JSON.stringify(evidence)]);
+        await db.query(`SELECT public.issue_attribution_challenge_v1($1, $2, $3)`,
+            [sessionId, isPrivate ? 'private' : 'browser', isPrivate ? 'base' : null]);
+        await db.query(`SELECT public.attest_session_engine_v1($1, $2::jsonb)`,
+            [sessionId, JSON.stringify(evidence)]);
     } finally { await db.exec(`RESET ROLE`); }
 }
 

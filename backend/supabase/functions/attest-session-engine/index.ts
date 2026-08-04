@@ -46,20 +46,22 @@ export async function handler(
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) return json(req, 401, { error: "Unauthorized" });
 
-    // 2. Parse + validate the request body.
-    let payload: { sessionId?: unknown; runtimeEvidence?: unknown };
+    // 2. Parse + validate the request body. `op` selects the guarded step:
+    //    'register' (recording START) freezes the pre-recording challenge class/model;
+    //    'attest'   (recording STOP)  consumes the pre-existing challenge.
+    let payload: {
+      op?: unknown; sessionId?: unknown; runtimeEvidence?: unknown;
+      engineClass?: unknown; expectedModel?: unknown;
+    };
     try {
       payload = await req.json();
     } catch {
       return json(req, 400, { error: "Invalid JSON body" });
     }
+    const op = payload.op === "register" ? "register" : "attest";
     const sessionId = payload.sessionId;
-    const runtimeEvidence = payload.runtimeEvidence;
     if (typeof sessionId !== "string" || !UUID_RE.test(sessionId)) {
       return json(req, 400, { error: "sessionId must be a UUID" });
-    }
-    if (runtimeEvidence === null || typeof runtimeEvidence !== "object" || Array.isArray(runtimeEvidence)) {
-      return json(req, 400, { error: "runtimeEvidence must be an object" });
     }
 
     // 3. Ownership: the RLS-scoped read returns the row ONLY if the caller owns it.
@@ -68,20 +70,38 @@ export async function handler(
     if (ownErr) return json(req, 500, { error: "Ownership check failed" });
     if (!owned) return json(req, 403, { error: "Not your session" });
 
-    // 4. Service-role: issue the challenge, then attest. The RPC is the fail-closed evidence gate + sole writer.
     const service = createServiceClient();
-    const { data: challengeId, error: challengeErr } = await service
-      .rpc("issue_attribution_challenge_v1", { p_session_id: sessionId });
-    if (challengeErr || !challengeId) return json(req, 500, { error: "Could not begin attestation" });
 
+    // 4a. REGISTER — freeze the immutable pre-recording class/model provenance (server-owned).
+    if (op === "register") {
+      const engineClass = payload.engineClass;
+      if (engineClass !== "private" && engineClass !== "browser") {
+        return json(req, 400, { error: "engineClass must be 'private' or 'browser'" });
+      }
+      const expectedModel = typeof payload.expectedModel === "string" ? payload.expectedModel : null;
+      const { data: challengeId, error: regErr } = await service
+        .rpc("issue_attribution_challenge_v1", {
+          p_session_id: sessionId, p_engine_class: engineClass, p_expected_model: expectedModel,
+        });
+      if (regErr || !challengeId) {
+        console.warn("register rejected", { reason: regErr?.message ?? "no challenge returned" });
+        return json(req, 422, { error: "Registration rejected", registered: false });
+      }
+      return json(req, 200, { registered: true });
+    }
+
+    // 4b. ATTEST — consume the pre-existing challenge. The RPC is the fail-closed gate + sole writer; it derives
+    //     the class from the server challenge, so evidence is consistency evidence only.
+    const runtimeEvidence = payload.runtimeEvidence;
+    if (runtimeEvidence === null || typeof runtimeEvidence !== "object" || Array.isArray(runtimeEvidence)) {
+      return json(req, 400, { error: "runtimeEvidence must be an object" });
+    }
     const { data: version, error: attestErr } = await service
       .rpc("attest_session_engine_v1", {
-        p_session_id: sessionId,
-        p_challenge_id: challengeId,
-        p_runtime_evidence: runtimeEvidence,
+        p_session_id: sessionId, p_runtime_evidence: runtimeEvidence,
       });
     if (attestErr || !version) {
-      // Fail-closed: evidence rejected (Browser/Cloud/fallback/tiny/malformed) ⇒ no authority. Generic message.
+      // Fail-closed: no challenge / evidence rejected / swap / not-completed ⇒ no authority. Generic message.
       console.warn("attest rejected", { reason: attestErr?.message ?? "no version returned" });
       return json(req, 422, { error: "Attestation rejected", attributed: false });
     }

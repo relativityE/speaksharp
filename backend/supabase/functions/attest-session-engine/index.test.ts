@@ -100,15 +100,6 @@ Deno.test("attest rejected (evidence gate) → 422 fail-closed", async () => {
   assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
 });
 
-Deno.test("challenge issue failure → 500", async () => {
-  const res = await handler(
-    request({ sessionId: SESSION, runtimeEvidence: GOOD }),
-    userClientFactory({}),
-    serviceClientFactory({ challengeErr: "boom" }),
-  );
-  assertEquals(res.status, 500);
-});
-
 Deno.test("ownership read error → 500", async () => {
   const res = await handler(request({ sessionId: SESSION, runtimeEvidence: GOOD }), userClientFactory({ ownErr: true }), serviceClientFactory({}));
   assertEquals(res.status, 500);
@@ -132,4 +123,42 @@ Deno.test("non-completed session RPC rejection → 422 fail-closed (terminal gat
   );
   assertEquals(res.status, 422);
   assertEquals(await res.json(), { error: "Attestation rejected", attributed: false });
+});
+
+Deno.test("register op → 200 registered (freezes pre-recording class/model)", async () => {
+  const res = await handler(
+    request({ op: "register", sessionId: SESSION, engineClass: "private", expectedModel: "base" }),
+    userClientFactory({}),
+    serviceClientFactory({ challenge: "c1" }),
+  );
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { registered: true });
+});
+
+Deno.test("register op with invalid engineClass → 400", async () => {
+  const res = await handler(
+    request({ op: "register", sessionId: SESSION, engineClass: "cloud" }),
+    userClientFactory({}),
+    serviceClientFactory({}),
+  );
+  assertEquals(res.status, 400);
+});
+
+Deno.test("register op rejected by RPC (blank Private model) → 422", async () => {
+  const res = await handler(
+    request({ op: "register", sessionId: SESSION, engineClass: "private", expectedModel: "" }),
+    userClientFactory({}),
+    serviceClientFactory({ challengeErr: "a Private challenge requires a non-blank model provenance" }),
+  );
+  assertEquals(res.status, 422);
+  assertEquals(await res.json(), { error: "Registration rejected", registered: false });
+});
+
+Deno.test("register op on a non-owned session → 403", async () => {
+  const res = await handler(
+    request({ op: "register", sessionId: SESSION, engineClass: "private", expectedModel: "base" }),
+    userClientFactory({ owned: false }),
+    serviceClientFactory({}),
+  );
+  assertEquals(res.status, 403);
 });

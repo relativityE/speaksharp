@@ -26,8 +26,17 @@ CREATE TABLE IF NOT EXISTS public.session_attribution_challenge (
     challenge_id  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id    uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
     user_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    -- The SERVER-OWNED, immutable engine-class + model provenance, frozen at recording START (before any
+    -- transcript exists). This — NOT any client-writable sessions column — is what the terminal verdict binds
+    -- to. Written only through the guarded service-role issue RPC; the client has no write path.
+    engine_class  text NOT NULL,                  -- 'private' | 'browser'
+    expected_model text,                          -- required non-blank for Private; NULL for Browser
     issued_at     timestamptz NOT NULL DEFAULT now(),
     consumed_at   timestamptz,                    -- set once when redeemed; a challenge is single-use
+    CONSTRAINT session_attribution_challenge_class_chk CHECK (engine_class IN ('private', 'browser')),
+    -- a Private intent MUST carry a non-blank model provenance (a blank Private model is not verifiable)
+    CONSTRAINT session_attribution_challenge_private_model_chk
+        CHECK (engine_class <> 'private' OR (expected_model IS NOT NULL AND btrim(expected_model) <> '')),
     CONSTRAINT session_attribution_challenge_session_key UNIQUE (session_id)  -- one open challenge per session
 );
 ALTER TABLE public.session_attribution_challenge ENABLE ROW LEVEL SECURITY;
@@ -72,29 +81,40 @@ GRANT SELECT ON public.session_attribution_authority TO authenticated;
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 REVOKE UPDATE ON public.sessions FROM authenticated;
 GRANT UPDATE (
-    title, duration, total_words, filler_words, accuracy, ground_truth, transcript,
+    title, duration, total_words, filler_words, custom_words, accuracy, ground_truth, transcript,
     clarity_score, wpm, status, status_reason, pause_metrics, transcript_state, ai_suggestions, updated_at
 ) ON public.sessions TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 4. CHALLENGE ISSUE — service-role/internal only. A trusted server path issues (or idempotently returns) the
---    single open challenge for an owned session. Never callable by `authenticated` (EXECUTE revoked), mirroring
---    the G1 `guided_register_source_v1` service-role precedent (decision 5174279093). Owner is derived from the
---    persisted session row, never from a caller-supplied argument.
+-- 4. PRE-RECORDING CHALLENGE ISSUE — service-role/internal only. The trusted server path issues (or idempotently
+--    returns) the single open challenge for an owned session AT RECORDING START, freezing the immutable expected
+--    engine class + model provenance. Never callable by `authenticated` (EXECUTE revoked), mirroring the G1
+--    `guided_register_source_v1` precedent. Owner is derived from the persisted session row. The class/model are
+--    a policy input written ONLY through this guarded path — the client cannot seed them via a direct INSERT.
+--    Completion cannot mint a challenge on demand: attest never issues; it only consumes a pre-existing one.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.issue_attribution_challenge_v1(p_session_id uuid)
+CREATE OR REPLACE FUNCTION public.issue_attribution_challenge_v1(
+    p_session_id uuid, p_engine_class text, p_expected_model text DEFAULT NULL)
 RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_user uuid; v_challenge uuid;
+DECLARE v_user uuid; v_challenge uuid; v_class text := lower(coalesce(p_engine_class, ''));
 BEGIN
     SELECT user_id INTO v_user FROM public.sessions WHERE id = p_session_id;
     IF v_user IS NULL THEN
         RAISE EXCEPTION 'attribution: session % not found', p_session_id USING ERRCODE = 'no_data_found';
     END IF;
-    -- Idempotent: one open challenge per session (UNIQUE(session_id)); re-issue returns the existing open one.
-    INSERT INTO public.session_attribution_challenge(session_id, user_id)
-        VALUES (p_session_id, v_user)
+    IF v_class NOT IN ('private', 'browser') THEN
+        RAISE EXCEPTION 'attribution: invalid engine class "%"', p_engine_class USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_class = 'private' AND (p_expected_model IS NULL OR btrim(p_expected_model) = '') THEN
+        RAISE EXCEPTION 'attribution: a Private challenge requires a non-blank model provenance'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- Idempotent + IMMUTABLE: one challenge per session (UNIQUE(session_id)); re-issue returns the existing one
+    -- unchanged (a later call cannot alter a frozen class/model).
+    INSERT INTO public.session_attribution_challenge(session_id, user_id, engine_class, expected_model)
+        VALUES (p_session_id, v_user, v_class, nullif(btrim(coalesce(p_expected_model, '')), ''))
         ON CONFLICT (session_id) DO NOTHING;
     SELECT challenge_id INTO v_challenge
         FROM public.session_attribution_challenge
@@ -102,35 +122,32 @@ BEGIN
     RETURN v_challenge;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.issue_attribution_challenge_v1(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.issue_attribution_challenge_v1(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.issue_attribution_challenge_v1(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.issue_attribution_challenge_v1(uuid, text, text) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
--- 5. CHALLENGE-BOUND ATTESTATION — service-role/internal only, SECURITY DEFINER, the SOLE writer of authority.
+-- 5. ATTESTATION — service-role/internal only, SECURITY DEFINER, the SOLE writer of authority.
 --    - Concurrency-safe: FOR UPDATE on the session row serializes racing attestations (G1 pattern).
---    - Terminal-completion gated (P1): authority requires the owned session's DURABLE status='completed'.
---    - Class from a durable server fact (P1): the trusted class is derived from the PERSISTED sessions.engine
---      set at session creation ('private%' → private, 'native'/'browser'/'web-speech' → browser, else reject) —
---      NOT the attest-time caller payload. The client evidence is only a clean-run + consistency check: no
---      fallback, no Cloud, non-tiny (Private), and its provider's class MUST equal the persisted class, so
---      Browser→Private / Private→Browser / direct-POST class swaps are all denied.
---    - Challenge-bound: the exact unconsumed challenge for this session must be presented; consumed atomically.
+--    - Terminal-completion gated: authority requires the owned session's DURABLE status='completed'.
+--    - Class from the SERVER-CREATED PRE-RECORDING challenge (server-owned provenance): v_class is the immutable
+--      engine_class frozen at recording START via the guarded issue RPC — NOT any client-writable column and NOT
+--      the attest-time payload. Attest NEVER issues; if no pre-existing unconsumed challenge exists it fails
+--      closed, so completion cannot mint a class and a caller cannot seed it via a direct INSERT.
+--    - Evidence is CONSISTENCY evidence only: no fallback, no Cloud, and the evidence provider's class MUST equal
+--      the challenge class (Browser→Private / Private→Browser / direct-POST swaps denied). It never sets the
+--      class or the identity. Private requires the challenge's non-blank, non-tiny model provenance.
 --    - Browser is Progress-eligible but NEVER Guided nor a Private claim (get_session_engine_class_v1 + CHECK).
---    - Idempotent/replay-safe: a second valid call for an already-attested session returns the existing row's
---      version without mutation; a replay of a consumed challenge fails closed.
---    Owner + engine identity are taken ONLY from the SERVER-persisted session row; the locked sessions columns
---    are never overwritten from caller evidence (no identity promotion).
+--    - Idempotent/replay-safe: a second valid call returns the existing version; a consumed challenge fails closed.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.attest_session_engine_v1(
-    p_session_id uuid, p_challenge_id uuid, p_runtime_evidence jsonb
+    p_session_id uuid, p_runtime_evidence jsonb
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_user uuid; v_engine text; v_engine_version text; v_model text; v_device text; v_status text;
-    v_provider text; v_fallback boolean; v_cloud boolean; v_existing text; v_consumed timestamptz;
-    v_class text;      -- trusted class derived from the PERSISTED sessions.engine (not the caller payload)
-    v_ev_class text;   -- class implied by the caller evidence — must MATCH v_class (swap denial)
+    v_provider text; v_fallback boolean; v_cloud boolean; v_existing text;
+    v_challenge uuid; v_consumed timestamptz; v_class text; v_expected_model text; v_ev_class text;
 BEGIN
     -- Serialize on the session row (blocks a concurrent attestation of the same session until commit).
     SELECT user_id, engine, engine_version, model_name, device_type, status
@@ -147,40 +164,42 @@ BEGIN
         RETURN v_existing;
     END IF;
 
-    -- TERMINAL-COMPLETION GATE (P1): authority creation requires the owned session's DURABLE completed state.
-    -- Pending / incomplete / failed / not-yet-saved → no authority, and the immutable slot is never consumed.
+    -- TERMINAL-COMPLETION GATE: authority requires the owned session's DURABLE completed state. Pending /
+    -- incomplete / failed / not-yet-saved → no authority, and the immutable slot is never consumed.
     IF v_status IS DISTINCT FROM 'completed' THEN
         RAISE EXCEPTION 'attribution: session % is not durably completed (status=%)',
             p_session_id, coalesce(v_status, '<null>') USING ERRCODE = 'check_violation';
     END IF;
 
-    -- Challenge must exist for THIS session, be UNCONSUMED, and match the presented id (fail-closed on replay).
-    SELECT consumed_at INTO v_consumed
+    -- The SERVER-CREATED pre-recording challenge is the provenance. It must ALREADY EXIST (created at recording
+    -- start via the guarded issue RPC) and be unconsumed — attest never mints one, so completion cannot forge a
+    -- class and a pre-seeded sessions row cannot help without a matching server challenge.
+    SELECT challenge_id, engine_class, expected_model, consumed_at
+        INTO v_challenge, v_class, v_expected_model, v_consumed
         FROM public.session_attribution_challenge
-        WHERE session_id = p_session_id AND challenge_id = p_challenge_id FOR UPDATE;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'attribution: no challenge % for session %', p_challenge_id, p_session_id
+        WHERE session_id = p_session_id FOR UPDATE;
+    IF v_challenge IS NULL THEN
+        RAISE EXCEPTION 'attribution: no pre-recording challenge for session % — cannot attest', p_session_id
             USING ERRCODE = 'check_violation';
     END IF;
     IF v_consumed IS NOT NULL THEN
-        RAISE EXCEPTION 'attribution: challenge % already consumed', p_challenge_id
+        RAISE EXCEPTION 'attribution: challenge for session % already consumed', p_session_id
             USING ERRCODE = 'check_violation';
     END IF;
 
-    -- CLASS FROM THE SERVER-PERSISTED sessions.engine (P1) — a durable pre-existing fact set at session
-    -- creation, NOT the attest-time caller payload. A caller cannot swap the class by choosing a provider.
-    IF lower(coalesce(v_engine, '')) LIKE 'private%' THEN
-        v_class := 'private';
-    ELSIF lower(coalesce(v_engine, '')) IN ('native', 'browser', 'web-speech') THEN
-        v_class := 'browser';
-    ELSE
-        RAISE EXCEPTION 'attribution: persisted engine "%" has no trusted class', coalesce(v_engine, '<null>')
-            USING ERRCODE = 'check_violation';
+    -- v_class is the immutable SERVER-owned class from the challenge. Private requires the challenge's non-blank,
+    -- non-tiny model provenance (a blank/tiny Private model is not attestable).
+    IF v_class = 'private' THEN
+        IF v_expected_model IS NULL OR btrim(v_expected_model) = '' THEN
+            RAISE EXCEPTION 'attribution: Private challenge has no model provenance' USING ERRCODE = 'check_violation';
+        END IF;
+        IF lower(v_expected_model) LIKE '%tiny%' THEN
+            RAISE EXCEPTION 'attribution: tiny model is not an attestable Private engine' USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
 
-    -- Evidence proves a CLEAN single-engine run AND must be CONSISTENT with the persisted class (SWAP DENIAL):
-    -- no fallback, no Cloud, and the evidence provider's class must EQUAL the persisted class — so
-    -- Browser→Private, Private→Browser and arbitrary direct-POST class swaps are all rejected.
+    -- Evidence is CONSISTENCY evidence only: clean single-engine run + provider class MUST match the challenge
+    -- class (swap denial). It never determines the class or the identity.
     v_provider := lower(coalesce(p_runtime_evidence->>'provider', ''));
     v_fallback := coalesce((p_runtime_evidence->>'fallback_occurred')::boolean, true);
     v_cloud    := coalesce((p_runtime_evidence->>'cloud_used')::boolean, true);
@@ -199,29 +218,24 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
     IF v_ev_class IS DISTINCT FROM v_class THEN
-        RAISE EXCEPTION 'attribution: evidence class % contradicts the persisted engine class % — swap denied',
+        RAISE EXCEPTION 'attribution: evidence class % contradicts the server challenge class % — swap denied',
             v_ev_class, v_class USING ERRCODE = 'check_violation';
     END IF;
-    -- Private: a tiny model on the PERSISTED session identity is not an attestable Private engine.
-    IF v_class = 'private' AND lower(coalesce(v_model, '')) LIKE '%tiny%' THEN
-        RAISE EXCEPTION 'attribution: tiny model is not an attestable Private engine' USING ERRCODE = 'check_violation';
-    END IF;
 
-    -- Consume the challenge and write the immutable authority atomically — from the PERSISTED session identity
-    -- ONLY. No caller-evidence-sourced identity promotion; the locked sessions columns are never overwritten.
-    UPDATE public.session_attribution_challenge
-        SET consumed_at = now()
-        WHERE challenge_id = p_challenge_id;
+    -- Consume the challenge and write the immutable authority atomically. Identity is server-owned: engine from
+    -- the persisted session (advisory), model from the challenge provenance; NO caller-evidence promotion.
+    UPDATE public.session_attribution_challenge SET consumed_at = now() WHERE challenge_id = v_challenge;
     INSERT INTO public.session_attribution_authority(
         session_id, user_id, authority_version, engine_class, engine, engine_version, model_id, provider, resolved_device)
-    VALUES (p_session_id, v_user, 'attrib_v1', v_class, coalesce(v_engine, v_class), v_engine_version, v_model, v_provider, v_device)
+    VALUES (p_session_id, v_user, 'attrib_v1', v_class, coalesce(v_engine, v_class), v_engine_version,
+        coalesce(v_expected_model, v_model), v_provider, v_device)
     ON CONFLICT (session_id) DO NOTHING;   -- belt-and-suspenders against a lost-update race
 
     RETURN 'attrib_v1';
 END;
 $$;
-REVOKE ALL ON FUNCTION public.attest_session_engine_v1(uuid, uuid, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.attest_session_engine_v1(uuid, uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.attest_session_engine_v1(uuid, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.attest_session_engine_v1(uuid, jsonb) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 6. CONSUMER-FACING READ — the versioned authority verdict for an owned session, for #1045 / G1 / #1117 to
