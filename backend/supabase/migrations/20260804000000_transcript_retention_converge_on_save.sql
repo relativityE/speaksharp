@@ -296,8 +296,16 @@ BEGIN
     -- rolls back a valid save. Under the same in-txn user_profiles FOR UPDATE lock taken above.
     BEGIN
         v_retention := public.converge_transcript_retention(auth.uid());
-    EXCEPTION WHEN OTHERS THEN
-        v_retention := jsonb_build_object('status', 'error');
+    EXCEPTION
+        -- #1117 R2 (P1 FIX): PL/pgSQL `WHEN OTHERS` does NOT match query_canceled (57014). Without an
+        -- explicit handler, a retention statement/lock-timeout cancellation would escape this block and roll
+        -- back the newly persisted save — violating the save-preservation contract. Retention here is
+        -- best-effort (the evaluation-persistence trigger + reconcile converge later), so both a cancellation
+        -- and any other error are swallowed into a content-free status and the valid save is preserved.
+        WHEN query_canceled THEN
+            v_retention := jsonb_build_object('status', 'error');
+        WHEN OTHERS THEN
+            v_retention := jsonb_build_object('status', 'error');
     END;
 
     RETURN jsonb_build_object(
@@ -333,15 +341,11 @@ DECLARE
     v_is_unpaid_sample BOOLEAN := false;
     v_retention JSONB;  -- #1117 R2
 BEGIN
-    SELECT * INTO v_session
-    FROM public.sessions
-    WHERE id = p_session_id AND user_id = auth.uid()
-    FOR UPDATE;
-
-    IF NOT FOUND THEN
-        RETURN jsonb_build_object('success', false, 'error', 'session_not_found');
-    END IF;
-
+    -- #1117 R2 (P1 DEADLOCK FIX): acquire the per-user profile lock BEFORE the session lock, so BOTH save
+    -- paths lock in the SAME order (profile -> session/candidates). create_session_and_update_usage locks the
+    -- profile first; completing an OUTGOING candidate session here previously locked session-then-profile,
+    -- which could cycle with a concurrent create that holds the profile and whose coordinator updates that
+    -- same candidate row. Consistent ordering removes the cycle.
     SELECT
       public.effective_subscription_tier(
         subscription_status,
@@ -355,6 +359,15 @@ BEGIN
     FROM public.user_profiles
     WHERE id = auth.uid()
     FOR UPDATE;
+
+    SELECT * INTO v_session
+    FROM public.sessions
+    WHERE id = p_session_id AND user_id = auth.uid()
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'session_not_found');
+    END IF;
 
     v_final_duration := GREATEST(0, COALESCE(p_final_duration, v_session.duration, 0));
     v_is_unpaid_sample := (
@@ -390,8 +403,16 @@ BEGIN
     -- rolls back the finalize. Under the same in-txn session + user_profiles FOR UPDATE locks taken above.
     BEGIN
         v_retention := public.converge_transcript_retention(auth.uid());
-    EXCEPTION WHEN OTHERS THEN
-        v_retention := jsonb_build_object('status', 'error');
+    EXCEPTION
+        -- #1117 R2 (P1 FIX): PL/pgSQL `WHEN OTHERS` does NOT match query_canceled (57014). Without an
+        -- explicit handler, a retention statement/lock-timeout cancellation would escape this block and roll
+        -- back the newly persisted save — violating the save-preservation contract. Retention here is
+        -- best-effort (the evaluation-persistence trigger + reconcile converge later), so both a cancellation
+        -- and any other error are swallowed into a content-free status and the valid save is preserved.
+        WHEN query_canceled THEN
+            v_retention := jsonb_build_object('status', 'error');
+        WHEN OTHERS THEN
+            v_retention := jsonb_build_object('status', 'error');
     END;
 
     RETURN jsonb_build_object(
