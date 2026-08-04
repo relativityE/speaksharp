@@ -34,14 +34,27 @@ const H = vi.hoisted(() => ({
   db: null as unknown as InstanceType<typeof import('@electric-sql/pglite').PGlite>,
   failSave: false,
   failComplete: false,
+  // #1161: the trusted producer seam. Default = a successful attestation; the controller no longer writes
+  // attribution columns itself, so this stands in for attest-session-engine and records what was posted.
+  attestInvoke: vi.fn((...args: unknown[]): Promise<{ data: unknown; error: unknown }> => {
+    void args;
+    return Promise.resolve({ data: { attributed: true }, error: null });
+  }),
 }));
 
 vi.mock('@/lib/logger', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/supabaseClient', () => ({
   getSupabaseClient: vi.fn(() => ({
     auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: OWNER } } } }) },
+    functions: { invoke: (...args: unknown[]) => H.attestInvoke(...args) },
   })),
 }));
+
+// #1161: the runtime evidence the client posts for a verified Private session (was a DB patch pre-#1161).
+const VERIFIED_EVIDENCE = {
+  provider: 'transformers-js', engine: 'private', engine_version: 'private_v2:base',
+  model_id: 'base', resolved_device: 'wasm', fallback_occurred: false, cloud_used: false,
+};
 
 // The production storage seam, backed by a REAL Postgres row. The controller decides the operation;
 // this adapter faithfully executes it as SQL — nothing more.
@@ -154,6 +167,8 @@ afterAll(async () => { await H.db?.close?.(); });
 beforeEach(async () => {
   H.failSave = false;
   H.failComplete = false;
+  H.attestInvoke.mockClear();
+  H.attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
   await H.db.query('DELETE FROM public.sessions');
   controller = SpeechRuntimeController.getInstance();
   const c = controller as unknown as Record<string, unknown>;
@@ -179,53 +194,60 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     expect(patch.engine).not.toBe('native');
   });
 
-  it('FULL-SAVE retry: a failed save stays pending; the retry promotes the SAME row to verified with no duplicate', async () => {
+  it('FULL-SAVE retry: a failed save stays pending; the retry completes the SAME row + attests it (no duplicate)', async () => {
     // A placeholder row exists (pending) but completeSession failed at stop.
     const sessionId = (await H.db.query<{ id: string }>(
       `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, 'words', 'active') RETURNING id`, [OWNER],
     )).rows[0].id;
     const c = controller as unknown as Record<string, unknown>;
-    c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionPatch: buildVerifiedPatch() };
+    // #1161: the stash carries runtime EVIDENCE; the client posts it to the producer (it can no longer write
+    // the attribution columns itself — those are server-owned).
+    c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionEvidence: VERIFIED_EVIDENCE };
     c.recordingStartedUnresolved = true;
 
-    // 1) storage FAILS → retry returns false, row stays pending, still one row, still retryable.
+    // 1) storage FAILS → retry returns false, row not completed, still one row, still retryable, no attest.
     H.failComplete = true;
     await expect(priv().retryRecordingSave()).resolves.toBe(false);
-    expect((await readRow(sessionId)).attribution_status).toBe('pending');
+    expect((await readRow(sessionId)).status).toBe('active');
+    expect(H.attestInvoke).not.toHaveBeenCalled();
     expect(await count()).toBe(1);
     expect(priv().pendingResolutionKind()).toBe('full_save');
 
-    // 2) storage recovers → retry returns true; the SAME row is verified; still one row; lock released.
+    // 2) storage recovers → retry returns true; the SAME row is completed and ATTESTED via the producer;
+    //    still one row; lock released. (The authority row + attribution_status are written server-side —
+    //    proven in the authority/consumer suites, not by the client here.)
     H.failComplete = false;
     await expect(priv().retryRecordingSave()).resolves.toBe(true);
     const row = await readRow(sessionId);
     expect(row.id).toBe(sessionId);                 // EXACT original session_id updated (not a new one)
-    expect(row.attribution_status).toBe('verified'); // not left pending
-    expect(row.engine).toBe('private');             // coherent tuple persisted
-    expect(row.engine_version).toBe('private_v2:base');
     expect(row.status).toBe('completed');
+    expect(H.attestInvoke).toHaveBeenCalledWith('attest-session-engine',
+      expect.objectContaining({ body: { sessionId, runtimeEvidence: VERIFIED_EVIDENCE } }));
     expect(await count()).toBe(1);                  // no duplicate session
     expect(priv().pendingResolutionKind()).toBeNull();
     expect(priv().isEngineSelectionLocked()).toBe(false); // resolution genuinely unlocks the selector
   });
 
-  it('FULL-SAVE retry with an unconfirmable identity lands unverified on the SAME row (no invented tuple)', async () => {
+  it('FULL-SAVE retry with an unconfirmable identity completes the SAME row but is NOT attested (no authority)', async () => {
     const sessionId = (await H.db.query<{ id: string }>(
       `INSERT INTO public.sessions (user_id, transcript, status) VALUES ($1, 'words', 'active') RETURNING id`, [OWNER],
     )).rows[0].id;
+    // The REAL builder still invents nothing for an unconfirmable identity.
     const unverified = buildUnverifiedPatch();
     expect(unverified.attribution_status).toBe('unverified');
-    expect(unverified.engine).toBeUndefined();      // builder invents nothing
+    expect(unverified.engine).toBeUndefined();
 
     const c = controller as unknown as Record<string, unknown>;
-    c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionPatch: unverified };
+    // #1161: no trusted identity ⇒ no evidence ⇒ the producer is never called (fail-closed; no authority).
+    c.pendingFullSaveRetry = { sessionId, completeArgs: { status: 'completed', transcript: 'words', duration: 12 }, attributionEvidence: null };
     c.recordingStartedUnresolved = true;
 
     await expect(priv().retryRecordingSave()).resolves.toBe(true);
     const row = await readRow(sessionId);
     expect(row.id).toBe(sessionId);
-    expect(row.attribution_status).toBe('unverified');
-    expect(row.engine).toBeNull();                  // no fabricated engine identity
+    expect(row.status).toBe('completed');           // transcript still durably saved
+    expect(H.attestInvoke).not.toHaveBeenCalled();  // no authority produced for an unconfirmable engine
+    expect(row.engine).toBeNull();                  // client fabricated no engine identity
     expect(await count()).toBe(1);
     expect(priv().isEngineSelectionLocked()).toBe(false);
   });
@@ -238,7 +260,7 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
         sessionId: null,
         initialSave: { userId: OWNER, recordingId, mode: 'private' },
         completeArgs: { status: 'completed', transcript: 'words', duration: 12 },
-        attributionPatch: buildVerifiedPatch(),
+        attributionEvidence: VERIFIED_EVIDENCE,
       };
       c.recordingStartedUnresolved = true;
     };
@@ -250,15 +272,16 @@ describe('#1055 retryRecordingSave() drives a real DB row (PGlite-backed storage
     await expect(priv().retryRecordingSave()).resolves.toBe(false);
     expect(await count()).toBe(0);
 
-    // 2) saveSession recovers → EXACTLY one row, keyed by the recording identity, verified.
+    // 2) saveSession recovers → EXACTLY one row, keyed by the recording identity, and attested via the producer.
     H.failSave = false;
     await expect(priv().retryRecordingSave()).resolves.toBe(true);
     expect(await count()).toBe(1);
-    const first = (await H.db.query<{ id: string; idempotency_key: string; attribution_status: string }>(
-      'SELECT id, idempotency_key, attribution_status FROM public.sessions WHERE user_id = $1', [OWNER],
+    const first = (await H.db.query<{ id: string; idempotency_key: string }>(
+      'SELECT id, idempotency_key FROM public.sessions WHERE user_id = $1', [OWNER],
     )).rows[0];
     expect(first.idempotency_key).toBe(recordingId); // same recording, not a new identity
-    expect(first.attribution_status).toBe('verified');
+    expect(H.attestInvoke).toHaveBeenCalledWith('attest-session-engine',
+      expect.objectContaining({ body: { sessionId: first.id, runtimeEvidence: VERIFIED_EVIDENCE } }));
 
     // 3) a repeated initial-save retry reusing the SAME recording key is idempotent — no second row.
     seedInitial();
