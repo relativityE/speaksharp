@@ -81,7 +81,7 @@ jobs:
           CREATE OR REPLACE FUNCTION public.transcript_retention_preflight(
             p_scope text,
             p_user_id uuid DEFAULT NULL,
-            p_invocation text DEFAULT 'manual'
+            p_run_id text DEFAULT NULL
           ) RETURNS jsonb
           LANGUAGE sql
           SECURITY DEFINER
