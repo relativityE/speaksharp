@@ -12,7 +12,7 @@ on:
       base_url:
         description: 'Canonical production origin'
         required: true
-        default: 'https://speaksharp.app'
+        default: 'https://speaksharp-public.vercel.app'
 
 permissions:
   contents: read
@@ -34,6 +34,7 @@ jobs:
       VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       PROOF_EVIDENCE_DIR: test-results/1047-production-proof
+      PROOF_RECOVERY_FILE: ${{ runner.temp }}/1047-proof-account.json
       PROGRESS_RECORD_MS: '45000'
     steps:
       - name: Validate authorization and inputs
@@ -43,7 +44,7 @@ jobs:
           set -euo pipefail
           [ "$CONFIRMATION" = 'RUN_AUTHORIZED_1047_PROOF' ] || { echo '::error::explicit proof confirmation missing'; exit 1; }
           echo "$EXPECTED_RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo '::error::expected_release_sha must be 40 lowercase hex characters'; exit 1; }
-          case "$BASE_URL" in https://speaksharp.app|https://www.speaksharp.app) ;; *) echo '::error::base_url is not a canonical production origin'; exit 1;; esac
+          [ "$BASE_URL" = 'https://speaksharp-public.vercel.app' ] || { echo '::error::base_url is not the reviewed canonical production origin'; exit 1; }
           [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] || { echo '::error::required Supabase configuration missing'; exit 1; }
           echo "PROOF_RUN_ID=u3-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
 
@@ -86,6 +87,5 @@ jobs:
           name: 1047-production-proof-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/1047-production-proof/
-            playwright-report/
           if-no-files-found: error
           retention-days: 1

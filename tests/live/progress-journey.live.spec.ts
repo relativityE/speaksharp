@@ -30,6 +30,8 @@ import { test, expect } from './helpers/deployedLiveTest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AUDIO_ARGS, selectBenchmarkMode, preparePrivateModelIfPrompted } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 const BASE_URL = process.env.BASE_URL;
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '';
@@ -40,6 +42,7 @@ const PASSWORD = process.env.FREE_TEST_PASSWORD ?? process.env.BASIC_TEST_PASSWO
 const RECORD_MS = Number(process.env.PROGRESS_RECORD_MS ?? 45_000); // long enough for an eligible clarity sample
 const RECORD_SECONDS = Math.ceil(RECORD_MS / 1000);
 const EXPECTED_RELEASE_SHA = (process.env.EXPECTED_RELEASE_SHA ?? '').trim();
+const EVIDENCE_DIR = process.env.PROOF_EVIDENCE_DIR ?? 'test-results/1047-production-proof';
 
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -292,9 +295,51 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
       .select('session_id, eligible, clarity_raw, cohort_key').eq('session_id', s1).maybeSingle();
     expect((evalRow as { eligible?: boolean } | null)?.eligible, 'session 1 evaluation must be eligible').toBe(true);
     const { data: rec } = await admin.from('progress_recommendations')
-      .select('id, target_metric, source_metric_value').eq('source_session_id', s1).maybeSingle();
+      .select('id, target_metric, source_metric_value, shown_text').eq('source_session_id', s1).maybeSingle();
     const recId = (rec as { id?: string } | null)?.id;
     expect(recId, 'recommendation persisted for session 1').toBeTruthy();
+
+    let whatWorked = '';
+    let tryNext = '';
+    await expect(async () => {
+      const { data: savedSession } = await admin.from('sessions')
+        .select('ai_suggestions').eq('id', s1).eq('user_id', uid).maybeSingle();
+      const suggestions = (savedSession as { ai_suggestions?: { what_worked?: string; what_to_try_next?: string } } | null)?.ai_suggestions;
+      whatWorked = suggestions?.what_worked?.trim() ?? '';
+      tryNext = suggestions?.what_to_try_next?.trim() ?? '';
+      expect(whatWorked).not.toBe('');
+      expect(tryNext).not.toBe('');
+    }).toPass({ timeout: 90_000, intervals: [2_000, 5_000, 10_000] });
+    expect(whatWorked, 'persisted Gemini what-worked phrase').not.toBe('');
+    expect(tryNext, 'persisted Gemini try-next phrase').not.toBe('');
+
+    // Cross-page truth: the exact persisted phrases must survive detail reload and global History/Analytics.
+    await page.goto(`/analytics/${s1}`);
+    await expect(page.getByText(whatWorked, { exact: true }), 'detail shows persisted Gemini what-worked').toBeVisible();
+    await expect(page.getByText(tryNext, { exact: true }), 'detail shows persisted Gemini try-next').toBeVisible();
+    await page.goto('/analytics');
+    const historyRow = page.getByTestId(`session-history-item-${s1}`);
+    await expect(historyRow, 'exact session appears in global History/Analytics').toBeVisible({ timeout: 30_000 });
+    await historyRow.click();
+    await expect(page).toHaveURL(new RegExp(`/analytics/(?:session-)?${s1}$`));
+    await expect(page.getByText(whatWorked, { exact: true })).toBeVisible();
+    await expect(page.getByText(tryNext, { exact: true })).toBeVisible();
+
+    // Extract the downloaded PDF and require the same two persisted phrases, not merely a successful download.
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: /export pdf/i }).click();
+    const download = await downloadPromise;
+    const pdfPath = await download.path();
+    expect(pdfPath, 'PDF download must have a readable path').toBeTruthy();
+    const pdf = await getDocument({ url: pdfPath! }).promise;
+    const pdfText: string[] = [];
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+      const content = await (await pdf.getPage(pageNo)).getTextContent();
+      pdfText.push(content.items.map((item) => 'str' in item ? item.str : '').join(' '));
+    }
+    const extractedPdf = pdfText.join('\n');
+    expect(extractedPdf).toContain(whatWorked);
+    expect(extractedPdf).toContain(tryNext);
 
     let attempt: {
       lifecycle: string;
@@ -319,8 +364,29 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
     if (attempt!.lifecycle === 'completed') {
       expect(attempt!.next_comparable_session_id, 'completed comparison must use that same successor').toBe(s2);
     }
+
+    // Honest negative: a terminal unverified/insufficient session is shown as unavailable for comparison, never
+    // dressed up with synthesized coaching. It belongs to the disposable account and is removed in cleanup.
+    const { data: ineligible, error: ineligibleError } = await admin.from('sessions').insert({
+      user_id: uid, title: 'U3 bounded ineligible proof', duration: 1, transcript: 'Brief.', total_words: 1,
+      engine: 'native', engine_version: 'web-speech-api', model_name: 'browser-native', device_type: 'browser',
+      status: 'completed', attribution_status: 'unverified',
+    }).select('id').single();
+    if (ineligibleError || !ineligible?.id) throw new Error(`ineligible fixture create failed: ${ineligibleError?.message ?? 'no id'}`);
+    await page.goto(`/analytics/${ineligible.id}`);
+    await expect(page.getByTestId('progress-panel')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('progress-panel')).toContainText(/comparison is unavailable|not enough|could not be loaded/i);
+    await expect(page.getByTestId('progress-accept')).toHaveCount(0);
     expect(forbiddenCloudRequests, 'Private U3 journey must make zero Cloud token/provider requests').toEqual([]);
     expect(forbiddenCloudSockets, 'Private U3 journey must open zero Cloud/provider WebSockets').toEqual([]);
+    await mkdir(EVIDENCE_DIR, { recursive: true });
+    await writeFile(`${EVIDENCE_DIR}/sanitized-manifest.json`, `${JSON.stringify({
+      schema: 'speaksharp.1047-proof.v1', runId: process.env.PROOF_RUN_ID,
+      deployedSha, pages: ['session', 'review-progress', 'history-analytics', 'pdf'],
+      sessionIds: [s1, s2].map((id) => `${id.slice(0, 8)}…`),
+      persistedFeedbackParity: true, linkedRepeat: true,
+      zeroCloud: { requests: forbiddenCloudRequests.length, websockets: forbiddenCloudSockets.length },
+    }, null, 2)}\n`, { mode: 0o600 });
     console.log(`[journey] zero_cloud=${JSON.stringify({ requests: forbiddenCloudRequests.length, websockets: forbiddenCloudSockets.length })}`);
   });
 });
